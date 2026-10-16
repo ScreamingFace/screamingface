@@ -499,6 +499,11 @@ def _as_python(value: object) -> str:
     return repr(value) if python is None else python()
 
 
+# The part 5 keys of a spec gate; E4b part 6 adds the optional "abstain_band" (C6).
+_GATE_SPEC_KEYS: frozenset[str] = frozenset({"cmp", "observe", "otherwise", "threshold"})
+_BAND_KEY = "abstain_band"
+
+
 def _rebuilt_fallback(fallback: _ModelSignal) -> Judge | Model:
     """The sf.Judge or sf.Model of a gate fallback call read back from url4 (C7)."""
 
@@ -520,12 +525,29 @@ def _rebuilt_fallback(fallback: _ModelSignal) -> Judge | Model:
     )
 
 
+def _rebuilt_band(raw: Mapping[str, object]) -> tuple[object, ...] | None:
+    """The spec gate band as the tuple sf.Gate checks; None when the key is absent.
+
+    WHY a present non-list (null included) is the vote's "cannot rebuild" here and never reaches
+    sf.Gate: the constructor takes abstain_band=None as "no band", so a hand-edited null would
+    rebuild as a gate with no band, which compiles to different bytes (BA-E2, BD-I2).
+    """
+
+    if _BAND_KEY not in raw:
+        return None
+    band = raw[_BAND_KEY]
+    if not isinstance(band, list):
+        raise _cannot_rebuild("vote")
+    return tuple(band)
+
+
 def _rebuilt_gate(spec: Mapping[str, object], fallback: _ModelSignal | None) -> Gate | None:
     """The gate of a decoded vote spec and its fallback call, else the vote's "cannot rebuild".
 
     INVARIANT (C7): the spec ``otherwise`` and the fallback call agree: "abstain" has no call,
     "judge" has the ``fallback_judge`` call, "writer" has the ``fallback_writer`` call. Any other
-    pair is a hand-edited url4 (GA-E4).
+    pair is a hand-edited url4 (GA-E4). The gate holds the four part 5 keys, or those four and
+    "abstain_band" (C6).
     """
 
     raw = spec.get("gate")
@@ -533,18 +555,27 @@ def _rebuilt_gate(spec: Mapping[str, object], fallback: _ModelSignal | None) -> 
         if fallback is not None:
             raise _cannot_rebuild("vote")  # a fallback call with no gate
         return None
-    if not isinstance(raw, Mapping) or set(raw) != {"cmp", "observe", "otherwise", "threshold"}:
+    if not isinstance(raw, Mapping) or set(raw) - {_BAND_KEY} != _GATE_SPEC_KEYS:
         raise _cannot_rebuild("vote")
     expected: dict[str, str | None] = {"abstain": None, **_FALLBACK_KEYS}
     wire = raw["otherwise"]
     found = None if fallback is None else fallback.key
     if not isinstance(wire, str) or wire not in expected or expected[wire] != found:
         raise _cannot_rebuild("vote")
+    band = _rebuilt_band(raw)
     # WHY lazy: gate.py imports this module (cycle)
     from screamingface.gate import Gate
 
     otherwise: object = "abstain" if fallback is None else _rebuilt_fallback(fallback)
-    return _decoded("vote", Gate, raw["observe"], raw["cmp"], raw["threshold"], otherwise=otherwise)
+    return _decoded(
+        "vote",
+        Gate,
+        raw["observe"],
+        raw["cmp"],
+        raw["threshold"],
+        otherwise=otherwise,
+        abstain_band=band,
+    )
 
 
 @dataclass(frozen=True, slots=True, init=False)

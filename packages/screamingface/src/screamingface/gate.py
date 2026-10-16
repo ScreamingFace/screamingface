@@ -6,6 +6,8 @@ the vote's majority is the answer. Otherwise the fallback (``otherwise``) gives 
 abstain with the reason ``gate_not_met``, a label judge that names a member, or a model that
 writes. In this version the fallback call runs on every Case; the gate chooses and records
 (ans:Q1). E4c (OME-1291) removes the unused call with no wire change.
+``abstain_band=(lo, hi)`` (E4b part 6, ans:Q2): when the number is inside the closed band, the
+Case abstains with the reason ``in_band``; the Engine checks the band before the comparison.
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ _OBSERVE_RULE = (
 )
 _E4A_HINT = "; an E4a key such as cost_usd is not a gate input"
 _OTHERWISE_RULE = "Gate otherwise must be 'abstain', an sf.Judge or an sf.Model"
+_BAND_PAIR = "Gate abstain_band must be a pair (lo, hi) of numbers"
+_BAND_FINITE = "Gate abstain_band must be finite"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -40,6 +44,9 @@ class Gate:
     ``observe``: "agreement", "chosen:<name>" or "mean:<name>" (a name the Fusion declares).
     ``otherwise``: "abstain" (the Case abstains with gate_not_met), an sf.Judge(returns="label")
     that names a member whose text is the answer, or an sf.Model that writes the answer.
+    ``abstain_band``: None, or (lo, hi) with lo <= hi: when the observed number is inside the
+    closed band [lo, hi], the Case abstains with in_band for every ``otherwise``; outside it the
+    gate compares as above. A missing number skips the band.
     In this version the fallback call runs on every Case; the gate chooses and records.
     """
 
@@ -62,21 +69,26 @@ class Gate:
         checked_cmp = _cmp(cmp)
         number = _threshold(threshold)
         _check_agreement(checked_observe, checked_cmp, number)
+        band = _band(abstain_band, checked_observe)
         object.__setattr__(self, "observe", checked_observe)
         object.__setattr__(self, "cmp", checked_cmp)
         object.__setattr__(self, "threshold", number)
         object.__setattr__(self, "otherwise", _otherwise(otherwise))
-        # RED stub (part 6 unit 5, commit A): the keyword exists; the band is not kept yet.
-        object.__setattr__(self, "abstain_band", None)
+        object.__setattr__(self, "abstain_band", band)
 
     def _spec(self) -> dict[str, object]:
-        """{"cmp", "observe", "otherwise": "abstain" | "judge" | "writer", "threshold": float}."""
-        return {
+        """{"cmp", "observe", "otherwise": "abstain" | "judge" | "writer", "threshold": float}, plus
+        "abstain_band": [lo, hi] only when set, so a gate without a band keeps its part 5 bytes
+        (BD-I1)."""
+        spec: dict[str, object] = {
             "cmp": self.cmp,
             "observe": self.observe,
             "otherwise": _otherwise_word(self.otherwise),
             "threshold": self.threshold,
         }
+        if self.abstain_band is not None:
+            spec["abstain_band"] = list(self.abstain_band)
+        return spec
 
     def _signal_call(self) -> _ModelSignal | None:
         """None for abstain; else the one model call whose reply the vote reads (P5, C2)."""
@@ -111,7 +123,9 @@ class Gate:
     def _render(self, head: str, show: Callable[[Judge | Model], str]) -> str:
         # WHY no otherwise for abstain: the default keeps the repr short (GA-D8).
         otherwise = "" if isinstance(self.otherwise, str) else f", otherwise={show(self.otherwise)}"
-        return f"{head}({self.observe!r}, {self.cmp!r}, {self.threshold!r}{otherwise})"
+        # WHY no band when None: a gate without a band keeps its part 5 repr (BA-D1).
+        band = "" if self.abstain_band is None else f", abstain_band={self.abstain_band!r}"
+        return f"{head}({self.observe!r}, {self.cmp!r}, {self.threshold!r}{otherwise}{band})"
 
     # WHY unhashable (as sf.Vote): a gate may hold an sf.Model, which is unhashable.
     __hash__: ClassVar[Any] = None
@@ -159,6 +173,35 @@ def _check_agreement(observe: str, cmp: GateCmp, threshold: float) -> None:
         )
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("an agreement gate threshold must be between 0 and 1")
+
+
+def _band(value: object, observe: str) -> tuple[float, float] | None:
+    """P7: None (no band), or a closed band (lo, hi) of finite floats with lo <= hi; an agreement
+    band is a share in [0, 1]. Checked after _check_agreement (band-api §2.1)."""
+    if value is None:
+        return None
+    lo, hi = _band_pair(value)
+    if lo > hi:
+        raise ValueError("Gate abstain_band needs lo <= hi")
+    if observe == _AGREEMENT and not 0.0 <= lo <= hi <= 1.0:
+        raise ValueError("an agreement gate abstain_band must be between 0 and 1")
+    return (lo, hi)
+
+
+def _band_pair(value: object) -> tuple[float, float]:
+    """Two finite floats out of a tuple or list of exactly two numbers; an int becomes a float,
+    a bool is refused (the _threshold rule)."""
+    if not isinstance(value, tuple | list) or len(value) != 2:
+        raise TypeError(_BAND_PAIR)
+    if any(isinstance(item, bool) or not isinstance(item, int | float) for item in value):
+        raise TypeError(_BAND_PAIR)
+    try:
+        lo, hi = float(value[0]), float(value[1])
+    except OverflowError:  # an int beyond the float range
+        raise ValueError(_BAND_FINITE) from None
+    if not (math.isfinite(lo) and math.isfinite(hi)):
+        raise ValueError(_BAND_FINITE)
+    return (lo, hi)
 
 
 def _otherwise(value: object) -> Literal["abstain"] | Judge | Model:

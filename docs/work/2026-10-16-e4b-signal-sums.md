@@ -686,7 +686,7 @@ Append-only, not flagged: `ET/test_combine_evidence_contract_fixture.py`,
 
 ## Unit 5: band-api (`sf.Gate(..., abstain_band=(lo, hi))`)
 
-**Status:** in_progress
+**Status:** GREEN (built; see Outcome)
 
 ### Intent
 
@@ -758,13 +758,51 @@ the Case abstains with `in_band`; below it the majority stands.
 - D-5 (commit split): the snapshot and the line 472 edits are in commit A, because the stub
   already has the final signature.
 
-### Outcome (fill at the end, before commit B)
+### Outcome
 
-- **Status:**
+- **Status:** GREEN. Every gate is green. The append-only check of the two gate stacks lists
+  only pinned files of units 1 to 5 (overview §8). Those two stacks pass with
+  `--skip-append-only`.
 - **Actual files:**
-- **Commits:** A = , B = , C =
-- **U4 (unit 4 tip):**
-- **RED log:**
-- **Gates:**
-- **Flakes:**
-- **Deviations (build):**
+  - SDK source: `S/gate.py` (field and keyword `abstain_band`, `_band`, `_band_pair`,
+    `_BAND_PAIR`, `_BAND_FINITE`, `_spec`, `_render`, docstrings); `S/reducer.py`
+    (`_GATE_SPEC_KEYS`, `_BAND_KEY`, `_rebuilt_band`, `_rebuilt_gate` key check and pass-through).
+  - Data: `ET/data/combine_contract/gate_band_vote_candidate.url4` (new, written by
+    `write_fixture`).
+  - Commit A files, unchanged in this build: `ST/test_band_api.py`,
+    `ST/test_sum_contract_fixtures.py`, `ET/test_combine_sum_run.py`,
+    `ST/public_surface_snapshot.json`, `ST/test_gate_api.py:472`.
+  - Test edits made in this build: none. No existing test file changed.
+- **Commits:** A = `6f3430c76` (RED). B = the code commit of this unit. C = the docs commit of
+  this unit (overview §11 erratum E1 for the unit 5 `rubric=` fix).
+- **U4 (unit 4 tip):** `7b43b3bd3`.
+- **RED log:** The RED tree of commit A was not run again in this build. The GREEN run is
+  below. Before the fixture was written, `ST/test_band_api.py`, `ST/test_sum_contract_fixtures.py`
+  and `ST/test_gate_api.py` gave 55 passed and 1 failed. The one failure was BA#7
+  (`test_gate_band_fixture_matches_the_sdk_compile`), because the fixture file did not exist.
+- **Gates (GREEN tree):**
+  - Focused SDK run (`test_band_api.py`, `test_sum_contract_fixtures.py`, `test_gate_api.py`,
+    `test_gate_contract_fixtures.py`, `test_public_surface.py`): 68 passed.
+  - Focused SDK run (the ten files of spec §9): 216 passed.
+  - Focused Engine run (`test_combine_sum_run.py`, `test_combine_gate_run.py`,
+    `test_combine_band.py`, `test_combine_gate.py`): 65 passed.
+  - `screamingface-engine`, base `633fec3a1`, with `--skip-append-only`: ruff check, ruff format,
+    pyright, layering, pytest (cov 80%) green.
+  - `screamingface`, base `633fec3a1`, with `--skip-append-only`: ruff check, ruff format,
+    pyright, pytest (cov 95%), notebooks, build, distribution green.
+  - `repo`, base `633fec3a1`: green, with the append-only check green.
+- **Append-only offenders (base `633fec3a1`, both stacks red before the skip):**
+  - Engine: `ET/data/combine_contract/evidence_cases.json`,
+    `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`,
+    `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`,
+    `ET/test_combine_evidence_words.py`, `ET/test_combine_gate.py`,
+    `ET/test_combine_gate_words.py`, `ET/test_combine_pick_output.py`.
+  - SDK: `ST/data/schemas/screamingface.answer.v1.json`, `ST/public_surface_snapshot.json`,
+    `ST/test_evidence_words.py`, `ST/test_frozen_record_fields.py`, `ST/test_gate_api.py`,
+    `ST/test_gate_words.py`, `ST/test_pick_output.py`.
+  - All of them are pinned in overview §8 for units 1 to 5. The `repo` stack append-only check
+    was green.
+- **Flakes:** none. No suite was rerun.
+- **Deviations (build):** none. The constants of `S/reducer.py` sit above `_rebuilt_fallback`,
+  as §2.3 of the unit spec says. The `_band` and `_band_pair` helpers sit after
+  `_check_agreement`, as §2.1 says.
