@@ -34,7 +34,9 @@ from screamingface._evaluation.policy import (
     resolved_params,
 )
 from screamingface._evaluation.topology import (
+    _operation_shape,
     _RecipeTopology,
+    _SampleTopology,
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
@@ -47,7 +49,7 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import _JUDGE_CALL_KEYS, Reducer
-from screamingface.signal_sources import injected_member_params
+from screamingface.signal_sources import Consistency, consistency_seed, injected_member_params
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
@@ -81,6 +83,23 @@ class _ResolvedRecipe:
     # The reducer's label ("Rank", "Concat", "Reduce('top_k')") when this Recipe's output is a
     # selection for the next Pipeline stage, else None; also the flag the compile checks read.
     selection: str | None = None
+
+
+# The member params that a consistency sample call sets itself (ans:Q3): it keeps every other
+# author param of the member, in author order.
+_SAMPLE_PARAMS: frozenset[str] = frozenset({"seed", "temperature"})
+
+
+@dataclass(frozen=True, slots=True)
+class _CompiledSamples:
+    """The consistency sample calls of one Fusion (E4b part 7); empty when it declares none."""
+
+    references: Mapping[str, str]  # member_k -> "$panel_M", in member order
+    operation_ids: tuple[str, ...]  # op_model_N of every sample call, in compile order
+    topology: tuple[_SampleTopology, ...]
+
+
+_NO_SAMPLES = _CompiledSamples(MappingProxyType({}), (), ())
 
 
 def compile_candidate(
@@ -329,7 +348,12 @@ class _CandidateCompiler:
                 for member in fusion.members
             )
             _reject_selection_members(members)
-            return self._fusion(fusion, members, input_context=input_context)
+            return self._fusion(
+                fusion,
+                members,
+                input_context=input_context,
+                input_dependencies=input_dependencies,
+            )
         captured = tuple(
             self._capture_recipe(
                 member,
@@ -368,9 +392,21 @@ class _CandidateCompiler:
             )
         )
         if reads_rows:
-            return self._fusion(fusion, members, input_context=input_context, panel=f"${panel}")
+            return self._fusion(
+                fusion,
+                members,
+                input_context=input_context,
+                input_dependencies=input_dependencies,
+                panel=f"${panel}",
+            )
         context = render(struct({"input": input_context, "outputs": f"${panel}"}))
-        return self._fusion(fusion, members, input_context=input_context, context=context)
+        return self._fusion(
+            fusion,
+            members,
+            input_context=input_context,
+            input_dependencies=input_dependencies,
+            context=context,
+        )
 
     def _model(
         self,
@@ -448,6 +484,7 @@ class _CandidateCompiler:
         members: tuple[_ResolvedRecipe, ...],
         *,
         input_context: str,
+        input_dependencies: tuple[str, ...],
         context: str | None = None,
         panel: str | None = None,
     ) -> _ResolvedRecipe:
@@ -463,6 +500,7 @@ class _CandidateCompiler:
                 binding=binding,
                 operation_id=operation_id,
                 input_context=input_context,
+                input_dependencies=input_dependencies,
                 dependencies=dependencies,
                 panel=panel,
             )
@@ -588,6 +626,7 @@ class _CandidateCompiler:
         binding: str,
         operation_id: str,
         input_context: str,
+        input_dependencies: tuple[str, ...],
         dependencies: tuple[str, ...],
         panel: str | None = None,
     ) -> _ResolvedRecipe:
@@ -597,7 +636,9 @@ class _CandidateCompiler:
         call's ``(path, params)`` fingerprint, and every combine call shares one path,
         so the binding name is what keeps two reducers' evidence apart. ``panel`` is the
         reference of a quorum Fusion's broadcast panel; the combine call and its signal calls
-        then read it in place of every member's output.
+        then read it in place of every member's output. A Fusion that declares ``sf.Consistency``
+        also gets one sample panel per member (``_sample_panels``); the combine call reads them
+        from the context key ``samples``.
         """
 
         if self._operators is None:
@@ -617,6 +658,9 @@ class _CandidateCompiler:
             signals=fusion.signals,
         )
         sources = self._claim_accounting_sources(fusion, reducer, members)
+        # E4b part 7: the sample calls come after the members and before the signal calls, so the
+        # operation order is members, samples, signals, combine.
+        samples = self._sample_panels(fusion, input_context, input_dependencies)
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
@@ -636,11 +680,18 @@ class _CandidateCompiler:
             binding=binding,
             operation_id=operation_id,
             context=_fusion_context(
-                input_context, members, signals.references, sources=sources, panel=panel
+                input_context,
+                members,
+                signals.references,
+                sources=sources,
+                panel=panel,
+                samples=samples.references,
             ),
             spec_text=spec,
             label=f"{fusion.name} combine",
-            depends_on=(*dependencies, *signals.operation_ids),
+            # WHY the samples last (P7): S/_case_views.py takes depends_on[:len(members)] as the
+            # member producers, so the members stay first and the signal calls keep their place.
+            depends_on=(*dependencies, *signals.operation_ids, *samples.operation_ids),
         )
         return _ResolvedRecipe(
             reference=f"${binding}",
@@ -660,11 +711,13 @@ class _CandidateCompiler:
                     name=reducer.name,
                     binding=binding,
                     signals=signals.topology,
+                    samples=samples.topology,
                 ),
             ),
             members=members,
             # AIDEV-NOTE: the combine call itself is never a claimant; judge and writer calls
-            # stay out too, because their `binding` param already makes their fingerprint unique.
+            # stay out too, because their `binding` param already makes their fingerprint unique;
+            # so do the consistency sample calls (E4b part 7).
             calls=_member_calls(members),
             selection=_selection_label(reducer) if plan.kind == "selection" else None,
         )
@@ -680,6 +733,113 @@ class _CandidateCompiler:
             return None
         self._reads_accounting = True
         return member_sources([member.calls for member in members], self._claims or {})
+
+    def _sample_panels(
+        self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
+    ) -> _CompiledSamples:
+        """The consistency sample calls of each member, one broadcast panel per member (E4b part
+        7, erd §2–§3).
+
+        WHY ``quorum=0`` and optional slots: a failed sample drops its slot and never fails the
+        Case (ans:Q4). The panel number is the next one after any member panel.
+        """
+
+        source = _consistency_source(fusion)
+        if source is None:
+            return _NO_SAMPLES
+        references: dict[str, str] = {}
+        topology: list[_SampleTopology] = []
+        for position, member in enumerate(fusion.members, 1):
+            # INVARIANT (CN-I2): a Fusion that declares sf.Consistency has only sf.Model members.
+            assert isinstance(member, Model)
+            calls = [
+                self._sample_call(
+                    member,
+                    position,
+                    index,
+                    source,
+                    input_context=input_context,
+                    input_dependencies=input_dependencies,
+                )
+                for index in range(1, source.n + 1)
+            ]
+            self._panel_count += 1
+            panel = f"panel_{self._panel_count}"
+            self._sources.append(
+                src(
+                    expr(
+                        *(slot for slot, _ in calls),
+                        intent=Text(""),
+                        broadcast=True,
+                        params={"quorum": 0},
+                    ),
+                    name=panel,
+                    weight=0.0,
+                )
+            )
+            references[f"member_{position}"] = f"${panel}"
+            topology.append(_SampleTopology(f"member_{position}", tuple(node for _, node in calls)))
+        return _CompiledSamples(
+            references=MappingProxyType(references),
+            operation_ids=tuple(
+                f"op_{node.binding}" for entry in topology for node in entry.sources
+            ),
+            topology=tuple(topology),
+        )
+
+    def _sample_call(
+        self,
+        member: Model,
+        position: int,
+        index: int,
+        source: Consistency,
+        *,
+        input_context: str,
+        input_dependencies: tuple[str, ...],
+    ) -> tuple[Node, _RecipeTopology]:
+        """Sample ``index`` of member ``position``: its optional slot, its operation and its
+        parameter assignment.
+
+        WHY the binding param first: it keeps the sample's fingerprint apart from every member
+        call (SC-I1). The call is never a claimant (I-C2), so it does not go to ``_count_call``.
+        """
+
+        route = _canonical_model(member.model)
+        self._model_count += 1
+        binding = f"model_{self._model_count}"
+        selected: dict[str, str | int | float | bool] = {
+            **{name: value for name, value in member.params.items() if name not in _SAMPLE_PARAMS},
+            "temperature": source.temperature,
+            "seed": consistency_seed(position, index),
+        }
+        call = src(
+            RelExpr(
+                path=_model_route(route),
+                context=input_context,
+                intent=Text(_url4_text(member.prompt or DEFAULT_ANSWER_PROMPT)),
+                params=((OPERATION_BINDING_PARAM, binding), *resolved_params(selected)),
+            ),
+            name=binding,
+            weight=0.0,
+        )
+        node = _RecipeTopology(kind="model", name=member.name, binding=binding, role="sample")
+        kind, suffix = _operation_shape(node)
+        self._operations.append(
+            _compiled_operation(
+                id=f"op_{binding}",
+                kind=kind,
+                label=f"{member.name} {suffix}",
+                depends_on=input_dependencies,
+            )
+        )
+        self._record_parameter_assignment(f"op_{binding}", route, selected)
+        slot = src(
+            expr(call, intent=Text(f"${binding}")),
+            name=f"sample_{index}",
+            weight=1.0,
+            required=False,
+        )
+        return slot, node
 
     def _pipeline(
         self,
@@ -797,13 +957,17 @@ def _fusion_context(
     *,
     sources: Mapping[str, object] | None = None,
     panel: str | None = None,
+    samples: Mapping[str, str] | None = None,
 ) -> str:
     """Build canonical JSON at runtime so arbitrary answers remain safely escaped.
 
-    Key order is input, outputs (or panel), signals, sources. ``signals`` (the references of the
-    model calls a reducer reads) is written only when not empty, and ``sources`` only when given,
-    so a Fusion without them keeps its exact bytes (SG#6). ``panel`` replaces ``outputs`` for a
-    quorum Fusion: it lists only the members that answered (OME-1557).
+    Key order is input, outputs (or panel), samples, signals, sources. ``samples`` (the panel
+    reference of each member's consistency samples, E4b part 7) and ``signals`` (the references of
+    the model calls a reducer reads) are written only when not empty, and ``sources`` only when
+    given, so a Fusion without them keeps its exact bytes (SG#6). WHY ``samples`` before
+    ``signals``: the replay rule ``_CONTEXT_SIGNALS`` (S/url4.py) finds ``signals`` at the end.
+    ``panel`` replaces ``outputs`` for a quorum Fusion: it lists only the members that answered
+    (OME-1557).
     """
 
     value: dict[str, object] = {"input": input_context}
@@ -813,11 +977,22 @@ def _fusion_context(
         }
     else:
         value["panel"] = panel
+    if samples:
+        value["samples"] = dict(samples)
     if signals:
         value["signals"] = dict(signals)
     if sources is not None:
         value["sources"] = sources
     return render(struct(value))
+
+
+def _consistency_source(fusion: Fusion) -> Consistency | None:
+    """The one sf.Consistency that a Fusion declares (CN-I1), else None."""
+
+    return next(
+        (source for source in (fusion.signals or {}).values() if isinstance(source, Consistency)),
+        None,
+    )
 
 
 def _warn_duplicate_members(fusion: Fusion) -> None:

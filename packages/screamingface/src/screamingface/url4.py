@@ -80,9 +80,9 @@ _NESTED_RECIPE_ROUTES = frozenset(
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
-# WHY the optional sources tail: the combine context is {input, outputs or panel, signals,
-# sources}, and `signals` holds only '$judge_N'/'$writer_N' values (no braces), so the first `}`
-# ends it.
+# WHY the optional sources tail: the combine context is {input, outputs or panel, samples,
+# signals, sources} (E4b part 7 writes `samples` before `signals`), and `signals` holds only
+# '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
 _CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}(?:, sources: \{.*\})?\}\Z", re.DOTALL)
 _SIGNAL_KEY = re.compile(r"([A-Za-z0-9_]+): '")
 # A call that reads a quorum Fusion's broadcast panel (OME-1289 unit 13).
