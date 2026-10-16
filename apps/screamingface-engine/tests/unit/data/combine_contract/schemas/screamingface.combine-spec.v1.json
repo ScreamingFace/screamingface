@@ -127,6 +127,32 @@
       "title": "StepSpec",
       "type": "object"
     },
+    "SumSource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"sum\", \"coefficients\": {name: number}}`` (E4b part 6, ans:Q1).\n\nThe value is sum(coefficient x value) over the components, per member. The core computes it\n(``combine/signal_sum.py``), so it has no source plugin.",
+      "properties": {
+        "coefficients": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "maxProperties": 7,
+          "minProperties": 1,
+          "title": "Coefficients",
+          "type": "object"
+        },
+        "source": {
+          "const": "sum",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "coefficients"
+      ],
+      "title": "SumSource",
+      "type": "object"
+    },
     "VerbalizedSource": {
       "additionalProperties": false,
       "description": "``{\"source\": \"verbalized\", \"pattern\": str, \"ignore_case\"?: bool}`` (E4b part 3).\n\nThe pattern rules (length, RE2 compile, one group) are the source plugin's; the endpoint checks\nthem at plan time through ``registry.source``.",
@@ -231,6 +257,7 @@
               "mapping": {
                 "entropy": "#/$defs/EntropySource",
                 "logprob": "#/$defs/LogprobSource",
+                "sum": "#/$defs/SumSource",
                 "verbalized": "#/$defs/VerbalizedSource"
               },
               "propertyName": "source"
@@ -244,6 +271,9 @@
               },
               {
                 "$ref": "#/$defs/EntropySource"
+              },
+              {
+                "$ref": "#/$defs/SumSource"
               }
             ]
           },

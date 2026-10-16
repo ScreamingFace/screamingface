@@ -2886,5 +2886,99 @@
     },
     "dropped": 3,
     "finish_reason": "stop"
+  },
+  "pick_sum_min": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "pick",
+    "operators": [
+      "by_signal@1",
+      "best_holder@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "risk": 5.0,
+          "sev_a": 4.0,
+          "sev_b": 10.0
+        },
+        "weight": null,
+        "score": 5.0
+      },
+      {
+        "member_id": "member_2",
+        "raw": null,
+        "value": null,
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "risk": 2.5,
+          "sev_a": 2.0,
+          "sev_b": 5.0
+        },
+        "weight": null,
+        "score": 2.5
+      },
+      {
+        "member_id": "member_3",
+        "raw": null,
+        "value": null,
+        "status": "excluded",
+        "reason": "no_signal",
+        "signals": {
+          "risk": null,
+          "sev_a": 6.0,
+          "sev_b": null
+        },
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [
+      "member_2"
+    ],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "risk",
+      "order": "min"
+    },
+    "declared": {
+      "risk": {
+        "source": "sum",
+        "coefficients": {
+          "sev_a": 0.5,
+          "sev_b": 0.3
+        }
+      },
+      "sev_a": {
+        "source": "verbalized",
+        "pattern": "A: ([0-9]+)"
+      },
+      "sev_b": {
+        "source": "verbalized",
+        "pattern": "B: ([0-9]+)"
+      }
+    },
+    "result": {
+      "member_id": "member_2",
+      "value": null,
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
   }
 }
