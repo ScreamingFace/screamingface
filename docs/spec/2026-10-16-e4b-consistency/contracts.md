@@ -50,7 +50,7 @@ One section per connection. Path prefixes as in [erd](erd.md).
   ...]` of the samples that answered. Written after `outputs`/`panel`, before `signals`.
   [proposed] P9
 - **Policies.** Present exactly when the spec declares consistency (CX-I1). Each row as in erd §4
-  CX-I2. The whole context keeps the 64 MiB cap (E/combine/endpoint.py:116, :649-654).
+  CX-I2; `parse_context` parses the rows with `_panel_rows`, the same helper as the quorum panel. The whole context keeps the 64 MiB cap (E/combine/endpoint.py:116, :649-654).
 - **Failure behavior.** A missing, extra or bad `samples` value is `combine_spec_invalid` with a
   fixed message ("combine context samples ..."), never a text. Over the cap:
   `combine_input_too_large`. [existing codes]
@@ -69,13 +69,13 @@ One section per connection. Path prefixes as in [erd](erd.md).
 
   plus the values in `members[i].signals["cons"]` (0.5, 1.0, null) and the entry in
   `declared["cons"]`. [stated ans:Q4]; [proposed] P13
-- **Policies.** Optional; written only when the spec declares consistency; place after `declared`,
-  before `gate`. CS-I1..CS-I5 hold on both sides. The SDK decoder adds `consistency` to
+- **Policies.** Optional; written only when the spec declares consistency; place after `cut`,
+  before `declared` (overview P13). CS-I1..CS-I5 hold on both sides. The SDK decoder adds `consistency` to
   `_OPTIONAL_EVIDENCE_KEYS` with exact record keys.
 - **Failure behavior.** The Engine model raises on a broken invariant (a plugin bug, never a
   declared code). The SDK decoder refuses an unknown key, a missing key or a broken invariant with
   `ExecutionError`. [existing strict decoder]
-- **Contract tests.** CR#7–CR#13, CV#14, CV#15, CD#6.
+- **Contract tests.** CR#7–CR#13, CV#13, CV#14, CD#6.
 
 ## C5 Rebuild and replay — url4 → SDK Python, url4 → Candidate
 
@@ -107,11 +107,12 @@ One section per connection. Path prefixes as in [erd](erd.md).
 
 ## C7 Dependency rule
 
-The new combine core module `E/combine/consistency.py` imports only the standard library,
-`combine.ports` and `combine.spec` (never `combine.operators` or `combine.builtins`, the
+The new combine core module `E/combine/consistency.py` (`SampleCount`, `count_samples`) imports
+only the standard library (never `combine.operators` or `combine.builtins`, the
 `COMBINE_CORE_FORBIDDEN` rule of `.claude/scripts/check_layering.py:109`). It does no I/O. The
 endpoint passes the resolved match steps in as a `read` function. The layering gate
-(`run_gates.py screamingface-engine`) enforces it. [existing]; [proposed] P21
+(`run_gates.py screamingface-engine`) enforces it; no separate import test is written. [existing];
+[proposed] P21
 
 ## C8 Shared surfaces with part 6 (built in parallel)
 
@@ -120,8 +121,8 @@ changes additive so that the later rebase is mechanical:
 
 | Shared place | This part adds | Rebase rule |
 |---|---|---|
-| `E/combine/spec.py` `DeclaredSource` union, `_check_signals` | `ConsistencySource`, one rule | keep both additions |
-| `E/combine/endpoint.py` `_declared`, `_column`, `_evidence` | one branch each, one keyword | keep both branches |
-| `E/combine/evidence.py` field order | `consistency` after `declared` | keep both keys; regenerate the evidence schema snapshot once after the rebase |
+| `E/combine/spec.py` `DeclaredSource` union, `_check_signals`, `parse_context`, `_panel_outputs` | `ConsistencySource`, one rule, `samples_n=`, the `_panel_rows` helper | keep both additions |
+| `E/combine/endpoint.py` `_declared`, `_signal_values`, `_column`, `_combine`, `_evidence` | one branch each; `counts` on `_signal_values` and `_column`; `recorded` becomes a `_Recorded` mapping that also carries the counts (no new keyword on the exits) | keep both branches |
+| `E/combine/evidence.py` field order | `consistency` between `cut` and `declared` | keep both keys; regenerate the evidence schema snapshot once after the rebase |
 | schema snapshots, `ST/public_surface_snapshot.json` | new defs and names | regenerate after the rebase (owner approves the merged file) |
 | README, CHANGELOG | a section before `## Install`; a bullet after the part 5 bullet | keep both; the docs tests check order, not a fixed index |

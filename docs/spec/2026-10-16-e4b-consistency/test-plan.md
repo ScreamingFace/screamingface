@@ -17,7 +17,7 @@ consistency display, `DC` docs.
 | An existing spec, evidence, url4 or report changes bytes | H×M | CHAR on fixed lists | CR#1, CV#1, CA#1, CB#1, CD#1 |
 | A later unit adds a fixture or a case and a CHAR row of an earlier unit turns red | H×M | fixed lists, never a glob (§6) | CR#1, CA#1, CB#1, CD#1 |
 | The url4 of a consistency recipe does not rebuild, or a hand edit rebuilds as something else | H×M | round trip, hand-edit table | CB#2, CB#5 |
-| The SDK and the Engine disagree on the record | H×M | a separate contract fixture file read on both sides | CV#14, CV#15 |
+| The SDK and the Engine disagree on the record | H×M | a separate contract fixture file read on both sides | CV#13, CV#14 |
 | The parallel part 6 and this part break each other's docs or snapshots | M×M | order checks, not fixed indexes; contracts C8 | DC#2, DC#5 |
 | Data text reaches the page unescaped | M×L | the chip and the note hold only numbers and the checked name | CD#2, CD#3 |
 
@@ -43,6 +43,9 @@ consistency display, `DC` docs.
 - A new contract data file (`consistency_evidence_cases.json`, the two `consistency_*.url4`
   files) is written by its own `write_fixture()` once, then checked by a plain run. A missing file
   FAILS; it is never skipped.
+- An error row that lists a message asserts that exact text (`str(exc) == text`), never "one of
+  a set". A wrong expected text found at the first run is corrected once, before the unit commit,
+  and recorded in the ledger and in overview §10.
 - A CHAR row that names "every case" or "every fixture" uses a FIXED list from §6, never a glob
   and never a loop over a whole file, so a later unit (or part 6) cannot turn it red.
 - GREEN is the smallest change. Refactor on green only. One behavior for each test; the test name
@@ -76,12 +79,12 @@ consistency display, `DC` docs.
 | PRD | Scenarios (happy / error / derived) | TDD rows |
 |---|---|---|
 | [consistency-record](prd/consistency-record.md) | 5 / 4 / 4 | 15 |
-| [consistency-value](prd/consistency-value.md) | 5 / 2 / 8 | 15 |
+| [consistency-value](prd/consistency-value.md) | 5 / 2 / 8 | 14 |
 | [consistency-api](prd/consistency-api.md) | 7 / 4 / 8 | 14 |
 | [consistency-rebuild](prd/consistency-rebuild.md) | 3 / 6 / 5 | 9 |
 | [consistency-display](prd/consistency-display.md) | 4 / 1 / 5 | 7 |
 | [docs](prd/docs.md) | 2 / 0 / 2 | 5 |
-| **Total** | **26 / 17 / 32** | **65** |
+| **Total** | **26 / 17 / 32** | **64** |
 
 ## 5. Not tested
 

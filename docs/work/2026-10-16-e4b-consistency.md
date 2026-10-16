@@ -43,12 +43,12 @@ No proposed item contradicts these answers. No owner blocker.
 
 ### Spec files (commit `docs(e4b): spec and plan for E4b part 7 (consistency)`)
 
-- `docs/spec/2026-10-16-e4b-consistency/00-overview.md` (P1–P22, N1–N6, D1–D8)
+- `docs/spec/2026-10-16-e4b-consistency/00-overview.md` (P1–P22, N1–N8, D1–D9)
 - `docs/spec/2026-10-16-e4b-consistency/erd.md`, `contracts.md` (C1–C8), `test-plan.md`
   (fixed lists L37, L47, L5)
 - `docs/spec/2026-10-16-e4b-consistency/prd/`: `consistency-record.md` (CR, 15 rows),
-  `consistency-value.md` (CV, 15), `consistency-api.md` (CA, 14), `consistency-rebuild.md`
-  (CB, 9), `consistency-display.md` (CD, 7), `docs.md` (DC, 5). 65 rows.
+  `consistency-value.md` (CV, 14), `consistency-api.md` (CA, 14), `consistency-rebuild.md`
+  (CB, 9), `consistency-display.md` (CD, 7), `docs.md` (DC, 5). 64 rows.
 - `docs/plan/2026-10-16-e4b-consistency.md`
 
 ### Units
@@ -56,11 +56,12 @@ No proposed item contradicts these answers. No owner blocker.
 | # | Slug | PRD rows | Stacks | Pinned files |
 |---|---|---|---|---|
 | 1 | consistency-record | CR#1–15 | screamingface-engine, screamingface, repo | `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`, `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`, `ST/public_surface_snapshot.json` |
-| 2 | consistency-value | CV#1–15 | screamingface-engine, screamingface, repo | none |
-| 3 | consistency-api | CA#1–14 | screamingface-engine, screamingface, repo | `ST/public_surface_snapshot.json` |
-| 4 | consistency-rebuild | CB#1–9 | screamingface, repo | none |
-| 5 | consistency-display | CD#1–7 | screamingface, repo | none |
-| 6 | docs | DC#1–5 | screamingface, repo | none |
+| 2 | consistency-value | CV#1–14 | screamingface-engine, screamingface, repo | none |
+| 3 | consistency-api-source | CA#2, CA#3, CA#14 | screamingface, repo | `ST/public_surface_snapshot.json` |
+| 4 | consistency-api-compile | CA#1, CA#4–13 | screamingface-engine, screamingface, repo | none |
+| 5 | consistency-rebuild | CB#1–9 | screamingface, repo | none |
+| 6 | consistency-display | CD#1–7 | screamingface, repo | none |
+| 7 | docs | DC#1–5 | screamingface, repo | none |
 
 `ET/` = `apps/screamingface-engine/tests/unit/`, `ST/` = `packages/screamingface/tests/`.
 
@@ -110,8 +111,34 @@ No proposed item contradicts these answers. No owner blocker.
 - Derived seeds: for k ≤ 256 and j ≤ 32 the 8192 seeds are distinct; the smallest is 134114
   (computed with `uv run`).
 
+### Spec review
+
+A design review of the spec and the plan (2026-10-16) gave 2 MAJOR (one of them STRUCTURAL) and 14 MINOR
+findings. All are applied in commit `docs(e4b): review fixes for the E4b part 7 spec`. No finding
+contradicts an owner answer (Q3, Q4). No owner blocker.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | MAJOR: `consistency` between `declared` and `gate` turns `ET/test_combine_gate_words.py:667` red (an unlisted pinned file) | The field goes between `cut` and `declared` (order `signal, cut, consistency, declared, gate, verifier, result`). `:667` and `ET/test_combine_evidence_words.py:354` stay green; the dump-order tests (`ET/test_combine_declared_exclusion.py:90`, `ST/test_declared_signals.py:293`) dump wires without consistency. Updated: erd §6, P13 (with WHY), C4, C8, CR-3, CR-D1, CR TDD #9 (renamed `..._orders_cut_consistency_declared_gate`), the SDK `to_dict` place, overview §8, plan §6. |
+| 2 | STRUCTURAL: `sample_texts` copied the url4 row parse of `_panel_outputs` and split the context parse over two modules | One helper `_panel_rows(value, names, *, what, mismatch)` in `E/combine/spec.py`; `_panel_outputs` calls it with today's texts. `parse_context(..., samples_n: int \| None = None)` parses the rows; `CombineContext.samples: Mapping[str, tuple[str, ...]]` (j order). `E/combine/consistency.py` keeps `SampleCount` and `count_samples` only. The row-shape cases moved from CV-E1 to CR-E2 with exact messages. |
+| 3 | `_from_spec(_spec())` raised for `Consistency`; the INVARIANT was false | `Consistency._entry(match)` writes the full entry; `combine_spec_text` calls it through one `isinstance` branch; the module INVARIANT and the `SignalSource` text change in unit 3; CA-1 and CB-D4 check `_from_spec(c._entry(M)) == c`. |
+| 4 | `counts` could not reach `_column` | Pinned: `_signal_values(..., counts)`, `_column(..., counts)`, the `_SampleDeclared` branch, the `_Plan.declared` union. |
+| 5 | a second keyword `samples=` beside `recorded=` through about 13 call sites | `recorded` becomes `_Recorded`, a mapping over the signal values that also carries `samples`; no call site changes and no new keyword (smaller rebase with part 6). |
+| 6 | unit 3 too large | Split: unit 3 consistency-api-source (CA#2, CA#3, CA#14; the PIN), unit 4 consistency-api-compile (CA#1, CA#4–13). Later units renumbered 5–7; plan §2, §3, §4, §6 updated. |
+| 7 | three dependency orders with no WHY | P7, P8, erd §7, API delta 4: the members stay first because S/_case_views.py:41-45 and :277 slice `depends_on[:len(members)]`; CA#8 checks it. |
+| 8 | the sampler reuse looked like scope drift | P5 and the epic map row state why `sf.samples()` and `derive_attempt_seed` are not called (seed refusal, colliding defaults, Engine-only code) and that the idea is used. |
+| 9 | CB-E1..E6 oracle not exact | Each row asserts the exact text; one correction at the first run is allowed and goes to the ledger and overview §10. test-plan §2 states the rule. |
+| 10 | schema PIN row had no exact oracle | CR TDD #13 lists the exact `required` lists, `additionalProperties`, bounds, the discriminator entry, the `consistency` property shape and the required counts (8 and 18), checked on the base snapshots. |
+| 11 | docstrings and comments became false | Deltas now edit the evidence INVARIANT (unit 1), the `CombineContext` docstring (unit 1), the `_fusion_context` docstring and the S/url4.py:83-85 comment (unit 4), the signal-source INVARIANT (unit 3). |
+| 12 | the one-Consistency rule was in a new function | It goes into `_declaration`, beside the one-`sf.Entropy` rule. |
+| 13 | CN-I5 checked only the member's own sample seeds | The check covers the sample seeds of every member of the Fusion (CA-E2 has a member 2 case); the gap across two Fusions is scope note N7. |
+| 14 | P7 accounting stage: the precedent was not shown | Plan §6 P7 lists both options (`generation` proposed; `synthesis` as for `judge` and `writer`). |
+| 15 | up to 1024 more step rows per Case not named | Scope note N8, deferred item D9, display PRD §5. |
+| 16 | the `ast` import test copied the layering gate | CV TDD row 13 is dropped (no earlier part has such a test); C7 and the value PRD cite the gate. CV rows 14 → 13, 15 → 14; 64 rows in total. |
+
 ### Status
 
-Spec written headless from the owner answers of 2026-10-16. Build not started. The units append
+Spec written headless from the owner answers of 2026-10-16; spec review fixes applied. Build not
+started. The units append
 their sections (Intent, Planned changes, Pinned edits, Test plan, Acceptance, Deviations, Outcome)
 below.
