@@ -5758,7 +5758,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "organic chemistry to toxicity and safety, imported from inspect_evals. Most are "
             "multiple choice, some with several correct options the model must list "
             "together (for example A,D); the rest ask for a number. Grading is the eval's "
-            "own scorer: the multiple-choice answer must match the key exactly, and a number "
+            "own scorer: the multiple-choice answer must match the key exactly, letters in "
+            "the key's order and comma-joined with no spaces (A,D; 'A, D' scores 0, as "
+            "upstream), and a number "
             "must fall within 1% of the answer, so no judge tokens are spent. Cases are served "
             "in a fixed seeded shuffle (the eval shuffles per run). Benchmark score = plain "
             "accuracy over the cases run; the eval's per-topic breakdown is not reproduced. "
@@ -6002,6 +6004,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _judge_prompt_pins(spec)
             + _inverted_grade_pins(spec)
             + _attempts_pins(spec)
+            + _multiple_correct_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_dependency_pins(spec)
@@ -6703,6 +6706,17 @@ def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
     # of N must never keep a revision its published scores hang off.
     return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
+
+
+def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Several-letter answers as Benchmark identity, a pin only when set, so no published
+    revision moves (OME-1602, PR 5 review).
+
+    WHY: the flag decides how a reply is read; "ANSWER: B, D" scores 1 with it and 0 without
+    on a two-letter key, so flipping it must never keep a revision.
+    """
+
+    return ("multiple_correct=1",) if spec.multiple_correct else ()
 
 
 def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

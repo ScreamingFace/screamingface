@@ -494,9 +494,15 @@ def _without_dropped_by_name(
     """
 
     names: list[str] = [name for _, _, name in resolved]
+    kept_names: list[str] = [names[index] for index in kept]
     for name in drop_scorers:
         if name not in names:
             raise ImporterError(f"--drop-scorer {name}: the task declares no scorer {name!r}")
+        if name not in kept_names:
+            raise ImporterError(
+                f"--drop-scorer {name}: it is already left out, because it grades with a judge "
+                "a multi-scorer row cannot pin; drop the flag"
+            )
         if kept and names[kept[0]] == name:
             raise ImporterError(
                 f"--drop-scorer {name}: that is the headline scorer; only an extra scorer can "
@@ -887,10 +893,11 @@ def _named_score_lines(
         lines.append("        # drop and its effect in the description; the dropped name is part")
         lines.append("        # of the Benchmark Revision.")
         lines.append(f"        dropped_scorers={_tuple_literal(dropped_scorers)},")
-    if headline_differs and named_scores:
-        lines.append(
-            f"        # TODO(review): the Headline Score is {named_scores[0]}, not upstream's"
-        )
+    if headline_differs:
+        # WHY not only beside Named Scores: with one scorer left after drops the row writes
+        # none, and the moved headline still needs a reviewer's eye (OME-1602, PR 5 review).
+        headline: str = named_scores[0] if named_scores else "the one scorer kept"
+        lines.append(f"        # TODO(review): the Headline Score is {headline}, not upstream's")
         lines.append("        # first scorer — confirm the description names which column ranks.")
     for metric_name in dropped_metrics:
         lines.append(f"        # The eval also reports {metric_name}; the Benchmark reports each")
