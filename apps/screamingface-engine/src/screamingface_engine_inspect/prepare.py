@@ -1634,6 +1634,23 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #  hybrid-analysis LICENSE.md, for the detonation reports.
         license="cc-by-sa-4.0",
     ),
+    # drop — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.drop.drop:drop.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face EleutherAI/drop
+    #     pin revision 619386fc7ffe6dace3cc6d3483c69b164ebf6bf3
+    "drop": TaskReplayCasesSpec(
+        task="inspect_evals.drop.drop:drop",
+        case_count=9535,
+        case_digest="0ba1fff749a20249560575a7feb5e2a5ecd2659010baf821fb0cc868adb92dfa",
+        case_set_digest="720dbf187fb0d5ee71d01a75ed31d3294864ec3fe4f28730daf5589ff7aaa0c2",
+        source_pins={
+            "EleutherAI/drop": "619386fc7ffe6dace3cc6d3483c69b164ebf6bf3",
+        },
+        # License: owner decision on OME-1602, 2026-10-14: CC-BY-SA-4.0, the original DROP
+        #  release (the EleutherAI mirror's card says cc-by-4.0).
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

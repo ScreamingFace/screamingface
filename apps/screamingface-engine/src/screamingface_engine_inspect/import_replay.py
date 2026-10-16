@@ -36,7 +36,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -119,6 +119,9 @@ class TaskReplayFacts:
     #: The Task's ``multiple_choice(multiple_correct=True)``: the Candidate may pick several
     #: letters, and the grader must read them all (OME-1602, F6); False on every other import.
     multiple_correct: bool = False
+    #: Headline-scorer arguments that are module-level functions, as dotted references
+    #: (OME-1602, PR 6); empty on every other import.
+    scorer_function_kwargs: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -323,6 +326,7 @@ def _facts_of(
         attempts=attempts,
         epoch_reducer=epoch_reducer,
         judge_role=scorers.judge_role,
+        scorer_function_kwargs=scorers.scorer_function_kwargs,
         multiple_correct=any(
             registry_params(solver).get("multiple_correct") is True
             for solver in _multiple_choice_solvers(task)
