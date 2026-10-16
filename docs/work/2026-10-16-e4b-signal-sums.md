@@ -375,14 +375,46 @@ the lowest `risk`) runs offline in the Engine world with exactly three calls.
 - D-6 (`_check_sums` call): `_check_sums(value)` runs on the unsorted map, as the PRD says; it
   sorts inside, so the result does not depend on the dict order.
 
-### Outcome (fill at the end, before commit B)
+### Outcome
 
-- **Status:**
+- **Status:** Built. The code, the fixture and the pinned snapshot are in commit B. The part
+  stays `in_progress`.
 - **Actual files:**
-- **Commits:** A = , B =
-- **U1 (unit 1 tip):**
-- **RED log:**
+  - `S/signal_sources.py`: class `Sum`, `_MAX_SUM_TERMS`, helpers `_sum_terms`, `_sum_name`,
+    `_sum_coefficient`, `_is_wire_term`; `_SOURCES["sum"]`; the module docstring.
+  - `S/fusion.py`: `_check_sums`, `_check_sum_component`, `_check_sum_weight`; the sum branch of
+    `_check_weight_source`; the `Fusion` docstring.
+  - `ET/data/combine_contract/sum_pick_candidate.url4`: new, written by `write_fixture`.
+  - `ST/public_surface_snapshot.json`: PINNED, regenerated. Two hunks: `"Sum"` in `__all__` and
+    the `Sum` export entry.
+  - `ST/test_signal_sum_api.py`: one test edit, see Deviations (build).
+- **Commits:** A = `0c6f80c68` (RED, made before this build). B = the commit that holds this
+  Outcome. C = the commit `docs(e4b): build errata for part 6 unit 2`.
+- **U1 (unit 1 tip):** `b3b6d2140`.
+- **RED log:** Not re-run in this build. Commit A holds the RED tests and the stub.
 - **Gates:**
+  - Focused SDK list (spec §9, 16 files): 298 passed.
+  - Focused Engine list (spec §9, 5 files): 43 passed.
+  - `screamingface-engine`: the append-only check was red (three offenders). With
+    `--skip-append-only`: ALL GATES GREEN (ruff check, ruff format, pyright, check_layering,
+    pytest with coverage).
+  - `screamingface`: the append-only check was red (two offenders). With
+    `--skip-append-only`: ALL GATES GREEN (ruff, pyright, pytest with coverage 95 percent floor,
+    notebooks, `uv build`, distribution check).
+  - `repo`: ALL GATES GREEN, with the append-only check on.
 - **Append-only list:**
-- **Flakes:**
+  - `screamingface-engine`: `tests/unit/data/combine_contract/evidence_cases.json`,
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`,
+    `tests/unit/test_combine_gate.py` (lines 566 and 567). All three are unit 1 pins (D-1).
+  - `screamingface`: `tests/public_surface_snapshot.json` (unit 2 PIN, §8), and
+    `tests/test_frozen_record_fields.py` (line 184, unit 1 pin).
+- **Flakes:** None seen in this unit.
 - **Deviations (build):**
+  - B-1 (SA#7 test, one test edit). `test_rules_and_gates_read_a_sum_by_name` compiled the
+    Fusion as the root candidate. The existing compile refuses a Rank or a Filter that ends a
+    candidate (`a Rank must be followed by another stage`). The Pick and Vote readers were not
+    affected. Fix: the test now compiles `sf.Pipeline([fusion, "provider/next"])`, the precedent of
+    `ST/test_rank_by_signal.py` (`_wrapped`). The edit is 3 lines added and 1 removed, in
+    `ST/test_signal_sum_api.py` only. It is a fix of a real test bug, not a loosened assertion.
+    Errata E3 records it in the overview.
+  - B-2: The unit 2 Fusion and SDK code follows spec §2.1 and §2.4 exactly. No other deviation.

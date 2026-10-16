@@ -1,14 +1,16 @@
-"""Declared signal sources of a Fusion (E4b part 3): sf.Verbalized, sf.Logprob, sf.Entropy.
+"""Declared signal sources of a Fusion: sf.Verbalized, sf.Logprob, sf.Entropy (E4b part 3), sf.Sum.
 
 FEATURE: a Fusion names a number that each member answer carries (ans:Q1).
 STORY: as a benchmark author, I declare signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
 and weight a vote with sf.signal("conf").
 INVARIANT: a source compiles to one entry of the combine spec ``signals`` map, and ``_from_spec``
 rebuilds an equal source from that entry (url4 → Python).
+sf.Sum (E4b part 6, ans:Q1) is derived: it adds other declared names of the same Fusion.
 """
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -16,6 +18,7 @@ from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._regex_rule import check_signal_pattern
+from screamingface._signals import is_signal_name
 
 
 class SignalSource(ABC):
@@ -162,27 +165,95 @@ class Entropy(SignalSource):
         return cls(top_logprobs=top_logprobs)
 
 
+_MAX_SUM_TERMS = 7  # MAX_DECLARED_SIGNALS - 1: a sum and its components share the 8 names
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Sum(SignalSource):
     """A fixed linear sum of other declared signals of the same member (E4b part 6, ans:Q1).
 
-    STUB (E4b part 6 unit 2, commit A): commit B builds it.
+    ``sf.Sum({"sev_a": 0.5, "sev_b": 0.3})`` gives each member 0.5 x sev_a + 0.3 x sev_b. Each key
+    is another name of the same Fusion ``signals=``, never another sf.Sum. The value is missing
+    when a component is missing. The Engine adds the exact products and rounds once.
     """
 
     source: ClassVar[str] = "sum"
-    coefficients: Mapping[str, float]
+    coefficients: Mapping[str, float]  # MappingProxyType, sorted by name, float values
 
     def __init__(self, coefficients: Mapping[str, float]) -> None:
-        raise NotImplementedError("sf.Sum is built in E4b part 6 unit 2")
+        object.__setattr__(self, "coefficients", MappingProxyType(_sum_terms(coefficients)))
+
+    def __repr__(self) -> str:
+        return f"Sum({dict(self.coefficients)!r})"
 
     def _spec(self) -> dict[str, object]:
-        raise NotImplementedError("sf.Sum is built in E4b part 6 unit 2")
+        # WHY dict(): json.dumps cannot write a MappingProxyType (combine_spec.canonical_json).
+        return {"source": "sum", "coefficients": dict(self.coefficients)}
 
     @classmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> Sum:
-        raise NotImplementedError("sf.Sum is built in E4b part 6 unit 2")
+        coefficients = entry.get("coefficients")
+        if set(entry) != {"source", "coefficients"} or entry.get("source") != "sum":
+            raise ValueError(_CANNOT_REBUILD)
+        if not isinstance(coefficients, Mapping) or not all(
+            _is_wire_term(name, value) for name, value in coefficients.items()
+        ):
+            raise ValueError(_CANNOT_REBUILD)
+        try:
+            return cls(coefficients)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(_CANNOT_REBUILD) from exc
 
-    __hash__: ClassVar[Any] = None
+    __hash__: ClassVar[Any] = None  # WHY: it holds a mapping (the sf.Gate precedent, S/gate.py)
+
+
+def _sum_terms(coefficients: object) -> dict[str, float]:
+    """The checked terms of an sf.Sum, sorted by name, as floats (SA-1, SA-E1).
+
+    The checks run in input order, so the first bad entry gives the error.
+    """
+    if not isinstance(coefficients, Mapping):
+        raise TypeError(
+            "sf.Sum takes a mapping of declared names to numbers, such as {'sev_a': 0.5}"
+        )
+    count = len(coefficients)
+    if not 1 <= count <= _MAX_SUM_TERMS:
+        raise ValueError(f"sf.Sum adds 1 to {_MAX_SUM_TERMS} declared names, not {count}")
+    terms: dict[str, float] = {}
+    for name, value in coefficients.items():
+        checked = _sum_name(name)
+        terms[checked] = _sum_coefficient(checked, value)
+    return dict(sorted(terms.items()))
+
+
+def _sum_name(name: object) -> str:
+    if not isinstance(name, str):
+        raise TypeError("sf.Sum names must be text")
+    if not is_signal_name(name):
+        raise ValueError(
+            f"sf.Sum adds {name!r}, which is not a declared signal name; an E4a key such as "
+            "cost_usd cannot be a sum component"
+        )
+    return name
+
+
+def _sum_coefficient(name: str, value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"sf.Sum coefficient of {name!r} must be a number")
+    try:
+        number = float(value)
+    except OverflowError:
+        number = math.inf  # WHY: an int too large for a float is not finite either
+    if not math.isfinite(number):
+        raise ValueError(f"sf.Sum coefficient of {name!r} must be finite")
+    if number == 0:  # 0, 0.0 and -0.0
+        raise ValueError(f"sf.Sum coefficient of {name!r} must not be zero")
+    return number
+
+
+def _is_wire_term(name: object, value: object) -> bool:
+    """A JSON term this SDK could have written: a text name and a number that is not a bool."""
+    return isinstance(name, str) and isinstance(value, int | float) and not isinstance(value, bool)
 
 
 # The member params that a Logprob or Entropy declaration owns (P12, DS-D10, U4-D1).
@@ -209,7 +280,7 @@ def injected_member_params(declared: Mapping[str, SignalSource] | None) -> dict[
 _CANNOT_REBUILD = "URL4 Candidate has a signals declaration this SDK version cannot rebuild"
 # wire word -> class
 _SOURCES: Mapping[str, type[SignalSource]] = MappingProxyType(
-    {"verbalized": Verbalized, "logprob": Logprob, "entropy": Entropy}
+    {"verbalized": Verbalized, "logprob": Logprob, "entropy": Entropy, "sum": Sum}
 )
 
 

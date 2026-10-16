@@ -19,7 +19,7 @@ from screamingface._signals import (
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
 from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, Vote, _read_signal
-from screamingface.signal_sources import INJECTED_PARAMS, Entropy, Logprob, SignalSource
+from screamingface.signal_sources import INJECTED_PARAMS, Entropy, Logprob, SignalSource, Sum
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -41,6 +41,9 @@ class Fusion(Recipe):
     name the Fusion does not declare fails here, before any member call. Only a reducer
     synthesizer takes ``signals=``. A vote gate that reads ``chosen:<name>`` or ``mean:<name>``
     needs ``<name>`` in ``signals=`` too.
+    ``sf.Sum({"a": 0.5, "b": 0.3})`` declares a fixed linear sum of other names of the same
+    ``signals=`` (never another sum); it counts toward the 8 names, and a vote weight cannot read
+    a sum that adds ``sf.Logprob("mean")``, ``sf.Logprob("sum")`` or ``sf.Entropy``.
     """
 
     name: str
@@ -139,6 +142,7 @@ def _declaration(value: object) -> Mapping[str, SignalSource] | None:
             "a Fusion declares at most one sf.Entropy source: every member call takes one "
             "top_logprobs value"
         )
+    _check_sums(value)
     return MappingProxyType(dict(sorted(value.items())))
 
 
@@ -162,6 +166,34 @@ def _name_rejection(name: str) -> str:
             "verbalized or consistency"
         )
     return f"{name!r} is not a declared name: a declared name matches [a-z][a-z0-9_]{{0,31}}"
+
+
+def _check_sums(declared: Mapping[str, SignalSource]) -> None:
+    """Each sf.Sum adds only names this Fusion declares, and never a sum (SA-E2, SA-E3; P3).
+
+    WHY no sum of sums: no cycle and no order rule (D3). The sums go in name order and their terms
+    in name order, so the first error does not depend on the dict order of ``signals=``.
+    """
+    listed = ", ".join(sorted(declared))
+    for name, source in sorted(declared.items()):
+        if isinstance(source, Sum):
+            for component in source.coefficients:
+                _check_sum_component(name, component, declared, listed)
+
+
+def _check_sum_component(
+    name: str, component: str, declared: Mapping[str, SignalSource], listed: str
+) -> None:
+    if component not in declared:
+        raise ValueError(
+            f"sf.Sum {name!r} adds {component!r}, which this Fusion does not declare "
+            f"(declared: {listed})"
+        )
+    if isinstance(declared[component], Sum):
+        raise ValueError(
+            f"sf.Sum {name!r} adds {component!r}, which is an sf.Sum; a sum adds only other "
+            "sources, not sums"
+        )
 
 
 def _check_reads(reducer: Reducer, declared: Mapping[str, SignalSource] | None) -> None:
@@ -224,6 +256,8 @@ def _check_weight_source(declared: Mapping[str, SignalSource], reducer: Reducer)
     if not isinstance(weights, Signal) or weights.key not in declared:
         return
     source = declared[weights.key]
+    if isinstance(source, Sum):
+        _check_sum_weight(weights.key, source, declared)
     if isinstance(source, Logprob) and source.form != "prob":
         raise ValueError(
             f"sf.Logprob({source.form!r}) cannot be a vote weight: a weight must be greater "
@@ -235,6 +269,19 @@ def _check_weight_source(declared: Mapping[str, SignalSource], reducer: Reducer)
             "sf.Entropy cannot be a vote weight: a higher entropy means LESS confidence; read "
             f"sf.signal({weights.key!r}) with sf.Pick or sf.Rank and order='min'"
         )
+
+
+def _check_sum_weight(key: str, total: Sum, declared: Mapping[str, SignalSource]) -> None:
+    """P13: a vote weight must be greater than 0, so a sum that adds a raw logprob or an entropy
+    cannot be one (part 3 ans:Q11). ``_check_sums`` already proved each component is declared."""
+    for component in total.coefficients:
+        part = declared[component]
+        if (isinstance(part, Logprob) and part.form != "prob") or isinstance(part, Entropy):
+            raise ValueError(
+                f"sf.Sum {key!r} cannot be a vote weight: it adds {component!r} ({part!r}), and "
+                f"a weight must be greater than 0; read sf.signal({key!r}) with sf.Pick, "
+                "sf.Rank or sf.Filter instead"
+            )
 
 
 def _check_logprob_member(label: str, position: int, member: Recipe) -> None:
