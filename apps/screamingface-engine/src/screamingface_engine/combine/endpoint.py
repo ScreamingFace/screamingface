@@ -544,15 +544,7 @@ def _gated(
     """
     observed = observed_number(gate, selection, recorded, combine_input.members)
     passed = passes(observed, gate.cmp, gate.threshold)
-    record = GateRecord(
-        observe=gate.observe,
-        observed=observed,
-        cmp=gate.cmp,
-        threshold=float(gate.threshold),
-        passed=passed,
-        branch="majority" if passed else "fallback",
-        otherwise=gate.otherwise,
-    )
+    record = _gate_record(gate, observed, passed)
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
     if passed:
@@ -638,15 +630,18 @@ def _not_run(spec: CombineSpec) -> GateRecord | None:
     """GR-I1, P10: the record of a gate that did not run (the vote found no answer); None when the
     spec has no gate. The fallback reply is not read."""
     gate = spec.gate
-    if gate is None:
-        return None
+    return None if gate is None else _gate_record(gate, None, None)
+
+
+def _gate_record(gate: GateSpec, observed: float | None, passed: bool | None) -> GateRecord:
+    """The record of one gate comparison; ``passed`` None is a gate that did not run (GR-I1)."""
     return GateRecord(
         observe=gate.observe,
-        observed=None,
+        observed=observed,
         cmp=gate.cmp,
         threshold=float(gate.threshold),
-        passed=None,
-        branch=None,
+        passed=passed,
+        branch=None if passed is None else ("majority" if passed else "fallback"),
         otherwise=gate.otherwise,
     )
 

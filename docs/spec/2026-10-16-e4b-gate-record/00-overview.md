@@ -247,3 +247,8 @@ finding and the two places where the fix differs from the review text.
   `judge_reply_invalid`.
 - **E5 (unit 2).** The spec lists `ST/test_evidence_words.py` line 372 for the count of 12 words.
   The line is 373. The pinned edit is on line 373.
+- **E6 (unit 2, review fix).** The PRD rule GD-6 and the note in §4 name `math.fsum / count` as the
+  mean. The exact sum of the members can pass the float range when each value is finite. `math.fsum`
+  then raises `OverflowError`, which is not a `CombineError`. The core takes `math.fsum` of the
+  quotients (each value divided by the count) in that case. The result for normal values does not
+  change, and the result does not depend on the member order.
