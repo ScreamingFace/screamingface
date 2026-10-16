@@ -24,6 +24,7 @@ from .auth import (
     plan_type_from_token,
 )
 from .chat_handler import (
+    MODEL_REFUSAL_MARKER,
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
 )
@@ -204,14 +205,11 @@ class CodexProviderPlugin(ProviderPluginBase):
             ) from exc
 
 
-# WHY a text marker: the backend answers a model refusal with a plain 400 and no error code;
-# this sentence is the only thing that tells it apart from a malformed request.
-_MODEL_REFUSAL_MARKER = "not supported when using Codex with a ChatGPT account"
-
-
 def _is_model_refusal(exc: CustomLLMError) -> bool:
+    # WHY a text marker: the backend answers a model refusal with a plain 400 and no error
+    # code; its sentence (relayed by chat_handler) is what tells it from a malformed request.
     # INVARIANT: both the 400 and the marker — the text alone on another status stays as is.
-    return exc.status_code == 400 and _MODEL_REFUSAL_MARKER in str(exc.message)
+    return exc.status_code == 400 and MODEL_REFUSAL_MARKER in str(exc.message)
 
 
 async def _model_unsupported(body: dict[str, Any]) -> HTTPException:

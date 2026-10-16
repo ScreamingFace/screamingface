@@ -50,9 +50,14 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
   `tests/unit/test_codex_plan_unsupported.py` (10, renamed code + message only),
   new `tests/unit/codex/test_codex_live_models.py` (26), new `tests/unit/test_httpx_discovery_headers.py` (3).
 - **Commits:** `fix(aigateway): name the ChatGPT plan when Codex refuses every model`;
-  `feat(aigateway): read the live Codex model list and type the model refusal`.
-- **Gates:** `run_gates.py aigateway --base <merge-base>` → ALL GATES GREEN (append-only base is the
-  merge-base because the rename touches this PR's own earlier test, as directed).
+  `feat(aigateway): read the live Codex model list and type the model refusal`; merge of
+  `origin/main` (OME-1136 screen); `fix(aigateway): keep the Codex model refusal through the OME-1136 error screen`.
+- **Merge with OME-1136:** main's screen reads only `error.message`, which dropped the refusal's top-level
+  `detail` and silently broke the typed 403 (CI red). `chat_handler` now also reads a short `detail` that
+  carries the refusal marker (`tests/unit/codex/test_codex_model_refusal_wire.py`, 3 tests). This PR's own
+  "other errors unchanged" test now expects main's screened `provider_error` message (merge resolution).
+- **Gates:** `run_gates.py aigateway --base <merge-base>` → ALL GATES GREEN (`--base origin/main` after the
+  merge; this PR's own earlier test changed for the rename and the merge resolution).
 - **Live e2e (port 9121, DB copy, plus account):** `codex/gpt-5.4` → 403 `codex_model_unsupported`,
   `plan: plus`, `available_models` = gpt-6-astra, gpt-5.6-sol/terra/luna; `/v1/models` then lists exactly
   those four Codex rows (before: the five dead seeds); runner on `codex/gpt-6-astra`: text READY,
