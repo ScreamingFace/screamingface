@@ -440,3 +440,110 @@ to a sample seed of any member. No compile path reads a `Consistency` yet (unit 
 - **Flakes:** None seen in this unit.
 - **Deviations (build):** None beyond the spec. The pinned snapshot holds the two hunks of §8 only
   (checked with `git diff` against commit A).
+
+## Unit 4: the consistency sample calls (`consistency-api-compile`)
+
+### Intent
+
+PRD `consistency-api`, rows CA#1 and CA#4–CA#13 (ans:Q3, ans:Q4; P3, P5–P9, P17–P19; erd §2,
+§3, §4, §7; contracts C1, C2, C3, C6). A Fusion that declares `sf.Consistency(n, temperature=t)`
+compiles to n sample calls for each member. Each sample call is a model call with the binding
+param first, the member's other params, `temperature=t` and `seed=consistency_seed(k, j)`. The
+calls of one member sit in one broadcast panel with `quorum=0` and optional slots `sample_j`.
+Each sample call has one operation (kind `sample`, label `"{member} sample"`) and one parameter
+assignment. The combine context gets `samples` after `outputs` (or `panel`) and before `signals`.
+The spec entry gets `match`. The combine `depends_on` is members, then signals, then samples. The
+reducer topology node gets `samples` (encode only). Accounting maps `sample` to `generation`. The
+fixed-seed warning skips the samples. A corrective loop that holds `sf.Consistency` is refused.
+Two SDK-compiled url4 fixtures have a drift guard. The Pick fixture runs offline in the Engine
+world, once with every sample answered and once with one sample that fails.
+
+### Planned changes
+
+- `S/_evaluation/combine_spec.py`: the `isinstance(source, Consistency)` branch and
+  `_consistency_match`.
+- `S/_evaluation/candidate.py`: `_SAMPLE_PARAMS`, `_CompiledSamples`, `_NO_SAMPLES`,
+  `_consistency_source`, `_sample_panels`, `_sample_call`; `input_dependencies` passed through
+  `_fusion` into `_reducer_synthesizer`; `_fusion_context(samples=)` and its docstring; combine
+  `depends_on`; reducer node `samples`.
+- `S/_evaluation/topology.py` (encode only): role `sample`, `_SampleTopology`,
+  `_RecipeTopology.samples`, `_operation_shape`, `_encode_reducer`.
+- `S/url4.py`: the context-order comment only.
+- `S/_evaluation/corrective.py`: `_CONSISTENCY_IN_LOOP`, `_refuse_consistency` (first statement of
+  `_compile_corrective`).
+- `S/accounting.py`: `_ACCOUNTED_STAGES["sample"] = "generation"`.
+- `S/_evaluation/runner.py`: `_own_seed_calls` skips kind `sample`.
+- Tests (commit A): `ST/test_consistency_api.py` (imports added, block appended),
+  new `ST/test_consistency_contract_fixtures.py`, new `ET/test_combine_consistency_run.py`.
+- New fixtures (commit B, SDK writer only): `ET/data/combine_contract/consistency_pick_candidate.url4`,
+  `ET/data/combine_contract/consistency_median_candidate.url4`.
+- No Engine source change. No public name.
+
+### Pinned edits
+
+None. `ST/test_consistency_api.py` is new since `633fec3a1` (created by unit 3). The other test
+files and the two fixtures are new files.
+
+### Test plan
+
+- 11 PRD rows: CA#1 (CHAR, 5 items), CA#4 (2 functions), CA#5, CA#6 (2 items), CA#7 (1 function
+  with 2 runs), CA#8, CA#9, CA#10 (2 items), CA#11 (2 functions), CA#12 (2 functions), CA#13
+  (1 function with 3 items).
+- No stub in commit A. Every imported name exists after unit 3. The compile of F1 works but has no
+  sample calls, so each RED fails on an assertion, a KeyError of a missing source, a missing
+  fixture, a "DID NOT RAISE", or (CA#13) `PlanningError` for mid-run checking.
+- Invariants: SC-I1 (binding first, CA#11), SC-I3 (samples are not in `outputs`, CA#5), CX-I1
+  (every member in `samples`, CA#5), P7 order (CA#8), P8 topology (CA#9), P18 (CA#12), P19 (CA#13).
+
+### Acceptance
+
+- F1 compiles to `model_4..model_12` in `panel_1..3` (quorum 0, optional slots), with the seeds of
+  erd §2 and `temperature=1.0`. The combine context and spec match CA-3. The operations and
+  assignments match CA-4. The reducer node matches CA-5.
+- The Engine world runs the F1 fixture: 12 requests, output `"A"`, member values 0.6666666666666666,
+  0.0 and 1.0. With the seed 137802004 sample failing: output `"A"`, the Case completes, and the
+  member_3 record is `{matched 2, succeeded 2, failed 1}`.
+- `screamingface-engine`, `screamingface` and `repo` gates are green. The append-only check names
+  only the plan §6 files of units 1 and 3.
+
+### Deviations
+
+- D-1 (planner): `_sample_panels` runs for every reducer Fusion and returns an empty
+  `_CompiledSamples` when no `sf.Consistency` is declared. The PRD says "when the Fusion declares
+  a Consistency". The bytes are the same, and there is one call site with no branch.
+- D-2 (planner): the corrective refusal is the first statement of `_compile_corrective`, before
+  the check-surface check. The Recipe error shows on every benchmark.
+- D-3 (planner): CA#7 checks the evidence fields of fixture W (chosen, signal, member values,
+  `consistency`, `declared`, result) and not the whole evidence object.
+- D-4 (planner): CA-D4 uses a hand-built `CandidateResult` (kind `model`, no members). The sample
+  row and the member row both have `member_id None` there.
+- D-U4-1 (build, commit A): the RED tests use the `_ca_*` helper names of spec §6.1. The
+  `test_consistency_api.py` import block was merged into one block in isort order. No existing
+  test line changed.
+- D-U4-2 (build, commit A): the commit A title follows the orchestrator brief,
+  `test(e4b): RED for E4b part 7 unit 4 consistency-api-compile`, and not the spec §12 title.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress. Commit A (RED) is done. Commits B and C are not built.
+- **Actual files (commit A):** `packages/screamingface/tests/test_consistency_api.py` (imports and
+  appended block), `packages/screamingface/tests/test_consistency_contract_fixtures.py` (new),
+  `apps/screamingface-engine/tests/unit/test_combine_consistency_run.py` (new), and this ledger
+  section.
+- **Commits:** A = the commit that adds this section (sha in the git log).
+- **RED log (focused tests at commit A):**
+  - `packages/screamingface`: `tests/test_consistency_api.py` and
+    `tests/test_consistency_contract_fixtures.py`: 33 passed, 17 failed. The 5 CA#1 items and the
+    unit 3 tests pass. The 17 failures are the RED rows, each for its expected reason: root names
+    and panels (CA#4, CA#13 quorum), missing `match` and `samples` in the context (CA#5), operation
+    list (CA#8), rider `samples` (CA#9), "DID NOT RAISE PlanningError" (CA#10 x2), KeyError of
+    `model_4` and `model_3` (CA#4 member params, CA#11 x2), 0 sample operations (CA#12), missing
+    accounting row (CA#12), `PlanningError` for mid-run checking instead of the ValueError
+    (CA#13 x3), missing fixture (CA#6 x2).
+  - `apps/screamingface-engine`: `tests/unit/test_combine_consistency_run.py`: 1 failed on
+    "combine_contract/consistency_pick_candidate.url4 is missing - write it with the SDK" (CA#7).
+  - Ruff check and ruff format: see the commit A check.
+- **Gates:** not run (RED step only).
+- **Flakes:** none seen.
+- **Deviations:** see the list above.
+- **Pinned edits:** none.
