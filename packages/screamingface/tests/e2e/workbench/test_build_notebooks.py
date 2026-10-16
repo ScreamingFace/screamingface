@@ -98,3 +98,32 @@ def test_quickstart_reports_right_after_evaluate() -> None:
     cells = [c for c in build()["quickstart"].cells if c.cell_type == "code"]
     at = next(i for i, c in enumerate(cells) if "workbench-result" in c.metadata.get("tags", []))
     assert "client.evaluate(" in cells[at - 1].source
+
+
+def _quickstart_code(tag: str | None = None, contains: str | None = None) -> str:
+    for cell in build()["quickstart"].cells:
+        if cell.cell_type != "code":
+            continue
+        if tag and tag in cell.metadata.get("tags", []):
+            return cell.source
+        if contains and contains in cell.source:
+            return cell.source
+    raise AssertionError(f"no quickstart cell with tag={tag} contains={contains}")
+
+
+def test_quickstart_always_passes_an_explicit_scoreboard() -> None:
+    """Spec §3.1: scoreboard_url is always explicit, never the SDK's hosted default."""
+    client_cell = _quickstart_code(contains="sf.Client(")
+    assert client_cell.count("sf.Client(") == 1
+    assert "sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)" in client_cell
+    namespace: dict[str, Any] = {}
+    exec(_quickstart_code(tag="parameters"), namespace)
+    assert namespace["SCOREBOARD_URL"].startswith("http://127.0.0.1:")
+
+
+def test_quickstart_refuses_a_missing_scoreboard() -> None:
+    namespace: dict[str, Any] = {}
+    exec(_quickstart_code(tag="parameters"), namespace)
+    namespace["SCOREBOARD_URL"] = None
+    with pytest.raises(ValueError, match="SCOREBOARD_URL"):
+        exec(_quickstart_code(contains="sf.Client("), namespace)

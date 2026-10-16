@@ -212,3 +212,10 @@ def test_local_target_downs_the_runtime_when_the_engine_fails_to_start(
         with start_target("local", tmp_path / "work"):
             pass
     assert [e[0] for e in events] == ["up", "engine-init", "engine-stop", "down"]
+
+
+def test_replay_scoreboard_is_an_explicit_loopback_placeholder() -> None:
+    from screamingface.client import DEFAULT_SCOREBOARD_URL
+
+    assert targets.REPLAY_SCOREBOARD_URL.startswith("http://127.0.0.1:")
+    assert targets.REPLAY_SCOREBOARD_URL != DEFAULT_SCOREBOARD_URL
