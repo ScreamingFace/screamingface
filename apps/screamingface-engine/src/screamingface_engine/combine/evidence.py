@@ -6,8 +6,9 @@ how the tally came out, and which member's text won -- without the answer text c
 
 INVARIANT: the field order below IS the pinned wire order, every key is always present except
 ``mean`` (written only for the ``mean`` reducer), ``cut`` and the member ``rank`` (written only for
-a ``top_k@1`` step), and ``declared`` (written only when the spec declares signals), and a null is
-written explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
+a ``top_k@1`` step), ``declared`` (written only when the spec declares signals), ``gate`` (written
+only when the spec has a gate) and ``verifier`` (reserved, never written in E4b part 5), and a null
+is written explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
 INVARIANT: this module imports pydantic and ``combine.ports`` and nothing else. ``benchmarks/
 contract.py`` imports it (unit 3), so it must never import ``benchmarks.*`` or
 ``operation_calls``.
@@ -23,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from screamingface_engine.combine.ports import (
     EXCLUDE_REASONS,
+    GATE_OBSERVE,
     AbstainReason,
     AnswerReason,
     EvidenceKind,
@@ -123,6 +125,20 @@ class GateRecord(_EvidenceModel):
     branch: GateBranch | None
     otherwise: GateOtherwise
 
+    @model_validator(mode="after")
+    def _check(self) -> GateRecord:
+        if GATE_OBSERVE.fullmatch(self.observe) is None:
+            raise ValueError("a gate record observes agreement, chosen:<name> or mean:<name>")
+        # GR-I1
+        if (self.passed is None) != (self.branch is None):
+            raise ValueError("a gate record has a branch exactly when it has a comparison result")
+        if self.passed is None and self.observed is not None:
+            raise ValueError("a gate that did not run observed no number")
+        # GR-I2
+        if self.passed is not None and self.passed != (self.branch == "majority"):
+            raise ValueError("a gate that passed keeps the majority, and only it does")
+        return self
+
 
 class TallyRowRecord(_EvidenceModel):
     """One distinct value, its score and its holders in author order."""
@@ -180,6 +196,11 @@ class CombineEvidence(_EvidenceModel):
     declared: dict[str, dict[str, JsonValue]] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # E4b part 5 (P9): what the gate compared and the branch the step took. Optional on the wire:
+    # the key is written only when the spec has a gate, so every other evidence keeps its v1 bytes.
+    gate: GateRecord | None = Field(default=None, exclude_if=lambda value: value is None)
+    # E4b part 5 (P15, ans:Q4): reserved for a later verifier. Typed null and never written now.
+    verifier: None = Field(default=None, exclude_if=lambda value: value is None)
     result: ResultRecord
     dropped: int
     finish_reason: Literal["stop"]
@@ -208,7 +229,36 @@ class CombineEvidence(_EvidenceModel):
             self.built or self.chosen != [self.result.member_id]
         ):
             raise ValueError("a member result must be the one chosen member and not built")
+        _check_gate(self)
         return self
+
+
+def _check_gate(evidence: CombineEvidence) -> None:
+    """GR-I1 (evidence part), GR-I4 and GR-I5 (E4b part 5, erd §4)."""
+    gate = evidence.gate
+    if gate is None:
+        return
+    if gate.passed is None and evidence.result.status != "abstain":
+        raise ValueError("a gate that did not run goes with an abstained result")
+    if (
+        gate.observe == "agreement"
+        and gate.passed is not None
+        and gate.observed != evidence.agreement
+    ):
+        raise ValueError("an agreement gate observes the evidence agreement")
+    if gate.branch != "fallback":
+        return
+    if gate.otherwise == "writer" and not (
+        evidence.built and not evidence.chosen and evidence.result.member_id is None
+    ):
+        raise ValueError("a writer fallback builds the answer and chooses no member")
+    if gate.otherwise == "judge" and (
+        evidence.judge is None
+        or evidence.judge.returns != "label"
+        or evidence.result.member_id is None
+        or evidence.chosen != [evidence.result.member_id]
+    ):
+        raise ValueError("a judge fallback records its label reading and chooses that one member")
 
 
 __all__ = [

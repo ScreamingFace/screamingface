@@ -23,6 +23,47 @@
       "title": "EntropySource",
       "type": "object"
     },
+    "GateSpec": {
+      "additionalProperties": false,
+      "description": "``gate``: keep the majority when ``observe cmp threshold`` holds (E4b part 5).\n\n``otherwise`` names the fallback that answers when the comparison is false. The fallback call\nitself is in the url4, not in the spec.",
+      "properties": {
+        "cmp": {
+          "enum": [
+            ">=",
+            ">",
+            "<=",
+            "<"
+          ],
+          "title": "Cmp",
+          "type": "string"
+        },
+        "observe": {
+          "title": "Observe",
+          "type": "string"
+        },
+        "otherwise": {
+          "enum": [
+            "abstain",
+            "judge",
+            "writer"
+          ],
+          "title": "Otherwise",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observe",
+        "cmp",
+        "threshold",
+        "otherwise"
+      ],
+      "title": "GateSpec",
+      "type": "object"
+    },
     "LogprobSource": {
       "additionalProperties": false,
       "description": "``{\"source\": \"logprob\", \"form\": \"mean\" | \"sum\" | \"prob\"}`` (E4b part 3).\n\nThe value comes from each member's reply log-probabilities (the member reader), not from its\ntext.",
@@ -125,6 +166,17 @@
           "type": "null"
         }
       ]
+    },
+    "gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GateSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "members": {
       "items": {

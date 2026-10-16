@@ -5,9 +5,9 @@ FEATURE: read the spec (``screamingface.combine-spec.v1``, the url4 ``intent``) 
 STORY: as the endpoint, I get a typed spec and context or a ``SpecInvalid`` -- never a half-read
 payload, and never an error message that repeats what a member or a judge wrote.
 
-INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3);
-``null`` is allowed only where the type says so. Unknown keys, duplicate JSON keys,
-NaN/Infinity and nesting beyond 64 levels are rejected.
+INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3)
+and ``gate`` (E4b part 5); ``null`` is allowed only where the type says so. Unknown keys,
+duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected.
 INVARIANT: a failure message names locations and rules, never input values.
 The spec text is the SDK's canonical JSON with ``$`` written as ``\\u0024``; ``json.loads`` gives
 the ``$`` back, so this parser needs no url4 escape handling.
@@ -34,6 +34,7 @@ from pydantic import (
 )
 
 from screamingface_engine.combine.ports import (
+    GATE_OBSERVE,
     MAX_DECLARED_SIGNALS,
     CallFingerprint,
     EvidenceKind,
@@ -247,6 +248,7 @@ class CombineSpec(_SpecModel):
     select: StepSpec
     weights: dict[str, float] | SignalWeights | None
     signals: dict[str, DeclaredSource] | None = None
+    gate: GateSpec | None = None
 
     @field_validator("signals", mode="wrap")
     @classmethod
@@ -257,12 +259,22 @@ class CombineSpec(_SpecModel):
         except ValidationError:
             raise ValueError("signals must map declared names to known sources") from None
 
+    @field_validator("gate", mode="wrap")
+    @classmethod
+    def _quiet_gate(cls, value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        # WHY: a nested error's location or input can hold a gate value; a failure names rules.
+        try:
+            return handler(value)
+        except ValidationError:
+            raise ValueError("gate must be a valid gate object") from None
+
     @model_validator(mode="after")
     def _check(self) -> CombineSpec:
         _check_members(self.members)
         _check_weights(self.weights, self.members)
         _check_stages(self)
         _check_signals(self)
+        _check_gate(self)
         return self
 
 
@@ -301,6 +313,30 @@ def _cannot_weigh(source: DeclaredSource | None) -> bool:
     return isinstance(source, EntropySource) or (
         isinstance(source, LogprobSource) and source.form != "prob"
     )
+
+
+def _check_gate(spec: CombineSpec) -> None:
+    if "gate" not in spec.model_fields_set:
+        return
+    gate = spec.gate
+    # WHY an explicit null is refused although the schema types it: as for ``signals``.
+    if gate is None:
+        raise ValueError("gate must be an object when present")
+    if spec.reducer != "vote":
+        raise ValueError("only a vote takes a gate")
+    if GATE_OBSERVE.fullmatch(gate.observe) is None:
+        raise ValueError("gate observe must be agreement, chosen:<name> or mean:<name>")
+    if gate.observe == "agreement":
+        _check_agreement_gate(gate)
+    elif gate.observe.partition(":")[2] not in (spec.signals or {}):
+        raise ValueError("gate reads a name the spec does not declare")
+
+
+def _check_agreement_gate(gate: GateSpec) -> None:
+    if gate.cmp not in (">=", ">"):
+        raise ValueError("an agreement gate compares with >= or >")
+    if not 0 <= gate.threshold <= 1:
+        raise ValueError("an agreement gate threshold is between 0 and 1")
 
 
 def _check_members(members: list[str]) -> None:

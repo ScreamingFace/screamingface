@@ -189,6 +189,87 @@
       "title": "FieldReadingRecord",
       "type": "object"
     },
+    "GateRecord": {
+      "additionalProperties": false,
+      "description": "What the gate compared and which branch the step took (E4b part 5, ans:Q1).\n\n``passed`` and ``branch`` are null when the gate did not run (the vote found no answer); then\n``observed`` is null too (GR-I1). ``observed`` is also null when the gate ran and had no number.",
+      "properties": {
+        "branch": {
+          "anyOf": [
+            {
+              "enum": [
+                "majority",
+                "fallback"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Branch"
+        },
+        "cmp": {
+          "enum": [
+            ">=",
+            ">",
+            "<=",
+            "<"
+          ],
+          "title": "Cmp",
+          "type": "string"
+        },
+        "observe": {
+          "title": "Observe",
+          "type": "string"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed"
+        },
+        "otherwise": {
+          "enum": [
+            "abstain",
+            "judge",
+            "writer"
+          ],
+          "title": "Otherwise",
+          "type": "string"
+        },
+        "passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Passed"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observe",
+        "observed",
+        "cmp",
+        "threshold",
+        "passed",
+        "branch",
+        "otherwise"
+      ],
+      "title": "GateRecord",
+      "type": "object"
+    },
     "JsonValue": {},
     "JudgeReadingRecord": {
       "additionalProperties": false,
@@ -426,6 +507,17 @@
       "title": "Finish Reason",
       "type": "string"
     },
+    "gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GateRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "judge": {
       "anyOf": [
         {
@@ -557,6 +649,11 @@
     "tie": {
       "title": "Tie",
       "type": "boolean"
+    },
+    "verifier": {
+      "default": null,
+      "title": "Verifier",
+      "type": "null"
     }
   },
   "required": [
