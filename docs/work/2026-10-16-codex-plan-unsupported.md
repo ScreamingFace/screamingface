@@ -1,7 +1,7 @@
 ---
 ticket: OME-1634
 stack: aigateway
-status: blocked
+status: in_progress
 started: 2026-10-16
 finished:
 ---

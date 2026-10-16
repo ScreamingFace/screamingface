@@ -13,6 +13,7 @@ closed:
 
 Root cause: the gateway's Codex sign-in was on a ChatGPT **free** plan; the Codex backend refuses
 every model for it ("not supported when using Codex with a ChatGPT account"), while the `codex`
-CLI on a **plus** account works. Not a request-wiring defect. Fix: that refusal now reaches the
-caller as a typed 403 `codex_plan_unsupported` naming the plan from the token, instead of a
-400 `provider_error` relaying upstream text. Ledger: `../work/2026-10-16-codex-plan-unsupported.md`.
+CLI on a **plus** account works. A plus plan is also refused for every static catalog slug
+(retired upstream). Fix: the refusal reaches the caller as a typed 403 `codex_model_unsupported`
+naming the model and the plan, plus `available_models` from the account's live list
+(`GET /backend-api/codex/models`), which also feeds `/v1/models`. Ledger: `../work/2026-10-16-codex-plan-unsupported.md`.
