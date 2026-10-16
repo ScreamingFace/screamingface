@@ -26,14 +26,18 @@
     if (logarithmic) {
       return (Math.log(value) - Math.log(low)) / (Math.log(high) - Math.log(low));
     }
-    return (value - low) / (high - low);
+    var range = high - low;
+    if (isFinite(range)) return (value - low) / range;
+    // WHY halves: two finite extremes (-1e308 and 1e308) overflow their difference to Infinity.
+    // Halving every term first keeps each subtraction finite and gives the same ratio.
+    return (value / 2 - low / 2) / (high / 2 - low / 2);
   }
 
   function sourcePoint(entry, leaderScore) {
     var cost = L.costNumber(entry);
     return {
       entry: entry,
-      specId: String(entry.spec_id || "Unnamed spec"),
+      specId: String(entry.spec_id || "Unnamed submission"),
       score: entry.score,
       cost: cost !== null && cost >= 0 ? cost : null,
       isFrontier: false,
@@ -41,6 +45,127 @@
       x: 0,
       y: 0,
     };
+  }
+
+  var NICE_MANTISSAS = [1, 2, 2.5, 5];
+  var MAX_SCORE_TICKS = 6;
+  // A round label sits anywhere up the axis, including level with the vertically centred
+  // "Score" title, and past six characters it reaches that title. Longer names go to the
+  // endpoint fallback, whose two labels sit at the top and bottom, clear of the title.
+  var MAX_TICK_LABEL = 6;
+  // Past this many decimals a round label is longer than MAX_TICK_LABEL anyway, and toFixed
+  // throws beyond 100, so the search stops here instead of computing it.
+  var MAX_TICK_DECIMALS = 20;
+
+  // WHY round ticks: quarter positions over the raw data range produced labels like
+  // "0.515175" (which ran into the rotated "Score" title) and, once rounded, labels that could
+  // repeat on a low-scoring board. The axis instead climbs in a 1/2/2.5/5 x 10^k step, picks the
+  // smallest such step that needs at most six ticks, and extends the top to the next multiple of
+  // it. Each label carries exactly the decimals the step needs, so every label is exact and none
+  // repeat. The floor stays where the data puts it (0, or the lowest negative score); only
+  // multiples of the step inside the axis are labelled.
+  // Returns null when no round step fits; buildScoreTicks then falls back to the endpoints.
+  function niceStep(low, high) {
+    var range = high - low;
+    if (!isFinite(range) || range <= 0) return null;
+    var start = Math.floor(Math.log10(range)) - 2;
+    for (var exponent = start; exponent <= start + 4; exponent += 1) {
+      for (var i = 0; i < NICE_MANTISSAS.length; i += 1) {
+        var mantissa = NICE_MANTISSAS[i];
+        var decimals = Math.max(0, -exponent + (mantissa === 2.5 ? 1 : 0));
+        if (decimals > MAX_TICK_DECIMALS) return null;
+        var step = Number((mantissa * Math.pow(10, exponent)).toFixed(decimals));
+        if (!(step > 0) || !isFinite(step)) continue;
+        var first = Math.ceil(Number((low / step).toFixed(9)));
+        var last = Math.ceil(Number((high / step).toFixed(9)));
+        // WHY: the axis top must cover the highest score. Rounding high/step to nine decimals
+        // can land one step short (0.6000000001 / 0.2 -> 3), so step up once when it does.
+        if (Number((last * step).toFixed(decimals)) < high) last += 1;
+        if (last - first + 1 <= MAX_SCORE_TICKS) {
+          return { step: step, decimals: decimals, first: first, last: last };
+        }
+      }
+    }
+    return null;
+  }
+
+  function niceAxis(low, high) {
+    var nice = niceStep(low, high);
+    if (!nice) return null;
+    var top = Number((nice.last * nice.step).toFixed(nice.decimals));
+    var ticks = [];
+    for (var k = nice.first; k <= nice.last; k += 1) {
+      var value = Number((k * nice.step).toFixed(nice.decimals));
+      ticks.push({
+        position: normalize(value, low, top, false),
+        value: value,
+        // `+ 0` folds a computed -0 into 0 so the zero tick never reads "-0.0".
+        label: (value + 0).toFixed(nice.decimals),
+      });
+    }
+    return { domain: [low, top], ticks: ticks };
+  }
+
+  function axisIsSafe(axis, high) {
+    var top = axis.domain[1];
+    if (!isFinite(axis.domain[0]) || !isFinite(top) || top < high) return false;
+    var labels = axis.ticks.map(function (tick) { return tick.label; });
+    return axis.ticks.length >= 2 && allUnique(labels) && axis.ticks.every(function (tick) {
+      return isFinite(tick.value) && isFinite(Number(tick.label)) &&
+        tick.label.length <= MAX_TICK_LABEL &&
+        isFinite(tick.position) && tick.position >= 0 && tick.position <= 1;
+    });
+  }
+
+  // Scientific form with `digits` significant figures and no "+" in the exponent, so the label
+  // stays short: 1e-101 -> "1.0e-101", 1e308 -> "1.0e308".
+  function shortNumber(value, digits) {
+    if (value === 0) return "0";
+    var parts = value.toExponential(digits - 1).split("e");
+    var label = parts[0] + "e" + Number(parts[1]);
+    if (isFinite(Number(label))) return label;
+    // Rounding up past the largest double (1.797e308 -> "1.8e308") would read back as
+    // Infinity, so truncate the mantissa toward zero instead ("1.7e308").
+    var unit = Math.pow(10, digits - 1);
+    var full = Number(value.toExponential(16).split("e")[0]);
+    var mantissa = Math.trunc(full * unit) / unit;
+    return mantissa.toFixed(digits - 1) + "e" + Number(parts[1]);
+  }
+
+  // WHY a fallback: scores are any finite float, and for tiny or extreme ranges no round step
+  // gives short, finite labels (toFixed throws past 100 decimals; 1e308 - -1e308 overflows). The
+  // axis then names just its two ends, the floor and the highest score, in short scientific
+  // form, adding significant figures only until the two labels differ.
+  function endpointAxis(low, high) {
+    var labels;
+    for (var digits = 2; digits <= 17; digits += 1) {
+      labels = [shortNumber(low, digits), shortNumber(high, digits)];
+      if (labels[0] !== labels[1]) break;
+    }
+    return {
+      domain: [low, high],
+      ticks: [
+        { position: 0, value: low, label: labels[0] },
+        { position: 1, value: high, label: labels[1] },
+      ],
+    };
+  }
+
+  // A single-value board has one mid-axis tick, so its label is kept brief too.
+  function briefLabel(value) {
+    var plain = String(value);
+    if (plain.length <= MAX_TICK_LABEL) return plain;
+    var rounded = value.toPrecision(3);
+    if (rounded.length <= MAX_TICK_LABEL && isFinite(Number(rounded))) return rounded;
+    return shortNumber(value, 2);
+  }
+
+  function buildScoreTicks(low, high) {
+    if (low === high) {
+      return { domain: [low, high], ticks: [{ position: 0.5, value: low, label: briefLabel(low) }] };
+    }
+    var axis = niceAxis(low, high);
+    return axis && axisIsSafe(axis, high) ? axis : endpointAxis(low, high);
   }
 
   // One model feeds every visual element in the chart. Membership is never recomputed here:
@@ -74,6 +199,8 @@
     // engages when costMin > 0, so the two never collide.
     var scoreFloor = Math.min(0, scoreMin);
     var costFloor = logarithmic ? costMin : 0;
+    var scoreAxis = buildScoreTicks(scoreFloor, scoreMax);
+    var scoreTop = scoreAxis.domain[1];
 
     var priced = pricedSources.map(function (point) {
       return {
@@ -84,13 +211,13 @@
         isFrontier: L.isParetoMarked(point.entry),
         isLeader: point.isLeader,
         x: normalize(point.cost, costFloor, costMax, logarithmic),
-        y: normalize(point.score, scoreFloor, scoreMax, false),
+        y: normalize(point.score, scoreFloor, scoreTop, false),
       };
     });
     var unpriced = sources
       .filter(function (point) { return point.cost === null; })
       .map(function (point) {
-        point.y = normalize(point.score, scoreFloor, scoreMax, false);
+        point.y = normalize(point.score, scoreFloor, scoreTop, false);
         return point;
       });
     var frontier = priced
@@ -104,7 +231,8 @@
       frontier: frontier,
       costScale: logarithmic ? "log" : "linear",
       costDomain: [costFloor, costMax],
-      scoreDomain: [scoreFloor, scoreMax],
+      scoreDomain: scoreAxis.domain,
+      scoreTicks: scoreAxis.ticks,
       leaderScore: leaderScore,
     };
   }
@@ -183,7 +311,7 @@
     if (point.isLeader) states.push("highest score");
     if (point.cost === null) states.push("excluded from Pareto comparison");
     return point.specId + ": score " + formatScore(point.score) + ", " + cost +
-      (states.length ? "; " + states.join("; ") : "; dominated");
+      (states.length ? "; " + states.join("; ") : "; not on the Pareto frontier");
   }
 
   function renderMarker(svg, point, x, y, kind, formatScore, formatCost) {
@@ -206,10 +334,9 @@
     svg.appendChild(group);
   }
 
-  function renderAxes(svg, model, box, formatScore, formatCost) {
-    tickPositions(model.scoreDomain).forEach(function (t) {
-      var y = box.top + (1 - t) * box.height;
-      var value = atScale(t, model.scoreDomain, "linear");
+  function renderAxes(svg, model, box, formatCost) {
+    model.scoreTicks.forEach(function (tick) {
+      var y = box.top + (1 - tick.position) * box.height;
       svg.appendChild(svgElement("line", "pareto-chart__grid", {
         x1: box.left,
         y1: y,
@@ -220,7 +347,7 @@
         x: box.left - 12,
         y: y + 4,
         "text-anchor": "end",
-      }, formatScore(value)));
+      }, tick.label));
     });
     buildCostTicks(model.costDomain, model.costScale, formatCost).forEach(function (tick) {
       var x = box.left + tick.position * box.width;
@@ -277,7 +404,7 @@
       preserveAspectRatio: "xMidYMid meet",
       focusable: "false",
     });
-    renderAxes(svg, model, box, options.formatScore, options.formatCost);
+    renderAxes(svg, model, box, options.formatCost);
 
     if (model.frontier.length > 1) {
       var vertices = model.frontier.map(function (point) {
@@ -351,6 +478,7 @@
     buildChartModel: buildChartModel,
     buildCostTicks: buildCostTicks,
     describePoint: describePoint,
+    buildScoreTicks: buildScoreTicks,
     render: render,
   };
 });

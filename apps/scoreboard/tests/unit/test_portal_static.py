@@ -250,6 +250,35 @@ def test_pareto_chart_heading_and_label_name_the_pareto_frontier() -> None:
     assert "Score for cost" not in html
 
 
+# Read the note's text from the parsed page: its url4 is a link, so the sentence is no
+# longer one run of raw characters.
+class _NoteText(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.depth = 0
+        self.in_kicker = False
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        classes = (dict(attrs).get("class") or "").split()
+        if tag == "div" and "note" in classes:
+            self.depth = 1
+        elif self.depth and tag == "div":
+            self.depth += 1
+        elif self.depth and "kicker" in classes:
+            self.in_kicker = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.depth and tag == "div":
+            self.depth -= 1
+        elif self.in_kicker and tag == "span":
+            self.in_kicker = False
+
+    def handle_data(self, data: str) -> None:
+        if self.depth and not self.in_kicker:
+            self.parts.append(data)
+
+
 def test_benchmark_board_carries_the_about_note_under_its_description() -> None:
     """The per-board page carries the terminal-window "about" note (owner decision).
 
@@ -263,7 +292,14 @@ def test_benchmark_board_carries_the_about_note_under_its_description() -> None:
 
     # The "about" note is present, and it sits after the description, before the summary.
     assert '<span class="kicker">about</span>' in html
-    assert "Every submission carries its url4 expression" in html
+
+    note = _NoteText()
+    note.feed(html)
+    assert " ".join("".join(note.parts).split()) == (
+        "The leaderboard's top row is the current state of the art. Every submission carries "
+        "its url4 expression, a complete recipe for the run. Copy it with the Copy button in "
+        "the Run Locally column to rerun, verify or build on any score here."
+    )
     assert (
         html.index('id="benchmark-desc"')
         < html.index('class="note"')
@@ -422,7 +458,7 @@ def test_rail_crumbs_show_only_where_you_are_below_home() -> None:
     spec = _rail("spec.html").crumbs
     assert [(c.get("id"), c.get("class"), c["text"]) for c in spec] == [
         ("back-link", None, ""),
-        (None, "here", "spec"),
+        (None, "here", "submission"),
     ]
     assert "hidden" in spec[0], "the empty back-link must start hidden"
 
