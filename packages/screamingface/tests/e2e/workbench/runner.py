@@ -95,23 +95,37 @@ def _private_kernelspec() -> Iterator[None]:
                 os.environ["JUPYTER_PATH"] = previous
 
 
-def _result(nb: nbformat.NotebookNode) -> dict[str, Any] | None:
+def _parse(payload: str) -> tuple[dict[str, Any] | None, str | None]:
+    """A ``WORKBENCH_RESULT`` payload as a dict, or ``None`` and why it is malformed."""
+    why = f"malformed {RESULT_PREFIX[:-1]} payload"
+    try:
+        value: Any = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        return None, f"{why}: not valid JSON ({exc})"
+    if not isinstance(value, dict):
+        return None, f"{why}: not a JSON object ({type(value).__name__})"
+    return value, None  # pyright: ignore[reportUnknownVariableType]
+
+
+def _result(nb: nbformat.NotebookNode) -> tuple[dict[str, Any] | None, str | None]:
+    """The first ``WORKBENCH_RESULT=`` payload and, if it is malformed, why (never raises)."""
     for cell in nb.cells:
         if "workbench-result" not in cell.metadata.get("tags", []):
             continue
         for output in cell.get("outputs", []):
             for line in str(output.get("text", "")).splitlines():
                 if line.startswith(RESULT_PREFIX):
-                    return json.loads(line[len(RESULT_PREFIX) :])
-    return None
+                    return _parse(line[len(RESULT_PREFIX) :])
+    return None, None
 
 
 def run_notebook(path: Path, params: Mapping[str, Any], *, timeout_s: int = 900) -> NotebookRun:
     """Run ``path`` with ``params`` injected after its ``parameters`` cell.
 
     Raises only for caller mistakes (no parameters cell, non-literal parameter); every
-    execution failure — a failing cell, a cell timeout, a dead kernel — is returned in
-    ``NotebookRun.error`` alongside the partially executed notebook.
+    execution failure — a failing cell, a cell timeout, a dead kernel, a malformed
+    ``WORKBENCH_RESULT`` payload — is returned in ``NotebookRun.error`` alongside the
+    (partially) executed notebook.
     """
     nb = nbformat.read(path, as_version=4)
     _inject(nb, params)
@@ -127,4 +141,8 @@ def run_notebook(path: Path, params: Mapping[str, Any], *, timeout_s: int = 900)
             client.execute()
         except (CellExecutionError, CellTimeoutError, DeadKernelError) as exc:
             error = f"{type(exc).__name__}: {exc}"
-    return NotebookRun(executed=nb, result=_result(nb), error=error)
+    result, malformed = _result(nb)
+    if malformed:
+        # The cell error stays last: callers surface the last line as the root cause.
+        error = malformed if error is None else f"{malformed}\n{error}"
+    return NotebookRun(executed=nb, result=result, error=error)

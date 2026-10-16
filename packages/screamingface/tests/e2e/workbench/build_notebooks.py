@@ -170,8 +170,9 @@ _QUICKSTART_TITLE = """
 
 Builds one candidate, evaluates it on `BENCHMARK`, and asserts that the client minted a trace
 id, the candidate compiled to url4, and the score sits in the hand-set `SCORE_BAND`. The
-`workbench-result` cell reports the trace ids; the workbench then requires each one to appear
-in the engine and aigateway logs.
+`workbench-result` cell reports the trace ids right after the evaluation, before any
+assertion, so a failing check still leaves them in the evidence; the workbench then requires
+each one to appear in the engine and aigateway logs.
 
 On `replay` the recipe is the golden ifeval recipe (served from the recorded cache, no spend);
 on `local` it is the authored open-source fusion below, run with your OpenRouter key.
@@ -226,6 +227,11 @@ candidate
 
 _QUICKSTART_EVALUATE = """
 report = client.evaluate(candidate, benchmark=BENCHMARK, limit=LIMIT, progress=False)
+"""
+
+# WHY after the result cell: a failing assert must still leave the trace ids in the bundle
+# (Review Focus 1), so the workbench can check the chain of the run that misbehaved.
+_QUICKSTART_ASSERT = """
 (result,) = list(report.candidates)
 assert result.trace_id, "the client minted no trace id (OME-967)"
 assert result.url4, "the candidate compiled to no url4"
@@ -270,6 +276,7 @@ def _quickstart() -> Any:
         _code(recipe),
         _code(_QUICKSTART_EVALUATE),
         _code(_QUICKSTART_RESULT, "workbench-result"),
+        _code(_QUICKSTART_ASSERT),
         _code("client.close()"),
     ]
     meta = {"targets": ["replay", "local"], "required_result": ["trace_ids"]}
