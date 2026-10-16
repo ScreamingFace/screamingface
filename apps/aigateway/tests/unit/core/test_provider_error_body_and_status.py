@@ -188,3 +188,21 @@ def test_sanitizing_a_max_size_adversarial_text_is_fast(unit) -> None:
     started = time.perf_counter()
     sanitize_upstream_text(text)
     assert time.perf_counter() - started < 0.25
+
+
+@pytest.mark.parametrize(
+    ("text", "leak"),
+    [
+        # WHY: the ReDoS fix must not trade linearity for a bypass — a leading `.` / `..` / `-`
+        # before a host, scheme or email must still be redacted.
+        (".internal.example/admin", "internal.example"),
+        ("foo..internal.example/admin", "internal.example"),
+        ("see .api.corp:8443 now", "api.corp"),
+        (".https://intranet/admin", "intranet"),
+        ("..ops@corp.example", "ops@"),
+        ("-internal.example/admin", "internal.example"),
+    ],
+)
+def test_a_leading_separator_never_shields_a_host_or_email(text, leak) -> None:
+    result = sanitize_upstream_text(text)
+    assert result is None or leak not in result

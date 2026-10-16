@@ -298,7 +298,10 @@ Gates: `run_gates.py aigateway --base <merge-base>` all green.
 
 **ReDoS fix (background security review of `c0a5721b0`).** Rules 0 (scheme URL), 2–3 (bare host)
 and 8 (email) used `\b` or no anchor, so a 16 KiB run (`1.`, `a.`, `x`) restarted at every
-position: ~3 s of CPU per request (measured). They now start only at a run boundary
-(negative lookbehind); the IPv6 literal rules are length-bounded. Worst of 26 adversarial
-16 KiB inputs: 5.6 ms. Guard: `test_sanitizing_a_max_size_adversarial_text_is_fast`. The
+position: ~3 s of CPU per request (measured). A first fix (run-boundary negative lookbehind, `b66b363df`) was
+linear but let a leading `.` shield a host (`.internal.example/admin`) — flagged by the next
+security pass. Final fix: original `\b` anchoring with LENGTH-BOUNDED runs (DNS label ≤ 63,
+≤ 16 labels, scheme ≤ 32, email local part ≤ 64; IPv6 literals bounded). Worst of 31
+adversarial 16 KiB inputs: ~22 ms. Bypass guard:
+`test_a_leading_separator_never_shields_a_host_or_email`. Guard: `test_sanitizing_a_max_size_adversarial_text_is_fast`. The
 sanitizer is new in this PR, so main was never exposed.
