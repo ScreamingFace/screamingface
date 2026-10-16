@@ -76,7 +76,7 @@ class ReducerRule:
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
         "vote": ReducerRule("answer", "required", "optional", "optional"),
-        "median": ReducerRule("answer", "required", "required", "forbidden", "numeric"),
+        "median": ReducerRule("answer", "required", "required", "optional", "numeric"),
         "judge": ReducerRule("answer", "forbidden", "forbidden", "forbidden"),
         "pick": ReducerRule("answer", "optional", "optional", "forbidden"),
         "merge": ReducerRule("answer", "optional", "optional", "forbidden"),
@@ -84,6 +84,7 @@ REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
         "rank": ReducerRule("selection", "optional", "optional", "forbidden"),
         "concat": ReducerRule("selection", "forbidden", "forbidden", "forbidden"),
         "filter": ReducerRule("selection", "optional", "optional", "forbidden"),
+        "mean": ReducerRule("answer", "required", "required", "optional", "numeric"),
     }
 )
 

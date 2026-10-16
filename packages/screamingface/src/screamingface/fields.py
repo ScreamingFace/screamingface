@@ -478,6 +478,27 @@ def _check_pick_signal(
     return "max" if order is None else cast("Literal['max', 'min']", order)
 
 
+def _output_field(value: object) -> str | None:
+    """``value`` if it is None or a top-level field name, else TypeError or ValueError (PO-E3)."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("Pick output must be a string")
+    if _FIELD_NAME.fullmatch(value) is None:
+        raise ValueError(
+            f"Pick output {value!r} must be a top-level field name like 'answer' "
+            "(a letter or _, then letters, digits or _; at most 64 characters)"
+        )
+    return value
+
+
+def _output_arg(output: str | None) -> dict[str, str]:
+    """``{"output": output}`` for a select step's args, or ``{}`` when there is no output."""
+
+    return {} if output is None else {"output": output}
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Pick(Reducer):
     """The member whose JSON field is the largest, the smallest or equal to a value, unchanged.
@@ -489,6 +510,11 @@ class Pick(Reducer):
     ``Pick(by_signal=sf.signal(key), order="max"|"min")`` (argmax) picks the member whose named
     signal is the highest or the lowest; ``order`` is ``"max"`` when left out. A member with no
     value for the signal is skipped. Give a field or ``by_signal=``, not both.
+
+    ``output="<field>"`` makes the answer that top-level field of the winner's JSON reply (a string
+    as it is, any other value as canonical JSON). When the winner's field is missing, null or blank,
+    or its reply is not a JSON object, the Case abstains with ``output_missing``; the next member is
+    never used. Works with a field and with ``by_signal=``.
     """
 
     name: str
@@ -497,6 +523,7 @@ class Pick(Reducer):
     order: Literal["max", "min"] | None
     equals: str | None
     normalize: FieldNormalizer | None
+    output: str | None
 
     def __init__(
         self,
@@ -506,6 +533,7 @@ class Pick(Reducer):
         order: Literal["max", "min"] | None = None,
         equals: str | int | float | bool | None = None,
         normalize: FieldNormalizer | None = None,
+        output: str | None = None,
     ) -> None:
         if (field is None) == (by_signal is None):
             raise ValueError(
@@ -520,24 +548,32 @@ class Pick(Reducer):
             _field_path(field, "Pick field")
             target = _check_pick_mode(order, equals, normalize)
             chosen = _normalizer(normalize, "Pick")
+        chosen_output = _output_field(output)
         object.__setattr__(self, "name", "pick")
         object.__setattr__(self, "field", field)
         object.__setattr__(self, "by_signal", by_signal)
         object.__setattr__(self, "order", order)
         object.__setattr__(self, "equals", target)
         object.__setattr__(self, "normalize", chosen)
+        object.__setattr__(self, "output", chosen_output)
 
     def _plan(self) -> _ReducerPlan:
+        output = _output_arg(self.output)
         if self.by_signal is not None:
-            return _signal_plan(self.by_signal, cast("str", self.order))
+            return _signal_plan(self.by_signal, cast("str", self.order), self.output)
         assert self.field is not None  # a Pick holds a field or a signal
         # WHY exact ids for the normalizer: by_field@1 assumes the v1 output form of text@1 and
         # numeric@1, so a newer normalizer in the catalog must never change what a Pick means.
         if self.order is not None:
-            normalizer, select = "numeric", {"order": self.order}
+            normalizer, select = "numeric", {"order": self.order, **output}
         else:
             normalizer = self.normalize
-            select = {"order": "equals", "value": self.equals, "normalize": self.normalize}
+            select = {
+                "order": "equals",
+                "value": self.equals,
+                "normalize": self.normalize,
+                **output,
+            }
         steps = _Steps(
             extract=_Step("json_field", {"path": self.field}),
             normalize=None if normalizer is None else _Step(f"{normalizer}@1"),
@@ -548,27 +584,35 @@ class Pick(Reducer):
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Pick:
-        reduce = _spec_steps(spec)["reduce"]
+        steps = _spec_steps(spec)
+        reduce = steps["reduce"]
         if reduce is not None and _op_name(reduce[0]) == "by_signal":
-            return cls._from_signal_spec(spec, reduce[1])
+            return cls._from_signal_spec(spec, reduce[1], steps["select"])
         return cls._from_field_spec(spec)
 
     @classmethod
-    def _from_signal_spec(cls, spec: Mapping[str, object], args: Mapping[str, object]) -> Pick:
+    def _from_signal_spec(
+        cls,
+        spec: Mapping[str, object],
+        args: Mapping[str, object],
+        select: tuple[str, Mapping[str, object]] | None,
+    ) -> Pick:
         key, order = args.get("key"), args.get("order")
         if not isinstance(key, str) or order not in ("max", "min"):
             raise _cannot_rebuild("pick")
         signal = _decoded("pick", Signal, key)  # a key this SDK does not know is a hand edit
-        pick = _decoded("pick", cls, by_signal=signal, order=order)
+        output = None if select is None else select[1].get("output")
+        pick = _decoded("pick", cls, by_signal=signal, order=order, output=output)
         _require_steps(spec, pick._plan().steps, "pick")
         return pick
 
     @classmethod
     def _from_field_spec(cls, spec: Mapping[str, object]) -> Pick:
         field, normalizer, args = _pick_parts(spec)
+        output = args.pop("output", None)
         order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
         if order in ("max", "min") and set(args) == {"order"} and normalizer == "numeric@1":
-            pick = _decoded("pick", cls, field, order=order)
+            pick = _decoded("pick", cls, field, order=order, output=output)
         elif (
             order == "equals"
             and set(args) == {"order", "value", "normalize"}
@@ -576,38 +620,40 @@ class Pick(Reducer):
             and chosen in (None, *_NORMALIZERS)
             and normalizer == (None if chosen is None else f"{chosen}@1")
         ):
-            pick = _decoded("pick", cls, field, equals=value, normalize=chosen)
+            pick = _decoded("pick", cls, field, equals=value, normalize=chosen, output=output)
         else:
             raise _cannot_rebuild("pick")
         _require_steps(spec, pick._plan().steps, "pick")
         return pick
 
     def __repr__(self) -> str:
+        suffix = "" if self.output is None else f", output={self.output!r}"
         if self.by_signal is not None:
-            return f"Pick(by_signal={self.by_signal!r}, order={self.order!r})"
+            return f"Pick(by_signal={self.by_signal!r}, order={self.order!r}{suffix})"
         if self.order is not None:
-            return f"Pick({self.field!r}, order={self.order!r})"
+            return f"Pick({self.field!r}, order={self.order!r}{suffix})"
         normalize = "" if self.normalize is None else f", normalize={self.normalize!r}"
-        return f"Pick({self.field!r}, equals={self.equals!r}{normalize})"
+        return f"Pick({self.field!r}, equals={self.equals!r}{normalize}{suffix})"
 
     def _python(self) -> str:
+        suffix = "" if self.output is None else f", output={self.output!r}"
         if self.by_signal is not None:
-            return f"sf.Pick(by_signal={self.by_signal._python()}, order={self.order!r})"
+            return f"sf.Pick(by_signal={self.by_signal._python()}, order={self.order!r}{suffix})"
         return f"sf.{self!r}"
 
     __hash__: ClassVar[Any] = None
 
 
-def _signal_plan(signal: Signal, order: str) -> _ReducerPlan:
+def _signal_plan(signal: Signal, order: str, output: str | None = None) -> _ReducerPlan:
     """The plan of an argmax: ``by_signal@1`` scores each member, ``best_holder@1`` picks one.
 
     INVARIANT (10E F3): the SAME order goes in both steps; the Engine does not cross-check them,
-    and the select step's order decides the pick.
+    and the select step's order decides the pick. ``output`` goes in the select step only.
     """
 
     steps = _Steps(
         reduce=_Step("by_signal", {"key": signal.key, "order": order}),
-        select=_Step("best_holder", {"order": order}),
+        select=_Step("best_holder", {"order": order, **_output_arg(output)}),
     )
     return _ReducerPlan("pick", "answer", steps, reads=signal)
 
@@ -647,6 +693,7 @@ def _pick_from_options(options: Mapping[str, object]) -> Pick:
         order=cast("Literal['max', 'min'] | None", options.get("order")),
         equals=cast("str | int | float | bool | None", options.get("equals")),
         normalize=cast("FieldNormalizer | None", options.get("normalize")),
+        output=cast("str | None", options.get("output")),
     )
 
 
@@ -655,9 +702,9 @@ def _pick_options(named: Reducer) -> Mapping[str, object]:
 
     pick = cast("Pick", named)
     if pick.order is not None:
-        return {"field": pick.field, "order": pick.order}
+        return {"field": pick.field, "order": pick.order, **_output_arg(pick.output)}
     normalize = {} if pick.normalize is None else {"normalize": pick.normalize}
-    return {"field": pick.field, **normalize, "equals": pick.equals}
+    return {"field": pick.field, **normalize, "equals": pick.equals, **_output_arg(pick.output)}
 
 
 def _merge_from_options(options: Mapping[str, object]) -> Merge:
@@ -671,6 +718,7 @@ def _argmax_from_options(options: Mapping[str, object]) -> Pick:
     return Pick(
         by_signal=cast("Signal", options["by_signal"]),
         order=cast("Literal['max', 'min'] | None", options.get("order")),
+        output=cast("str | None", options.get("output")),
     )
 
 
@@ -678,7 +726,11 @@ def _argmax_options(named: Reducer) -> Mapping[str, object]:
     """The canonical options of an argmax block: the default order ``max`` is not stored."""
 
     pick = cast("Pick", named)
-    return {"by_signal": pick.by_signal, **({"order": "min"} if pick.order == "min" else {})}
+    return {
+        "by_signal": pick.by_signal,
+        **({"order": "min"} if pick.order == "min" else {}),
+        **_output_arg(pick.output),
+    }
 
 
 _REDUCER_CLASSES.update(pick=Pick, merge=Merge)

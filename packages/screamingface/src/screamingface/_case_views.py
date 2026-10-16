@@ -164,7 +164,7 @@ def _reduce_data(operation_id: str, evidence: CombineEvidence) -> dict[str, obje
 
 
 def _reduce_mode(evidence: CombineEvidence) -> str:
-    if evidence.reducer == "median":
+    if evidence.reducer in ("median", "mean"):
         return "compute" if evidence.operators[-1].split("@")[0] == "value" else "select"
     return _REDUCE_MODES[evidence.reducer]
 
