@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
 from screamingface._candidate_policy import GenerationParams
@@ -16,6 +16,7 @@ from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
 if TYPE_CHECKING:
     from screamingface.gate import Gate
     from screamingface.judge import Judge
+    from screamingface.model import Model
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal[
@@ -56,13 +57,19 @@ class _Steps:
 class _ModelSignal:
     """One model call whose reply the combine call reads as ``context.signals[key]``."""
 
-    key: str  # "judge" or "writer_<field>"
+    key: str  # "judge", "writer_<field>", "fallback_judge" or "fallback_writer"
     model: str  # the route as sf.Model stores it
     prompt: str  # the full system text in Python form ("\n" newlines)
     params: GenerationParams
     # The field a writer call writes. It marks a call fed by a projection of that field's values
     # (not by the Fusion context), so the compiler adds the projection combine call before it.
     field: str | None = None
+
+
+# The reducer signal keys of a gate fallback call (E4b part 5, P5). The topology maps them to the
+# judge and writer roles (_signal_role); the Engine `_SIGNAL` pattern accepts both (C6).
+_FALLBACK_JUDGE_KEY = "fallback_judge"
+_FALLBACK_WRITER_KEY = "fallback_writer"
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,30 +486,57 @@ def _recovered_member_weights(weights: object, members: object) -> tuple[float, 
     return tuple(values)
 
 
-_GATE_KEYS: frozenset[str] = frozenset({"cmp", "observe", "otherwise", "threshold"})
-
-
-def _recovered_gate(spec: Mapping[str, object]) -> Gate | None:
-    """The gate of a decoded vote spec, else the vote's "cannot rebuild" error (C7).
-
-    This version rebuilds a gate with no fallback call (``otherwise: "abstain"``). A judge or
-    writer fallback comes with its own model call, which ``Vote._rebuild`` reads (unit 4).
-    """
-
-    if "gate" not in spec:
-        return None
-    raw = spec["gate"]
-    if not isinstance(raw, Mapping) or set(raw) != _GATE_KEYS or raw["otherwise"] != "abstain":
-        raise _cannot_rebuild("vote")
-    # WHY lazy: see _vote_gate
-    from screamingface.gate import Gate
-
-    return _decoded("vote", Gate, raw["observe"], raw["cmp"], raw["threshold"])
-
-
 def _as_python(value: object) -> str:
     python = getattr(value, "_python", None)
     return repr(value) if python is None else python()
+
+
+def _rebuilt_fallback(fallback: _ModelSignal) -> Judge | Model:
+    """The sf.Judge or sf.Model of a gate fallback call read back from url4 (C7)."""
+
+    if fallback.key == _FALLBACK_JUDGE_KEY:
+        # WHY lazy: judge.py imports this module (cycle)
+        from screamingface.judge import judge_from_signals
+
+        # judge_from_signals reads only the key "judge" (S/judge.py), so the key is renamed first;
+        # its signature does not change (C7).
+        return _decoded("vote", judge_from_signals, (replace(fallback, key="judge"),), "label")
+    # WHY lazy: the model module imports the recipe tree, which imports this module
+    from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
+    from screamingface.model import Model
+
+    # The url4.py rule of a model synthesizer: the default prompt rebuilds as no prompt (GA-D3).
+    prompt = None if fallback.prompt == DEFAULT_SYNTHESIS_PROMPT else fallback.prompt
+    return _decoded(
+        "vote", Model, fallback.model, prompt=prompt, params=dict(fallback.params) or None
+    )
+
+
+def _rebuilt_gate(spec: Mapping[str, object], fallback: _ModelSignal | None) -> Gate | None:
+    """The gate of a decoded vote spec and its fallback call, else the vote's "cannot rebuild".
+
+    INVARIANT (C7): the spec ``otherwise`` and the fallback call agree: "abstain" has no call,
+    "judge" has the ``fallback_judge`` call, "writer" has the ``fallback_writer`` call. Any other
+    pair is a hand-edited url4 (GA-E4).
+    """
+
+    raw = spec.get("gate")
+    if raw is None:
+        if fallback is not None:
+            raise _cannot_rebuild("vote")  # a fallback call with no gate
+        return None
+    if not isinstance(raw, Mapping) or set(raw) != {"cmp", "observe", "otherwise", "threshold"}:
+        raise _cannot_rebuild("vote")
+    expected = {"abstain": None, "judge": _FALLBACK_JUDGE_KEY, "writer": _FALLBACK_WRITER_KEY}
+    wire = raw["otherwise"]
+    found = None if fallback is None else fallback.key
+    if not isinstance(wire, str) or wire not in expected or expected[wire] != found:
+        raise _cannot_rebuild("vote")
+    # WHY lazy: gate.py imports this module (cycle)
+    from screamingface.gate import Gate
+
+    otherwise: object = "abstain" if fallback is None else _rebuilt_fallback(fallback)
+    return _decoded("vote", Gate, raw["observe"], raw["cmp"], raw["threshold"], otherwise=otherwise)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -577,18 +611,29 @@ class Vote(Reducer):
 
     @classmethod
     def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Vote:
-        if not signals:
-            return cls._from_spec(spec)
+        fallback_keys = (_FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY)
+        fallbacks = tuple(signal for signal in signals if signal.key in fallback_keys)
+        others = tuple(signal for signal in signals if signal.key not in fallback_keys)
+        if len(fallbacks) > 1:
+            raise _cannot_rebuild("vote")  # FC-I1: at most one fallback call
+        fallback = fallbacks[0] if fallbacks else None
+        if not others:
+            return cls._from_spec_parts(spec, None, fallback)
         # WHY lazy: judge.py imports this module (cycle)
         from screamingface.judge import judge_from_signals
 
-        judge = judge_from_signals(signals, "scores")
+        judge = judge_from_signals(others, "scores")
         if spec["weights"] != {"signal": JUDGE_SIGNAL}:
             raise _cannot_rebuild("vote")
-        return cls._from_spec_parts(spec, judge)
+        return cls._from_spec_parts(spec, judge, fallback)
 
     @classmethod
-    def _from_spec_parts(cls, spec: Mapping[str, object], judge: Judge | None) -> Vote:
+    def _from_spec_parts(
+        cls,
+        spec: Mapping[str, object],
+        judge: Judge | None,
+        fallback: _ModelSignal | None = None,
+    ) -> Vote:
         ops = _spec_ops(spec, "vote")
         extract = ops["extract"]
         weights = _recovered_weights(spec)
@@ -606,7 +651,7 @@ class Vote(Reducer):
             normalize=ops["normalize"],
             weights=weights,
             judge=judge,
-            gate=_recovered_gate(spec),
+            gate=_rebuilt_gate(spec, fallback),
         )
 
     def __repr__(self) -> str:

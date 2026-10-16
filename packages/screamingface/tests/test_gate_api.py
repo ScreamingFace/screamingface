@@ -541,7 +541,7 @@ def _fb_fusion(
     judge: sf.Judge | None = None,
     weights: Any = None,
     members: list[Any] | None = None,
-    quorum: int | str = "all",
+    quorum: Any = "all",
 ) -> sf.Fusion:
     return sf.Fusion(
         _FB_MEMBERS if members is None else members,

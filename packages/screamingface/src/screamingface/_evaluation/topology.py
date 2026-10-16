@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Literal, cast, get_args
 
 from url4 import Expression, Node, Source, Text, src
 
 from screamingface._operation_bindings import SYNTHESIS_BINDING, TOPOLOGY_BINDING
 from screamingface.fusion import _quorum
+from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY
 
 _REDUCER_INVALID = "URL4 Candidate has invalid Reducer topology metadata"
 _SCHEMA = "screamingface.recipe.v1"
@@ -27,10 +29,14 @@ type _OperationRole = Literal["model", "synthesis", "judge", "writer"]
 # The roles of the model calls a reducer reads (its signals); each is also an _OperationRole.
 type _SignalRole = Literal["judge", "writer"]
 _SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
-# INVARIANT: the Engine's `_SIGNAL` (combine/spec.py): `judge`, or `writer_` and a field name. The
-# field name is capped at 64 characters, like a Merge field. tests/unit/test_signal_key_conformance
-# binds the two.
+# INVARIANT: the Engine's `_SIGNAL` (combine/spec.py): `judge`, `fallback_judge`, `fallback_writer`,
+# or `writer_` and a field name. The field name is capped at 64 characters, like a Merge field.
+# tests/unit/test_signal_key_conformance and ST/test_gate_api (GA#16) bind the two.
 _WRITER_KEY = re.compile(r"writer_([A-Za-z_][A-Za-z0-9_]{0,63})")
+# The gate fallback keys (E4b part 5) and the role of the model call each one names.
+_FALLBACK_ROLES: Mapping[str, _SignalRole] = MappingProxyType(
+    {_FALLBACK_JUDGE_KEY: "judge", _FALLBACK_WRITER_KEY: "writer"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,9 +103,10 @@ def _operation_shape(node: _RecipeTopology, signal: str | None = None) -> tuple[
     if node.kind == "reducer":
         shape = ("combine", "combine" if signal is None else f"project {_signal_field(signal)}")
     elif node.role == "writer":
-        shape = ("writer", f"write {_signal_field(signal)}")
+        suffix = "fallback write" if signal == _FALLBACK_WRITER_KEY else None
+        shape = ("writer", suffix or f"write {_signal_field(signal)}")
     elif node.role == "judge":
-        shape = ("judge", "judge")
+        shape = ("judge", "fallback judge" if signal == _FALLBACK_JUDGE_KEY else "judge")
     elif node.role == "synthesis":
         shape = ("synthesis", "synthesis")
     else:
@@ -500,12 +507,17 @@ def _decode_signals(value: object) -> tuple[_SignalTopology, ...]:
     return signals
 
 
-def _signal_role(key: object) -> _SignalRole | None:
+def _signal_role(key: object) -> _SignalRole | None:  # noqa: PLR0911
     """The ONE key -> role rule: the role of the model call a signal key names, else None."""
 
     if key == "judge":
         return "judge"
-    return "writer" if isinstance(key, str) and _writer_field(key) is not None else None
+    if not isinstance(key, str):
+        return None
+    fallback = _FALLBACK_ROLES.get(key)
+    if fallback is not None:
+        return fallback
+    return "writer" if _writer_field(key) is not None else None
 
 
 def _decode_signal(value: object) -> _SignalTopology:
@@ -515,10 +527,12 @@ def _decode_signal(value: object) -> _SignalTopology:
     role = _signal_role(key)
     if role is None or not isinstance(key, str):
         raise ValueError(_REDUCER_INVALID)
-    # A writer reads a projection of its field; a judge reads the Fusion context directly.
-    if set(value) != ({"key", "source"} if role == "judge" else {"key", "projection", "source"}):
+    # FC-I3: a writer_<field> call reads a projection of its field; a judge and a gate fallback
+    # call read the Fusion context directly.
+    projected = _writer_field(key) is not None
+    if set(value) != ({"key", "projection", "source"} if projected else {"key", "source"}):
         raise ValueError(_REDUCER_INVALID)
-    projection = _decode_projection(value["projection"]) if role == "writer" else None
+    projection = _decode_projection(value["projection"]) if projected else None
     return _SignalTopology(key, _decode_signal_source(value["source"], role), projection)
 
 

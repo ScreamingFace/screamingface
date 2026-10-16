@@ -30,7 +30,7 @@ from screamingface._evaluation.topology import (
     _signal_role,
     _SignalRole,
     _SignalTopology,
-    _writer_key,
+    _writer_field,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface.fusion import Fusion
@@ -170,16 +170,15 @@ def _compile_signals(
 def _signal_call_role(signal: _ModelSignal) -> _SignalRole:
     """The role of a signal's model call; refuse a signal whose key and field disagree.
 
-    INVARIANT: a writer signal names its field and its key is the writer key of that field; a
-    judge signal has no field. The projection and the url4 recovery both rely on it.
+    INVARIANT (FC-I3): a signal names a projection field exactly when its key is the
+    ``writer_<field>`` key of that field. A judge, a fallback judge and a fallback writer have
+    no field. The projection and the url4 recovery both rely on it.
     """
 
     role = _signal_role(signal.key)
     if role is None:
         raise ValueError("unsupported reducer signal")
-    if (role == "writer") != (signal.field is not None) or (
-        signal.field is not None and signal.key != _writer_key(signal.field)
-    ):
+    if _writer_field(signal.key) != signal.field:
         raise ValueError("reducer signal key does not match its field")
     return role
 
