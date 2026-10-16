@@ -224,32 +224,72 @@ def _judge_chip(link: Mapping[str, str | None]) -> str:
 
 
 def _gate_chip(gate: CombineGate | None) -> str:
-    """The gate: the number, the comparison, the threshold and the branch (P16); none: no chip."""
+    """The gate: the number, the comparison, the threshold, the band and the branch (P16; E4b part
+    6 P14); none: no chip."""
     if gate is None:
         return ""
     head = escape(f"gate · {gate.observe} {gate.cmp} ") + number_html(gate.threshold, "")
-    reason = _GATE_NOT_RUN if gate.passed is None else _GATE_NO_NUMBER
+    reason = _GATE_NOT_RUN if gate.branch is None else _GATE_NO_NUMBER
     observed = number_html(gate.observed, reason)
-    return f"{head} · observed {observed} · {escape(_gate_verdict(gate))}"
+    return f"{head}{_band_text(gate)} · observed {observed} · {escape(_gate_verdict(gate))}"
+
+
+def _band_text(gate: CombineGate) -> str:
+    """`` · band [{lo}, {hi}]`` when the gate record has an abstain band (E4b part 6); else ""."""
+    if gate.abstain_band is None:
+        return ""
+    lo, hi = gate.abstain_band
+    return f" · band [{number_html(lo, '')}, {number_html(hi, '')}]"
 
 
 def _gate_verdict(gate: CombineGate) -> str:
-    """The branch words: ``majority``, ``fallback · {otherwise}`` or ``not run``."""
-    if gate.passed is None:
+    """The branch words: ``majority``, ``fallback · {otherwise}``, ``in band · abstain`` or
+    ``not run``. WHY branch, not passed: the band branch has ``passed`` None too (GR-I1')."""
+    if gate.branch is None:
         return "not run"
-    return "majority" if gate.passed else f"fallback · {gate.otherwise}"
+    if gate.branch == "band":
+        return "in band · abstain"
+    return "majority" if gate.branch == "majority" else f"fallback · {gate.otherwise}"
 
 
 def _signal_head(evidence: CombineEvidence, key: str) -> str:
     """C7: one signal header cell; the title names the declared source and the rule read."""
     notes: list[str] = []
     if evidence.declared is not None and key in evidence.declared:
-        notes.append(f"source: {evidence.declared[key]['source']}")
+        notes.append(f"source: {_source_text(evidence.declared[key])}")
     if evidence.signal is not None and evidence.signal.key == key:
         notes.append("read by the rule")
     title = "; ".join(notes)
     title_attr = f" title='{escape(title)}'" if title else ""
     return f"<th scope='col'{title_attr}>{escape(key)}</th>"
+
+
+def _source_text(entry: Mapping[str, object]) -> str:
+    """The source words of one declared entry (E4b part 6, P14).
+
+    A sum whose coefficients map names to real numbers: ``sum of 0.5 × sev_a + 0.3 × sev_b``, one
+    term per coefficient, in the entry order. Any other entry, a malformed sum included:
+    ``str(entry["source"])``, the part 4 text.
+    """
+    source = str(entry["source"])
+    coefficients = entry.get("coefficients")
+    if source != "sum" or not isinstance(coefficients, Mapping) or not coefficients:
+        return source
+    terms = [_term_text(str(name), value) for name, value in coefficients.items()]
+    texts = [text for text in terms if text is not None]
+    if len(texts) != len(terms):
+        return source
+    return "sum of " + " + ".join(texts)
+
+
+def _term_text(name: str, value: object) -> str | None:
+    """One sum term ``{coefficient!r} × {name}``; None when the coefficient is not a real number."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return f"{float(value)!r} × {name}"
+    except OverflowError:  # WHY: an int past the float range (a hand-built entry)
+        return None
 
 
 def _member_row(
@@ -350,6 +390,7 @@ class _StepSummary:
     values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
     majority: int = 0  # E4b part 5: one counter per gate branch
     fallback: int = 0
+    band: int = 0  # E4b part 6: the Cases that abstained inside the gate band
     not_run: int = 0
 
     def add(self, evidence: CombineEvidence) -> None:
@@ -357,7 +398,7 @@ class _StepSummary:
         self.cases += 1
         self._add_gate(evidence.gate)
         for name, entry in (evidence.declared or {}).items():
-            self.declared.setdefault(name, str(entry["source"]))
+            self.declared.setdefault(name, _source_text(entry))
         for row in evidence.members:
             self.chosen.setdefault(row.member_id, 0)
             self.excluded.setdefault(row.member_id, 0)
@@ -376,15 +417,17 @@ class _StepSummary:
     @property
     def gated(self) -> int:
         """The Cases with a gate record: each one counts in exactly one branch."""
-        return self.majority + self.fallback + self.not_run
+        return self.majority + self.fallback + self.band + self.not_run
 
     def _add_gate(self, gate: CombineGate | None) -> None:
-        """Count the branch of one gated Case: majority, fallback or not run (gate-display §2)."""
+        """Count the branch of one gated Case: majority, fallback, band or not run (E4b part 6)."""
         if gate is None:
             return
-        if gate.passed is None:
+        if gate.branch is None:
             self.not_run += 1
-        elif gate.passed:
+        elif gate.branch == "band":
+            self.band += 1
+        elif gate.branch == "majority":
             self.majority += 1
         else:
             self.fallback += 1
@@ -408,14 +451,17 @@ def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, Ope
 
 
 def _gate_line(step: _StepSummary) -> str:
-    """How often the gate of a gated step kept the majority; an ungated step: no line (P16)."""
+    """How often the gate of a gated step kept the majority, fell back, abstained in its band or
+    did not run; an ungated step: no line (P16; E4b part 6 P14)."""
     if step.gated == 0:
         return ""
     total = step.cases
+    band = f" · in band {step.band} of {total}" if step.band else ""
     tail = f" · not run {step.not_run} of {total}" if step.not_run else ""
     return (
         "<div class='sf-chips'><span class='sf-chip'>"
-        f"gate · majority {step.majority} of {total} · fallback {step.fallback} of {total}{tail}"
+        f"gate · majority {step.majority} of {total} · fallback {step.fallback} of {total}"
+        f"{band}{tail}"
         "</span></div>"
     )
 
@@ -446,7 +492,10 @@ def _mean(values: list[float]) -> float | None:
         return math.fsum(values) / len(values)
     except OverflowError:
         # WHY Fraction: the sum of finite values can leave the float range, but their mean cannot;
-        # the exact rational mean rounds to a finite float (the engine gate _mean, E4b part 5).
+        # the exact rational mean rounds to a finite float (part 4 erratum E5). A sum signal (E4b
+        # part 6, P14) makes large values likely. TWIN: `_mean` in
+        # apps/screamingface-engine/src/screamingface_engine/combine/gate.py (part 5 erratum E6)
+        # holds the same rule; when one copy changes, change the other.
         return float(sum(map(Fraction, values), Fraction(0)) / len(values))
 
 

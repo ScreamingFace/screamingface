@@ -880,9 +880,49 @@ None.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in_progress. Commit A (RED) is being written. Commit B is not made.
+- **Status:** GREEN. All focused tests, the neighbour run, the lint and the three gate runs pass.
+  The append-only check of the `screamingface` stack and of the `repo` stack is run against
+  `633fec3a1` (the part base). The `screamingface` stack has seven offenders, all pinned files of
+  units 1 to 5 (overview §8). It passes with `--skip-append-only`.
 - **Actual files:**
-- **Commits:**
+  - `S/_ui/combine_view.py`: the import `Fraction`; `_gate_chip` (band text, reason by branch);
+    new `_band_text`; `_gate_verdict` (by branch, `in band · abstain`); `_signal_head` and
+    `_StepSummary.add` call the new `_source_text` (with `_term_text`); `_StepSummary.band`;
+    `_add_gate` (by branch); `_gate_line` (` · in band`); `_mean_cell` (overflow fallback with the
+    WHY twin comment). Nothing else in the file changes.
+  - Test file `ST/test_sum_band_display.py` (new, commit A). No edit in this commit.
+  - Test edits made in this unit: none. No existing test file changed. No pinned edit.
+- **Commits:** A = `9ed5fa50f` (RED; the `U5` tip is `018f035ae`). B = the code commit
+  `feat(e4b): show the sum formula, the abstain band and the in-band count in the report` (this
+  commit). C: none (overview §11: the README and CHANGELOG are unit 7).
 - **Gates:**
-- **RED log:**
-- **Deviations:**
+  - Focused run (`ST/test_sum_band_display.py`): 18 passed.
+  - Neighbour run (the twelve files of spec §11): 241 passed.
+  - `ruff check`, `ruff format --check` and `pyright` on the touched files: green (0 errors).
+  - `screamingface`, base `633fec3a1`: append-only check red on seven pinned files (below), then
+    `--skip-append-only`: ALL GATES GREEN (ruff, format, pyright, pytest with cov 95%, notebooks,
+    build, distribution).
+  - `screamingface`, base `018f035ae` (`U5`): ALL GATES GREEN, append-only check included.
+  - `repo`, base `633fec3a1`: ALL GATES GREEN, append-only check included (green).
+- **Append-only offenders (`screamingface`, base `633fec3a1`):**
+  - `tests/data/schemas/screamingface.answer.v1.json`
+  - `tests/public_surface_snapshot.json`
+  - `tests/test_evidence_words.py`
+  - `tests/test_frozen_record_fields.py`
+  - `tests/test_gate_api.py`
+  - `tests/test_gate_words.py`
+  - `tests/test_pick_output.py`
+  - All seven are pinned files of units 1 to 5 (spec §11 list). None is a file of this unit.
+- **RED log (commit A, before commit B):** `7 failed, 11 passed`. The failures are the seven
+  expected rows: SD#2 (`test_sum_column_title_names_the_coefficients`), SD#3
+  (`test_run_summary_mean_header_names_the_sum`), SD#4
+  (`test_case_pane_shows_the_band_and_the_in_band_verdict`), SD#5
+  (`test_case_pane_shows_a_band_on_the_majority_branch`), SD#6
+  (`test_run_summary_counts_the_band`), SD#9 (`test_run_summary_mean_does_not_overflow`, an
+  `OverflowError` from `math.fsum`) and SD#10 (`test_a_negative_coefficient_shows_as_written`).
+  The passing rows are SD#1, SD#7 and the nine SD#8 parameters.
+- **Flakes:** none. No suite was rerun.
+- **Deviations (build):**
+  - D-6 (process): commit A was made in an earlier run and was not made again here. Its tree holds
+    the test file and the §12 ledger section, as spec §12 says. Its RED run was repeated in this
+    build and gave the counts above.
