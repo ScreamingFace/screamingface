@@ -378,3 +378,13 @@ test-paid-benchmarks scope="all" benchmarks="":
         "$UV" run pytest tests/paid -rs -v --junitxml "$log_dir/junit.xml" || status=$?
     echo "==> logs, per-Benchmark reports and verdicts: $log_dir"
     exit "$status"
+
+# The e2e notebook workbench (tests/e2e/workbench/README.md): execute every workbench
+# notebook against one target and keep one evidence bundle per notebook under ./workbench-out
+# (summary.md + <target>/<notebook>/). `replay` is free and keyless (docker + prepared ifeval
+# assets); `local` boots the SDK runtime and SPENDS real tokens — it additionally needs
+# SCREAMINGFACE_TEST_PAID=1 and OPENROUTER_API_KEY, and skips without them.
+[doc("Run the e2e workbench notebooks against a target (replay | local); evidence → ./workbench-out")]
+workbench target="replay":
+    SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_WORKBENCH_TARGET={{target}} SCREAMINGFACE_WORKBENCH_OUT=./workbench-out \
+      uv run pytest tests/e2e/workbench -v -rs
