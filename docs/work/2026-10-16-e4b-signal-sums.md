@@ -926,3 +926,86 @@ None.
   - D-6 (process): commit A was made in an earlier run and was not made again here. Its tree holds
     the test file and the §12 ledger section, as spec §12 says. Its RED run was repeated in this
     build and gave the counts above.
+
+## Unit 7: docs (README and CHANGELOG)
+
+### Intent
+
+Tell the SDK user how to sum declared signals and how the abstain band works (ans:Q1, ans:Q2):
+`sf.Sum` is a declared derived signal of one member, its component and coefficient rules, the
+missing rule, the exact arithmetic, every rule and gate that reads it by name, the vote weight rule
+with its exact upper limit (spec review R6), the closed band on `sf.Gate` with the new reason
+`in_band`, what it costs today (the fallback still runs), the scope (one member; `mean:<name>`
+for the panel), and where the report shows both. Docs only: no code, no snapshot, no golden and
+no url4 change.
+
+### Planned changes
+
+- `packages/screamingface/README.md` — R1: the new section `### Sum signals and the abstain band`
+  between `### Fusion as a named recipe` and `## Install`, with one code block that assigns
+  `s1_sum_pick` and `s2_band_gate`. R2: the paragraph `**Sums and the band.**` in
+  `### Combine steps in the report`, after the `**The gate.**` paragraph.
+- `packages/screamingface/CHANGELOG.md` — B1: one part 6 bullet at position 3 of the first
+  `### Features` list of `## Unreleased`, after the part 4, part 3 and part 5 bullets.
+- New `packages/screamingface/tests/test_sum_band_docs.py` — DC#1–DC#5. It imports `_section`
+  from `test_evidence_completeness_docs`, four helpers from `test_show_signals_docs`, and
+  `BUILDERS` from `test_sum_contract_fixtures`.
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- DC#1 CHAR (the seven anchor headings, once each, in order). DC#2 the new section, its place, the
+  names in the code, the weight limit literal, and its rules (the missing, exact, reads, weight,
+  cost, scope and report sentences verbatim). DC#3 the README code block compiles to the two url4
+  fixtures and their builders byte for byte. DC#4 the `**Sums and the band.**` paragraph, its
+  header, chip, result and summary examples, and the export key; no new heading between Browse and
+  Accounting. DC#5 one part 6 bullet at position 3, with no counted token.
+- Regression (CHAR, no edit): `test_gate_docs.py`, `test_show_signals_docs.py`,
+  `test_evidence_completeness_docs.py`, `test_signal_recipes_readme.py`,
+  `test_combine_recipes_readme.py`, `test_pick_output.py`, `test_mean.py`,
+  `test_fusion_doc_goldens.py`, `test_gate_contract_fixtures.py`, `test_sum_contract_fixtures.py`,
+  `test_sum_band_display.py`.
+
+### Acceptance
+
+- DC#1–DC#5 green; the regression tests green.
+- README diff: 81 added, 0 removed lines; no added line over 100 bytes (the count stays 37).
+  CHANGELOG diff: 2 added lines.
+- `run_gates.py screamingface --base <unit 6 tip>`: all green, append-only included.
+- `run_gates.py screamingface --base 633fec3a1`: append-only offenders are only SDK files of the
+  unit 1–5 pinned lists; with `--skip-append-only` all green. `run_gates.py repo --base 633fec3a1`:
+  green.
+
+### Planned deviations
+
+- DC#3 imports the `BUILDERS` dict (the name that sum-api §7 sets) instead of two builder functions
+  by name (PRD docs §7 says "the two builders"); the function names are set by the unit 2 and 5
+  specs. DC#3 also compares the fixture files, as part 5 DC#3 does.
+- DC#1 also pins `### Gate the majority` and the order of all seven anchors.
+- README planner additions (true for units 1–5, not in the PRD delta text): A1 the E4a key examples
+  (`cost_usd`, `score:judge`) and "any other component raises `ValueError` before any call"
+  (SA-E1–E3); A2 a negative coefficient is allowed and the Engine does not normalize (P4); A3 a sum
+  too large for a float is missing (P5); A4 the weight sentence names the exact limit
+  `7.022238808055921e+305` (the largest float divided by 256), says that `sf.Fusion` raises
+  `ValueError`, and names `no_weight` (P13, N3, SA-E4, R6); A5 the band shape: finite, `lo <= hi`,
+  a one-point band is valid, an agreement band from 0 to 1 (P7, BA-D2); A6 the band wins also over
+  a judge or a writer (P9), and the record has `"passed": null` (P10); A7 the code comments (the
+  member severity lines; what each branch does) and the placeholder routes; A8 R2 names the result
+  chip `abstain · in_band` (SD-3), says the summary count shows only when a Case is in the band
+  (P14), and names `[lo, hi]` and `"passed": null`.
+- DC#2 also checks `hasattr(sf, "Sum")`, `in_band`, the `abstain_band` keyword and
+  `repr(sys.float_info.max / 256)`; DC#4 also checks `` `abstain · in_band` ``; DC#5 also checks
+  the README pointer and that bullet `[2]` is the part 5 bullet.
+
+### Unit 7 outcome
+
+- **Status:** in_progress (RED, commit A)
+- **Unit 6 tip (base of the unit 7 append-only check):** `8c8297257` (the unit 6 code commit).
+- **Commits:** A = — test(e4b): RED for E4b part 6 unit 7 docs; B = none; C = — docs(e4b): README
+  and CHANGELOG for sums and the abstain band (part 6).
+- **RED record (commit A):** `test_sum_band_docs.py`: `1 passed, 4 failed`. DC#1 passes (CHAR). DC#2 fails on the heading list (`_headings_between(_FUSION, _INSTALL)` lacks `### Sum signals and the abstain band`). DC#3 fails on `README.md has no '### Sum signals and the abstain band' section`. DC#4 fails on `**Sums and the band.**`. DC#5 fails on `0 == 1` (no part 6 bullet). Lint: `ruff format --check`, `ruff check` and `pyright` clean on the new file.
+- **Gates:**
+- **Deviations:**
