@@ -86,6 +86,12 @@ def test_token_is_stored_under_every_audience_it_names(aud: str | list[str]) -> 
         _raw(_PAYLOAD, signature="a"),  # impossible base64url length
         _raw(_PAYLOAD, signature="si+g"),  # outside the base64url alphabet
         _raw(f'{{"exp": 1800000900, "aud": "{_AUDIENCE}", "nbf": 1800000600}}'),  # future nbf
+        # nesting deep enough to exhaust the JSON parser's recursion limit
+        pytest.param(_raw("[" * 100_000 + "]" * 100_000), id="deeply-nested-payload"),
+        pytest.param(
+            _raw(_PAYLOAD, header=_b64u(b"[" * 100_000 + b"]" * 100_000)),
+            id="deeply-nested-header",
+        ),
     ],
 )
 def test_an_unusable_env_token_fails_loudly_without_echoing_it(token: str) -> None:

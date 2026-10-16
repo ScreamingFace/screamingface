@@ -433,7 +433,7 @@ class _CloudflareAccessAuth(_ClientAuth):
             previous_audience = self._audience
             self._audience = audience
             current = self._usable_token()
-            # A new origin first proves its Access audience via the challenge. Only then may
+            # A new origin first asserts its Access audience via the challenge. Only then may
             # it reuse a credential learned from another origin with the same audience.
             reusable = current is not None and (
                 authorization.generation != self._generation

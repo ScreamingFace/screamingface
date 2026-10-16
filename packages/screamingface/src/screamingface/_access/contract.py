@@ -162,7 +162,8 @@ def _token_claims(value: str) -> dict[str, object]:
         header = _strict_json(_base64url_decode(parts[0]))
         payload = _strict_json(_base64url_decode(parts[1]))
         _base64url_decode(parts[2])
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, RecursionError) as exc:
+        # RecursionError: deeply nested JSON exhausts the parser; still a malformed token.
         raise _invalid_token() from exc
     if not isinstance(header, dict) or not isinstance(payload, dict):
         raise _invalid_token()
