@@ -28,8 +28,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from .revisions import PARAMETER_CONTRACT_KEY
+
 _TABLE: Final = "request_cache_entries"
-_CORE_REVISION: Final = "parameter_contract"
 _INSERT: Final = (
     f"INSERT INTO {_TABLE} (id, key_hash, prompt_hash, provider, model, response_json,"
     " response_size_bytes, created_at, updated_at, expires_at, last_hit_at, hit_count,"
@@ -61,8 +62,8 @@ def check_revisions(remote: Mapping[str, str], local: Mapping[str, str]) -> None
     fewer provider plugins than the hosted gateway, and rows for a provider it lacks are never
     looked up there, so they cannot mis-hit.
     """
-    if _CORE_REVISION not in remote or _CORE_REVISION not in local:
-        raise PageRejected("revision_mismatch", f"{_CORE_REVISION} missing on one side")
+    if PARAMETER_CONTRACT_KEY not in remote or PARAMETER_CONTRACT_KEY not in local:
+        raise PageRejected("revision_mismatch", f"{PARAMETER_CONTRACT_KEY} missing on one side")
     differing = sorted(k for k in remote.keys() & local.keys() if remote[k] != local[k])
     if differing:
         raise PageRejected("revision_mismatch", f"differs for {', '.join(differing)}")
