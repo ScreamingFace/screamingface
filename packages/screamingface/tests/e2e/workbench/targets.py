@@ -3,8 +3,12 @@
 Selection is by env var, not a pytest option: ``pytest_addoption`` in a nested conftest does not
 register when the invocation is ``pytest tests/e2e``.
 
-INVARIANT: a target that cannot run here SKIPS with the reason (``pytest.skip``); it never boots
-half a stack and never spends unless the paid opt-in and the BYOK key are both present.
+INVARIANT: a target that cannot run here SKIPS with the reason (``pytest.skip``) BEFORE booting
+anything, and never spends unless the paid opt-in and the BYOK key are both present. Once its
+gate is passed, a broken target is a hard FAILURE, not a skip: on ``local``, an Engine that does
+not list ifeval raises. Whatever was started is torn down on every exit path, a partial boot
+included: ``down`` runs once ``up`` was invoked (even if ``up`` itself failed), and the Engine is
+stopped once its start was attempted.
 """
 
 from __future__ import annotations
@@ -185,19 +189,24 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
     # The runtime runs auth-free on loopback and owns its sqlite gateway DB, so unlike
     # tests/paid/conftest.py there is no AIGW_AUTH_MODE / database env to mirror here.
     # NOTE the BYOK key is NOT a parameter: the notebook connects it from os.environ.
-    _runtime_cli(
-        "up",
-        "--data-dir",
-        str(data_dir),
-        "--gateway-port",
-        str(_LOCAL_GATEWAY_PORT),
-        "--engine-port",
-        str(_LOCAL_ENGINE_PORT),
-        "--scoreboard-port",
-        str(_LOCAL_SCOREBOARD_PORT),
-    )
-    engine = EngineProcess(work_dir=work_dir, assets_dir=assets)
+    # WHY `up` inside the try: it can start the Gateway and then fail on the Scoreboard, so
+    # `down` must run even when `up` raises. `engine` stays None until it is built, so a failed
+    # construction only downs the runtime; once start is attempted, stop runs (start can fail
+    # after spawning the process).
+    engine: EngineProcess | None = None
     try:
+        _runtime_cli(
+            "up",
+            "--data-dir",
+            str(data_dir),
+            "--gateway-port",
+            str(_LOCAL_GATEWAY_PORT),
+            "--engine-port",
+            str(_LOCAL_ENGINE_PORT),
+            "--scoreboard-port",
+            str(_LOCAL_SCOREBOARD_PORT),
+        )
+        engine = EngineProcess(work_dir=work_dir, assets_dir=assets)
         engine_url = engine.start(f"http://127.0.0.1:{_LOCAL_GATEWAY_PORT}")
         # WHY a hard failure, not a skip: this Engine has the inspect extra and the prepared
         # ifeval root, so an Engine without ifeval is a broken target, not a missing optional.
@@ -224,6 +233,7 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
         )
     finally:
         try:
-            engine.stop()
+            if engine is not None:
+                engine.stop()
         finally:
             _runtime_cli("down", "--data-dir", str(data_dir))
