@@ -16,7 +16,12 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 
-from .auth import CodexOAuth, account_label_from_credentials, exchange_authorization_code
+from .auth import (
+    CodexOAuth,
+    account_label_from_credentials,
+    exchange_authorization_code,
+    plan_type_from_token,
+)
 from .chat_handler import (
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
@@ -159,10 +164,45 @@ class CodexProviderPlugin(ProviderPluginBase):
                 timeout=body.get("timeout"),
             )
         except CustomLLMError as exc:
+            if _is_plan_refusal(exc):
+                raise _plan_unsupported(body) from exc
             raise HTTPException(
                 status_code=exc.status_code,
                 detail={"code": "provider_error", "message": exc.message},
             ) from exc
+
+
+# WHY a text marker: the backend answers a plan refusal with a plain 400 and no error code;
+# this sentence is the only thing that tells it apart from a malformed request.
+_PLAN_REFUSAL_MARKER = "not supported when using Codex with a ChatGPT account"
+
+
+def _is_plan_refusal(exc: CustomLLMError) -> bool:
+    # INVARIANT: both the 400 and the marker — the text alone on another status stays as is.
+    return exc.status_code == 400 and _PLAN_REFUSAL_MARKER in str(exc.message)
+
+
+def _plan_unsupported(body: dict[str, Any]) -> HTTPException:
+    """OME-1634: the sign-in is valid but its ChatGPT plan has no Codex.
+
+    # WHY 403: the request is fine; the credential's entitlement refuses it. Codex keeps the
+    # default no-mark status hook, so the profile stays authenticated — upgrading the plan or
+    # signing in with another account fixes it. The message is gateway-authored: no upstream text.
+    """
+    plan = plan_type_from_token(body.get("api_key")) or "unknown"
+    return HTTPException(
+        status_code=403,
+        detail={
+            "code": "codex_plan_unsupported",
+            "provider": "codex",
+            "model": body.get("model"),
+            "plan": plan,
+            "message": (
+                f"This ChatGPT account (plan: {plan}) cannot use Codex models. "
+                "Sign in with a ChatGPT plan that includes Codex."
+            ),
+        },
+    )
 
 
 ensure_litellm_codex_provider_registered()

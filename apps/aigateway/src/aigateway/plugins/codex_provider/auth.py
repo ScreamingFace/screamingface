@@ -47,6 +47,16 @@ def _auth_claims(token: str | None) -> dict[str, Any]:
     return nested if isinstance(nested, dict) else {}
 
 
+def plan_type_from_token(token: str | None) -> str | None:
+    """The ChatGPT plan named in the token claims (``free``, ``plus``, …), if any.
+
+    # WHY no signature check: display only (OME-1634 error detail), never an authorization
+    # decision — the upstream is the authority on what the plan may do.
+    """
+    plan = _auth_claims(token).get("chatgpt_plan_type")
+    return plan if isinstance(plan, str) and plan else None
+
+
 def _expires_at_ms_from_token(token: str | None) -> int | None:
     exp = _decode_jwt_claims(token).get("exp")
     if isinstance(exp, int | float):
