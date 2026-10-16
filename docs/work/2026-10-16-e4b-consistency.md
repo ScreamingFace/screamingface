@@ -1113,3 +1113,11 @@ passed (before the interaction tests).
 
 - The stray `~~~~` line at the end of this ledger (from the unit 7 commit) is removed. It opened a
   code block that did not close.
+
+## Owner approvals (2026-10-16)
+
+- The owner approved the 3 pinned edits of the build (the combine-spec v1 and combine-evidence v1
+  schema snapshots and the public surface snapshot) and the restack edit of
+  `ST/test_sum_band_docs.py` (the README section list gains Consistency). Manifest:
+  `.claude/test-change-approvals/OME-E4B-P7.json` (placeholder id; pinned against part 6).
+- The owner chose the `generation` accounting stage for the sample calls (P7).
