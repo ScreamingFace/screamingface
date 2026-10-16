@@ -467,13 +467,18 @@ class CombineEvidence:
         }
 
 
+def _is_gate_observe(value: str) -> bool:
+    """The one SDK rule for a gate number: agreement, chosen:<name> or mean:<name> (sf.Gate too)."""
+    source, separator, name = value.partition(":")
+    return value == "agreement" or bool(
+        separator and source in _GATE_SOURCES and is_signal_name(name)
+    )
+
+
 def _gate_observe(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError("Combine gate observe must be text")
-    source, separator, name = value.partition(":")
-    if value != "agreement" and not (
-        separator and source in _GATE_SOURCES and is_signal_name(name)
-    ):
+    if not _is_gate_observe(value):
         raise ValueError("Combine gate observe must be agreement, chosen:<name> or mean:<name>")
     return value
 

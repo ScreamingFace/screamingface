@@ -16,17 +16,14 @@ from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
-from screamingface._signals import is_signal_key, is_signal_name
+from screamingface._signals import is_signal_key
+from screamingface.combine_evidence import _GATE_CMPS, _GATE_SOURCES, GateCmp, _is_gate_observe
 from screamingface.judge import Judge
 from screamingface.model import Model
 from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY, _ModelSignal
 
-type GateCmp = Literal[">=", ">", "<=", "<"]
-
-_CMPS: tuple[str, ...] = (">=", ">", "<=", "<")
 _KEEP_HIGH: tuple[str, ...] = (">=", ">")
 _AGREEMENT = "agreement"
-_NAMED_FORMS: tuple[str, ...] = ("chosen", "mean")
 _ABSTAIN: Literal["abstain"] = "abstain"
 _OBSERVE_RULE = (
     "Gate observe must be 'agreement', 'chosen:<name>' or 'mean:<name>', where <name> is a "
@@ -120,19 +117,17 @@ def _observe(value: object) -> str:
     """``value`` when it is agreement, chosen:<name> or mean:<name> with a declared name."""
     if not isinstance(value, str):
         raise TypeError("Gate observe must be text")
-    if value == _AGREEMENT:
+    if _is_gate_observe(value):
         return value
     form, colon, name = value.partition(":")
-    named = bool(colon) and form in _NAMED_FORMS
-    if named and is_signal_name(name):
-        return value
+    named = bool(colon) and form in _GATE_SOURCES
     # WHY the hint: chosen:cost_usd looks right but reads an E4a key, not a declared signal.
     hint = _E4A_HINT if named and is_signal_key(name) else ""
     raise ValueError(_OBSERVE_RULE + hint)
 
 
 def _cmp(value: object) -> GateCmp:
-    if value not in _CMPS:
+    if value not in _GATE_CMPS:
         raise ValueError("Gate cmp must be '>=', '>', '<=' or '<'")
     return cast("GateCmp", value)
 
