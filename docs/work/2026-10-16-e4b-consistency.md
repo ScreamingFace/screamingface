@@ -264,3 +264,81 @@ existing evidence, spec, context and url4 keeps its bytes.
   - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`: base `b62a7858ca4c9877398bf4cfaa2208ae178bb47e`, after `837a7ee3531b4049e069457cb9c5711cf0a4378f`
   - `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`: base `9f150b3bc73cb4d1e07f59800091c7d41d626616`, after `ebb34ae62020e6a6c12b62cf01312fd60acbd818`
   - `packages/screamingface/tests/public_surface_snapshot.json`: base `385cda6769a9672677a911b732a85372beffd513`, after `8400871fb64d20c385ccccacb0ae6e1aba4aa6d1`
+
+## Unit 2: consistency value (`consistency-value`)
+
+### Intent
+
+PRD `consistency-value` rows CV#1–14 (ans:Q4; P9–P13, P20–P22). The combine step computes, for each
+member, `matched / succeeded` over its successful extra samples, after the declared match steps
+(read cap, extract, normalize). A failed sample is not in the denominator; its count is recorded.
+All samples failed, or no member match value → the value is missing, and a rule that reads it
+excludes the member. The samples never vote. Every exit writes the evidence record `consistency`.
+A new contract file `consistency_evidence_cases.json` (three scenarios) is read on both sides.
+
+### Planned changes
+
+- New `E/combine/consistency.py` (pure, standard library only): `SampleCount`, `count_samples`.
+- `E/combine/endpoint.py`: `_SampleDeclared` (with `match_value`), `_Recorded` (a read-only mapping
+  over the signal values with `samples`), `_Plan.declared` union, `_combine` (`samples_n=`, the
+  counts once), `_sample_counts`, `_sample_item`, `_signal_values(..., counts)`, `_reader_numbers`
+  annotation, `_column(..., counts)` with the `_SampleDeclared` branch, the six `recorded:`
+  annotations, `_evidence` (`consistency=`), `_consistency_record`, `_declared`, `_sample_source`,
+  the module INVARIANT sentence.
+- Tests: new `ET/combine_consistency_support.py`, `ET/test_combine_consistency.py`,
+  `ET/test_combine_consistency_contract.py`, `ST/test_consistency_evidence_contract.py`; new data
+  file `ET/data/combine_contract/consistency_evidence_cases.json` (written by `write_fixture()`).
+
+### Pinned edits
+
+None. New files only, plus the source edits above.
+
+### Test plan
+
+- 14 rows (CV#1–14). CHAR: CV#1 (37 items) and the CV#6 param `samples-without-a-declaration`.
+  RED: the others. Commit A adds the stub `E/combine/consistency.py` (`count_samples` raises
+  `NotImplementedError`) and no other source change; the RED reason of the Engine runs is
+  `SpecInvalid: a declared signal source is not registered` (the unit 1 endpoint).
+- Expected RED: Engine 28 failed, 38 passed; SDK 5 failed (missing data file).
+
+### Acceptance
+
+- Fixture V: values 0.5, 1.0, None; record `{2,4,0}`, `{2,2,2}`, `{None,0,4}`; the vote result is
+  unchanged (`"so 12"`, agreement 0.6666666666666666).
+- Fixture W: values 0.6666666666666666, 0.0, 1.0; chosen member_3; output `"A"`.
+- All samples failed → value None → `excluded`/`no_signal`; the Case answers.
+- The samples never vote; an unreadable sample is succeeded and not matched; no voter still records.
+- A spec without consistency writes no `consistency` key (the 37 cases of L37).
+- The contract file holds exactly the three scenarios; the SDK decodes and round-trips each.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green.
+
+### Deviations
+
+- `_column` keeps the PRD's first branch (`_SampleDeclared`), and its last two branches become one
+  conditional return, because ruff `max-returns = 3`.
+- New test support module `ET/combine_consistency_support.py` (not in the PRD file list): fixtures
+  V and W are shared by the row tests and the contract test.
+- Row CV#2 has a second function for the pure `count_samples` (and commit A has its stub). CV#7
+  adds a `match.normalize` case. CV#9 adds a number 12 over the read cap and a control under it.
+  CV#11 adds a passing gate case. CV#12 adds a member text over the read cap.
+- New private names not in the PRD: `_SampleDeclared.match_value`, `_sample_item`,
+  `_sample_source`, `_consistency_record`; the `_Recorded` field is `numbers`; two `RuntimeError`
+  guards (`_sample_counts`, `_column`); `count_samples` raises `ValueError` for more texts than n
+  and does not call `read` when there is nothing to compare.
+- (Add any change made during the build here.)
+
+### Notes for the review
+
+- C7: `E/combine/consistency.py` imports only `collections.abc` and `dataclasses`.
+- P22: `git diff <unit-1 tip> -- apps/screamingface-engine/src/screamingface_engine/combine/endpoint.py`
+  shows no changed call site of an exit and no new keyword.
+- CS-I5 holds by construction: the column value and the record both come from `SampleCount`.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress (RED, commit A)
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:** commit A. Engine (`test_combine_consistency.py` + `test_combine_consistency_contract.py`): 28 failed, 38 passed (37 CV#1 items and CV#6 `samples-without-a-declaration`). Failures: `SpecInvalid: a declared signal source is not registered` (CV#2 endpoint, CV#3, CV#4, CV#5, CV#6 params 1-2, CV#7 four params with the wrong code or message, CV#8, CV#9, CV#10, CV#11, CV#12); `NotImplementedError` from the stub (CV#2 pure test); `missing contract fixture` (CV#13, three byte params, two fixture tests). SDK (`test_consistency_evidence_contract.py`): 0 passed, 5 failed, all `missing Engine contract fixture`. Ruff check, ruff format and pyright are clean on the new files.
+- **Pinned edits made:** none
