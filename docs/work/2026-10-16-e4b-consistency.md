@@ -884,3 +884,96 @@ None.
     append-only check. Its offender was `tests/public_surface_snapshot.json`, a pinned file of
     units 1 and 3. The stack then ran again with `--skip-append-only`, as §11 allows.
   - No oracle was changed. No existing test was edited. No overview errata was needed.
+
+## Unit 7: docs (README and CHANGELOG)
+
+### Intent
+
+Tell the SDK user how to declare `sf.Consistency` and what it does (ans:Q3, ans:Q4): each member
+makes `n` more calls with distinct fixed seeds at the stated temperature, its other params
+unchanged; the value is the share of matches over the extra calls that answered, after the step's
+own extract and normalize (or the last line and `text`); the extra answers never vote; what it
+costs (M × n extra calls on every Case); a failed extra call does not fail the Case, and all
+failed → the value is missing; the seeds do not follow the run seed; the free preflight; the
+construction rules; and where the report shows the value and the failed count. Docs only: no
+code, no snapshot, no golden and no url4 change.
+
+### Planned changes
+
+- `packages/screamingface/README.md` — R1: the new section `### Consistency samples` between
+  `### Fusion as a named recipe` and `## Install`, with one code block that assigns
+  `c1_pick_most_consistent` and `c2_median_consistency` (F1, F2 of unit 4). R2: the paragraph
+  `**Consistency.**` in `### Combine steps in the report`, after the `**The gate.**` paragraph.
+- `packages/screamingface/CHANGELOG.md` — B1: one part 7 bullet in the first `### Features` list of
+  `## Unreleased`, directly after the part 5 bullet.
+- New `packages/screamingface/tests/test_consistency_docs.py` — DC#1–DC#5. It imports `_section`
+  from `test_evidence_completeness_docs`, four helpers from `test_show_signals_docs`, and
+  `BUILDERS` from `test_consistency_contract_fixtures`.
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- DC#1 CHAR (the five anchor headings, once each, in order). DC#2 the new section, its place (an
+  order check), the names in the code, and its rules (the cost, failure, seed, preflight, weight
+  and report sentences verbatim). DC#3 the README code block compiles to the two url4 fixtures and
+  their builders byte for byte. DC#4 the `**Consistency.**` paragraph, its chip, note, reasons and
+  summary examples, and the export key; no new heading between Browse and Accounting. DC#5 one
+  part 7 bullet after the part 5 bullet (only a part 6 bullet may sit between), with no counted
+  token.
+- Regression (CHAR, no edit): `test_gate_docs.py`, `test_show_signals_docs.py`,
+  `test_evidence_completeness_docs.py`, `test_signal_recipes_readme.py`,
+  `test_combine_recipes_readme.py`, `test_pick_output.py`, `test_mean.py`,
+  `test_fusion_doc_goldens.py`, `test_gate_contract_fixtures.py`,
+  `test_consistency_contract_fixtures.py`, `test_consistency_display.py`,
+  `test_consistency_rebuild.py`.
+
+### Acceptance
+
+- DC#1–DC#5 green; the regression tests green.
+- README diff: 68 added, 0 removed lines; no added line over 100 bytes (the count stays 37).
+  CHANGELOG diff: 2 added lines.
+- `run_gates.py screamingface --base <unit 6 tip>`: all green, append-only included.
+- `run_gates.py screamingface --base 633fec3a1`: the only append-only offender is
+  `tests/public_surface_snapshot.json` (units 1 and 3); with `--skip-append-only` all green.
+  `run_gates.py repo --base 633fec3a1`: green.
+
+### Planned deviations
+
+- DC#3 imports the `BUILDERS` dict (the name that consistency-api §7 sets) instead of two builder
+  functions by name (PRD docs §7 says "the two builders"); the function names are set by the
+  unit 4 spec. DC#3 also compares the fixture files, as part 5 DC#3 does.
+- DC#1 also pins `### Gate the majority` first (the PRD row lists it).
+- DC#2 and DC#5 check the order, not a fixed list or index (PRD docs §2, contracts C8): DC#2
+  needs Fusion first and the consistency heading once in the Fusion..Install range; DC#5 allows
+  only a `(E4b part 6)` bullet between the part 5 and the part 7 bullets.
+- README planner additions (true for units 1–6, not in the PRD delta text): A1 "a number from 0 to
+  1" and "the step reads the members' answers as before" (P12); A2 an extra answer with nothing
+  extracted is a success that does not match (P10), and the value is also missing when the member
+  has no answer to compare (P11), and a rule leaves the member out (ans:Q4); A3 the rules add "or
+  a route, not a Pipeline or a Fusion", "with no default", "`temperature` a finite number of 0 or
+  more", "(members × n)", "the synthesizer is a reducer, not a model" and "raises `ValueError`
+  before any call" (P2, P4, CA-E1, CA-E2); A4 the code comments and the placeholder-routes
+  sentence; the lead sentence says that the SDK tests compile both recipes and the Engine runs
+  the first one offline (CA#6, CA#7; F2 has no Engine-world run); A5 R2 names the reasons
+  `every sample failed` and `no answer to compare` (CD-2, CD-D4) and the record keys (P13).
+- DC#2 also checks `hasattr(sf, "Consistency")`, `CombineSampleCount` and the default
+  temperature; DC#4 also checks the two reasons; DC#5 also checks the README pointer.
+- B1 also states the rebuild (`Url4(...).to_python()`, unit 5) and names
+  `sf.report.CombineSampleCount` (P14).
+
+### Unit 7 outcome
+
+- **Status:** in_progress
+- **Unit 6 tip (base of the unit 7 append-only check):** 75c87c03f
+- **Commits:** A = — test(e4b): RED for E4b part 7 unit 7 docs; B = none; C = — docs(e4b): README
+  and CHANGELOG for consistency samples (part 7).
+- **RED record (commit A):** `uv run pytest tests/test_consistency_docs.py -q` in `packages/screamingface`: `4 failed, 1 passed`. DC#1 passed (CHAR). DC#2 failed at `between.count(_CONSISTENCY) == 1` (`0 == 1`). DC#3 failed with `README.md has no '### Consistency samples' section`. DC#4 failed on `**Consistency.**`. DC#5 failed at `len(_part_7_bullets()) == 1` (`0 == 1`). The three code asserts of DC#2 passed (`sf.Consistency`, `CombineSampleCount`, temperature 1.0). Lint of the new file: `ruff format --check`, `ruff check` and `pyright` clean.
+- **Gates:**
+- **Deviations:**
+- **Rebase note for part 6 (contracts C8):** part 6's docs test pins `_headings_between(_FUSION,
+  _INSTALL) == [_FUSION, _SUM]` and its bullet at index 3; when the two parts stack, the second
+  rebase must turn those into order checks (this unit's tests already accept both orders).
+~~~~
