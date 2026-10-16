@@ -270,4 +270,7 @@ MAJOR, 12 MINOR (1 STRUCTURAL, plan shape only). All are fixed in the spec and t
   `_BAND_REASON`; SDK `_gate_band` and `_check_band_gate` (`S/combine_evidence.py`), `_abstain_band`
   and `_OPTIONAL_GATE_KEYS` (`S/_evaluation/combine_evidence.py`).
 
+- **E11 (unit 5).** band-api BA-3: `sf.Judge` requires `rubric=`. The fallback judge of the
+  test is `sf.Judge("prov/judge", returns="label", rubric="Pick the best answer.")` (unit 5 D-1).
+
 The build appends E1, E2, ... here, one line group per deviation from this spec.
