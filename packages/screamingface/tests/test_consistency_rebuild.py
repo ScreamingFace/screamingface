@@ -672,3 +672,22 @@ def test_a_samples_key_without_a_declaration_and_policy_markers_does_not_rebuild
     assert '"samples":[' in tampered  # the rider still lists the sample calls
     assert _error_text(lambda: sf.Url4(tampered).to_python()) == _METADATA
     assert _error_text(lambda: _candidate_from_url4(_linked(tampered))) == _METADATA
+
+
+# --- review fix (MAJOR): a hand-added consistency source on a plain url4 is refused ---
+
+
+def test_a_consistency_source_added_to_a_plain_url4_does_not_rebuild() -> None:
+    """WHY: a declared source adds sample calls; a url4 without them must not rebuild or replay."""
+    url4 = _url4(sf.Fusion(_MEMBERS, name="median", synthesizer=sf.Median()))
+    signals = _spec_of(BUILDERS[_MEDIAN]())["signals"]
+
+    def add_signals(spec: dict[str, Any]) -> None:
+        assert "signals" not in spec
+        spec["signals"] = signals
+
+    tampered = _replace_source(url4, "synthesis_1", _with_spec(add_signals))
+
+    assert tampered != url4
+    assert _error_text(lambda: sf.Url4(tampered).to_python()) == _METADATA
+    assert _error_text(lambda: _candidate_from_url4(_linked(tampered))) == _METADATA
