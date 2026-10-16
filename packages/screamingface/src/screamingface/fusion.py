@@ -19,7 +19,15 @@ from screamingface._signals import (
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
 from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, Vote, _read_signal
-from screamingface.signal_sources import INJECTED_PARAMS, Entropy, Logprob, SignalSource, Sum
+from screamingface.signal_sources import (
+    INJECTED_PARAMS,
+    Consistency,
+    Entropy,
+    Logprob,
+    SignalSource,
+    Sum,
+    consistency_seed,
+)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -77,6 +85,7 @@ class Fusion(Recipe):
         object.__setattr__(self, "synthesizer", _synthesizer(synthesizer, selected_members))
         object.__setattr__(self, "signals", _declared(signals, self.synthesizer))
         _check_logprob_sources(self.signals, selected_members, self.synthesizer)
+        _check_consistency_source(self.signals, selected_members)
 
     @property
     def _recipe_marker(self) -> None:
@@ -141,6 +150,11 @@ def _declaration(value: object) -> Mapping[str, SignalSource] | None:
         raise ValueError(
             "a Fusion declares at most one sf.Entropy source: every member call takes one "
             "top_logprobs value"
+        )
+    if sum(source.source == "consistency" for source in value.values()) > 1:
+        raise ValueError(
+            "a Fusion declares at most one sf.Consistency source: every member gets one set "
+            "of samples"
         )
     _check_sums(value)
     return MappingProxyType(dict(sorted(value.items())))
@@ -300,6 +314,61 @@ def _check_logprob_member(label: str, position: int, member: Recipe) -> None:
             f"{label} sets the {' and '.join(clash)} param of every member; remove it from "
             f"member {position} ({member.name!r})"
         )
+
+
+_MAX_CONSISTENCY_CALLS = 1024  # P4: bounds the url4 and the combine context
+
+
+def _check_consistency_source(
+    declared: Mapping[str, SignalSource] | None, members: tuple[Recipe, ...]
+) -> None:
+    """The sf.Consistency rules that need the members (P4, P5; erd CN-I2, CN-I3, CN-I5): each
+    member is one sf.Model call, the Fusion makes at most 1024 extra calls, and no member seed
+    equals a sample seed of this Fusion."""
+    source = next((s for s in (declared or {}).values() if isinstance(s, Consistency)), None)
+    if source is None:
+        return
+    models: list[Model] = []
+    for position, member in enumerate(members, 1):
+        if not isinstance(member, Model):
+            raise ValueError(
+                "sf.Consistency needs each Fusion member to be one sf.Model call; member "
+                f"{position} ({member.name!r}) is a nested Fusion or Pipeline"
+            )
+        models.append(member)
+    calls = len(models) * source.n
+    if calls > _MAX_CONSISTENCY_CALLS:
+        raise ValueError(
+            f"sf.Consistency(n={source.n}) on {len(models)} members makes {calls} extra calls; "
+            f"the limit is {_MAX_CONSISTENCY_CALLS} per Fusion"
+        )
+    _check_sample_seeds(models, source.n)
+
+
+def _check_sample_seeds(models: list[Model], n: int) -> None:
+    """CN-I5: a member seed must not equal the seed of ANY sample of this Fusion. WHY every
+    member: a member call and a sample call of one route with one temperature and one seed send
+    one gateway body and share one cached reply. The url4 carries a param as text, so the text
+    is compared (a bool is never a seed)."""
+    seeded = [
+        (position, model, model.params["seed"])
+        for position, model in enumerate(models, 1)
+        if "seed" in model.params and not isinstance(model.params["seed"], bool)
+    ]
+    if not seeded:
+        return  # WHY: most members set no seed; skip the up to 1024 hashes
+    samples = {
+        str(consistency_seed(k, j)): (k, j)
+        for k in range(1, len(models) + 1)
+        for j in range(1, n + 1)
+    }
+    for position, model, seed in seeded:
+        hit = samples.get(str(seed))
+        if hit is not None:
+            raise ValueError(
+                f"member {position} ({model.name!r}) sets seed={seed}, which is the seed of "
+                f"consistency sample {hit[1]} of member {hit[0]}; choose another seed"
+            )
 
 
 def _signals_repr(declared: Mapping[str, SignalSource]) -> str:

@@ -15,6 +15,7 @@
       "Concat",
       "Connection",
       "ConnectionPanel",
+      "Consistency",
       "CorrectiveLoop",
       "DuplicateMembersWarning",
       "EngineCapabilityError",
@@ -320,6 +321,15 @@
           "connections": "property",
           "refresh": "method (self) -> 'tuple[Connection, ...]'",
           "widget": "method (self) -> 'Widget'"
+        }
+      },
+      "Consistency": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, n: 'int', *, temperature: 'float' = 1.0) -> 'None'",
+          "n": "field",
+          "source": "attribute",
+          "temperature": "field"
         }
       },
       "CorrectiveLoop": {
