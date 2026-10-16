@@ -3,9 +3,9 @@
 # FEATURE: Stage E spec R6 — a native repair uses the Connection side only.
 # INVARIANT: no repair branch reads or writes the legacy Profile document (R6, §8 Q7): the OAuth
 # replacement, the same-identity promotion and the API-key takeover all leave it byte-identical.
-# INVARIANT: a promoted row is still `active` under its row lock; a row that broke after the
-# lookup is never made effective.
-# INVARIANT: an unexpected failure of the promotion never strands this flow's `pending` row.
+# INVARIANT: a repair that signs into the identity of another row of the pair retires that row
+# under its lock and activates its own fresh row, so a stale failure of the retired row (before
+# or after the commit) never breaks the repaired pair; a failed repair leaves that row untouched.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from connection_backed_admin_probes import (
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of, callback, use_tokens
 from provider_access_harness import ANTHROPIC, PROVIDER
-from tortoise.exceptions import IntegrityError
 
 from aigateway.core.api_key_validation import (
     ApiKeyValidationResult,
@@ -140,32 +139,29 @@ def test_a_native_repair_leaves_the_profile_document_untouched(
     assert document(h) == before
 
 
-def test_a_same_identity_promotion_leaves_the_profile_document_untouched(
+def test_a_same_identity_repair_leaves_the_profile_document_untouched(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     h = migrated
-    _old, sibling = _live_sibling(h, monkeypatch)
+    _old, _sibling = _live_sibling(h, monkeypatch)
     before = document(h)
 
     use_tokens(h, "new-tok")
     repair = _start(h, "work")
     assert callback(h, repair["state"]).status_code == 200
 
-    assert _effective(h) == sibling
+    assert _effective(h) == str(repair["connection_id"])
     assert document(h) == before
 
 
-# --- a sibling that broke after the lookup is not promoted ---------------------------------------
+# --- the same-identity row retires; its stale failures cannot break the repair -------------------
 
 
-def test_a_sibling_that_breaks_before_its_lock_is_not_made_effective(
+def test_a_sibling_that_breaks_after_its_lookup_is_retired_and_the_repair_lands(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # WHY: the identity lookup runs before the transaction; a refresh failure in between leaves
-    # the sibling `error`. Promoting it would point the pair at a row chat refuses.
     h = migrated
-    old, sibling = _live_sibling(h, monkeypatch)
-    before = marker(h)
+    _old, sibling = _live_sibling(h, monkeypatch)
     find_by_identity = OAuthConnectionStore.find_by_identity
 
     async def breaks_after_lookup(self: Any, *args: Any, **kwargs: Any) -> Any:
@@ -179,21 +175,34 @@ def test_a_sibling_that_breaks_before_its_lock_is_not_made_effective(
     use_tokens(h, "new-tok")
     repair = _start(h, "work")
 
-    response = callback(h, repair["state"])
+    assert callback(h, repair["state"]).status_code == 200
 
-    assert response.status_code == 409, response.text
-    assert response.json()["detail"]["code"] == "connection_conflict"
-    assert marker(h) == before
-    assert _effective(h) == old
-    assert connection(h, sibling).status == "error"
-    assert access_token_of(blob_at_connection_address(h, sibling)) == "sibling-tok"
-    assert connection(h, str(repair["connection_id"])).status == "revoked"
+    new = str(repair["connection_id"])
+    assert _effective(h) == new
+    assert connection(h, sibling).status == "revoked"
+    assert (connection(h, new).status, connection(h, new).identity_sub) == ("active", "user-1")
 
 
-# --- an unexpected promotion failure does not strand the pending row ------------------------------
+def test_a_stale_refresh_failure_after_the_repair_cannot_break_the_repaired_pair(
+    migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: a refresh that started on the sibling's old tokens fails only after the repair commits.
+    h = migrated
+    _old, sibling = _live_sibling(h, monkeypatch)
+    stale = connection(h, sibling)
+    use_tokens(h, "new-tok")
+    repair = _start(h, "work")
+    assert callback(h, repair["state"]).status_code == 200
+
+    assert h.call(OAuthConnectionStore().mark_error, stale, "refresh rejected") is None
+
+    new = str(repair["connection_id"])
+    assert _effective(h) == new
+    assert connection(h, new).status == "active"
+    assert access_token_of(blob_at_connection_address(h, new)) == "new-tok"
 
 
-def test_an_unexpected_promotion_failure_retires_the_pending_row(
+def test_a_failed_same_identity_repair_leaves_the_sibling_untouched(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     h = migrated
@@ -203,7 +212,7 @@ def test_an_unexpected_promotion_failure_retires_the_pending_row(
     async def outage(*_args: Any, **_kwargs: Any) -> None:
         raise ConnectionError("database went away")
 
-    monkeypatch.setattr(auth_routes, "promote_live_row", outage)
+    monkeypatch.setattr(auth_routes, "_persist_connection_credentials", outage)
     use_tokens(h, "new-tok")
     repair = _start(h, "work")
 
@@ -212,28 +221,11 @@ def test_an_unexpected_promotion_failure_retires_the_pending_row(
     assert response.status_code == 503, response.text
     assert response.json()["detail"]["code"] == "connection_activation_failed"
     assert marker(h) == before
+    assert _effective(h) == old
+    assert (connection(h, sibling).status, connection(h, sibling).identity_sub) == (
+        "active",
+        "user-1",
+    )
+    assert access_token_of(blob_at_connection_address(h, sibling)) == "sibling-tok"
     pending = connection(h, str(repair["connection_id"]))
     assert (pending.status, pending.label.startswith("error:")) == ("error", True)
-    assert access_token_of(blob_at_connection_address(h, sibling)) == "sibling-tok"
-    assert _effective(h) == old
-
-
-def test_a_promotion_integrity_conflict_retires_the_pending_row(
-    migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    h = migrated
-    old, _sibling = _live_sibling(h, monkeypatch)
-
-    async def collide(*_args: Any, **_kwargs: Any) -> None:
-        raise IntegrityError("unique constraint")
-
-    monkeypatch.setattr(auth_routes, "promote_live_row", collide)
-    use_tokens(h, "new-tok")
-    repair = _start(h, "work")
-
-    response = callback(h, repair["state"])
-
-    assert response.status_code == 409, response.text
-    assert response.json()["detail"]["code"] == "connection_conflict"
-    assert connection(h, str(repair["connection_id"])).status == "revoked"
-    assert _effective(h) == old

@@ -60,7 +60,6 @@ from ..core.provider_access import (
     guard_refresh,
     hold_pair,
     patch_facade,
-    promote_live_row,
     provider_credential_admin_for,
     reauth_url_for,
     refresh_facade,
@@ -1091,15 +1090,13 @@ async def _record_oauth_connection_completion(
             detail={"code": "label_required", "provider": pending.provider},
         )
 
-    if await _handle_duplicate_connection_identity(
-        app, store, pending, plugin, label, identity, creds
-    ):
+    if await _handle_duplicate_connection_identity(app, store, pending, plugin, label, identity):
         return
     if await _handle_duplicate_connection_label(app, store, pending, plugin, label, identity):
         return
 
     connection = await _connection_for_pending(store, pending, plugin, label)
-    replaced = None
+    replaced: list = []
     try:
         # INVARIANT: connection lifecycle operations lock the stable connection row before the
         # optional credential row. The pending-only CAS and credential write commit together, so
@@ -1118,7 +1115,9 @@ async def _record_oauth_connection_completion(
                     # INVARIANT (R6, §8 Q7): a repair writes no Profile document.
                     await replace_effective(pending.replaces_effective, connection_id=connection.id)
                     replaced = await retire_replaced(
-                        pending.replaces_effective, alongside=(connection.id,)
+                        pending.replaces_effective,
+                        alongside=(connection.id,),
+                        identity_sub=getattr(identity, "sub", None),
                     )
             elif published is not None:
                 # INVARIANT (OME-1497, G0 D14 refinement): the shadow records the credential this
@@ -1141,9 +1140,9 @@ async def _record_oauth_connection_completion(
                 str(activated.id),
                 creds,
             )
-        if replaced is not None:
+        for row in replaced:
             _invalidate_credential(
-                app, plugin, credential_name_of(plugin, replaced, account_id=pending.account_id)
+                app, plugin, credential_name_of(plugin, row, account_id=pending.account_id)
             )
     except PairAuthorityConflict as exc:
         if pending.connection_id is not None:
@@ -1218,67 +1217,22 @@ async def _handle_duplicate_connection_identity(
     plugin,
     label: str,
     identity,
-    creds: dict,
 ) -> bool:
+    if pending.replaces_effective is not None:
+        # FEATURE (OME-1209, E1b, R6): a repair is never a duplicate — it retires every row of the
+        # pair holding this identity under its row locks (`retire_replaced`) and activates its own.
+        return False
     duplicate = await store.find_by_identity(
         pending.account_id, pending.provider, getattr(identity, "sub", None)
     )
     if duplicate is None:
         return False
-    observed = pending.replaces_effective
-    if observed is not None and duplicate.id == observed.effective_connection_id:
-        # WHY: the identity is the replaced row's own — it is the target, not a duplicate; its
-        # revocation in the repair frees the identity for the new row.
-        return False
     if pending.connection_id is not None:
         connection = await _connection_for_pending(store, pending, plugin, label)
-        if duplicate.id != connection.id and observed is not None:
-            await _repair_into_live_row(
-                app, store, pending, plugin, observed, connection, duplicate, creds
-            )
-        elif duplicate.id != connection.id:
+        if duplicate.id != connection.id:
             await store.delete_or_supersede_pending(connection, duplicate)
             await _delete_connection_credentials(app, connection.credential_locator)
     return True
-
-
-async def _repair_into_live_row(
-    app,
-    store: OAuthConnectionStore,
-    pending: PendingAuthEntry,
-    plugin,
-    observed: PairAuthority,
-    connection,
-    live,
-    creds: dict,
-) -> None:
-    """FEATURE (OME-1209, E1b, R6): the repair signed into another live row's identity — that
-    row becomes effective with the fresh tokens, in one transaction, fenced like the repair."""
-    try:
-        async with in_transaction():
-            replaced = await promote_live_row(observed, pending=connection, live=live)
-            await _persist_connection_credentials(
-                app, plugin, pending.provider, pending.account_id, str(live.id), creds
-            )
-    except (PairAuthorityConflict, WriteConflict) as exc:
-        await store.mark_revoked(connection, "superseded")
-        raise _connection_conflict(pending) from exc
-    except IntegrityError as exc:
-        await store.mark_revoked(connection, "connection_conflict")
-        raise _connection_conflict(pending) from exc
-    except HTTPException as exc:
-        if exc.status_code == 503:
-            await store.mark_pending_error(connection, "credential_store_unavailable")
-        raise
-    except Exception as exc:
-        # WHY: the OAuth state is already consumed — a `pending` row left behind would keep its
-        # label taken with no callback able to finish or clean it up.
-        await store.mark_pending_error(connection, "connection_activation_failed")
-        raise _activation_failed(pending) from exc
-    if replaced is not None:
-        _invalidate_credential(
-            app, plugin, credential_name_of(plugin, replaced, account_id=pending.account_id)
-        )
 
 
 async def _handle_duplicate_connection_label(

@@ -265,7 +265,7 @@ async def create_api_key_connection(
     # never catch, but the transaction boundary rolls it back regardless. Persist runs before
     # the row inside the transaction, writing the blob slot keyed by the already-generated
     # connection_id — the exact slot the chat path reads (SF-291 review F4 ordering).
-    replaced: OAuthConnection | None = None
+    replaced: list[OAuthConnection] = []
     try:
         with refusals_as_http():
             async with in_transaction():
@@ -290,9 +290,9 @@ async def create_api_key_connection(
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         ) from exc
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection_id))
-    if replaced is not None:
+    for row in replaced:
         credential_strategy_cache(request.app).evict(
-            credential_name_of(plugin, replaced, account_id=account_id)
+            credential_name_of(plugin, row, account_id=account_id)
         )
     return response_from_connection(connection)
 

@@ -51,27 +51,30 @@ Under `apps/aigateway/src/aigateway/`:
 
 - **Actual files:** as planned, plus `core/provider_access/__init__.py` (exports). Source:
   `core/pending_auth.py` (`replaces_effective`), `core/provider_access/connection_native.py`
-  (`effective_to_replace`, `replaced_label`, `replace_effective`, `retire_replaced`, `promote_live_row`,
+  (`effective_to_replace`, `replaced_label`, `replace_effective`, `retire_replaced`,
   `take_over_effective`),
   `routes/oauth_connections.py` (OAuth start records the pair; API-key create takes over the
   effective row by the same rule), `routes/auth.py` (callback: marker CAS
   → compat step → rows locked in id order, old row revoked → new row activated → blob; same
-  identity as another live row → that row promoted; a lost native callback revokes its row; the
+  identity as another row → that row revoked with the old one, the new row activated; a lost native callback revokes its row; the
   replaced row's cached strategy evicted after commit). Tests: new
   `tests/unit/core/provider_access/test_native_oauth_replaces_unusable_effective.py` (17 cases) and
   `test_native_api_key_replaces_effective.py` (4 cases), and
   `test_native_unlabelled_targets_effective.py` (4 cases, the unlabelled rule),
   `test_native_repair_boundaries.py` (8 cases: the Profile document untouched on every repair
-  branch, a sibling broken after its lookup, unexpected and integrity failures of the promotion),
-  and the PostgreSQL lane `tests/integration/test_native_repair_postgres.py` (3 cases: a repair
-  against a key takeover, against a delete of the replaced row, and a sibling broken after its
-  lookup);
-  no prior test changed. Docs: spec R6 and §8 Q7, plan §3 E1b.
+  branch, a same-identity row broken after its lookup, a stale failure after the repair, a failed
+  repair leaving the same-identity row untouched), and the PostgreSQL lane
+  `tests/integration/test_native_repair_postgres.py` (3 cases: a repair against a key takeover,
+  against a delete of the replaced row, and a stale failure of the same-identity row waiting on
+  the repair's lock);
+  no test from before this unit changed; this unit's own promotion cases were rewritten to the
+  owner's round-3 decision (below). Docs: spec R6 and §8 Q7, plan §3 E1b.
 - **Commits:** `feat(aigateway): let a native connection replace a migrated pair's effective credential`;
   `feat(aigateway): let an unlabelled native connection replace the pair's main credential`;
-  `fix(aigateway): keep a native repair off the Profile document and fence the live-row promotion`
+  `fix(aigateway): keep a native repair off the Profile document and fence the live-row promotion`;
+  `fix(aigateway): retire a same-identity row on repair instead of reusing it`
   (ticket backfilled at PR-open).
-- **Gates:** `run_gates.py aigateway --base 59545b20b` (the unit's base; main has moved) all green after the review fixes, the unlabelled rule and review round 2 (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
+- **Gates:** `run_gates.py aigateway --base 59545b20b` (the unit's base; main has moved) all green after the review fixes, the unlabelled rule and review rounds 2 and 3 (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
 - **Deviations:** review round (independent reviewer) → owner decisions 2026-10-16: a repair
   that signs into another live row's identity promotes that row; a broken effective row is
   replaced whatever its auth type, and a flow that asks for the effective row's own label
@@ -91,7 +94,10 @@ Under `apps/aigateway/src/aigateway/`:
   activation (it had been left `pending`, its OAuth state already consumed). PostgreSQL lane:
   the 3 new cases pass (the broken-sibling case fails without the fix); 5 snapshot-upload cases
   fail on the local `pg_dump` 15 against the PostgreSQL 16 container, unrelated to this unit.
-  Known residual, out of scope: a stale refresh rejection that arrives after a promotion commits
-  (it waits on the FK lock the marker update takes on the row) still marks the promoted row
-  `error` — the same class as any in-place re-key of a migrated pair, whose `mark_error` is not
-  generation-fenced.
+  Review round 3 (independent): a stale refresh rejection that arrives after a promotion commits
+  (it waits on the lock and re-evaluates `status='active'`) still marked the promoted row `error`.
+  Owner decision 2026-10-16: no row is reused — the same-identity row is revoked under the
+  callback's row locks with the old effective row, and the repair's own new row becomes
+  effective; `promote_live_row` and its separate failure path are removed (one repair path).
+  A late `mark_error` now matches no `active` row. The unit's promotion tests were rewritten to
+  this contract.

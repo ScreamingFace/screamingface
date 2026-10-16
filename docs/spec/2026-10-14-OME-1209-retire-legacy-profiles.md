@@ -129,9 +129,10 @@ are not Profile routes; only their legacy-pending branch retires, at E4.
   "re-authorise that one", which is also how a working API key switches to OAuth with no window
   without a credential. The callback of that flow makes the new row effective and revokes the
   old one in one transaction, fenced by the marker generation observed at start — never two
-  effective rows. When the sign-in matches the provider identity of another active row of the
-  pair, that row becomes effective with the fresh tokens instead, and the new row retires as its
-  duplicate. With any other label a working (`active` or `pending`) effective row stays, and
+  effective rows. When the sign-in matches the provider identity of another row of the pair,
+  that row is revoked with the old effective one and the fresh tokens land on the new row, which
+  becomes effective — never reused, so a refresh that started on its old tokens and fails late
+  cannot break the repaired pair. With any other label a working (`active` or `pending`) effective row stays, and
   the flow adds a plain row beside it. The same rule applies to a native API-key create
   (`POST /v1/oauth/connections/api-key`, the successor of the Profile key write): the new key
   becomes effective when the effective row is unusable, when it names no label, or when it asks

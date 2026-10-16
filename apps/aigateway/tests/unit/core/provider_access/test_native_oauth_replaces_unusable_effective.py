@@ -132,12 +132,14 @@ def test_chat_reads_the_replacement_after_the_repair(migrated: ConnectionBackedH
     assert _chat_key(h) == (200, "new-tok")
 
 
-def test_a_re_login_into_another_live_connection_makes_that_one_effective(
+def test_a_re_login_into_another_live_connection_retires_it_for_a_fresh_row(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # WHY: before E1b a native flow on a migrated pair opened a plain row beside the effective one.
-    # A repair that signs into that row's provider identity must promote it (with the fresh tokens)
-    # — not return 200 and leave the pair on its broken effective row.
+    # A repair that signs into that row's provider identity must land the fresh tokens on the
+    # pair — not return 200 and leave it on its broken effective row. The fresh tokens go to the
+    # repair's own new row; the same-identity row retires with the old effective one, so a stale
+    # refresh failure on it can never break the repaired pair (owner decision 2026-10-16).
     h = migrated
     old = _seed(h, ProfileState.AUTHENTICATED)
 
@@ -156,14 +158,12 @@ def test_a_re_login_into_another_live_connection_makes_that_one_effective(
     repair = _start(h)
     assert callback(h, repair["state"]).status_code == 200
 
-    assert _effective(h) == sibling_id
+    new = str(repair["connection_id"])
+    assert _effective(h) == new
     assert connection(h, old).status == "revoked"
-    assert connection(h, str(repair["connection_id"])).status == "revoked"
-    assert (connection(h, sibling_id).status, connection(h, sibling_id).identity_sub) == (
-        "active",
-        "user-1",
-    )
-    assert access_token_of(blob_at_connection_address(h, sibling_id)) == "new-tok"
+    assert connection(h, sibling_id).status == "revoked"
+    assert (connection(h, new).status, connection(h, new).identity_sub) == ("active", "user-1")
+    assert access_token_of(blob_at_connection_address(h, new)) == "new-tok"
     assert _chat_key(h) == (200, "new-tok")
 
 

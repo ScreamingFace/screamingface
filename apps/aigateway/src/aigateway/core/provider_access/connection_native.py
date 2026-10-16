@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Collection
 from typing import Any
 
+from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 
 from aigateway.core.oauth.models import OAuthConnection
@@ -144,32 +145,46 @@ async def replace_effective(observed: PairAuthority, *, connection_id: Any) -> N
 
 
 async def retire_replaced(
-    observed: PairAuthority, *, alongside: Collection[Any] = ()
-) -> OAuthConnection | None:
+    observed: PairAuthority, *, alongside: Collection[Any] = (), identity_sub: str | None = None
+) -> list[OAuthConnection]:
     """Callback time, after `replace_effective` and BEFORE the new row activates: revoke the
-    row it replaced. Returns that row (its cached strategy is the caller's to evict).
+    row it replaced and, for a sign-in with `identity_sub`, every other row of the pair holding
+    that provider identity. Returns them (their cached strategies are the caller's to evict).
 
-    # INVARIANT: the replaced row and every row in `alongside` lock in ONE ascending id order —
-    # the order delete uses (`lock_lower_addressers`) — so a concurrent delete cannot deadlock it.
+    # INVARIANT: these rows and every row in `alongside` lock in ONE ascending id order — the
+    # order delete uses (`lock_lower_addressers`) — so a concurrent delete cannot deadlock it.
     # WHY before activation: `identity_sub` and `label` are unique per pair whatever the status;
     # revocation frees both, so the new row can take them.
+    # WHY revoke a same-identity row rather than reuse it: a refresh that started on its old
+    # tokens may still fail and mark it `error` after this commits; a revoked row ignores that,
+    # and the fresh tokens live only on the new row nobody else has seen.
     """
-    ids = {observed.effective_connection_id, *alongside}
-    await OAuthConnection.filter(id__in=list(ids)).order_by("id").select_for_update()
-    replaced = await OAuthConnection.filter(
-        id=observed.effective_connection_id, account_id=observed.account_id
-    ).first()
-    if replaced is None or replaced.status == "revoked":
-        return replaced
-    return await OAuthConnectionStore().mark_revoked(replaced, "replaced")
+    scope = Q(id__in=[observed.effective_connection_id, *alongside])
+    if identity_sub is not None:
+        scope |= Q(provider=observed.provider, identity_sub=identity_sub)
+    locked = (
+        await OAuthConnection.filter(scope, account_id=observed.account_id)
+        .order_by("id")
+        .select_for_update()
+    )
+    keep = {str(row_id) for row_id in alongside}
+    store = OAuthConnectionStore()
+    retired = []
+    for row in locked:
+        if str(row.id) in keep:
+            continue
+        if row.status != "revoked":
+            row = await store.mark_revoked(row, "replaced")
+        retired.append(row)
+    return retired
 
 
 async def take_over_effective(
     observed: PairAuthority, connection: OAuthConnection
-) -> OAuthConnection | None:
+) -> list[OAuthConnection]:
     """API-key create, inside its transaction after the fresh row exists (the marker's FK needs
     it; nobody can contend a row whose UUID no one has seen): `connection` becomes effective and
-    the row it replaces is revoked. Returns the replaced row.
+    the row it replaces is revoked. Returns the retired rows.
 
     A lost compare-and-set is the native superseded conflict (409 `connection_conflict`).
     """
@@ -178,31 +193,6 @@ async def take_over_effective(
     except PairAuthorityConflict as exc:
         raise _superseded(connection) from exc
     return await retire_replaced(observed, alongside=(connection.id,))
-
-
-async def promote_live_row(
-    observed: PairAuthority, *, pending: OAuthConnection, live: OAuthConnection
-) -> OAuthConnection | None:
-    """Callback time: the repair signed into the provider identity of `live`, another active row
-    of the pair — `live` becomes effective and this flow's `pending` row retires as its duplicate.
-
-    Same order as the plain repair (marker → rows → the caller's blob write). Returns the
-    replaced row. A `live` row that is no longer active under its lock is the native superseded
-    conflict (409 `connection_conflict`); the caller rolls back.
-
-    # INVARIANT: the lookup that found `live` ran before this transaction; only the status read
-    # under the row lock decides — the marker never names a row a refresh failure already broke.
-    """
-    await replace_effective(observed, connection_id=live.id)
-    replaced = await retire_replaced(observed, alongside=(pending.id, live.id))
-    if not await OAuthConnection.filter(
-        id=live.id, account_id=observed.account_id, status="active"
-    ).exists():
-        raise _superseded(pending)
-    store = OAuthConnectionStore()
-    await store.delete_or_supersede_pending(pending, live)
-    await store.touch_last_refreshed(live)
-    return replaced
 
 
 def _live_rows(connection: OAuthConnection) -> QuerySet[OAuthConnection]:
@@ -333,7 +323,6 @@ __all__ = [
     "effective_pair_of",
     "effective_to_replace",
     "lock_lower_addressers",
-    "promote_live_row",
     "replace_effective",
     "replaced_label",
     "republish_effective_api_key",

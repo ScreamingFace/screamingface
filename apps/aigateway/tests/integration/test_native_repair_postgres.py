@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from uuid import UUID
@@ -144,14 +146,12 @@ def test_a_repair_and_a_delete_of_the_replaced_row_do_not_deadlock_on_postgres(
     assert backing._connection(pg_client, account_id, old).status == "revoked"
 
 
-def test_a_sibling_broken_after_its_lookup_is_not_made_effective_on_postgres(
+def test_a_stale_failure_of_the_same_identity_row_cannot_break_the_repair_on_postgres(
     pg_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # WHY: the identity lookup runs before the transaction; a refresh failure that commits before
-    # the promotion locks the sibling must make the promotion refuse, not publish an `error` row.
-    # WHY only before: a failure that arrives AFTER the promotion's marker update waits on the FK
-    # lock the marker takes on the sibling and lands after the commit — that is the stale-refresh
-    # class of every in-place re-key on a migrated pair, outside this test.
+    # WHY: a refresh that started on the same-identity row's old tokens fails while the repair
+    # holds that row's lock; its `mark_error` waits, then re-evaluates against a revoked row and
+    # changes nothing — the repaired pair stays on the fresh row.
     account_id = backing._account_id(pg_client)
     name = backing._fresh_name()
     old = backing._seed(
@@ -166,26 +166,35 @@ def test_a_sibling_broken_after_its_lookup_is_not_made_effective_on_postgres(
     assert _callback(pg_client, sibling_flow["state"]).status_code == 200
     sibling = sibling_flow["connection_id"]
     _mark_error(pg_client, account_id, old)
-    before = backing._marker(pg_client, account_id)
+    stale = backing._connection(pg_client, account_id, sibling)
     repair = _start(pg_client, "work", "new-tok")
-    find_by_identity = OAuthConnectionStore.find_by_identity
 
-    async def breaks_after_lookup(self: Any, *args: Any, **kwargs: Any) -> Any:
-        found = await find_by_identity(self, *args, **kwargs)
-        if found is not None and str(found.id) == sibling:
-            # A committed write on its own connection, before the repair's transaction.
-            await OAuthConnectionStore().mark_error(
-                await OAuthConnection.get(id=found.id), "refresh rejected"
-            )
-        return found
+    held, release = threading.Event(), threading.Event()
+    complete_pending = OAuthConnectionStore.complete_pending
 
-    monkeypatch.setattr(OAuthConnectionStore, "find_by_identity", breaks_after_lookup)
+    async def hold_with_rows_locked(self: Any, *args: Any, **kwargs: Any) -> Any:
+        held.set()
+        if not await asyncio.to_thread(release.wait, 20):
+            raise TimeoutError("the repair was not released")
+        return await complete_pending(self, *args, **kwargs)
 
-    completed = _callback(pg_client, repair["state"])
+    monkeypatch.setattr(OAuthConnectionStore, "complete_pending", hold_with_rows_locked)
 
-    assert completed.status_code == 409, completed.text
-    assert completed.json()["detail"]["code"] == "connection_conflict"
-    assert backing._marker(pg_client, account_id) == before
-    assert backing._connection(pg_client, account_id, sibling).status == "error"
-    assert _access_token(pg_client, account_id, sibling) == "sibling-tok"
-    assert backing._connection(pg_client, account_id, repair["connection_id"]).status == "revoked"
+    def stale_failure() -> Any:
+        return backing._call(pg_client, OAuthConnectionStore().mark_error, stale, "rejected")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        completing = executor.submit(_callback, pg_client, repair["state"])
+        assert held.wait(20), "the repair never reached its activation"
+        failing = executor.submit(stale_failure)
+        release.set()
+        completed = completing.result(timeout=30)
+        marked = failing.result(timeout=30)
+
+    assert completed.status_code == 200, completed.text
+    assert marked is None
+    new = repair["connection_id"]
+    assert str(backing._marker(pg_client, account_id).effective_connection_id) == new
+    assert backing._connection(pg_client, account_id, new).status == "active"
+    assert backing._connection(pg_client, account_id, sibling).status == "revoked"
+    assert _access_token(pg_client, account_id, new) == "new-tok"

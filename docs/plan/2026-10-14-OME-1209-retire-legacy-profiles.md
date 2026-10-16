@@ -76,13 +76,12 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   inherited, a placeholder one is not), or it carries the requested label, the pending entry records that observed pair (new
   field `PendingAuthEntry.replaces_effective`) and the pending row takes a placeholder label (the
   callback gives it the requested one after revoking the old row). Any other pair is unchanged.
-- Same provider identity as another active row of the pair: that row becomes effective (marker
-  CAS, old row revoked, the new row retired as its duplicate, fresh tokens written to its blob),
-  in one transaction. The row must still be `active` under its row lock (the identity lookup runs
-  before the transaction); otherwise the promotion is the native superseded conflict (409
-  `connection_conflict`). Any other failure of the promotion retires this flow's pending row
-  (`error`, 503 `connection_activation_failed`; an integrity conflict revokes it, 409), as the
-  plain activation does.
+- Same provider identity as another row of the pair: the callback's one row-lock statement also
+  locks every row holding that identity (`retire_replaced(..., identity_sub=...)`, still one
+  ascending id order) and revokes it with the old effective row; the new row then activates with
+  the identity and the fresh tokens. The repair is never treated as a duplicate, and no existing
+  row is reused, so a stale refresh failure of the revoked row (its `mark_error` waits on the
+  lock, then matches no `active` row) changes nothing.
 - No repair branch touches the Profile document: the callback's compat-document update runs only
   when the flow replaces nothing (R6, §8 Q7).
 - API-key create (`create_api_key_connection`): the same rule (`effective_to_replace`); in its
