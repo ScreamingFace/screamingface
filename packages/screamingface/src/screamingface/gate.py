@@ -47,6 +47,7 @@ class Gate:
     cmp: GateCmp
     threshold: float
     otherwise: Literal["abstain"] | Judge | Model
+    abstain_band: tuple[float, float] | None
 
     def __init__(
         self,
@@ -55,6 +56,7 @@ class Gate:
         threshold: float,
         *,
         otherwise: Literal["abstain"] | Judge | Model = "abstain",
+        abstain_band: tuple[float, float] | None = None,
     ) -> None:
         checked_observe = _observe(observe)
         checked_cmp = _cmp(cmp)
@@ -64,6 +66,8 @@ class Gate:
         object.__setattr__(self, "cmp", checked_cmp)
         object.__setattr__(self, "threshold", number)
         object.__setattr__(self, "otherwise", _otherwise(otherwise))
+        # RED stub (part 6 unit 5, commit A): the keyword exists; the band is not kept yet.
+        object.__setattr__(self, "abstain_band", None)
 
     def _spec(self) -> dict[str, object]:
         """{"cmp", "observe", "otherwise": "abstain" | "judge" | "writer", "threshold": float}."""
