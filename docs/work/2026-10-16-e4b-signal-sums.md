@@ -1009,8 +1009,21 @@ None.
   `docs(e4b): README and CHANGELOG for sums and the abstain band (part 6)` that holds this outcome.
 - **RED record (commit A):** `tests/test_sum_band_docs.py`: 1 passed, 4 failed. DC#1 passes; DC#2
   to DC#5 fail on the missing doc text, as the spec §6 table says.
-- **Gates:** Before commit C, the focused list of spec §9 step 4 (12 files) gave 122 passed. The
-  README diff is 81 added and 0 removed lines; the CHANGELOG diff is 2 added lines. The count of
-  lines over 100 bytes stays 37, and no added line ends with a space. `ruff format --check`,
-  `ruff check` and `pyright` on the new test file are clean. The gate stacks run after commit C.
-- **Deviations:** None from the spec text. The spec §10 planned deviations apply as written.
+- **Gates:**
+  - Focused list of spec §9 step 4 (12 files): 122 passed. The README diff is 81 added and 0
+    removed lines; the CHANGELOG diff is 2 added lines. The count of lines over 100 bytes stays
+    37, and no added line ends with a space. `ruff format --check`, `ruff check` and `pyright` on
+    the new test file are clean.
+  - `screamingface --base 8c8297257` (unit 6 tip): ALL GATES GREEN, append-only check included.
+  - `screamingface --base 633fec3a1`: the append-only check was the only red result. Its offenders
+    are exactly the SDK files of the units 1 to 5 pinned lists: `tests/data/schemas/screamingface.answer.v1.json`,
+    `tests/public_surface_snapshot.json`, `tests/test_evidence_words.py`,
+    `tests/test_frozen_record_fields.py`, `tests/test_gate_api.py`, `tests/test_gate_words.py`,
+    `tests/test_pick_output.py`. This unit changed none of them. With `--skip-append-only`:
+    ALL GATES GREEN.
+  - `repo --base 633fec3a1`: ALL GATES GREEN.
+  - Flakes: none seen in this unit.
+- **Deviations:**
+  - The gate results are in a follow-up ledger commit, not in commit C. The gates run after
+    commit C (spec §11), so their results are not known when commit C is made.
+  - No other deviation from the spec text. The spec §10 planned deviations apply as written.
