@@ -82,3 +82,19 @@ def test_model_golden_and_long_strings_round_trip() -> None:
     namespace = {}
     exec("import screamingface as sf\n" + render_golden_candidate(long), namespace)
     assert namespace["candidate"].members[0].prompt == prompt
+
+
+def test_the_result_cell_runs_before_any_assertion() -> None:
+    """Review Focus 1: a failing assert must still leave trace ids in the bundle, so the
+    ``workbench-result`` cell runs before every cell that asserts."""
+    for stem, nb in build().items():
+        code = [c for c in nb.cells if c.cell_type == "code"]
+        at = next(i for i, c in enumerate(code) if "workbench-result" in c.metadata.get("tags", []))
+        assert not [c for c in code[:at] if "assert " in c.source], stem
+        assert any("assert " in c.source for c in code[at + 1 :]), stem
+
+
+def test_quickstart_reports_right_after_evaluate() -> None:
+    cells = [c for c in build()["quickstart"].cells if c.cell_type == "code"]
+    at = next(i for i, c in enumerate(cells) if "workbench-result" in c.metadata.get("tags", []))
+    assert "client.evaluate(" in cells[at - 1].source
