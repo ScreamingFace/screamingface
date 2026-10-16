@@ -145,3 +145,31 @@ Owner approved fixing the two localized P2 findings before drafting the PR.
 - Commit: `fix(scoreboard): validate and audit metadata scalar values correctly`.
   This follow-up is complete locally; the overall feature remains in progress. Existing main
   conflicts and deployment duplicate-copy checks remain separate pre-PR/pre-merge work.
+
+## Rebase and pre-PR review — 2026-10-16
+
+- Owner requested resolving conflicts, another review, and preparation for posting (not publishing).
+- Rebased onto `origin/main` at `8edd994bf`. Backup ref:
+  `backup/OME-1596-before-rebase-20261016-b9f846749`. Rebased code tip: `2f6ab1591`.
+- Resolved only `.claude/sdlc.local.md` and `.github/workflows/scoreboard-tests.yml`: retained
+  main's `pareto-chart-launch-copy` and `benchmark-chart-isolation` tests alongside this branch's
+  `reproduce-button` and `spec-meta-lines` tests. The previously approved reproduction-count
+  test removal remains unchanged. No other implementation changes were needed for the rebase.
+- Fresh review against current main and the current Linear description/comments covered metadata
+  validation, masking/export compatibility, owner-only edits and audit/no-op semantics, copy
+  claims/dedup, lookup visibility, migration ordering/duplicate refusal, and the #1406 portal
+  integration. No additional blocking code finding identified. The Reproduce switch remains off.
+- Validation: scoreboard gates green against rebased HEAD; repository gates green against
+  `origin/main`; full Python run: **1324 passed, 9 skipped, 3 deselected**, coverage **91%**;
+  all portal tests: **141 passed**. `git diff --check origin/main` clean. PostgreSQL-only tests
+  were not rerun in this pass; earlier PostgreSQL manual evidence is recorded above.
+- Branch-wide append-only check against `origin/main` accepts both approved Python test
+  transitions and reports exactly the already-approved deletion of
+  `tests/portal/reproduced-count.test.js`. No new exception introduced or hook bypass used.
+  The owner's deletion exception still needs handling when pushing.
+- Prepared PR body locally at `.docs/OME-1596-pr-body.txt` (gitignored), following the repository
+  PR template. Suggested title: `feat(scoreboard): add credit metadata and pinned-cache replay lookup`.
+  Suggested technical reviewer: `HupBaHa`; CI/shared-file co-owner: `sergio-bershadsky`.
+- Before merge: read-only duplicate-copy checks on dev and production remain required. Deploy
+  scoreboard before releasing OME-1613; enable the button only after that SDK release.
+  No push, PR, review comment, Linear mutation, or deployment performed in this pass.
