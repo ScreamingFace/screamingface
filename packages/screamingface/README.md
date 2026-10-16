@@ -27,7 +27,8 @@ screamingface up
 `draco`, the Benchmark the examples below use, is a local inspect Task, and so is `ifeval`: the plain
 `screamingface up` Engine lists neither. From a checkout, `just local-stack-notebooks` serves an
 Engine with the `inspect` extra beside the stack; otherwise point `SCREAMINGFACE_ENGINE_URL` at such
-an Engine.
+an Engine and `SCREAMINGFACE_SCOREBOARD_URL` at its Scoreboard (a non-default Engine without a
+Scoreboard is refused).
 
 `screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
 `screamingface status`, `screamingface doctor`, `screamingface logs`, `screamingface restart`, and

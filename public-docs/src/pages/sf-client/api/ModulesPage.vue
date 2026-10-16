@@ -12,14 +12,17 @@ import {
 
 const shared = `import screamingface as sf
 
-sf.configure(engine_url="http://127.0.0.1:9108")
+sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
 [(b.id, b.variant) for b in sf.benchmarks.list()][:3]`
 const sharedOut = `[('draco', 'canonical'), ('draco/lite', 'lite'), ('draco/smoke', 'smoke')]`
 
 const configureSig = `sf.configure(
     *,
-    engine_url: str = "https://fusion.dev.screamingface.ai",
-    scoreboard_url: str = "https://leaderboard.dev.screamingface.ai",
+    engine_url: str = "https://fusion.screamingface.ai",
+    scoreboard_url: str | None = None,
 ) -> Client`
 
 const evaluateSig = `sf.evaluate(
@@ -226,8 +229,11 @@ const reproduceSig = `sf.reproduce(
 
     <p>
       Replaces the shared Client and returns the new one. Call it once, before anything else, to
-      point the module-level functions at a different engine. Setting
-      <code>SCREAMINGFACE_ENGINE_URL</code> in the environment does the same thing without a call.
+      point the module-level functions at a different engine. A non-default
+      <code>engine_url</code> must come with its <code>scoreboard_url</code>; the call raises
+      otherwise, and leaves the previous Client in place. Setting
+      <code>SCREAMINGFACE_ENGINE_URL</code> and <code>SCREAMINGFACE_SCOREBOARD_URL</code> in the
+      environment does the same thing without a call; the engine variable alone raises.
     </p>
 
     <h3>connect() and disconnect()</h3>
