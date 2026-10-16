@@ -10,8 +10,11 @@ A page is NDJSON: a header line (``schema``, ``revisions``, and ``remaining`` wh
 page, or null after the last. A page without its trailer was cut off; the client discards it.
 
 INVARIANT: any authenticated account, never anonymous. ``CurrentAccount`` answers 401 for a
-caller without an identity in every auth mode. Not admin-gated: reading the cache is what an
-ordinary account does on every hosted call already.
+caller without an identity in every mode that authenticates (``jwt``, ``cloudflare_headers``).
+Not admin-gated: reading the cache is what an ordinary account does on every hosted call already.
+AIDEV-NOTE: ``AIGW_AUTH_MODE=disabled`` is the exception: ``CurrentAccount`` returns the anonymous
+account, so every caller may read. That mode is loopback-only (``AuthDisabledLocalOnlyMiddleware``),
+the same footing the admin routes give it.
 INVARIANT: no hop holds a whole page. A page of the heaviest model is ~235 MB of rows, against
 ~240 MiB of headroom on a gateway pod; the body is written one ``BATCH_ROWS`` batch at a time.
 """
