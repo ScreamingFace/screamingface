@@ -230,9 +230,10 @@ sf.evaluate(score.url4)        # a new paid run; omit benchmark= and limit=`
     </div>
 
     <p>
-      Local writes are open. On the public leaderboard, reads are public but
-      <code>submit</code> needs a Cloudflare Access login, and access is granted by the OpenMined
-      team: reach out to them to publish.
+      Local writes are open. On the public leaderboard, <code>list</code> and <code>get</code>
+      are public. <code>get_score</code>, <code>submit</code>, <code>edit</code> and
+      <code>metadata_events</code> need a Cloudflare Access login, and access is granted by the
+      OpenMined team: reach out to them.
     </p>
 
     <h3>4 · Publish a result</h3>

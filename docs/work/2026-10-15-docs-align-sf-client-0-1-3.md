@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-426
 stack: repo
-status: planned
+status: done
 started: 2026-10-15
-finished:
+finished: 2026-10-16
 ---
 
 # docs-align-sf-client-0-1-3 — Align the SF Client docs with screamingface 0.1.3
@@ -41,7 +41,7 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.3, th
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** `public-docs/src` (35 files), `public-docs/vite.config.ts`, `public-docs/env.d.ts`, `public-docs/CLAUDE.md`, `.github/workflows/deploy-public-docs.yml`, `docs/spec`, `docs/plan`, `docs/work`, `docs/tasks`.
+- **Commits:** `001addd2b` to `2eccc9298` (11), plus the ledger and task mirror.
+- **Gates:** type-check, lint and build pass. 38 internal and 13 external links resolve.
+- **Deviations:** Spec gained D20. Footer version comes from the release tag, and the deploy job fetches full git history to find it.
