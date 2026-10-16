@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from screamingface.combine_evidence import (
         CombineAnswerRow,
         CombineEvidence,
+        CombineGate,
         CombineResult,
         CombineSignal,
     )
@@ -32,6 +33,8 @@ _TEXT_CELL = 80  # characters of a member value shown in one cell (P7)
 _NUMBER_COLUMNS = ("weight", "score", "rank")  # C4-C6: shown when any row has the value (P11)
 _NO_EVIDENCE = "no combine evidence recorded for this step"
 _NO_JUDGE_MODEL = "no model recorded for the judge call"
+_GATE_NOT_RUN = "the vote found no answer, so the gate did not run"
+_GATE_NO_NUMBER = "no number to compare, so the gate took the fallback"
 
 # WHY one "<style>…</style>" constant: the house precedent (accounting_view.STYLE, joined into
 # report_view._STYLE). WHY text-align on th AND td, and the tbody tr background: JupyterLab's
@@ -177,7 +180,7 @@ def _section(
 
 
 def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
-    """The step facts F1-F10 (erd §4), in order; each chip text is escaped."""
+    """The step facts F1-F10 (erd §4) and the gate (E4b part 5, P16), in order; text is escaped."""
     chips = [
         escape(f"reducer · {evidence.reducer}"),
         escape("rule · " + " → ".join(evidence.operators)),
@@ -188,6 +191,7 @@ def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
         "" if evidence.signal is None else _reads_chip(evidence.signal),
         _judge_chip(link),
         "" if evidence.agreement is None else "agreement · " + number_html(evidence.agreement, ""),
+        _gate_chip(evidence.gate),
         "tie · yes" if evidence.tie else "tie · no",
         f"dropped · {evidence.dropped}",
         "" if evidence.median is None else "median · " + text_html(evidence.median, ""),
@@ -217,6 +221,23 @@ def _judge_chip(link: Mapping[str, str | None]) -> str:
     if model is None:
         return "judge · " + dash_html(_NO_JUDGE_MODEL)
     return escape(f"judge · {model}")
+
+
+def _gate_chip(gate: CombineGate | None) -> str:
+    """The gate: the number, the comparison, the threshold and the branch (P16); none: no chip."""
+    if gate is None:
+        return ""
+    head = escape(f"gate · {gate.observe} {gate.cmp} ") + number_html(gate.threshold, "")
+    reason = _GATE_NOT_RUN if gate.passed is None else _GATE_NO_NUMBER
+    observed = number_html(gate.observed, reason)
+    return f"{head} · observed {observed} · {escape(_gate_verdict(gate))}"
+
+
+def _gate_verdict(gate: CombineGate) -> str:
+    """The branch words: ``majority``, ``fallback · {otherwise}`` or ``not run``."""
+    if gate.passed is None:
+        return "not run"
+    return "majority" if gate.passed else f"fallback · {gate.otherwise}"
 
 
 def _signal_head(evidence: CombineEvidence, key: str) -> str:
@@ -327,10 +348,15 @@ class _StepSummary:
     excluded: dict[str, int] = field(default_factory=dict)
     declared: dict[str, str] = field(default_factory=dict)
     values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
+    gated: int = 0  # E4b part 5: the Cases with a gate record, then one counter per branch
+    majority: int = 0
+    fallback: int = 0
+    not_run: int = 0
 
     def add(self, evidence: CombineEvidence) -> None:
-        """Count one Case of this step: chosen, excluded, the declared names and their values."""
+        """Count one Case of this step: chosen, excluded, the declared names, values and gate."""
         self.cases += 1
+        self._add_gate(evidence.gate)
         for name, entry in (evidence.declared or {}).items():
             self.declared.setdefault(name, str(entry["source"]))
         for row in evidence.members:
@@ -348,9 +374,21 @@ class _StepSummary:
                 if value is not None:
                     self.values.setdefault((row.member_id, name), []).append(value)
 
+    def _add_gate(self, gate: CombineGate | None) -> None:
+        """Count the branch of one gated Case: majority, fallback or not run (gate-display §2)."""
+        if gate is None:
+            return
+        self.gated += 1
+        if gate.passed is None:
+            self.not_run += 1
+        elif gate.passed:
+            self.majority += 1
+        else:
+            self.fallback += 1
+
 
 def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, OperationInfo]) -> str:
-    """One step of the run summary: the heading, then one row per member (P13)."""
+    """One step of the run summary: the heading, the gate line, then one row per member (P13)."""
     total = step.cases
     noun = "case" if total == 1 else "cases"
     heading = (
@@ -363,7 +401,20 @@ def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, Ope
         for name, source in step.declared.items()
     )
     rows = "".join(_summary_row(member_id, step) for member_id in step.chosen)
-    return heading + _table(head, rows)
+    return heading + _gate_line(step) + _table(head, rows)
+
+
+def _gate_line(step: _StepSummary) -> str:
+    """How often the gate of a gated step kept the majority; an ungated step: no line (P16)."""
+    if step.gated == 0:
+        return ""
+    total = step.cases
+    tail = f" · not run {step.not_run} of {total}" if step.not_run else ""
+    return (
+        "<div class='sf-chips'><span class='sf-chip'>"
+        f"gate · majority {step.majority} of {total} · fallback {step.fallback} of {total}{tail}"
+        "</span></div>"
+    )
 
 
 def _summary_row(member_id: str, step: _StepSummary) -> str:

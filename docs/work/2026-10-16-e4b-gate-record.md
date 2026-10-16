@@ -865,20 +865,36 @@ None.
 
 ### Outcome (fill at the end — required before COMMIT)
 
-- **Status:** in progress. Commit A written (RED tests and this ledger section). Commit B not
-  started.
+- **Status:** Done. Commit B is built and gated. The `screamingface` and `repo` stacks are green.
+  The append-only check of `screamingface --base 4e622af75` is red only on the five pinned files of
+  units 1 to 3 (listed below). The same stack with `--skip-append-only` is ALL GREEN, and
+  `screamingface --base 55182850c` (the unit 4 tip) is ALL GREEN with the append-only check included.
 - **Start commit:** `55182850c` (unit 4 tip, `U4`). Part base `4e622af75`.
 - **Actual files:** commit A: `packages/screamingface/tests/test_gate_display.py` (new), this
-  ledger file.
-- **Commits:**
+  ledger file. Commit B: `packages/screamingface/src/screamingface/_ui/combine_view.py` (the chip,
+  the gate line, the step counters), `packages/screamingface/src/screamingface/_case_views.py`
+  (rule J4 in `_reads_judge`), this ledger file. No test file, golden, schema or snapshot changed in
+  commit B. No pinned edit. No file under `.claude/test-change-approvals/` was touched.
+- **Commits:** A = `0db5439d1` (RED tests and this ledger section). B = the commit whose subject is
+  `feat(e4b): show the gate in the Case pane, the run summary and the judge link (part 5 unit 5)`.
+  C = none (spec §13).
 - **Gates:**
+  - Focused: `tests/test_gate_display.py`: `12 passed` (GS#1 to GS#12).
+  - Neighbour regression (spec §11, 12 files): `174 passed`.
+  - Lint and types on the touched files: `ruff check`, `ruff format --check` and `pyright` (0 errors)
+    all pass.
+  - `screamingface --base 4e622af75`: red only on the append-only check. It lists
+    `tests/data/schemas/screamingface.answer.v1.json`, `tests/public_surface_snapshot.json`,
+    `tests/test_evidence_words.py`, `tests/test_frozen_record_fields.py` and `tests/test_pick_output.py`.
+    All five are pinned edits of units 1 to 3. With `--skip-append-only`: ALL GATES GREEN (ruff check,
+    ruff format, pyright, pytest with coverage 95, notebooks, build, distribution check).
+  - `screamingface --base 55182850c`: ALL GATES GREEN, the append-only check included.
+  - `repo --base 4e622af75`: ALL GATES GREEN, the append-only check included.
 - **RED log:** commit A, focused run `uv run pytest tests/test_gate_display.py -q -p no:randomly`:
-  `Pytest: 2 passed, 10 failed`. The 2 passed are GS#1 (CHAR, 32 digests) and GS#11 (CHAR, export).
-  The 10 failed rows are GS#2–10 and GS#12, each an `AssertionError` in the test body (for
-  example `assert [] == [<gate chip>]` for GS#2–7; `assert 0 == 1` for GS#8; the heading + line
-  + table substring for GS#9 and GS#10; `assert {...judge_model: None} == {...provider/judge-x}`
-  for GS#12). No ImportError, no collection error, no KeyError.
-- **Flakes:** none seen.
+  `10 failed, 2 passed`. The 2 passed are GS#1 (CHAR, 32 digests) and GS#11 (CHAR, export). Each of
+  the 10 failed rows is an `AssertionError` in the test body.
+- **Flakes:** none seen. The OME-1619 tests ran in the pytest step and passed.
 - **Deviations:**
   - D-1, D-2, D-3 (planner): see the Deviations section above.
+  - No new deviation in commit B. The code follows spec §3.1 and §3.2 as written.
 - **Pinned edits:** none.
