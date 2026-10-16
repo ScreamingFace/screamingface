@@ -506,3 +506,15 @@ RED came first.
     Run 2 with `--skip-append-only`: ALL GATES GREEN.
   - `repo`: ALL GATES GREEN, append-only check passed.
 - Flakes: none seen.
+
+### Orchestrator fix (unit 2, 2026-10-16)
+
+- The second review left one MAJOR: the `math.fsum` of the quotients can still overflow (three
+  values of `sys.float_info.max`). Fix: on `OverflowError` the mean is the exact `Fraction` mean,
+  rounded to a float (erratum E6, updated).
+- The open MINOR about `chosen:<n>` with no chosen member is closed: the observed number is None,
+  so the fallback answers (erratum E7).
+- RED first: `test_mean_of_values_at_the_float_limit_is_finite` (3, 7 and 1000 members) and
+  `test_chosen_signal_with_no_chosen_member_is_missing` failed with `OverflowError` and
+  `IndexError`, then passed after the fix. The review comment "(review fix)" in `gate.py` is now a
+  `WHY` comment.
