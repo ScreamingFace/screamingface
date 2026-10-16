@@ -45,13 +45,17 @@ def pytest_runtest_makereport(
     WHY rewrite at makereport, not logreport: the session counts failures in a ``tryfirst``
     logreport hook that runs before a conftest's; a report fixed at creation is seen as failed
     by every consumer (exit status, terminal, junit).
+
+    SCOPE: pytest calls a conftest's makereport only for items under its directory, so other
+    e2e lanes in the same run never reach this; within the lane only ``test_notebook`` in
+    ``test_notebooks.py`` is guarded (matched on the item, not on nodeid substrings).
     """
     report = yield
     if (
         os.environ.get(REQUIRE_ALL_ENV) == "1"
         and report.skipped
-        and "workbench" in report.nodeid
-        and "test_notebook" in report.nodeid
+        and item.path.name == "test_notebooks.py"
+        and getattr(item, "originalname", item.name) == "test_notebook"
     ):
         # A skip's longrepr is the (path, lineno, "Skipped: <reason>") tuple; keep the reason.
         why = report.longrepr[-1] if isinstance(report.longrepr, tuple) else report.longrepr
