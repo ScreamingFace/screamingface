@@ -23,6 +23,7 @@ from screamingface_engine.community_cache.port import (
     CommunityCacheBadResponse,
     CommunityCacheError,
     CommunityCacheInvalidRequest,
+    CommunityCacheRateLimited,
     CommunityCacheRejected,
     CommunityCacheTimeout,
     CommunityCacheUnavailable,
@@ -32,10 +33,13 @@ from screamingface_engine.connections.port import Caller
 logger = logging.getLogger(__name__)
 
 _ENTRIES_PATH = "/v1/cache/entries"
+# WHY local, not `connections.upstream_errors`: the same statuses mean different things here —
+# 400/422 are the page query, 403 is the gateway refusing this Engine (502), and 429 carries its
+# `Retry-After` — so one shared table would be a parameter per difference. The transport
+# handling in `open_page` stays local for the same reason: it raises this surface's own errors.
 _ERRORS: dict[int, type[CommunityCacheError]] = {
     400: CommunityCacheInvalidRequest,
     401: CommunityCacheRejected,
-    403: CommunityCacheRejected,
     422: CommunityCacheInvalidRequest,
     503: CommunityCacheUnavailable,
     504: CommunityCacheTimeout,
@@ -51,8 +55,17 @@ class _HttpxPage:
     async def aiter_raw(self) -> AsyncIterator[bytes]:
         # WHY raw: `aiter_bytes` would decode a gzip body, holding the Engine's CPU and handing
         # the caller bytes the `Content-Encoding` header no longer describes.
-        async for chunk in self._response.aiter_raw():
-            yield chunk
+        try:
+            async for chunk in self._response.aiter_raw():
+                yield chunk
+        except httpx.TimeoutException as exc:
+            logger.warning("AI Gateway community-cache page timed out mid-stream")
+            raise CommunityCacheTimeout() from exc
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "AI Gateway community-cache page failed mid-stream (%s)", type(exc).__name__
+            )
+            raise CommunityCacheUnavailable() from exc
 
     async def aclose(self) -> None:
         await self._response.aclose()
@@ -77,6 +90,15 @@ class AigatewayCommunityCache:
         if response.status_code != 200:
             await response.aclose()
             logger.info("AI Gateway community-cache request failed: %s", response.status_code)
+            if response.status_code == 403:
+                # WHY not 401: the gateway answers 403 only to a peer it does not trust (or a
+                # non-loopback caller when its auth is disabled) — this Engine's deployment, not
+                # the user's identity. It falls through to 502.
+                logger.warning(
+                    "AI Gateway refused this Engine as a peer (403) — check its trusted networks"
+                )
+            if response.status_code == 429:
+                raise CommunityCacheRateLimited(_retry_after(response))
             raise _ERRORS.get(response.status_code, CommunityCacheBadResponse)()
         return _HttpxPage(response)
 
@@ -97,12 +119,17 @@ def _params(request: CachePageRequest) -> httpx.QueryParams:
     return httpx.QueryParams(params)
 
 
+def _retry_after(response: httpx.Response) -> int | None:
+    # WHY whole seconds only: an HTTP-date or a malformed value is not passed on unchecked; the
+    # caller just gets no hint.
+    value = response.headers.get("retry-after", "").strip()
+    return int(value) if value.isascii() and value.isdigit() else None
+
+
 def _headers(caller: Caller, request: CachePageRequest) -> dict[str, str]:
-    # INVARIANT: the Engine-owned headers are written LAST, so nothing in `caller.identity` can
-    # displace them (the rule `connections.aigateway._headers` documents).
-    headers = job_env.identity_for_forwarding(caller.identity)
-    if caller.traceparent is not None:
-        headers["traceparent"] = caller.traceparent
+    # INVARIANT: written after the caller's headers, so nothing in `caller.identity` can displace
+    # it (the rule `job_env.upstream_headers` documents).
+    headers = job_env.upstream_headers(caller.identity, caller.traceparent)
     headers["Accept-Encoding"] = "gzip" if request.gzip else "identity"
     return headers
 

@@ -22,6 +22,7 @@ from screamingface_engine.community_cache.port import (
     CachePageRequest,
     CommunityCacheBadResponse,
     CommunityCacheInvalidRequest,
+    CommunityCacheRateLimited,
     CommunityCacheRejected,
     CommunityCacheTimeout,
     CommunityCacheUnavailable,
@@ -184,7 +185,7 @@ async def test_closing_the_page_closes_the_upstream_response() -> None:
     ("status", "error"),
     [
         (401, CommunityCacheRejected),
-        (403, CommunityCacheRejected),
+        (403, CommunityCacheBadResponse),
         (400, CommunityCacheInvalidRequest),
         (422, CommunityCacheInvalidRequest),
         (503, CommunityCacheUnavailable),
@@ -202,6 +203,47 @@ async def test_an_upstream_failure_maps_to_its_error_and_closes_the_response(
     with pytest.raises(error):
         await adapter.open_page(_CALLER, CachePageRequest())
 
+    assert stream.closed
+
+
+async def test_a_403_is_the_gateway_refusing_this_engine_and_is_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # WHY not 401: the gateway answers 403 only to an untrusted peer or a non-loopback caller of
+    # an auth-disabled gateway. That is this Engine's deployment, not the user's identity, so
+    # sending the user to sign in again could never fix it.
+    adapter, _ = _adapter(lambda _request: httpx.Response(403, stream=_Closing(b"")))
+
+    with pytest.raises(CommunityCacheBadResponse):
+        await adapter.open_page(_CALLER, CachePageRequest())
+
+    assert "AI Gateway refused this Engine as a peer (403)" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "kept"),
+    [
+        ("30", 30),
+        ("0", 0),
+        (None, None),
+        ("-1", None),
+        ("1.5", None),
+        (b"\xb2", None),  # a Latin-1 superscript two, which `str.isdigit` accepts
+        ("Wed, 21 Oct 2026 07:28:00 GMT", None),
+    ],
+)
+async def test_a_rate_limit_keeps_only_a_whole_seconds_retry_after(
+    retry_after: str | bytes | None, kept: int | None
+) -> None:
+    stream = _Closing(b"")
+    raw = retry_after.encode() if isinstance(retry_after, str) else retry_after
+    headers: dict[bytes, bytes] = {} if raw is None else {b"retry-after": raw}
+    adapter, _ = _adapter(lambda _request: httpx.Response(429, stream=stream, headers=headers))
+
+    with pytest.raises(CommunityCacheRateLimited) as raised:
+        await adapter.open_page(_CALLER, CachePageRequest())
+
+    assert raised.value.retry_after == kept
     assert stream.closed
 
 
@@ -223,6 +265,35 @@ async def test_a_transport_failure_is_unavailable() -> None:
 
     with pytest.raises(CommunityCacheUnavailable):
         await adapter.open_page(_CALLER, CachePageRequest())
+
+
+class _Failing(httpx.AsyncByteStream):
+    """A body that sends one chunk and then fails, as a stalled or dropped upstream does."""
+
+    def __init__(self, error: Exception) -> None:
+        self._error = error
+
+    async def __aiter__(self):
+        yield _PAGE[:10]
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    ("failure", "error"),
+    [
+        (httpx.ReadTimeout("stalled"), CommunityCacheTimeout),
+        (httpx.RemoteProtocolError("dropped"), CommunityCacheUnavailable),
+    ],
+)
+async def test_a_failure_mid_page_maps_to_its_error(
+    failure: Exception, error: type[Exception]
+) -> None:
+    adapter, _ = _adapter(lambda _request: httpx.Response(200, stream=_Failing(failure)))
+    page = await adapter.open_page(_CALLER, CachePageRequest())
+
+    with pytest.raises(error):
+        await _read(page)
+    await page.aclose()
 
 
 async def test_aclose_closes_the_client() -> None:
