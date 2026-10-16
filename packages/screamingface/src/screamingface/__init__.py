@@ -52,6 +52,7 @@ from screamingface.errors import (
 from screamingface.events import Event
 from screamingface.fields import FieldRule, Merge, Pick
 from screamingface.fusion import Fusion
+from screamingface.gate import Gate
 from screamingface.judge import Judge
 from screamingface.leaderboard import (
     Leaderboard,
@@ -139,6 +140,7 @@ __all__ = [
     "Filter",
     "FixedSeedSittingWarning",
     "Fusion",
+    "Gate",
     "Judge",
     "JudgeWriterWarning",
     "Leaderboard",
