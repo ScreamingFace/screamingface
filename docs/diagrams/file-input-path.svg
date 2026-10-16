@@ -3,7 +3,7 @@
 <rect width="1500" height="668" fill="#0f172a"/>
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>
 <text class="t" x="40" y="40">File input path — url4 → engine → gateway → provider (OME-1535)</text>
-<text class="t" x="40" y="90" style="font-size:14px">TODAY (main 8edd994bf) — a file cannot reach a model through url4/engine</text>
+<text class="t" x="40" y="90" style="font-size:14px">TODAY (main 637594595) — a file cannot reach a model through url4/engine</text>
 <rect x="40" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="h" x="160.0" y="150">caller</text>
 <text class="l" x="160.0" y="190">GET /?q=&lt;url4&gt;</text>
@@ -30,8 +30,8 @@
 <text class="a" x="1175.0" y="288.0">inlineData / input_*</text>
 <rect x="1200" y="110" width="240" height="150" rx="10" fill="#1e293b" stroke="#f5a524" stroke-width="2.5"/>
 <text class="h" x="1320.0" y="150">provider</text>
-<text class="l" x="1320.0" y="190">Gemini / Antigravity ✓</text>
-<text class="l" x="1320.0" y="215">Codex: plan-gated (OME-1634)</text>
+<text class="l" x="1320.0" y="190">Antigravity · Codex · Claude ✓</text>
+<text class="l" x="1320.0" y="215">OpenRouter ✓ · Ollama PDF → 422</text>
 <text class="t" x="40" y="380" style="font-size:14px">TARGET — files travel by reference, become content parts at one point</text>
 <rect x="40" y="400" width="240" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="h" x="160.0" y="440">caller / Case</text>
