@@ -3,8 +3,8 @@
   "branch": "OME-1635-community-cache-engine",
   "approver": "owner",
   "date": "2026-10-16",
-  "scope": "The same four migration-target edits as OME-1631, byte for byte: this branch is stacked on OME-1631-community-cache and carries its commits. No test is changed by OME-1635 itself.",
-  "reason": "Inherited, not new: the owner approved these edits for OME-1631 in chat on 2026-10-16 and asked for this PR to be stacked on it, so the pre-push gate re-checks OME-1631's diff against main under this branch name. The blobs are identical to OME-1631.json.",
+  "scope": "The four migration-target edits inherited byte for byte from OME-1631 (this branch is stacked on OME-1631-community-cache), plus OME-1635's own review-round edit (817e43661): in test_traceparent_propagation.py the import and the two call sites of the Engine's caller helper move from rest.connections._caller to the shared rest.gateway_route.caller_from_request. No assertion changed.",
+  "reason": "Inherited: the owner approved the OME-1631 edits in chat on 2026-10-16 and asked for this PR to be stacked on it. Own: the owner made the review-round commit 817e43661 on PR #1439, which shares the caller helper between the connection and community-cache routes; the test edit is the mechanical rename that follows, confirmed by the owner in chat on 2026-10-16.",
   "files": {
     "apps/aigateway/tests/unit/test_migration_0010_simplify_request_cache.py": {
       "base_blob": "e0c5e133468e533047ba7b09c6013256e071358e",
@@ -17,6 +17,10 @@
     "apps/aigateway/tests/integration/test_global_cache_store_postgres.py": {
       "base_blob": "cacfd33c149a5dd2c4d413c210f1461c6acc2f2b",
       "approved_blob": "aadff8cddf2da3c55a09ec5ef459238cc281d8a9"
+    },
+    "apps/screamingface-engine/tests/unit/test_traceparent_propagation.py": {
+      "base_blob": "6394fdb66b1b456b53797d1274435416fd0c47a0",
+      "approved_blob": "a6bc75d44eb6789cfe46ddaf27635520790f270f"
     }
   }
 }
