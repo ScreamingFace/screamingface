@@ -417,13 +417,26 @@ to a sample seed of any member. No compile path reads a `Consistency` yet (unit 
 - D-U3-6 (line 1): the docstring summary says "(E4b)" instead of "(E4b part 3)", to name
   `sf.Consistency` in 100 characters.
 
-### Outcome (fill at the end, before commit B)
+### Outcome
 
-- **Status:** in_progress (commit A: RED tests and stubs)
-- **Actual files:**
-- **Commits:** A = , B =
-- **U2 (unit 2 tip):**
-- **RED log:**
+- **Status:** DONE (commit B). The code is built and the gates pass, with one gate exception
+  (see Gates).
+- **Actual files:** `S/signal_sources.py`, `S/fusion.py` (commit B); `ST/public_surface_snapshot.json`
+  (PINNED, regenerated in commit B); the ledger section (commit B). `S/__init__.py` and
+  `ST/test_consistency_api.py` were set in commit A.
+- **Commits:** A = 4d681228a (RED, stub, export, ledger section). B = the commit that adds this
+  Outcome; its sha is the head of the branch at the end of the unit.
+- **U2 (unit 2 tip):** a60999e66
+- **RED log:** Recorded in commit A. This build did not run the RED state again; the GREEN run
+  below ran on the commit B tree.
 - **Gates:**
-- **Flakes:**
-- **Deviations (build):**
+  - `screamingface` (`--base 633fec3a1`): the append-only check is RED. Its only offender is
+    `tests/public_surface_snapshot.json` (the PINNED edit of this unit). With
+    `--skip-append-only`, every other gate is green: ruff check, ruff format, pyright, pytest with
+    the coverage floor (95 %), the notebook check, uv build and the distribution check.
+  - `repo` (`--base 633fec3a1`): green, including the append-only check.
+  - Focused tests: `tests/test_consistency_api.py` and `tests/test_public_surface.py` give 36
+    passed (28 ids in the new file). The related files of §9 give 107 passed.
+- **Flakes:** None seen in this unit.
+- **Deviations (build):** None beyond the spec. The pinned snapshot holds the two hunks of §8 only
+  (checked with `git diff` against commit A).

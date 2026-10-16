@@ -1,4 +1,4 @@
-"""Declared signal sources of a Fusion: sf.Verbalized, sf.Logprob, sf.Entropy (E4b part 3), sf.Sum.
+"""Declared signal sources of a Fusion (E4b): Verbalized, Logprob, Entropy, Sum and Consistency.
 
 FEATURE: a Fusion names a number that each member answer carries (ans:Q1).
 STORY: as a benchmark author, I declare signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
@@ -6,13 +6,17 @@ and weight a vote with sf.signal("conf").
 INVARIANT: a source compiles to one entry of the combine spec ``signals`` map, and ``_from_spec``
 rebuilds an equal source from that entry (url4 → Python).
 sf.Sum (E4b part 6, ans:Q1) is derived: it adds other declared names of the same Fusion.
+``sf.Consistency`` (E4b part 7) is the one source whose entry also holds the step's ``match``: the
+compile gives it to ``_entry(match)``, and ``_spec()`` is the entry without ``match``.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
+from hashlib import sha256
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
@@ -23,7 +27,7 @@ from screamingface._signals import MAX_DECLARED_SIGNALS, _finite_number, is_sign
 class SignalSource(ABC):
     """Non-constructible umbrella type for the sources a Fusion declares in ``signals=``."""
 
-    source: ClassVar[str]  # the wire word: "verbalized" (unit 4: "logprob", "entropy")
+    source: ClassVar[str]  # the wire word: "verbalized", "logprob", "entropy" or "consistency"
 
     @abstractmethod
     def _spec(self) -> dict[str, object]:
@@ -252,31 +256,71 @@ def _is_wire_term(name: object, value: object) -> bool:
     return isinstance(name, str) and isinstance(value, int | float) and not isinstance(value, bool)
 
 
+_MAX_CONSISTENCY_N = 32  # P2: a step of 1/32 in the fraction; 256 members x 32 is above the cap
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Consistency(SignalSource):
-    """How often the member gives the same answer again (E4b part 7). RED stub: no checks yet."""
+    """How often the member gives the same answer again (E4b part 7).
+
+    Each member makes ``n`` more calls with distinct seeds at ``temperature``; its other
+    params do not change. The value is the fraction of the successful samples whose answer,
+    read with the step's own extract and normalize, equals the member's answer. A failed
+    sample does not count; when every sample fails, the value is missing.
+    """
 
     source: ClassVar[str] = "consistency"
     n: int
     temperature: float
 
     def __init__(self, n: int, *, temperature: float = 1.0) -> None:
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= _MAX_CONSISTENCY_N:
+            raise ValueError(
+                f"sf.Consistency n must be an int from 1 to {_MAX_CONSISTENCY_N}, not {n!r}"
+            )
         object.__setattr__(self, "n", n)
-        object.__setattr__(self, "temperature", temperature)
+        object.__setattr__(self, "temperature", _sample_temperature(temperature))
+
+    def __repr__(self) -> str:
+        return f"Consistency(n={self.n!r}, temperature={self.temperature!r})"
 
     def _spec(self) -> dict[str, object]:
-        raise NotImplementedError("sf.Consistency._spec")
+        return {"source": "consistency", "n": self.n, "temperature": self.temperature}
 
     def _entry(self, match: Mapping[str, object]) -> dict[str, object]:
-        raise NotImplementedError("sf.Consistency._entry")
+        """The full combine-spec entry: ``_spec()`` plus the step's pinned ``match`` (P3)."""
+        return {**self._spec(), "match": dict(match)}
 
     @classmethod
     def _from_spec(cls, entry: Mapping[str, object]) -> Consistency:
-        raise NotImplementedError("sf.Consistency._from_spec")
+        # WHY a stub: the url4 rebuild of sf.Consistency is not built yet. _SOURCES does not
+        # list "consistency", so declared_from_spec never calls this.
+        raise NotImplementedError("the url4 rebuild of sf.Consistency is not built yet")
+
+
+def _sample_temperature(value: object) -> float:
+    """The checked sf.Consistency temperature as a float; an int becomes a float, -0.0 becomes
+    0.0."""
+    number = math.nan
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        with suppress(OverflowError):  # an int beyond the float range stays nan: refused
+            number = float(value) + 0.0
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(
+            f"sf.Consistency temperature must be a finite number of at least 0, not {value!r}"
+        )
+    return number
 
 
 def consistency_seed(k: int, j: int) -> int:
-    raise NotImplementedError("consistency_seed")
+    """The seed of sample ``j`` (1..n) of member ``k`` (1-based): the first 31 bits of
+    ``sha256(f"consistency:{k}:{j}")`` (erd §2, P5).
+
+    WHY not ``sf.samples()`` seeds: they are 0..n-1 for every member, so two members of one
+    route would share their samples. For k <= 256 and j <= 32 the seeds are all different and
+    never below 256.
+    """
+    return int.from_bytes(sha256(f"consistency:{k}:{j}".encode()).digest()[:4], "big") >> 1
 
 
 # The member params that a Logprob or Entropy declaration owns (P12, DS-D10, U4-D1).
