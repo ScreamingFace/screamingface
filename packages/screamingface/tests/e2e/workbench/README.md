@@ -38,7 +38,17 @@ non-initial conftest cannot register them when the invocation is `pytest tests/e
 | `SCREAMINGFACE_WORKBENCH_OUT` | Bundle root. Default: a pytest tmp dir. Printed in the terminal summary. |
 | `SCREAMINGFACE_WORKBENCH_REQUIRE_ALL` | `1` turns every workbench skip (no docker, no assets, no key) into a failure, so an all-skipped run is never green. |
 
-Both targets also go through the usual e2e gate (`SCREAMINGFACE_TEST_E2E=1` + docker).
+The replay target goes through the usual e2e gate (`SCREAMINGFACE_TEST_E2E=1` + docker).
+
+The local target has the layout of `just local-stack-notebooks`: `screamingface up` brings the
+Gateway (:9105) and Scoreboard (:9106) on a fresh data dir, and a separate Engine
+(`harness.stack.EngineProcess`, synced with the `inspect` extra, on a free port) serves ifeval
+against that Gateway. Its hops are `engine.log` and the `gateway`-tagged lines of `runtime.log`.
+It needs prepared ifeval assets; from `apps/screamingface-engine`:
+`uv run --extra benchmarks python -m screamingface_engine.benchmarks.prepare --root <assets> --bundle ifeval`.
+
+`test_local_boot.py` boots that stack for real with no key (gate: `SCREAMINGFACE_TEST_E2E=1`
+only, no docker) and asserts the Engine lists ifeval. It spends nothing.
 
 ## Evidence bundle
 

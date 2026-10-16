@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from workbench import targets
+from workbench.evidence import FileLogSource, ServiceLogSource
 from workbench.targets import KNOWN_TARGETS, TARGET_ENV, selected_target, start_target
 
 
@@ -78,9 +79,15 @@ def test_local_target_skips_without_prepared_ifeval_assets(
     empty.mkdir()
     monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(empty))
     monkeypatch.setattr(targets, "_runtime_cli", _no_boot)
-    with pytest.raises(pytest.skip.Exception, match=r"ifeval.*SCREAMINGFACE_E2E_ASSETS"):
+    with pytest.raises(pytest.skip.Exception) as caught:
         with start_target("local", tmp_path / "work"):
             pass
+    reason = str(caught.value)
+    assert "ifeval" in reason and "SCREAMINGFACE_E2E_ASSETS" in reason
+    # The hint names the Engine's own preparer (as screamingface-e2e-replay.yml runs it), not
+    # `screamingface prepare`, which does not build ifeval.
+    assert "screamingface_engine.benchmarks.prepare" in reason
+    assert "--extra benchmarks" in reason and "--bundle ifeval" in reason
 
 
 def _prepared_assets(tmp_path: Path) -> Path:
@@ -90,24 +97,73 @@ def _prepared_assets(tmp_path: Path) -> Path:
     return root
 
 
-def test_local_target_boots_on_the_prepared_assets_with_split_hops(
+class _FakeEngine:
+    """Stands in for harness.stack.EngineProcess; records into a shared event list."""
+
+    url = "http://127.0.0.1:45678"
+
+    def __init__(self, events: list[tuple[str, ...]], *, work_dir: Path, assets_dir: Path) -> None:
+        self._events = events
+        events.append(("engine-init", str(work_dir), str(assets_dir)))
+
+    def start(self, aigateway_base_url: str) -> str:
+        self._events.append(("engine-start", aigateway_base_url))
+        return self.url
+
+    def stop(self) -> None:
+        self._events.append(("engine-stop",))
+
+
+def _fake_stack(
+    monkeypatch: pytest.MonkeyPatch, listed: list[str]
+) -> tuple[list[tuple[str, ...]], list[str]]:
+    events: list[tuple[str, ...]] = []
+    probed: list[str] = []
+    monkeypatch.setattr(targets, "_runtime_cli", lambda *args: events.append(args))
+    monkeypatch.setattr(
+        targets,
+        "EngineProcess",
+        lambda **kwargs: _FakeEngine(events, **kwargs),
+    )
+
+    def listed_at(url: str) -> list[str]:
+        probed.append(url)
+        return listed
+
+    monkeypatch.setattr(targets, "_listed_benchmarks", listed_at)
+    return events, probed
+
+
+def test_local_target_serves_through_an_inspect_engine_on_the_up_gateway(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _paid_opt_in(monkeypatch)
     assets = _prepared_assets(tmp_path)
     monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(assets))
-    calls: list[tuple[str, ...]] = []
-    monkeypatch.setattr(targets, "_runtime_cli", lambda *args: calls.append(args))
-    monkeypatch.setattr(targets, "_listed_benchmarks", lambda url: ["ifeval", "medxpert"])
+    events, probed = _fake_stack(monkeypatch, ["ifeval", "medxpert"])
     work = tmp_path / "work"
     with start_target("local", work) as target:
-        assert calls and calls[0][0] == "up"
+        names = [e[0] for e in events]
+        assert names == ["up", "engine-init", "engine-start"]
+        up = events[0]
+        assert up[up.index("--gateway-port") + 1] == "9105"
         # The runtime reads <data-dir>/benchmark-assets (RuntimeConfig.assets_dir).
-        assert (work / "data" / "benchmark-assets" / "ifeval" / "cases.json").is_file()
         assert (work / "data" / "benchmark-assets").resolve() == assets.resolve()
+        # The separate Engine reads the prepared root itself and logs into work_dir.
+        assert events[1] == ("engine-init", str(work), str(assets))
+        assert events[2] == ("engine-start", "http://127.0.0.1:9105")
+        assert target.engine_url == _FakeEngine.url
+        assert probed == [_FakeEngine.url]
+        assert target.scoreboard_url == "http://127.0.0.1:9106"
         assert target.required_hops == ("engine", "aigateway")
-        assert [s.name for s in target.sources] == ["engine", "aigateway"]
-    assert calls[-1][0] == "down"
+        engine_src, gateway_src = target.sources
+        assert isinstance(engine_src, FileLogSource)
+        assert (engine_src.name, engine_src.path) == ("engine", work / "engine.log")
+        assert isinstance(gateway_src, ServiceLogSource)
+        assert gateway_src.name == "aigateway"
+        assert gateway_src.path == work / "data" / "runtime.log"
+        assert gateway_src.service == "gateway"
+    assert [e[0] for e in events[-2:]] == ["engine-stop", "down"]
 
 
 def test_runtime_cli_scrubs_the_foreign_gateway_database(
@@ -127,15 +183,32 @@ def test_runtime_cli_scrubs_the_foreign_gateway_database(
     assert env.get("PATH") == os.environ.get("PATH")
 
 
-def test_local_target_skips_and_stops_when_the_runtime_does_not_list_ifeval(
+def test_local_target_fails_and_tears_down_when_the_engine_does_not_list_ifeval(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # WHY a failure, not a skip: this Engine is synced with the inspect extra and handed the
+    # prepared ifeval root, so not listing ifeval is a broken target, not a missing optional.
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    events, _ = _fake_stack(monkeypatch, ["medxpert"])
+    with pytest.raises(RuntimeError, match=r"does not list ifeval.*medxpert"):
+        with start_target("local", tmp_path / "work"):
+            pass
+    assert [e[0] for e in events] == ["up", "engine-init", "engine-start", "engine-stop", "down"]
+
+
+def test_local_target_downs_the_runtime_when_the_engine_fails_to_start(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _paid_opt_in(monkeypatch)
     monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
-    calls: list[tuple[str, ...]] = []
-    monkeypatch.setattr(targets, "_runtime_cli", lambda *args: calls.append(args))
-    monkeypatch.setattr(targets, "_listed_benchmarks", lambda url: ["medxpert"])
-    with pytest.raises(pytest.skip.Exception, match=r"does not list ifeval.*medxpert"):
+    events, _ = _fake_stack(monkeypatch, ["ifeval"])
+
+    def boom(self: _FakeEngine, aigateway_base_url: str) -> str:
+        raise RuntimeError("engine did not come up")
+
+    monkeypatch.setattr(_FakeEngine, "start", boom)
+    with pytest.raises(RuntimeError, match="engine did not come up"):
         with start_target("local", tmp_path / "work"):
             pass
-    assert [c[0] for c in calls] == ["up", "down"]
+    assert [e[0] for e in events] == ["up", "engine-init", "engine-stop", "down"]

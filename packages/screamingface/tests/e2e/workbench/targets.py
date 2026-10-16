@@ -24,7 +24,7 @@ import pytest
 from harness._gating import SNAPSHOTS_DIR, require_e2e_stack
 from harness.benchmark_assets import ASSETS_ENV, assets_root
 from harness.cache_seeded import CacheSeededGateway
-from harness.stack import replay_stack
+from harness.stack import EngineProcess, replay_stack
 
 from workbench.evidence import FileLogSource, LogSource, ServiceLogSource
 
@@ -36,6 +36,9 @@ PAID_ENV: Final = "SCREAMINGFACE_TEST_PAID"
 KEY_ENV: Final = "OPENROUTER_API_KEY"
 # The runtime's default ports (RuntimeConfig); passed explicitly to `up` so a stray
 # SCREAMINGFACE_*_PORT in the environment cannot move the stack away from these URLs.
+# The runtime's OWN Engine (9108) goes unused, as in `just local-stack-notebooks`: the
+# notebook talks to a separate inspect-capable Engine on a free port.
+_LOCAL_GATEWAY_PORT: Final = 9105
 _LOCAL_ENGINE_PORT: Final = 9108
 _LOCAL_SCOREBOARD_PORT: Final = 9106
 
@@ -128,9 +131,13 @@ def _prepared_ifeval_assets() -> Path:
     """
     root = assets_root()
     if not (root / "ifeval" / "cases.json").is_file():
+        # WHY the Engine's preparer: ifeval is not a `screamingface prepare` board; the Engine
+        # builds it, as .github/workflows/screamingface-e2e-replay.yml does.
         pytest.skip(
-            f"local workbench target needs prepared ifeval assets at {root / 'ifeval'} — run "
-            f"`screamingface prepare ifeval`, or point {ASSETS_ENV} at a prepared root"
+            f"local workbench target needs prepared ifeval assets at {root / 'ifeval'} — from "
+            "apps/screamingface-engine run `uv run --extra benchmarks python -m "
+            f"screamingface_engine.benchmarks.prepare --root {root} --bundle ifeval`, or point "
+            f"{ASSETS_ENV} at a prepared root"
         )
     return root
 
@@ -153,17 +160,21 @@ def _local(work_dir: Path) -> Iterator[LiveTarget]:
 
 @contextmanager
 def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
-    """Boot ``screamingface up`` on a fresh data dir wired to ``assets``; UNGATED.
+    """``screamingface up`` (Gateway + Scoreboard) plus an inspect-capable Engine; UNGATED.
+
+    Same layout as ``just local-stack-notebooks``: the runtime's own Engine serves only the
+    built-in boards, so a separate Engine (``harness.stack.EngineProcess`` — synced with the
+    inspect extra, reading ``assets``) serves ifeval against the runtime's Gateway.
 
     The paid/key gate lives in ``_local``. This boot itself spends nothing (no key is connected
-    here), which is what lets the boot be smoke-checked without a provider key.
+    here), which is what lets ``test_local_boot`` check it without a provider key.
     """
     data_dir = work_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     # WHY a symlink: the runtime hard-wires its assets to <data-dir>/benchmark-assets
     # (RuntimeConfig.assets_dir) with no override, and a fresh data dir has none prepared.
-    # Linking reuses the prepared root (as tests/paid boots its engine on it) without
-    # re-downloading or touching the developer's own data dir.
+    # Linking reuses the prepared root without re-downloading or touching the developer's
+    # own data dir.
     link = data_dir / "benchmark-assets"
     if not link.exists():
         link.symlink_to(assets.resolve(), target_is_directory=True)
@@ -174,36 +185,41 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
         "up",
         "--data-dir",
         str(data_dir),
+        "--gateway-port",
+        str(_LOCAL_GATEWAY_PORT),
         "--engine-port",
         str(_LOCAL_ENGINE_PORT),
         "--scoreboard-port",
         str(_LOCAL_SCOREBOARD_PORT),
     )
-    runtime_log = data_dir / "runtime.log"
-    engine_url = f"http://127.0.0.1:{_LOCAL_ENGINE_PORT}"
+    engine = EngineProcess(work_dir=work_dir, assets_dir=assets)
     try:
-        # WHY after boot: assets alone do not install a board. ifeval is contributed by the
-        # engine's entry-point plugin (benchmarks/discovery.py), so an interpreter without it
-        # serves only the built-ins; skip with what IS listed rather than fail mid-notebook.
+        engine_url = engine.start(f"http://127.0.0.1:{_LOCAL_GATEWAY_PORT}")
+        # WHY a hard failure, not a skip: this Engine has the inspect extra and the prepared
+        # ifeval root, so an Engine without ifeval is a broken target, not a missing optional.
         listed = _listed_benchmarks(engine_url)
         if "ifeval" not in listed:
-            pytest.skip(
-                f"the local runtime does not list ifeval (listed: {listed}); its board comes "
-                "from the engine's benchmark plugin, which this interpreter does not install"
+            raise RuntimeError(
+                f"the local target's Engine does not list ifeval (listed: {listed}) although "
+                f"it was given {assets}; see {work_dir / 'engine.log'}"
             )
         yield LiveTarget(
             name="local",
             engine_url=engine_url,
             scoreboard_url=f"http://127.0.0.1:{_LOCAL_SCOREBOARD_PORT}",
-            # One process, one log: the service tag splits it into the replay stack's hops,
-            # so the hop check AND the aigateway gateway_call_id check run here too. The
-            # gateway's tag is "gateway" (server._serve_service strips the "AI " of its name).
+            # The Engine is its own process with its own log; the Gateway still runs inside the
+            # runtime, so its hop is the "gateway"-tagged lines of runtime.log (the tag drops the
+            # "AI " of the service name, server._serve_service). Both hop checks AND the
+            # aigateway gateway_call_id check run as on replay.
             sources=(
-                ServiceLogSource("engine", runtime_log, service="engine"),
-                ServiceLogSource("aigateway", runtime_log, service="gateway"),
+                FileLogSource("engine", work_dir / "engine.log"),
+                ServiceLogSource("aigateway", data_dir / "runtime.log", service="gateway"),
             ),
             required_hops=("engine", "aigateway"),
             params={"RECIPE": "authored", "EXPECT_CACHED": False},
         )
     finally:
-        _runtime_cli("down", "--data-dir", str(data_dir))
+        try:
+            engine.stop()
+        finally:
+            _runtime_cli("down", "--data-dir", str(data_dir))
