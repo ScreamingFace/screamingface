@@ -21,6 +21,11 @@ from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
 )
+from aigateway.core.input_modalities import (
+    TEXT_IMAGE_PDF,
+    InputModality,
+    declared_family_modalities,
+)
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
     CredentialStrategy,
@@ -84,6 +89,13 @@ def _detail_for_error(exc: CustomLLMError, *, forbidden: Iterable[str] = ()) -> 
     }
 
 
+# OME-1537: Gemini models take image and PDF input (Gemini API inline data). Only the
+# gemini family is declared; any other model Antigravity fronts is unknown -> text.
+_INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
+    ("gemini-", TEXT_IMAGE_PDF),
+)
+
+
 class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
     custom_llm_provider = "antigravity"
     provider_display_name = "Antigravity"
@@ -94,6 +106,12 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
+
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        # OME-1537: declared family table; a model outside it is unknown -> text-only.
+        return declared_family_modalities(
+            entry.model_name.removeprefix("antigravity/"), _INPUT_MODALITY_FAMILIES
+        )
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(

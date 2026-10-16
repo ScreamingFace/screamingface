@@ -21,10 +21,12 @@ because dispatch refuses it (OME-972 correction pass).
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+from aigateway.core.input_modalities import InputModality
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
     DiscoveryHttpClient,
@@ -118,6 +120,64 @@ def parse_catalog_page(payload: Any) -> tuple[tuple[str, ...], str | None, int]:
     return tuple(ids), next_url, total_count
 
 
+# OME-1537: OpenRouter's ``architecture.input_modalities`` words -> the gateway
+# vocabulary. WHY ``file`` -> ``pdf``: OpenRouter's PDF guide sends a PDF as the
+# ``file`` content type and passes it to the model directly when the model "supports
+# file input natively" — which is what ``file`` in this list declares. ``audio`` and
+# ``video`` have no gateway equivalent and are dropped, never approximated.
+_OPENROUTER_MODALITIES: Mapping[str, InputModality] = {
+    "text": "text",
+    "image": "image",
+    "file": "pdf",
+}
+
+
+def map_openrouter_modalities(values: object) -> tuple[InputModality, ...] | None:
+    """One row's catalogue modalities in gateway words, or ``None`` when unknown.
+
+    INVARIANT: ``None`` (not ``("text",)``) for absent/malformed evidence, so the
+    entry honestly carries "no evidence" and core decides what unknown publishes.
+    """
+    if not isinstance(values, list):
+        return None
+    mapped = {
+        _OPENROUTER_MODALITIES[v]
+        for v in values
+        if isinstance(v, str) and v in _OPENROUTER_MODALITIES
+    }
+    if not mapped:
+        return None
+    mapped.add("text")
+    return tuple(m for m in ("text", "image", "pdf") if m in mapped)
+
+
+def parse_page_input_modalities(payload: Any) -> dict[str, tuple[InputModality, ...]]:
+    """Per-id modality evidence from one catalogue page (OME-1537). Never raises.
+
+    WHY lenient where ``parse_catalog_page`` is strict: the strict parser guards
+    COMPLETENESS of the listing; this reads optional per-row evidence. A row whose
+    ``architecture`` is missing or malformed is simply unknown (text-only) — failing
+    the whole refresh over it would trade a correct listing for nothing.
+    """
+    if not isinstance(payload, Mapping):
+        return {}
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return {}
+    evidence: dict[str, tuple[InputModality, ...]] = {}
+    for row in data:
+        if not isinstance(row, Mapping):
+            continue
+        model_id = row.get("id")
+        architecture = row.get("architecture")
+        if not isinstance(model_id, str) or not isinstance(architecture, Mapping):
+            continue
+        mapped = map_openrouter_modalities(architecture.get("input_modalities"))
+        if mapped is not None:
+            evidence[model_id] = mapped
+    return evidence
+
+
 def validate_next_url(next_url: str, *, expected_offset: int) -> str:
     """Resolve + strictly validate a ``links.next`` BEFORE it is ever dialed.
 
@@ -180,7 +240,10 @@ def explicit_operator_entries(settings: OpenRouterPluginSettings) -> tuple[Model
 
 
 def live_listing_entries(
-    settings: OpenRouterPluginSettings, upstream_ids: tuple[str, ...]
+    settings: OpenRouterPluginSettings,
+    upstream_ids: tuple[str, ...],
+    *,
+    input_modalities: Mapping[str, tuple[InputModality, ...]] | None = None,
 ) -> tuple[ModelEntry, ...]:
     """The finished healthy-snapshot listing: operator entries first, then discovered.
 
@@ -189,20 +252,52 @@ def live_listing_entries(
     route logic. Operator entries keep configured order; discovered ids arrive
     sorted from ``publishable_upstream_ids`` and dedupe against operator rows.
     """
-    operator = explicit_operator_entries(settings)
+    evidence = input_modalities or {}
+
+    def _modalities(gateway_id: str) -> tuple[InputModality, ...] | None:
+        # OME-1537: the catalogue keys rows by the bare upstream id.
+        return evidence.get(gateway_id.removeprefix(GATEWAY_MODEL_PREFIX))
+
+    operator = tuple(
+        ModelEntry(
+            model_name=entry.model_name,
+            litellm_params=entry.litellm_params,
+            input_modalities=_modalities(entry.model_name),
+        )
+        for entry in explicit_operator_entries(settings)
+    )
     seen = {entry.model_name for entry in operator}
     discovered = tuple(
-        ModelEntry(model_name=gateway_id, litellm_params={"model": gateway_id})
+        ModelEntry(
+            model_name=gateway_id,
+            litellm_params={"model": gateway_id},
+            input_modalities=_modalities(gateway_id),
+        )
         for upstream in upstream_ids
         if (gateway_id := f"{GATEWAY_MODEL_PREFIX}{upstream}") not in seen
     )
     return operator + discovered
 
 
+@dataclass(frozen=True)
+class LiveCatalog:
+    """One complete catalogue walk: every raw id plus per-id modality evidence."""
+
+    ids: tuple[str, ...]
+    input_modalities: Mapping[str, tuple[InputModality, ...]] = field(default_factory=dict)
+
+
 async def fetch_live_model_ids(
     *, client: DiscoveryHttpClient, limits: DiscoveryLimits | None = None
 ) -> tuple[str, ...]:
-    """Every raw model id in the catalog, or a sanitized ``DiscoveryError``.
+    """Every raw model id in the catalog — the id-only view of ``fetch_live_model_catalog``."""
+    return (await fetch_live_model_catalog(client=client, limits=limits)).ids
+
+
+async def fetch_live_model_catalog(
+    *, client: DiscoveryHttpClient, limits: DiscoveryLimits | None = None
+) -> LiveCatalog:
+    """Every raw model id + per-id modality evidence, or a sanitized ``DiscoveryError``.
 
     Walks the pinned first page plus every strictly validated ``links.next``
     under ONE aggregate wall-clock deadline (on top of the per-page envelope
@@ -212,6 +307,7 @@ async def fetch_live_model_ids(
     """
     bounds = limits if limits is not None else DiscoveryLimits()
     collected: list[str] = []
+    evidence: dict[str, tuple[InputModality, ...]] = {}
     total_count: int | None = None
     try:
         async with asyncio.timeout(_AGGREGATE_TIMEOUT_S):
@@ -236,6 +332,7 @@ async def fetch_live_model_ids(
                 elif page_total != total_count:
                     raise DiscoveryError("model_catalog_truncated")
                 collected.extend(ids)
+                evidence.update(parse_page_input_modalities(payload))
                 if len(collected) > _MAX_CATALOG_MODELS:
                     raise DiscoveryError("model_catalog_too_large")
                 if next_url is None:
@@ -251,4 +348,4 @@ async def fetch_live_model_ids(
     # the strict parser required it on every page, including the first.
     if total_count != len(collected):
         raise DiscoveryError("model_catalog_truncated")
-    return tuple(collected)
+    return LiveCatalog(ids=tuple(collected), input_modalities=evidence)
