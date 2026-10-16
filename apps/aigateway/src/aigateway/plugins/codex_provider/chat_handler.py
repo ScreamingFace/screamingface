@@ -21,6 +21,7 @@ from aigateway.core.content_parts import (
     text_of,
     text_only,
 )
+from aigateway.core.provider_error_text import error_message_from_body, error_message_from_response
 
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 _PROVIDER = "codex"
@@ -244,7 +245,9 @@ def _model_response_from_state(state: dict[str, Any], fallback_model: str) -> Mo
     final = state.get("final")
     error = state.get("error")
     if error is not None:
-        message = error.get("message") if isinstance(error, dict) else str(error)
+        # WHY no `str(error)` (#1233 review): a non-object stream error is unstructured provider
+        # text; only an object's `message` field is relayed, through the plugin screen.
+        message = error.get("message") if isinstance(error, dict) else None
         raise CustomLLMError(status_code=502, message=message or "Codex upstream failed")
     if not isinstance(final, dict):
         raise CustomLLMError(status_code=502, message="Codex upstream did not complete response")
@@ -296,11 +299,13 @@ async def _status_error_from_response(response: Any) -> CustomLLMError | None:
                 if isawaitable(raw_result)
                 else cast(bytes, raw_result)
             )
-            preview = raw.decode("utf-8", errors="replace")[:500]
+            preview = error_message_from_body(raw) or ""
         except Exception:
             preview = ""
     elif isinstance(getattr(response, "text", None), str):
-        preview = response.text[:500]
+        preview = error_message_from_body(response.text) or ""
+    # INVARIANT (OME-1136, #1233 review): only the body's allowlisted JSON `message` is
+    # appended — never raw bytes, so an HTML error page cannot reach the client.
     suffix = f": {preview}" if preview else ""
     return CustomLLMError(
         status_code=status_code,
@@ -337,9 +342,11 @@ def _status_error_from_exception(exc: httpx.HTTPStatusError) -> CustomLLMError:
     if status_code == 401:
         return CustomLLMError(status_code=401, message="Codex upstream rejected OAuth token")
     message = f"Codex upstream request failed with status {status_code}"
-    text = getattr(exc, "text", None) or getattr(exc, "message", None)
-    if isinstance(text, str) and text:
-        message = f"{message}: {text[:500]}"
+    # INVARIANT (#1233 review): the response's allowlisted JSON `message` only — never
+    # `str(exc)` / raw body text.
+    text = error_message_from_response(exc.response)
+    if text:
+        message = f"{message}: {text}"
     return CustomLLMError(status_code=status_code, message=message)
 
 

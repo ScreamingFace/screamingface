@@ -11,11 +11,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 
+from aigateway.plugins.codex_provider import chat_handler as codex_handler
 from aigateway.plugins.codex_provider import plugin as codex_module
+from aigateway.plugins.gemini_provider import chat_handler as gemini_handler
 from aigateway.plugins.gemini_provider import plugin as gemini_module
 
 _HEX = "ab12" * 16
@@ -108,6 +111,88 @@ async def test_the_calls_own_credential_withholds_the_message(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("module", "getter", "attr"), _PLUGINS)
 async def test_benign_message_is_unchanged(monkeypatch, module, getter, attr) -> None:
-    _raising(monkeypatch, module, getter, 401, "Codex upstream rejected OAuth token")
+    # WHY 400, not 401 (#1233 review): a 401 never relays plugin text any more — see below.
+    _raising(monkeypatch, module, getter, 400, "Codex upstream rejected the request")
 
-    assert (await _detail(module, attr))["message"] == "Codex upstream rejected OAuth token"
+    assert (await _detail(module, attr))["message"] == "Codex upstream rejected the request"
+
+
+# --- #1233 review: status-aware boundary + bounded body extraction -----------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("module", "getter", "attr"), _PLUGINS)
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (401, "The stored provider credential was rejected."),
+        (429, "The upstream provider is rate limiting requests."),
+    ],
+)
+async def test_auth_and_rate_limit_never_relay_plugin_text(
+    monkeypatch, module, getter, attr, status, expected
+) -> None:
+    _raising(monkeypatch, module, getter, status, "A perfectly benign explanation")
+
+    assert (await _detail(module, attr))["message"] == expected
+
+
+_HTML_PII = (
+    b"<html><body><h1>502 Bad Gateway</h1><p>Patient: Jane Doe, SSN 123-45-6789</p>"
+    b"<p>See internal.example/admin</p></body></html>"
+)
+_HTML_LEAKS = ("Jane Doe", "123-45-6789", "internal.example", "<html")
+_JSON_ERROR = b'{"error": {"message": "Unsupported parameter: \'top_k\'", "trace": "Jane Doe"}}'
+
+
+def _wire_response(status: int, content: bytes) -> httpx.Response:
+    return httpx.Response(
+        status, content=content, request=httpx.Request("POST", "https://upstream.test/v1")
+    )
+
+
+async def _codex_errors(status: int, content: bytes) -> list[CustomLLMError]:
+    response = _wire_response(status, content)
+    from_response = await codex_handler._status_error_from_response(response)
+    assert from_response is not None
+    from_exception = codex_handler._status_error_from_exception(
+        httpx.HTTPStatusError("boom", request=response.request, response=response)
+    )
+    return [from_response, from_exception]
+
+
+def _gemini_errors(status: int, content: bytes) -> list[CustomLLMError]:
+    return [gemini_handler._error_from_response(_wire_response(status, content), "API")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module", "getter", "errors"),
+    [
+        pytest.param(codex_module, "get_litellm_codex_handler", _codex_errors, id="codex"),
+        pytest.param(gemini_module, "get_litellm_gemini_handler", _gemini_errors, id="gemini"),
+    ],
+)
+async def test_an_html_error_page_never_reaches_the_client(
+    monkeypatch, module, getter, errors
+) -> None:
+    built = errors(502, _HTML_PII)
+    for error in await built if hasattr(built, "__await__") else built:
+        for leak in _HTML_LEAKS:
+            assert leak not in error.message
+        _raising(monkeypatch, module, getter, error.status_code, error.message)
+        detail = await _detail(module, "PLUGIN")
+        for leak in _HTML_LEAKS:
+            assert leak not in detail["message"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "errors",
+    [pytest.param(_codex_errors, id="codex"), pytest.param(_gemini_errors, id="gemini")],
+)
+async def test_a_json_error_body_relays_only_its_message_field(errors) -> None:
+    built = errors(400, _JSON_ERROR)
+    for error in await built if hasattr(built, "__await__") else built:
+        assert error.message.endswith(": Unsupported parameter: 'top_k'")
+        assert "Jane Doe" not in error.message

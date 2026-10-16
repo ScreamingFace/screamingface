@@ -51,6 +51,26 @@ RELAY_CODES = frozenset(
 (`record_dispatch_failure`), and auth bodies are where keys get echoed. WHY not `rate_limited`
 (429): those messages carry org ids and limits and add little. Owner decision 2026-10-02."""
 
+# INVARIANT: gateway-authored, one per machine code — never provider text. Owned here (not in
+# `routes/chat_dispatch.py`) so the central LiteLLM path and the custom-handler plugins render
+# the same sentence for the same code (#1233 review).
+PROVIDER_ERROR_MESSAGES: Mapping[str, str] = {
+    "bad_request": "The upstream provider rejected the request.",
+    "auth_required": "The stored provider credential was rejected.",
+    "rate_limited": "The upstream provider is rate limiting requests.",
+    "provider_unavailable": "The upstream provider is temporarily unavailable.",
+    "provider_error": "The upstream provider returned an error.",
+    # OME-927: a 402 (out of credits) is not a generic provider fault — the
+    # status itself is safe to name (it carries no provider text), so the
+    # dedicated message tells the caller they need to top up, without str(exc).
+    "insufficient_credits": "The upstream provider reported insufficient credits.",
+}
+
+# WHY (#1233 review): the plugin twin of RELAY_CODES — the statuses the central path maps to
+# `auth_required` / `rate_limited`, enforced by STATUS because a plugin may label them otherwise
+# (Codex reports every failure as `provider_error`).
+_WITHHELD_PLUGIN_STATUSES: Mapping[int, str] = {401: "auth_required", 429: "rate_limited"}
+
 # WHY a vacuous set: OpenRouter wraps a downstream failure as "Provider returned error" and
 # tucks the real text into `metadata.raw`; litellm's converter substitutes "Error in response
 # object" when the body had no message at all. Relaying either says nothing.
@@ -64,6 +84,11 @@ _DROPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Cn"})
 _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+"), "[url]"),
     (re.compile(r"(?i)\bwww\.\S+"), "[url]"),
+    # WHY (#1233 review): a provider-internal host needs no scheme — `internal.example/admin`,
+    # `api.corp:8443/v2`. A dotted name with an alphabetic TLD followed by `/` or `:<port>` is
+    # treated as a URL; a bare dotted name (`gpt-4.1`, `file.json`) without either is not.
+    (re.compile(r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?/\S*"), "[url]"),
+    (re.compile(r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}:\d+\b"), "[url]"),
     (re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "[email]"),
     (re.compile(r"(?i)\bbearer\s+\S+"), "[redacted]"),
     (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[redacted]"),
@@ -74,7 +99,8 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bxox[abprs]-\S+"), "[redacted]"),
     (re.compile(r"\b(?:org|proj)-[A-Za-z0-9]{8,}"), "[account]"),
     (re.compile(r"\b[A-Za-z0-9]{32,}\b"), "[id]"),
-    (re.compile(r"(?:^|(?<=[\s'\"(]))\.{0,2}/\S+"), "[path]"),
+    # WHY `=` and `:` (#1233 review): `endpoint=/v1/internal/admin`, `path:/srv/app` are paths.
+    (re.compile(r"(?:^|(?<=[\s'\"(=:]))\.{0,2}/\S+"), "[path]"),
     (re.compile(r"'[^']{41,}'|\"[^\"]{41,}\"|`[^`]{41,}`"), "'[…]'"),
 )
 
@@ -248,15 +274,52 @@ def _error_object(payload: object) -> object:
     return error if isinstance(error, Mapping) else payload
 
 
-def _response_payload(response: object) -> object:
-    if not isinstance(response, httpx.Response):
-        return None
-    content = response.content
-    if not content or len(content) > _MAX_BODY_BYTES:
+def _json_payload(content: object) -> object:
+    if isinstance(content, str):
+        content = content.encode("utf-8", errors="replace")
+    if not isinstance(content, bytes) or not content or len(content) > _MAX_BODY_BYTES:
         return None
     try:
         return json.loads(content)
     except ValueError:
+        return None
+
+
+def _response_payload(response: object) -> object:
+    if not isinstance(response, httpx.Response):
+        return None
+    try:
+        content = response.content
+    except httpx.ResponseNotRead:
+        return None
+    return _json_payload(content)
+
+
+def error_message_from_body(content: object) -> str | None:
+    """The allowlisted message of a provider error body, un-sanitized; else ``None``.
+
+    FEATURE (OME-1136, #1233 review): the Codex and Gemini handlers used to append up to 500
+    bytes of the RAW body, so an HTML error page (names, ids, internal URLs) reached the client.
+    INVARIANT: only a bounded JSON OBJECT is read, and only its `error.message` (or top-level
+    `message`, one level of `metadata.raw`); HTML, arrays, invalid JSON and unknown shapes yield
+    ``None`` and the caller keeps its generic sentence. Total — never raises.
+    """
+    try:
+        payload = _json_payload(content)
+        if not isinstance(payload, Mapping):
+            return None
+        return message_from_error_object(_error_object(payload))
+    except Exception:
+        return None
+
+
+def error_message_from_response(response: object) -> str | None:
+    """`error_message_from_body` of an `httpx.Response`; ``None`` for anything else or unread."""
+    try:
+        if not isinstance(response, httpx.Response):
+            return None
+        return error_message_from_body(response.content)
+    except Exception:
         return None
 
 
@@ -322,14 +385,18 @@ def relayed_detail(
     }
 
 
-PLUGIN_FALLBACK_MESSAGE = "The upstream provider returned an error."
+PLUGIN_FALLBACK_MESSAGE = PROVIDER_ERROR_MESSAGES["provider_error"]
 
 
-def plugin_error_message(message: object, *, forbidden: Iterable[str] = ()) -> str:
+def plugin_error_message(message: object, *, status: object, forbidden: Iterable[str] = ()) -> str:
     """A custom-handler plugin's `CustomLLMError.message`, screened (OME-1136 decision 3).
 
-    WHY: the Codex and Gemini handlers build that message from up to 500 characters of the raw
-    provider body, and the plugins relayed it verbatim. It now goes through the same screen as
-    the gateway relay; a withheld text becomes the gateway's generic `provider_error` sentence.
+    WHY: the plugins relayed that message verbatim. It now goes through the same screen as the
+    gateway relay; a withheld text becomes the gateway's generic `provider_error` sentence.
+    INVARIANT (#1233 review): a 401 or 429 never relays provider text — owner decision
+    2026-10-02, as RELAY_CODES on the central path — it renders the gateway sentence instead.
     """
+    withheld = _WITHHELD_PLUGIN_STATUSES.get(status) if isinstance(status, int) else None
+    if withheld is not None:
+        return PROVIDER_ERROR_MESSAGES[withheld]
     return sanitize_upstream_text(message, forbidden=forbidden) or PLUGIN_FALLBACK_MESSAGE

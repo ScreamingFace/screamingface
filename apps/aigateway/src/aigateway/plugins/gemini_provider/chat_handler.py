@@ -13,6 +13,7 @@ from litellm.llms.custom_llm import CustomLLM, CustomLLMError
 from litellm.types.utils import ModelResponse
 
 from aigateway.core.google_code_assist import parse_google_retry_after
+from aigateway.core.provider_error_text import error_message_from_body
 
 from .auth import CLIENT_AUTH_HEADER_NAMES, GEMINI_PROFILE_HEADER, GEMINI_USER_AGENT
 from .message_adapter import (
@@ -86,7 +87,9 @@ def _error_from_response(response: httpx.Response, provider_name: str) -> Custom
             message=f"Gemini {provider_name} rejected credentials",
         )
     body = response.text
-    preview = body[:500]
+    # INVARIANT (OME-1136, #1233 review): only the body's allowlisted JSON `message` is
+    # appended — never raw text, so an HTML error page cannot reach the client.
+    preview = error_message_from_body(body)
     suffix = f": {preview}" if preview else ""
     error = CustomLLMError(
         status_code=status,

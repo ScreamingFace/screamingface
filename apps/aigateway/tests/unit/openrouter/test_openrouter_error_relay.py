@@ -329,3 +329,79 @@ def test_auth_and_rate_limit_never_relay(connection, monkeypatch, status, code) 
         assert "benign explanation" not in json.dumps(persisted)
     if status == 401:
         assert recorded, "a 401 must still reach the credential-marking path"
+
+
+# --- #1233 review: bare hosts and assignment-prefixed paths, end to end ---------------------
+
+
+@pytest.mark.parametrize(
+    ("message", "leak"),
+    [
+        ("See internal.example/admin for details", "internal.example"),
+        ("failed at endpoint=/v1/internal/admin", "/v1/internal/admin"),
+        ("upstream api.internal.corp:8443/v2 refused", "api.internal.corp"),
+        ("failed at path:/srv/app/handler", "/srv/app/handler"),
+    ],
+)
+def test_provider_internal_hosts_and_paths_never_reach_the_client(
+    connection, monkeypatch, message, leak
+) -> None:
+    _wire(monkeypatch, 400, _error_body(message, 400), {"n": 0})
+
+    resp = _post(connection)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "bad_request"
+    assert leak not in resp.text
+
+
+# --- #1233 review: the merged plugin tree keeps BOTH behaviours ---------------------------
+
+
+def test_the_merged_plugin_relays_embedded_errors_and_strips_routing_metadata(
+    connection,
+) -> None:
+    """INVARIANT: OME-1136's embedded-error relay AND main's `openrouter_metadata` removal.
+
+    WHY one test: the rebase conflict in `plugin.py` could keep either side alone — losing the
+    relay, or leaking account-specific routing evidence into the cache and caller response.
+    """
+    from types import SimpleNamespace
+
+    metadata = {"attempt": 1, "is_byok": True, "pipeline": ["acct-routing-evidence"]}
+    embedded_error = {
+        "id": "gen-err",
+        "openrouter_metadata": metadata,
+        "choices": [{"index": 0, "error": {"code": 400, "message": "Unsupported parameter: x"}}],
+    }
+    success = {
+        "id": "gen-ok",
+        "object": "chat.completion",
+        "model": "openai/gpt-6-astra",
+        "openrouter_metadata": metadata,
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": "hello"},
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+    }
+    payloads = iter([embedded_error, success])
+
+    async def fake_acompletion(**_kwargs):
+        payload = next(payloads)
+        return SimpleNamespace(model_dump=lambda: payload)
+
+    with patch("litellm.acompletion", fake_acompletion):
+        failed = _post(connection)
+        succeeded = _post(connection)
+
+    assert failed.status_code == 400
+    assert failed.json()["detail"]["upstream_message"] == "Unsupported parameter: x"
+    assert "acct-routing-evidence" not in failed.text
+    assert succeeded.status_code == 200, succeeded.text
+    assert succeeded.json()["choices"][0]["message"]["content"] == "hello"
+    assert "openrouter_metadata" not in succeeded.json()
+    assert "acct-routing-evidence" not in succeeded.text

@@ -96,7 +96,10 @@ def _detail_for_error(exc: CustomLLMError, *, forbidden: Iterable[str] = ()) -> 
         code = "rate_limited"
     elif status_code >= 500:
         code = "provider_unavailable"
-    return {"code": code, "message": plugin_error_message(exc.message, forbidden=forbidden)}
+    return {
+        "code": code,
+        "message": plugin_error_message(exc.message, status=status_code, forbidden=forbidden),
+    }
 
 
 class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):

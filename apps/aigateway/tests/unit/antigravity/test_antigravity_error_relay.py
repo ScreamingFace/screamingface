@@ -107,3 +107,20 @@ async def test_gateway_authored_activation_message_is_unchanged(monkeypatch) -> 
         "code": ANTIGRAVITY_ACTIVATION_REQUIRED_CODE,
         "message": ANTIGRAVITY_ACTIVATION_REQUIRED_MESSAGE,
     }
+
+
+# --- #1233 review: the status-aware boundary covers Antigravity too ----------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (401, "The stored provider credential was rejected."),
+        (429, "The upstream provider is rate limiting requests."),
+    ],
+)
+async def test_auth_and_rate_limit_never_relay_plugin_text(monkeypatch, status, expected) -> None:
+    _raising(monkeypatch, CustomLLMError(status_code=status, message="A benign explanation"))
+
+    assert (await _detail())["message"] == expected

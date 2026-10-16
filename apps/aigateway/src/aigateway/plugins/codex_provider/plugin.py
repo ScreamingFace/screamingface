@@ -164,7 +164,9 @@ class CodexProviderPlugin(ProviderPluginBase):
                 status_code=exc.status_code,
                 detail={
                     "code": "provider_error",
-                    "message": plugin_error_message(exc.message, forbidden=credential_values(body)),
+                    "message": plugin_error_message(
+                        exc.message, status=exc.status_code, forbidden=credential_values(body)
+                    ),
                 },
             ) from exc
 

@@ -249,3 +249,30 @@ Retry, permanence and accounting are unchanged. `core/retry.py`, the taxonomy co
 - **#1204 (OME-968, merged).** Its class-name-only log INVARIANT is preserved and pinned by test 5. There is no conflict, but the new code sits next to `log_dispatch_failure`, so watch for merge contention only.
 - **#1209 (OME-939, merged).** The catch-all returns `gateway_internal_error`, which is unaffected. Branch C stays generic, so there is no overlap.
 - **OME-577** (SSE stream error frames): out of scope. The stream error frame stays generic.
+
+## 6. Review revision — PR #1233 (HupBaHa, 2026-10-14, CHANGES_REQUESTED), done 2026-10-16
+
+Branch rebased on `origin/main`. All four points addressed test-first:
+
+1. **Raw body previews (privacy).** Codex `_status_error_from_response` / `_status_error_from_exception`
+   and Gemini `_error_from_response` no longer append up to 500 raw bytes. New
+   `core.provider_error_text.error_message_from_body` / `error_message_from_response` read a
+   bounded JSON **object** only, and only its allowlisted `error.message` (or top-level
+   `message`, one level of `metadata.raw`); HTML, arrays, invalid JSON and unknown shapes →
+   `None` → the generic sentence. Codex's non-object SSE `error` no longer falls back to `str(error)`.
+2. **Sanitizer gaps.** New redactions: a dotted host with an alphabetic TLD followed by `/` or
+   `:<port>` → `[url]` (`internal.example/admin`, `api.corp:8443/v2`); the path rule now also
+   fires after `=` and `:` (`endpoint=/v1/internal/admin`, `path:/srv/app`). A bare dotted name
+   (`gpt-4.1`, `file.json`) is still relayed. Route-level adversarial coverage added.
+3. **401/429 at a shared, status-aware boundary.** `plugin_error_message(message, *, status, …)`
+   renders the gateway sentence for `auth_required` / `rate_limited` on a 401 / 429 — by STATUS,
+   because Codex labels every failure `provider_error`. Codex, Gemini and Antigravity pass the
+   status. The gateway sentences moved from `routes/chat_dispatch.py` to
+   `core.provider_error_text.PROVIDER_ERROR_MESSAGES` so both paths render one table.
+   `test_codex_error_relay.py::test_benign_message_is_unchanged` (added by this PR, not on main)
+   moved from 401 to 400.
+4. **`openrouter_provider/plugin.py` conflict.** Resolved as: detect → raise the sanitized
+   `_embedded_error_exception(embedded.status, embedded.message, forbidden=…)` → else copy the
+   payload → drop `openrouter_metadata` → return. Regression
+   `test_the_merged_plugin_relays_embedded_errors_and_strips_routing_metadata`, mutation-checked:
+   it fails when either side is removed.

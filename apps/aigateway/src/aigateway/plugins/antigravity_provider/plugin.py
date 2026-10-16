@@ -78,7 +78,10 @@ def _detail_for_error(exc: CustomLLMError, *, forbidden: Iterable[str] = ()) -> 
     elif status_code >= 500:
         code = "provider_unavailable"
     # FEATURE (OME-1136): provider-influenced text goes through the shared screen.
-    return {"code": code, "message": plugin_error_message(exc.message, forbidden=forbidden)}
+    return {
+        "code": code,
+        "message": plugin_error_message(exc.message, status=status_code, forbidden=forbidden),
+    }
 
 
 class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):

@@ -27,7 +27,11 @@ from ..core.admission import ProviderExecutionTimeout, dispatch_with_budgets
 from ..core.credential_blob import DispatchObservation, OperationalOutcome
 from ..core.http_status import valid_http_error_status
 from ..core.provider_access import CredentialTarget, operational_access_for, provider_access_for
-from ..core.provider_error_text import relayable_upstream_message, relayed_detail
+from ..core.provider_error_text import (
+    PROVIDER_ERROR_MESSAGES,
+    relayable_upstream_message,
+    relayed_detail,
+)
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 from ..tracing import provider_span
 from .chat_accounting import note_conversion_failure
@@ -325,17 +329,7 @@ async def _dispatch_with_backpressure(
 # INVARIANT: this generic sanitizer applies only to RAW LiteLLM/provider
 # exceptions (route Branch B); errors already authored safely by gateway policy
 # (route Branch A HTTPExceptions) keep their curated detail unchanged.
-_PROVIDER_ERROR_MESSAGE = {
-    "bad_request": "The upstream provider rejected the request.",
-    "auth_required": "The stored provider credential was rejected.",
-    "rate_limited": "The upstream provider is rate limiting requests.",
-    "provider_unavailable": "The upstream provider is temporarily unavailable.",
-    "provider_error": "The upstream provider returned an error.",
-    # OME-927: a 402 (out of credits) is not a generic provider fault — the
-    # status itself is safe to name (it carries no provider text), so the
-    # dedicated message tells the caller they need to top up, without str(exc).
-    "insufficient_credits": "The upstream provider reported insufficient credits.",
-}
+_PROVIDER_ERROR_MESSAGE = PROVIDER_ERROR_MESSAGES
 
 
 def _sanitized_provider_status(exc: Exception) -> int | None:
