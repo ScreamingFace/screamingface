@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -219,3 +220,60 @@ def test_replay_scoreboard_is_an_explicit_loopback_placeholder() -> None:
 
     assert targets.REPLAY_SCOREBOARD_URL.startswith("http://127.0.0.1:")
     assert targets.REPLAY_SCOREBOARD_URL != DEFAULT_SCOREBOARD_URL
+
+
+def test_local_target_downs_the_runtime_when_up_fails_partway(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # `up` can start the Gateway and then fail on the Scoreboard: `down` must still run, and
+    # no Engine is built on a half-up runtime.
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    events, _ = _fake_stack(monkeypatch, ["ifeval"])
+
+    def up_fails(*args: str) -> None:
+        events.append(args)
+        if args[0] == "up":
+            raise subprocess.CalledProcessError(1, ["screamingface", "up"])
+
+    monkeypatch.setattr(targets, "_runtime_cli", up_fails)
+    with pytest.raises(subprocess.CalledProcessError):
+        with start_target("local", tmp_path / "work"):
+            pass
+    assert [e[0] for e in events] == ["up", "down"]
+
+
+def test_local_target_downs_the_runtime_when_the_engine_cannot_be_built(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    events, _ = _fake_stack(monkeypatch, ["ifeval"])
+
+    def no_engine(**kwargs: object) -> _FakeEngine:
+        raise OSError("cannot build the engine")
+
+    monkeypatch.setattr(targets, "EngineProcess", no_engine)
+    with pytest.raises(OSError, match="cannot build the engine"):
+        with start_target("local", tmp_path / "work"):
+            pass
+    # Nothing was started on the Engine side, so there is nothing to stop — only `down`.
+    assert [e[0] for e in events] == ["up", "down"]
+
+
+def test_local_target_downs_the_runtime_when_engine_stop_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    events, _ = _fake_stack(monkeypatch, ["ifeval"])
+
+    def stop_fails(self: _FakeEngine) -> None:
+        events.append(("engine-stop",))
+        raise RuntimeError("engine would not stop")
+
+    monkeypatch.setattr(_FakeEngine, "stop", stop_fails)
+    with pytest.raises(RuntimeError, match="engine would not stop"):
+        with start_target("local", tmp_path / "work"):
+            pass
+    assert [e[0] for e in events] == ["up", "engine-init", "engine-start", "engine-stop", "down"]
