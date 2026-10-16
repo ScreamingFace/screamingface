@@ -522,28 +522,52 @@ files and the two fixtures are new files.
   test line changed.
 - D-U4-2 (build, commit A): the commit A title follows the orchestrator brief,
   `test(e4b): RED for E4b part 7 unit 4 consistency-api-compile`, and not the spec §12 title.
+- D-U4-3 (build, commit B): `fingerprint()` in `ST/test_consistency_api.py` (CA-D2) has the
+  return type `tuple[str, tuple[tuple[str, str], ...]]`. The url4 `Params` value holds `str | None`,
+  so pyright reports a return type error. The fix changes only that annotation to
+  `tuple[str, tuple[tuple[str, str | None], ...]]`. No assertion changed. This is the one edit to a
+  test that commit A added. It is in commit B, so the owner must review it.
+- D-U4-4 (build, commit B): the fixed-seed skip in `_own_seed_calls` uses the spec body (an
+  `operations` map). Its output is the same as the old `labels` map for every call that is not a
+  sample.
 
-### Outcome (fill at the end — required before COMMIT)
+### Outcome
 
-- **Status:** in_progress. Commit A (RED) is done. Commits B and C are not built.
-- **Actual files (commit A):** `packages/screamingface/tests/test_consistency_api.py` (imports and
-  appended block), `packages/screamingface/tests/test_consistency_contract_fixtures.py` (new),
-  `apps/screamingface-engine/tests/unit/test_combine_consistency_run.py` (new), and this ledger
-  section.
-- **Commits:** A = the commit that adds this section (sha in the git log).
-- **RED log (focused tests at commit A):**
+- **Status:** DONE. Commit B holds the code and the two fixtures. Commit C holds this section.
+  All three gate stacks are green. Two gate runs skipped the append-only check, as the plan
+  allows (see Gates).
+- **Actual files (commit B):** `packages/screamingface/src/screamingface/_evaluation/candidate.py`,
+  `_evaluation/combine_spec.py`, `_evaluation/topology.py` (encode side only),
+  `_evaluation/corrective.py`, `_evaluation/runner.py`, `_evaluation/url4.py` (not touched),
+  `packages/screamingface/src/screamingface/url4.py` (comment only), `accounting.py`,
+  `packages/screamingface/tests/test_consistency_api.py` (one annotation, D-U4-3), and the two new
+  fixtures `apps/screamingface-engine/tests/unit/data/combine_contract/consistency_pick_candidate.url4`
+  and `consistency_median_candidate.url4`, written with the SDK writer.
+- **Commits:** A = 114ecdfa8 (RED). B = 8a765c59d (code, fixtures, D-U4-3). C = the commit that adds
+  this Outcome; its sha is the head of the branch at the end of the unit.
+- **RED log:** recorded in commit A (see the RED log of the commit A section above). This build did
+  not run the RED state again.
+- **GREEN checks run on the commit B tree:**
   - `packages/screamingface`: `tests/test_consistency_api.py` and
-    `tests/test_consistency_contract_fixtures.py`: 33 passed, 17 failed. The 5 CA#1 items and the
-    unit 3 tests pass. The 17 failures are the RED rows, each for its expected reason: root names
-    and panels (CA#4, CA#13 quorum), missing `match` and `samples` in the context (CA#5), operation
-    list (CA#8), rider `samples` (CA#9), "DID NOT RAISE PlanningError" (CA#10 x2), KeyError of
-    `model_4` and `model_3` (CA#4 member params, CA#11 x2), 0 sample operations (CA#12), missing
-    accounting row (CA#12), `PlanningError` for mid-run checking instead of the ValueError
-    (CA#13 x3), missing fixture (CA#6 x2).
-  - `apps/screamingface-engine`: `tests/unit/test_combine_consistency_run.py`: 1 failed on
-    "combine_contract/consistency_pick_candidate.url4 is missing - write it with the SDK" (CA#7).
-  - Ruff check and ruff format: see the commit A check.
-- **Gates:** not run (RED step only).
-- **Flakes:** none seen.
-- **Deviations:** see the list above.
-- **Pinned edits:** none.
+    `tests/test_consistency_contract_fixtures.py`: 50 passed. The focused list of spec §10 (14
+    files): 146 passed.
+  - `apps/screamingface-engine`: the six Engine files of spec §10: 20 passed. This includes
+    `test_combine_consistency_run.py` (CA#7) with the failed sample (seed 137802004, HTTP 400).
+- **Gates:**
+  - `screamingface-engine` (`--base 633fec3a1`): the append-only check is RED. Its only offenders are
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json` and
+    `tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`. Both are the
+    PINNED edits of unit 1 (plan §6, b2ae6be62). Unit 4 adds no change to them (checked against
+    114ecdfa8). With `--skip-append-only`, every other gate is green: ruff check, ruff format,
+    pyright, the layering check and pytest with the coverage floor.
+  - `screamingface` (`--base 633fec3a1`): the append-only check is RED. Its only offender is
+    `tests/public_surface_snapshot.json`, the PINNED edit of unit 3 (plan §6, da12433b7). Unit 4
+    adds no change to it (checked against 114ecdfa8). With `--skip-append-only`, every other gate is
+    green: ruff check, ruff format, pyright (after D-U4-3), pytest with the 95 percent coverage
+    floor, the notebook check, uv build and the distribution check.
+  - `repo` (`--base 633fec3a1`): green, including the append-only check.
+- **Flakes:** none seen in this unit. No test was rerun.
+- **Deviations:** D-1 to D-4 (planner), D-U4-1 and D-U4-2 (commit A), D-U4-3 and D-U4-4 (commit B).
+  No deviation changes the PRD, so no line was added to overview §10.
+- **Pinned edits:** none made in this unit. The owner must review D-U4-3, the one edit to a test that
+  commit A added.
