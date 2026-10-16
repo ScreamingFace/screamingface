@@ -63,13 +63,13 @@ async def test_plan_refusal_becomes_typed_403_naming_the_plan() -> None:
     )
     assert err.status_code == 403
     assert err.detail == {
-        "code": "codex_plan_unsupported",
+        "code": "codex_model_unsupported",
         "provider": "codex",
         "model": "codex/gpt-5.4",
         "plan": "free",
         "message": (
-            "This ChatGPT account (plan: free) cannot use Codex models. "
-            "Sign in with a ChatGPT plan that includes Codex."
+            "Codex does not serve codex/gpt-5.4 to this ChatGPT account (plan: free). "
+            "Pick a model the account lists, or sign in with a ChatGPT plan that includes it."
         ),
     }
 

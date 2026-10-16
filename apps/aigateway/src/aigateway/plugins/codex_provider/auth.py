@@ -57,6 +57,11 @@ def plan_type_from_token(token: str | None) -> str | None:
     return plan if isinstance(plan, str) and plan else None
 
 
+def account_id_from_token(token: str | None) -> str | None:
+    """The ChatGPT account id named in an access token's claims, if any (OME-1634)."""
+    return _account_id_from_tokens(token, None)
+
+
 def _expires_at_ms_from_token(token: str | None) -> int | None:
     exp = _decode_jwt_claims(token).get("exp")
     if isinstance(exp, int | float):

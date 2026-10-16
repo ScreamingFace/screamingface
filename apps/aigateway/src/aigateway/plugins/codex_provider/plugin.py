@@ -26,6 +26,11 @@ from .chat_handler import (
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
 )
+from .live_models import (
+    LIVE_MODELS_DISCOVERY_SOURCE,
+    available_models_for,
+    latest_listing,
+)
 from .models import MODELS
 from .oauth_config import (
     CODEX_AUTHORIZE_EXTRA_PARAMS,
@@ -44,6 +49,8 @@ if TYPE_CHECKING:
         ProviderParameterObservation,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from aigateway.core.plugin_base import ModelDiscoverySource
     from aigateway.core.profile_models import AuthMode
 
 
@@ -59,6 +66,25 @@ class CodexProviderPlugin(ProviderPluginBase):
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
+
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        # OME-1634: the live list is per ChatGPT account (see live_models.py); the
+        # process-wide listing serves the most recently refreshed account list.
+        return LIVE_MODELS_DISCOVERY_SOURCE
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,  # noqa: ARG002
+        limits: DiscoveryLimits | None = None,  # noqa: ARG002
+    ) -> tuple[ModelEntry, ...] | None:
+        """The latest account's live list; ``no_snapshot`` until one was read.
+
+        # INVARIANT: the injected client is credential-free and the Codex catalog needs
+        # the account's token, so this NEVER dials — it serves what a dispatch-driven
+        # refresh already read (fail closed to the static seeds otherwise).
+        """
+        return latest_listing()
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
@@ -164,45 +190,60 @@ class CodexProviderPlugin(ProviderPluginBase):
                 timeout=body.get("timeout"),
             )
         except CustomLLMError as exc:
-            if _is_plan_refusal(exc):
-                raise _plan_unsupported(body) from exc
+            if _is_model_refusal(exc):
+                raise await _model_unsupported(body) from exc
             raise HTTPException(
                 status_code=exc.status_code,
                 detail={"code": "provider_error", "message": exc.message},
             ) from exc
 
 
-# WHY a text marker: the backend answers a plan refusal with a plain 400 and no error code;
+# WHY a text marker: the backend answers a model refusal with a plain 400 and no error code;
 # this sentence is the only thing that tells it apart from a malformed request.
-_PLAN_REFUSAL_MARKER = "not supported when using Codex with a ChatGPT account"
+_MODEL_REFUSAL_MARKER = "not supported when using Codex with a ChatGPT account"
 
 
-def _is_plan_refusal(exc: CustomLLMError) -> bool:
+def _is_model_refusal(exc: CustomLLMError) -> bool:
     # INVARIANT: both the 400 and the marker — the text alone on another status stays as is.
-    return exc.status_code == 400 and _PLAN_REFUSAL_MARKER in str(exc.message)
+    return exc.status_code == 400 and _MODEL_REFUSAL_MARKER in str(exc.message)
 
 
-def _plan_unsupported(body: dict[str, Any]) -> HTTPException:
-    """OME-1634: the sign-in is valid but its ChatGPT plan has no Codex.
+async def _model_unsupported(body: dict[str, Any]) -> HTTPException:
+    """OME-1634: the sign-in is valid but Codex does not serve this model to its account.
 
-    # WHY 403: the request is fine; the credential's entitlement refuses it. Codex keeps the
-    # default no-mark status hook, so the profile stays authenticated — upgrading the plan or
-    # signing in with another account fixes it. The message is gateway-authored: no upstream text.
+    # WHY 403: the request is fine; the account's entitlement refuses the model (a free plan
+    # is refused every model, a plus plan every retired slug). Codex keeps the default
+    # no-mark status hook, so the profile stays authenticated. The message is
+    # gateway-authored: no upstream text.
+    # WHY available_models is fetched here: the refusal is exactly when the caller needs the
+    # account's real list, and this is the one place holding that account's own credential.
+    # Unknown → the key is omitted; the 403 never depends on discovery succeeding.
     """
-    plan = plan_type_from_token(body.get("api_key")) or "unknown"
-    return HTTPException(
-        status_code=403,
-        detail={
-            "code": "codex_plan_unsupported",
-            "provider": "codex",
-            "model": body.get("model"),
-            "plan": plan,
-            "message": (
-                f"This ChatGPT account (plan: {plan}) cannot use Codex models. "
-                "Sign in with a ChatGPT plan that includes Codex."
-            ),
-        },
+    token = body.get("api_key")
+    model = body.get("model")
+    plan = plan_type_from_token(token) or "unknown"
+    detail: dict[str, Any] = {
+        "code": "codex_model_unsupported",
+        "provider": "codex",
+        "model": model,
+        "plan": plan,
+        "message": (
+            f"Codex does not serve {model} to this ChatGPT account (plan: {plan}). "
+            "Pick a model the account lists, or sign in with a ChatGPT plan that includes it."
+        ),
+    }
+    available = await available_models_for(
+        token if isinstance(token, str) else None, account_id=_account_id_header(body)
     )
+    if available is not None:
+        detail["available_models"] = available
+    return HTTPException(status_code=403, detail=detail)
+
+
+def _account_id_header(body: dict[str, Any]) -> str | None:
+    headers = body.get("extra_headers") or {}
+    value = headers.get("ChatGPT-Account-Id") or headers.get("chatgpt-account-id")
+    return value if isinstance(value, str) and value else None
 
 
 ensure_litellm_codex_provider_registered()
