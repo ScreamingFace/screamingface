@@ -155,6 +155,21 @@ def judge_shape(reference: str) -> JudgeShape:
     return _read_constructor(reader, constructor, constructor.node)
 
 
+def missing_package(reference: str) -> str | None:
+    """The top-level package a scorer reference names when it is not installed at all
+    (``inspect_evals`` on an Engine without the inspect extra), else None.
+
+    WHY separate from :func:`judge_shape`: a missing package reads as "source not found",
+    which is unread and so refused as reaching a judge; a caller asks this on an unread
+    result to name the real cause, a missing install. Nothing is imported: only the
+    import path's folders are looked at.
+    """
+
+    root: str = reference.partition(":")[0].split(".")[0]
+    installed: bool = _module_file(root) is not None or _package_folders(root) is not None
+    return None if installed else root
+
+
 def _read_constructor(
     reader: _SourceReader,
     constructor: _LocatedDef,

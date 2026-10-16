@@ -25,7 +25,7 @@ from functools import partial
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from screamingface_engine.benchmarks.definition import AnswerRule, BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
@@ -57,6 +57,9 @@ from screamingface_engine_inspect.single_shot import (
 )
 from screamingface_engine_inspect.task_replay import prepare_replayed_cases
 from url4.peer.server import Url4Node
+
+if TYPE_CHECKING:
+    from screamingface_engine_inspect.judge_shape import JudgeShape
 
 
 @dataclass(frozen=True)
@@ -4814,10 +4817,8 @@ def _check_extra_scorers_reach_no_judge(spec: BenchmarkSpec) -> None:
     judge it reaches is never the row's pinned one. The source is read, never imported.
     """
 
-    from screamingface_engine_inspect.judge_shape import JudgeShape, judge_shape
-
     for reference in spec.extra_scorers:
-        shape: JudgeShape = judge_shape(reference)
+        shape: JudgeShape = _read_scorer_shape(spec, reference)
         if shape.reaches_a_judge:
             raise ValueError(
                 f"{spec.key}: extra scorer {reference.rpartition(':')[2]} reaches a judge "
@@ -4835,15 +4836,39 @@ def _check_scorer_reaches_no_judge(spec: BenchmarkSpec, scorer_name: str) -> Non
     imported: assembly runs on the Engine's run path.
     """
 
-    from screamingface_engine_inspect.judge_shape import JudgeShape, judge_shape
-
-    shape: JudgeShape = judge_shape(spec.scorer)
+    shape: JudgeShape = _read_scorer_shape(spec, spec.scorer)
     if shape.reaches_a_judge:
         raise ValueError(
             f"{spec.key}: scorer {scorer_name} reaches a judge ({shape.described()}) but the "
             "row declares no judge, so it would grade outside benchmark identity; declare "
             "judge=JudgeSpec(...) and pin the judge (OME-1602)"
         )
+
+
+def _read_scorer_shape(spec: BenchmarkSpec, reference: str) -> JudgeShape:
+    """Read how a row's scorer reaches a judge from its source, refusing by the real cause
+    when the reader could not read it because the scorer's package is not installed at all
+    (OME-1602, F2).
+
+    WHY: a scorer the reader cannot read counts as reaching a judge, so without this the
+    refusal would blame a judge for what is a missing install (``inspect_evals`` on an
+    Engine without the inspect extra). Only an unread result is checked: inspect's own
+    scorers are never read, so they never hit the install check. The source is read,
+    never imported.
+    """
+
+    # WHY lazy: only the judge check reads the judge-shape module; it imports no eval.
+    from screamingface_engine_inspect.judge_shape import judge_shape, missing_package
+
+    shape: JudgeShape = judge_shape(reference)
+    package: str | None = missing_package(reference) if shape.unread else None
+    if package is not None:
+        raise ValueError(
+            f"{spec.key}: scorer {reference.rpartition(':')[2]} comes from {package}, which "
+            "is not installed, so assembly cannot read whether it reaches a judge; install "
+            "the Engine's inspect extra (OME-1602)"
+        )
+    return shape
 
 
 def _check_declared_judge(
@@ -4911,9 +4936,7 @@ def _check_scorer_asks_only_the_bound_role(spec: BenchmarkSpec, role: str) -> No
     check that still reads the scorer. The source is read, never imported.
     """
 
-    from screamingface_engine_inspect.judge_shape import JudgeShape, judge_shape
-
-    shape: JudgeShape = judge_shape(spec.scorer)
+    shape: JudgeShape = _read_scorer_shape(spec, spec.scorer)
     others: list[str] = [asked for asked, _ in shape.roles if asked != role]
     if others or shape.model_under_test or shape.unread:
         found: str = (

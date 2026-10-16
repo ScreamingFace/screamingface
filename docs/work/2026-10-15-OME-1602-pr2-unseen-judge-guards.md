@@ -76,4 +76,11 @@ unit makes each such shape a named outcome (F2) and adds no Benchmark.
   assembly: 1256 passed. ruff check and format and pyright on the touched files: clean, apart
   from two unresolved imports that also fail on the unchanged files (`url4.peer.server` in
   benchmarks.py, `pytest` in test_judge_shape.py).
+- **Missing install (2026-10-16, owner-approved):** on an Engine without the inspect extra,
+  the 17 judge-free rows whose scorer lives in inspect_evals were refused as "reaches a judge
+  (unread: source not found)", blaming a judge for a missing install. Assembly now refuses
+  them naming it ("comes from inspect_evals, which is not installed ... install the Engine's
+  inspect extra"); a missing module inside an installed package stays unread. Gates: the 36
+  test files that build or assemble rows, 1243 passed; with the extra all 65 rows assemble;
+  ruff and pyright clean on the touched files.
 - **Owner verify:** none; nothing paid, no Benchmark changes.

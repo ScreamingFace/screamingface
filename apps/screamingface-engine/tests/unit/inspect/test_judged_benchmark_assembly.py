@@ -883,6 +883,36 @@ def test_a_judge_free_row_whose_scorer_reaches_no_judge_still_assembles(
     assert _assembled(spec, monkeypatch).judge is None
 
 
+def test_a_scorer_from_a_package_not_installed_is_refused_naming_the_missing_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An Engine without the inspect extra cannot read inspect_evals' scorers; the refusal
+    must name the missing install, not blame a judge the reader never saw."""
+
+    # A package name chosen so no environment installs it, standing in for inspect_evals.
+    spec = _judged_spec(
+        scorer="stand_in_never_installed_evals.scorers:judge_free", scorer_kwargs={}, judge=None
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"comes from stand_in_never_installed_evals, which is not installed",
+    ):
+        _assembled(spec, monkeypatch)
+
+
+def test_a_missing_module_inside_an_installed_package_is_still_refused_as_unread(
+    judged_scorers: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The install check only speaks for a package that is absent; a wrong path inside an
+    installed one stays unread, and unread is never judge-free."""
+
+    spec = _judged_spec(scorer=f"{judged_scorers}.nowhere:judge_free", scorer_kwargs={}, judge=None)
+
+    with pytest.raises(ValueError, match=r"judge_free reaches a judge \(unread: "):
+        _assembled(spec, monkeypatch)
+
+
 def test_an_extra_scorer_that_reaches_a_judge_is_refused(
     judged_scorers: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
