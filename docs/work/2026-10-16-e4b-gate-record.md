@@ -224,6 +224,8 @@ changes; every existing evidence, spec and url4 keeps its bytes.
 - Interim gap: until unit 3, `Url4.to_python()` rebuilds a hand-written gated vote spec as an
   `sf.Vote` without its gate (the spec decoder accepts `gate` from this unit on). Unit 3 (GA#12a)
   closes it.
+- Until unit 2 the Engine accepts a gate key and ignores it at run time; no released state has
+  this.
 - For unit 2: GR-I3 goes directly before the Engine call `_check_gate(self)` in
   `CombineEvidence._check`, and directly before the SDK call `_check_gate(selected_gate, ...)` in
   `CombineEvidence.__init__` (the local variable is `selected_gate`).
@@ -255,7 +257,10 @@ changes; every existing evidence, spec and url4 keeps its bytes.
   - `repo`, no flag: ALL GATES GREEN (append-only check passed).
   - Appendix E check printed `snapshot diff OK`. Appendix F check: the surface diff has 17
     insertions and 1 deletion, as the spec states.
-- **RED log:** commit A (stubs and RED tests). ET: 1 passed (GR#1), 18 failed. ST: 1 passed (GR#1), 23 failed. Each failure is the reason of the spec §5 table: extra key `gate` or `verifier`, `DID NOT RAISE`, `unsupported field 'gate'`, `module 'screamingface.report' has no attribute 'CombineGate'`, a snapshot `None` (PIN). No ImportError, no NameError.
+- **RED log:** commit A (stubs and RED tests). ET: 1 passed (GR#1), 18 failed. ST: 1 passed
+  (GR#1), 23 failed. Each failure is the reason of the spec §5 table: extra key `gate` or
+  `verifier`, `DID NOT RAISE`, `unsupported field 'gate'`, `module 'screamingface.report' has no
+  attribute 'CombineGate'`, a snapshot `None` (PIN). No ImportError, no NameError.
 - **Flakes:** None seen in the runs of this unit. The known flaky tests (OME-1619) were not run
   alone, because no test failed outside the append-only check.
 - **Deviations:**
@@ -277,3 +282,38 @@ changes; every existing evidence, spec and url4 keeps its bytes.
     base `406747a92a4c44d05aff27f0922e7582250cc31a` after `1cbdad39b71843479e77805e8448eadb3735b28f`
   - `packages/screamingface/tests/public_surface_snapshot.json`
     base `8b961b377cf44c46d7b4fc39a0fd596c53ba451f` after `e3cd603c7ea291b6085715788478a0152b3b8b6d`
+
+### Review fixes (unit 1)
+
+The review gave 10 MINOR findings. No finding is about behavior, so no RED test was added.
+
+- **Applied:**
+  - `S/combine_evidence.py`: `CombineEvidence.__init__` builds `tuple(chosen)` one time
+    (`selected_chosen`) and uses it for `_result`, `_check_gate` and `values["chosen"]`. The
+    behavior does not change. This is a small change to the Appendix B text.
+  - Notes for the review: one line added for the Engine interim gap (until unit 2 the Engine
+    accepts a gate key and ignores it at run time).
+  - Outcome: the RED log line is wrapped at 100 columns.
+- **Not applied (routed to the orchestrator or the owner):**
+  - The three pinned files: the owner approves the blobs above. The blobs did not change in this
+    fix.
+  - One SDK home for `GateCmp`, `_GATE_CMPS` and `_gate_observe` (unit 3 must import them from
+    `S/combine_evidence.py` or `S/_signals.py`). The unit 1 note that "the two aliases do not
+    conflict" is replaced by this routing.
+  - `GATE_OBSERVE` built from `DECLARED_NAME.pattern`: optional, and Appendix A was "apply
+    exactly". It needs the orchestrator's consent.
+  - The Engine and SDK `observe` strictness (D-2) and a possible "gate name is a key of `declared`"
+    invariant: a unit 2 decision.
+  - The GR-I5(b) message words ("that one member" against "that member"): no change now; make them
+    the same if unit 2 touches them.
+  - Spec §9 names `tests/unit/test_combine_evidence.py`, which is not in the tree: correct the
+    focused-run list for the later units.
+  - `passed` and `branch` are a one-to-one pair while `GateBranch` has two values: an owner
+    decision.
+- **Gates after the fixes (vs `4e622af75`, one stack at a time):**
+  - `screamingface-engine`: red only on the append-only check (the two pinned schema files). With
+    `--skip-append-only`: ALL GATES GREEN.
+  - `screamingface`: red only on the append-only check (`tests/public_surface_snapshot.json`,
+    pinned). With `--skip-append-only`: ALL GATES GREEN.
+  - `repo`, no flag: ALL GATES GREEN.
+- **Flakes:** none seen.

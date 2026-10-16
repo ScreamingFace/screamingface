@@ -385,7 +385,8 @@ class CombineEvidence:
             _subset(row.holders, member_ids, "Combine tally holders")
         selected_dropped = _dropped(dropped, selected_members)
         _ranks(selected_members)
-        selected_result = _result(result, tuple(chosen), built)
+        selected_chosen = tuple(chosen)
+        selected_result = _result(result, selected_chosen, built)
         selected_declared = _declared_map(declared)
         selected_signal = _optional_instance(signal, CombineSignal, "Combine evidence signal")
         if (
@@ -401,7 +402,7 @@ class CombineEvidence:
             selected_gate,
             agreement=selected_agreement,
             judge=selected_judge,
-            chosen=tuple(chosen),
+            chosen=selected_chosen,
             built=built,
             result=selected_result,
         )
@@ -413,7 +414,7 @@ class CombineEvidence:
             "tally": selected_tally,
             "judge": selected_judge,
             "fields": selected_fields,
-            "chosen": tuple(chosen),
+            "chosen": selected_chosen,
             "built": _flag(built, "Combine evidence built"),
             "agreement": selected_agreement,
             "tie": _flag(tie, "Combine evidence tie"),
