@@ -351,6 +351,18 @@ def _settle_authors_metadata(updates: dict[str, object], locked: Score) -> None:
             updates["authors_metadata"] = kept
 
 
+def _metadata_equal(left: object, right: object) -> bool:
+    """Compare validated metadata without conflating JSON booleans and numbers."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(
+            _metadata_equal(value, right[key]) for key, value in left.items()
+        )
+    # WHY: True == 1 in Python; JSON booleans are distinct, but 1 and 1.0 remain equal.
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
+    return left == right
+
+
 def _metadata_changes(locked: Score, proposed: Mapping[str, object]) -> dict[str, object]:
     """The part of ``proposed`` that differs from what the LOCKED row holds.
 
@@ -361,7 +373,7 @@ def _metadata_changes(locked: Score, proposed: Mapping[str, object]) -> dict[str
     return {
         field: proposed[field]
         for field in _METADATA_FIELDS
-        if field in proposed and proposed[field] != getattr(locked, field)
+        if field in proposed and not _metadata_equal(proposed[field], getattr(locked, field))
     }
 
 

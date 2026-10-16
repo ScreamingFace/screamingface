@@ -105,10 +105,10 @@ def _text_problem(value: object, limit: int, *, text_only: bool) -> str | None:
             reason = f"must be at most {limit} characters"
     elif text_only:
         reason = "must be a string"
-    # WHY bool first: `True` is an `int` in Python, and a boolean is accepted as itself.
-    elif isinstance(value, bool):
+    # WHY: bools and ints are always finite; casting a large int to float can overflow.
+    elif isinstance(value, bool | int):
         pass
-    elif isinstance(value, int | float):
+    elif isinstance(value, float):
         # Python's JSON parser accepts NaN and Infinity; neither is a number a reader can use.
         if not math.isfinite(value):
             reason = "must be a finite number"

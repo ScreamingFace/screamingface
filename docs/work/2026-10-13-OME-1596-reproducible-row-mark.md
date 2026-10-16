@@ -121,3 +121,27 @@ Spec §7 and the Linear issue's acceptance list.
     race deterministically (the first dedup lookup misses while the row exists). The coordinator's
     `samerace.py` now gives [200, 200, 200, 200, 200, 201] with one id, three rounds each, on
     SQLite and on a throwaway postgres:17 container.
+
+## Review follow-up — 2026-10-16
+
+Owner approved fixing the two localized P2 findings before drafting the PR.
+
+- Plan: avoid float conversion when validating finite integer metadata; compare metadata as
+  JSON so boolean/number changes are saved and audited on PATCH and same-owner resubmit.
+- Add API regression tests first for large integers in both objects and both write paths,
+  boolean/number replacements and audit timestamps, and key-order-independent no-op retries.
+- Run the scoreboard gates with append-only checked against this iteration's starting HEAD.
+  No schema change, main rebase, PR creation, or public review comment is part of this fix.
+- Outcome: fixed both P2s in `scores/credit_metadata.py` and `scores/store.py`; added
+  `tests/unit/test_credit_metadata_scalar_regressions.py` (32 parametrized cases). Initial RED:
+  20 failures reproducing the reported bugs, four existing no-op cases passing. Final GREEN:
+  all 32 pass, including eight additional equal-number no-op cases.
+- Review refinement: JSON string comparison would distinguish `1` from `1.0`; an additional
+  RED test demonstrated the unwanted audit entries. The final bounded-object comparison keeps
+  numeric equality and key-order independence, while distinguishing booleans from numbers.
+- Gates: `uv run .claude/scripts/run_gates.py scoreboard --base HEAD` all green (append-only,
+  ruff lint/format, pyright, full pytest with coverage, named Node portal suite); `git diff
+  --check` clean. Prior tests unchanged; no new dependency, schema, auth, or visibility change.
+- Commit: `fix(scoreboard): validate and audit metadata scalar values correctly`.
+  This follow-up is complete locally; the overall feature remains in progress. Existing main
+  conflicts and deployment duplicate-copy checks remain separate pre-PR/pre-merge work.
