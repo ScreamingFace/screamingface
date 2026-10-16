@@ -478,7 +478,9 @@ and `metadata_json`. `id`, `hit_count` and `last_hit_at` never leave.
 previous trailer's cursor), `limit` (1–5,000, default 5,000), `model` (repeatable, exact match on
 the stored model name), `count`. Gzip'd when the client accepts it. Pages run in
 `(updated_at, key_hash)` order on migration `0015`'s index, so a row written during a pull is
-reached by the same pull.
+normally reached by the same pull. Two exceptions come with the next pull instead: a write that
+commits after the pull's cursor has passed its `updated_at`, and every row of a *replace*
+restore, which keeps the archive's `updated_at` (a merge restore stamps the restore time).
 
 **Cost.** Each page is read 100 rows at a time, each batch its own short indexed query, and
 written to the response as it goes: memory per request is about 100 rows whatever the page size,

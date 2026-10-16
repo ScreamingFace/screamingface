@@ -9,10 +9,14 @@ read in batches of ``BATCH_ROWS``, every batch its own short keyset query on the
 ``(updated_at, key_hash)`` index (migration 0015), so no connection or transaction is held between
 batches and the caller can write each batch out before the next is read.
 
-WHY write order: a row written while a walk is under way lands after the cursor, so the same walk
-reaches it. ``updated_at`` rather than ``created_at`` because a snapshot restore inserts rows with
-their source's ``created_at`` and overwrites rows without changing it; ``updated_at`` moves in
-both cases.
+WHY write order: a row written while a walk is under way normally lands after the cursor, so the
+same walk reaches it. ``updated_at`` rather than ``created_at`` because a merge restore inserts
+rows with their source's ``created_at`` and overwrites rows without changing it; ``updated_at``
+moves in both cases.
+AIDEV-NOTE: two writes can land behind a walk's cursor and be missed by it (spec decision 13):
+a write that commits after the cursor passed its ``updated_at`` (stamped before commit), and a
+*replace* restore, which keeps the archive's ``updated_at``. Either row comes with the next
+pull, which in v1 walks from the start.
 INVARIANT: a cache hit never moves ``updated_at`` (``store.record_hit_metadata``). If it did,
 every hit row would jump to the end of the order and every pull would re-send it.
 """
