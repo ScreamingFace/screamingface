@@ -196,3 +196,17 @@ async def test_a_json_error_body_relays_only_its_message_field(errors) -> None:
     for error in await built if hasattr(built, "__await__") else built:
         assert error.message.endswith(": Unsupported parameter: 'top_k'")
         assert "Jane Doe" not in error.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "errors",
+    [pytest.param(_codex_errors, id="codex"), pytest.param(_gemini_errors, id="gemini")],
+)
+async def test_a_raw_top_level_message_body_is_not_relayed(errors) -> None:
+    # WHY (#1233 second review): valid JSON with an unapproved top-level `message` is an
+    # unknown raw shape; it must fall back to the generic sentence like HTML does.
+    built = errors(502, b'{"message": "Jane Doe SSN 123-45-6789 at 10.0.0.1/admin"}')
+    for error in await built if hasattr(built, "__await__") else built:
+        assert "Jane Doe" not in error.message
+        assert "10.0.0.1" not in error.message

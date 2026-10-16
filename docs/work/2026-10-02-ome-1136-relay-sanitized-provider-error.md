@@ -276,3 +276,22 @@ Branch rebased on `origin/main`. All four points addressed test-first:
    payload → drop `openrouter_metadata` → return. Regression
    `test_the_merged_plugin_relays_embedded_errors_and_strips_routing_metadata`, mutation-checked:
    it fails when either side is removed.
+
+## 7. Second review revision — PR #1233 (HupBaHa, 2026-10-16, CHANGES_REQUESTED), done 2026-10-16
+
+Rebased on main after #1431 (native media) merged; the only conflict was the Codex
+`chat_handler.py` import block — both imports kept.
+
+1. **Raw bodies need a nested `error`.** `error_message_from_body` and the `response` carrier of
+   `relayable_upstream_message` now read only `payload["error"]`; a top-level `{"message": …}`
+   yields `None` (generic sentence). The inner-object fallback is kept only for the SDK's
+   structured `exc.body`. The PR-added parametrize case that blessed a raw top-level `message`
+   moved to the `None` list. Trade-off: a provider whose raw body is top-level `message`
+   (Mistral/Cohere style) now gets the generic sentence on the custom-handler paths.
+2. **More internal-address forms redacted.** IPv4 (`10.0.0.1/admin`, `:8443`), bracketed and
+   bare IPv6 (`[fd00::1]:8443/v2`, `fd00::1`, `[::1]`), `localhost[:port][/path]` → `[url]`;
+   Windows drive/UNC paths after whitespace, quotes, `=`, `:` → `[path]`. Guarded against false
+   positives: times (`12:30`), ratios (`3:1`), 3-part versions (`1.2.3`). Plugin-level coverage
+   through `plugin_error_message(…, status=502)`; Codex + Gemini raw-body handler tests.
+
+Gates: `run_gates.py aigateway --base <merge-base>` all green.

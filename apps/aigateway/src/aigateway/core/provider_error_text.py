@@ -89,6 +89,18 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     # treated as a URL; a bare dotted name (`gpt-4.1`, `file.json`) without either is not.
     (re.compile(r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?/\S*"), "[url]"),
     (re.compile(r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}:\d+\b"), "[url]"),
+    # WHY (#1233 second review): IP literals and localhost are internal by definition, with or
+    # without a port/path — bracketed (`[fd00::1]:8443`) and bare (`fd00::1`, `10.0.0.1/admin`).
+    (re.compile(r"\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*\](?::\d+)?(?:/\S*)?"), "[url]"),
+    (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:/\S*)?"), "[url]"),
+    (
+        re.compile(
+            r"(?i)(?<![\w:.])(?=[0-9a-f:]*::|(?:[0-9a-f]{1,4}:){7})"
+            r"[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:/\d+)?(?![\w:])"
+        ),
+        "[url]",
+    ),
+    (re.compile(r"(?i)\blocalhost(?::\d+)?(?:/\S*)?"), "[url]"),
     (re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "[email]"),
     (re.compile(r"(?i)\bbearer\s+\S+"), "[redacted]"),
     (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[redacted]"),
@@ -101,6 +113,8 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b[A-Za-z0-9]{32,}\b"), "[id]"),
     # WHY `=` and `:` (#1233 review): `endpoint=/v1/internal/admin`, `path:/srv/app` are paths.
     (re.compile(r"(?:^|(?<=[\s'\"(=:]))\.{0,2}/\S+"), "[path]"),
+    # WHY (#1233 second review): Windows drive and UNC paths, after the same delimiters.
+    (re.compile(r"(?:^|(?<=[\s'\"(=:]))(?:[A-Za-z]:\\|\\\\)\S+"), "[path]"),
     (re.compile(r"'[^']{41,}'|\"[^\"]{41,}\"|`[^`]{41,}`"), "'[…]'"),
 )
 
@@ -266,12 +280,21 @@ def message_from_error_object(error: object) -> str | None:
     return message if isinstance(message, str) else None
 
 
-def _error_object(payload: object) -> object:
-    if not isinstance(payload, Mapping):
-        return None
-    error = payload.get("error")
-    # WHY the fallback: the OpenAI SDK's `exc.body` is already the inner error object.
-    return error if isinstance(error, Mapping) else payload
+def _nested_error(payload: object) -> object:
+    """The `error` object of a RAW wire body; ``None`` when it does not nest one.
+
+    INVARIANT (#1233 second review): a raw body's text is read ONLY from `error`. A top-level
+    `message` is an unknown shape and yields ``None`` — the caller keeps its generic sentence.
+    """
+    error = payload.get("error") if isinstance(payload, Mapping) else None
+    return error if isinstance(error, Mapping) else None
+
+
+def _sdk_error_object(body: Mapping[str, Any]) -> object:
+    # WHY the fallback: the OpenAI SDK's `exc.body` is ALREADY the inner error object. It is
+    # allowed for this structured carrier only, never for a raw wire body.
+    error = body.get("error")
+    return error if isinstance(error, Mapping) else body
 
 
 def _json_payload(content: object) -> object:
@@ -300,15 +323,15 @@ def error_message_from_body(content: object) -> str | None:
 
     FEATURE (OME-1136, #1233 review): the Codex and Gemini handlers used to append up to 500
     bytes of the RAW body, so an HTML error page (names, ids, internal URLs) reached the client.
-    INVARIANT: only a bounded JSON OBJECT is read, and only its `error.message` (or top-level
-    `message`, one level of `metadata.raw`); HTML, arrays, invalid JSON and unknown shapes yield
+    INVARIANT: only a bounded JSON OBJECT is read, and only its nested `error.message` (one level
+    of `metadata.raw`); HTML, arrays, invalid JSON, a top-level `message` and unknown shapes yield
     ``None`` and the caller keeps its generic sentence. Total — never raises.
     """
     try:
         payload = _json_payload(content)
         if not isinstance(payload, Mapping):
             return None
-        return message_from_error_object(_error_object(payload))
+        return message_from_error_object(_nested_error(payload))
     except Exception:
         return None
 
@@ -332,8 +355,8 @@ def _cause_chain(exc: BaseException) -> Iterable[BaseException]:
         current = current.__cause__ or current.__context__
 
 
-def _exception_payload(exc: BaseException) -> object:
-    """The provider's JSON error body, from the exception's structured carriers only.
+def _exception_error_object(exc: BaseException) -> object:
+    """The provider's error object, from the exception's structured carriers only.
 
     WHY the cause chain: litellm 1.87's OpenRouter exceptions carry a SYNTHETIC empty
     `response`; the wire body survives only on the chained `httpx.HTTPStatusError` (measured
@@ -344,17 +367,17 @@ def _exception_payload(exc: BaseException) -> object:
     for link in _cause_chain(exc):
         payload = _response_payload(getattr(link, "response", None))
         if payload is not None:
-            return payload
+            return _nested_error(payload)
         body = getattr(link, "body", None)
         if isinstance(body, Mapping):
-            return body
+            return _sdk_error_object(body)
     return None
 
 
 def relayable_upstream_message(exc: BaseException, *, forbidden: Iterable[str] = ()) -> str | None:
     """The sanitized provider explanation carried by ``exc``, or ``None`` (→ generic message)."""
     try:
-        text = message_from_error_object(_error_object(_exception_payload(exc)))
+        text = message_from_error_object(_exception_error_object(exc))
         return sanitize_upstream_text(text, forbidden=forbidden)
     except Exception:
         return None
