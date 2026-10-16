@@ -586,3 +586,59 @@ def test_a_row_without_nltk_data_writes_no_nltk_line() -> None:
     rows: TaskReplayRows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
 
     assert "nltk_" not in rows.cases
+
+
+# --- OME-1602 F6: several-letter keys and multiple_correct ------------------------------------
+
+
+def test_a_row_whose_keys_name_several_letters_says_so_in_its_row() -> None:
+    """The several-letter keys are inside the seal, so the row carries the opt-in the image
+    build prepares under; without it Case Preparation would refuse those Cases."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "stereoset", _imported(letter_list_key=True), "TODO"
+    )
+
+    assert "        letter_list_key=True,\n" in rows.cases
+    assert _declared(rows)["stereoset"].letter_list_key is True
+
+
+def test_a_multiple_correct_task_writes_multiple_correct_on_its_row() -> None:
+    rows: TaskReplayRows = render_task_replay_rows(
+        "cyse4_malware_analysis",
+        _imported(facts=_facts(multiple_correct=True)),
+        "TODO",
+    )
+
+    assert "        multiple_correct=True,\n" in rows.benchmark
+
+
+def test_a_one_letter_task_writes_neither_line() -> None:
+    """Absence stays absence: a default row's text, and so every existing row, is unchanged."""
+
+    rows: TaskReplayRows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
+
+    assert "letter_list_key" not in rows.cases
+    assert "multiple_correct" not in rows.benchmark
+
+
+def test_a_moved_headline_is_flagged_even_with_one_scorer_left() -> None:
+    """[judged, exact] imports with the judge dropped and exact as the new headline; with one
+    scorer left the row writes no Named Scores, and the reviewer is still asked to confirm."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "stand_in",
+        _imported(
+            facts=_facts(
+                mcq=False,
+                scorer="inspect_ai.scorer:exact",
+                dropped_scorers=("asks_the_grader",),
+                headline_differs=True,
+            )
+        ),
+        "TODO",
+    )
+
+    assert "# TODO(review): the Headline Score is the one scorer kept, not upstream's" in (
+        rows.benchmark
+    )
