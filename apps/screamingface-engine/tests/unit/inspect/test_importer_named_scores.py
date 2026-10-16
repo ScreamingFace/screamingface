@@ -430,14 +430,40 @@ def _built_with_recorder(made: Callable[[], Scorer]) -> Task:
 
 
 def test_a_function_scorer_argument_is_refused_because_inspect_logs_only_its_name() -> None:
-    """drop's shape: inspect logs answer_fn=extract_answer as the string 'extract_answer',
-    so the row would rebuild the scorer with a string where the eval passed a function."""
+    """inspect logs a function as its name, so a row would rebuild the scorer with a string.
+    Since PR 6 a module-level function is named by reference instead (next test); a lambda
+    has no name an import can find, so it is still refused."""
+
+    task: Task = _built_with_recorder(lambda: keyed(lambda completion: completion.strip()))
+
+    with pytest.raises(
+        ImporterError, match=r"keyed is created with answer_fn='<lambda>'.*function"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_module_level_function_argument_is_named_by_reference_not_by_its_logged_name() -> None:
+    """drop's shape (OME-1602 PR 6): answer_fn=extract_answer becomes a reference the grader
+    imports, and the logged string 'extract_answer' never reaches the literal kwargs, where it
+    would rebuild the scorer with a string."""
 
     task: Task = _built_with_recorder(lambda: keyed(extract_answer))
 
-    with pytest.raises(
-        ImporterError, match=r"keyed is created with answer_fn='extract_answer'.*function"
-    ):
+    facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
+
+    assert facts.scorer_function_kwargs == {"answer_fn": f"{__name__}:extract_answer"}
+    assert "answer_fn" not in facts.scorer_kwargs
+
+
+def test_a_function_defined_inside_another_is_refused() -> None:
+    """A nested function's qualified name holds ``<locals>``: no import reaches it."""
+
+    def nested(completion: str) -> str:
+        return completion
+
+    task: Task = _built_with_recorder(lambda: keyed(nested))
+
+    with pytest.raises(ImporterError, match=r"answer_fn='nested'"):
         _scorer_facts(task, sys.modules[__name__])
 
 
@@ -486,7 +512,8 @@ GUARDED_EVAL: str = textwrap.dedent(
 
     @task
     def function_argument() -> Task:
-        return _task(keyed(extract_answer))
+        # A lambda: no module-level name the row could write (OME-1602 PR 6 names the rest).
+        return _task(keyed(lambda completion: completion.strip()))
 
     @scorer(metrics=[accuracy()])
     def asks_the_grader():
@@ -517,9 +544,11 @@ def guarded_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 def test_the_import_child_records_scorer_arguments_so_a_function_argument_is_refused(
     guarded_eval: str,
 ) -> None:
-    """Without the recorder in the child, the function would import as its logged name."""
+    """Without the recorder in the child, the function would import as its logged name. Since
+    PR 6 a module-level function is named by reference, so the stand-in passes a lambda, the
+    shape that still has no name a row could write."""
 
-    with pytest.raises(TaskReplayError, match=r"answer_fn='extract_answer'"):
+    with pytest.raises(TaskReplayError, match=r"answer_fn='<lambda>'"):
         replay_for_import(f"{guarded_eval}:function_argument", None)
 
 

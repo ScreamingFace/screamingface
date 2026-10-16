@@ -144,6 +144,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # graded by two of the eval's three scorers (the self-grading one dropped by name).
     "squad": "free_text",
     "math": "free_text",
+    # OME-1602 PR 6: DROP's reply ends with an Answer line read by the eval's own function.
+    "drop": "free_text",
     # OME-1602: aime26 copies aime25; the rest are judged — the SimpleQA pair through the
     # grader role, the refusal Benchmarks and UCCB by a named judge, and air_bench by a local
     # Task's scorer. infinite_bench's local Task grades by inspect's exact match.
