@@ -1,6 +1,6 @@
 # Align the SF Client docs with screamingface 0.1.3: plan
 
-Status: draft · Refs: `OME-426` · Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-3.md` (approved)
+Status: approved · Refs: `OME-426` · Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-3.md` (approved)
 Branch: `callis/ome-426-docs-polish-pass-launch`, renamed to `OME-<N>-<description>` at PR-open.
 Landing: `public-docs` only.
 

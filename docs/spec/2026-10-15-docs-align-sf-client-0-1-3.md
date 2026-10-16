@@ -1,6 +1,6 @@
 # Align the SF Client docs with screamingface 0.1.3
 
-Status: draft · Stack: repo · Epic: `OME-426`
+Status: approved · Stack: repo · Epic: `OME-426`
 
 ## Problem
 
