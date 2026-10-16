@@ -66,3 +66,14 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
   `tests/unit/test_plugin_loader.py` (`codex/gpt-5.4-mini`) pin the old slugs; changing them is an
   append-only conflict left to the owner. Until then a cold process lists the dead seeds until the first
   refresh (any refusal) succeeds.
+- **Review fix (blocking, kill switch):** the refusal path's account-list read ignored
+  `AIGW_DISCOVERY_ENABLED=false`. Now `create_app` passes the setting to every plugin via the new
+  `configure_discovery(enabled=...)` contract hook (default no-op; a plugin without it is skipped, so
+  duck-typed providers and test doubles still load), and Codex disables its `CodexModelDirectory`. A
+  disabled directory builds no client and opens no connection, and the 403 omits `available_models`.
+  4 appended tests in `tests/unit/codex/test_codex_live_models.py` (zero requests with discovery off,
+  re-enable restores the list, and `create_app` wiring for false/true). The spec §2 "Kill switch" bullet
+  and the `config.py` comment now describe it. Gates: ALL GATES GREEN. Live e2e on port 9121 with my own DB
+  copies: discovery on → 403 with the four live models, and `/v1/models` switches to them. Discovery off →
+  403 without `available_models`, and `/v1/models` keeps the seeds. In both modes, gpt-6-astra
+  text/PNG/PDF all return 200 and are correct.

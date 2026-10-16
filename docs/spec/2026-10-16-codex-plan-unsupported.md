@@ -67,6 +67,12 @@ credential and serve one process-wide snapshot. Resolution:
   app-lifetime runtime client is still built without headers, so the injected discovery client stays
   credential-free; only the Codex plugin builds a per-call client carrying the caller's own token.
   Core still imports no plugin.
+- **Kill switch.** `AIGW_DISCOVERY_ENABLED=false` silences this read too: `create_app` hands the
+  setting to every plugin through the `configure_discovery(enabled=...)` contract hook (default
+  no-op), and the Codex plugin disables its `CodexModelDirectory`. A disabled directory builds no
+  client and opens no connection; the refusal stays a 403 with `available_models` omitted, and the
+  listing falls back to `register_models()` (the catalog is absent anyway). This keeps the gateway
+  invariant that the switch audits to zero discovery egress of any kind.
 
 ### 3. Static fallback
 

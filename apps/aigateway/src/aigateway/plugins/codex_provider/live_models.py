@@ -132,6 +132,17 @@ class CodexModelDirectory:
             ),
         )
         self._latest: tuple[tuple[str, ...], float] | None = None
+        # WHY a flag here and not in the plugin: the refusal path reads this directory, so the
+        # kill switch must sit where the dial happens. Enabled by default; ``create_app``
+        # hands it AIGW_DISCOVERY_ENABLED through ``CodexProviderPlugin.configure_discovery``.
+        self._enabled = True
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    def set_enabled(self, *, enabled: bool) -> None:
+        self._enabled = enabled
 
     async def slugs_for(
         self, access_token: str | None, *, account_id: str | None = None
@@ -142,6 +153,9 @@ class CodexModelDirectory:
         # ``ChatGPT-Account-Id`` and the cache keys by it — without one there is
         # nothing to ask for and nothing to key.
         """
+        # INVARIANT: AIGW_DISCOVERY_ENABLED=false → no dial and no client, the list is unknown.
+        if not self._enabled:
+            return None
         account = account_id or account_id_from_token(access_token)
         if not access_token or not account:
             return None

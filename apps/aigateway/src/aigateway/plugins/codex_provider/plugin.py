@@ -17,6 +17,7 @@ from aigateway.core.plugin_base import (
 )
 from aigateway.core.provider_error_text import credential_values, plugin_error_message
 
+from . import live_models
 from .auth import (
     CodexOAuth,
     account_label_from_credentials,
@@ -87,6 +88,12 @@ class CodexProviderPlugin(ProviderPluginBase):
         # refresh already read (fail closed to the static seeds otherwise).
         """
         return latest_listing()
+
+    def configure_discovery(self, *, enabled: bool) -> None:
+        # OME-1634: the refusal path's account-list read dials outside the injected runtime,
+        # so the kill switch is handed to the directory that dials.
+        # AIDEV-NOTE: read through the module attribute so tests swap DIRECTORY.
+        live_models.DIRECTORY.set_enabled(enabled=enabled)
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
@@ -222,6 +229,8 @@ async def _model_unsupported(body: dict[str, Any]) -> HTTPException:
     # WHY available_models is fetched here: the refusal is exactly when the caller needs the
     # account's real list, and this is the one place holding that account's own credential.
     # Unknown → the key is omitted; the 403 never depends on discovery succeeding.
+    # INVARIANT: AIGW_DISCOVERY_ENABLED=false → no list read at all (configure_discovery),
+    # so the key is omitted and the refusal sends no discovery request.
     """
     token = body.get("api_key")
     model = body.get("model")

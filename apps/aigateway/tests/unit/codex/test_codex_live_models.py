@@ -310,3 +310,55 @@ async def test_refusal_without_a_known_list_omits_available_models() -> None:
     detail = _detail(err)
     assert detail["code"] == "codex_model_unsupported"
     assert "available_models" not in detail
+
+
+# --- AIGW_DISCOVERY_ENABLED=false silences the Codex list read too (review finding) ------
+
+
+@pytest.mark.asyncio
+async def test_disabled_directory_never_dials_and_reports_unknown() -> None:
+    directory, client, headers, _clock = _directory([_ok(_LISTED)])
+    directory.set_enabled(enabled=False)
+    assert await directory.slugs_for(_PLUS) is None
+    # INVARIANT: zero discovery egress of ANY kind — not even a client is built.
+    assert headers == []
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_refusal_with_discovery_disabled_sends_no_request() -> None:
+    directory, client, headers, _clock = _directory([_ok(_LISTED)])
+    with patch.object(live_models, "DIRECTORY", directory):
+        _plugin().configure_discovery(enabled=False)
+    err = await _refused(directory, _PLUS)
+    assert err.status_code == 403
+    detail = _detail(err)
+    assert detail["code"] == "codex_model_unsupported"
+    assert "available_models" not in detail
+    assert headers == []
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_reenabling_discovery_restores_the_refusal_list() -> None:
+    directory, client, _headers, _clock = _directory([_ok(_LISTED)])
+    with patch.object(live_models, "DIRECTORY", directory):
+        _plugin().configure_discovery(enabled=False)
+        _plugin().configure_discovery(enabled=True)
+    err = await _refused(directory, _PLUS)
+    assert _detail(err)["available_models"] == ["codex/gpt-6-astra", "codex/gpt-5.6-sol"]
+    assert client.calls == [CODEX_MODELS_URL]
+
+
+@pytest.mark.parametrize(("flag", "expected"), [("false", False), ("true", True)])
+def test_create_app_hands_the_discovery_switch_to_the_codex_directory(
+    monkeypatch: pytest.MonkeyPatch, flag: str, expected: bool
+) -> None:
+    from aigateway.config import Settings
+    from aigateway.main import create_app
+
+    directory, _client, _headers, _clock = _directory([])
+    monkeypatch.setenv("AIGW_DISCOVERY_ENABLED", flag)
+    with patch.object(live_models, "DIRECTORY", directory):
+        create_app(Settings())
+    assert directory.enabled is expected
