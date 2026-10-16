@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Breaking changes
+
+* `sf.configure(engine_url=...)` with a non-default Engine now requires `scoreboard_url=`, and
+  `SCREAMINGFACE_ENGINE_URL` requires `SCREAMINGFACE_SCOREBOARD_URL`. Previously the pair fell
+  back to the hosted leaderboard, so a local or preview run could publish there.
+  `sf.Client(...)` is unchanged.
+
 ### Fixes
 
 * Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.

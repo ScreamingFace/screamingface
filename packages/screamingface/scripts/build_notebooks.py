@@ -595,7 +595,10 @@ On a hosted Engine, `sf.connect()` handles login for you: the panel shows a **Lo
 use — you spend shared credits instead of your own keys.
 
 ```python
-sf.configure(engine_url="https://your-engine.example")
+sf.configure(
+    engine_url="https://your-engine.example",
+    scoreboard_url="https://your-scoreboard.example",
+)
 sf.connect()   # log in via the panel, then pick a provider
 ```
 

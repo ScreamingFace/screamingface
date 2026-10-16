@@ -961,7 +961,7 @@
       },
       "configure": {
         "kind": "function",
-        "signature": "(*, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai') -> 'Client'"
+        "signature": "(*, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str | None' = None) -> 'Client'"
       },
       "connect": {
         "kind": "function",

@@ -778,11 +778,11 @@ report = sf.evaluate(candidates, benchmark="draco", limit=1)
 sf.close()
 ```
 
-`sf.configure(...)` replaces and closes any existing default Client. `sf.close()` releases the
-default Client and clears it so the next module-level operation can construct a fresh one. Setting
-`SCREAMINGFACE_ENGINE_URL` and `SCREAMINGFACE_SCOREBOARD_URL` may be set before the first operation
-for environment-driven configuration. The hosted development Scoreboard defaults to
-`https://leaderboard.dev.screamingface.ai`.
+`sf.configure(...)` replaces and closes any existing default Client. A non-default `engine_url`
+must come with its `scoreboard_url`; the call raises otherwise, so a local or preview Engine can
+never publish to the hosted leaderboard by accident. The same holds for the environment:
+`SCREAMINGFACE_ENGINE_URL` needs `SCREAMINGFACE_SCOREBOARD_URL`. `sf.close()` releases the
+default Client so the next module-level operation constructs a fresh one.
 
 The Client hides Benchmark fetching, URL4 compilation, REST/WebSocket transport, Event replay,
 and Report decoding behind `sf.evaluate(...)`.
