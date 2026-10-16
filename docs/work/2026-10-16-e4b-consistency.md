@@ -983,4 +983,133 @@ None.
 - **Rebase note for part 6 (contracts C8):** part 6's docs test pins `_headings_between(_FUSION,
   _INSTALL) == [_FUSION, _SUM]` and its bullet at index 3; when the two parts stack, the second
   rebase must turn those into order checks (this unit's tests already accept both orders).
-~~~~
+
+## Restack on part 6 (2026-10-16)
+
+### Intent
+
+Part 6 (branch `e4b-signal-sums`, tip `642d385d1`) and part 7 were built in parallel from the part
+5 tip `633fec3a1`. This step moves the 27 part 7 commits onto the part 6 tip. Both parts must keep
+their behavior. The backup branch `e4b-consistency-pre-stack` points to the old tip `31d726b76`.
+Command: `git rebase --onto e4b-signal-sums 633fec3a1 e4b-consistency`. Part 6 did not change.
+
+### Conflicts and resolutions
+
+1. `a3d577f72` (unit 1 RED), `E/combine/spec.py`: part 6 adds `SumSource`, part 7 adds
+   `ConsistencyMatch` and `ConsistencySource` at the same place. Both stay, `SumSource` first.
+2. `b2ae6be62` (unit 1 feat):
+   - `E/combine/spec.py`: the `DeclaredSource` union is now `VerbalizedSource | LogprobSource |
+     EntropySource | SumSource | ConsistencySource`. `_check_signals` first refuses a second
+     consistency source (part 7), then checks each sum with `_check_sum` (part 6).
+   - `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`: deleted and written
+     again with `UPDATE_SCHEMA_SNAPSHOT=1` at this commit. The result is the part 6 file plus the
+     part 7 `$defs` (`ConsistencyMatch`, `ConsistencySource`), the `consistency` discriminator
+     word and one `oneOf` entry: 62 lines added, no part 6 line changed.
+   - `S/_evaluation/combine_evidence.py`: both key sets stay (`_OPTIONAL_GATE_KEYS` and
+     `_SAMPLE_COUNT_KEYS`), and both decoders stay (`_abstain_band`, then `_consistency` and
+     `_sample_count`).
+   - No conflict (git merged them): `E/combine/evidence.py`, the combine-evidence v1 snapshot,
+     `S/combine_evidence.py`, `S/report.py` and `ST/public_surface_snapshot.json`.
+3. `1c8ac5b0b` (unit 2 feat), `E/combine/endpoint.py`:
+   - The module docstring keeps the part 6 band line and the part 7 samples invariant.
+   - The imports keep `SumSource` and `declares_consistency`.
+   - The dataclasses: `_Summed` (part 6), then `_SampleDeclared` and `_Recorded` (part 7). The
+     first resolution lost the `@dataclass` line of `_SampleDeclared`; the engine tests found it
+     (`TypeError: _SampleDeclared() takes no arguments`), and the line is back.
+   - `_Plan.declared` and `_declared` take the four item types `_Declared | _ReplyDeclared |
+     _Summed | _SampleDeclared`.
+   - `_signal_values` keeps the part 6 two-pass flow. Pass 1 reads every key that is not a sum.
+     A consistency name is such a key: `_column` reads its value from `counts`, which `_combine`
+     computes before `_signal_values`. Pass 2 computes the sums from the pass 1 columns. The
+     comment and the docstring say this.
+4. `4d681228a` (unit 3 RED): `S/__init__.py` imports `Consistency, Entropy, Logprob, Sum,
+   Verbalized`; `S/signal_sources.py` keeps the `sf.Sum` class and its helpers, then the
+   `sf.Consistency` stub; `__all__` has both names.
+5. `da12433b7` (unit 3 feat):
+   - `S/fusion.py`: one import of `Consistency`, `Sum` and `consistency_seed`. `_declaration`
+     first refuses a second `sf.Consistency`, then calls `_check_sums`.
+   - `S/signal_sources.py`: the module docstring names both sources; the `sf.Sum` helpers and
+     `_MAX_CONSISTENCY_N` both stay.
+6. `eb8772a14` (unit 5 feat), `S/signal_sources.py`: `_SOURCES` has five words: `verbalized`,
+   `logprob`, `entropy`, `sum` and `consistency`.
+7. `64aeef60f` (unit 7 docs):
+   - `S/CHANGELOG.md`: both bullets stay, the part 6 bullet first.
+   - `S/README.md`: the section "Sum signals and the abstain band" with its full code block, then
+     the section "Consistency samples" with its full code block, both between "Fusion as a named
+     recipe" and "Install". In "Combine steps in the report": the "Sums and the band" paragraph,
+     then the "Consistency" paragraph.
+   - Test conflict: `ST/test_sum_band_docs.py:122` (part 6, owner-approved) pins
+     `_headings_between(_FUSION, _INSTALL) == [_FUSION, _SUM]`. The part 7 section makes it red,
+     and no README order makes both parts green (the unit 7 rebase note above). The assert is now
+     `[_FUSION, _SUM, _CONSISTENCY]`, with the new constant `_CONSISTENCY` at line 41. It is still
+     an exact list, so the test is not weaker: it also pins the place of the part 7 section. This
+     edit is an append-only offender against `e4b-signal-sums`. It needs owner approval.
+8. No conflict (git merged them): `S/_ui/combine_view.py` (unit 6: the part 6 sum text, band chip
+   and band count stay next to the part 7 samples chip, failed note and samples line),
+   `S/url4.py`, `S/_evaluation/*` and the part 7 test files.
+
+Check of the snapshots on the restacked tip: all three were deleted (or updated) and written
+again with `UPDATE_SCHEMA_SNAPSHOT=1` and `UPDATE_SURFACE_SNAPSHOT=1`. `git status` showed no
+change, so each committed file holds both parts.
+
+### Interactions (step 2)
+
+The tests are in one commit, `test(e4b): pin the part 6 and part 7 interactions after the restack
+on part 6`: `ET/test_combine_consistency_sum_band.py` (7 tests) and
+`ST/test_consistency_sum_band.py` (9 tests). Each oracle comes from fixtures V and W by hand. All
+tests passed at the first run, so no code fix was necessary and there is no `fix(e4b)` commit.
+
+- (a) A sum can add a consistency name. Decision: allowed. The Engine `_check_sum` and the SDK
+  `_check_sums` refuse only a name that is not declared and a sum of a sum. The Engine computes
+  each consistency value in pass 1 and each sum in pass 2, so the sum sees the value. Pinned:
+  `risk = 3 × cons` gives 1.5, 3.0 and no value (the member with no consistency value has no sum);
+  a Pick by `risk = -1 × cons` (min) chooses member_3, and the middle value is 0.0, not -0.0. The
+  SDK compiles, rebuilds and replays a Fusion with `sf.Consistency` and `sf.Sum({"cons": ...})`.
+- (b) A gate with `abstain_band` on `mean:cons`: the mean is 0.75 (fixture V). Pinned: band
+  [0.7, 0.8] gives `in_band`; band [0.8, 0.9] with threshold 0.9 gives `gate_not_met`; with
+  threshold 0.7 it gives the majority. Also pinned: a band on `mean:risk` (a sum of `cons`, mean
+  2.25, band [2.0, 2.5]) gives `in_band`. The SDK compiles and rebuilds both recipes.
+- (c) The part 7 unit 5 recompile trigger (a combine spec that declares `signals`) now runs for
+  the part 6 url4s too. Pinned: `sum_pick_candidate.url4` and `gate_band_vote_candidate.url4`
+  recompile byte-for-byte, rebuild with `to_python()` and go through the replay check.
+- (d) The evidence key order with both optional keys: `consistency`, `declared`, then `gate`; in
+  the gate record, `abstain_band` is last. Pinned in the Engine and in the SDK decoder (decode,
+  then `to_dict()` gives the same wire). The SDK Case pane shows the samples chip and the band chip
+  on one step. The bytes of the existing evidence do not change: `evidence_cases.json` and
+  `consistency_evidence_cases.json` have no diff against either parent, and their contract tests
+  pass.
+- (e) Part 7 adds no case to `evidence_cases.json` (its cases are in their own file). The count
+  stays 39 (`ST/test_frozen_record_fields.py:184`), and the part 5 gate case set in
+  `ET/test_combine_gate.py` does not change. The part 7 `L37` tuples only iterate their names, so
+  they stay green with 39 cases. No literal changed.
+
+### Gates on the restacked tip
+
+One stack at a time, `--base e4b-signal-sums`:
+
+- `screamingface-engine`: the append-only check is red only for the two pinned schema
+  snapshots (`screamingface.combine-evidence.v1.json`, `screamingface.combine-spec.v1.json`).
+  With `--skip-append-only`: ruff, ruff format, pyright, layering and pytest (coverage) are green.
+- `screamingface`: the append-only check is red for `tests/public_surface_snapshot.json` (pinned)
+  and `tests/test_sum_band_docs.py` (the restack edit above). With `--skip-append-only`: ruff,
+  ruff format, pyright, pytest (coverage), notebooks, build and distribution are green.
+- `repo`: all green, with the append-only check.
+
+No flaky test. The full suites on the tip: Engine `tests/unit` 6295 passed, SDK `tests` 4814
+passed (before the interaction tests).
+
+### Append-only offenders against `e4b-signal-sums` (for the part 7 manifest)
+
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`
+  (58 lines added, 0 removed; part 7 unit 1)
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`
+  (62 added, 0 removed; part 7 unit 1)
+- `packages/screamingface/tests/public_surface_snapshot.json` (24 added, 1 removed; part 7 units 1
+  and 3)
+- `packages/screamingface/tests/test_sum_band_docs.py` (constant `_CONSISTENCY` added at line 41;
+  line 122 changed to `[_FUSION, _SUM, _CONSISTENCY]`; restack)
+
+### Other
+
+- The stray `~~~~` line at the end of this ledger (from the unit 7 commit) is removed. It opened a
+  code block that did not close.
