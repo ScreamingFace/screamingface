@@ -1,0 +1,38 @@
+{
+  "issue": "OME-1639",
+  "branch": "OME-1639-community-cache-sdk",
+  "approver": "owner",
+  "date": "2026-10-16",
+  "scope": "OME-1639's own edits: in test_runtime_cli.py the two local-gateway-defaults tests gain AIGW_REQUEST_CACHE_ENABLED (the exact-defaults dict and the explicit-choice dict); test_public_surface.py pins screamingface.cache in PINNED_MODULES; public_surface_snapshot.json is regenerated (+sf.cache, +use_cache on three evaluate signatures). Plus, inherited byte for byte from OME-1631.json, the migration-target edits this branch carries because it is stacked on OME-1631 via OME-1635. And, inherited byte for byte from OME-1635.json, that PR's review-round rename of the Engine's caller helper in test_traceparent_propagation.py.",
+  "reason": "Owner approved each OME-1639 edit in chat on 2026-10-16: the local cache on by default (both defaults tests extended, no assertion weakened) and the public-surface pin and regenerated snapshot for the new sf.cache namespace and use_cache= parameter. The OME-1631 entries are that PR's owner approval, re-checked here because the pre-push gate diffs this stacked branch against main. The OME-1635 entry is the owner's own review-round commit on PR #1439, confirmed in chat.",
+  "files": {
+    "apps/aigateway/tests/integration/test_global_cache_store_postgres.py": {
+      "base_blob": "cacfd33c149a5dd2c4d413c210f1461c6acc2f2b",
+      "approved_blob": "aadff8cddf2da3c55a09ec5ef459238cc281d8a9"
+    },
+    "apps/aigateway/tests/unit/test_migration_0010_simplify_request_cache.py": {
+      "base_blob": "e0c5e133468e533047ba7b09c6013256e071358e",
+      "approved_blob": "f850c54109e399c54ae19b6b8a56d9a2b2e12f80"
+    },
+    "apps/aigateway/tests/unit/test_migration_0011_cache_entry_metadata.py": {
+      "base_blob": "ef4bee339e2ebc0668659051e2302ebaab6ba737",
+      "approved_blob": "9609907789596fa24f9b926dc74136f948a67a2d"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "a58b973a3778b281ec6a1183db8935ae74a6657c",
+      "approved_blob": "b1007a0e630e8c63a9ac75e1a12623520c76beab"
+    },
+    "packages/screamingface/tests/test_public_surface.py": {
+      "base_blob": "19ad25b068561d834c08dbff1fb11bb6361b6143",
+      "approved_blob": "b744525fced4d3ce94cd2f24417a95700a1fb071"
+    },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "92951ac8cdeb8f9e6bcbdee5d3acd5ffcdcc4223",
+      "approved_blob": "110218b13095fe425fcc97266db8d1d658ddacaf"
+    },
+    "apps/screamingface-engine/tests/unit/test_traceparent_propagation.py": {
+      "base_blob": "6394fdb66b1b456b53797d1274435416fd0c47a0",
+      "approved_blob": "a6bc75d44eb6789cfe46ddaf27635520790f270f"
+    }
+  }
+}
