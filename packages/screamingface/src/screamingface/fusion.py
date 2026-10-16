@@ -18,7 +18,7 @@ from screamingface._signals import (
 )
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
-from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, _read_signal
+from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, Vote, _read_signal
 from screamingface.signal_sources import INJECTED_PARAMS, Entropy, Logprob, SignalSource
 
 
@@ -39,7 +39,8 @@ class Fusion(Recipe):
     ``signals=`` declares up to 8 named sources (``sf.Verbalized(...)``) that the members
     carry. A reducer synthesizer reads one of them with ``sf.signal(name)``; a rule that reads a
     name the Fusion does not declare fails here, before any member call. Only a reducer
-    synthesizer takes ``signals=``.
+    synthesizer takes ``signals=``. A vote gate that reads ``chosen:<name>`` or ``mean:<name>``
+    needs ``<name>`` in ``signals=`` too.
     """
 
     name: str
@@ -116,6 +117,7 @@ def _declared(value: object, synthesizer: Recipe | Reducer) -> Mapping[str, Sign
     if combine:
         assert isinstance(synthesizer, Reducer)
         _check_reads(synthesizer, declared)
+        _check_gate_name(synthesizer, declared)
     return declared
 
 
@@ -179,6 +181,21 @@ def _check_reads(reducer: Reducer, declared: Mapping[str, SignalSource] | None) 
     if hint:
         message += f"; did you mean {hint[0]}?"
     raise ValueError(message)
+
+
+def _check_gate_name(reducer: Reducer, declared: Mapping[str, SignalSource] | None) -> None:
+    """A vote gate that reads a name this Fusion does not declare fails here, before any call
+    (GA-E2)."""
+    gate = reducer.gate if isinstance(reducer, Vote) else None
+    name = None if gate is None else gate._declared_name()
+    names = () if declared is None else tuple(declared)
+    if gate is None or name is None or name in names:
+        return
+    listed = ", ".join(names) if names else "none"
+    raise ValueError(
+        f"the gate reads {gate.observe!r}, but this Fusion does not declare {name!r} "
+        f"(declared: {listed})"
+    )
 
 
 def _check_logprob_sources(

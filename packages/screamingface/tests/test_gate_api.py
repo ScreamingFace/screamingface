@@ -194,7 +194,7 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
     ]
     context = _by_name(url4)["synthesis_1"].context
     assert context == render(struct({"input": "$input", "outputs": _OUTPUTS}))
-    assert "signals" not in context
+    assert context is not None and "signals" not in context
     ungated = _compiled(_fusion(sf.Vote()))
     assert {k: v for k, v in spec_of(url4).items() if k != "gate"} == spec_of(ungated)
 
