@@ -157,6 +157,10 @@ class ProfileBackedProviderAccess:
         plugin: Any,
         policy: ResolvePolicy = ResolvePolicy.DISPATCH,
     ) -> CredentialTarget:
+        # INVARIANT: a provider declaring ONLY "none" owns no credential slot.
+        # Legacy rows with the same provider string cannot shadow local no-auth dispatch.
+        if available_auth_modes(plugin) == ("none",):
+            return targetless(account_id, plugin)
         profile = await self._index.get(account_id, provider, selector.name)
         if profile is None:
             return await self._resolve_without_profile(

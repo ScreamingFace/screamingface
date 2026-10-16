@@ -19,10 +19,13 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from ipaddress import ip_address
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import httpx
+
+from .json_bounds import JsonBoundsError, assert_bounded_json
 
 
 class DiscoveryError(Exception):
@@ -93,27 +96,12 @@ def _origin_of(url: str) -> tuple[str, str]:
     return parts.scheme, f"{parts.scheme}://{parts.netloc}"
 
 
-def _assert_bounded(data: Any, *, max_depth: int, max_nodes: int) -> None:
-    # WHY: a fixed public catalog is normally shallow and small; a pathologically
-    # deep or huge document is treated as hostile input, not parsed into memory
-    # pressure. Depth is checked BEFORE recursing so the stack is bounded too.
-    nodes = 0
-
-    def walk(node: Any, depth: int) -> None:
-        nonlocal nodes
-        if depth > max_depth:
-            raise DiscoveryError("too_deep")
-        nodes += 1
-        if nodes > max_nodes:
-            raise DiscoveryError("too_many_nodes")
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value, depth + 1)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value, depth + 1)
-
-    walk(data, 0)
+def _is_numeric_loopback(url: str) -> bool:
+    try:
+        host = urlsplit(url).hostname
+        return host is not None and ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 async def fetch_discovery_json(
@@ -150,7 +138,14 @@ async def fetch_discovery_json(
         # sanitized: the raw body is discarded, only a fixed reason survives.
         raise DiscoveryError("malformed_json") from None
 
-    _assert_bounded(parsed, max_depth=limits.max_json_depth, max_nodes=limits.max_json_nodes)
+    try:
+        assert_bounded_json(
+            parsed,
+            max_depth=limits.max_json_depth,
+            max_nodes=limits.max_json_nodes,
+        )
+    except JsonBoundsError as exc:
+        raise DiscoveryError(exc.reason) from None
     return parsed
 
 
@@ -196,6 +191,7 @@ class HttpxDiscoveryClient:
         try:
             async with httpx.AsyncClient(
                 follow_redirects=False,
+                trust_env=not _is_numeric_loopback(url),
                 timeout=httpx.Timeout(timeout_s),
                 transport=self._transport,
             ) as client:

@@ -7,7 +7,7 @@ INVARIANT (plan §12): no provider name and no model inventory appears here. Eve
 helper works by SHAPE, so a provider added later is swept automatically and a
 provider removed later takes its coverage with it.
 
-EXCEPTION, and there is exactly one: ``MODEL_LESS_PROVIDERS`` names a provider. It is
+EXCEPTION, and it is closed: ``MODEL_LESS_PROVIDERS`` names every such provider. It is
 recorded deliberately and is not an inventory — see its own comment. The invariant
 exists so coverage follows the registry rather than a hand-maintained list; that one
 constant serves the same goal from the other side, by making an environment-dependent
@@ -116,7 +116,7 @@ MINIMUM_PROVIDERS = 7
 # returning no models would silently shrink the sweeps exactly the way this one did.
 # Asserting the difference is EXACTLY this set turns that into a failure. If a running
 # daemon makes this set empty, the assertion below still holds (it allows a subset).
-MODEL_LESS_PROVIDERS: frozenset[str] = frozenset({"ollama"})
+MODEL_LESS_PROVIDERS: frozenset[str] = frozenset({"local", "ollama"})
 
 
 def rules(plugin: Any, model: str) -> tuple[ParameterProjectionRule, ...]:
