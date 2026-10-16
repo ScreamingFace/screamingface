@@ -1,0 +1,22 @@
+{
+  "issue": "OME-E4B-P4",
+  "branch": "e4b-show-signals",
+  "approver": "owner",
+  "date": "2026-10-15",
+  "scope": "E4b part 4 (show signals), unit 1 (export-trace, P1/P4): report.v1 gets an additive optional 'trace' key as the last key of each exported Case that has combine evidence; the schema id stays screamingface.report.v1. The two report.v1 byte goldens are regenerated (only the new 'trace' keys change), and test_e4b_schema_pins.py lines 29 and 33 pin their new SHA-256 values. No assertion is removed or weakened.",
+  "reason": "Owner approved these 3 pinned test edits and P1 (same id, additive) in chat on 2026-10-15 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sources; approved_blob is the blob at the part 4 tip.",
+  "files": {
+    "packages/screamingface/tests/data/report_v1_combine_report.json": {
+      "base_blob": "3115e68f9f70c1ee16cc9fd772626ca45dd2d74a",
+      "approved_blob": "390ca9ed5abf3ea512593a59c3ee0757e76e9e08"
+    },
+    "packages/screamingface/tests/data/report_v1_vote_median_report.json": {
+      "base_blob": "10f3247c926236629c8ece7ad05a07bf5c2e5bdb",
+      "approved_blob": "cbd5d1db7c7d912b0c9b1719442da94027a35002"
+    },
+    "packages/screamingface/tests/test_e4b_schema_pins.py": {
+      "base_blob": "8a32a2c2f6ba4a7f8f0581e722139415e784b39b",
+      "approved_blob": "e4e39af0e327d7d63f9e7d8134cb67dde359c70c"
+    }
+  }
+}
