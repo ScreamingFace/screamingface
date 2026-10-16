@@ -173,3 +173,15 @@ Owner approved fixing the two localized P2 findings before drafting the PR.
 - Before merge: read-only duplicate-copy checks on dev and production remain required. Deploy
   scoreboard before releasing OME-1613; enable the button only after that SDK release.
   No push, PR, review comment, Linear mutation, or deployment performed in this pass.
+
+## Publishing approval — 2026-10-16
+
+- Filip explicitly approved applying the recorded test-preservation exception for this push:
+  "Yes, apply the recorded exception". The scope is the already-approved obsolete
+  `tests/portal/reproduced-count.test.js` deletion, which the checker cannot represent;
+  the two Python test transitions remain covered by the existing approval manifest.
+- Final scoreboard gates passed with `--base origin/main --skip-append-only`, retaining
+  lint, format, type, Python coverage, and portal checks; all repository gates also passed.
+  No hook configuration change or general test-preservation exemption is authorized.
+- Publish the rebased branch with an explicit lease on remote tip `3015e3de6920c30c50a6d49c41e2dd1917e17703`,
+  verify the remote SHA, then open the prepared draft PR. This does not authorize merge or deployment.
