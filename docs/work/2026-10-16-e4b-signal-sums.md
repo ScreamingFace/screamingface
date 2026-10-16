@@ -418,3 +418,77 @@ the lowest `risk`) runs offline in the Engine world with exactly three calls.
     `ST/test_signal_sum_api.py` only. It is a fix of a real test bug, not a loosened assertion.
     Errata E3 records it in the overview.
   - B-2: The unit 2 Fusion and SDK code follows spec §2.1 and §2.4 exactly. No other deviation.
+
+## Unit 3: band-spec (`gate.abstain_band` in the Engine spec)
+
+**Status:** in_progress
+
+### Intent
+
+PRD `abstain-band` rows AB#1–3 and the spec v1 half of AB#15 (ans:Q2; P7, P8; C4; BD-I1,
+BD-I2). The Engine combine spec gets the optional gate key `abstain_band: [lo, hi]`: two finite
+numbers, `lo <= hi`, and `0 <= lo <= hi <= 1` for an agreement gate. An explicit null is refused.
+Each refusal is a fixed message with no value. No rule ties the band to the threshold. Nothing
+decides on the band yet: the decision, the word `in_band`, the gate record and the SDK mirror are
+unit 4; the SDK keyword is unit 5.
+
+### Planned changes
+
+- `E/combine/spec.py`: `GateSpec.abstain_band: list[float] | None = Field(default=None,
+  min_length=2, max_length=2)` (last field; a comment, not a docstring line, so the schema
+  `description` keeps its bytes); new helper `_check_band(gate)` after `_check_agreement_gate`;
+  `_check_gate` calls it as its last line; one sentence in the module docstring.
+- New test file `ET/test_combine_band.py` (5 test functions, 15 cases); helpers `_band_gate`,
+  `_vote_with_band`, `_spec_failure`, `_combine_specs`, `_pinned`, `_bytes` for unit 4 to reuse.
+
+### Pinned edits
+
+- `apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json`
+  (deleted, then regenerated with `UPDATE_SCHEMA_SNAPSHOT=1`): one hunk, 17 added lines,
+  `$defs.GateSpec.properties.abstain_band` (`anyOf` array of two numbers or null, default null,
+  title "Abstain Band"). `required` does not change. The schema id does not change.
+
+### Test plan
+
+- 4 rows: CHAR AB#1; RED AB#2, AB#3 (two functions: the 8 PRD inputs, and 4 non-finite edge
+  inputs); PIN AB#15 spec v1 half.
+- No stub: the commit A code refuses the key as an extra key. Expected RED: `6 failed, 9 passed`
+  (`test_engine_parses_a_gate_band`, the AB#3 ids `explicit-null`, `lo-above-hi`,
+  `agreement-above-one`, `agreement-below-zero`, and `test_spec_schema_snapshot_holds_the_band`).
+- Oracles: the PRD messages (abstain-band §2.1), the AB-1 and AB-E1 inputs, the pydantic schema
+  rendering of an optional two-item float list (checked on a copy on `644e34b7b`).
+
+### Acceptance
+
+- The 15 cases pass. AB#1 passes before and after the change.
+- The snapshot diff is exactly the one hunk of the pinned edit.
+- `git diff U2 --stat` lists only `E/combine/spec.py`, `ET/test_combine_band.py`, the spec v1
+  snapshot and this ledger.
+- Gates: `screamingface-engine`, `screamingface`, `repo` green, except the append-only check
+  against `633fec3a1`, which lists only the pinned files of units 1–3; green with
+  `--skip-append-only`.
+
+### Deviations
+
+- D-1 (PRD §2.1 call shape): the PRD says "when `abstain_band` is in `gate.model_fields_set`,
+  `_check_band(gate)`". Built: `_check_gate` calls `_check_band(gate)` with no condition, and the
+  guard is the first line of `_check_band`. Same behavior. WHY: `_check_gate` has 6 branches, and
+  the Engine caps are max-branches 7 and mccabe 8 (part 5 erratum E3).
+- D-2 (addition, P7 "finite"): AB#3 has a second test function,
+  `test_engine_refuses_a_band_that_is_not_finite_without_echo` (`1e400`, `-1e400` overflow to
+  ±inf in `json.loads` and are refused by `allow_inf_nan=False`; `NaN` and `Infinity` are refused
+  by `loads_bounded`).
+- D-3 (PRD §7 file): the PRD names no file for AB#15. The spec v1 half is in
+  `ET/test_combine_band.py`; unit 4 adds the evidence and answer half as a second function there.
+- D-4 (AB#2 scope): AB#2 also holds the valid inputs of AB-E1 (last sentence), the one-point band
+  (P7), the int-to-float rule, the band far from the threshold (P8), and a gate with no band.
+- D-5 (docs): the `GateSpec` class docstring is not changed (it is the schema `description`); the
+  field has a `#` comment instead.
+
+### Outcome (fill at the end, before commit B)
+
+- RED result: …
+- GREEN result: …
+- Snapshot diff: …
+- Gates: …
+- Flakes: …
