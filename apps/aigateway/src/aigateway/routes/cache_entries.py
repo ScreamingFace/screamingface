@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import StringConstraints
 
@@ -59,18 +60,25 @@ def _wire(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v.isoformat() if isinstance(v, datetime) else v for k, v in row.items()}
 
 
+def _rows(batch: list[dict[str, Any]]) -> bytes:
+    return b"".join(_line(_wire(row)) for row in batch)
+
+
 def _accepts_gzip(request: Request) -> bool:
     accepted = request.headers.get("accept-encoding", "")
     return any(part.split(";")[0].strip() == "gzip" for part in accepted.split(","))
 
 
 async def _gzip(lines: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    # INVARIANT: compression runs in a worker thread, never on the event loop (see
+    # ``_rows``). One compressor is used by one request at a time, so moving it between
+    # threads is safe.
     compressor = zlib.compressobj(wbits=_GZIP_WBITS)
     async for line in lines:
-        chunk = compressor.compress(line)
+        chunk = await run_in_threadpool(compressor.compress, line)
         if chunk:
             yield chunk
-    yield compressor.flush()
+    yield await run_in_threadpool(compressor.flush)
 
 
 @router.get("/entries", response_class=StreamingResponse)
@@ -100,7 +108,10 @@ async def community_cache_entries(
         last: list[dict[str, Any]] = []
         sent = 0
         async for batch in iter_page(after=cursor, limit=limit, models=models, now=now):
-            yield b"".join(_line(_wire(row)) for row in batch)
+            # WHY a worker thread: a batch of the largest-response models is ~4.6 MB of rows,
+            # and encoding it (then gzip, ~57 ms per 1,000 rows) on the loop would stall every
+            # other request on the pod, cache hits included.
+            yield await run_in_threadpool(_rows, batch)
             last, sent = batch[-1:], sent + len(batch)
         next_cursor = cursor_after(last, limit=1) if sent == limit else None
         yield _line({"next": next_cursor.encode() if next_cursor else None})
