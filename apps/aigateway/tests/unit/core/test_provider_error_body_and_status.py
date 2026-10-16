@@ -169,3 +169,22 @@ def test_the_sdk_inner_error_body_still_relays_its_message() -> None:
 )
 def test_internal_addresses_never_reach_the_plugin_message(text, leak) -> None:
     assert leak not in plugin_error_message(text, status=502)
+
+
+# --- ReDoS guard: every rule stays linear on the largest body we parse --------------------
+
+
+@pytest.mark.parametrize(
+    "unit",
+    ["1.", "a.", "a-.", "[:", ":", "a:", "a::", "localhost:", "=C:\\", "www.", "/", "x"],
+)
+def test_sanitizing_a_max_size_adversarial_text_is_fast(unit) -> None:
+    # INVARIANT: provider text is attacker-shaped; a 16 KiB run of one unit (the body cap) must
+    # not backtrack polynomially. The pre-fix bare-host rule took ~1 s on `1.` alone; the bound
+    # leaves a >100x margin so the test is not timing-flaky.
+    import time
+
+    text = (unit * (16 * 1024 // len(unit)))[: 16 * 1024]
+    started = time.perf_counter()
+    sanitize_upstream_text(text)
+    assert time.perf_counter() - started < 0.25

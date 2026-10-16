@@ -78,30 +78,32 @@ _VACUOUS = frozenset({"", "provider returned error", "error in response object"}
 
 _DROPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Cn"})
 
+# INVARIANT (ReDoS): an unbounded run rule starts only at a run boundary (`(?<![…])`, never a
+# bare `\b`), so a 16 KiB run of `1.` / `a.` / `x` is scanned once, not once per position.
 # INVARIANT: applied in THIS order. URLs go before emails and paths, or `https://a/b` would
 # leave a `[path]` behind its scheme; key shapes go before the long-id rule, so a known key is
 # named `[redacted]` rather than `[id]`.
 _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+"), "[url]"),
+    (re.compile(r"(?i)(?<![\w+.-])[a-z][a-z0-9+.-]*://\S+"), "[url]"),
     (re.compile(r"(?i)\bwww\.\S+"), "[url]"),
     # WHY (#1233 review): a provider-internal host needs no scheme — `internal.example/admin`,
     # `api.corp:8443/v2`. A dotted name with an alphabetic TLD followed by `/` or `:<port>` is
     # treated as a URL; a bare dotted name (`gpt-4.1`, `file.json`) without either is not.
-    (re.compile(r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?/\S*"), "[url]"),
-    (re.compile(r"(?i)\b(?:[a-z0-9-]+\.)+[a-z]{2,}:\d+\b"), "[url]"),
+    (re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?/\S*"), "[url]"),
+    (re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,}:\d+\b"), "[url]"),
     # WHY (#1233 second review): IP literals and localhost are internal by definition, with or
     # without a port/path — bracketed (`[fd00::1]:8443`) and bare (`fd00::1`, `10.0.0.1/admin`).
-    (re.compile(r"\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*\](?::\d+)?(?:/\S*)?"), "[url]"),
+    (re.compile(r"\[[0-9A-Fa-f.]{0,4}:[0-9A-Fa-f:.]{1,45}\](?::\d+)?(?:/\S*)?"), "[url]"),
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:/\S*)?"), "[url]"),
     (
         re.compile(
-            r"(?i)(?<![\w:.])(?=[0-9a-f:]*::|(?:[0-9a-f]{1,4}:){7})"
+            r"(?i)(?<![\w:.])(?=[0-9a-f:]{0,39}::|(?:[0-9a-f]{1,4}:){7})"
             r"[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:/\d+)?(?![\w:])"
         ),
         "[url]",
     ),
     (re.compile(r"(?i)\blocalhost(?::\d+)?(?:/\S*)?"), "[url]"),
-    (re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "[email]"),
+    (re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+"), "[email]"),
     (re.compile(r"(?i)\bbearer\s+\S+"), "[redacted]"),
     (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[redacted]"),
     (re.compile(r"\bsk-[\w-]{8,}"), "[redacted]"),

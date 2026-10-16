@@ -295,3 +295,10 @@ Rebased on main after #1431 (native media) merged; the only conflict was the Cod
    through `plugin_error_message(…, status=502)`; Codex + Gemini raw-body handler tests.
 
 Gates: `run_gates.py aigateway --base <merge-base>` all green.
+
+**ReDoS fix (background security review of `c0a5721b0`).** Rules 0 (scheme URL), 2–3 (bare host)
+and 8 (email) used `\b` or no anchor, so a 16 KiB run (`1.`, `a.`, `x`) restarted at every
+position: ~3 s of CPU per request (measured). They now start only at a run boundary
+(negative lookbehind); the IPv6 literal rules are length-bounded. Worst of 26 adversarial
+16 KiB inputs: 5.6 ms. Guard: `test_sanitizing_a_max_size_adversarial_text_is_fast`. The
+sanitizer is new in this PR, so main was never exposed.
