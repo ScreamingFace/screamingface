@@ -32,7 +32,7 @@ comparison is false. [stated ans:Q1, ans:Q2]
 |---|---|---|---|
 | observe | str | `"agreement"`, or `"chosen:" + name`, or `"mean:" + name` | [stated ans:Q2]; [proposed] text form |
 | observe (name) | — | matches the declared-name rule `^[a-z][a-z0-9_]{0,31}$` and is declared by the Fusion | [stated ans:Q2]; [existing S/_signals.py `is_signal_name`] |
-| cmp | enum | `>=`, `>`, `<=`, `<`; the PASS condition | [proposed] P4 |
+| cmp | enum | `>=`, `>`, `<=`, `<`; the PASS condition: true keeps the majority (E4c's "escalate when `agreement < 0.8`" is stored as `{agreement, >=, 0.8}`, P4) | [proposed] P4 |
 | cmp (agreement) | — | only `>=` or `>` | [proposed] P4 |
 | threshold | float | finite; int accepted and stored as float; bool refused | [stated epic "a number in the recipe"]; [proposed] rules |
 | threshold (agreement) | — | `0 <= threshold <= 1` | [proposed] P4 |
@@ -125,16 +125,21 @@ Invariants (checked by the Engine model and by the SDK `CombineEvidence`):
   `otherwise == "abstain"`. [proposed] P13
 - **GR-I4** `observe == "agreement"` and `passed is not None` ⇒ `observed == agreement` (the same
   float). [proposed] P11
-- **GR-I5** `branch == "fallback"` and `otherwise == "writer"` ⇒ `built is True`, `chosen == []`,
-  `result.member_id is None`. `otherwise == "judge"` ⇒ `judge.returns == "label"` and
-  `chosen == [result.member_id]`. [proposed] P14
+- **GR-I5** Two rules, each only on the fallback branch: [proposed] P14
+  - (a) `branch == "fallback"` and `otherwise == "writer"` ⇒ `built is True`, `chosen == []`,
+    `result.member_id is None`.
+  - (b) `branch == "fallback"` and `otherwise == "judge"` ⇒ `judge is not None`,
+    `judge.returns == "label"`, `chosen == [result.member_id]`, and that member's row is not
+    `excluded` (GD-E6; the Engine also has CE-I3).
+  On the majority branch GR-I5 says nothing: `judge` is null (or the weights judge, GD-D10) and the
+  result is the chosen member.
 - **GR-I6** `verifier` is absent or null. [stated ans:Q4]
 
 ## 5. Abstain reason `gate_not_met`
 
 | Side | Change | Source |
 |---|---|---|
-| Engine `AbstainReason`, `ABSTAIN_REASONS` (E/combine/ports.py:53,67) | append `gate_not_met` | [proposed] P13 |
+| Engine `AbstainReason`, `ABSTAIN_REASONS` (E/combine/ports.py:53,67) | append `gate_not_met` (build unit 2, with the scenario that uses it) | [proposed] P13 |
 | Engine `AnswerReason` (E/combine/ports.py:54-66) | append `gate_not_met` | [existing E4a precedent `output_missing`] |
 | SDK `AbstainReason`, `AnswerReason` (S/answer.py:29-45) | add `gate_not_met` | [existing ST/test_evidence_words.py:372 binds the two sides] |
 | `NoVotes` (E/combine/ports.py:115-123) | no change: the gate does not raise it; the gate branch builds the abstain result itself | [proposed] |

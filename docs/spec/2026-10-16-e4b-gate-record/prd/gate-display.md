@@ -64,9 +64,14 @@ the SDK can replay the decision.
 
 ## 3. Scenarios and acceptance criteria
 
-The wires are the five Engine gate cases of [gate-decision](gate-decision.md) GD-D9
-(`ET/data/combine_contract/evidence_cases.json`), placed in a Case as part 4 does
-(`_answer_fixtures.fixture_case`). Their numbers: tally `9: 2.0`, `12: 1.0`, agreement
+The wires are the five Engine gate cases of [gate-decision](gate-decision.md) GD-D9. The tests
+read them from `COMBINE_CONTRACT / "evidence_cases.json"` (`_combine_contract.COMBINE_CONTRACT`)
+under `@requires_engine_app`, decode each with `decode_combine_evidence`, and build the Case by
+hand like `ST/test_member_exclusion.py:_case` (or `ST/test_frozen_record_fields.py:_fixture_case`):
+one `CaseOperation` per member, one combine operation that holds the evidence, then
+`bound(case, graph)`. Do NOT use `_answer_fixtures.fixture_case`: it reads the SDK-local copy
+`ST/data/combine_evidence_cases.json`, which holds only five E4a cases. Do NOT edit
+`ST/data/combine_evidence_cases.json`. Their numbers: tally `9: 2.0`, `12: 1.0`, agreement
 `0.6666666666666666`.
 
 ### 3.1 Happy path
@@ -107,7 +112,8 @@ The wires are the five Engine gate cases of [gate-decision](gate-decision.md) GD
   `signals = {"conf": null}`, and `gate.observe = "mean:conf"`, `gate.observed = null`, then the
   observed cell is `<span class='sf-cmb__na' title='no number to compare, so the gate took the
   fallback'>—</span>`.
-- **GS-D3** (H×M) [existing part 4 CP#1, RS#1] Given any ungated evidence (the 32 existing cases),
+- **GS-D3** (H×M) [existing part 4 CP#1, RS#1] Given any ungated evidence (the 32 cases of the fixed
+  list L32, test-plan §6, never a loop over the whole file),
   then the section and the run summary are byte-equal to what they are on `4e622af75`: no gate chip,
   no gate line.
 - **GS-D4** (H×M) [existing S/case_result.py:333-336] Given a report with the `vote_gate_judge` Case,
@@ -137,8 +143,10 @@ None.
 ## 7. TDD plan
 
 Order: characterize the ungated surfaces, then the chip for each branch, then the summary, then the
-export and the trace link. New test file: `ST/test_gate_display.py` (Engine-fixture tests are marked
-`requires_engine_app`, as in part 4).
+export and the trace link. New test file: `ST/test_gate_display.py`. The Engine-fixture tests are
+marked `requires_engine_app` and read `COMBINE_CONTRACT / "evidence_cases.json"` with a hand-built
+Case (§3); they never use `_answer_fixtures.fixture_case` and never edit
+`ST/data/combine_evidence_cases.json`. This unit has no pinned file.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
