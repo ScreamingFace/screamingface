@@ -318,6 +318,7 @@ def test_answer_v1_and_evidence_v1_snapshots_match() -> None:
             "no_votes",
             "cut_not_met",
             "output_missing",
+            "gate_not_met",
         ],
         ["no_signal", "no_weight"],
     ]

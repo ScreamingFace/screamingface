@@ -376,6 +376,48 @@ SCENARIOS["rank_min_cost"] = _rank_min_cost  # E4b part 2 unit 3
 SCENARIOS["rank_reduce_abstain"] = _rank_reduce_abstain  # E4b part 2 unit 3
 
 
+# E4b part 5 unit 2 (GD-D9, P19): the five gate paths over one vote, two of three agree (2/3).
+_GATE_TEXTS = ["The answer is 9", "So 9", "I get 12"]
+
+
+def _agreement_gate(threshold: float, otherwise: str) -> dict[str, Any]:
+    return {"observe": "agreement", "cmp": ">=", "threshold": threshold, "otherwise": otherwise}
+
+
+def _vote_gate(
+    gate: dict[str, Any], texts: list[str] | None = None, signals: dict[str, str] | None = None
+) -> CombineEvidence:
+    spec = {**builtin_vote_spec(3), "gate": gate}
+    return _evidence(spec, _GATE_TEXTS if texts is None else texts, signals)
+
+
+def _vote_gate_majority() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.6, "abstain"))
+
+
+def _vote_gate_abstain() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.7, "abstain"))
+
+
+def _vote_gate_judge() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.7, "judge"), signals={"fallback_judge": "member_3"})
+
+
+def _vote_gate_writer() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.7, "writer"), signals={"fallback_writer": "It is 10"})
+
+
+def _vote_gate_not_run() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.6, "abstain"), ["none", "no number", "nothing"])
+
+
+SCENARIOS["vote_gate_majority"] = _vote_gate_majority  # E4b part 5 unit 2
+SCENARIOS["vote_gate_abstain"] = _vote_gate_abstain  # E4b part 5 unit 2
+SCENARIOS["vote_gate_judge"] = _vote_gate_judge  # E4b part 5 unit 2
+SCENARIOS["vote_gate_writer"] = _vote_gate_writer  # E4b part 5 unit 2
+SCENARIOS["vote_gate_not_run"] = _vote_gate_not_run  # E4b part 5 unit 2
+
+
 def canonical_evidence(evidence: CombineEvidence) -> str:
     """The bytes the Candidate envelope writes for one evidence (same encoder, same options)."""
     return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))

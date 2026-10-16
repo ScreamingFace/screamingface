@@ -14,17 +14,21 @@ edit the tests above its marker.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, requires_engine_app
 
+import screamingface as sf
 from screamingface import report
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.combine_spec import decode_combine_spec
-from screamingface.combine_evidence import CombineEvidence, CombineGate
+from screamingface.answer import ABSTAIN_REASONS, ANSWER_REASONS
+from screamingface.combine_evidence import CombineEvidence, CombineGate, CombineResult
 from screamingface.errors import ExecutionError
 
 _LABEL = "Case Operation combine"
@@ -448,3 +452,163 @@ def test_sdk_decoder_accepts_a_null_verifier_and_refuses_any_other_value() -> No
     for value in ({}, "ok", False):
         with pytest.raises(ExecutionError, match="verifier is reserved and must be null"):
             decode_combine_evidence({**_gate_wire(), "verifier": value}, _LABEL)
+
+
+# E4b part 5 unit 2: the whole evidence of a gate abstain on fixture V (the GR-I3 base wire).
+_GATE_ABSTAIN_WIRE: dict[str, Any] = {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "vote",
+    "operators": ["last_line@1", "text@1", "mode@1", "first_holder@1"],
+    "members": [
+        {
+            "member_id": "member_1",
+            "raw": "A",
+            "value": "a",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        },
+        {
+            "member_id": "member_2",
+            "raw": "A",
+            "value": "a",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        },
+        {
+            "member_id": "member_3",
+            "raw": "B",
+            "value": "b",
+            "status": "answered",
+            "reason": None,
+            "signals": {},
+            "weight": None,
+            "score": None,
+        },
+    ],
+    "tally": [
+        {"value": "a", "score": 2.0, "holders": ["member_1", "member_2"]},
+        {"value": "b", "score": 1.0, "holders": ["member_3"]},
+    ],
+    "judge": None,
+    "fields": None,
+    "chosen": [],
+    "built": False,
+    "agreement": 0.6666666666666666,
+    "tie": False,
+    "median": None,
+    "presentation_order": None,
+    "separator_collision": None,
+    "signal": None,
+    "gate": {
+        "observe": "agreement",
+        "observed": 0.6666666666666666,
+        "cmp": ">=",
+        "threshold": 0.7,
+        "passed": False,
+        "branch": "fallback",
+        "otherwise": "abstain",
+    },
+    "result": {"member_id": None, "value": None, "status": "abstain", "reason": "gate_not_met"},
+    "dropped": 0,
+    "finish_reason": "stop",
+}
+_EVIDENCE_V1 = COMBINE_CONTRACT / "schemas" / "screamingface.combine-evidence.v1.json"
+_ANSWER_V1 = Path(__file__).parent / "data" / "schemas" / "screamingface.answer.v1.json"
+_GATE_NOT_MET_WORDS = {"no_votes", "cut_not_met", "output_missing", "gate_not_met"}
+
+
+def _enum_lists(prop: dict[str, Any]) -> list[list[str]]:
+    return [branch["enum"] for branch in prop.get("anyOf", [prop]) if "enum" in branch]
+
+
+# --- GR#12 (unit 2) -------------------------------------------------------------------------------
+
+
+def test_sdk_answer_and_result_accept_gate_not_met() -> None:
+    answer = sf.Answer(
+        member_id=None,
+        text="",
+        raw=None,
+        value=None,
+        status="abstain",
+        reason="gate_not_met",
+        signals={},
+    )
+    result = CombineResult(member_id=None, value=None, status="abstain", reason="gate_not_met")
+
+    assert answer.to_dict()["reason"] == "gate_not_met"
+    assert result.to_dict() == {
+        "member_id": None,
+        "value": None,
+        "status": "abstain",
+        "reason": "gate_not_met",
+    }
+    assert "gate_not_met" in ABSTAIN_REASONS
+    assert "gate_not_met" in ANSWER_REASONS
+
+
+# --- GR#14 (unit 2) -------------------------------------------------------------------------------
+
+
+@requires_engine_app
+def test_sdk_reason_words_equal_the_engine_enum() -> None:
+    pinned = json.loads(_EVIDENCE_V1.read_text(encoding="utf-8"))
+    answer_reason = pinned["$defs"]["AnswerRecord"]["properties"]["reason"]
+    result_reason = pinned["$defs"]["ResultRecord"]["properties"]["reason"]
+
+    assert {word for words in _enum_lists(answer_reason) for word in words} == ANSWER_REASONS
+    assert len(ANSWER_REASONS) == 13
+    assert {word for words in _enum_lists(result_reason) for word in words} == ABSTAIN_REASONS
+    assert ABSTAIN_REASONS == _GATE_NOT_MET_WORDS
+
+
+# --- GR#15 (unit 2, PIN) --------------------------------------------------------------------------
+
+
+@requires_engine_app
+def test_schema_snapshots_hold_gate_not_met() -> None:
+    pinned = json.loads(_EVIDENCE_V1.read_text(encoding="utf-8"))
+    answer_reason = _enum_lists(pinned["$defs"]["AnswerRecord"]["properties"]["reason"])[0]
+    result_reason = _enum_lists(pinned["$defs"]["ResultRecord"]["properties"]["reason"])[0]
+    answer_v1 = json.loads(_ANSWER_V1.read_text(encoding="utf-8"))
+
+    assert answer_reason[-2:] == ["output_missing", "gate_not_met"]
+    assert result_reason == ["no_votes", "cut_not_met", "output_missing", "gate_not_met"]
+    assert answer_v1["abstain_reason"] == [
+        "cut_not_met",
+        "gate_not_met",
+        "no_votes",
+        "output_missing",
+    ]
+    assert "gate_not_met" in answer_v1["reason"]
+
+
+# --- GR#16 (unit 2): GR-I3 on the SDK CombineEvidence ---------------------------------------------
+
+
+def test_sdk_gate_not_met_needs_a_fallback_abstain_gate() -> None:
+    base = decode_combine_evidence(copy.deepcopy(_GATE_ABSTAIN_WIRE), "gate abstain")
+    assert base is not None
+    assert base.result.reason == "gate_not_met"
+    abstain_gate = base.gate
+    assert abstain_gate is not None
+    majority = dataclasses.replace(abstain_gate, passed=True, branch="majority")
+    judge = dataclasses.replace(abstain_gate, otherwise="judge")
+    answered = CombineResult(member_id="member_1", value="a", status="answered", reason=None)
+    broken = [
+        {"gate": None},
+        {"gate": majority},
+        {"gate": judge},
+        {"result": answered, "chosen": ("member_1",)},
+    ]
+
+    for change in broken:
+        with pytest.raises(ValueError, match="gate_not_met goes with"):
+            dataclasses.replace(base, **change)
