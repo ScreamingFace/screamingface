@@ -806,3 +806,83 @@ the Case abstains with `in_band`; below it the majority stands.
 - **Deviations (build):** none. The constants of `S/reducer.py` sit above `_rebuilt_fallback`,
   as §2.3 of the unit spec says. The `_band` and `_band_pair` helpers sit after
   `_check_agreement`, as §2.1 says.
+
+## Unit 6: show the sum and the band in the report (`sum-band-display`)
+
+### Intent
+
+PRD `sum-band-display`, rows SD#1–10 (ans:Q1 "recorded like any declared signal", ans:Q2
+"recorded in the gate record"; P14). The Case pane and the run summary name a declared sum's
+formula in its header title: `source: sum of 0.5 × sev_a + 0.3 × sev_b`; a malformed sum entry
+shows `source: sum`. The gate chip shows ` · band [lo, hi]` when the record has a band, and the
+band branch's verdict `in band · abstain`. The verdict, the observed reason and the run summary
+counters read `branch`, not `passed` (the band branch has `passed` null). The run summary gate
+line adds ` · in band {b} of {N}` when `b > 0`, before ` · not run`. The run summary mean takes the
+exact `Fraction` mean when `math.fsum` overflows (the part 5 erratum E6 rule); a WHY comment names
+`E/combine/gate.py` `_mean` as its twin. The export already holds the band and `in_band`; no
+export, trace or schema change. Each case of list L37 keeps its bytes. Unit 5 tip: `018f035ae73c2284fc9d96d9b4bac6f30e6ab0d5`.
+
+### Planned changes
+
+- `S/_ui/combine_view.py`: import `Fraction`; `_gate_chip` (band text, reason by branch);
+  new `_band_text`; `_gate_verdict` (by branch, `in band · abstain`); `_signal_head` and
+  `_StepSummary.add` call the new `_source_text` (with `_term_text`); `_StepSummary.band`;
+  `_add_gate` (by branch); `_gate_line` (` · in band`); `_mean_cell` (overflow fallback, WHY twin
+  comment).
+- New test file `ST/test_sum_band_display.py` (SD#1–10). It reads
+  `COMBINE_CONTRACT / "evidence_cases.json"` under `requires_engine_app`, builds each Case by hand,
+  and imports its builders from `ST/test_gate_display.py`.
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- 10 PRD rows in the PRD §7 order. CHAR: SD#1 (the 37 L37 cases; sha256 of section + summary,
+  taken on the base SDK), SD#7 (the export; "none expected"), SD#8 (a malformed sum entry; today's
+  text is already `source: sum`). RED: SD#2–6, SD#9, SD#10.
+- No stub: the tests import no new name. RED: `7 failed, 11 passed`; each failure is an assertion,
+  except SD#9 (`OverflowError`, the behavior the row adds).
+- Every oracle is hand-written from sum-band-display §3, the AB-2 record and the SM-2 values.
+
+### Acceptance
+
+- The sum column and the `risk mean` header name the formula; the other declared names keep
+  `source: verbalized`; a malformed sum entry shows `source: sum` and never raises.
+- The band chip on the band, majority and not-run branches; the `in_band` result chip.
+- The run summary counts the band Cases, in the order majority, fallback, in band, not run.
+- `_mean_cell` gives the exact mean on overflow and today's text otherwise.
+- The export holds the band and `in_band`.
+- The 37 base cases keep their bytes; the part 5 display tests stay green unchanged.
+- `screamingface --base <U5>` all green; `screamingface --base 633fec3a1` red only on the unit 1–5
+  pinned files; `repo` green.
+
+### Deviations
+
+- D-1 (test design, SD#7): the PRD writes `operations[0]["combine"]`. The hand-built Case puts the
+  three model operations first and the combine operation last (the `ST/test_gate_display.py`
+  `_case` builder), so the test takes the one operation with a `combine` key, as part 5 GS#11 does.
+  Same oracle values.
+- D-2 (kind, SD#7, SD#8): CHAR, not RED. SD#7: unit 4 already exports the record (PRD "none
+  expected"). SD#8: today's text is `str(entry["source"])`, which is already `source: sum`; the row
+  guards that the new formatter falls back and never raises.
+- D-3 (test design, SD#8): seven inputs beyond the PRD's two (text, empty map, bool, number as
+  text, null, an int past the float range, one bad term among good ones), one per fallback branch
+  of `_source_text` / `_term_text` (spec §8).
+- D-4 (test design, SD#5, SD#9, SD#10): extra assertions on the same behavior. SD#5: a band on a
+  gate that did not run (AB-D4) shows the band and the not-run dash. SD#9: `[-1e308, -1e308]`,
+  `[1e308, 1e308, -1e308]` and `[]`. SD#10: an int coefficient shows as a float (`1.0`), and a name
+  with `<` reaches the page escaped (PRD §4).
+- D-5 (method, SD#1): the 37 digests were taken by the unit planner on commit `644e34b7b`, whose
+  code tree equals the base `633fec3a1` (`git diff --stat 633fec3a1 644e34b7b -- packages apps` is
+  empty); the 32 digests of the part 5 list L32 equal the `ST/test_gate_display.py` literals.
+
+### Outcome (fill at the end — required before COMMIT)
+
+- **Status:** in_progress. Commit A (RED) is being written. Commit B is not made.
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **RED log:**
+- **Deviations:**
