@@ -898,3 +898,75 @@ None.
   - D-1, D-2, D-3 (planner): see the Deviations section above.
   - No new deviation in commit B. The code follows spec §3.1 and §3.2 as written.
 - **Pinned edits:** none.
+
+## Unit 6: docs (README and CHANGELOG)
+
+### Intent
+
+Tell the SDK user how to gate a majority vote (ans:Q1–Q4): the gate is data (one named number, one
+comparison, one threshold), it reads the agreement, a declared signal of the chosen member or the
+mean of a declared signal (ans:Q2), its three fallbacks (ans:Q3), what it costs and risks today
+(the fallback call runs on every Case; if it fails, the Case fails; ans:Q1, C2), the missing-number
+rule (P10), the verifier slot (ans:Q4), the name note (P2), and where the report shows the gate
+(P16). Docs only: no code, no snapshot, no golden and no url4 change.
+
+### Planned changes
+
+- `packages/screamingface/README.md` — R1: the new section `### Gate the majority` between
+  `### Signal sources` and `### Fusion as a named recipe`, with one code block that assigns
+  `g1_agreement_abstain`, `g2_agreement_judge`, `g3_agreement_writer` and `g4_confidence_gate`.
+  R2: the paragraph `**The gate.**` in `### Combine steps in the report`, before the "Numbers show
+  4 significant digits" paragraph.
+- `packages/screamingface/CHANGELOG.md` — B1: one part 5 bullet at position 2 of the first
+  `### Features` list of `## Unreleased`, after the part 4 and part 3 bullets.
+- New `packages/screamingface/tests/test_gate_docs.py` — DC#1–DC#5. It imports `_section` from
+  `test_evidence_completeness_docs` and four helpers from `test_show_signals_docs`.
+
+### Pinned edits
+
+None.
+
+### Test plan
+
+- DC#1 CHAR (the five anchor headings, once each, in order). DC#2 the new section, its place, the
+  names in the code, and its rules (the cost, failure, verifier, name and report sentences
+  verbatim). DC#3 the README code block compiles to the four gate url4 fixtures byte for byte.
+  DC#4 the `**The gate.**` paragraph, its chip and summary examples, and the export key; no new
+  heading between Browse and Accounting. DC#5 one part 5 bullet at position 2, with no counted
+  token.
+- Regression (CHAR, no edit): `test_show_signals_docs.py`, `test_evidence_completeness_docs.py`,
+  `test_signal_recipes_readme.py`, `test_combine_recipes_readme.py`, `test_pick_output.py`,
+  `test_mean.py`, `test_fusion_doc_goldens.py`, `test_gate_contract_fixtures.py`.
+
+### Acceptance
+
+- DC#1–DC#5 green; the regression tests green.
+- README diff: 0 removed lines; no added line over 100 characters. CHANGELOG diff: 2 added lines.
+- `run_gates.py screamingface --base <unit 5 tip>`: all green, append-only included.
+- `run_gates.py screamingface --base 4e622af75`: append-only offenders are only files of the unit
+  1–3 pinned lists; with `--skip-append-only` all green. `run_gates.py repo --base 4e622af75`: green.
+
+### Planned deviations
+
+- DC#3 reads the four fixture files instead of importing the four builders (PRD docs §7). The
+  drift guard `test_gate_contract_fixtures.py` (GA#17a, GA#17b) keeps each file byte-equal to its
+  builder, so the oracle is the same; the builder names are set by the unit 3 and 4 specs.
+- `test_gate_docs.py` also imports `_headings_between`, `_first_features_bullets`, `_unreleased`
+  and `_COUNTED_TOKENS` from `test_show_signals_docs`, so the part 4 rules are not copied.
+- README planner additions (true for units 1–5, not in the PRD delta text): A1 an undeclared
+  `<name>` raises `ValueError` before any call (GA-E2); A2 a gate abstain is a scored decline, not
+  a wrong answer and not a failure (epic, P13); A3 the routes of the code block are placeholders;
+  A4 the code comment that each member must write a `Confidence:` line; A5 the R2 paragraph names
+  the record keys and the J4 rule (the judge chip and `judge_model` name the fallback judge).
+- DC#2 also checks `"agreement"`, the threshold range, the weighted-vote rule and the coverage
+  phrase; DC#5 also checks the README pointer `the README section "Gate the majority"`.
+
+### Unit 6 outcome
+
+- **Status:** in_progress (commit A written; commit C not started)
+- **Unit 5 tip (base of the unit 6 append-only check):**
+- **Commits:** A = — test(e4b): RED for E4b part 5 unit 6 docs; C = — docs(e4b): README and
+  CHANGELOG for the gate (part 5).
+- **RED record (commit A):**
+- **Gates:**
+- **Deviations:**
