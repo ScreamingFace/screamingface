@@ -90,9 +90,16 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   (`take_over_effective`). A lost CAS is 409 `connection_conflict`; nothing is created.
 - Rows touched by the callback lock in one ascending id order (the order delete uses); a lost
   callback revokes its own row so its label is freed.
+- Delete holds the pair marker before any row lock: it advances the marker when it deletes the
+  effective row, and otherwise locks it at the generation it observed
+  (`PairAuthorityStore.hold`). A repair that moved the generation first makes the delete lose
+  (409 `connection_conflict`). Without it, on PostgreSQL the repair's marker advance holds a
+  key-share lock on its new row (the marker's foreign key), and a delete that locked rows first
+  deadlocked with the callback, or, deleting the repair's own row, left the marker naming a
+  revoked row.
 - Callback (`routes/auth.py` `_record_oauth_connection_completion`, native branch), inside its
   existing transaction and in the D14 lock order: marker CAS from the observed generation to
-  `effective_connection_id=<new row>` → (existing compat step) → `mark_revoked` of the old
+  `effective_connection_id=<new row>` → `mark_revoked` of the old
   effective row (which also frees its `identity_sub` and label, both unique regardless of status,
   so a re-login of the same provider identity can activate) → `complete_pending` of the new row →
   blob. A lost CAS is the native superseded conflict (409 `connection_conflict`), and the

@@ -152,7 +152,8 @@ async def retire_replaced(
     that provider identity. Returns them (their cached strategies are the caller's to evict).
 
     # INVARIANT: these rows and every row in `alongside` lock in ONE ascending id order — the
-    # order delete uses (`lock_lower_addressers`) — so a concurrent delete cannot deadlock it.
+    # order delete uses (`lock_lower_addressers`) — and only after the marker; a delete holds
+    # the marker before its rows (`retire_effective`), so neither waits on the other holding a row.
     # WHY before activation: `identity_sub` and `label` are unique per pair whatever the status;
     # revocation frees both, so the new row can take them.
     # WHY revoke a same-identity row rather than reuse it: a refresh that started on its old
@@ -252,9 +253,23 @@ async def retire_effective(app: Any, connection: OAuthConnection) -> None:
     # WHY remove the document: after an R1 rollback the legacy path must not find a document
     # for a credential the user deleted — "delete removes only one → old credential later
     # reappears" is the state the transition forbids. Post-delete shape = op 9's.
+    # INVARIANT (D14): the marker is held before any row lock — advanced when this row is the
+    # pair's effective one, else held at the generation observed — and a writer that moved it
+    # first makes the delete lose (409 `connection_conflict`).
+    # WHY hold it for any other row: a native repair advances the marker to its new row, and
+    # PostgreSQL then holds a key-share lock on that row (the marker's foreign key) until the
+    # repair commits. A delete that locked the pair's rows first deadlocked with the repair's
+    # row lock; a delete of the repair's own row, decided from the marker read before the repair
+    # committed, left the marker naming a revoked row.
     """
-    pair = await effective_pair_of(connection)
-    if pair is None:
+    pair = await PairAuthorityStore().read(str(connection.account_id), connection.provider)
+    if pair.migration_state != "migrated" or pair.effective_connection_id != connection.id:
+        try:
+            await PairAuthorityStore().hold(
+                pair.account_id, pair.provider, expected_generation=pair.generation
+            )
+        except PairAuthorityConflict as exc:
+            raise _superseded(connection) from exc
         return
     await _advance(pair, connection, effective_connection_id=None)
     index: ProfileIndexStore = app.state.profile_index

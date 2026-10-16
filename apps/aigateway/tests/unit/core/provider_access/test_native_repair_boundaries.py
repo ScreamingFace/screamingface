@@ -2,7 +2,7 @@
 
 # FEATURE: Stage E spec R6 — a native repair uses the Connection side only.
 # INVARIANT: no repair branch reads or writes the legacy Profile document (R6, §8 Q7): the OAuth
-# replacement, the same-identity promotion and the API-key takeover all leave it byte-identical.
+# replacement, the same-identity retirement and the API-key takeover all leave it byte-identical.
 # INVARIANT: a repair that signs into the identity of another row of the pair retires that row
 # under its lock and activates its own fresh row, so a stale failure of the retired row (before
 # or after the commit) never breaks the repaired pair; a failed repair leaves that row untouched.
@@ -29,7 +29,6 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationState,
 )
 from aigateway.core.oauth.identity import AccountIdentity
-from aigateway.core.oauth.models.oauth_connection import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.profile_models import ProfileState
 from aigateway.routes import auth as auth_routes
@@ -157,21 +156,14 @@ def test_a_same_identity_repair_leaves_the_profile_document_untouched(
 # --- the same-identity row retires; its stale failures cannot break the repair -------------------
 
 
-def test_a_sibling_that_breaks_after_its_lookup_is_retired_and_the_repair_lands(
+def test_a_same_identity_row_broken_before_the_repair_stays_broken_and_the_repair_lands(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # WHY: a refresh failure that reached the row first cleared its identity (`mark_error`), so
+    # the repair's identity-scoped lock no longer matches it and its new row takes the identity.
     h = migrated
     _old, sibling = _live_sibling(h, monkeypatch)
-    find_by_identity = OAuthConnectionStore.find_by_identity
-
-    async def breaks_after_lookup(self: Any, *args: Any, **kwargs: Any) -> Any:
-        found = await find_by_identity(self, *args, **kwargs)
-        if found is not None and str(found.id) == sibling:
-            stale = await OAuthConnection.get(id=found.id)
-            await OAuthConnectionStore().mark_error(stale, "refresh rejected")
-        return found
-
-    monkeypatch.setattr(OAuthConnectionStore, "find_by_identity", breaks_after_lookup)
+    h.call(OAuthConnectionStore().mark_error, connection(h, sibling), "refresh rejected")
     use_tokens(h, "new-tok")
     repair = _start(h, "work")
 
@@ -179,8 +171,9 @@ def test_a_sibling_that_breaks_after_its_lookup_is_retired_and_the_repair_lands(
 
     new = str(repair["connection_id"])
     assert _effective(h) == new
-    assert connection(h, sibling).status == "revoked"
+    assert (connection(h, sibling).status, connection(h, sibling).identity_sub) == ("error", None)
     assert (connection(h, new).status, connection(h, new).identity_sub) == ("active", "user-1")
+    assert access_token_of(blob_at_connection_address(h, new)) == "new-tok"
 
 
 def test_a_stale_refresh_failure_after_the_repair_cannot_break_the_repaired_pair(

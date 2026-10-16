@@ -210,8 +210,8 @@ def test_a_flow_named_like_the_effective_row_replaces_it_even_when_it_works(
 def test_a_same_label_re_login_of_the_same_identity_replaces_the_effective_row(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # WHY: the effective row itself carries the identity — it is the target, not a sibling to
-    # promote; its revocation frees the identity for the new row.
+    # WHY: the effective row itself carries the identity — it is the target, not another row of
+    # the pair; its revocation frees the identity for the new row.
     h = migrated
     old = _seed(h, ProfileState.AUTHENTICATED)
     row = connection(h, old)

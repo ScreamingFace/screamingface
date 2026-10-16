@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from uuid import UUID
@@ -20,10 +21,11 @@ from uuid import UUID
 import pytest
 import test_provider_access_backing_postgres as backing
 from fastapi.testclient import TestClient
+from tortoise import connections
 
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.oauth.models import OAuthConnection
-from aigateway.core.oauth.store import OAuthConnectionStore
+from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 
 pytestmark = pytest.mark.needs_postgres
@@ -187,6 +189,10 @@ def test_a_stale_failure_of_the_same_identity_row_cannot_break_the_repair_on_pos
         completing = executor.submit(_callback, pg_client, repair["state"])
         assert held.wait(20), "the repair never reached its activation"
         failing = executor.submit(stale_failure)
+        deadline = time.monotonic() + 10
+        while backing._call(pg_client, _lock_waiters) < 1:
+            assert time.monotonic() < deadline, "the stale failure never waited on the repair"
+            time.sleep(0.05)
         release.set()
         completed = completing.result(timeout=30)
         marked = failing.result(timeout=30)
@@ -198,3 +204,83 @@ def test_a_stale_failure_of_the_same_identity_row_cannot_break_the_repair_on_pos
     assert backing._connection(pg_client, account_id, new).status == "active"
     assert backing._connection(pg_client, account_id, sibling).status == "revoked"
     assert _access_token(pg_client, account_id, new) == "new-tok"
+
+
+# WHY the highest UUID: a delete locks the pair's live rows below its own first, so a bystander
+# above the replaced row makes the delete hold that row before it reaches the repair's row.
+_BYSTANDER = UUID("ffffffff-ffff-4fff-bfff-ffffffffffff")
+
+
+async def _bystander(account_id: str) -> UUID:
+    """A plain live row of the pair beside its effective row."""
+    store = OAuthConnectionStore()
+    row = await store.create_pending(
+        account_id=account_id,
+        provider=PROVIDER,
+        label="bystander",
+        connection_id=_BYSTANDER,
+        credential_provider=PROVIDER,
+        credential_locator=credential_locator_for(PROVIDER, account_id, "bystander"),
+    )
+    return (await store.complete(row, label="bystander", identity=None)).id
+
+
+async def _lock_waiters() -> int:
+    rows = await connections.get("default").execute_query_dict(
+        "SELECT count(*) AS n FROM pg_stat_activity"
+        " WHERE wait_event_type = 'Lock' AND datname = current_database()"
+    )
+    return int(rows[0]["n"])
+
+
+@pytest.mark.parametrize("target", ["bystander", "repair"])
+def test_a_delete_during_a_repair_waits_on_the_marker_and_loses_on_postgres(
+    pg_client: TestClient, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    # WHY: the repair's marker advance makes PostgreSQL take a key-share lock on its new row
+    # (the marker's foreign key). A delete that locked the pair's rows first and then reached
+    # that row closed a cycle with the repair's own row lock (one of them was aborted), and a
+    # delete of the repair's own row left the marker naming a revoked row. The delete now holds
+    # the marker at the generation it saw, so it waits for the repair and then loses.
+    account_id = backing._account_id(pg_client)
+    old = backing._seed(
+        pg_client,
+        account_id,
+        backing._fresh_name(),
+        auth_type="oauth",
+        blob=backing._oauth_blob("old-tok"),
+    )
+    bystander = backing._call(pg_client, _bystander, account_id)
+    _mark_error(pg_client, account_id, old)
+    repair = _start(pg_client, "work", "new-tok")
+    new = repair["connection_id"]
+    doomed = bystander if target == "bystander" else new
+
+    hold = backing._MarkerHold(monkeypatch, holds=lambda index, _kw: index == 0)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        completing = executor.submit(_callback, pg_client, repair["state"])
+        assert hold.held.wait(20), "the callback never advanced the marker"
+        deleting = executor.submit(pg_client.delete, f"/v1/oauth/connections/{doomed}")
+        deadline = time.monotonic() + 10
+        while backing._call(pg_client, _lock_waiters) < 1:
+            assert time.monotonic() < deadline, "the delete never waited on the repair"
+            time.sleep(0.05)
+        hold.release.set()
+        completed = completing.result(timeout=30)
+        deleted = deleting.result(timeout=30)
+
+    assert completed.status_code == 200, completed.text
+    assert deleted.status_code == 409, deleted.text
+    assert deleted.json()["detail"]["code"] == "connection_conflict"
+    assert str(backing._marker(pg_client, account_id).effective_connection_id) == new
+    assert backing._connection(pg_client, account_id, old).status == "revoked"
+    assert backing._connection(pg_client, account_id, new).status == "active"
+    assert backing._connection(pg_client, account_id, bystander).status == "active"
+    assert _access_token(pg_client, account_id, new) == "new-tok"
+
+    # The retried delete then goes through on the committed pair.
+    retry = pg_client.delete(f"/v1/oauth/connections/{doomed}")
+    assert retry.status_code == 204, retry.text
+    assert backing._connection(pg_client, account_id, doomed).status == "revoked"
+    effective = backing._marker(pg_client, account_id).effective_connection_id
+    assert effective is None if target == "repair" else str(effective) == new

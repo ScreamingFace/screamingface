@@ -55,25 +55,25 @@ Under `apps/aigateway/src/aigateway/`:
   `take_over_effective`),
   `routes/oauth_connections.py` (OAuth start records the pair; API-key create takes over the
   effective row by the same rule), `routes/auth.py` (callback: marker CAS
-  → compat step → rows locked in id order, old row revoked → new row activated → blob; same
+  → rows locked in id order, old row revoked → new row activated → blob; same
   identity as another row → that row revoked with the old one, the new row activated; a lost native callback revokes its row; the
   replaced row's cached strategy evicted after commit). Tests: new
   `tests/unit/core/provider_access/test_native_oauth_replaces_unusable_effective.py` (17 cases) and
   `test_native_api_key_replaces_effective.py` (4 cases), and
   `test_native_unlabelled_targets_effective.py` (4 cases, the unlabelled rule),
   `test_native_repair_boundaries.py` (8 cases: the Profile document untouched on every repair
-  branch, a same-identity row broken after its lookup, a stale failure after the repair, a failed
+  branch, a same-identity row broken before the repair, a stale failure after the repair, a failed
   repair leaving the same-identity row untouched), and the PostgreSQL lane
-  `tests/integration/test_native_repair_postgres.py` (3 cases: a repair against a key takeover,
-  against a delete of the replaced row, and a stale failure of the same-identity row waiting on
-  the repair's lock);
+  `tests/integration/test_native_repair_postgres.py` (5 cases: a repair against a key takeover,
+  against a delete of the replaced row, against a delete of another row or of its own new row,
+  and a stale failure of the same-identity row waiting on the repair's lock);
   no test from before this unit changed; this unit's own promotion cases were rewritten to the
   owner's round-3 decision (below). Docs: spec R6 and §8 Q7, plan §3 E1b.
 - **Commits:** `feat(aigateway): let a native connection replace a migrated pair's effective credential`;
   `feat(aigateway): let an unlabelled native connection replace the pair's main credential`;
   `fix(aigateway): keep a native repair off the Profile document and fence the live-row promotion`;
-  `fix(aigateway): retire a same-identity row on repair instead of reusing it`
-  (ticket backfilled at PR-open).
+  `fix(aigateway): retire a same-identity row on repair instead of reusing it`;
+  `fix(aigateway): hold the pair marker before a delete locks rows`.
 - **Gates:** `run_gates.py aigateway --base 59545b20b` (the unit's base; main has moved) all green after the review fixes, the unlabelled rule and review rounds 2 and 3 (append-only check, ruff, format, pyright, enterprise check, full suite with coverage).
 - **Deviations:** review round (independent reviewer) → owner decisions 2026-10-16: a repair
   that signs into another live row's identity promotes that row; a broken effective row is
@@ -101,3 +101,16 @@ Under `apps/aigateway/src/aigateway/`:
   effective; `promote_live_row` and its separate failure path are removed (one repair path).
   A late `mark_error` now matches no `active` row. The unit's promotion tests were rewritten to
   this contract.
+  Review round 4 (independent, on the open PR): on PostgreSQL the repair's marker advance takes
+  a key-share lock on its new row through the marker's foreign key. A concurrent delete of
+  another row of the pair locked rows first and deadlocked with the callback (500 or 503), and a
+  delete of the repair's own new row, decided from the marker read before the repair committed,
+  left the marker naming a revoked row. Fixed in `retire_effective`: a delete of a row that is
+  not the effective one now holds the marker at the generation it observed
+  (`PairAuthorityStore.hold`) before any row lock, so it waits for the repair and loses with 409
+  `connection_conflict`; a delete of the effective row still advances the marker as before. The
+  new PostgreSQL case failed before the fix with both symptoms. Also from the review: the
+  boundaries case that no longer reached its lookup now breaks the same-identity row before the
+  repair; the PostgreSQL stale-failure case waits until the failure blocks on the repair's lock;
+  the plan's E1b callback order no longer lists the compat step and names the delete's marker
+  hold; stale "promotion" wording removed.
