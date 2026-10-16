@@ -1,7 +1,7 @@
 # Spec — file input across url4, engine and gateway (`OME-1535`)
 
 Epic `OME-1529`. Status: **draft for review** (url4: Kevin; gateway: Dmitry). Evidence re-checked
-against `origin/main` at `8edd994bf` (2026-10-16). Paths below are relative to:
+against `origin/main` at `637594595` (2026-10-16). Paths below are relative to:
 `U/` = `packages/url4/src/url4/`, `E/` = `apps/screamingface-engine/src/screamingface_engine/`,
 `I/` = `apps/screamingface-engine/src/screamingface_engine_inspect/`,
 `P/` = `packages/screamingface/src/screamingface/`, `G/` = `apps/aigateway/src/aigateway/`.
@@ -49,7 +49,7 @@ Reusable: `FetchResult.media_type`, the `;accept=` annotation, and `ResultArtifa
 Fixed since the 2026-10-07 research: `I/prepare.py:1629-1633` now refuses a non-text,
 non-list `sample.input` (`PrepareError`) instead of taking `str()` of it.
 
-### Gateway — native media for the custom adapters (`OME-1541`, merged)
+### Gateway — native media for the custom adapters (`OME-1541`, merged in #1431)
 
 - `G/core/content_parts.py` parses OpenAI `content` into text, inline media (`MediaPart`) and
   `RemoteImagePart`. Anything a provider cannot carry is refused before dispatch with a typed
@@ -59,11 +59,15 @@ non-list `sample.input` (`PrepareError`) instead of taking `str()` of it.
   (`:29,193-201`); `file` must be `application/pdf` (`:32,204-216`). Untyped non-text parts are refused.
 - Gemini and Antigravity: `inlineData`; remote image URLs are refused with `reason: remote_url` (the gateway never fetches).
 - Codex: `input_text` / `input_image` / `input_file`; https image URLs are passed through, since OpenAI fetches them.
+- Ollama (`OME-1641`, PR #1447, open): LiteLLM's `ollama_chat` conversion keeps `image_url` parts and silently
+  drops `file` parts (live: PDF answered 200 with +7 prompt tokens and an unrelated answer). The Ollama plugin
+  now runs the same gate with `allow_files=False` and `allow_remote_images=False`: a PDF or a remote image URL
+  gets 422 `unsupported_content_part`; data-URI images are unchanged. PDF-to-text for Ollama stays with `OME-1550`.
 - Still open:
   - **No request body cap** anywhere in the gateway (no match for a body or content-length limit under `G/` outside `api_key_validation_http.py` and `object_store.py`). → `OME-1542`
   - **Anthropic OAuth drops non-text system parts:** `G/plugins/anthropic_provider/chat_handler.py:180-193` keeps only `type == "text"`. → `OME-1542`
   - **`/v1/models` carries no input-modality field.** Only HuggingFace discovery parses `input_modalities` (`G/plugins/huggingface_provider/discovery.py:74,129`), and nothing exposes it. → `OME-1537`
-  - **SSRF:** LiteLLM may fetch caller `http(s)` image URLs for the pass-through providers (Anthropic, Ollama). **UNVERIFIED** in this pass; it comes from the 2026-10-07 research. → `OME-1542`
+  - **SSRF:** LiteLLM may fetch caller `http(s)` image URLs for the pass-through providers (Anthropic, OpenRouter). **UNVERIFIED** in this pass; it comes from the 2026-10-07 research. Ollama refuses remote URLs once #1447 merges. → `OME-1542`
 
 ## 2. Execution contract
 
@@ -116,10 +120,11 @@ Further rules:
 
 | Item | State (2026-10-16) |
 |---|---|
-| Gemini-format back-ends (Code Assist wire, `inlineData`) accept PNG and PDF | **Verified live** on Antigravity `gemini-3-flash`: PNG read as `4827`, PDF as `ZEBRA-4127`. Gemini CLI shares `core.gemini_parts`. |
-| Image and PDF token reporting | Only `prompt_tokens` moves: text 8 → PNG 1106 (**+1098**) / PDF 535 (**+527**). `prompt_tokens_details` is `null`, so there is no per-modality breakdown. Input for `OME-1546`. |
-| Gemini CLI (Code Assist OAuth) | Not verified: the test account's Code Assist setup returned no `cloudaicompanionProject` (text fails too). |
-| Codex `input_image` / `input_file` | Not verified: the signed-in ChatGPT account was on the **free** plan, which Codex refuses for every model (`OME-1634`; typed 403 `codex_plan_unsupported` in PR #1441). Needs a paid-plan sign-in. |
-| Anthropic and OpenAI with PDFs | Not run (not signed in); these adapters are unchanged by `OME-1541`. **UNVERIFIED.** |
+| Live native PNG + PDF (runner sends text, a PNG reading `4827`, a PDF reading `ZEBRA-4127`) | **Verified live** (2026-10-16), both read correctly on: Antigravity `gemini-3-flash` (`inlineData`, Code Assist wire); Codex `gpt-6-astra` on a ChatGPT plus sign-in (`input_image` / `input_file`); Anthropic OAuth `claude-haiku-4-5`; OpenRouter `google/gemini-2.5-flash` and `anthropic/claude-haiku-4.5`. OpenRouter `openai/gpt-4o-mini` read the PDF but misread the PNG (`4027`): a model-quality miss, not a transport drop. |
+| Ollama with PDFs | Silent drop found live (`qwen2.5vl:3b`, PDF 200 with +7 tokens). Fixed by `OME-1641` (PR #1447, open): PDF → 422 `part_type: file`; PNG still reads `4827`. |
+| Image and PDF token reporting | Only `prompt_tokens` moves; `prompt_tokens_details` is `null` on Antigravity, so there is no per-modality breakdown. Prompt-token delta vs the text case, PNG / PDF: Antigravity +1098 / +527; Codex `gpt-6-astra` +73 / +36; Anthropic `claude-haiku-4-5` +68 / +1585; OpenRouter `gemini-2.5-flash` +1038 / +1297; Ollama `qwen2.5vl:3b` +68 / n/a. Input for `OME-1546`. |
+| Gemini CLI (Code Assist OAuth) | Not verified, and no longer pursued: the route is deprecated (I-26). The test account's Code Assist setup returned no `cloudaicompanionProject` (text fails too). It shares `core.gemini_parts` with Antigravity, which is verified. |
+| Codex model catalog | Stale (`OME-1634`): `gpt-5.4-mini` is refused for a ChatGPT account even on the plus plan, while `gpt-6-astra` works. A free-plan sign-in is refused for every model; PR #1441 (open) types that as 403 `codex_plan_unsupported`. |
+| OpenAI (API key) with PDFs | Not run (no profile signed in). **UNVERIFIED.** |
 | Per-provider size and count limits | **UNVERIFIED**; not measured. |
 | `inspect` `media_resolver` firing on our out-of-loop scorer path | **UNVERIFIED** (`OME-1271` caveat); needs a spike before the inline-to-reference step. |
