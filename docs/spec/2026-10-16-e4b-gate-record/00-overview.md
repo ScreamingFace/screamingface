@@ -233,3 +233,17 @@ finding and the two places where the fix differs from the review text.
   grammar (the SDK with the declared-name rule, so it also refuses `chosen:cost_usd`). GR-I1 is
   also checked on the evidence: a gate that did not run goes with an abstained result. An evidence
   `"gate": null` is accepted and not written back (the `cut` precedent).
+- **E2 (unit 2).** The gate branch code is split into `_choose`, `_gated` and `_fallback`. The
+  split keeps `_decide` at three returns. The gate abstain passes the vote selection, so its
+  evidence keeps the tally, the agreement and the tie. The trace fields `agreement` and `tie` are
+  set before the branch, so a gate abstain logs them.
+- **E3 (unit 2).** GR-I3 is checked first among the gate rules on both sides. The Engine check is
+  the first line of `_check_gate`, which `_check` calls. A separate call in `CombineEvidence._check`
+  made the method too complex for the lint limit. The SDK check is in `CombineEvidence.__init__`,
+  before the GR-I1, GR-I4 and GR-I5 check. The SDK has a hand-written `__init__`, not a
+  `__post_init__`.
+- **E4 (unit 2).** The fallback label is read over the present members that the step did not
+  exclude (GD-E6). A label that names a left-out or excluded member fails with
+  `judge_reply_invalid`.
+- **E5 (unit 2).** The spec lists `ST/test_evidence_words.py` line 372 for the count of 12 words.
+  The line is 373. The pinned edit is on line 373.
