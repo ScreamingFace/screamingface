@@ -1560,6 +1560,80 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: cc-by-4.0, the stanford-crfm/air-bench-2024 card.
         license="cc-by-4.0",
     ),
+    # truthfulqa_mc1 — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.truthfulqa.truthfulqa:truthfulqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face truthfulqa/truthful_qa/multiple_choice
+    #     pin revision 741b8276f2d1982aa3d5b832d3ee81ed3b896490
+    "truthfulqa_mc1": TaskReplayCasesSpec(
+        task="inspect_evals.truthfulqa.truthfulqa:truthfulqa",
+        task_args={"target": "mc1"},
+        case_count=817,
+        case_digest="ce34c311dff8cd88df4be1ea90bc82127f266cf61595f0a39c15cc85d20af48a",
+        case_set_digest="b610a432259d6fe81ed039d903c663f6a86bc9ab27ede305f2ed3628f6ce3be9",
+        letter_list_key=True,
+        source_pins={
+            "truthfulqa/truthful_qa": "741b8276f2d1982aa3d5b832d3ee81ed3b896490",
+        },
+        shuffle_seed=20260917,
+        choice_shuffle_seed=20260917,
+        license="apache-2.0",
+    ),
+    # chembench — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.chembench.chembench:chembench.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jablonkagroup/ChemBench
+    #     pin revision a8f7e226e0d01553018194711b4b3d87d5a5164e
+    "chembench": TaskReplayCasesSpec(
+        task="inspect_evals.chembench.chembench:chembench",
+        case_count=2785,
+        case_digest="24c74217fb19c8fc066a2a070918579ddc98ec6322304fa20874c4aeb218fb7d",
+        case_set_digest="9800709ea250e542e92d1dec59366fce33644a532fd909509e2e94f0c6b85858",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        source_pins={
+            "jablonkagroup/ChemBench": "a8f7e226e0d01553018194711b4b3d87d5a5164e",
+        },
+        shuffle_seed=20260917,
+        license="mit",
+    ),
+    # stereoset — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.stereoset.stereoset:stereoset.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face McGill-NLP/stereoset/intersentence
+    #     pin revision bf6e7ce50491784d094fb7afe60a70ecccb89035
+    "stereoset": TaskReplayCasesSpec(
+        task="inspect_evals.stereoset.stereoset:stereoset",
+        case_count=2115,
+        case_digest="1c3774ed7ab9dc0ed30e77707ef33c6b0b0c2b822c9e78b35aceb71196b97f6a",
+        case_set_digest="69db3f56f3d47eede7314c04d9de8d73ce8eb6b3e2bd297a70c6cae0f9cbe548",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        source_pins={
+            "McGill-NLP/stereoset": "bf6e7ce50491784d094fb7afe60a70ecccb89035",
+        },
+        shuffle_seed=20260917,
+        license="cc-by-sa-4.0",
+    ),
+    # cyse4_malware_analysis — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://github.com/CrowdStrike/CyberSOCEval_data/archive/ce7daa5bc7da51559ca97476d2277be02631783e.zip
+    #     pin sha256 0764361ca83c32e27a4befdce79c9387a13331f90f7a426672c3d87e49fb59f4
+    "cyse4_malware_analysis": TaskReplayCasesSpec(
+        task="inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis",
+        case_count=608,
+        case_digest="d1e4d7239737704e2113ea4f01ebbc18d861a1857a340d05912602e6809f0267",
+        case_set_digest="4bed9cb49af4cb115835e13a4073d374a7ec9300e5e243dccbb543313a18928b",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        # NAMED DEVIATION: question 425 of upstream's 609 has no correct option listed, so it
+        # has no answer key to grade against; the paper counts the same 608.
+        excluded_sample_ids=("cyse4_malware_analysis_994447af",),
+        # License: owner decision 2026-10-01 (OME-1273): CC-BY-SA-4.0, CrowdStrike's
+        #  hybrid-analysis LICENSE.md, for the detonation reports.
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
