@@ -283,8 +283,8 @@ class Reduction:
     """What a reduce step found. Each reducer family fills its own part; the rest stay None.
 
     tally: vote families, rows sorted by score (high first) then first-holder position.
-    statistic: median. scores: member -> score (judge scores, rank, numeric field, signal values,
-    filter pass marks).
+    statistic: median or mean (the reducer names which).
+    scores: member -> score (judge scores, rank, numeric field, signal values, filter pass marks).
     judge: judge reducers. fields: pick and merge. text: a text this step built for select to
     emit (merge JSON, projection JSON, joined text). separator_collision: concat only.
     participants: the members a weighted reduce step used, in author order (None: every voter).
@@ -519,10 +519,9 @@ def check_output_arg(args: OpArgs, op_id: str) -> None:
 def output_field_text(text: str, name: str) -> str | None:
     """The top-level field ``name`` of one member reply, as answer text; None when it is missing.
 
-    Read with the json_field@1 reader (``decode_json_reply``: the trimmed text, else the last
-    fenced json block; depth at most 64) after the 1 MiB read cap. A JSON string is returned as
-    it is; any other JSON value as canonical JSON. Over the cap, not JSON, not an object, no key,
-    ``null``, a blank string, or a number with no canonical form (``1e999``) is None.
+    Read with the json_field@1 reader (``decode_json_reply``) after the 1 MiB read cap, and turned
+    into text by ``field_value_text``. Over the cap, not JSON, no key, ``null``, a blank text, or a
+    value ``field_value_text`` refuses is None.
     """
     value = ""
     if not utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):

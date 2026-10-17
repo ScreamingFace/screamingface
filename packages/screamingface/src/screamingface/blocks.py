@@ -30,6 +30,7 @@ from screamingface.reducer import (
     _recovered_weights,
     _ReducerPlan,
     _refuse_judge_signal,
+    _Statistic,
     _Step,
     _Steps,
     _vote_plan,
@@ -585,8 +586,8 @@ def _numeric_extract(extract: object, op: str) -> Extract:
     return Extract(extract.rule, normalize="numeric", **extract.args)
 
 
-# A median and a mean block differ only in their name: one code path builds and rebuilds both.
-type _Statistic = Literal["median", "mean"]
+# A median and a mean block differ only in their name and in the advice text that refuses a
+# score:judge weight: one code path builds and rebuilds both.
 
 
 def _canonical_statistic(checked: dict[str, object], statistic: _Statistic, use: str) -> None:
