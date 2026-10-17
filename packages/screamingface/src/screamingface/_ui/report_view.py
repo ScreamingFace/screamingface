@@ -16,7 +16,7 @@ from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
-from screamingface._ui.combine_view import combine_sections_html, combine_summary_html
+from screamingface._ui.combine_view import CombineSummary, combine_sections_html
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
 from screamingface._ui.text import short
 from screamingface.report import _candidate_failures
@@ -333,8 +333,7 @@ def _strip_html(report: Report) -> str:
     )
 
 
-def _abstained_text(candidate: CandidateResult) -> str:
-    count = candidate.abstained_count
+def _abstained_text(count: int) -> str:
     return f" · {count} abstained" if count > 0 else ""
 
 
@@ -357,10 +356,18 @@ def _card_html(
         state = "complete with warnings"
     else:
         state = "complete"
+    # WHY one pass: a saved Candidate decodes a Case on each read (DiskCases), so the abstained
+    # count (as CandidateResult.abstained_count) and the combine run summary share it
+    # (Review P4 #2).
+    abstained = 0
+    summary = CombineSummary()
+    for case in candidate.cases:
+        abstained += case.abstained
+        summary.add(case)
     runs = _metric(metrics, "n_runs")
     # Repeat count belongs in the context line: a 7th figure would orphan a grid row.
     repeats = f" · {int(runs)} runs" if runs and runs > 1 else ""
-    ctx = f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(candidate)}"
+    ctx = f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(abstained)}"
     # The fusion edge marks a rankable result. Any finite benchmark-native score —
     # including zero and negative (HealthBench worst-30 is all-negative) — is a real
     # outcome worth highlighting; only an unscored candidate stays neutral (OME-866:
@@ -393,7 +400,7 @@ def _card_html(
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
-        f"{combine_summary_html(candidate)}"
+        f"{summary.html(candidate)}"
         f"{run_accounting_note(candidate, context=context)}"
         f"{_recipe_html(candidate)}</div>"
     )

@@ -8,7 +8,7 @@ whole run (ans:Q1 "Run-level summary"; numbers ans:Q3).
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any
 
 from _answer_fixtures import evidence_cases, fixture_case, fixture_graph
@@ -502,3 +502,32 @@ def test_mean_of_values_whose_sum_leaves_the_float_range_still_renders() -> None
     )
     assert f"<tr><td>member_1</td><td>2 of 2</td><td>0 of 2</td>{cell}</tr>" in summary
     assert summary in _card(result)
+
+
+# --- Review P4 #2: one pass over the Cases per card ---------------------------------------------
+
+
+def test_card_render_reads_the_cases_in_one_pass() -> None:
+    # Review P4 #2: a saved Candidate decodes a Case on each read (DiskCases), so the abstained
+    # count and the run summary share one pass over the Cases. The card bytes do not change.
+    from screamingface._results.accounting import saved_accounting_context
+
+    result = _candidate(fixture_graph(3), _rs1_cases())
+    report = sf.Report(
+        benchmark=result.benchmark, case_count=len(result.cases), candidates=(result,)
+    )
+    context = saved_accounting_context(result)  # WHY first: the accounting context is not counted
+    expected = _card_html(result, report, context=context)
+    passes = 0
+
+    class _CountedCases(tuple[sf.CaseResult, ...]):
+        def __iter__(self) -> Iterator[sf.CaseResult]:
+            nonlocal passes
+            passes += 1
+            return super().__iter__()
+
+    cases = result.cases
+    object.__setattr__(cases, "_items", _CountedCases(cases._items))
+
+    assert _card_html(result, report, context=context) == expected
+    assert passes == 1

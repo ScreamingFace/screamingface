@@ -176,3 +176,8 @@ Scope notes:
   declared names seen so far (with the names of this Case), not every `row.signals` value. The
   summary shows a mean only for a declared name, so the HTML does not change when all Cases of a
   step declare the same names (one combine spec for each step).
+- **E7 (run summary, Review P4 #2).** `_card_html` does not call `combine_summary_html(candidate)`.
+  It reads `candidate.cases` one time: each Case adds to the abstained count and to a
+  `CombineSummary`, and `summary.html(candidate)` gives the block. A saved Candidate decodes a Case
+  on each read, so the card does not decode each Case two times. `combine_summary_html(candidate)`
+  stays as a function with its own pass. The card HTML does not change.
