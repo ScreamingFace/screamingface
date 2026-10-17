@@ -166,3 +166,9 @@ Scope notes:
   51,000. The oracle (more than 32,000) holds. (ledger unit 3 D-3)
 - **E4 (run summary).** The spec name `_member_row` collides with the unit 3 helper of the same name in
   `S/_ui/combine_view.py`. The run-summary helper is `_summary_row`. (ledger unit 4 D-5)
+- **E5 (run summary, Review P4 #1).** `math.fsum(values) / n` raises `OverflowError` when the sum of
+  finite values is more than the float maximum (for example, two Cases that read `conf = 1e308`).
+  The error stopped the Candidate card. Now `_mean` uses `fractions.Fraction` to calculate the exact
+  mean when `math.fsum` overflows, and converts it to a float. The mean of finite floats is always
+  in the float range. Thus the cell shows `1e+308` with `n=2`. The `math.fsum` result does not
+  change for all other values.

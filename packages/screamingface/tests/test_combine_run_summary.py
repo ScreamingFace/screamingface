@@ -480,3 +480,25 @@ def test_one_case_heading_is_singular() -> None:
 
     assert f"{_HEADING}synthesis · vote · 1 case</div>" in summary
     assert "1 cases" not in summary
+
+
+# --- Review P4 #1: a sum past the float range ----------------------------------------------------
+
+
+def test_mean_of_values_whose_sum_leaves_the_float_range_still_renders() -> None:
+    # Review P4 #1: two Cases read conf = 1e308 (a verbalized 309-digit number); their sum is past
+    # the float range, but their mean (1e308) is not, so the card shows it instead of failing.
+    def wire(conf: float) -> dict[str, Any]:
+        members = [_member(1, "answered", "a", conf), _member(2, "answered", "a", 1.0)]
+        return _wire([*members, _member(3, "answered", "a", 1.0)], "member_1")
+
+    cases = tuple(_case(k, _evidence(wire(1e308))) for k in (1, 2))
+    result = _candidate(fixture_graph(3), cases)
+    summary = combine_summary_html(result)
+
+    cell = (
+        "<td><span class='sf-cmb__n' title='1e+308'>1e+308</span>"
+        " <span class='sf-cmb__nn'>n=2</span></td>"
+    )
+    assert f"<tr><td>member_1</td><td>2 of 2</td><td>0 of 2</td>{cell}</tr>" in summary
+    assert summary in _card(result)
