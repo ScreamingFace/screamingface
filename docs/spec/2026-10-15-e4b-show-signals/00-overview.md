@@ -172,3 +172,7 @@ Scope notes:
   mean when `math.fsum` overflows, and converts it to a float. The mean of finite floats is always
   in the float range. Thus the cell shows `1e+308` with `n=2`. The `math.fsum` result does not
   change for all other values.
+- **E6 (run summary, Review P4 #5).** `_StepSummary.add` keeps only the non-None values of the
+  declared names seen so far (with the names of this Case), not every `row.signals` value. The
+  summary shows a mean only for a declared name, so the HTML does not change when all Cases of a
+  step declare the same names (one combine spec for each step).

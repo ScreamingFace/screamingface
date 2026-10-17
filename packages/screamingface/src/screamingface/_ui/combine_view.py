@@ -305,7 +305,7 @@ class _StepSummary:
     values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
 
     def add(self, evidence: CombineEvidence) -> None:
-        """Count one Case of this step: chosen, excluded, the declared names and the values."""
+        """Count one Case of this step: chosen, excluded, the declared names and their values."""
         self.cases += 1
         for name, entry in (evidence.declared or {}).items():
             self.declared.setdefault(name, str(entry["source"]))
@@ -316,7 +316,10 @@ class _StepSummary:
                 self.chosen[row.member_id] += 1
             if row.status == "excluded":
                 self.excluded[row.member_id] += 1
-            for name, value in row.signals.items():
+            # WHY only the declared names: the summary shows a mean for them alone, and a Case also
+            # holds accounting keys, score:judge and field:* values (Review P4 #5).
+            for name in self.declared:
+                value = row.signals.get(name)
                 if value is not None:
                     self.values.setdefault((row.member_id, name), []).append(value)
 
