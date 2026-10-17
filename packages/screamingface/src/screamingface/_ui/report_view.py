@@ -18,6 +18,7 @@ from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
 from screamingface._ui.combine_view import combine_sections_html, combine_summary_html
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
+from screamingface._ui.text import short
 from screamingface.report import _candidate_failures
 
 if TYPE_CHECKING:
@@ -384,7 +385,7 @@ def _card_html(
         f"<span class='sf-report__name'{' aria-hidden=true' if linked else ''}>"
         f"{escape(candidate.name)}</span>"
         f"<span class='sf-report__ctx'>{escape(ctx)}</span>"
-        f"<span class='sf-report__run'>{escape(_short(candidate.run_id))}</span></div>"
+        f"<span class='sf-report__run'>{escape(short(candidate.run_id))}</span></div>"
         f"{_models_html(candidate)}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         f"{_coverage_notice_html(candidate)}"
@@ -1158,10 +1159,6 @@ def _metric(metrics: Any, name: str) -> float | None:
 
 def _number(value: object) -> float | None:
     return value if isinstance(value, int | float) and not isinstance(value, bool) else None
-
-
-def _short(value: str, keep: int = 12) -> str:
-    return value if len(value) <= keep else f"{value[:keep]}…"
 
 
 def _percent(value: float | None) -> str:
