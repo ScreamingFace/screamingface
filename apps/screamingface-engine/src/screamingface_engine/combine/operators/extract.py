@@ -213,9 +213,10 @@ def _last_match(compiled: Any, window: str) -> Any:
     return last
 
 
-def _regex_window(text: str) -> str:
+def _re2_window(text: str, size: int) -> str:
+    """The last ``size`` characters of ``text``, as RE2 reads them (regex@1, verbalized)."""
     # WHY: RE2 reads UTF-8 only, so a lone surrogate (JSON can carry one) reads as U+FFFD.
-    return _SURROGATE.sub("\ufffd", text[-_REGEX_WINDOW:])
+    return _SURROGATE.sub("\ufffd", text[-size:])
 
 
 def check_regex_pattern(args: OpArgs) -> None:
@@ -226,13 +227,13 @@ def check_regex_pattern(args: OpArgs) -> None:
 
 def regex_finds(text: str, args: OpArgs) -> bool:
     """Whether the regex@1 rule finds a match in the last 1024 characters of ``text``."""
-    return _compile(args).search(_regex_window(text)) is not None
+    return _compile(args).search(_re2_window(text, _REGEX_WINDOW)) is not None
 
 
 def regex(text: str, args: OpArgs, /) -> StageResult:
     """The chosen group of the last (or first) match in the last 1024 characters, by RE2."""
     compiled = _compile(args)
-    window = _regex_window(text)
+    window = _re2_window(text, _REGEX_WINDOW)
     first = args.get("occurrence", "last") == "first"
     match = compiled.search(window) if first else _last_match(compiled, window)
     if match is None:
@@ -265,7 +266,7 @@ def verbalized_value(text: str, args: OpArgs, /) -> float | None:
     The group is stripped; only an ASCII decimal number counts (no exponent, NaN, inf or comma).
     A lone surrogate reads as U+FFFD (RE2 reads UTF-8 only), as in regex@1.
     """
-    window = _SURROGATE.sub("\ufffd", text[-_SIGNAL_WINDOW:])
+    window = _re2_window(text, _SIGNAL_WINDOW)
     match = _last_match(_compile(args), window)
     group = None if match is None else match.group(1)
     if group is None:
