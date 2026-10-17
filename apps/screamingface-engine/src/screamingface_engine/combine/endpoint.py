@@ -384,14 +384,15 @@ def _bind(descriptor: OperatorDescriptor | None, step: StepSpec | None) -> _Step
     return _Step(descriptor.id, descriptor.run, MappingProxyType(dict(step.args)))
 
 
-def _cut(select: OperatorDescriptor | None, step: StepSpec | None) -> Cut | None:
-    """The cut that the select step declares (``top_k@1``), from its args; else None.
+def _cut(select: OperatorDescriptor | None, bound: _Step[SelectOp] | None) -> Cut | None:
+    """The cut that the select step declares (``top_k@1``), from its bound args; else None.
 
-    Call it only after ``_bind`` checked the select args: the hook reads ``k`` without a check.
+    WHY the bound step: ``_bind`` made it after it checked the args, and the hook reads ``k``
+    without a check.
     """
-    if select is None or select.cut is None or step is None:
+    if select is None or select.cut is None or bound is None:
         return None
-    return select.cut(step.args)
+    return select.cut(bound.args)
 
 
 def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
@@ -403,19 +404,21 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     reduce = registry.resolve(spec.reduce.op, "reduce")
     select = _resolve(registry, spec.select, "select")
     _check_pairing(spec)
+    # WHY this order: the arg checks run reduce, extract, normalize, select (a bad reduce arg wins).
     bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
+    bound_extract = cast("_Step[Extractor] | None", _bind(extract, spec.extract))
+    bound_normalize = cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize))
+    bound_select = cast("_Step[SelectOp]", _bind(select, spec.select))
     return _Plan(
-        extract=cast("_Step[Extractor] | None", _bind(extract, spec.extract)),
-        normalize=cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize)),
+        extract=bound_extract,
+        normalize=bound_normalize,
         reduce=bound_reduce,
-        select=cast("_Step[SelectOp]", _bind(select, spec.select)),
+        select=bound_select,
         signal=_signal_read(spec, reduce, bound_reduce),
         envelope=select is not None and select.envelope,
         excludes=_exclusion(spec, reduce, bound_reduce),
         ranks=None if select is None else select.ranks,
-        # WHY after select=: keyword arguments run left to right, so _bind has checked the select
-        # args (k is an int from 1 to 256) before the cut hook reads them.
-        cut=_cut(select, spec.select),
+        cut=_cut(select, bound_select),
     )
 
 
