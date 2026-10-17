@@ -319,6 +319,20 @@ def _check_logprob_member(label: str, position: int, member: Recipe) -> None:
 _MAX_CONSISTENCY_CALLS = 1024  # P4: bounds the url4 and the combine context
 
 
+def _consistency_member(position: int, member: Recipe) -> Model:
+    """The member as its one sf.Model call (CN-I2), or the ValueError of the rule.
+
+    WHY shared: the compiler repeats this check before it builds the sample calls, with the same
+    error (review P7 #7).
+    """
+    if not isinstance(member, Model):
+        raise ValueError(
+            "sf.Consistency needs each Fusion member to be one sf.Model call; member "
+            f"{position} ({member.name!r}) is a nested Fusion or Pipeline"
+        )
+    return member
+
+
 def _check_consistency_source(
     declared: Mapping[str, SignalSource] | None, members: tuple[Recipe, ...]
 ) -> None:
@@ -328,14 +342,7 @@ def _check_consistency_source(
     source = consistency_source(declared)
     if source is None:
         return
-    models: list[Model] = []
-    for position, member in enumerate(members, 1):
-        if not isinstance(member, Model):
-            raise ValueError(
-                "sf.Consistency needs each Fusion member to be one sf.Model call; member "
-                f"{position} ({member.name!r}) is a nested Fusion or Pipeline"
-            )
-        models.append(member)
+    models = [_consistency_member(position, member) for position, member in enumerate(members, 1)]
     calls = len(models) * source.n
     if calls > _MAX_CONSISTENCY_CALLS:
         raise ValueError(
