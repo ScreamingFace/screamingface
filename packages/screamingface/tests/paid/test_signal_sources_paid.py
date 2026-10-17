@@ -80,4 +80,4 @@ def test_uncatalogued_refusing_model_fails_logprobs_unsupported(paid_stack: Paid
     assert case.status != "scored"
     refusal = next(f for f in case.failures if f.code == "logprobs_unsupported")
     # fixed engine text (P13); the first 30 characters are checked in the ledger (unit 3 constant)
-    assert "cannot return token log-probabilities" in refusal.message
+    assert "may not return token log-probabilities" in refusal.message

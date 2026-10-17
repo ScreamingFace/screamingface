@@ -38,8 +38,9 @@ JUDGE_REPLY_INVALID_CODE = "judge_reply_invalid"
 # The text never carries upstream text, so `logprobs_unsupported` is an ENGINE_ERROR_CODES entry.
 LOGPROBS_UNSUPPORTED_CODE = "logprobs_unsupported"
 LOGPROBS_UNSUPPORTED_TEXT = (
-    "the model cannot return token log-probabilities; choose another OpenRouter model or remove "
-    "sf.Logprob and sf.Entropy"
+    "the model may not return token log-probabilities (sf.Logprob, sf.Entropy), or no endpoint for "
+    "the model supports another member parameter; choose another OpenRouter model or remove that "
+    "parameter"
 )
 
 

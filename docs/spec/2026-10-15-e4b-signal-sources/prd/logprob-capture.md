@@ -78,8 +78,9 @@ combine step, the cache and frozen-copy rules, and the `logprobs_unsupported` fa
    catches the `ResolutionError` that `_raise_for_status` raises. When `body.get("logprobs") is True`
    and the error matches the refusal recorded in unit 1, it raises
    `ResolutionError(LOGPROBS_UNSUPPORTED_TEXT, code="logprobs_unsupported", permanent=True)` before
-   `observation.failed`. The message is fixed engine text: "the model cannot return token
-   log-probabilities; choose another OpenRouter model or remove sf.Logprob and sf.Entropy". It never
+   `observation.failed`. The message is fixed engine text: "the model may not return token
+   log-probabilities (sf.Logprob, sf.Entropy), or no endpoint for the model supports another member
+   parameter; choose another OpenRouter model or remove that parameter" (erratum E12). It never
    carries upstream text. [stated ans:Q5]; [proposed]
 5. `logprobs_unsupported` joins `ENGINE_ERROR_CODES`, so an upstream that sends this code itself is
    kept as `aigateway_http_<status>` (OME-941). [proposed] — WHY: the code vouches for engine text.
