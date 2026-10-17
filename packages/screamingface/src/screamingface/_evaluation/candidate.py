@@ -49,7 +49,12 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import _JUDGE_CALL_KEYS, Reducer
-from screamingface.signal_sources import Consistency, consistency_seed, injected_member_params
+from screamingface.signal_sources import (
+    Consistency,
+    consistency_seed,
+    consistency_source,
+    injected_member_params,
+)
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
@@ -744,7 +749,7 @@ class _CandidateCompiler:
         Case (ans:Q4). The panel number is the next one after any member panel.
         """
 
-        source = _consistency_source(fusion)
+        source = consistency_source(fusion.signals)
         if source is None:
             return _NO_SAMPLES
         references: dict[str, str] = {}
@@ -984,15 +989,6 @@ def _fusion_context(
     if sources is not None:
         value["sources"] = sources
     return render(struct(value))
-
-
-def _consistency_source(fusion: Fusion) -> Consistency | None:
-    """The one sf.Consistency that a Fusion declares (CN-I1), else None."""
-
-    return next(
-        (source for source in (fusion.signals or {}).values() if isinstance(source, Consistency)),
-        None,
-    )
 
 
 def _warn_duplicate_members(fusion: Fusion) -> None:

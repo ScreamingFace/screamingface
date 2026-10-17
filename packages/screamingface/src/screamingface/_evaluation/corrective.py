@@ -41,9 +41,13 @@ from typing import TYPE_CHECKING
 
 from url4 import Expression, Node, RelExpr, Text, iterate, ref, render, src, struct
 
+from screamingface._evaluation.candidate import _children
 from screamingface._evaluation.topology import _RecipeTopology
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
+from screamingface.fusion import Fusion
+from screamingface.reducer import Reducer
+from screamingface.signal_sources import consistency_source
 
 if TYPE_CHECKING:
     from screamingface._evaluation.benchmark import _CheckSurface
@@ -150,17 +154,12 @@ def _refuse_consistency(recipe: CorrectiveLoop | SelfCorrective) -> None:
     benchmark, also on one without mid-run checking.
     """
 
-    # Lazy: candidate imports this module lazily, so the two modules never load in a cycle.
-    from screamingface._evaluation.candidate import _children, _consistency_source
-    from screamingface.fusion import Fusion
-    from screamingface.reducer import Reducer
-
     pending: list[Recipe | Reducer] = [recipe]
     while pending:
         value = pending.pop()
         if isinstance(value, Reducer):
             continue
-        if isinstance(value, Fusion) and _consistency_source(value) is not None:
+        if isinstance(value, Fusion) and consistency_source(value.signals) is not None:
             raise ValueError(_CONSISTENCY_IN_LOOP)
         pending.extend(_children(value))
 

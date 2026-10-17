@@ -337,6 +337,11 @@ def consistency_seed(k: int, j: int) -> int:
     return int.from_bytes(sha256(f"consistency:{k}:{j}".encode()).digest()[:4], "big") >> 1
 
 
+def consistency_source(declared: Mapping[str, SignalSource] | None) -> Consistency | None:
+    """The one sf.Consistency of a declaration (CN-I1), else None."""
+    return next((s for s in (declared or {}).values() if isinstance(s, Consistency)), None)
+
+
 # The member params that a Logprob or Entropy declaration owns (P12, DS-D10, U4-D1).
 INJECTED_PARAMS: frozenset[str] = frozenset({"logprobs", "top_logprobs"})
 
