@@ -10,11 +10,14 @@ gateway's database file — no ORM registry, no running gateway. Rows arrive as 
 objects (``community_pages.PAGE_FIELDS``) and are written in the storage format the gateway's ORM
 uses, so the gateway reads them back as its own.
 
-INVARIANT: one transaction per page, and a key the local cache already holds is kept, never
-replaced (``ON CONFLICT(key_hash) DO NOTHING``). Reloading a page therefore adds nothing, which
-is what makes resuming after a crash safe.
-WHY a malformed row rolls back only its page: rows are independent cache entries, so pages
+INVARIANT: one transaction per ``load_page`` call, and a key the local cache already holds is
+kept, never replaced (``ON CONFLICT(key_hash) DO NOTHING``). Reloading rows therefore adds
+nothing, which is what makes resuming after a crash safe.
+WHY a malformed row rolls back only its call: rows are independent cache entries, so calls
 already committed leave a correct, smaller cache.
+AIDEV-NOTE: the SDK calls ``load_page`` once per 500-row batch as a page streams in, not once per
+page. A transaction spanning a page would hold the write lock for the page's whole download, and
+the running gateway's own writes wait only 5 s for it (SQLite WAL, Tortoise's default).
 """
 
 from __future__ import annotations
@@ -141,8 +144,22 @@ def _check_schema(conn: sqlite3.Connection, database: Path) -> None:
         )
 
 
+def check_database(database: Path) -> None:
+    """Refuse a database a pull could not load into, before anything is downloaded.
+
+    WHY ``mode=rw``: a plain connect creates a missing file, which would leave an empty
+    ``aigateway.sqlite3`` behind for the gateway to find.
+    """
+    try:
+        conn = sqlite3.connect(f"{database.resolve().as_uri()}?mode=rw", uri=True, timeout=30.0)
+    except sqlite3.OperationalError as exc:
+        raise PageRejected("not_a_gateway_database", f"{database} cannot be opened: {exc}") from exc
+    with closing(conn):
+        _check_schema(conn, database)
+
+
 def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
-    """Insert one page's rows into the local gateway database, in one transaction."""
+    """Insert rows into the local gateway database, in one transaction."""
     try:
         parameters = [_parameters(row) for row in rows]
     except (KeyError, ValueError) as exc:
@@ -154,4 +171,4 @@ def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
         return PageLoad(rows=len(parameters), inserted=conn.total_changes - before)
 
 
-__all__ = ["PageLoad", "PageRejected", "check_revisions", "load_page"]
+__all__ = ["PageLoad", "PageRejected", "check_database", "check_revisions", "load_page"]
