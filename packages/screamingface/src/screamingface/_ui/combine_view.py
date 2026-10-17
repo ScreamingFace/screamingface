@@ -340,9 +340,10 @@ class _StepSummary:
                 self.chosen[row.member_id] += 1
             if row.status == "excluded":
                 self.excluded[row.member_id] += 1
-            # WHY only the declared names: the summary shows a mean for them alone, and a Case also
-            # holds accounting keys, score:judge and field:* values (Review P4 #5).
-            for name in self.declared:
+            # WHY only the names this Case declares (E6): the summary shows a mean for a declared
+            # name alone, and a Case also holds accounting keys, score:judge and field:* values. A
+            # value counts when its own Case declares the name, so the Case order does not matter.
+            for name in evidence.declared or ():
                 value = row.signals.get(name)
                 if value is not None:
                     self.values.setdefault((row.member_id, name), []).append(value)

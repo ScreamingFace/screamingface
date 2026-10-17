@@ -173,9 +173,10 @@ Scope notes:
   in the float range. Thus the cell shows `1e+308` with `n=2`. The `math.fsum` result does not
   change for all other values.
 - **E6 (run summary, Review P4 #5).** `_StepSummary.add` keeps only the non-None values of the
-  declared names seen so far (with the names of this Case), not every `row.signals` value. The
-  summary shows a mean only for a declared name, so the HTML does not change when all Cases of a
-  step declare the same names (one combine spec for each step).
+  names that the same Case declares (`evidence.declared`), not every `row.signals` value. Rule: a
+  value counts when its own Case declares the name. The Case order does not change the means. When
+  all Cases of a step declare the same names (one combine spec for each step), the HTML does not
+  change.
 - **E7 (run summary, Review P4 #2).** `_card_html` does not call `combine_summary_html(candidate)`.
   It reads `candidate.cases` one time: each Case adds to the abstained count and to a
   `CombineSummary`, and `summary.html(candidate)` gives the block. A saved Candidate decodes a Case
