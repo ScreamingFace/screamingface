@@ -22,10 +22,11 @@ from pathlib import Path
 from typing import Any
 
 from _answer_fixtures import fixture_graph
-from _combine_contract import COMBINE_CONTRACT, requires_engine_app
+from _combine_contract import COMBINE_CONTRACT, engine_operators, requires_engine_app
 from test_combine_run_summary import _candidate
 
 import screamingface as sf
+from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._ui.combine_view import combine_sections_html, combine_summary_html
 from screamingface.case_result import CaseOperation
@@ -316,3 +317,46 @@ def test_the_trace_field_sets_do_not_change() -> None:
 
         assert trace, name
         assert all(list(e) == ["kind", *TRACE_FIELDS[str(e["kind"])]] for e in trace), name
+
+
+# --- review P7 #1: a sample call in a nested Fusion has no member in the trace -------------------
+
+
+def test_nested_fusion_sample_calls_have_no_member_in_the_trace() -> None:
+    # N8: a sample call is a step row with no member. The outer combine reads the inner combine
+    # that owns the samples; it must not give them its member label (review P7 #1).
+    inner = sf.Fusion(
+        ["prov/alpha", "prov/beta", "prov/eps"],
+        name="ia",
+        signals={"cons": sf.Consistency(n=2)},
+        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+    )
+    plain = sf.Fusion(["prov/gamma", "prov/delta", "prov/eta"], name="ib", synthesizer=sf.Vote())
+    outer = sf.Fusion([inner, plain, "prov/zeta"], name="outer", synthesizer=sf.Vote())
+    graph = compile_candidate(outer, operators=engine_operators()).operations
+    evidence = {
+        "op_synthesis_1": _evidence(_wire("consistency_vote")),
+        "op_synthesis_2": _evidence(_read(_L37_CASES)["vote_one_failed"]),
+        "op_synthesis_3": _evidence(_read(_L37_CASES)["vote_one_failed"]),
+    }
+    operations = [
+        CaseOperation(node.id, "42", "stop", None, combine=evidence[node.id])
+        if node.kind == "combine"
+        else CaseOperation(node.id, f"text {node.id}", "stop", None)
+        for node in graph
+    ]
+    samples = {node.id for node in graph if node.kind == "sample"}
+    owner = _candidate(graph, (_case_of(operations),))
+
+    calls = {
+        str(entry["operation_id"]): entry
+        for entry in (item.to_dict() for item in owner.cases[0].trace())
+        if entry["kind"] == "model_call"
+    }
+
+    assert len(samples) == 6  # alpha, beta and eps, n=2 each
+    assert all(calls[key]["member_id"] is None for key in samples)
+    # control: the member calls of the inner Fusion keep their member labels
+    beta = next(node for node in graph if node.id == "op_model_2")
+    assert (beta.kind, beta.label.split()[0]) == ("model", "beta")
+    assert calls[beta.id]["member_id"] == "member_2"
