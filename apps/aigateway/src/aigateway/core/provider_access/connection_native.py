@@ -13,16 +13,22 @@
 # FEATURE (OME-1497, G0 writer floor §5.3): on a `none`/`quarantined` pair a native create, OAuth
 # start, key replacement or delete is an ownership change — `claim_native_write` claims the pair
 # it observed, keeping the state (no auto-promotion, D14), as the FIRST write of its transaction.
+# FEATURE (OME-1209, E1b, spec R6): a native OAuth flow started while a `migrated` pair's
+# effective row was unusable takes the pair over at its callback — `replace_effective` moves the
+# marker to the new row, `retire_replaced` revokes the old one. Connection side only, so the
+# repair outlives the Profile routes and the Profile index.
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
+from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 
 from aigateway.core.oauth.models import OAuthConnection
-from aigateway.core.oauth.store import credential_locator_for
+from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 
@@ -72,6 +78,122 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
     if pair.migration_state != "migrated" or pair.effective_connection_id != connection.id:
         return None
     return pair
+
+
+# WHY these two: a row in `error` or `revoked` serves nothing — a new OAuth flow replaces it
+# whatever its auth type, as the Profile facade did.
+UNUSABLE_EFFECTIVE = frozenset({"error", "revoked"})
+
+
+# WHY: `mark_error`, `mark_revoked` and a pending start park a row under these — never a name.
+_PLACEHOLDER_LABEL_PREFIXES = ("error:", "revoked:", "pending-")
+
+
+async def effective_to_replace(
+    observed: PairAuthority, *, requested_label: str | None
+) -> PairAuthority | None:
+    """Start time: the observed `migrated` pair when this native write replaces its effective row.
+
+    It does when that row is unusable, when the write names no label ("no label = the pair's main
+    connection", as the Profile API's default name), or when it asks for the row's own label (the
+    native write's only address — "re-authorise THAT one"). Otherwise a working effective row
+    stays and the write adds a plain row beside it.
+    """
+    effective = await _effective_row(observed)
+    if effective is None:
+        return None
+    if (
+        effective.status in UNUSABLE_EFFECTIVE
+        or requested_label is None
+        or effective.label == requested_label
+    ):
+        return observed
+    return None
+
+
+async def replaced_label(observed: PairAuthority | None) -> str | None:
+    """The replaced effective row's label when it is a real name — the one an unlabelled write
+    keeps, and the one a write naming it may take."""
+    effective = None if observed is None else await _effective_row(observed)
+    if effective is None or effective.label.startswith(_PLACEHOLDER_LABEL_PREFIXES):
+        return None
+    return effective.label
+
+
+async def _effective_row(observed: PairAuthority) -> OAuthConnection | None:
+    if observed.migration_state != "migrated" or observed.effective_connection_id is None:
+        return None
+    return await OAuthConnection.filter(
+        id=observed.effective_connection_id, account_id=observed.account_id
+    ).first()
+
+
+async def replace_effective(observed: PairAuthority, *, connection_id: Any) -> None:
+    """Callback time, the FIRST write of its transaction (D14): `connection_id` becomes effective.
+
+    # INVARIANT: compare-and-set from the generation observed at start — a newer start, a delete
+    # or a key write in between raises `PairAuthorityConflict` and the caller rolls back, so the
+    # pair never names two effective rows and never loses the one a newer writer published.
+    """
+    await PairAuthorityStore().advance(
+        observed.account_id,
+        observed.provider,
+        expected_generation=observed.generation,
+        migration_state="migrated",
+        effective_connection_id=connection_id,
+    )
+
+
+async def retire_replaced(
+    observed: PairAuthority, *, alongside: Collection[Any] = (), identity_sub: str | None = None
+) -> list[OAuthConnection]:
+    """Callback time, after `replace_effective` and BEFORE the new row activates: revoke the
+    row it replaced and, for a sign-in with `identity_sub`, every other row of the pair holding
+    that provider identity. Returns them (their cached strategies are the caller's to evict).
+
+    # INVARIANT: these rows and every row in `alongside` lock in ONE ascending id order — the
+    # order delete uses (`lock_lower_addressers`) — and only after the marker; a delete holds
+    # the marker before its rows (`retire_effective`), so neither waits on the other holding a row.
+    # WHY before activation: `identity_sub` and `label` are unique per pair whatever the status;
+    # revocation frees both, so the new row can take them.
+    # WHY revoke a same-identity row rather than reuse it: a refresh that started on its old
+    # tokens may still fail and mark it `error` after this commits; a revoked row ignores that,
+    # and the fresh tokens live only on the new row nobody else has seen.
+    """
+    scope = Q(id__in=[observed.effective_connection_id, *alongside])
+    if identity_sub is not None:
+        scope |= Q(provider=observed.provider, identity_sub=identity_sub)
+    locked = (
+        await OAuthConnection.filter(scope, account_id=observed.account_id)
+        .order_by("id")
+        .select_for_update()
+    )
+    keep = {str(row_id) for row_id in alongside}
+    store = OAuthConnectionStore()
+    retired = []
+    for row in locked:
+        if str(row.id) in keep:
+            continue
+        if row.status != "revoked":
+            row = await store.mark_revoked(row, "replaced")
+        retired.append(row)
+    return retired
+
+
+async def take_over_effective(
+    observed: PairAuthority, connection: OAuthConnection
+) -> list[OAuthConnection]:
+    """API-key create, inside its transaction after the fresh row exists (the marker's FK needs
+    it; nobody can contend a row whose UUID no one has seen): `connection` becomes effective and
+    the row it replaces is revoked. Returns the retired rows.
+
+    A lost compare-and-set is the native superseded conflict (409 `connection_conflict`).
+    """
+    try:
+        await replace_effective(observed, connection_id=connection.id)
+    except PairAuthorityConflict as exc:
+        raise _superseded(connection) from exc
+    return await retire_replaced(observed, alongside=(connection.id,))
 
 
 def _live_rows(connection: OAuthConnection) -> QuerySet[OAuthConnection]:
@@ -131,9 +253,23 @@ async def retire_effective(app: Any, connection: OAuthConnection) -> None:
     # WHY remove the document: after an R1 rollback the legacy path must not find a document
     # for a credential the user deleted — "delete removes only one → old credential later
     # reappears" is the state the transition forbids. Post-delete shape = op 9's.
+    # INVARIANT (D14): the marker is held before any row lock — advanced when this row is the
+    # pair's effective one, else held at the generation observed — and a writer that moved it
+    # first makes the delete lose (409 `connection_conflict`).
+    # WHY hold it for any other row: a native repair advances the marker to its new row, and
+    # PostgreSQL then holds a key-share lock on that row (the marker's foreign key) until the
+    # repair commits. A delete that locked the pair's rows first deadlocked with the repair's
+    # row lock; a delete of the repair's own row, decided from the marker read before the repair
+    # committed, left the marker naming a revoked row.
     """
-    pair = await effective_pair_of(connection)
-    if pair is None:
+    pair = await PairAuthorityStore().read(str(connection.account_id), connection.provider)
+    if pair.migration_state != "migrated" or pair.effective_connection_id != connection.id:
+        try:
+            await PairAuthorityStore().hold(
+                pair.account_id, pair.provider, expected_generation=pair.generation
+            )
+        except PairAuthorityConflict as exc:
+            raise _superseded(connection) from exc
         return
     await _advance(pair, connection, effective_connection_id=None)
     index: ProfileIndexStore = app.state.profile_index
@@ -200,7 +336,12 @@ __all__ = [
     "credential_has_other_owner",
     "credential_name_of",
     "effective_pair_of",
+    "effective_to_replace",
     "lock_lower_addressers",
+    "replace_effective",
+    "replaced_label",
     "republish_effective_api_key",
     "retire_effective",
+    "retire_replaced",
+    "take_over_effective",
 ]

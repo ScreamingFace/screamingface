@@ -35,6 +35,11 @@ class PendingAuthEntry:
     # ownership change in between makes the stale callback lose. None for migrated flows, which
     # are fenced by `pair_generation`.
     observed_pair: PairAuthority | None = None
+    # WHY (OME-1209, E1b, spec R6): the `migrated` pair a native flow observed at start while its
+    # effective row was unusable (`error`/`revoked`). The callback switches the effective row to
+    # this flow's from that generation, so a newer start, a delete or a key write in between
+    # makes the stale callback lose. None for every other flow.
+    replaces_effective: PairAuthority | None = None
 
 
 class PendingAuthTable:

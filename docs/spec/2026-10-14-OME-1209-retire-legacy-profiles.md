@@ -1,5 +1,5 @@
 ---
-status: accepted   # owner approval 2026-10-14
+status: accepted   # owner approval 2026-10-14; E1b and the E3 catalog delta amended 2026-10-15
 issue: OME-1209
 parent: OME-1138
 date: 2026-10-14
@@ -116,25 +116,56 @@ are not Profile routes; only their legacy-pending branch retires, at E4.
   or blob. Deleting index documents and unreferenced blobs is a separately authorised history
   cleanup whose reference check and deletion share one atomic boundary that also fences concurrent
   reference creation (§6.2 "History").
+- **R6 — every credential a retired route could repair stays repairable.** Before E3, a migrated
+  pair's OAuth credential is re-authorised only through the Profile facade
+  (`POST /v1/auth/{provider}/profiles` → `begin_connection_oauth`); the native
+  `POST /v1/oauth/connections` opens a row that never becomes the pair's effective Connection
+  (`claim_native_write` is a no-op on a `migrated` pair), so chat keeps reading the errored row.
+  The native flow therefore takes over the effective row in three cases, as the Profile facade
+  did: when that row is unusable (`error` or `revoked`, OAuth or API key); when the flow names no
+  label — "no label = the pair's main connection", as the Profile API's default name did — and
+  then the new row keeps the replaced row's label unless that is a placeholder (`error:`,
+  `revoked:`, `pending-`); and when the flow asks for that row's own label — the native flow's only way to address a connection, i.e.
+  "re-authorise that one", which is also how a working API key switches to OAuth with no window
+  without a credential. The callback of that flow makes the new row effective and revokes the
+  old one in one transaction, fenced by the marker generation observed at start — never two
+  effective rows. When the sign-in matches the provider identity of another row of the pair,
+  that row is revoked with the old effective one and the fresh tokens land on the new row, which
+  becomes effective — never reused, so a refresh that started on its old tokens and fails late
+  cannot break the repaired pair. With any other label a working (`active` or `pending`) effective row stays, and
+  the flow adds a plain row beside it. The same rule applies to a native API-key create
+  (`POST /v1/oauth/connections/api-key`, the successor of the Profile key write): the new key
+  becomes effective when the effective row is unusable, when it names no label, or when it asks
+  for that row's label, in
+  the create's own transaction, fenced by the pair captured before the key validation. This uses only the Connection side (rows
+  and the pair marker), which outlives E4; it reads and writes no Profile document. No route and
+  no `reauth_url` changes: the E1 pointer `/v1/oauth/connections` is the repair. API-key pairs
+  already re-key in place (`PUT /v1/oauth/connections/{connection_id}/api-key`).
 
 ## 4. Landings
 
 | # | Landing | Wire change | Precondition |
 |---|---|---|---|
 | E1 | Successor pointers: `reauth_url` → live successor; UI/README/docs copy stops citing Profile routes | refusal bodies change one field | none |
+| E1b | Native repair (R6): a native OAuth connection replaces a migrated pair's unusable effective Connection | none (behaviour of `POST /v1/oauth/connections` on that pair) | E1 merged |
 | E2a | Neutral core: move `AuthType`, `AuthMode`, `credential_name_for`, `profile_id_for` out of `profile_models.py` | none | none |
 | E2b | Delete the dead shims and the saved-defaults pipeline | none | none |
-| E3 | Route retirement: the 13 rows of §2.1 answer R1; schemas leave OpenAPI; Admin UI `schema.d.ts` regenerated; tests pinning the retired routes retire with an approval manifest | yes (R1) | E1 merged (sunset: retire on merge, §7 Q1) |
+| E3 | Route retirement: the 13 rows of §2.1 answer R1; schemas leave OpenAPI; Admin UI `schema.d.ts` regenerated; tests pinning the retired routes retire with an approval manifest | yes (R1) | E1 and E1b merged (sunset: retire on merge, §7 Q1); catalog delta (§7 Q6) |
 | E4 | Authority end: Connection-only resolution and admin; D14 dual write, legacy pending, Profile bootstrap and the D18 none-pair bridge removed; plugin hooks renamed or deleted; `ProfileIndexStore` reachable only from offline tooling until E5 | none for migrated pairs | R4 proven in every environment (§7 Q3) |
 | E5 | History cleanup (R5) | none | separately authorised |
 
-E1, E2a and E2b are independent and can land in parallel. E3 follows E1. E4 needs evidence from outside
+E1, E2a and E2b are independent and can land in parallel. E3 follows E1 and E1b. E4 needs evidence from outside
 this repository. E5 is not part of closing this issue (§7 Q4).
 
 ## 5. Tests (per landing, written first)
 
 - E1: every refusal that carried a Profile `reauth_url` now carries a successor that the router
   resolves; no response body, header or OpenAPI document references `/profiles`.
+- E1b: on a migrated OAuth pair whose effective row is `error` (and `revoked`), a native
+  connection's callback makes the new row effective and revokes the old one; chat then resolves
+  the new row (errored → new connection → chat 200, end to end), including a re-login of the same
+  provider identity. A usable effective row is not displaced. A newer start, a delete or a key
+  write between start and callback supersedes it (marker generation); nothing is half-published.
 - E2: rename-only and move-only; the full suite stays green with no assertion changed; the import
   boundary forbids `profile_models` outside the Profile-backed modules.
 - E3: each retired route answers 410 with the R1 body for every method, with and without a body,
@@ -181,3 +212,29 @@ their carriers), a multi-credential policy.
 - **Q4 — E5: separate and later.** History cleanup (R5) is not part of `OME-1209`; it gets its own
   issue and its own authorisation, with the reference check and deletion behind one fence and a
   fixture where a migrated Connection still uses a legacy-addressed blob.
+
+## 8. Owner decisions (2026-10-15)
+
+- **Q5 — repair before retirement: E1b before E3 (R6).** Mapping the tests E3 retires showed that
+  the Profile facade is the only path that re-authorises a migrated pair's OAuth credential in
+  place. Retiring it first would leave such a pair recoverable only by deleting its effective
+  Connection and starting a new one, a window with no credential. E1b lets the native flow
+  replace an unusable effective row (no new route, chosen over a `/reauthorize` route that would
+  have reused the Profile-mirroring facade core); E3 waits for it. (prod holds only api-key pairs as of 2026-10-15; the dev census recorded no
+  breakdown by auth type, so the re-run before E3 counts migrated OAuth pairs per environment.)
+- **Q6 — E3 carries a catalog delta.** The aigateway catalog in the design repository describes
+  the retired operations and schemas (the HTTP API snapshot, the provider-access protocol and its
+  OAuth workflow, the `patch-profile-request` data model, coverage). E3 records them as retired
+  with their historical provenance; it does not delete them or regenerate a snapshot to hide the
+  loss. The catalog write follows a semantic review, and the catalog checks are green before E3
+  merges.
+- **Q7 — a native repair is not R1-rollbackable.** The repaired pair's effective row lives at its
+  own Connection address and its compat document is not mirrored (R6 writes no Profile
+  document), so the R1 rollback tool refuses that pair (`rollback_refused_alias_documents`) —
+  loudly, with nothing changed. Accepted: keeping rollback would need the Profile mirror that E4
+  removes; a Profile-facade repair before E3 stays rollbackable.
+- **Order relative to the OME-1138 rollout.** The rollout ends Profile authority before it cleans
+  up the legacy surface; this stage retires the routes (E3) before authority ends (E4). Accepted:
+  every pair with a Profile document is `migrated` (§7 Q3), so on every pair the routes are
+  already facades over the effective Connection, and the census re-run before each E3 deploy keeps
+  it so.
