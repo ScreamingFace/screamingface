@@ -277,11 +277,15 @@ def _check_weight_source(
     """
     if not isinstance(weights, SignalWeights):
         return
-    source = signals.get(weights.signal)
-    if isinstance(source, EntropySource) or (
-        isinstance(source, LogprobSource) and source.form != "prob"
-    ):
+    if _cannot_weigh(signals.get(weights.signal)):
         raise ValueError("weights.signal must not be an entropy or a non-prob logprob source")
+
+
+def _cannot_weigh(source: DeclaredSource | None) -> bool:
+    """Whether a declared source can never give a weight greater than 0 (P14)."""
+    return isinstance(source, EntropySource) or (
+        isinstance(source, LogprobSource) and source.form != "prob"
+    )
 
 
 def _check_members(members: list[str]) -> None:
