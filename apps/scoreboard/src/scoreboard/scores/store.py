@@ -24,6 +24,12 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
+from .credit_metadata import (
+    MetadataProblem,
+    keep_matching_authors,
+    split_paper_metadata,
+    unmatched_author_keys,
+)
 from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent, ScoreReproduction
 from .pareto import ParetoEntry
@@ -168,6 +174,8 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         authors=_resolved_authors(model.authors, model.submitted_by),
         paper_url=model.paper_url,
         metadata_updated_at=model.metadata_updated_at,
+        authors_metadata=model.authors_metadata,
+        paper_metadata=model.paper_metadata,
         # INVARIANT: no fallback, unlike `authors` above. A NULL here means the routes were
         # never declared, and deriving them from `ran_with_providers` is impossible — the
         # Client's truncation is lossy. Inventing a value would turn "we do not know" into a
@@ -256,6 +264,8 @@ def _derived_providers(submission: ScoreSubmission) -> list[str]:
 _REPLAY_FIELDS: tuple[str, ...] = (
     "authors",
     "paper_url",
+    "authors_metadata",
+    "paper_metadata",
     "metadata",
     "models",
     "ran_with_providers",
@@ -275,6 +285,8 @@ _REPLAY_FIELDS: tuple[str, ...] = (
 _ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
     "authors",
     "paper_url",
+    "authors_metadata",
+    "paper_metadata",
     "metadata",
     "frozen_copy_id",
     "capture_status",
@@ -286,7 +298,69 @@ _ENRICHING_FIELDS: frozenset[str] = frozenset(_REPLAY_FIELDS) - {
 # FEATURE: OME-1307 — the two display-only fields a submitter may correct after the fact, and the
 # two the edit log records. A change to either, from a PATCH or from a same-owner resubmit, dates
 # the row (`metadata_updated_at`) and writes one `ScoreMetadataEvent`.
-_METADATA_FIELDS: tuple[str, ...] = ("authors", "paper_url")
+# OME-1596 adds the two metadata objects: display-only like the others, and logged the same way.
+_METADATA_FIELDS: tuple[str, ...] = ("authors", "paper_url", "authors_metadata", "paper_metadata")
+
+
+class AuthorsMetadataMismatch(Exception):
+    """`authors_metadata` names someone who is not in the credit line the row would hold.
+
+    FEATURE: OME-1596 (spec section 3, matching). Raised under the row lock, so the check and the
+    write see the same `authors`. The routes answer it as a 422 with one entry per key.
+    """
+
+    def __init__(self, problems: list[MetadataProblem]) -> None:
+        super().__init__("authors_metadata names an author who is not credited")
+        self.problems = problems
+
+
+def _paper_metadata_updates(value: Mapping[str, object] | None) -> dict[str, object]:
+    """The stored columns for a SENT `paper_metadata`: the object without `url`, and the link.
+
+    INVARIANT (owner, 2026-10-15): the object is replaced whole, so `null` clears the object AND
+    the link, an object without `url` clears the link, and a url alone stores `{}`.
+    """
+    if value is None:
+        return {"paper_metadata": None, "paper_url": None}
+    stored, url = split_paper_metadata(value)
+    return {"paper_metadata": stored, "paper_url": url}
+
+
+def _settle_authors_metadata(updates: dict[str, object], locked: Score) -> None:
+    """Match a sent `authors_metadata`, or prune the stored one, against the row's new authors.
+
+    Called with the LOCKED row (or, on insert, a row not yet written), so the credit line it reads
+    is the one the write produces: `authors` after this update, or `[submitted_by]` when that is
+    null (owner, 2026-10-15).
+
+    INVARIANT: a sent object must match whole (else `AuthorsMetadataMismatch`, nothing written); an
+    unsent one loses the entries of authors this update removes, in the same edit (spec section 2).
+    """
+    credit_line = _resolved_authors(
+        cast("list[str] | None", updates.get("authors", locked.authors)), locked.submitted_by
+    )
+    if "authors_metadata" in updates:
+        sent = cast("dict[str, object] | None", updates["authors_metadata"])
+        problems = [] if sent is None else unmatched_author_keys(sent, credit_line)
+        if problems:
+            raise AuthorsMetadataMismatch(problems)
+        return
+    if "authors" in updates and locked.authors_metadata is not None:
+        kept = keep_matching_authors(locked.authors_metadata, credit_line)
+        if kept != locked.authors_metadata:
+            updates["authors_metadata"] = kept
+
+
+def _metadata_equal(left: object, right: object) -> bool:
+    """Compare validated metadata without conflating JSON booleans and numbers."""
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(
+            _metadata_equal(value, right[key]) for key, value in left.items()
+        )
+    # WHY: True == 1 in Python; JSON booleans are distinct, but 1 and 1.0 remain equal.
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
+    return left == right
 
 
 def _metadata_changes(locked: Score, proposed: Mapping[str, object]) -> dict[str, object]:
@@ -299,7 +373,7 @@ def _metadata_changes(locked: Score, proposed: Mapping[str, object]) -> dict[str
     return {
         field: proposed[field]
         for field in _METADATA_FIELDS
-        if field in proposed and proposed[field] != getattr(locked, field)
+        if field in proposed and not _metadata_equal(proposed[field], getattr(locked, field))
     }
 
 
@@ -330,6 +404,10 @@ async def _log_metadata_event(
         new_authors=changes.get("authors", locked.authors),
         old_paper_url=locked.paper_url,
         new_paper_url=changes.get("paper_url", locked.paper_url),
+        old_authors_metadata=locked.authors_metadata,
+        new_authors_metadata=changes.get("authors_metadata", locked.authors_metadata),
+        old_paper_metadata=locked.paper_metadata,
+        new_paper_metadata=changes.get("paper_metadata", locked.paper_metadata),
     )
 
 
@@ -360,6 +438,20 @@ def _frozen_copy_fills(submission: ScoreSubmission, existing: Score) -> dict[str
     return fills
 
 
+def _credit_metadata_replay(submission: ScoreSubmission) -> dict[str, object]:
+    """FEATURE: OME-1596 — a resubmit REPLACES each metadata object it sends, like `authors`.
+
+    `None` is "not given" here (an older SDK never sends them), so nothing is cleared by omission.
+    Matching and pruning against the credit line happen later, under the row lock.
+    """
+    updates: dict[str, object] = {}
+    if submission.authors_metadata is not None:
+        updates["authors_metadata"] = submission.authors_metadata
+    if submission.paper_metadata is not None:
+        updates.update(_paper_metadata_updates(submission.paper_metadata))
+    return updates
+
+
 def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, object]:
     """The ONLY fields a replay of an existing recipe may correct on the stored row.
 
@@ -385,6 +477,7 @@ def _replay_updates(submission: ScoreSubmission, existing: Score) -> dict[str, o
     # replaying without it cannot erase the stored link.
     if submission.paper_url is not None:
         updates["paper_url"] = submission.paper_url
+    updates.update(_credit_metadata_replay(submission))
     if submission.metadata is not None:
         updates["metadata"] = submission.metadata
     # FEATURE: OME-1181 — how a row submitted before OME-1180 ever becomes classifiable.
@@ -477,6 +570,14 @@ def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dic
         "authors": submission.authors,
         # Deliberately absent from _content_hash: display-only, like `authors`.
         "paper_url": submission.paper_url,
+        # FEATURE: OME-1596 — display-only too. A sent `paper_metadata` carries the link as `url`;
+        # the two spellings were checked equal, so the split below only moves it to `paper_url`.
+        "authors_metadata": submission.authors_metadata,
+        **(
+            {}
+            if submission.paper_metadata is None
+            else _paper_metadata_updates(submission.paper_metadata)
+        ),
         "models": submission.models,
         "score": submission.score,
         "total_questions": submission.total_questions,
@@ -774,6 +875,46 @@ class BenchmarkVisibilityChanged(Exception):
     """
 
 
+class FrozenCopyClaimed(Exception):
+    """The submission names a frozen copy that another score already names.
+
+    FEATURE: OME-1596 (spec section 5) — one copy, one score, so the pinned cache lookup answers
+    with one row. The unique index on `scores.frozen_copy_id` is the guarantee; this exception is
+    the clear refusal, raised by a pre-check and, when a concurrent claim wins between the check
+    and the write, by mapping the index violation. Answered 422 `frozen_copy_claimed`.
+
+    WHY its own type: `IntegrityError` subclasses `OperationalError`, which the route answers 503
+    store-unavailable, and nothing is unavailable here (the reason `ConcurrentScoreUpdate` exists).
+    """
+
+
+async def _copy_held_elsewhere(
+    frozen_copy_id: str | None,
+    other_than: Any,
+    connection: Any,
+    same_recipe: str | None = None,
+) -> bool:
+    """Whether a score other than ``other_than`` names ``frozen_copy_id``.
+
+    ``same_recipe`` (a content hash) also leaves out a holder that IS this submission's recipe.
+    INVARIANT (OME-1596): such a holder is the row this submission deduplicates onto (a retry
+    racing its own first send), and the insert's content-hash clash routes it to the dedup path,
+    which answers 200 with that row. Refusing it here answered 422 to a client's own retry (found
+    end to end: six parallel identical posts gave one 201 and five 422 on PostgreSQL 17). A holder
+    with a NULL content hash is never "the same recipe", so it still counts.
+    """
+    if frozen_copy_id is None:
+        return False
+    holders = Score.filter(frozen_copy_id=frozen_copy_id)
+    if connection is not None:
+        holders = holders.using_db(connection)
+    if other_than is not None:
+        holders = holders.exclude(id=other_than)
+    if same_recipe is not None:
+        holders = holders.filter(Q(content_hash__isnull=True) | ~Q(content_hash=same_recipe))
+    return await holders.exists()
+
+
 class ConcurrentScoreUpdate(Exception):
     """A deduplicated row changed identity while its provenance was being corrected.
 
@@ -988,6 +1129,18 @@ def _build_history_inputs_query(
     if registered_case_count is not None:
         query = query.where(scores.total_questions >= registered_case_count)
     return query.orderby(scores.submitted_at).orderby(scores.id)
+
+
+def _patch_proposal(changes: Mapping[str, object]) -> dict[str, object]:
+    """A PATCH body as the columns it writes: `paper_metadata` splits into itself and `paper_url`.
+
+    The route has already checked that a `paper_url` sent beside it is the same link.
+    """
+    proposed = {name: value for name, value in changes.items() if name != "paper_metadata"}
+    if "paper_metadata" in changes:
+        sent = cast("Mapping[str, object] | None", changes["paper_metadata"])
+        proposed.update(_paper_metadata_updates(sent))
+    return proposed
 
 
 class ScoreStore:
@@ -1226,6 +1379,16 @@ class ScoreStore:
                 reclaimable = reclaimable | Q(scheme__isnull=True) | ~Q(scheme=KEY_SCHEME)
             await IdempotencyKey.filter(reclaimable, key=stored_key).using_db(connection).delete()
 
+        await self._precheck_copy_claim(
+            connection, submission.frozen_copy_id, other_than=None, same_recipe=content_hash
+        )
+        # FEATURE: OME-1596 — every `authors_metadata` key must be credited on the row being
+        # written. Checked before the insert, inside its transaction, so a refusal writes nothing.
+        if submission.authors_metadata is not None:
+            credit_line = _resolved_authors(submission.authors, submission.submitted_by)
+            problems = unmatched_author_keys(submission.authors_metadata, credit_line)
+            if problems:
+                raise AuthorsMetadataMismatch(problems)
         score = await Score.create(
             using_db=connection, **_submission_to_kwargs(submission, content_hash)
         )
@@ -1311,21 +1474,28 @@ class ScoreStore:
                 raise BenchmarkVisibilityChanged(cast(str, getattr(existing, "benchmark_id")))
             return readable
 
-        async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
-            # This is now a write path. Take the same benchmark lock as insertion so a visibility
-            # flip cannot turn a public, unverified replay into a private-row mutation mid-write.
-            await self._revalidate_visibility(
-                submission.benchmark_id,
-                per_submitter,
-                connection=connection,
-                lock=True,
-            )
-            settled = await self._apply_replay_updates(
-                submission,
-                connection,
-                score_id=existing.id,
-                content_hash=content_hash,
-            )
+        try:
+            async with in_transaction(connection_name=DEFAULT_CONNECTION) as connection:
+                # This is now a write path. Take the same benchmark lock as insertion so a
+                # visibility flip cannot turn a public, unverified replay into a private-row
+                # mutation mid-write.
+                await self._revalidate_visibility(
+                    submission.benchmark_id,
+                    per_submitter,
+                    connection=connection,
+                    lock=True,
+                )
+                settled = await self._apply_replay_updates(
+                    submission,
+                    connection,
+                    score_id=existing.id,
+                    content_hash=content_hash,
+                )
+        except IntegrityError:
+            # The only unique rule a replay's fills can break is one copy, one score (OME-1596):
+            # a concurrent claim won after the pre-check. Anything else stays the error it was.
+            await self._refuse_claimed_copy(submission.frozen_copy_id, other_than=existing.id)
+            raise
 
         for name, value in settled.items():
             setattr(readable, name, value)
@@ -1392,6 +1562,11 @@ class ScoreStore:
             raise ConcurrentScoreUpdate("deduplicated score changed while updating metadata")
 
         updates = _replay_updates(submission, locked)
+        _settle_authors_metadata(updates, locked)
+        if updates.get("frozen_copy_id") is not None:
+            await self._precheck_copy_claim(
+                connection, cast(str, updates["frozen_copy_id"]), other_than=locked.id
+            )
         # FEATURE: OME-1307 — authors and paper link are replaced when given, so a resubmit that
         # really changes one is an edit: it dates the row and writes one `resubmit` event, in this
         # same locked transaction. `enriched_at` is a separate stamp and is not touched by them.
@@ -1482,7 +1657,7 @@ class ScoreStore:
         benchmark_id: str,
         expect_private: bool,
     ) -> ScoreSchema | None:
-        """Apply a submitter's edit of `authors` / `paper_url`, and return the score as it now is.
+        """Apply a submitter's edit of the credit fields, and return the score as it now is.
 
         Returns None when the score no longer exists. The CALLER has already established that
         ``edited_by`` owns the row; ownership never changes, so it is not re-proved under the lock.
@@ -1492,8 +1667,9 @@ class ScoreStore:
         chains without a gap. A request that changes nothing writes nothing, and leaves
         `metadata_updated_at` alone.
 
-        INVARIANT: only `authors` and `paper_url` can be written here, and neither one touches
-        `enriched_at`, the ranking inputs or `content_hash`: both are display-only.
+        INVARIANT: only the credit fields (`authors`, `paper_url`, and since OME-1596
+        `authors_metadata` and `paper_metadata`) can be written here, and none of them touches
+        `enriched_at`, the ranking inputs or `content_hash`: all are display-only.
 
         INVARIANT: the board is re-checked INSIDE the transaction, first and under its lock, the way
         the resubmit path does. The route decided who may edit from a read taken before this
@@ -1509,7 +1685,9 @@ class ScoreStore:
             locked = await self.metadata_row_query(score_id, connection=connection).first()
             if locked is None:
                 return None
-            applied = _metadata_changes(locked, changes)
+            proposed = _patch_proposal(changes)
+            _settle_authors_metadata(proposed, locked)
+            applied = _metadata_changes(locked, proposed)
             if applied:
                 stamp = datetime.now(UTC)
                 await (
@@ -1640,6 +1818,45 @@ class ScoreStore:
             .values("total", "latest")
         )
         return row["total"], row["latest"]
+
+    async def _precheck_copy_claim(
+        self,
+        connection: Any,
+        frozen_copy_id: str | None,
+        *,
+        other_than: Any,
+        same_recipe: str | None = None,
+    ) -> None:
+        """Refuse a copy another score already names, inside the write's transaction.
+
+        A pre-check for a clear refusal only; the unique index is what guarantees the rule (a
+        concurrent claim can commit after this read, and is mapped by `_refuse_claimed_copy`).
+        A holder of the same recipe is left to the dedup path (see `_copy_held_elsewhere`).
+        """
+        if await _copy_held_elsewhere(frozen_copy_id, other_than, connection, same_recipe):
+            raise FrozenCopyClaimed(frozen_copy_id)
+
+    async def _refuse_claimed_copy(self, frozen_copy_id: str | None, *, other_than: Any) -> None:
+        """After an index violation, raise `FrozenCopyClaimed` if a copy claim is what lost.
+
+        WHY a fresh read and not the database error's text: the error names a constraint in a
+        backend-specific message; whether another score now holds the copy is a fact to query.
+        Runs outside the failed transaction, which PostgreSQL has already aborted.
+        """
+        if await _copy_held_elsewhere(frozen_copy_id, other_than, None):
+            raise FrozenCopyClaimed(frozen_copy_id)
+
+    async def public_score_for_pinned_cache(self, frozen_copy_id: str) -> Score | None:
+        """The score that names this frozen copy; None when there is none or its board is private.
+
+        INVARIANT (OME-894, OME-1596): the board is read LAST, after the score, and nothing else is
+        read before the route answers, so there is no earlier copy of the board's state to go
+        stale. Unknown and private are the same None, so the route answers them identically.
+        """
+        score = await Score.get_or_none(frozen_copy_id=frozen_copy_id)
+        if score is None or await self._links_to_a_private_board(score):
+            return None
+        return score
 
     def visibility_query(
         self,
@@ -1835,6 +2052,9 @@ class ScoreStore:
                 if confirmed is not None:
                     return SubmitOutcome(score=_score_to_schema(confirmed), created=False)
             await self._revalidate_visibility(submission.benchmark_id, per_submitter)
+            # OME-1596: nothing resolved, so the clash was not a retry of this recipe. If another
+            # score now names this copy, the index refused a second claim: say so, not 503.
+            await self._refuse_claimed_copy(submission.frozen_copy_id, other_than=None)
             raise
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:
@@ -2094,6 +2314,25 @@ class ScoreStore:
             for row in await _chunked_values(
                 score_ids, "id", "models", "openness_override", connection=connection
             )
+        }
+
+    async def pinned_caches_for_score_ids(
+        self, score_ids: Sequence[str], *, connection: BaseDBAsyncClient | None = None
+    ) -> dict[str, str]:
+        """The pinned cache of each listed score whose run was fully captured (OME-1596).
+
+        A score maps to its `frozen_copy_id` only when `capture_status` is `complete` and the id is
+        set; every other score is absent, which the route serves as null (nothing to replay).
+
+        INVARIANT: selects `id`, `frozen_copy_id` and `capture_status` and nothing else, bounded by
+        the page, for the reason `models_for_score_ids` records.
+        """
+        return {
+            str(row["id"]): str(row["frozen_copy_id"])
+            for row in await _chunked_values(
+                score_ids, "id", "frozen_copy_id", "capture_status", connection=connection
+            )
+            if row["capture_status"] == "complete" and row["frozen_copy_id"] is not None
         }
 
     async def frontier_history_inputs(

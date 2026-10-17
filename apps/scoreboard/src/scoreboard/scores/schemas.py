@@ -5,7 +5,6 @@ from collections.abc import Mapping
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, Any, Literal
-from urllib.parse import urlsplit
 from uuid import UUID
 
 from pydantic import (
@@ -15,8 +14,23 @@ from pydantic import (
     Field,
     PlainSerializer,
     ValidationError,
+    field_serializer,
     field_validator,
     model_validator,
+)
+from pydantic_core import InitErrorDetails, PydanticCustomError
+
+from .credit_metadata import (
+    PAPER_URL_MAX_CHARS as _PAPER_URL_MAX_CHARS,
+)
+from .credit_metadata import (
+    MetadataProblem,
+    author_identity,
+    authors_metadata_problems,
+    paper_metadata_problems,
+)
+from .credit_metadata import (
+    validate_paper_url as _validate_paper_url,
 )
 
 # INVARIANT: run_cost_usd mirrors DECIMAL(12, 6) exactly — six decimal places and
@@ -274,7 +288,7 @@ ModelRoute = Annotated[str, Field(max_length=255, pattern=_MODEL_ROUTE_PATTERN)]
 
 def _author_identity(author: str) -> str:
     """The one comparison identity for author validation and publication."""
-    return author.casefold()
+    return author_identity(author)
 
 
 def _publish_authors(value: list[str] | None) -> list[str] | None:
@@ -290,7 +304,15 @@ def _publish_authors(value: list[str] | None) -> list[str] | None:
     """
     if value is None:
         return None
+    return [published for _, published in _published_names(value)]
 
+
+def _published_names(value: list[str]) -> list[tuple[str, str]]:
+    """Each distinct author with the name it is published under, in `_publish_authors`' order.
+
+    AIDEV-NOTE (OME-1596): split out of `_publish_authors` unchanged so `authors_metadata` keys are
+    published under exactly the name the same author has in the published `authors` list.
+    """
     distinct: list[tuple[str, str]] = []
     seen: set[str] = set()
     for author in value:
@@ -307,9 +329,79 @@ def _publish_authors(value: list[str] | None) -> list[str] | None:
         local_counts[local] = local_counts.get(local, 0) + 1
 
     return [
-        author if local_counts[published.casefold()] > 1 else published
+        (author, author if local_counts[published.casefold()] > 1 else published)
         for author, published in distinct
     ]
+
+
+def _publish_authors_metadata(
+    value: dict[str, dict[str, Any]], credit_line: list[str]
+) -> dict[str, dict[str, Any]]:
+    """`authors_metadata` keyed as each author appears in the published `authors` list.
+
+    FEATURE: OME-1596 (spec section 4, option A) — `ana@uni.edu` publishes as `ana`, and as the full
+    address only when two credited authors share a local part, exactly as `authors` does.
+
+    INVARIANT: a SERIALIZER, never a change to stored data, so a later "not public" or "known keys
+    only" decision is a change here with no migration. A key matching no credited author (the
+    store refuses and prunes those, so only a raw write can leave one) falls back to the local-part
+    rule, never to the full address.
+    """
+    names = {author_identity(author): name for author, name in _published_names(credit_line)}
+    published: dict[str, dict[str, Any]] = {}
+    for key, entry in value.items():
+        fallback = _publish_submitter(key)
+        published[names.get(author_identity(key), fallback if fallback is not None else key)] = (
+            entry
+        )
+    return published
+
+
+def _raise_metadata_problems(title: str, problems: list[MetadataProblem]) -> None:
+    """Raise every problem at once, each at its own location (`body.<field>.<key>` in a 422).
+
+    WHY a `ValidationError` raised from a model validator: pydantic merges its line errors into the
+    request's, so a client gets one entry per problem rather than one string listing them all.
+    The message travels in the context, so a key holding `{` cannot break the template.
+    """
+    if not problems:
+        return
+    raise ValidationError.from_exception_data(
+        title,
+        [
+            InitErrorDetails(
+                type=PydanticCustomError("metadata_invalid", "{message}", {"message": p.message}),
+                loc=p.loc,
+                input=p.keys or p.loc[-1],
+            )
+            for p in problems
+        ],
+    )
+
+
+def _metadata_problems(
+    authors_metadata: dict[str, Any] | None, paper_metadata: dict[str, Any] | None
+) -> list[MetadataProblem]:
+    problems: list[MetadataProblem] = []
+    if authors_metadata is not None:
+        problems += authors_metadata_problems(authors_metadata)
+    if paper_metadata is not None:
+        problems += paper_metadata_problems(paper_metadata)
+    return problems
+
+
+def _url_disagreement(paper_metadata: dict[str, Any] | None, paper_url: str | None) -> bool:
+    """Whether a request's two spellings of the paper link disagree (owner, 2026-10-15: a 422).
+
+    `paper_metadata` is replaced whole, so an object without `url`, or `null`, says "no link".
+    """
+    stated = None if paper_metadata is None else paper_metadata.get("url")
+    return stated != paper_url
+
+
+_URL_DISAGREEMENT = MetadataProblem(
+    ("paper_metadata", "url"), "paper_metadata.url and paper_url must be equal when both are sent"
+)
 
 
 # INVARIANT: author addresses are full in Python mode (staff export) and local-part-only in
@@ -346,39 +438,6 @@ def _validate_bounded_authors(value: list[str] | None) -> list[str] | None:
     encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
     if len(encoded) > _AUTHORS_MAX_BYTES:
         raise ValueError(f"authors must serialize to at most {_AUTHORS_MAX_BYTES} bytes")
-    return value
-
-
-_PAPER_URL_MAX_CHARS = 2048
-_PAPER_URL_SCHEMES = frozenset({"http", "https"})
-
-
-def _validate_paper_url(value: str) -> str:
-    """Accept an absolute `http(s)` link with a host, and return it UNCHANGED.
-
-    FEATURE: OME-1307 — this checks the SHAPE of the link, never that the paper exists or that the
-    named authors wrote it (out of scope for E14).
-
-    INVARIANT: the string is stored exactly as sent. That is why this is not pydantic's `HttpUrl`,
-    which lower-cases the host and appends a slash: a link a researcher pasted must come back as
-    they pasted it. The portal still runs every link through `httpUrlOrNull` on read (M21).
-    """
-    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
-        raise ValueError("paper_url must not contain control characters")
-    # WHY any whitespace, anywhere: `urlsplit` quietly strips leading and trailing blanks, so a
-    # link with one would validate, be stored as sent, and then not be the URL it looks like.
-    if any(char.isspace() for char in value):
-        raise ValueError("paper_url must not contain whitespace")
-    parts = urlsplit(value)
-    if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
-        raise ValueError("paper_url must use the http or https scheme")
-    if not parts.hostname:
-        raise ValueError("paper_url must name a host")
-    # WHY refuse user info: a paper link is shown and followed by readers, and
-    # `https://trusted.example@evil.test/` reads as the first host while going to the second.
-    # `username` is "" (not None) for a bare `@`, so test for None.
-    if parts.username is not None or parts.password is not None:
-        raise ValueError("paper_url must not contain user info")
     return value
 
 
@@ -489,6 +548,13 @@ class ScoreSubmission(BaseModel):
     # same-owner resubmit without it keeps the stored link (an older SDK never sends it).
     # AIDEV-NOTE: deliberately absent from `_content_hash`, like `authors`: it is display-only.
     paper_url: PaperUrl | None = None
+    # FEATURE: OME-1596 — open author and paper metadata (`scores/credit_metadata.py`). None means
+    # "not given", so a same-owner resubmit without them keeps the stored objects. A sent object
+    # replaces the stored one WHOLE; `paper_metadata.url` is the same value as `paper_url`.
+    # AIDEV-NOTE: the shape is checked here; whether every `authors_metadata` key is a credited
+    # author is checked by the store under the row lock, against the authors the row will hold.
+    authors_metadata: dict[str, Any] | None = None
+    paper_metadata: dict[str, Any] | None = None
     # FEATURE: OME-1181 — the candidate's DECLARED model routes, as composed in the recipe.
     #
     # WHY optional: this field deploys BEFORE the Client that populates it (OME-1179
@@ -615,6 +681,18 @@ class ScoreSubmission(BaseModel):
             raise ValueError("frozen_copy_id requires capture_status")
         if self.case_digest is not None and self.capture_status is None:
             raise ValueError("case_digest requires capture_status")
+        return self
+
+    @model_validator(mode="after")
+    def validate_credit_metadata(self) -> ScoreSubmission:
+        problems = _metadata_problems(self.authors_metadata, self.paper_metadata)
+        if (
+            self.paper_url is not None
+            and self.paper_metadata is not None
+            and _url_disagreement(self.paper_metadata, self.paper_url)
+        ):
+            problems.append(_URL_DISAGREEMENT)
+        _raise_metadata_problems("ScoreSubmission", problems)
         return self
 
     @field_validator("cache_saved_cost_usd", "cache_saved_cost_archive_usd")
@@ -930,6 +1008,20 @@ class ScoreSchema(BaseModel):
     metadata_updated_at: datetime | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # FEATURE: OME-1596 — author and paper metadata, as stored.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for the reason `paper_url` records: the private JSONL export
+    # hashes these bytes, and no row without metadata may gain `"authors_metadata": null`.
+    # INVARIANT: public JSON keys `authors_metadata` by the published author name (the serializer
+    # below); Python mode, which the staff export dumps, keeps the full addresses.
+    # INVARIANT: `paper_metadata` reads with `url` filled from `paper_url` (the validator below), so
+    # a client sees one object; a row that never stored an object reads without one.
+    authors_metadata: dict[str, dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    paper_metadata: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     # FEATURE: OME-1181 — the declared candidate model routes, for classification.
     #
     # INVARIANT: EXCLUDED WHEN ABSENT, like `ranking_notice` below and for the same reason.
@@ -1039,6 +1131,27 @@ class ScoreSchema(BaseModel):
         exclude_if=lambda value: value is None,
     )
 
+    @model_validator(mode="after")
+    def read_the_link_into_paper_metadata(self) -> ScoreSchema:
+        # The link is stored once, in `paper_url`; the object a client reads carries it as `url`.
+        if self.paper_metadata is not None and self.paper_url is not None:
+            self.paper_metadata = {**self.paper_metadata, "url": self.paper_url}
+        return self
+
+    @field_serializer("authors_metadata", when_used="json")
+    def publish_authors_metadata(
+        self, value: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
+        if value is None:
+            return None
+        # The credit line the row shows: `authors`, or [submitted_by] when it is null.
+        credit_line = (
+            self.authors
+            if self.authors is not None
+            else ([] if self.submitted_by is None else [self.submitted_by])
+        )
+        return _publish_authors_metadata(value, credit_line)
+
 
 class ScoreMetadataPatch(BaseModel):
     """Body of `PATCH /v1/scores/{id}`: the two fields a submitter may edit after the fact.
@@ -1053,6 +1166,10 @@ class ScoreMetadataPatch(BaseModel):
 
     authors: Annotated[list[AuthorEmail], Field(min_length=1)] | None = None
     paper_url: PaperUrl | None = None
+    # FEATURE: OME-1596 — sent: replaces the whole object; `null`: clears it (`paper_metadata: null`
+    # also clears the link); absent: unchanged. Removing an author drops their entry in the store.
+    authors_metadata: dict[str, Any] | None = None
+    paper_metadata: dict[str, Any] | None = None
 
     @field_validator("authors", mode="before")
     @classmethod
@@ -1071,7 +1188,18 @@ class ScoreMetadataPatch(BaseModel):
     @model_validator(mode="after")
     def validate_one_known_key(self) -> ScoreMetadataPatch:
         if not self.model_fields_set:
-            raise ValueError("send at least one of: authors, paper_url")
+            raise ValueError(
+                "send at least one of: authors, paper_url, authors_metadata, paper_metadata"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_credit_metadata(self) -> ScoreMetadataPatch:
+        problems = _metadata_problems(self.authors_metadata, self.paper_metadata)
+        both_sent = {"paper_url", "paper_metadata"} <= self.model_fields_set
+        if both_sent and _url_disagreement(self.paper_metadata, self.paper_url):
+            problems.append(_URL_DISAGREEMENT)
+        _raise_metadata_problems("ScoreMetadataPatch", problems)
         return self
 
 
@@ -1093,6 +1221,45 @@ class ScoreMetadataEventSchema(BaseModel):
     new_authors: list[str] | None
     old_paper_url: str | None
     new_paper_url: str | None
+    # FEATURE: OME-1596 — the metadata objects before and after, as stored (full email keys; no
+    # `url`, which is the `paper_url` pair). Excluded when null, so an event about `authors` or
+    # `paper_url` alone reads exactly as it did before these columns existed.
+    old_authors_metadata: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    new_authors_metadata: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    old_paper_metadata: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    new_paper_metadata: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+
+class PinnedCacheSchema(BaseModel):
+    """What `GET /v1/scores/by-pinned-cache/{frozen_copy_id}` answers: the score a copy belongs to.
+
+    FEATURE: OME-1596 (spec section 5) — exactly what the SDK's `evaluate(pinned_cache=...)` needs
+    to replay the run and judge the result against the published score. `pinned_cache` is the
+    user-facing name of the frozen copy; inside the board it stays `frozen_copy_id`.
+
+    INVARIANT: no copy contents and nothing about who submitted; the copy itself stays in the
+    gateway. Served for public boards only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    score_id: UUID
+    benchmark_id: str
+    benchmark_revision: str | None
+    url4_expression: str
+    answer_seed: int | None
+    score: float
+    total_questions: int
+    case_digest: str | None
+    capture_status: CaptureStatus | None
 
 
 class ReproductionClientInfo(ClientInfo):

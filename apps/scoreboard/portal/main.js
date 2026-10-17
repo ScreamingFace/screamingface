@@ -222,7 +222,10 @@ window.ScorePortal = (function () {
     var label = opts.label || "Copy";
     var btn = el("button", opts.compact ? "btn ghost" : "btn", label);
     btn.type = "button";
-    btn.setAttribute("aria-label", "Copy the URL4 expression for " + specId);
+    // `ariaLabel` and `title` let another copy action (the Reproduce button) reuse this one, with
+    // the same copied/failed feedback, while naming what it copies.
+    btn.setAttribute("aria-label", opts.ariaLabel || "Copy the URL4 expression for " + specId);
+    if (opts.title) btn.title = opts.title;
     btn.addEventListener("click", function () {
       function done(ok) {
         btn.textContent = ok ? "✓ copied" : "copy failed";

@@ -42,6 +42,12 @@
 
   var state = { entries: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
 
+  // The Reproduce button's switch. Off until the SDK release whose `evaluate(pinned_cache=...)`
+  // runs the copied snippet; turning it on is a one-line change here. WHY a constant and not a
+  // server setting: the page cannot read server settings, and this flips exactly once.
+  var SHOW_REPRODUCE_BUTTON = false;
+  var REPRODUCE_HOVER = "Replays this run's recorded answers at $0 and checks the published score";
+
   function compare(a, b, key, type, dir) {
     // Cost never reaches the generic numeric branch below. That branch is
     // `(av || 0) - (bv || 0)`, which coerces a null cost to 0 and would sort an unpriced row
@@ -184,6 +190,36 @@
     return td;
   }
 
+  // The Run column: Copy url4 for reusing the recipe live, and, for a fully captured run when the
+  // switch is on, Reproduce stacked under it, copying the replay snippet. Same button recipe and
+  // the same copied/failed feedback for both; no new colour.
+  function renderRunCell(entry, showReproduce) {
+    var runTd = document.createElement("td");
+    runTd.className = "col-run";
+    // Guard like spec.js: a missing expression renders as absence, never as
+    // a Copy button that would put "undefined" on the clipboard.
+    if (!entry.url4_expression) {
+      runTd.textContent = P.EM_DASH;
+      return runTd;
+    }
+    var copy = P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true });
+    var cache = L.reproduceCache(entry, showReproduce);
+    if (cache === null) {
+      runTd.appendChild(copy);
+      return runTd;
+    }
+    var stack = P.el("div", "run-actions");
+    stack.appendChild(copy);
+    stack.appendChild(P.createCopyButton(entry.spec_id, L.reproduceSnippet(cache), {
+      compact: true,
+      label: "Reproduce",
+      ariaLabel: "Copy the code that reproduces " + entry.spec_id,
+      title: REPRODUCE_HOVER,
+    }));
+    runTd.appendChild(stack);
+    return runTd;
+  }
+
   function renderBody(bodyNode) {
     P.clear(bodyNode);
     var barMax = bestScore(state.entries);
@@ -225,16 +261,7 @@
       tr.appendChild(costTd);
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
-      var runTd = document.createElement("td");
-      runTd.className = "col-run";
-      // Guard like spec.js: a missing expression renders as absence, never as
-      // a Copy button that would put "undefined" on the clipboard.
-      if (entry.url4_expression) {
-        runTd.appendChild(P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true }));
-      } else {
-        runTd.textContent = P.EM_DASH;
-      }
-      tr.appendChild(runTd);
+      tr.appendChild(renderRunCell(entry, SHOW_REPRODUCE_BUTTON));
 
       bodyNode.appendChild(tr);
     });
@@ -453,6 +480,12 @@
       function () {}
     );
   }
+
+  // Read by the portal's tests: the switch's shipped value and the Run cell for either setting.
+  window.SFBenchmarkPage = {
+    SHOW_REPRODUCE_BUTTON: SHOW_REPRODUCE_BUTTON,
+    renderRunCell: renderRunCell,
+  };
 
   P.ready(init);
 })(window.ScorePortal);
