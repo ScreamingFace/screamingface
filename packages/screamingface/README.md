@@ -949,8 +949,8 @@ call.
   certain model.
 - `sf.Sum({name: coefficient, ...})` adds other declared signals of the same member, each
   multiplied by a fixed coefficient (see "Sum signals and the abstain band").
-- `sf.Consistency(n, temperature=1.0)` is the share of `n` extra answers of the member that equal
-  its answer (see "Consistency samples").
+- `sf.Consistency(n, temperature=1.0)` is the share of the member's `n` extra answers that equal
+  its answer (failed extra calls do not count; see "Consistency samples").
 
 Each row is one recipe that you can copy. Each recipe runs offline in the Engine's tests, from the
 url4 that the SDK compiles.
