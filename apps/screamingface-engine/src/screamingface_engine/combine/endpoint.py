@@ -409,14 +409,15 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     bound_extract = cast("_Step[Extractor] | None", _bind(extract, spec.extract))
     bound_normalize = cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize))
     bound_select = cast("_Step[SelectOp]", _bind(select, spec.select))
+    from_weights, from_reduce = _signal_sources(spec, reduce, bound_reduce)
     return _Plan(
         extract=bound_extract,
         normalize=bound_normalize,
         reduce=bound_reduce,
         select=bound_select,
-        signal=_signal_read(spec, reduce, bound_reduce),
+        signal=from_reduce if from_weights is None else from_weights,
         envelope=select is not None and select.envelope,
-        excludes=_exclusion(spec, reduce, bound_reduce),
+        excludes=_exclusion(reduce, from_weights, from_reduce),
         ranks=None if select is None else select.ranks,
         cut=_cut(select, bound_select),
     )
@@ -432,10 +433,14 @@ def _check_pairing(spec: CombineSpec) -> None:
         raise SpecInvalid(f"{spec.reduce.op} pairs only with select {', '.join(sorted(selects))}")
 
 
-def _signal_read(
+def _signal_sources(
     spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
-) -> SignalRead | None:
-    """The one signal the spec reads: from ``weights``, or from the reduce step's args (F6)."""
+) -> tuple[SignalRead | None, SignalRead | None]:
+    """The two sources of the one signal the spec reads: ``weights``, and the reduce args (F6).
+
+    Each source is read and checked once, here; at most one of the two is set. The plan's signal
+    is the one that is set, and ``_exclusion`` reads both.
+    """
     from_weights = (
         SignalRead(spec.weights.signal) if isinstance(spec.weights, SignalWeights) else None
     )
@@ -448,29 +453,27 @@ def _signal_read(
             raise RuntimeError(f"{bound.op_id} returned an invalid signal read")  # a plugin bug
     if from_weights is not None and from_reduce is not None:
         raise SpecInvalid("a combine step reads at most one signal")
-    return from_reduce if from_weights is None else from_weights
+    return from_weights, from_reduce
 
 
 def _exclusion(
-    spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
+    reduce: OperatorDescriptor, from_weights: SignalRead | None, from_reduce: SignalRead | None
 ) -> _Exclusion | None:
     """Which rule of this step can leave a member out (E4b part 2, P13, erd §6).
 
     X1: the spec weights are a signal and the reduce op counts weights -> "no_weight".
     X2: the reduce args read a signal (``signal_read``) -> "no_signal".
     X4, X5, X6: no rule, so no member is excluded.
-    WHY the two sources, not ``_signal_read``'s result: that result merges them, and the reason
-    depends on which source it was. Both at once never get here: ``_signal_read`` refused it.
+    WHY the two sources, not the plan's one signal: that merges them, and the reason depends on
+    which source it was. ``_signal_sources`` read and checked both; at most one is set.
     INVARIANT: the rule is read from the spec, not reported by the operator, so it holds only
     because no select op can choose a member the rule leaves out (CE-I3). ``REDUCE_SELECT_RULES``
     enforces it: a reduce op with such a rule pairs only with the selects that honor it
     (``_check_pairing``), and test_combine_exclusion_never_chosen runs every accepted pairing.
     """
-    if isinstance(spec.weights, SignalWeights) and reduce.reads_weights:
-        return _Exclusion("no_weight", spec.weights.signal)
-    hook = reduce.signal_read
-    read = None if hook is None else hook(bound.args)
-    return None if read is None else _Exclusion("no_signal", read.key)
+    if from_weights is not None and reduce.reads_weights:
+        return _Exclusion("no_weight", from_weights.key)
+    return None if from_reduce is None else _Exclusion("no_signal", from_reduce.key)
 
 
 def _read_members(
