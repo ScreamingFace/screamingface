@@ -13,7 +13,7 @@ from fractions import Fraction
 from html import escape
 from typing import TYPE_CHECKING
 
-from screamingface._case_views import case_trace
+from screamingface._case_views import judge_link
 
 if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
@@ -102,13 +102,15 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
     ]
     if not steps:
         return ""
-    reduces = {
-        entry.data["operation_id"]: entry.data
-        for entry in case_trace(case, graph)
-        if entry.kind == "reduce"
+    # WHY judge_link and not case_trace: the chip reads only the judge id and model of each step,
+    # so the full trace (every extract and model call entry) is not built (Review P4 #4).
+    links = {
+        op.operation_id: judge_link(op.operation_id, op.combine, graph, case.operations)
+        for op in case.operations
+        if op.combine is not None
     }
     return "".join(
-        _section(op.operation_id, op.combine, reduces.get(op.operation_id), graph)
+        _section(op.operation_id, op.combine, links[op.operation_id], graph)
         if op.combine is not None
         else _no_evidence_section(op.operation_id, graph)
         for op in steps
@@ -151,7 +153,7 @@ def _no_evidence_section(operation_id: str, graph: Mapping[str, OperationInfo]) 
 def _section(
     operation_id: str,
     evidence: CombineEvidence,
-    reduce: Mapping[str, object] | None,
+    link: Mapping[str, str | None],
     graph: Mapping[str, OperationInfo],
 ) -> str:
     """One Combine section: the heading, the step chips, the member table, the tally table."""
@@ -169,12 +171,12 @@ def _section(
     rows = "".join(_member_row(row, evidence, columns, keys) for row in evidence.members)
     return (
         f"<div class='sf-cmb'>{_heading(graph, operation_id)}"
-        f"<div class='sf-chips'>{_chips(evidence, reduce)}</div>"
+        f"<div class='sf-chips'>{_chips(evidence, link)}</div>"
         f"{_table(head, rows)}{_tally_html(evidence)}</div>"
     )
 
 
-def _chips(evidence: CombineEvidence, reduce: Mapping[str, object] | None) -> str:
+def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
     """The step facts F1-F10 (erd §4), in order; each chip text is escaped."""
     chips = [
         escape(f"reducer · {evidence.reducer}"),
@@ -184,7 +186,7 @@ def _chips(evidence: CombineEvidence, reduce: Mapping[str, object] | None) -> st
         if evidence.cut is None
         else escape(f"cut · top {evidence.cut.k} · {evidence.cut.order}"),
         "" if evidence.signal is None else _reads_chip(evidence.signal),
-        _judge_chip(reduce),
+        _judge_chip(link),
         "" if evidence.agreement is None else "agreement · " + number_html(evidence.agreement, ""),
         "tie · yes" if evidence.tie else "tie · no",
         f"dropped · {evidence.dropped}",
@@ -207,11 +209,11 @@ def _reads_chip(signal: CombineSignal) -> str:
     return escape(f"reads · {signal.key}{order}")
 
 
-def _judge_chip(reduce: Mapping[str, object] | None) -> str:
-    """F6: the judge model from the trace reduce entry (P12); no judge link gives no chip."""
-    if reduce is None or reduce["judge_operation_id"] is None:
+def _judge_chip(link: Mapping[str, str | None]) -> str:
+    """F6: the judge model of the step's judge link, as the trace shows it (P12); none: no chip."""
+    if link["judge_operation_id"] is None:
         return ""
-    model = reduce["judge_model"]
+    model = link["judge_model"]
     if model is None:
         return "judge · " + dash_html(_NO_JUDGE_MODEL)
     return escape(f"judge · {model}")

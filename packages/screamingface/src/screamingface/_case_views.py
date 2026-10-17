@@ -135,7 +135,7 @@ def _operation_entries(
     accounting_of: Mapping[str, OperationAccounting | None],
 ) -> list[TraceEntry]:
     if operation.combine is not None:
-        link = _judge_link(operation.operation_id, operation.combine, graph, accounting_of)
+        link = judge_link(operation.operation_id, operation.combine, graph, accounting_of)
         return _combine_entries(operation.operation_id, operation.combine, link)
     node = None if graph is None else graph.get(operation.operation_id)
     if node is not None and node.kind == "combine":
@@ -210,7 +210,7 @@ def _reads_judge(evidence: CombineEvidence) -> bool:
     )
 
 
-def _judge_link(
+def judge_link(
     operation_id: str,
     evidence: CombineEvidence,
     graph: Mapping[str, OperationInfo] | None,
