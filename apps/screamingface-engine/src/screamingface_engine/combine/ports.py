@@ -435,6 +435,17 @@ def walk_field_path(node: object, path: str) -> tuple[bool, object]:
     return True, node
 
 
+def field_value_text(value: object) -> str:
+    """A JSON field value as answer text: a string as it is, ``null`` as ``""``, any other value
+    as canonical JSON. ValueError: a number with no canonical form (``1e999`` decodes to inf).
+
+    The one field-text rule of ``json_field@1`` and of a select step's ``output`` field.
+    """
+    if value is None or isinstance(value, str):
+        return value or ""
+    return canonical_json(value)
+
+
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
 JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
@@ -513,13 +524,13 @@ def output_field_text(text: str, name: str) -> str | None:
     it is; any other JSON value as canonical JSON. Over the cap, not JSON, not an object, no key,
     ``null``, a blank string, or a number with no canonical form (``1e999``) is None.
     """
-    value: object = None
+    value = ""
     if not utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
         # ValueError: not JSON, or a number with no canonical form (1e999).
         with contextlib.suppress(ValueError):
             _, found = walk_field_path(decode_json_reply(text), name)
-            value = found if found is None or isinstance(found, str) else canonical_json(found)
-    return value if isinstance(value, str) and value.strip() else None
+            value = field_value_text(found)
+    return value if value.strip() else None
 
 
 def with_output(
@@ -753,6 +764,7 @@ __all__ = [
     "check_output_arg",
     "decode_json_reply",
     "field_signal_value",
+    "field_value_text",
     "finite_float",
     "is_signal_key",
     "json_depth",
