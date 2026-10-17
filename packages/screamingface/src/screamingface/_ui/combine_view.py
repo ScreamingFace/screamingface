@@ -348,8 +348,7 @@ class _StepSummary:
     excluded: dict[str, int] = field(default_factory=dict)
     declared: dict[str, str] = field(default_factory=dict)
     values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
-    gated: int = 0  # E4b part 5: the Cases with a gate record, then one counter per branch
-    majority: int = 0
+    majority: int = 0  # E4b part 5: one counter per gate branch
     fallback: int = 0
     not_run: int = 0
 
@@ -374,11 +373,15 @@ class _StepSummary:
                 if value is not None:
                     self.values.setdefault((row.member_id, name), []).append(value)
 
+    @property
+    def gated(self) -> int:
+        """The Cases with a gate record: each one counts in exactly one branch."""
+        return self.majority + self.fallback + self.not_run
+
     def _add_gate(self, gate: CombineGate | None) -> None:
         """Count the branch of one gated Case: majority, fallback or not run (gate-display §2)."""
         if gate is None:
             return
-        self.gated += 1
         if gate.passed is None:
             self.not_run += 1
         elif gate.passed:
