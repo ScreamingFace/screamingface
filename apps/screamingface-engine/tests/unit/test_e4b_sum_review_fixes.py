@@ -5,8 +5,8 @@ source in the form ``mean`` or ``sum``, or an ``entropy`` source, as the ``sf.Fu
 refuses it (P13, part 3 ans:Q11).
 STORY: as an Engine operator, I get ``combine_spec_invalid`` for a hand-written spec whose vote
 weight could never be greater than 0, before any member call is paid.
-INVARIANT defended: the SDK and the Engine accept the same sum weights; the refusal names the rule
-and never echoes a declared name.
+INVARIANT defended: the Engine refuses what SDK P13 refuses; the refusal names the rule and never
+echoes a declared name.
 """
 
 from __future__ import annotations
