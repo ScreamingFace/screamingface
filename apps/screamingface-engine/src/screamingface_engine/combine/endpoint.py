@@ -65,6 +65,7 @@ from screamingface_engine.combine.ports import (
     ExcludeReason,
     Extractor,
     InputTooLarge,
+    MemberSources,
     Normalizer,
     NoVotes,
     OpArgs,
@@ -375,6 +376,7 @@ def _reply_numbers(
     """
     numbers: dict[str, float | None] = {}
     other_k = 0
+    declared_k = str(source.top_logprobs) if isinstance(source, EntropySource) else None
     for member in spec.members:
         row = looked.get(member) if member in context.outputs else None
         if row is None:
@@ -385,9 +387,7 @@ def _reply_numbers(
             numbers[member] = logprob_value(tokens, total, source.form)
         else:
             value = entropy_value(finite_float(row.get(REPLY_ENTROPY_MEAN)))
-            if value is not None and _asked_top_logprobs(member, context) != str(
-                source.top_logprobs
-            ):
+            if value is not None and _asked_top_logprobs(member, context) != declared_k:
                 other_k += 1
                 value = None
             numbers[member] = value
@@ -400,14 +400,19 @@ def _reply_numbers(
 
 
 def _asked_top_logprobs(member: str, context: CombineContext) -> str | None:
-    """The ``top_logprobs`` param of the member's one source call; None without one such call.
+    """The ``top_logprobs`` param text of the member's one source call; None without one such
+    call, or when that call has no such param.
 
     WHY the source fingerprint and not ``ReplyLogprobs.top_k``: the reader matches this exact
     fingerprint to the recorded call, and the connector sets ``top_k`` from the same body param,
     so both give the same k; the fingerprint is already in the core and keeps the port keys as
     they are.
+    WHY a text compare: the caller compares this text with ``str(k)``, so another spelling of the
+    same k (``" 5"``) reads as another k and gives None, the safe side. The SDK always writes the
+    canonical text.
     """
-    calls = {} if context.sources is None else context.sources.get(member, {})
+    # parse_context requires the sources when the spec declares a reply source.
+    calls = cast("MemberSources", context.sources)[member]
     if len(calls) != 1:
         return None
     ((_, params),) = calls.values()
