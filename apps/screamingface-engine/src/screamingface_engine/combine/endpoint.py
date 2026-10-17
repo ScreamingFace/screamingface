@@ -515,14 +515,36 @@ def _choose(
             trace,
             recorded=recorded,
         )
+    return _majority(
+        spec, plan, combine_input, context, reduction, selection, trace, recorded=recorded
+    )
+
+
+def _majority(
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    trace: _Trace,
+    *,
+    recorded: Mapping[str, Mapping[str, float | None]],
+    gate: GateRecord | None = None,
+) -> CombineOutcome:
+    """The selection's own answer: an ungated vote, or a gate that passed."""
     output = _output(selection, plan.select.op_id, context)
+    _trace_selection(trace, selection)
+    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+    evidence = _evidence(
+        spec, plan, combine_input, reduction, selection, result, recorded=recorded, gate=gate
+    )
+    return CombineOutcome(output, evidence)
+
+
+def _trace_selection(trace: _Trace, selection: Selection) -> None:
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
-    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
-    return CombineOutcome(
-        output,
-        _evidence(spec, plan, combine_input, reduction, selection, result, recorded=recorded),
-    )
 
 
 def _gated(
@@ -545,15 +567,20 @@ def _gated(
     observed = observed_number(gate, selection, recorded, combine_input.members)
     passed = passes(observed, gate.cmp, gate.threshold)
     record = _gate_record(gate, observed, passed)
-    trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
-    trace.tie = "true" if selection.tie else "false"
+    # E2: set before the branch, so a gate abstain logs them too.
+    _trace_selection(trace, selection)
     if passed:
-        output = _output(selection, plan.select.op_id, context)
-        result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
-        evidence = _evidence(
-            spec, plan, combine_input, reduction, selection, result, recorded=recorded, gate=record
+        return _majority(
+            spec,
+            plan,
+            combine_input,
+            context,
+            reduction,
+            selection,
+            trace,
+            recorded=recorded,
+            gate=record,
         )
-        return CombineOutcome(output, evidence)
     if gate.otherwise == "abstain":
         return _abstain(
             spec,
