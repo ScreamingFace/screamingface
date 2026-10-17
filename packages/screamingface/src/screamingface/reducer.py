@@ -23,6 +23,8 @@ type _ReducerName = Literal[
 # One source for each vocabulary: the Literal above is the list, the sets are derived from it.
 REDUCER_NAMES: frozenset[str] = frozenset(get_args(_ReducerName.__value__))
 REDUCER_KINDS: frozenset[str] = frozenset(get_args(_ReducerKind.__value__))
+# The two statistic reducers: sf.Median, sf.Mean and their sf.Reduce blocks share one code path.
+type _Statistic = Literal["median", "mean"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -594,7 +596,7 @@ def _numeric_weights(
 
 
 def _numeric_plan(
-    name: Literal["median", "mean"],
+    name: _Statistic,
     extract: str,
     select: str,
     weights: tuple[float, ...] | Signal | None,
@@ -610,9 +612,7 @@ def _numeric_plan(
     return _ReducerPlan(name, "answer", steps, weights)
 
 
-def _numeric_from_spec[R: Reducer](
-    cls: type[R], spec: Mapping[str, object], name: Literal["median", "mean"]
-) -> R:
+def _numeric_from_spec[R: Reducer](cls: type[R], spec: Mapping[str, object], name: _Statistic) -> R:
     """Rebuild sf.Median or sf.Mean (``name``) from a decoded spec, else "cannot rebuild"."""
 
     ops = _spec_ops(spec, name)
