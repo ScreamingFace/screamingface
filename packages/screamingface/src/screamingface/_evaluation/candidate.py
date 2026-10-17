@@ -43,7 +43,7 @@ from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface.blocks import Reduce
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
-from screamingface.fusion import Fusion
+from screamingface.fusion import Fusion, _consistency_member
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
@@ -754,9 +754,9 @@ class _CandidateCompiler:
             return _NO_SAMPLES
         references: dict[str, str] = {}
         topology: list[_SampleTopology] = []
-        for position, member in enumerate(fusion.members, 1):
+        for position, value in enumerate(fusion.members, 1):
             # INVARIANT (CN-I2): a Fusion that declares sf.Consistency has only sf.Model members.
-            assert isinstance(member, Model)
+            member = _consistency_member(position, value)
             calls = [
                 self._sample_call(
                     member,
