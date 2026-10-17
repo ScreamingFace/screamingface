@@ -28,8 +28,9 @@ REFUSAL_BEFORE_LC_E5 = "openrouter_refusal_provider_error.json"
 REPLY = "openrouter_reply_with_logprobs.json"
 # The oracle: the fixed engine text of the PRD (Delta 4), written by hand, never imported.
 FIXED_TEXT = (
-    "the model cannot return token log-probabilities; choose another OpenRouter model or remove "
-    "sf.Logprob and sf.Entropy"
+    "the model may not return token log-probabilities (sf.Logprob, sf.Entropy), or no endpoint for "
+    "the model supports another member parameter; choose another OpenRouter model or remove that "
+    "parameter"
 )
 ASKED: tuple[tuple[str, str], ...] = (("logprobs", "true"),)
 ANSWERS = {
