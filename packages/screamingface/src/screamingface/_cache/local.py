@@ -15,13 +15,12 @@ throwaway registry; it makes no request and reads no setting (spec decision 14).
 from __future__ import annotations
 
 import os
+import sqlite3
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, NoReturn
 
 from screamingface.cache import CachePullError, PullResult
-
-DATABASE_NAME: Final = "aigateway.sqlite3"
 
 _MESSAGES: Final = {
     "not_a_gateway_database": (
@@ -48,7 +47,9 @@ _MESSAGES: Final = {
 
 
 def gateway_database(data_dir: Path) -> Path:
-    return data_dir / DATABASE_NAME
+    from screamingface._runtime.config import GATEWAY_DATABASE_NAME
+
+    return data_dir / GATEWAY_DATABASE_NAME
 
 
 def missing_runtime_modules() -> tuple[str, ...]:
@@ -73,6 +74,10 @@ class LocalGateway:
     def database(self) -> Path:
         return self._database
 
+    @property
+    def name(self) -> str:
+        return str(self._database)
+
     def prepare(self) -> None:
         """Refuse a pull that cannot land, before any request; load the local revisions."""
         missing = missing_runtime_modules()
@@ -84,8 +89,16 @@ class LocalGateway:
                 hint='Install "screamingface[runtime]".',
                 result=self._empty,
             )
-        if not self._database.is_file():
-            self._refuse("not_a_gateway_database", self._empty, f"{self._database} not found")
+        from aigateway.core.request_cache.sqlite_loader import PageRejected, check_database
+
+        # WHY here: a missing, foreign or unmigrated database is refused before the sign-in,
+        # the counted first page and the download — and even when the filter matches no rows.
+        try:
+            check_database(self._database)
+        except PageRejected as rejected:
+            self._refuse(rejected.reason, self._empty, str(rejected))
+        except sqlite3.Error as exc:
+            raise self._unwritable(exc, self._empty) from exc
         self._revisions = _local_revisions()
 
     def check(self, remote: Mapping[str, str], result: PullResult) -> None:
@@ -106,6 +119,19 @@ class LocalGateway:
             return load_page(rows, self._database).inserted
         except PageRejected as rejected:
             self._refuse(rejected.reason, result, str(rejected))
+        except sqlite3.Error as exc:
+            raise self._unwritable(exc, result) from exc
+
+    def _unwritable(self, exc: sqlite3.Error, result: PullResult) -> CachePullError:
+        # WHY retryable: a locked or full database fails the batch, not the pull. The cursor
+        # only ever advances past a whole page, and loading is idempotent, so calling again
+        # reloads this page and continues.
+        return CachePullError(
+            f"The local gateway database could not be written: {exc}",
+            code="local_load_failed",
+            hint="Call pull_from_remote() again to continue from the last loaded page.",
+            result=result,
+        )
 
     def _refuse(self, reason: str, result: PullResult, detail: str) -> NoReturn:
         code, message, hint = _MESSAGES.get(
@@ -123,4 +149,4 @@ def _local_revisions() -> dict[str, str]:
     return active_cache_revisions()
 
 
-__all__ = ["DATABASE_NAME", "LocalGateway", "gateway_database", "missing_runtime_modules"]
+__all__ = ["LocalGateway", "gateway_database", "missing_runtime_modules"]

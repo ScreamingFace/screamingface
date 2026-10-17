@@ -9,6 +9,10 @@ from pathlib import Path
 # it, `screamingface status` and default-client discovery (detect.py) read it.
 STATE_FILENAME = "runtime.json"
 
+# INVARIANT: the one name for the local gateway's database — the runtime starts the gateway on
+# it, and `sf.cache.pull_from_remote` loads into it.
+GATEWAY_DATABASE_NAME = "aigateway.sqlite3"
+
 # INVARIANT: the Engine's own name for its spill folder (`screamingface_engine.job_env.
 # ARTIFACTS_DIR`), spelled here so this module stays importable without the runtime extra.
 # `tests/test_runtime_artifacts_dir.py` pins the two names equal.
@@ -50,7 +54,7 @@ class RuntimeConfig:
 
     @property
     def gateway_database_url(self) -> str:
-        return f"sqlite://{self.data_dir / 'aigateway.sqlite3'}"
+        return f"sqlite://{self.data_dir / GATEWAY_DATABASE_NAME}"
 
     @property
     def scoreboard_database_url(self) -> str:

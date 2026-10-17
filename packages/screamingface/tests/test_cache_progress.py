@@ -173,3 +173,21 @@ def test_sizes_and_durations_read_naturally() -> None:
     assert progress_module._megabytes(42_000_000) == "42 MB"
     assert progress_module._duration(9.7) == "9s"
     assert progress_module._duration(125) == "2m05s"
+
+
+def test_a_resumed_pulls_eta_counts_only_the_rows_this_call_read() -> None:
+    def resumed(rows: int) -> Snapshot:
+        return Snapshot(
+            origin="https://engine.test",
+            rows_read=rows,
+            rows_added=0,
+            total=600_000,
+            bytes_received=0,
+            elapsed_s=2.0,
+            rows_at_start=400_000,
+        )
+
+    # 1,000 rows in 2 s is 500 rows/s; 199,000 left is 398 s — not the 1 s that counting the
+    # 400,000 rows of earlier calls as this call's work would give.
+    assert resumed(401_000).eta_s == pytest.approx(398.0)
+    assert resumed(400_000).eta_s is None

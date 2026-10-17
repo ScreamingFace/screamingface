@@ -101,6 +101,7 @@ def _add_cache_commands(commands: argparse._SubParsersAction) -> None:  # type: 
         action="append",
         dest="models",
         default=None,
+        type=_model_name,
         help="Only this model's rows, as the hosted cache names it (repeatable)",
     )
     pull.add_argument("--url", default=None, help="The hosted Engine to pull from")
@@ -160,6 +161,14 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
             run_scoreboard(config)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
+
+
+def _model_name(value: str) -> str:
+    # WHY in the parser: `--model "$UNSET"` is a usage mistake, so it gets argparse's usage
+    # error, not the TypeError `sf.cache.pull_from_remote` raises for a programming one.
+    if not value:
+        raise argparse.ArgumentTypeError("a model name must not be empty")
+    return value
 
 
 def _cache_pull(config: RuntimeConfig, args: argparse.Namespace) -> int:
