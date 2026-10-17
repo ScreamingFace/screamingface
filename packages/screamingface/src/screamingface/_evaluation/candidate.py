@@ -237,6 +237,8 @@ class _CandidateCompiler:
         # Corrective loops are ROOT-ONLY by construction (member/judge positions
         # reject them), so this dispatch is the single loop entry point.
         if isinstance(recipe, CorrectiveLoop | SelfCorrective):
+            # WHY lazy: corrective imports _children from this module at load, so a top-level
+            # import here would be a cycle.
             from screamingface._evaluation.corrective import _compile_corrective
 
             root = _compile_corrective(self, recipe, self._check_surface)
