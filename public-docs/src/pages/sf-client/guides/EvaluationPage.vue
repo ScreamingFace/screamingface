@@ -178,7 +178,7 @@ client.close()`
           <td>
             <code
               >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None,
-              answer_seed=None, capture=True)</code
+              answer_seed=None, capture=True, use_cache=True)</code
             >
           </td>
           <td>
@@ -187,7 +187,8 @@ client.close()`
             Capture is on by default, so each run makes a frozen copy and a score can be
             <RouterLink to="/learn/caching">reproduced</RouterLink> later.
             <code>capture=False</code>
-            turns capture off.
+            turns capture off. <code>use_cache=False</code> makes every model call fresh instead of
+            answering it from the <RouterLink to="/learn/caching">cache</RouterLink>.
           </td>
         </tr>
         <tr>

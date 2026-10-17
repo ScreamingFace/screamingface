@@ -176,6 +176,14 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
           Enabling providers, web search, port conflicts, and the local leaderboard are in the FAQ
           below.
         </p>
+
+        <p>
+          <strong>Optional: start from the community cache.</strong> The local gateway caches model
+          responses, but it starts empty. <code>screamingface cache pull</code> copies the shared
+          community cache into it, so your local runs get the community's hits too. Add
+          <code>--model</code> to pull only the models you use. See
+          <RouterLink to="/learn/caching">Bring the community cache to a local engine</RouterLink>.
+        </p>
       </template>
     </Tabs>
 

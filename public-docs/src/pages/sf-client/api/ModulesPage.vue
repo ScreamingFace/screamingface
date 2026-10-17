@@ -34,7 +34,15 @@ const evaluateSig = `sf.evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report`
+
+const pullSig = `sf.cache.pull_from_remote(
+    models: Sequence[str] | None = None,
+    *,
+    url: str | None = None,
+    progress: bool | None = None,
+) -> PullResult`
 
 const reproduceSig = `sf.reproduce(
     score: LeaderboardScore | UUID | str,
@@ -46,7 +54,7 @@ const reproduceSig = `sf.reproduce(
 <template>
   <DocLayout
     title="Modules"
-    description="The five modules and six functions you can call on sf directly."
+    description="The six modules and six functions you can call on sf directly."
     :navigation="navigation"
     :version="version"
   >
@@ -56,7 +64,8 @@ const reproduceSig = `sf.reproduce(
       attributes and methods: <code>client.benchmarks</code>, <code>client.evaluate(...)</code>. On
       the <code>sf</code> module, the same names act on a default Client the library creates and
       manages for you, so a script or notebook can call <code>sf.evaluate(...)</code> without
-      constructing one.
+      constructing one. The one exception is <code>sf.cache</code>, which exists only on the module:
+      it acts on your local gateway, not on a Client's engine.
     </p>
 
     <div class="not-prose">
@@ -148,6 +157,57 @@ const reproduceSig = `sf.reproduce(
       </tbody>
     </table>
 
+    <h2>sf.cache</h2>
+
+    <p>
+      Copies the shared community cache into your local gateway, so a local run gets the community's
+      cache hits. See
+      <RouterLink to="/learn/caching">Bring the community cache to a local engine</RouterLink> for
+      what a pull does and when to use it. <code>screamingface cache pull</code> runs the same pull
+      from a shell.
+    </p>
+
+    <CodeBlock :code="pullSig" language="python" />
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>What it is</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>pull_from_remote(models=None, *, url=None, progress=None)</code></td>
+          <td>
+            Pulls into the local gateway's database in <code>SCREAMINGFACE_DATA_DIR</code> (by
+            default <code>~/.screamingface</code>). <code>models</code> limits the pull to those
+            models, named exactly as the shared cache names them; <code>None</code> pulls
+            everything. <code>url</code> is the hosted engine to pull from; <code>None</code> is the
+            production one, never the engine your runs use. <code>progress</code> works as on
+            <code>evaluate()</code>. Needs the <code>[runtime]</code> extra and a stack started once
+            with <code>screamingface up</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>PullResult</code></td>
+          <td>
+            What one call did: <code>rows_read</code>, <code>rows_added</code> (rows that were new
+            to the local cache), <code>pages</code>, <code>resumed</code> (it continued an earlier
+            call in the same process) and <code>complete</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CachePullError</code></td>
+          <td>
+            The pull stopped. Its <code>result</code> is a <code>PullResult</code> saying how far it
+            got, and its <code>code</code> and <code>hint</code> say what to do. See
+            <RouterLink to="/sf-client/api/errors">Errors</RouterLink>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
     <h2>sf.leaderboards</h2>
 
     <p>
@@ -190,7 +250,7 @@ const reproduceSig = `sf.reproduce(
     <h2>sf.events</h2>
 
     <p>
-      Unlike the four above, <code>sf.events</code> exposes no functions. It holds the event types a
+      Unlike the five above, <code>sf.events</code> exposes no functions. It holds the event types a
       run reports through <code>on_event</code>, covered in
       <RouterLink to="/sf-client/api/events">Events</RouterLink>.
     </p>
@@ -210,7 +270,7 @@ const reproduceSig = `sf.reproduce(
       The one call that spends money. Identical to
       <code>Client.evaluate()</code>, including running a url4 string again. Its parameters are
       documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page. That
-      includes <code>answer_seed</code> and <code>capture</code>.
+      includes <code>answer_seed</code>, <code>capture</code> and <code>use_cache</code>.
     </p>
 
     <h3>reproduce()</h3>

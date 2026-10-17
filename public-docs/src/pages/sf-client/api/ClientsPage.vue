@@ -32,6 +32,7 @@ const evaluateSig = `Client.evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report`
 
 const reproduceSig = `Client.reproduce(
@@ -237,6 +238,16 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
             <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>use_cache</code></td>
+          <td><code>bool</code></td>
+          <td>
+            On by default: a model call may be answered from the request cache.
+            <code>False</code> makes every model call of this evaluation fresh, and the report marks
+            those calls as a cache bypass with the reason <code>opted_out</code>. See
+            <RouterLink to="/learn/caching">Opting a run out</RouterLink>.
           </td>
         </tr>
       </tbody>
