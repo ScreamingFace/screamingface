@@ -110,20 +110,32 @@ def case_trace(
     if case.operations is None:
         return ()
     member_of = _member_ids(case.operations, graph)
+    accounting_of = _accounting_index(case.operations)
     entries: list[TraceEntry] = []
     for operation in case.operations:
-        entries.extend(_operation_entries(operation, graph, member_of, case.operations))
+        entries.extend(_operation_entries(operation, graph, member_of, accounting_of))
     return tuple(entries)
+
+
+def _accounting_index(
+    operations: Sequence[CaseOperation],
+) -> dict[str, OperationAccounting | None]:
+    """Operation id -> its accounting, built once per trace; the first operation of an id wins."""
+
+    index: dict[str, OperationAccounting | None] = {}
+    for operation in operations:
+        index.setdefault(operation.operation_id, operation.accounting)
+    return index
 
 
 def _operation_entries(
     operation: CaseOperation,
     graph: Mapping[str, OperationInfo] | None,
     member_of: Mapping[str, str],
-    operations: Sequence[CaseOperation],
+    accounting_of: Mapping[str, OperationAccounting | None],
 ) -> list[TraceEntry]:
     if operation.combine is not None:
-        link = _judge_link(operation.operation_id, operation.combine, graph, operations)
+        link = _judge_link(operation.operation_id, operation.combine, graph, accounting_of)
         return _combine_entries(operation.operation_id, operation.combine, link)
     node = None if graph is None else graph.get(operation.operation_id)
     if node is not None and node.kind == "combine":
@@ -202,7 +214,7 @@ def _judge_link(
     operation_id: str,
     evidence: CombineEvidence,
     graph: Mapping[str, OperationInfo] | None,
-    operations: Sequence[CaseOperation],
+    accounting_of: Mapping[str, OperationAccounting | None],
 ) -> dict[str, str | None]:
     """The judge operation of a combine step and its request model (P8); null, never a guess.
 
@@ -216,7 +228,7 @@ def _judge_link(
     judges = [item for item in node.depends_on if item in graph and graph[item].kind == "judge"]
     if len(judges) != 1:
         return {"judge_operation_id": None, "judge_model": None}
-    accounting = next((op.accounting for op in operations if op.operation_id == judges[0]), None)
+    accounting = accounting_of.get(judges[0])
     model = None if accounting is None else accounting.request_model
     return {"judge_operation_id": judges[0], "judge_model": model}
 
