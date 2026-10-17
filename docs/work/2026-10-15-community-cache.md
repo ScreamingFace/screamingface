@@ -140,3 +140,18 @@ dropped as not real.
     refined first (AIDEV-NOTE in `check_revisions`).
   - New loader reason `outdated_gateway_database` beside `not_a_gateway_database` and
     `revision_mismatch`; the client (PR 2) should handle it.
+
+## Follow-up from the SDK PR review (#1446, 2026-10-17)
+
+- **`check_database(database)`** — public, so the client can refuse a database it could not load
+  into before signing in or downloading anything (#1446 review finding 7). It opens the file
+  `mode=rw` (a missing file is refused as `not_a_gateway_database`, never created) and runs the
+  same schema check as `load_page`, which keeps its own.
+- **Docstring corrected** (#1446 review finding 9): the loader is one transaction per
+  `load_page` call; the SDK calls it per 500-row batch. Measured on a WAL database the ORM
+  created (600k rows, ~3 KB each): per-batch connect+commit 75 s, one connection per-batch commit
+  65 s, one transaction per page 38 s. Per-page transactions were not adopted: with rows loading
+  as a page streams, the write lock would be held for the page's download, and the running
+  gateway's writers wait 5 s. A time-bounded commit (page end or ~1 s) is the possible follow-up.
+- **Tests (append-only):** four `check_database` tests (ORM-created passes; not-a-gateway,
+  pre-`metadata_json`, missing-and-not-created refused). Gates (`run_gates.py aigateway`) green.
