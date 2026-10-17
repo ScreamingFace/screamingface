@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from fractions import Fraction
 from html import escape
 from typing import TYPE_CHECKING
 
@@ -349,12 +350,22 @@ def _summary_row(member_id: str, step: _StepSummary) -> str:
 
 def _mean_cell(values: list[float]) -> str:
     """The mean of one member's values of one declared name, and their count n (P13, ans:Q3)."""
-    count = len(values)
-    mean = math.fsum(values) / count if count else None
     return (
-        f"<td>{number_html(mean, 'no Case gave a value')}"
-        f" <span class='sf-cmb__nn'>n={count}</span></td>"
+        f"<td>{number_html(_mean(values), 'no Case gave a value')}"
+        f" <span class='sf-cmb__nn'>n={len(values)}</span></td>"
     )
+
+
+def _mean(values: list[float]) -> float | None:
+    """``math.fsum`` of ``values`` over their count; None when there are none (P13)."""
+    if not values:
+        return None
+    try:
+        return math.fsum(values) / len(values)
+    except OverflowError:
+        # WHY Fraction: the sum of finite values can leave the float range, but their mean cannot;
+        # the exact rational mean rounds to a finite float (the engine gate _mean, E4b part 5).
+        return float(sum(map(Fraction, values), Fraction(0)) / len(values))
 
 
 __all__: list[str] = []
