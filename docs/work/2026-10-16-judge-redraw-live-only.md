@@ -82,3 +82,9 @@ live reply; a reply from the gateway cache or a frozen-copy replay is final. Spe
 - **Follow-ups (not filed):** the DRACO metadata count above; a gateway "refresh" cache
   control so a live redraw's good reply replaces the garbled one in the cache (spec §6);
   OME-1642's FrontierScience gap checked against its own raw data.
+- **Seed re-key for "$$" answers (2026-10-16, ops data, outside the repo):**
+  `~/workspace/draco-v5/rekey-dollar/` holds a merge snapshot of 6,372 rows (copies of seed judge
+  rows under the keys the local Task's requests hash to) + manifest + the scripts that made and
+  verified it. Verified on a keyless stack: after the merge, the 11 affected lineups score 100/100
+  Cases with 0 misses; 8 of them equal the published score exactly. Upload through aigateway-ui
+  (merge, with manifest). Remaining gaps are items (b) and (c) above.
