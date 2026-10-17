@@ -206,7 +206,7 @@ def _check_regex_args(args: OpArgs) -> None:
         raise SpecInvalid("regex@1 group must name a group of the pattern")
 
 
-def _last_match(compiled: Any, window: str) -> Any:
+def _last_match(compiled: Any, window: str | bytes) -> Any:
     last = None
     for last in compiled.finditer(window):
         pass
@@ -266,9 +266,7 @@ def verbalized_value(text: str, args: OpArgs, /) -> float | None:
     The group is stripped; only an ASCII decimal number counts (no exponent, NaN, inf or comma).
     A lone surrogate reads as U+FFFD (RE2 reads UTF-8 only), as in regex@1.
     """
-    window = _re2_window(text, _SIGNAL_WINDOW)
-    match = _last_match(_compile(args), window)
-    group = None if match is None else match.group(1)
+    group = _last_group(_compile(args), _re2_window(text, _SIGNAL_WINDOW))
     if group is None:
         return None
     stripped = group.strip()
@@ -276,6 +274,22 @@ def verbalized_value(text: str, args: OpArgs, /) -> float | None:
         return None
     number = finite_float(float(stripped))  # 400 digits overflow to inf: None
     return None if number is None else number + 0.0  # WHY + 0.0: -0 is recorded as 0.0
+
+
+def _last_group(compiled: Any, window: str) -> str | None:
+    """Group 1 of the last match in ``window``, or None.
+
+    WHY bytes for an ASCII window: for a str text the re2 wrapper maps every match's byte offsets
+    back to str offsets in Python, and a 65,536-character window can hold that many matches. In
+    ASCII one character is one byte, so the bytes scan finds the same matches (the same starts, the
+    same one-step move past an empty match) at about a third of the cost (review P3 #4).
+    """
+    if window.isascii():
+        match = _last_match(compiled, window.encode("ascii"))
+        group = None if match is None else match.group(1)
+        return None if group is None else group.decode("ascii")
+    match = _last_match(compiled, window)
+    return None if match is None else match.group(1)
 
 
 def _inspect_number_word(value: str) -> str | None:
