@@ -46,7 +46,7 @@ from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
-from screamingface.reducer import _FALLBACK_JUDGE_KEY, Reducer
+from screamingface.reducer import _JUDGE_CALL_KEYS, Reducer
 from screamingface.signal_sources import injected_member_params
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
@@ -820,12 +820,6 @@ def _fusion_context(
     return render(struct(value))
 
 
-# The keys of the reducer model calls that judge the members (P9): "judge" is E4a's, paired with
-# exactly the three ways the Engine reads a judge (the judge reducer, scores@1 by judge,
-# score:judge); "fallback_judge" is a vote gate's fallback label judge (E4b part 5, review P5 #2).
-_JUDGE_CALL_KEYS = frozenset({"judge", _FALLBACK_JUDGE_KEY})
-
-
 def _warn_duplicate_members(fusion: Fusion) -> None:
     """Warn for each group of direct Model members that send one identical request.
 
@@ -916,7 +910,9 @@ def _judge_routes(stage: Recipe) -> frozenset[str]:
     """The canonical routes of the judges that a reducer Fusion stage reads, else empty (P9).
 
     WHY a set: a gated vote may read two judges (a scores judge and the gate's fallback label
-    judge), and a writer on either model is also a scorer (review P5 #2).
+    judge), and a writer on either model is also a scorer (review P5 #2). "judge" is E4a's key,
+    paired with exactly the three ways the Engine reads a judge (the judge reducer, scores@1 by
+    judge, score:judge).
     """
 
     reducer = stage.synthesizer if isinstance(stage, Fusion) else None

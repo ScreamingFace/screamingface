@@ -75,6 +75,9 @@ _FALLBACK_WRITER_KEY = "fallback_writer"
 _FALLBACK_KEYS: Mapping[Literal["judge", "writer"], str] = MappingProxyType(
     {"judge": _FALLBACK_JUDGE_KEY, "writer": _FALLBACK_WRITER_KEY}
 )
+# The keys of the model calls that judge the members: E4a's "judge" and a vote gate's fallback
+# label judge (E4b part 5).
+_JUDGE_CALL_KEYS: frozenset[str] = frozenset({"judge", _FALLBACK_JUDGE_KEY})
 
 
 @dataclass(frozen=True, slots=True)
