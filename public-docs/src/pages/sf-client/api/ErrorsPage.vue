@@ -54,6 +54,7 @@ with warnings.catch_warnings():
       code="Exception
 └── ScreamingFaceError
     ├── AuthenticationError
+    ├── CachePullError           (sf.cache)
     ├── EngineUnavailableError
     ├── ExecutionError
     ├── LeaderboardError
@@ -117,6 +118,20 @@ Warning
           <td>
             A <RouterLink to="/sf-client/api/leaderboards">leaderboard</RouterLink> operation could
             not be completed safely.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CachePullError</code></td>
+          <td>
+            A <RouterLink to="/learn/caching">community-cache pull</RouterLink> stopped before its
+            last page. It lives in <code>sf.cache</code>. Its <code>result</code> says how far the
+            pull got, and the rows already loaded stay. Its <code>code</code> names the reason:
+            <code>runtime_missing</code> (install the <code>[runtime]</code> extra),
+            <code>local_gateway_missing</code> or <code>local_gateway_outdated</code> (start
+            <code>screamingface up</code> once), <code>revision_mismatch</code> (upgrade
+            <code>screamingface</code> to match the hosted engine), or
+            <code>community_cache_unavailable</code> (the hosted engine kept failing; call the pull
+            again in the same process to continue).
           </td>
         </tr>
       </tbody>

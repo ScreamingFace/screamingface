@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import { learnNavigation as navigation } from '@/navigation/learn'
+
+const pullPython = `import screamingface as sf
+
+sf.cache.pull_from_remote()  # everything
+sf.cache.pull_from_remote(["openrouter/anthropic/claude-opus-5.5"])  # only these models`
+
+const pullCli = `screamingface cache pull --model openrouter/anthropic/claude-opus-5.5`
+
+const optOut = `sf.evaluate(candidates, benchmark="draco", use_cache=False)`
 </script>
 
 <template>
@@ -57,8 +67,82 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       The shared cache belongs to the hosted engine. A local engine keeps its own cache, which makes
-      your reruns cheap but starts empty and stays yours. Running everything yourself means giving
-      up the community's hits, and that is the real trade against the local path's independence.
+      your reruns cheap. It starts empty, but you can fill it from the shared one: the next section
+      shows how. A local run then gets the community's hits too, without giving up the local path's
+      independence.
+    </p>
+
+    <h2>Bring the community cache to a local engine</h2>
+
+    <p>
+      A pull copies the shared cache into your local gateway. After it, a local run answers the
+      calls the community has already made from your own disk, for free. Run it from a notebook or a
+      shell:
+    </p>
+
+    <CodeBlock :code="pullPython" language="python" />
+    <CodeBlock :code="pullCli" language="bash" />
+
+    <ul>
+      <li>
+        <strong>Which rows.</strong> With no model named, everything. Name models exactly as the
+        shared cache names them, for example <code>openrouter/anthropic/claude-opus-5.5</code>. A
+        run can only hit rows for the models its candidates and judge use, so a pull limited to
+        those models loses no hits. It is also much smaller.
+      </li>
+      <li>
+        <strong>From where.</strong> The production hosted engine. Pass <code>url=</code> (or
+        <code>--url</code>) to pull from another hosted engine. A pull never uses the engine your
+        runs go to: when the local runtime is up, that is your local engine, which is where the rows
+        are going.
+      </li>
+      <li>
+        <strong>Sign-in.</strong> The first page opens the hosted engine's sign-in in a browser,
+        unless the process is already signed in. Only signed-in accounts can pull.
+      </li>
+      <li>
+        <strong>Into where.</strong> The local gateway's database in your data directory
+        (<code>SCREAMINGFACE_DATA_DIR</code>, by default <code>~/.screamingface</code>). Run
+        <code>screamingface up</code> once first to create it. For a stack started with
+        <code>--data-dir DIR</code>, set <code>SCREAMINGFACE_DATA_DIR=DIR</code> or pass
+        <code>--data-dir DIR</code> to the pull. The pull needs the <code>[runtime]</code> extra. It
+        can run while the stack is up, and the gateway serves the new rows straight away.
+      </li>
+      <li>
+        <strong>What crosses.</strong> Only shareable cached model responses. The pull brings no
+        web-tool results (those are cached per account), no expired entries, and no record of who
+        used an entry or how often.
+      </li>
+      <li>
+        <strong>What you keep.</strong> A response you already have locally is never replaced, and
+        pulling again only adds what is new to you.
+      </li>
+    </ul>
+
+    <p>
+      A pull shows its progress: rows read against the total, rows added, data received, and an
+      estimated time left. It retries a dropped connection or a busy engine on its own. If it still
+      stops, <code>CachePullError</code> says why and how far it got. Pages already loaded stay
+      loaded, and calling the pull again in the same Python process continues from the last
+      completed page. A new process starts over. That costs time but never a duplicate: rows you
+      already have are read again and skipped. A pull also refuses a shared cache whose entries were
+      stored under different cache-key rules than your local gateway uses, because those entries
+      could never be hit. Upgrading <code>screamingface</code> to match the hosted engine fixes it.
+    </p>
+
+    <h3>Opting a run out</h3>
+
+    <p>
+      The local gateway caches by default, like the hosted one. To make every model call of one
+      evaluation fresh, pass <code>use_cache=False</code>:
+    </p>
+
+    <CodeBlock :code="optOut" language="python" />
+
+    <p>
+      The report marks those calls as a cache bypass with the reason <code>opted_out</code>, so you
+      can see that the run paid for fresh answers. To turn the local gateway's cache off altogether,
+      export <code>AIGW_REQUEST_CACHE_ENABLED=false</code> before <code>screamingface up</code>.
     </p>
 
     <h2>Reproducing a submission</h2>
@@ -405,8 +489,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
           margin-top: var(--space-3);
         "
       >
-        Same protocol, two engines. A local engine keeps its own cache; the hosted engine carries
-        the shared community cache.
+        Same protocol, two engines. A local engine keeps its own cache, which a pull can fill from
+        the shared one; the hosted engine carries the shared community cache.
       </figcaption>
     </figure>
 
