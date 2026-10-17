@@ -273,4 +273,12 @@ MAJOR, 12 MINOR (1 STRUCTURAL, plan shape only). All are fixed in the spec and t
 - **E11 (unit 5).** band-api BA-3: `sf.Judge` requires `rubric=`. The fallback judge of the
   test is `sf.Judge("prov/judge", returns="label", rubric="Pick the best answer.")` (unit 5 D-1).
 
+- **E12 (review P6 #6).** P13 said "The Engine needs no change for this". That was wrong: a
+  hand-written spec whose `weights` read such a sum passed the Engine. The spec parse now refuses
+  a `weights.signal` that names a sum which adds an `entropy` source or a `logprob` source in the
+  form `mean` or `sum`, as `combine_spec_invalid` ("weights.signal must not be a sum that adds an
+  entropy or a non-prob logprob source"; no name echoed). New helper `_check_sum_weight`
+  (`E/combine/spec.py`), separate from part 3's plain-weight check (part 3 erratum E11). The same
+  sum stays valid when no weight reads it. Tests: `ET/test_e4b_sum_review_fixes.py`.
+
 The build appends E1, E2, ... here, one line group per deviation from this spec.
