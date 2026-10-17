@@ -13,7 +13,7 @@ from url4 import Expression, Node, Source, Text, src
 
 from screamingface._operation_bindings import SYNTHESIS_BINDING, TOPOLOGY_BINDING
 from screamingface.fusion import _quorum
-from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_KEYS, _FALLBACK_WRITER_KEY
+from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY
 
 _REDUCER_INVALID = "URL4 Candidate has invalid Reducer topology metadata"
 _SCHEMA = "screamingface.recipe.v1"
@@ -35,7 +35,7 @@ _SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
 _WRITER_KEY = re.compile(r"writer_([A-Za-z_][A-Za-z0-9_]{0,63})")
 # The gate fallback keys (E4b part 5) and the role of the model call each one names.
 _FALLBACK_ROLES: Mapping[str, _SignalRole] = MappingProxyType(
-    {key: role for role, key in _FALLBACK_KEYS.items()}
+    {_FALLBACK_JUDGE_KEY: "judge", _FALLBACK_WRITER_KEY: "writer"}
 )
 
 

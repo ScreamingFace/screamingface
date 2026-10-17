@@ -51,13 +51,13 @@ from screamingface_engine.combine.ports import (
 COMBINE_SPEC_SCHEMA = "screamingface.combine-spec.v1"
 _OP_ID = r"^[a-z][a-z0-9_]{0,47}@[1-9][0-9]{0,5}$"
 _MEMBER = re.compile(r"member_[1-9][0-9]*")
-# WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
-# [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
 # E4b part 5 (P18): the context signal keys of the gate fallback replies.
 FALLBACK_JUDGE = "fallback_judge"
 FALLBACK_WRITER = "fallback_writer"
 # WHY `_SIGNAL` spells the two fallback keys again: the SDK conformance tests read `_SIGNAL` from
 # this file's syntax tree as one string literal, so the pattern cannot be built from the names.
+# WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
+# [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
 _SIGNAL = re.compile(r"judge|fallback_judge|fallback_writer|writer_[A-Za-z_][A-Za-z0-9_]*")
 _CONTEXT_KEYS = frozenset({"input", "outputs", "panel", "signals", "sources"})
 _PANEL_ROW_KEYS = frozenset({"source_position", "source_name", "result"})
