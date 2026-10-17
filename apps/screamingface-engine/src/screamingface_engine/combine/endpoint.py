@@ -534,6 +534,8 @@ def _majority(
 ) -> CombineOutcome:
     """The selection's own answer: an ungated vote, or a gate that passed."""
     output = _output(selection, plan.select.op_id, context)
+    # WHY after _output: an ungated InputTooLarge keeps logging agreement=- (today's line). For a
+    # passed gate, _gated already set these fields, so this write is a no-op.
     _trace_selection(trace, selection)
     result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
     evidence = _evidence(
