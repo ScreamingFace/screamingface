@@ -502,6 +502,7 @@ def declares_consistency(spec: CombineSpec) -> tuple[str, ConsistencySource] | N
     """The name and the one consistency source of the spec (E4b part 7), or None.
 
     Its context then carries ``samples`` (erd §4); ``_check_signals`` allows at most one.
+    The endpoint uses ``_sample_item(plan)`` instead; this function stays for its tests.
     """
     for name, entry in (spec.signals or {}).items():
         if isinstance(entry, ConsistencySource):
