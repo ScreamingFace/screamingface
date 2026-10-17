@@ -153,7 +153,7 @@ owner approves or changes them at review (plan §6).
 | D4 | A nested Fusion or Pipeline member (repeat a whole Recipe) | not planned |
 | D5 | A custom match (its own extract or normalize, a semantic match) | not planned; a later additive `match=` keyword |
 | D6 | A paid live smoke of one consistency recipe | may be WRITTEN later under `ST/paid/`; never run in the build |
-| D7 | The budget stage of an extra call | E4c (the budget ledger is not wired) |
+| D7 | The budget stage of an extra call | E4c (the budget ledger is not wired). Follow-up for E4c: operation kind `sample` maps to budget stage `model` (accounting stage `generation`, as in `accounting.py`). `BudgetStage` in both `budget.py` files (SDK and Engine) has only `model`, `synthesis`, `judge` and `writer`, and no code calls `BudgetState.apply` today, so this version adds no `sample` stage (review P7 #4). |
 | D8 | Skip the extra calls when no rule reads the value | not planned: part 3 Q7 records every declared name |
 | D9 | Group the sample rows in the Case pane and the trace | not planned in this version (N8) |
 
@@ -175,7 +175,12 @@ Scope notes:
 - **N7** The seed check (CN-I5) covers the members of one Fusion. A member of ANOTHER Fusion in the
   same Recipe with the same route, prompt and context, `temperature=t` and a seed equal to a sample
   seed would share one cached reply with that sample. That needs a hand-chosen 31-bit seed, so the
-  check does not cover it in this version.
+  check does not cover it in this version. The same is true in the SAME Fusion for a run seed: when
+  the text of the run seed equals a sample seed, and the member's temperature equals the sample
+  temperature, the member call and that sample send the same request and share one cached reply
+  (the Engine stamps the run seed only on a call without its own `seed`,
+  E/world/request_parameters.py:95-113). The author chooses the run seed; this version does not
+  change the seeding and does not check it (review P7 #8).
 - **N8** Each extra call is one operation: one `model_call` trace entry and one step row with no
   member in the Case pane. At the cap, that is up to 1024 more rows per Case. This version accepts
   these rows; a grouped view is deferred (D9).
