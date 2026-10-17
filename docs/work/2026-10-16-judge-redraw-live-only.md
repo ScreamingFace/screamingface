@@ -66,7 +66,19 @@ live reply; a reply from the gateway cache or a frozen-copy replay is final. Spe
     revisions: owner decision, follow-up.
   - The scorer docstrings in the four Task files still say "redrawn at most twice"; the rule
     is documented in `judge_redraw.py`. Same revision reason.
-  - V5 (full draco-3pass replay on the local stack) not run yet.
+  - V5 ran 2026-10-16 (owner-requested): e2e harness `inspect_replay_stack` +
+    `CacheSeededGateway` (Postgres testcontainer, NO provider credentials) seeded with
+    `draco-cache-live-v5.sql.gz`; engine from this branch; roster = the owner's
+    `draco-cache-replay.py` (9 solos + 8 ensembles, prompts sha256-checked). 395,896 calls
+    completed, all cache hits; 0 cache opt-outs (no redraw); 88 judge misses refused
+    (`profile_not_found`), $0. 13 of 17 lineups reproduce the reference exactly over the Cases
+    they scored (gpt-5.6-sol 0.6481 and gemini-3.1-pro 0.2416 with the error rows left out).
+    Every remaining gap is seed data, not scoring: (a) judge rows keyed to the hand-built
+    rendering, which collapsed `$$` in an answer (43 answers, 88 judge calls; on a keyless
+    gateway each such Case fails as `scorer_error`); (b) a fusion answer byte-identical to a solo's (pareto_lean c48/c57/c100,
+    best_open_source c85) shares one cached verdict set, while the reference judged each
+    independently; (c) synth rows the seed lacks, served another lineup's answer
+    (best_open_source c8/c27/c56, beat_runner_up c2/c27).
 - **Follow-ups (not filed):** the DRACO metadata count above; a gateway "refresh" cache
   control so a live redraw's good reply replaces the garbled one in the cache (spec §6);
   OME-1642's FrontierScience gap checked against its own raw data.
