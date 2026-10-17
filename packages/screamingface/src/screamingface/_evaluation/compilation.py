@@ -37,6 +37,9 @@ def compile_evaluation(
     # becomes is "a+b", not "a+b->s"), so a candidate is named from the rewritten value.
     rewritten = tuple(rewrite_fusion_recipe(recipe) for recipe in recipes)
     _check_rewritten_names(recipes, rewritten)
+    # WHY the user's own Recipe and not the rewritten one: compile_candidate rewrites it the same
+    # way (the rewrite is pure and idempotent), and its judge-writer warning must see the stages
+    # as the user wrote them (review P2 #3).
     compiled = tuple(
         compile_candidate(
             recipe,
@@ -44,7 +47,7 @@ def compile_evaluation(
             operators=operators,
             benchmark_rule=benchmark_rule,
         )
-        for recipe in rewritten
+        for recipe in recipes
     )
     # WHY: the Benchmark is identical for every Candidate — parse it once and bind
     # each compiler-produced (already canonical) Candidate expression into it.

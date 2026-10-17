@@ -101,6 +101,9 @@ def compile_candidate(
     ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
     """
 
+    # WHY before the rewrite (review P2 #3): the rewrite merges a context Fusion into the stage
+    # after it, so only the user's own Pipelines carry the stage numbers the user wrote.
+    _warn_judge_writers(recipe)
     recipe = rewrite_fusion_recipe(recipe)
     try:
         first = _CandidateCompiler(
@@ -118,7 +121,6 @@ def compile_candidate(
             benchmark_rule=benchmark_rule,
             claims=first.claims,
             warned_fusions=first.warned_fusions,
-            warned_pipelines=first.warned_pipelines,
         ).compile(recipe)
     except RenderError as exc:
         raise PlanningError(
@@ -168,14 +170,12 @@ class _CandidateCompiler:
         benchmark_rule: _BenchmarkAnswerRule | None = None,
         claims: Mapping[CallFingerprint, int] | None = None,
         warned_fusions: set[int] | None = None,
-        warned_pipelines: set[int] | None = None,
     ) -> None:
         self._sources: list[Node] = []
         self._operations: list[OperationInfo] = []
         self._parameter_assignments: list[_ModelParameterAssignment] = []
         self._active: set[int] = set()
         self._warned_fusions: set[int] = set() if warned_fusions is None else warned_fusions
-        self._warned_pipelines: set[int] = set() if warned_pipelines is None else warned_pipelines
         self._model_count = 0
         self._synthesis_count = 0
         self._panel_count = 0
@@ -205,12 +205,6 @@ class _CandidateCompiler:
         """The Fusions that already warned about duplicate members (pass 2 must not warn again)."""
 
         return self._warned_fusions
-
-    @property
-    def warned_pipelines(self) -> set[int]:
-        """The Pipelines that already ran the judge-writer check (pass 2 must not warn again)."""
-
-        return self._warned_pipelines
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
@@ -693,11 +687,6 @@ class _CandidateCompiler:
             models = _ordered_unique((*models, *resolved.models))
             calls = (*calls, *resolved.calls)
             stage_topologies.append(_required_topology(resolved))
-        # WHY once per Pipeline object: a corrective loop recompiles its member every round, and
-        # the accounting pass compiles the whole Recipe a second time (JW-D2).
-        if id(pipeline) not in self._warned_pipelines:
-            self._warned_pipelines.add(id(pipeline))
-            _warn_judge_writer(pipeline)
         assert resolved is not None
         return _ResolvedRecipe(
             reference=resolved.reference,
@@ -852,6 +841,27 @@ def _warn_duplicate_members(fusion: Fusion) -> None:
 def _positions(positions: list[int]) -> str:
     head = ", ".join(str(position) for position in positions[:-1])
     return f"{head} and {positions[-1]}"
+
+
+def _warn_judge_writers(recipe: Recipe) -> None:
+    """Run the judge-writer check (JW-1) once on each Pipeline of the user's own Recipe.
+
+    WHY once per Pipeline object, walked before the compile: a corrective loop compiles its member
+    every round, the accounting pass compiles the whole Recipe a second time (JW-D2), and one
+    Pipeline object may sit in two places. The seen set also stops a cyclic value, which only the
+    compiler names.
+    """
+
+    seen: set[int] = set()
+    pending: list[Recipe | Reducer] = [recipe]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, Reducer) or id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, Pipeline):
+            _warn_judge_writer(value)
+        pending.extend(reversed(_children(value)))
 
 
 def _warn_judge_writer(pipeline: Pipeline) -> None:
