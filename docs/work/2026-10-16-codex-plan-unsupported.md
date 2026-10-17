@@ -77,3 +77,10 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
   copies: discovery on → 403 with the four live models, and `/v1/models` switches to them. Discovery off →
   403 without `available_models`, and `/v1/models` keeps the seeds. In both modes, gpt-6-astra
   text/PNG/PDF all return 200 and are correct.
+- **2026-10-17 security fix (owner-approved):** removed the shared "latest account list" listing
+  (cross-tenant entitlement disclosure flagged by the security review); `/v1/models` serves the static
+  seeds, swapped to the four current models. Changed PR-local tests that pinned the leak and two
+  `main` tests that pinned the dead seeds (`test_codex_provider.py`, `test_plugin_loader.py`), both
+  approved by the owner; gates run with `--skip-append-only` for that change only. Live: listing
+  identical before/after a refusal; `gpt-5.4` → 403 `codex_model_unsupported` (plan plus, 4
+  available); `gpt-6-astra` → 200.

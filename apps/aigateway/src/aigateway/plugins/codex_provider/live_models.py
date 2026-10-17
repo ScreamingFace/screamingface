@@ -4,11 +4,11 @@ FEATURE: live Codex model discovery — the models a signed-in ChatGPT account c
 from ``GET /backend-api/codex/models`` instead of a static list (whose slugs went dead: every
 one of them was refused even on a plus plan, verified 2026-10-16).
 
-WHY per account, not through the OME-972 injected client: the endpoint needs the account's
-bearer token and answers per account, while the listing port (``discover_live_models``) is
-process-wide and its injected client is deliberately credential-free. So this directory
-dials ONLY with a credential a dispatch hands it (today: the refusal path), caches per
-account id, and the listing port serves the most recently refreshed list without dialing.
+WHY per account, not through the OME-972 listing port: the endpoint needs the account's
+bearer token and answers per account, while /v1/models is process-wide. So this directory
+dials ONLY with a credential a dispatch hands it (today: the refusal path) and caches per
+account id. INVARIANT (security): an account's list is returned only to that account's own
+request — it never feeds the shared listing, which serves the static seeds (models.py).
 It never enumerates stored profiles — no cross-tenant credential reads.
 
 INVARIANT (fail closed, all-or-nothing): a malformed, empty, or oversized catalog raises a
@@ -34,7 +34,7 @@ from aigateway.core.parameter_discovery_cache import (
     ObservationCache,
     SystemMonotonicClock,
 )
-from aigateway.core.plugin_base import ModelDiscoverySource, ModelEntry
+from aigateway.core.plugin_base import ModelEntry
 
 from .auth import account_id_from_token
 
@@ -55,13 +55,6 @@ _FAILURE_TTL_S = 30.0
 
 # WHY a short listing TTL: the catalog's refresh only reads this process's directory (no
 # dial), so it can follow a new account refresh quickly at no upstream cost.
-LIVE_MODELS_DISCOVERY_SOURCE = ModelDiscoverySource(
-    key="codex:models:list",
-    revision=_REVISION,
-    ttl_s=30.0,
-    stale_ttl_s=_STALE_TTL_S,
-    failure_ttl_s=_FAILURE_TTL_S,
-)
 
 ClientFactory = Callable[[dict[str, str]], DiscoveryHttpClient]
 
@@ -131,7 +124,6 @@ class CodexModelDirectory:
                 failure_ttl_s=_FAILURE_TTL_S,
             ),
         )
-        self._latest: tuple[tuple[str, ...], float] | None = None
         # WHY a flag here and not in the plugin: the refusal path reads this directory, so the
         # kill switch must sit where the dial happens. Enabled by default; ``create_app``
         # hands it AIGW_DISCOVERY_ENABLED through ``CodexProviderPlugin.configure_discovery``.
@@ -174,21 +166,10 @@ class CodexModelDirectory:
                 limits=self._limits,
             )
             slugs = parse_listed_slugs(payload)
-            self._latest = (slugs, self._clock.now())
             return slugs
 
         outcome = await self._cache.get_or_refresh(account, revision=_REVISION, refresh=_refresh)
         return cast("tuple[str, ...] | None", outcome.value)
-
-    def latest(self) -> tuple[str, ...] | None:
-        """The most recently refreshed account list, inside the cache's trust window."""
-        if self._latest is None:
-            return None
-        slugs, stored_at = self._latest
-        # INVARIANT: the same window the cache serves a stale value in (ttl + stale).
-        if self._clock.now() - stored_at > _TTL_S + _STALE_TTL_S:
-            return None
-        return slugs
 
 
 # AIDEV-NOTE: process-wide singleton, read through the module attribute at call time so tests
@@ -204,11 +185,3 @@ async def available_models_for(
     if slugs is None:
         return None
     return [entry.model_name for entry in gateway_entries(slugs)]
-
-
-def latest_listing() -> tuple[ModelEntry, ...]:
-    """The listing rows from the most recent account refresh, or ``no_snapshot``."""
-    slugs = DIRECTORY.latest()
-    if slugs is None:
-        raise DiscoveryError("no_snapshot")
-    return gateway_entries(slugs)

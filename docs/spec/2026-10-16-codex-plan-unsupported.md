@@ -55,11 +55,14 @@ credential and serve one process-wide snapshot. Resolution:
   TTL 300 s, stale 3600 s, failure 30 s). It dials only with a credential handed to it by a dispatch
   — today the refusal path — never by enumerating stored profiles (no cross-tenant credential reads,
   no plugin access to the profile index).
-- `discover_live_models` serves the **most recently refreshed** account list as `codex/<slug>` rows
-  (within the stale window); none known → `DiscoveryError("no_snapshot")`, and the catalog falls back
-  to `register_models()`. It never dials. Consequence: the process-wide listing is "what the last
-  Codex account the gateway refreshed can use" — model names only, no credential or account data.
-  Self-healing: dead seeds produce refusals, each refusal refreshes the list.
+- **Revised 2026-10-17 (security review on PR #1441):** the shared listing does **not** serve any
+  account's list. A Codex list is an account's entitlement (which models its ChatGPT plan unlocks),
+  and `/v1/models` is one process-wide listing, so serving "the most recently refreshed account's
+  list" disclosed one tenant's entitlements to every other tenant. The plugin declares **no**
+  `model_discovery_source`; `/v1/models` lists the static seeds (`models.py`), now the backend's
+  current listed models (`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`). An account's
+  live list is returned only to that account's own refusal (`available_models`). Regression test:
+  account A refreshes, the shared listing still shows only the seeds.
 - Only `visibility == "list"` slugs are published. Strict parse, fail closed (all-or-nothing):
   malformed envelope/row → `malformed_json`; zero listed → `model_catalog_empty`; over 200 →
   `model_catalog_too_large`. A failure never evicts the last good list.

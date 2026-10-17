@@ -179,29 +179,12 @@ async def test_failure_keeps_the_last_good_list() -> None:
     await directory.slugs_for(_PLUS)
     clock.t += 301
     assert await directory.slugs_for(_PLUS) == ("gpt-6-astra", "gpt-5.6-sol")
-    assert directory.latest() == ("gpt-6-astra", "gpt-5.6-sol")
 
 
 @pytest.mark.asyncio
 async def test_cold_failure_is_unknown_not_an_error() -> None:
     directory, _client, _headers, _clock = _directory([DiscoveryError("unreachable")])
     assert await directory.slugs_for(_PLUS) is None
-    assert directory.latest() is None
-
-
-@pytest.mark.asyncio
-async def test_latest_follows_the_most_recent_refresh_and_expires() -> None:
-    other = _jwt({"chatgpt_account_id": "acct-2"})
-    directory, _client, _headers, clock = _directory(
-        [_ok(_LISTED), _ok({"models": [{"slug": "gpt-x", "visibility": "list"}]})]
-    )
-    assert directory.latest() is None
-    await directory.slugs_for(_PLUS)
-    await directory.slugs_for(other)
-    assert directory.latest() == ("gpt-x",)
-    # INVARIANT: the same trust window the cache serves stale values in (ttl + stale).
-    clock.t += 3901
-    assert directory.latest() is None
 
 
 # --- plugin listing port ----------------------------------------------------------------
@@ -211,35 +194,27 @@ def _plugin() -> CodexProviderPlugin:
     return CodexProviderPlugin.__new__(CodexProviderPlugin)
 
 
-def test_plugin_declares_a_listing_source() -> None:
-    source = _plugin().model_discovery_source()
-    assert source is not None
-    assert source.key == "codex:models:list"
+def test_plugin_declares_no_shared_listing_source() -> None:
+    # INVARIANT (security, PR #1441 review): /v1/models is one process-wide listing, and a
+    # Codex list is an account's entitlement. No account's list may feed it.
+    assert _plugin().model_discovery_source() is None
 
 
 @pytest.mark.asyncio
-async def test_listing_serves_the_latest_known_list_as_gateway_rows() -> None:
-    directory, _client, _headers, _clock = _directory([_ok(_LISTED)])
+async def test_one_accounts_list_never_reaches_the_shared_listing() -> None:
+    # Account A refreshes its list; the listing every caller sees stays the static seeds.
+    directory, _client, _headers, _clock = _directory(
+        [_ok({"models": [{"slug": "gpt-secret-a", "visibility": "list"}]})]
+    )
     await directory.slugs_for(_PLUS)
     with patch.object(live_models, "DIRECTORY", directory):
-        entries = await _plugin().discover_live_models(client=_FakeClient([]))
-    assert entries is not None
-    assert [e.model_name for e in entries] == ["codex/gpt-6-astra", "codex/gpt-5.6-sol"]
-    assert [e.litellm_params["model"] for e in entries] == [
-        "codex/gpt-6-astra",
-        "codex/gpt-5.6-sol",
-    ]
+        names = [e.model_name for e in _plugin().register_models()]
+    assert "codex/gpt-secret-a" not in names
+    assert names == [f"codex/{slug}" for slug in live_models_seed_slugs()]
 
 
-@pytest.mark.asyncio
-async def test_listing_without_a_known_list_fails_so_seeds_serve() -> None:
-    directory, _client, _headers, _clock = _directory([])
-    unused = _FakeClient([])
-    with patch.object(live_models, "DIRECTORY", directory), pytest.raises(DiscoveryError) as caught:
-        await _plugin().discover_live_models(client=unused)
-    assert caught.value.reason == "no_snapshot"
-    # INVARIANT: the credential-free injected client is never dialed for Codex.
-    assert unused.calls == []
+def live_models_seed_slugs() -> list[str]:
+    return ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
 
 
 # --- refusal carries the account's list -------------------------------------------------

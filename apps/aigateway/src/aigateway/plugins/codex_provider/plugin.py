@@ -29,11 +29,7 @@ from .chat_handler import (
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
 )
-from .live_models import (
-    LIVE_MODELS_DISCOVERY_SOURCE,
-    available_models_for,
-    latest_listing,
-)
+from .live_models import available_models_for
 from .models import MODELS
 from .oauth_config import (
     CODEX_AUTHORIZE_EXTRA_PARAMS,
@@ -52,8 +48,6 @@ if TYPE_CHECKING:
         ProviderParameterObservation,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.plugin_base import ModelDiscoverySource
     from aigateway.core.profile_models import AuthMode
 
 
@@ -70,24 +64,9 @@ class CodexProviderPlugin(ProviderPluginBase):
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 
-    def model_discovery_source(self) -> ModelDiscoverySource | None:
-        # OME-1634: the live list is per ChatGPT account (see live_models.py); the
-        # process-wide listing serves the most recently refreshed account list.
-        return LIVE_MODELS_DISCOVERY_SOURCE
-
-    async def discover_live_models(
-        self,
-        *,
-        client: DiscoveryHttpClient,  # noqa: ARG002
-        limits: DiscoveryLimits | None = None,  # noqa: ARG002
-    ) -> tuple[ModelEntry, ...] | None:
-        """The latest account's live list; ``no_snapshot`` until one was read.
-
-        # INVARIANT: the injected client is credential-free and the Codex catalog needs
-        # the account's token, so this NEVER dials — it serves what a dispatch-driven
-        # refresh already read (fail closed to the static seeds otherwise).
-        """
-        return latest_listing()
+    # INVARIANT (security, PR #1441 review): no model_discovery_source. A Codex model list is a
+    # per-account entitlement and /v1/models is process-wide, so the listing is the static seed
+    # list; an account's live list is only used on that account's own refusal (available_models).
 
     def configure_discovery(self, *, enabled: bool) -> None:
         # OME-1634: the refusal path's account-list read dials outside the injected runtime,
