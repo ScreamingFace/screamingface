@@ -10,7 +10,7 @@ const read = `import screamingface as sf
 
 sf.leaderboards.list()                      # benchmarks with a public board
 
-board = sf.leaderboards.get("draco", top=10)
+board = sf.leaderboards.get("draco-3pass", top=10)
 for entry in board.entries:
     print(entry.rank, entry.score, entry.verified_by_screamingface)
 
@@ -29,13 +29,13 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 <template>
   <DocLayout
     title="Leaderboard"
-    description="The public board where ensemble results are ranked after an independent re-run, and where every entry carries the recipe that produced it."
+    description="The public board where ensemble results are ranked, and where every entry carries the recipe that produced it and whether the hosted engine ran it."
     :navigation="navigation"
   >
     <p>
       The <strong>Leaderboard</strong> is where results go public. It ranks ensemble runs against
-      research benchmarks, and a result only counts once it has been re-run independently. Every
-      entry shows what it scored, what it cost to get there, and the
+      research benchmarks, and each entry says whether the hosted engine ran it
+      (<code>verified_by_screamingface</code>). Every entry shows what it scored, what it cost to get there, and the
       <RouterLink to="/learn/url4">url4</RouterLink> expression that produced it, which is what you
       would use to run the same evaluation and check the number against your own result.
     </p>
@@ -43,13 +43,8 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     <p>
       Published model numbers usually originate with the party that benefits from them, and are
       reported rather than demonstrated. The board is organized around the opposite arrangement: a
-      rank is a claim someone else has already reproduced, and that you can reproduce again.
-    </p>
-
-    <p>
-      A captured run (the default) keeps a frozen copy of its model answers and web-tool results,
-      and <code>sf.reproduce(score)</code> replays a submission against that copy. The
-      <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
+      verified rank is a claim the hosted engine has run itself, and that you can run again from its
+      url4.
     </p>
 
     <h2>How a rank happens</h2>
@@ -61,24 +56,25 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation.</strong> The score is benchmark-native: the exact number the
+        <strong>Validation:</strong> The score is benchmark-native: the exact number the
         benchmark's own grading produced, fractional or negative included. The board checks it is
         a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
         sole authority on its formula.
       </li>
       <li>
-        <strong>Deduplication.</strong> Each submission is hashed over its recipe identity, meaning
+        <strong>Deduplication:</strong> Each submission is hashed over its recipe identity, meaning
         the benchmark, the spec, the expression, the result, and the providers. Identical content
         lands on the same entry rather than a second one. A resubmission inside a 24-hour
         idempotency window replays the original instead of creating a duplicate.
       </li>
       <li>
-        <strong>Independent re-run.</strong> ScreamingFace re-runs the submission. Entries that
-        survive carry <code>verified_by_screamingface</code>, which is the flag worth reading before
-        you trust a row.
+        <strong>Verification:</strong> <code>verified_by_screamingface</code> is a property of the
+        engine that ran the submission: a run on the hosted engine is verified. A submission from a
+        run on any other engine stays unverified until the hosted engine also runs it. It is the
+        flag worth reading before you trust a row.
       </li>
       <li>
-        <strong>Ranking.</strong> The board keeps the best result per spec, ties broken by recency,
+        <strong>Ranking:</strong> The board keeps the best result per spec, ties broken by recency,
         and orders by score, descending. One recipe cannot crowd the board with near-identical
         attempts.
       </li>
@@ -87,8 +83,9 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     <h2>The line to beat</h2>
 
     <p>
-      Single-model results imported from public sources sit on the same board as the ensembles, as
-      <strong>baselines</strong>. They are what makes a fusion's gain legible: a composed system is
+      Single-model results imported from public sources can sit on the same board as the ensembles,
+      as <strong>baselines</strong>; <code>board.baselines</code> is empty on a board that has none,
+      as on <code>draco-3pass</code> today. They are what makes a fusion's gain legible: a composed system is
       only interesting if it beats the models it is composed from, and the comparison should use
       numbers the field already accepts. Each baseline records where it came from, so you can go
       read the original.
@@ -151,7 +148,7 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     <blockquote>
       The board is not a vote and not a vendor chart. Rankings come from graded benchmark runs
       behind the <RouterLink to="/learn/engine">engine</RouterLink>'s trust boundary, where the
-      answer keys stay, and no rank can be bought or self-reported.
+      grading stays, and no rank can be bought or self-reported.
     </blockquote>
 
     <h2>Where the code lives</h2>

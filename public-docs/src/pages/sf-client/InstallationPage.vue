@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 56`
+len(sf.__all__)   # 82`
 
 const point = `import screamingface as sf
 
@@ -27,18 +27,21 @@ sf.configure(
 )`
 
 const loginCode = `client = sf.Client(engine_url="${SF_ENGINE_URL}")
-client.login()          # opens Cloudflare Access in your browser
+client.login()          # a script opens Cloudflare Access in your browser; a notebook prints a link to open
 client.authenticated    # True once the token arrives`
 
-const prepare = `$ screamingface prepare draco
+const prepare = `$ screamingface prepare ifeval
 Benchmark assets ready at /Users/you/.screamingface/benchmark-assets`
 
 const up = `$ screamingface up
 ScreamingFace is ready.
-  Gateway     http://127.0.0.1:9105
-  Leaderboard http://127.0.0.1:9106
-  Engine      http://127.0.0.1:9108
-  Logs        /Users/you/.screamingface/runtime.log`
+  gateway db=sqlite:///Users/you/.screamingface/aigateway.sqlite3 · request_cache=off
+  Gateway    http://127.0.0.1:9105
+  Scoreboard http://127.0.0.1:9106
+  Engine     http://127.0.0.1:9108
+  Logs       /Users/you/.screamingface/runtime.log
+  export SCREAMINGFACE_ENGINE_URL=http://127.0.0.1:9108
+  export SCREAMINGFACE_SCOREBOARD_URL=http://127.0.0.1:9106`
 
 const localPoint = `sf.configure(
     engine_url="http://127.0.0.1:9108",
@@ -59,11 +62,8 @@ screamingface up`
 const tavily = `export TAVILY_API_KEY="tvly-..."
 screamingface up`
 
-const searchCheck = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
-"web_search" in gpt.tools   # True when the provider searches for itself`
-
 const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())") \\
-  screamingface prepare draco`
+  screamingface prepare ifeval`
 </script>
 
 <template>
@@ -75,20 +75,20 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
   >
     <p>
       The <strong>Client</strong> is a Python library. It never calls a model provider itself, so it
-      always needs an <RouterLink to="/learn/engine">engine</RouterLink> to talk to. Reach a hosted
-      one for the fastest start, or run your own on your machine. The code you write is the same
+      always needs an <RouterLink to="/learn/engine">engine</RouterLink> to talk to. Use a hosted
+      one if your account has access, or run your own on your machine. The code you write is the same
       either way.
     </p>
 
     <h2>1 · Install the Client</h2>
 
-    <p>Python <strong>3.12 or newer</strong>. In a notebook, one cell:</p>
+    <p>You need Python <strong>3.12 or newer</strong>. In a notebook, install the Client with one cell:</p>
 
     <div class="not-prose">
       <NbCell :count="1" :code="pypiNotebook" />
     </div>
 
-    <p>Or from a terminal:</p>
+    <p>From a terminal, run:</p>
 
     <CodeBlock :code="pypiTerminal" language="bash" />
 
@@ -108,11 +108,12 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <Tabs :labels="['Hosted engine', 'Your own engine']">
       <template #tab-0>
         <p>
-          The fastest start. Name the hosted engine once, log in through your browser, and you are
-          running on compute we provide. There is no local setup, and no provider key of your own:
-          the hosted engine does not take one (bring-your-own-key is the local path).
-          Hosted access is currently by invitation — if you haven't been approved yet, use the
-          local engine tab below while you wait.
+          The fastest start, once your account has access. Name the hosted engine once, log in
+          through your browser, and you are running on compute we provide. There is no local setup,
+          and no provider key of your own: the hosted engine does not take one (bring-your-own-key
+          is the local path). To get access, reach out to the OpenMined team. Until your account
+          has access, use the local engine tab: after login every provider shows as unavailable and
+          an evaluation is refused.
         </p>
 
         <div class="not-prose">
@@ -121,7 +122,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
         <p>
           A hosted engine sits behind Cloudflare Access. There is no token to paste:
-          <code>login()</code> opens your browser and collects it.
+          <code>login()</code> collects it through your browser. In a script it opens the browser
+          for you; in a notebook it prints a link to open.
         </p>
 
         <div class="not-prose">
@@ -146,24 +148,26 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         <CodeBlock :code="pypiRuntime" language="bash" />
 
         <p>
-          <strong>Prepare the benchmark you will run.</strong> The engine reads datasets from disk
+          <strong>Prepare the benchmark you will run:</strong> The engine reads datasets from disk
           rather than downloading them mid-run, so a run cannot silently use a different revision.
-          Pass a family (<code>draco</code>, <code>ifeval</code>, <code>healthbench</code>) or
-          <code>--all</code>, once:
+          Pass a family (<code>ifeval</code>, <code>healthbench</code>, <code>medxpert</code>) or
+          <code>--all</code>, once. A local engine serves <code>ifeval</code>,
+          <code>healthbench-professional</code>, <code>healthbench-worst30</code> and
+          <code>medxpert</code>. DRACO runs on the hosted engine.
         </p>
 
         <CodeBlock :code="prepare" language="bash" />
 
         <p>
-          <strong>Start the stack.</strong> One command brings up three loopback services: the
+          <strong>Start the stack:</strong> One command brings up three loopback services: the
           engine executes runs, the gateway holds your provider keys and calls the models, and the
-          leaderboard serves your local rankings.
+          scoreboard serves your local leaderboard.
         </p>
 
         <CodeBlock :code="up" language="bash" />
 
         <p>
-          <strong>Point the Client at it.</strong> No login step: a local engine advertises none.
+          <strong>Point the Client at it:</strong> No login step: a local engine advertises none.
         </p>
 
         <div class="not-prose">
@@ -190,14 +194,16 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       <p>Reopen your shell afterwards if the command still is not found.</p>
     </Collapsible>
 
-    <Collapsible title="A valid provider key is rejected">
+    <Collapsible title="OpenRouter is missing or its key is rejected">
       <p>
-        Provider plugins ship disabled, so the gateway refuses the key regardless of whether it is
-        good. Enable the provider in the shell you start the runtime from and restart, for example
-        <code>AIGW_OPENROUTER_ENABLED=true</code> then
+        <code>screamingface up</code> enables the OpenRouter provider for you. If you set
+        <code>AIGW_OPENROUTER_ENABLED=false</code>, OpenRouter no longer appears in
+        <code>sf.connections.list()</code>, <code>sf.connect("openrouter", ...)</code> raises
+        <code>unknown_provider</code> ("The provider is not available on this SF Engine"), and an
+        evaluation of an OpenRouter route raises <code>model_not_found</code>. Unset the variable,
+        or set it to <code>true</code>, in the shell you start the runtime from, then run
         <code>screamingface down &amp;&amp; screamingface up</code>. The gateway reads the setting
-        at startup, and the error names the credential rather than the configuration, so it is easy
-        to spend a while checking a key that was never the problem.
+        at startup.
       </p>
     </Collapsible>
 
@@ -243,23 +249,22 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       <p>
         Without the key, web tools stay off by default: a candidate whose route depends on the
         Tavily loop fails before its first paid request rather than quietly answering a research
-        question with no research behind it. To tell which case you are in, ask what a route
-        supports:
+        question with no research behind it.
       </p>
-      <div class="not-prose">
-        <NbCell :count="1" :code="searchCheck" />
-      </div>
     </Collapsible>
 
     <Collapsible title="Submit to my own leaderboard, not the hosted one">
       <p>
-        A local engine always names its leaderboard: <code>sf.configure()</code> with a non-default
-        <code>engine_url</code> and no <code>scoreboard_url</code> raises, and so does
-        <code>SCREAMINGFACE_ENGINE_URL</code> without <code>SCREAMINGFACE_SCOREBOARD_URL</code>.
-        Your local scores therefore never reach the hosted ScreamingFace Leaderboard by accident.
-        Pass both:
+        By default the Client reads and writes the hosted ScreamingFace Leaderboard even when the
+        rest of your stack is local, so <code>sf.leaderboards.submit</code> publishes there. Point
+        it at your local one by passing <code>scoreboard_url</code> next to
+        <code>engine_url</code>:
       </p>
       <CodeBlock :code="localBoth" language="python" />
+      <p>
+        Submitting to the hosted leaderboard needs a Cloudflare Access login, and access is granted
+        by the OpenMined team.
+      </p>
     </Collapsible>
 
     <Collapsible title="CERTIFICATE_VERIFY_FAILED while preparing benchmark assets">
@@ -272,8 +277,9 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title="Do I have to run my own engine?">
       <p>
-        No. The hosted engine skips the local setup entirely. Running your own exists for people who
-        want the whole stack on their own machine, on their own keys.
+        Not if your account has hosted access: the hosted engine skips the local setup entirely.
+        Without access, run your own. A local engine puts the whole stack on your own machine, on
+        your own keys.
       </p>
     </Collapsible>
   </DocLayout>

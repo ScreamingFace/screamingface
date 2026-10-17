@@ -40,8 +40,8 @@ const filter = `def observe(event: sf.Event) -> None:
     </div>
 
     <p>
-      Four event types arrive: <code>Started</code>, <code>Span</code>, <code>Log</code> and
-      <code>Usage</code>, with <code>Terminated</code> last. <code>Event</code> is their shared base
+      Five event types arrive: <code>Started</code>, <code>Span</code>, <code>Log</code>,
+      <code>Usage</code> and <code>Terminated</code>, with <code>Terminated</code> last. <code>Event</code> is their shared base
       and <code>TerminationError</code> is a value one of them carries.
     </p>
 

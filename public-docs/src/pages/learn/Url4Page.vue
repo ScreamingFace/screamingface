@@ -10,7 +10,7 @@ const GH_BLOB = 'https://github.com/ScreamingFace/screamingface/blob/main'
 const examples = `https://x!summarize                         # fetch a source, then apply an intent
 (article=https://x)!use $article            # bind a source to a name, reference it as $article
 (https://x, https://y)!first=$1 second=$2    # two parallel sources, referenced by position
-claude:0.6:/claude(x)!go                     # a named source with a weight, calling another expression
+(claude:0.6:/claude(x)!go)!combine           # a named source with a weight, calling another expression
 (a, b)*('row: $item')!'per row'              # iterate a body over a collection, then reduce`
 
 const roundtrip = `import url4
@@ -106,10 +106,12 @@ url4.render(node)   # -> "(https://a, https://b)!'summarize both'"   (lossless r
     </p>
 
     <p>
-      Text and tree are two views of the same thing, and converting between them loses nothing in
-      either direction: <code>url4.build(url4.render(node))</code> gives back the tree you started
-      with. That guarantee is what lets a run be logged, shared, and rebuilt exactly rather than
-      approximately.
+      Text and tree are two views of the same thing. <code>url4.render</code> writes the canonical
+      form, so <code>url4.build(url4.render(node))</code> gives back the tree you started with. An
+      expression you typed in a shorter form comes back normalised:
+      <code>https://x!summarize</code> renders as <code>(https://x)!summarize</code>. Strings that
+      came from a report are already canonical and round-trip exactly, which is what lets a run be
+      logged, shared, and rebuilt exactly rather than approximately.
     </p>
 
     <CodeBlock :code="roundtrip" language="python" />

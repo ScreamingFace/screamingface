@@ -16,13 +16,13 @@ sf.configure(
     engine_url="http://127.0.0.1:9108",
     scoreboard_url="http://127.0.0.1:9106",
 )
-[(b.id, b.variant) for b in sf.benchmarks.list()][:3]`
-const sharedOut = `[('draco', 'canonical'), ('draco/lite', 'lite'), ('draco/smoke', 'smoke')]`
+[(b.id, b.case_count) for b in sf.benchmarks.list()][:3]`
+const sharedOut = `[('healthbench-professional', 525), ('healthbench-worst30', 157), ('ifeval', 541)]`
 
 const configureSig = `sf.configure(
     *,
     engine_url: str = "https://fusion.screamingface.ai",
-    scoreboard_url: str | None = None,
+    scoreboard_url: str = "https://leaderboard.screamingface.ai",
 ) -> Client`
 
 const evaluateSig = `sf.evaluate(
@@ -36,17 +36,12 @@ const evaluateSig = `sf.evaluate(
     capture: bool = True,
 ) -> Report`
 
-const reproduceSig = `sf.reproduce(
-    score: LeaderboardScore | UUID | str,
-    *,
-    record: bool = True,
-) -> Reproduction`
 </script>
 
 <template>
   <DocLayout
     title="Modules"
-    description="The five modules and six functions you can call on sf directly."
+    description="The six modules and five functions you can call on sf directly."
     :navigation="navigation"
     :version="version"
   >
@@ -82,12 +77,12 @@ const reproduceSig = `sf.reproduce(
           <td><code>list()</code></td>
           <td>
             Every <RouterLink to="/sf-client/api/benchmarks">Benchmark</RouterLink> the engine
-            offers, one entry per protocol variant.
+            offers.
           </td>
         </tr>
         <tr>
           <td><code>get(benchmark_id)</code></td>
-          <td>One <code>Benchmark</code>. The id carries the variant.</td>
+          <td>One <code>Benchmark</code> by its id.</td>
         </tr>
       </tbody>
     </table>
@@ -112,7 +107,8 @@ const reproduceSig = `sf.reproduce(
         <tr>
           <td><code>get(model_id)</code></td>
           <td>
-            The full <code>ModelDetails</code> profile for one route. Needs that provider connected.
+            The full <code>ModelDetails</code> profile for one route. It does not need the provider
+            connected: an unconnected route fails at evaluation, not here.
           </td>
         </tr>
       </tbody>
@@ -177,12 +173,20 @@ const reproduceSig = `sf.reproduce(
           <td>One <code>LeaderboardScore</code> by its identifier.</td>
         </tr>
         <tr>
-          <td><code>submit(candidate_result)</code></td>
+          <td><code>submit(candidate_result, *, authors=None, paper_url=None)</code></td>
           <td>
             Publishes one
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink> to the
             public board and returns the stored <code>LeaderboardScore</code>.
           </td>
+        </tr>
+        <tr>
+          <td><code>edit(score_id, *, authors=..., paper_url=...)</code></td>
+          <td>The updated <code>LeaderboardScore</code>, for a score you submitted.</td>
+        </tr>
+        <tr>
+          <td><code>metadata_events(score_id)</code></td>
+          <td>The edit log of a score you submitted, as <code>ScoreMetadataEvent</code> values.</td>
         </tr>
       </tbody>
     </table>
@@ -195,10 +199,40 @@ const reproduceSig = `sf.reproduce(
       <RouterLink to="/sf-client/api/events">Events</RouterLink>.
     </p>
 
+    <h2>sf.reports</h2>
+
+    <p>
+      Reopens reports that evaluations saved to disk. It is documented on the
+      <RouterLink to="/sf-client/api/reports">Reports</RouterLink> page.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Function</th>
+          <th>Returns</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>list(*, directory=None)</code></td>
+          <td>A <code>SavedReportInfo</code> for every saved report.</td>
+        </tr>
+        <tr>
+          <td><code>get(report_id, *, directory=None, destination=None)</code></td>
+          <td>The saved <code>Report</code>. <code>get_async</code> is the awaitable form.</td>
+        </tr>
+        <tr>
+          <td><code>delete(report_id, *, directory=None)</code></td>
+          <td><code>None</code>. Removes the saved report from disk.</td>
+        </tr>
+      </tbody>
+    </table>
+
     <h2>Top-level functions</h2>
 
     <p>
-      These six act on the shared Client. They exist so a script or notebook never has to build one
+      These five act on the shared Client. They exist so a script or notebook never has to build one
       explicitly.
     </p>
 
@@ -213,27 +247,17 @@ const reproduceSig = `sf.reproduce(
       includes <code>answer_seed</code> and <code>capture</code>.
     </p>
 
-    <h3>reproduce()</h3>
-
-    <CodeBlock :code="reproduceSig" language="python" />
-
-    <p>
-      Identical to <code>Client.reproduce()</code>. It runs a submitted score again against its
-      frozen copy. See the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page and the
-      <RouterLink to="/sf-client/api/leaderboards">Leaderboards reference</RouterLink>.
-    </p>
-
     <h3>configure()</h3>
 
     <CodeBlock :code="configureSig" language="python" />
 
     <p>
       Replaces the shared Client and returns the new one. Call it once, before anything else, to
-      point the module-level functions at a different engine. A non-default
-      <code>engine_url</code> must come with its <code>scoreboard_url</code>; the call raises
-      otherwise, and leaves the previous Client in place. Setting
-      <code>SCREAMINGFACE_ENGINE_URL</code> and <code>SCREAMINGFACE_SCOREBOARD_URL</code> in the
-      environment does the same thing without a call; the engine variable alone raises.
+      point the module-level functions at a different engine. Pair a
+      non-default <code>engine_url</code> with its own <code>scoreboard_url</code>: without it the
+      Client keeps the public leaderboard, so a local run's <code>submit</code> would publish there.
+      Setting <code>SCREAMINGFACE_ENGINE_URL</code> and <code>SCREAMINGFACE_SCOREBOARD_URL</code> in
+      the environment does the same thing without a call.
     </p>
 
     <h3>connect() and disconnect()</h3>

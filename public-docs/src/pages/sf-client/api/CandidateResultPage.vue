@@ -162,7 +162,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>int&nbsp;|&nbsp;None</code></td>
           <td>
             The answer seed the run used. <code>None</code> for an unseeded run. <code>submit</code>
-            sends it with the score, and a reproduction runs with it.
+            sends it with the score.
           </td>
         </tr>
         <tr>
@@ -178,8 +178,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
             Whether the copy holds the whole run. <code>None</code> means unknown, not partial.
-            <code>submit</code> sends both fields with the score. See
-            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+            <code>submit</code> sends both fields with the score.
           </td>
         </tr>
         <tr>
@@ -188,9 +187,62 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td>
             The names of the partial reasons that have a count above zero, sorted. Empty when the
             run is complete or was not captured. A local capture shows <code>("local",)</code>.
-            <code>to_dict()</code> always includes it, as a list. See
-            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+            <code>to_dict()</code> always includes it, as a list.
           </td>
+        </tr>
+        <tr>
+          <td><code>trace_id</code> · <code>client_version</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The trace id of the run, and the screamingface version the engine saw as the caller.
+            <code>None</code> when unavailable.
+          </td>
+        </tr>
+        <tr>
+          <td><code>run_cost_status</code></td>
+          <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;"unavailable"</code></td>
+          <td>
+            A fact about <code>usage.cost_usd</code>: <code>complete</code> says the amount is
+            exact, the other two say it is absent. It is sent with a leaderboard submission.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cache_hits</code></td>
+          <td><code>int</code></td>
+          <td>How many gateway round trips the response cache served for this run.</td>
+        </tr>
+        <tr>
+          <td>
+            <code>cache_saved_cost_usd</code> · <code>cache_saved_cost_archive_usd</code>
+          </td>
+          <td><code>Decimal&nbsp;|&nbsp;None</code></td>
+          <td>
+            What the cache hits would have cost. The first is what the provider reported for the
+            call that filled the entry. The second is a measured amount from a different call of
+            the same model and kind. Never add the two together. <code>None</code> means none was
+            observed, which is not zero.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cache_unpriced_hits</code></td>
+          <td><code>int&nbsp;|&nbsp;None</code></td>
+          <td>
+            The count of cache hits with no price at all, from the engine's run summary.
+            <code>None</code> when no summary arrived.
+          </td>
+        </tr>
+        <tr>
+          <td><code>abstained_count</code></td>
+          <td><code>int</code></td>
+          <td>
+            How many cases a reducer abstained on. See
+            <RouterLink to="/sf-client/api/reducers">Reducers</RouterLink>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>accounting</code></td>
+          <td><code>AccountingBreakdown</code></td>
+          <td>What each operation consumed. See Accounting, answers and trace below.</td>
         </tr>
       </tbody>
     </table>
@@ -350,6 +402,51 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
         </tr>
       </tbody>
     </table>
+
+    <h2>Accounting, answers and trace</h2>
+
+    <p>
+      <code>candidate.accounting</code> is a property, not a method. It returns an
+      <code>AccountingBreakdown</code> with <code>rows</code>, <code>unattributed_cost_usd</code>
+      and <code>consistent</code>. Each row is an <code>AccountingRow</code> with
+      <code>accounting</code>, <code>case_id</code>, <code>label</code>, <code>member_id</code>,
+      <code>model</code>, <code>operation_id</code> and <code>stage</code>. The row's
+      <code>accounting</code> is an <code>OperationAccounting</code>: <code>provider</code>,
+      <code>request_model</code>, <code>response_model</code>, <code>usage</code>,
+      <code>provider_latency_ms</code>, <code>provider_attempts</code> and <code>cache</code>.
+      Fields the engine did not report stay unknown and are never filled in.
+    </p>
+
+    <p>
+      <code>OperationCache</code> counts the responses of one operation by how the cache treated
+      them: <code>hits</code>, <code>misses</code>, <code>bypasses</code> and
+      <code>unknown</code>. The four counts sum to the model-call responses the operation
+      represents.
+    </p>
+
+    <p>A <code>CaseResult</code> also carries:</p>
+
+    <ul>
+      <li>
+        <code>abstained</code>: <code>True</code> when a reducer found no usable answer, so the
+        output is <code>''</code> and the score is <code>0.0</code>.
+      </li>
+      <li>
+        <code>attempts</code>: every attempt's own answer, finish reason, failures, grade and cost,
+        in order, for a benchmark that asks each case several times. <code>None</code> for every
+        other benchmark.
+      </li>
+      <li>
+        <code>answers(operation_id=None)</code>: one <code>sf.Answer</code> per member and one for
+        each combine step. A case with no combine step returns <code>()</code>. An unknown
+        <code>operation_id</code> raises <code>ValueError</code>.
+      </li>
+      <li>
+        <code>trace()</code>: <code>TraceEntry</code> values in operation order, of kind
+        <code>model_call</code>, <code>extract</code> and <code>reduce</code>.
+        <code>Report.trace_dict()</code> exports them.
+      </li>
+    </ul>
 
     <h2>How a case is graded</h2>
 

@@ -60,17 +60,19 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      A plugin may also ship <strong>disabled</strong>. The OpenRouter plugin, for example, refuses
-      a valid key until you turn it on with <code>AIGW_OPENROUTER_ENABLED=true</code>. Worth
-      knowing, because the error names the credential rather than the configuration, and it is easy
-      to spend a while checking a key that was never the problem.
+      A provider's plugin can be switched off. <code>screamingface up</code> enables the OpenRouter
+      plugin for you. If you set <code>AIGW_OPENROUTER_ENABLED=false</code>, OpenRouter no longer
+      appears among the providers a local engine advertises,
+      <code>sf.connect("openrouter", …)</code> raises <code>unknown_provider</code>, and an
+      evaluation of an OpenRouter route raises <code>model_not_found</code>.
     </p>
 
     <h2>Running it</h2>
 
     <p>
-      On a hosted engine the gateway runs for you. If you run the engine yourself, you run the
-      gateway too, and it needs its database schema migrated before the first start. The
+      On a hosted engine the gateway runs for you. If you run the engine yourself,
+      <code>screamingface up</code> starts the gateway too, with its own SQLite database in the data
+      directory, and needs no migration step. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide has the commands.
     </p>
   </DocLayout>

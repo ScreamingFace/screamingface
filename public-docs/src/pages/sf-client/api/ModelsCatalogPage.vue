@@ -11,12 +11,12 @@ import {
 
 const modelsRun = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(engine_url="http://127.0.0.1:9108")
 client.models.list()[0]`
-const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)`
+const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=5, tools=1)`
 
 const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
-const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='chat', parameters=9, tools=2, transport=3)`
+const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='account_profile', parameters=8, tools=1, transport=1)`
 
 const modelSig = `sf.Model(
     model: str,
@@ -24,6 +24,7 @@ const modelSig = `sf.Model(
     name: str | None = None,
     prompt: str | None = None,
     params: Mapping[str, str | int | float | bool] | None = None,
+    optional: bool = False,
 )`
 </script>
 
@@ -95,6 +96,14 @@ const modelSig = `sf.Model(
             Only the params you set get sent, since the SDK adds no defaults. Transport, tool, and
             benchmark-protocol names (like <code>model</code>, <code>messages</code>,
             <code>tools</code>, <code>web_search</code>) are reserved and will be rejected.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Whether this Model, as a Fusion member, may fail without stopping the Fusion while its
+            <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is met.
           </td>
         </tr>
       </tbody>
@@ -247,7 +256,11 @@ const modelSig = `sf.Model(
         <tr>
           <td><code>scope</code></td>
           <td><code>str</code></td>
-          <td>What the route does, such as <code>chat</code>.</td>
+          <td>
+            Which profile this was built for. <code>'account_profile'</code> means the route as your
+            account's credential sees it, built from that profile's auth mode, rather than the
+            route in general.
+          </td>
         </tr>
         <tr>
           <td><code>auth_mode</code></td>
@@ -309,6 +322,15 @@ const modelSig = `sf.Model(
           <td>
             Whether the profile was served without a fresh observation. Mutually exclusive with
             <code>stale</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>execution_access</code></td>
+          <td><code>'configured'&nbsp;|&nbsp;'missing'&nbsp;|&nbsp;None</code></td>
+          <td>
+            Whether your account has provider access to run this route: <code>'configured'</code>
+            when it does, <code>'missing'</code> when it does not. <code>None</code> when the
+            gateway is too old to report it.
           </td>
         </tr>
       </tbody>
