@@ -398,7 +398,8 @@ class _StepSummary:
         self.cases += 1
         self._add_gate(evidence.gate)
         for name, entry in (evidence.declared or {}).items():
-            self.declared.setdefault(name, _source_text(entry))
+            if name not in self.declared:  # WHY: the first Case wins; build its text once
+                self.declared[name] = _source_text(entry)
         for row in evidence.members:
             self.chosen.setdefault(row.member_id, 0)
             self.excluded.setdefault(row.member_id, 0)
