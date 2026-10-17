@@ -214,8 +214,10 @@ class Settings(BaseSettings):
     # Bounded public-catalog discovery behind /v1/model-parameters (OME-479 §5.2,
     # §5.3). Enabled by default: the evidence it gathers can only RESTRICT what a
     # contract claims, so running without it is the more permissive state, not the
-    # safer one. It never touches the chat path, never sees a credential, and
-    # degrades to the static observations when a source is unreachable.
+    # safer one. The shared runtime never touches the chat path, never sees a
+    # credential, and degrades to the static observations when a source is
+    # unreachable. The switch also covers the one credentialed per-account read
+    # (Codex's model list on its refusal path, OME-1634) via configure_discovery.
     discovery_enabled: bool = Field(default=True, validation_alias="AIGW_DISCOVERY_ENABLED")
     discovery_cache_ttl_seconds: float = Field(
         default=900.0,

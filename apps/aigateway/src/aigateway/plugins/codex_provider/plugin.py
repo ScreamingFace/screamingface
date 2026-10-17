@@ -17,11 +17,19 @@ from aigateway.core.plugin_base import (
 )
 from aigateway.core.provider_error_text import credential_values, plugin_error_message
 
-from .auth import CodexOAuth, account_label_from_credentials, exchange_authorization_code
+from . import live_models
+from .auth import (
+    CodexOAuth,
+    account_label_from_credentials,
+    exchange_authorization_code,
+    plan_type_from_token,
+)
 from .chat_handler import (
+    MODEL_REFUSAL_MARKER,
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
 )
+from .live_models import available_models_for
 from .models import MODELS
 from .oauth_config import (
     CODEX_AUTHORIZE_EXTRA_PARAMS,
@@ -55,6 +63,16 @@ class CodexProviderPlugin(ProviderPluginBase):
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
+
+    # INVARIANT (security, PR #1441 review): no model_discovery_source. A Codex model list is a
+    # per-account entitlement and /v1/models is process-wide, so the listing is the static seed
+    # list; an account's live list is only used on that account's own refusal (available_models).
+
+    def configure_discovery(self, *, enabled: bool) -> None:
+        # OME-1634: the refusal path's account-list read dials outside the injected runtime,
+        # so the kill switch is handed to the directory that dials.
+        # AIDEV-NOTE: read through the module attribute so tests swap DIRECTORY.
+        live_models.DIRECTORY.set_enabled(enabled=enabled)
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
@@ -160,6 +178,8 @@ class CodexProviderPlugin(ProviderPluginBase):
                 timeout=body.get("timeout"),
             )
         except CustomLLMError as exc:
+            if _is_model_refusal(exc):
+                raise await _model_unsupported(body) from exc
             raise HTTPException(
                 status_code=exc.status_code,
                 detail={
@@ -169,6 +189,53 @@ class CodexProviderPlugin(ProviderPluginBase):
                     ),
                 },
             ) from exc
+
+
+def _is_model_refusal(exc: CustomLLMError) -> bool:
+    # WHY a text marker: the backend answers a model refusal with a plain 400 and no error
+    # code; its sentence (relayed by chat_handler) is what tells it from a malformed request.
+    # INVARIANT: both the 400 and the marker — the text alone on another status stays as is.
+    return exc.status_code == 400 and MODEL_REFUSAL_MARKER in str(exc.message)
+
+
+async def _model_unsupported(body: dict[str, Any]) -> HTTPException:
+    """OME-1634: the sign-in is valid but Codex does not serve this model to its account.
+
+    # WHY 403: the request is fine; the account's entitlement refuses the model (a free plan
+    # is refused every model, a plus plan every retired slug). Codex keeps the default
+    # no-mark status hook, so the profile stays authenticated. The message is
+    # gateway-authored: no upstream text.
+    # WHY available_models is fetched here: the refusal is exactly when the caller needs the
+    # account's real list, and this is the one place holding that account's own credential.
+    # Unknown → the key is omitted; the 403 never depends on discovery succeeding.
+    # INVARIANT: AIGW_DISCOVERY_ENABLED=false → no list read at all (configure_discovery),
+    # so the key is omitted and the refusal sends no discovery request.
+    """
+    token = body.get("api_key")
+    model = body.get("model")
+    plan = plan_type_from_token(token) or "unknown"
+    detail: dict[str, Any] = {
+        "code": "codex_model_unsupported",
+        "provider": "codex",
+        "model": model,
+        "plan": plan,
+        "message": (
+            f"Codex does not serve {model} to this ChatGPT account (plan: {plan}). "
+            "Pick a model the account lists, or sign in with a ChatGPT plan that includes it."
+        ),
+    }
+    available = await available_models_for(
+        token if isinstance(token, str) else None, account_id=_account_id_header(body)
+    )
+    if available is not None:
+        detail["available_models"] = available
+    return HTTPException(status_code=403, detail=detail)
+
+
+def _account_id_header(body: dict[str, Any]) -> str | None:
+    headers = body.get("extra_headers") or {}
+    value = headers.get("ChatGPT-Account-Id") or headers.get("chatgpt-account-id")
+    return value if isinstance(value, str) and value else None
 
 
 ensure_litellm_codex_provider_registered()

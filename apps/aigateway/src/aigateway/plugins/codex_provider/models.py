@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from aigateway.core.plugin_base import ModelEntry
 
+# WHY these four: the Codex backend's live list (visibility=list) on 2026-10-17. Every earlier
+# slug (gpt-5.2 ... gpt-5.5) is refused for every ChatGPT account (OME-1634).
+# INVARIANT: this static list is what /v1/models shows every caller — account-specific live
+# lists are never merged into it (one account's entitlements must not leak to another).
 _MODEL_SLUGS = [
-    "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex",
-    "gpt-5.2",
+    "gpt-6-astra",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
 ]
 
 MODELS: list[ModelEntry] = [
