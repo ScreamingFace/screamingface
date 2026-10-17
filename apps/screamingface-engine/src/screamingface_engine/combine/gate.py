@@ -24,10 +24,8 @@ from screamingface_engine.combine.ports import (
     judge_reply,
     parse_label,
 )
-from screamingface_engine.combine.spec import GateSpec
+from screamingface_engine.combine.spec import FALLBACK_JUDGE, FALLBACK_WRITER, GateSpec
 
-FALLBACK_JUDGE = "fallback_judge"
-FALLBACK_WRITER = "fallback_writer"
 _FALLBACK_KEYS: Mapping[str, str] = MappingProxyType(
     {"judge": FALLBACK_JUDGE, "writer": FALLBACK_WRITER}
 )
@@ -100,8 +98,6 @@ def check_fallback_signals(gate: GateSpec | None, signals: Mapping[str, str]) ->
 
 
 __all__ = [
-    "FALLBACK_JUDGE",
-    "FALLBACK_WRITER",
     "check_fallback_signals",
     "fallback_label",
     "fallback_text",
