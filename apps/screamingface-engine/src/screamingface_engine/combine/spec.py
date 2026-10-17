@@ -295,6 +295,7 @@ class CombineSpec(_SpecModel):
         _check_weights(self.weights, self.members)
         _check_stages(self)
         _check_signals(self)
+        _check_sum_weight(self)
         _check_gate(self)
         return self
 
@@ -348,6 +349,28 @@ def _check_sum(entry: SumSource, signals: Mapping[str, DeclaredSource]) -> None:
             raise ValueError("a sum does not add another sum")
         if coefficient == 0:
             raise ValueError("a sum coefficient is not zero")  # 0.0 == -0.0, so both fail
+
+
+def _check_sum_weight(spec: CombineSpec) -> None:
+    """P13: a vote weight that reads a sum is refused when the sum adds an ``entropy`` source or a
+    ``logprob`` source in the form ``mean`` or ``sum``, as in the SDK (``sf.Fusion``, SA-E4).
+
+    WHY: such a component is at most 0 or means LESS confidence, so the sum is not a weight.
+    WHY its own helper: the plain (non-sum) weight rule is part 3's check; this one adds the sum.
+    """
+    if not isinstance(spec.weights, SignalWeights) or spec.signals is None:
+        return
+    total = spec.signals.get(spec.weights.signal)
+    if not isinstance(total, SumSource):
+        return
+    for name in total.coefficients:
+        part = spec.signals.get(name)
+        if isinstance(part, EntropySource) or (
+            isinstance(part, LogprobSource) and part.form != "prob"
+        ):
+            raise ValueError(
+                "weights.signal must not be a sum that adds an entropy or a non-prob logprob source"
+            )
 
 
 def _check_gate(spec: CombineSpec) -> None:
