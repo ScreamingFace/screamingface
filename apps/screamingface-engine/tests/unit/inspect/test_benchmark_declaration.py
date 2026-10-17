@@ -240,6 +240,18 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1268: SQuAD 2.0 is saturated material (frontier models above 90 F1); MATH still
         # separates reasoning from non-reasoning models (70s vs above 90 on exact match).
         "inspect-squad": ("coverage_declare", "single_shot", "medium"),
+        # OME-1602: the remaining single-turn imports whose decisions were all made. aime26 is
+        # its siblings' tier; the refusal Benchmarks are easy for aligned frontier models; the
+        # SimpleQA pair, UCCB, Math.Find and AIR-Bench still separate them. infinite_bench and
+        # air_bench are local Tasks (built from inspect_evals' own), so they keep their bare key.
+        "inspect-aime26": ("coverage_declare", "single_shot", "medium"),
+        "inspect-simpleqa": ("coverage_declare", "single_shot", "medium"),
+        "inspect-simpleqa_verified": ("coverage_declare", "single_shot", "medium"),
+        "inspect-fortress_benign": ("coverage_declare", "single_shot", "easy"),
+        "inspect-strong_reject": ("coverage_declare", "single_shot", "easy"),
+        "inspect-uccb": ("coverage_declare", "single_shot", "medium"),
+        "infinite_bench_math_find": ("coverage_declare", "single_shot", "medium"),
+        "air_bench": ("coverage_declare", "single_shot", "medium"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
         "musique": ("coverage_declare", "single_shot", "hard"),
         # OME-1476: the second local Task, and the first published Benchmark with Attempts.

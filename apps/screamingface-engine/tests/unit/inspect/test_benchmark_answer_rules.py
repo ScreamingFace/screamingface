@@ -48,6 +48,12 @@ _RULES: dict[str, dict[str, object]] = {
         "normalize": {"op": "inspect_numeric@1", "args": {}},
         "grader": "inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
     },
+    # OME-1602: aime2026 imports the same shared aime_scorer as aime2025.
+    "aime26": {
+        "extract": {"op": "inspect_aime@1", "args": {}},
+        "normalize": {"op": "inspect_numeric@1", "args": {}},
+        "grader": "inspect_evals.aime2026.aime2026:aime_scorer@0.20.0",
+    },
 }
 
 
