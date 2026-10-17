@@ -82,6 +82,7 @@ from screamingface_engine.world.model_response import (
     raise_if_unusable,
 )
 from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.reply_origin import record_reply_origin, round_trip_origin
 from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
     apply_answer_seed,
@@ -230,6 +231,10 @@ async def _observed_round_trip(
             replay_frozen_copy=replay_frozen_copy,
         )
         data = _json_or_raise(resp)
+        # FEATURE (spec 2026-10-16-judge-redraw-live-only): tell a watching judge step whether
+        # this reply is live or a recording (cache hit, frozen-copy replay); a recording is
+        # never redrawn. Recorded only once the gateway answered with a body.
+        record_reply_origin(round_trip_origin(outcome, replay_frozen_copy))
         _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
         _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
         choice = parse_choice(data)

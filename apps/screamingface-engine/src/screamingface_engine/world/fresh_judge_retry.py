@@ -29,6 +29,14 @@ the gateway stores and the verdict rejects. Retry 1: ``GuardRetry(1, "judge_repl
 ``use-cache: false`` → a fresh Judge reply, parsed, item graded. The fresh reply is not stored
 ("participate" is both directions), and the garbled one stays cached.
 
+AIDEV-NOTE (spec 2026-10-16-judge-redraw-live-only): a recorded Judge reply is final. Only a
+LIVE reply may be re-asked; one the gateway served from its cache or a frozen copy replayed is the
+recording. The ``;retry=`` re-ask is decided by the verdict route's failure, not here, so a verdict
+route that rejects a reply must read the reply's origin (``world/reply_origin.py``,
+:func:`watch_reply_origin`) and raise ``judge_reply_invalid`` as PERMANENT for a recorded one. No
+verdict route raises a retryable ``judge_reply_invalid`` today (every judged Benchmark moved to a
+local inspect Task, whose redraw helper applies the rule; the combine Judge's is permanent).
+
 What does not change: the request's path, params, messages and identity, so the request key that
 grading accounting joins on (``request_identity.model_request_key``) is the same on every retry
 and the retry's cost books to the same Case and Evidence item.
