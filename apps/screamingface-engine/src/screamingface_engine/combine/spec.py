@@ -264,6 +264,24 @@ def _check_signals(spec: CombineSpec) -> None:
     # could not each get the k they declare.
     if sum(isinstance(entry, EntropySource) for entry in signals.values()) > 1:
         raise ValueError("signals declares more than one entropy source")
+    _check_weight_source(spec.weights, signals)
+
+
+def _check_weight_source(
+    weights: dict[str, float] | SignalWeights | None, signals: Mapping[str, DeclaredSource]
+) -> None:
+    """A vote weight must be able to be greater than 0 (P14, LP-E1, EN-E2), as in the SDK.
+
+    WHY: a log-probability (``mean``, ``sum``) is at most 0, and a higher entropy means LESS
+    confidence; only ``logprob`` in the form ``prob`` is a probability.
+    """
+    if not isinstance(weights, SignalWeights):
+        return
+    source = signals.get(weights.signal)
+    if isinstance(source, EntropySource) or (
+        isinstance(source, LogprobSource) and source.form != "prob"
+    ):
+        raise ValueError("weights.signal must not be an entropy or a non-prob logprob source")
 
 
 def _check_members(members: list[str]) -> None:

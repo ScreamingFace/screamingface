@@ -108,3 +108,39 @@ def test_entropy_value_is_none_when_the_call_asked_for_another_top_logprobs(
     assert [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING] == [
         "combine entropy: 3 member(s) asked for a top_logprobs other than the declared one"
     ]
+
+
+# --- P3 #3: a vote weight must be able to be positive (P14) -------------------------------------
+
+
+def _weighted_by(source: dict[str, Any]) -> dict[str, Any]:
+    return _vote(
+        reduce={"op": "weighted_mode@1", "args": {}},
+        select={"op": "max_weight_holder@1", "args": {}},
+        weights={"signal": "sure"},
+        signals={"sure": source},
+    )
+
+
+def test_engine_accepts_a_logprob_prob_vote_weight() -> None:
+    """P14: ``logprob`` in the form ``prob`` is a probability, so it can weight a vote (control)."""
+    spec = _weighted_by({"source": "logprob", "form": "prob"})
+    context = context_text(["A", "A", "B"], sources=_sources())
+    assert run(spec_text(spec), context, registry=BUILTIN_OPERATORS).output == ""
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"source": "logprob", "form": "mean"},
+        {"source": "logprob", "form": "sum"},
+        {"source": "entropy", "top_logprobs": 5},
+    ],
+)
+def test_engine_refuses_a_vote_weight_that_cannot_be_positive(source: dict[str, Any]) -> None:
+    """P14 (LP-E1, EN-E2): a log-probability is at most 0 and a higher entropy is less
+    confidence, so neither is a vote weight; the engine refuses it as the SDK does."""
+    error = _refusal(_weighted_by(source))
+    assert error.code == "combine_spec_invalid"
+    assert "weight" in str(error)
+    assert "sure" not in str(error)
