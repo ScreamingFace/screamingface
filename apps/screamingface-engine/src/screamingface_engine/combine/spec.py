@@ -60,7 +60,9 @@ class ReducerRule:
     """What a reducer needs, allows or forbids, and the evidence kind it makes.
 
     ``normalize_name`` is the one operator NAME (any version) its normalize step must have, or
-    None for any. This is the ONLY per-reducer operator rule; later units add none.
+    None for any. This is the ONLY per-reducer operator rule; later units add none. The one
+    per-operator rule, `_STATISTIC_REDUCERS`, goes the other way: it ties a statistic reduce
+    operator to its reducer.
     """
 
     kind: EvidenceKind
@@ -69,6 +71,18 @@ class ReducerRule:
     weights: Presence
     normalize_name: str | None = None
 
+
+# WHY by operator NAME (any version): the evidence field a statistic fills (`median` or `mean`)
+# follows the reducer, so a statistic op under another reducer writes a wrong record, for example a
+# mean into `evidence.median` (review P1 #4, erratum ER7). Any other reduce op stays free.
+_STATISTIC_REDUCERS: Mapping[str, Reducer] = MappingProxyType(
+    {
+        "median": "median",
+        "weighted_median": "median",
+        "mean": "mean",
+        "weighted_mean": "mean",
+    }
+)
 
 # Global rule (also checked below): normalize present => extract present.
 # AIDEV-NOTE: units 8-10 may tighten or loosen the presence rows of their own reducers, and still
@@ -167,6 +181,7 @@ def _check_stages(spec: CombineSpec) -> None:
         raise ValueError("normalize needs extract")
     if rule.normalize_name is not None and spec.normalize is not None:
         _check_normalize_name(spec.normalize, rule.normalize_name, spec.reducer)
+    _check_statistic_reducer(spec.reduce, spec.reducer)
 
 
 def _check_normalize_name(normalize: StepSpec, name: str, reducer: str) -> None:
@@ -175,6 +190,13 @@ def _check_normalize_name(normalize: StepSpec, name: str, reducer: str) -> None:
     # names the rule, not the offending id.
     if normalize.op.partition("@")[0] != name:
         raise ValueError(f"reducer {reducer} requires a {name} normalize step")
+
+
+def _check_statistic_reducer(reduce: StepSpec, reducer: str) -> None:
+    # The message names the rule, not the offending id.
+    owner = _STATISTIC_REDUCERS.get(reduce.op.partition("@")[0])
+    if owner is not None and owner != reducer:
+        raise ValueError(f"reducer {reducer} forbids this statistic reduce step")
 
 
 def parse_spec(intent: str) -> CombineSpec:

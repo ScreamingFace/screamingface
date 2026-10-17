@@ -167,6 +167,39 @@ def test_weighted_mean_without_spec_weights_is_spec_invalid_and_mean_ignores_wei
     assert _run(_mean_spec(3, weights=weights), ["x = 10", "x = 20", "x = 60"]).output == "30"
 
 
+@pytest.mark.parametrize(
+    ("reducer", "reduce"),
+    [
+        ("median", "mean@1"),
+        ("median", "weighted_mean@1"),
+        ("mean", "median@1"),
+        ("mean", "weighted_median@1"),
+        ("vote", "mean@1"),
+        ("vote", "median@1"),
+    ],
+)
+def test_a_statistic_operator_under_another_reducer_is_spec_invalid(
+    reducer: str, reduce: str
+) -> None:
+    # WHY (review P1 #4): the evidence field (`median` or `mean`) follows the reducer, so a median
+    # reducer with `mean@1` wrote a mean into `evidence.median`. The message echoes no op id.
+    weighted = reduce.startswith("weighted_")
+    spec = {
+        **_mean_spec(
+            2,
+            reduce=reduce,
+            extract=_ANSWER,
+            weights=_CONFIDENCE if weighted else None,
+        ),
+        "reducer": reducer,
+    }
+    texts = ['{"answer":10,"confidence":1}', '{"answer":20,"confidence":1}']
+    with pytest.raises(SpecInvalid) as caught:
+        _run(spec, texts)
+    assert caught.value.code == "combine_spec_invalid"
+    assert reduce not in str(caught.value)
+
+
 def test_mean_skips_failed_and_valueless_members() -> None:
     assert reduce_result("mean@1", member_readings(["10", None, "20"])).statistic == Decimal(15)
 
