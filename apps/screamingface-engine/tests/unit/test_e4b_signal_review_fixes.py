@@ -11,13 +11,18 @@ A separate module (append-only gate).
 from __future__ import annotations
 
 import logging
+import math
+import re
 from collections.abc import Mapping
-from typing import Any
+from types import MappingProxyType
+from typing import Any, cast
 
 import pytest
+import re2
 from combine_support import context_text, run, spec_text, vote_spec
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
+from screamingface_engine.combine.operators.extract import verbalized_value
 from screamingface_engine.combine.ports import REPLY_ENTROPY_MEAN, CombineError, MemberSources
 
 _ASKED_TOP_5 = "logprobs=true&top_logprobs=5"
@@ -144,3 +149,42 @@ def test_engine_refuses_a_vote_weight_that_cannot_be_positive(source: dict[str, 
     assert error.code == "combine_spec_invalid"
     assert "weight" in str(error)
     assert "sure" not in str(error)
+
+
+# --- P3 #4: the verbalized scan gives the same value on its fast path ---------------------------
+
+
+def _reference_verbalized(text: str, pattern: str, ignore_case: bool) -> float | None:
+    """The verbalized rule written out with the str scan of re2 (the oracle, ans:Q9)."""
+    options = re2.Options()
+    options.case_sensitive = not ignore_case
+    window = re.sub("[\ud800-\udfff]", "\ufffd", text[-65_536:])
+    last = None
+    for last in re2.compile(pattern, options).finditer(window):
+        pass
+    group = None if last is None else cast("str | None", last.group(1))
+    if group is None or re.fullmatch(r"[-+]?[0-9]+(?:\.[0-9]+)?", group.strip()) is None:
+        return None
+    number = float(group.strip())
+    return number + 0.0 if math.isfinite(number) else None
+
+
+@pytest.mark.parametrize(
+    ("text", "pattern", "ignore_case"),
+    [
+        ("0123456789" * 7000, "([0-9])", False),
+        ("aaaaa7", "(?:a|aa)?([0-9]*)", False),
+        ("Conf: 7, conf: 9, CONF: 3x", "conf: ([0-9]+)", True),
+        ("Conf: 7, conf: 9", "conf: ([0-9]+)", False),
+        ("12 34 ", "([0-9]*)", False),
+        ("", "([0-9]*)", False),
+        ("score 4 then score 5", "score ([0-9])", False),
+        ("café score 4, naïve score 6", "score ([0-9])", False),
+        ("x\ud800 score 8", "score ([0-9])", False),
+        ("7" + "-" * 70_000 + "score 2.5", "score ([0-9.]+)", False),
+    ],
+)
+def test_verbalized_value_matches_the_str_scan(text: str, pattern: str, ignore_case: bool) -> None:
+    """P3 #4: a faster scan keeps the last-match rule and the window exactly."""
+    args = MappingProxyType({"pattern": pattern, "ignore_case": ignore_case})
+    assert verbalized_value(text, args) == _reference_verbalized(text, pattern, ignore_case)
