@@ -257,3 +257,10 @@ finding and the two places where the fix differs from the review text.
 - **E7 (unit 2, orchestrator fix).** A select step that builds the answer chooses no member. Then
   `chosen:<n>` has no member to read. The observed number is None (missing), so the comparison is
   false and the fallback answers (P10). Before this fix the read raised `IndexError`.
+- **E8 (review fix P5 #2).** The part 2 rule P9 (2026-10-15 evidence-completeness spec) says the
+  `JudgeWriterWarning` reads the reducer plan's `"judge"` model call. A gated vote with
+  `otherwise=sf.Judge(..., returns="label")` also reads a judge: the `"fallback_judge"` call. Now
+  the warning reads both keys. A stage that reads two judges (a scores judge and a fallback judge)
+  warns when the next stage writes with the model of either judge. The message text does not
+  change, and the warning still never changes the url4. A gate fallback writer (`sf.Model`) is not
+  a judge, so it does not warn.

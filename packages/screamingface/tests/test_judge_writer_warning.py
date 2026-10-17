@@ -276,3 +276,42 @@ def test_judge_writer_warning_is_public() -> None:
     assert "JudgeWriterWarning" in sf.__all__
     assert issubclass(JudgeWriterWarning, sf.EvaluationWarning)
     assert issubclass(JudgeWriterWarning, UserWarning)
+
+
+# --- review fix P5 #2: a gate's fallback judge is a judge too ------------------------------------
+
+
+def _label_judge(route: str = JUDGE_ROUTE) -> sf.Judge:
+    return sf.Judge(route, returns="label", rubric=RUBRIC)
+
+
+@pytest.mark.parametrize(
+    "synthesizer",
+    [
+        sf.Vote(gate=sf.Gate("agreement", ">=", 0.9, otherwise=_label_judge())),
+        # the scores judge uses another model; the fallback judge uses the writer's model
+        sf.Vote(
+            extract="last_number",
+            normalize="numeric",
+            weights=sf.signal("score:judge"),
+            judge=_judge("openrouter/c/d"),
+            gate=sf.Gate("agreement", ">=", 0.9, otherwise=_label_judge()),
+        ),
+    ],
+    ids=["gate-fallback-judge", "scores-judge-and-gate-fallback-judge"],
+)
+def test_gate_fallback_judge_then_same_model_writer_warns(synthesizer: Reducer) -> None:
+    pipeline = sf.Pipeline(
+        [sf.Fusion(MEMBERS, synthesizer=synthesizer), JUDGE_ROUTE], name="judged"
+    )
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        _compile(pipeline)
+
+    judge_writer = [w for w in recorded if issubclass(w.category, JudgeWriterWarning)]
+    assert len(judge_writer) == 1
+    assert str(judge_writer[0].message) == MESSAGE_1_2
+
+
+def test_gate_fallback_writer_on_the_same_model_does_not_warn() -> None:
+    vote = sf.Vote(gate=sf.Gate("agreement", ">=", 0.9, otherwise=sf.Model(JUDGE_ROUTE)))
+    _quiet(sf.Pipeline([sf.Fusion(MEMBERS, synthesizer=vote), JUDGE_ROUTE], name="judged"))

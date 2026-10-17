@@ -46,7 +46,7 @@ from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
-from screamingface.reducer import Reducer
+from screamingface.reducer import _FALLBACK_JUDGE_KEY, Reducer
 from screamingface.signal_sources import injected_member_params
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
@@ -820,9 +820,10 @@ def _fusion_context(
     return render(struct(value))
 
 
-# The key of the reducer model call that scores the members (P9): E4a pairs it with exactly the
-# three ways the Engine reads a judge (the judge reducer, scores@1 by judge, score:judge).
-_JUDGE_CALL_KEY = "judge"
+# The keys of the reducer model calls that judge the members (P9): "judge" is E4a's, paired with
+# exactly the three ways the Engine reads a judge (the judge reducer, scores@1 by judge,
+# score:judge); "fallback_judge" is a vote gate's fallback label judge (E4b part 5, review P5 #2).
+_JUDGE_CALL_KEYS = frozenset({"judge", _FALLBACK_JUDGE_KEY})
 
 
 def _warn_duplicate_members(fusion: Fusion) -> None:
@@ -896,10 +897,10 @@ def _warn_judge_writer(pipeline: Pipeline) -> None:
     """
 
     for position, (stage, following) in enumerate(itertools.pairwise(pipeline.stages), start=1):
-        route = _judge_route(stage)
-        if route is None or not isinstance(following, Model):
+        if not isinstance(following, Model):
             continue
-        if _canonical_model(following.model) != route:
+        route = _canonical_model(following.model)
+        if route not in _judge_routes(stage):
             continue
         warnings.warn(
             f"Pipeline {pipeline.name!r}: stages {position} and {position + 1} use the same "
@@ -911,15 +912,22 @@ def _warn_judge_writer(pipeline: Pipeline) -> None:
         )
 
 
-def _judge_route(stage: Recipe) -> str | None:
-    """The canonical route of the judge that a reducer Fusion stage reads, else None (P9)."""
+def _judge_routes(stage: Recipe) -> frozenset[str]:
+    """The canonical routes of the judges that a reducer Fusion stage reads, else empty (P9).
+
+    WHY a set: a gated vote may read two judges (a scores judge and the gate's fallback label
+    judge), and a writer on either model is also a scorer (review P5 #2).
+    """
 
     reducer = stage.synthesizer if isinstance(stage, Fusion) else None
     # sf.Reduce("context") has no combine call and no plan to read (the Fusion rewrite owns it).
     if not isinstance(reducer, Reducer) or not reducer._compiles_to_combine():
-        return None
-    judges = [call for call in reducer._plan().signal_calls if call.key == _JUDGE_CALL_KEY]
-    return _canonical_model(judges[0].model) if judges else None
+        return frozenset()
+    return frozenset(
+        _canonical_model(call.model)
+        for call in reducer._plan().signal_calls
+        if call.key in _JUDGE_CALL_KEYS
+    )
 
 
 def _member_calls(members: tuple[_ResolvedRecipe, ...]) -> tuple[_SourceCall, ...]:
