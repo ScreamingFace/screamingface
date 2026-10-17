@@ -6,6 +6,7 @@ import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
 from screamingface._candidate_policy import GenerationParams
@@ -70,6 +71,10 @@ class _ModelSignal:
 # judge and writer roles (_signal_role); the Engine `_SIGNAL` pattern accepts both (C6).
 _FALLBACK_JUDGE_KEY = "fallback_judge"
 _FALLBACK_WRITER_KEY = "fallback_writer"
+# The gate ``otherwise`` word -> the key of its fallback call ("abstain" has no call).
+_FALLBACK_KEYS: Mapping[Literal["judge", "writer"], str] = MappingProxyType(
+    {"judge": _FALLBACK_JUDGE_KEY, "writer": _FALLBACK_WRITER_KEY}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -527,7 +532,7 @@ def _rebuilt_gate(spec: Mapping[str, object], fallback: _ModelSignal | None) -> 
         return None
     if not isinstance(raw, Mapping) or set(raw) != {"cmp", "observe", "otherwise", "threshold"}:
         raise _cannot_rebuild("vote")
-    expected = {"abstain": None, "judge": _FALLBACK_JUDGE_KEY, "writer": _FALLBACK_WRITER_KEY}
+    expected: dict[str, str | None] = {"abstain": None, **_FALLBACK_KEYS}
     wire = raw["otherwise"]
     found = None if fallback is None else fallback.key
     if not isinstance(wire, str) or wire not in expected or expected[wire] != found:
@@ -611,7 +616,7 @@ class Vote(Reducer):
 
     @classmethod
     def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Vote:
-        fallback_keys = (_FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY)
+        fallback_keys = frozenset(_FALLBACK_KEYS.values())
         fallbacks = tuple(signal for signal in signals if signal.key in fallback_keys)
         others = tuple(signal for signal in signals if signal.key not in fallback_keys)
         if len(fallbacks) > 1:
