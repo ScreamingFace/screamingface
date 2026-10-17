@@ -125,7 +125,6 @@ from screamingface_engine.combine.spec import (
     SignalWeights,
     StepSpec,
     SumSource,
-    declares_consistency,
     declares_reply_sources,
     parse_context,
     parse_spec,
@@ -346,16 +345,16 @@ def _combine(
     if len(spec.members) > MAX_MEMBERS:
         raise InputTooLarge(f"a combine call takes at most {MAX_MEMBERS} members")
     plan = _plan(spec, registry)
-    consistency = declares_consistency(spec)
+    sample = _sample_item(plan)
     context = parse_context(
         context_text,
         spec.members,
         sources_expected=(plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS)
         or declares_reply_sources(spec),
-        samples_n=None if consistency is None else consistency[1].n,
+        samples_n=None if sample is None else sample.n,
     )
     check_fallback_signals(spec.gate, context.signals)
-    counts = _sample_counts(plan, spec, context)
+    counts = None if sample is None else _sample_counts(sample, spec, context)
     recorded = _Recorded(_signal_values(plan, spec, context, accounting, counts), counts)
     combine_input = _read_members(spec, plan, context, recorded)
     trace.voters = str(len(combine_input.voters))
@@ -405,18 +404,15 @@ def _signal_values(
 
 
 def _sample_counts(
-    plan: _Plan, spec: CombineSpec, context: CombineContext
-) -> Mapping[str, SampleCount] | None:
+    item: _SampleDeclared, spec: CombineSpec, context: CombineContext
+) -> Mapping[str, SampleCount]:
     """Each member's sample counts for the one declared consistency source, in member order
-    (E4b part 7, erd §5); None when the spec declares none. ``_combine`` computes them once.
+    (E4b part 7, erd §5). ``_combine`` computes them once.
 
     The member's text and each sample text go through the same match steps
     (``_SampleDeclared.match_value``). A member that failed, or that a quorum panel left out, has
     no match value, so its ``matched`` is None (P11).
     """
-    item = _sample_item(plan)
-    if item is None:
-        return None
     samples = context.samples
     if samples is None:  # parse_context required them for a consistency spec
         raise RuntimeError("combine context samples are missing for a consistency signal")
