@@ -1,9 +1,10 @@
-"""Core helpers of the boundary: `auth_mode`, `contract_auth_mode`, `apply_defaults`,
-`apply_authorization`, `reauth_url_for` (OME-1200, spec §3.3 op 3 and §3.4 rows 3–4).
+"""Core helpers of the boundary: `auth_mode`, `contract_auth_mode`, `apply_authorization`,
+`reauth_url_for` (OME-1200, spec §3.3 op 3 and §3.4 rows 3–4).
 
 # INVARIANT: these are provider-declared-mode and pure-merge helpers; none of them touches a
-# store. Outcomes are pinned against today's `resolved_auth_mode` / `_contract_auth_mode` /
-# `_apply_defaults` behaviour at 17048f5d.
+# store. Outcomes are pinned against today's `resolved_auth_mode` / `_contract_auth_mode`
+# behaviour at 17048f5d.
+# WHY no `apply_defaults` tests: the saved-defaults merge was deleted at Stage E, E2b (OME-1209).
 """
 
 from __future__ import annotations
@@ -12,12 +13,10 @@ from typing import Any, cast
 
 import pytest
 
-from aigateway.core.profile_models import ProfileDefaults
 from aigateway.core.provider_access import (
     CredentialTarget,
     UnsupportedAuthMode,
     apply_authorization,
-    apply_defaults,
     auth_mode,
     contract_auth_mode,
     reauth_url_for,
@@ -32,13 +31,11 @@ class _Plugin:
         chatless: bool = False,
         profileless: str | None = None,
         provider: str = "p",
-        skip_default: str | None = None,
     ) -> None:
         self._modes = modes
         self._chatless = chatless
         self._profileless = profileless
         self.custom_llm_provider = provider
-        self._skip = skip_default
 
     def available_auth_modes(self) -> tuple[str, ...]:
         return self._modes
@@ -49,9 +46,6 @@ class _Plugin:
     def profileless_auth_mode(self) -> str | None:
         return self._profileless
 
-    def should_apply_profile_default(self, field: str) -> bool:
-        return field != self._skip
-
 
 def _target(kind: str, auth_type: str = "oauth") -> CredentialTarget:
     return CredentialTarget(
@@ -60,7 +54,6 @@ def _target(kind: str, auth_type: str = "oauth") -> CredentialTarget:
         credential_name="acct:default" if kind == "stored" else None,
         context_stamp="acct:a|anon",
         reauth_url=None,
-        defaults=ProfileDefaults(),
         _backing=None,
     )
 
@@ -126,52 +119,6 @@ def test_the_datasheet_prefers_the_profileless_mode_when_declared() -> None:
 def test_the_datasheet_uses_the_dispatch_mode_for_stored_and_chatless_targets() -> None:
     assert contract_auth_mode(_target("stored", "oauth"), plugin=_Plugin(("oauth",))) == "oauth"
     assert contract_auth_mode(_target("none"), plugin=_Plugin(("none",), chatless=True)) == "none"
-
-
-# --- apply_defaults -------------------------------------------------------------------------
-
-
-def test_apply_defaults_fills_only_omitted_paths_and_reports_them() -> None:
-    body: dict[str, Any] = {"model": "p/m", "messages": [{"role": "user", "content": "hi"}]}
-    defaults = ProfileDefaults(
-        system_prompt="be brief", max_tokens=8, temperature=0.2, timeout_seconds=9.5
-    )
-
-    merged, written = apply_defaults(body, defaults, _Plugin(("oauth",)))
-
-    assert merged["messages"][0] == {"role": "system", "content": "be brief"}
-    assert merged["max_tokens"] == 8
-    assert merged["timeout"] == 9.5
-    assert written == frozenset({"messages", "max_tokens", "temperature", "timeout"})
-
-
-def test_apply_defaults_never_overrides_the_body_or_an_existing_system_message() -> None:
-    body: dict[str, Any] = {
-        "model": "p/m",
-        "max_tokens": 1,
-        "messages": [{"role": "system", "content": "mine"}],
-    }
-
-    merged, written = apply_defaults(
-        body, ProfileDefaults(system_prompt="theirs", max_tokens=8), _Plugin(("oauth",))
-    )
-
-    assert merged["max_tokens"] == 1
-    assert merged["messages"] == [{"role": "system", "content": "mine"}]
-    assert written == frozenset()
-
-
-def test_apply_defaults_honours_the_plugin_veto_per_field() -> None:
-    body: dict[str, Any] = {"model": "p/m", "messages": []}
-
-    merged, written = apply_defaults(
-        body,
-        ProfileDefaults(system_prompt="x", max_tokens=8),
-        _Plugin(("oauth",), skip_default="system_prompt"),
-    )
-
-    assert "system" not in {m.get("role") for m in merged["messages"]}
-    assert written == frozenset({"max_tokens"})
 
 
 # --- apply_authorization + reauth_url_for ----------------------------------------------------

@@ -328,10 +328,6 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         del model
         return True
 
-    def should_apply_profile_default(self, field: str) -> bool:
-        """Return whether a profile default field should be merged into chat bodies."""
-        return True
-
     def allows_chatless_profile(self) -> bool:
         """Whether chat may proceed when no gateway OAuth profile exists."""
         return False

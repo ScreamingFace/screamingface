@@ -12,6 +12,17 @@ from litellm.llms.chatgpt.common_utils import get_chatgpt_default_headers
 from litellm.llms.custom_llm import CustomLLM, CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.content_parts import (
+    ContentPart,
+    RemoteImagePart,
+    TextPart,
+    has_media,
+    parse_content,
+    text_of,
+    text_only,
+)
+from aigateway.core.provider_error_text import error_message_from_body, error_message_from_response
+
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 _PROVIDER = "codex"
 _HANDLER: CodexCustomLLM | None = None
@@ -22,33 +33,52 @@ def _strip_provider_prefix(model: str) -> str:
     return model.split("/", 1)[1] if model.startswith(f"{_PROVIDER}/") else model
 
 
-def _message_content_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if isinstance(text, str):
-                    parts.append(text)
-            elif isinstance(item, str):
-                parts.append(item)
-        return "\n".join(parts)
-    return "" if content is None else str(content)
+def _input_content(message: dict[str, Any]) -> str | list[dict[str, Any]]:
+    """One message's Responses-API ``content``.
+
+    # INVARIANT: a text-only message keeps the plain-string content it always had, so its
+    # payload is byte-identical to before OME-1541. Media switches that user message to typed
+    # ``input_text`` / ``input_image`` / ``input_file`` parts, in content order.
+    """
+    role = str(message.get("role") or "user")
+    parts = parse_content(message.get("content"), provider=_PROVIDER)
+    if not has_media(parts):
+        return text_of(parts)
+    if role != "user":
+        return text_only(message.get("content"), provider=_PROVIDER, role=role)
+    return [_input_part(part) for part in parts]
+
+
+def _input_part(part: ContentPart) -> dict[str, Any]:
+    if isinstance(part, TextPart):
+        return {"type": "input_text", "text": part.text}
+    if isinstance(part, RemoteImagePart):
+        # WHY: OpenAI fetches https image URLs itself, so the gateway passes them through.
+        return _input_image(part.url, part.detail)
+    if part.kind == "image":
+        return _input_image(part.data_uri, part.detail)
+    # WHY: the Responses API requires a filename alongside inline `file_data`.
+    filename = part.filename or f"attachment.{part.mime.rsplit('/', 1)[-1]}"
+    return {"type": "input_file", "filename": filename, "file_data": part.data_uri}
+
+
+def _input_image(url: str, detail: str | None) -> dict[str, Any]:
+    # WHY: `detail` is Required on a Responses `input_image`; an omitted Chat Completions detail
+    # means "auto" there, so the default is explicit rather than left to the backend.
+    return {"type": "input_image", "image_url": url, "detail": detail or "auto"}
 
 
 def _build_payload(model: str, messages: list[dict[str, Any]], optional_params: dict) -> dict:
     system_messages: list[str] = []
-    input_messages: list[dict[str, str]] = []
+    input_messages: list[dict[str, Any]] = []
     for message in messages:
         role = str(message.get("role") or "user")
-        text = _message_content_text(message.get("content"))
         if role == "system":
+            text = text_only(message.get("content"), provider=_PROVIDER, role="system")
             if text:
                 system_messages.append(text)
             continue
-        input_messages.append({"role": role, "content": text})
+        input_messages.append({"role": role, "content": _input_content(message)})
 
     payload: dict[str, Any] = {
         "model": _strip_provider_prefix(model),
@@ -215,7 +245,9 @@ def _model_response_from_state(state: dict[str, Any], fallback_model: str) -> Mo
     final = state.get("final")
     error = state.get("error")
     if error is not None:
-        message = error.get("message") if isinstance(error, dict) else str(error)
+        # WHY no `str(error)` (#1233 review): a non-object stream error is unstructured provider
+        # text; only an object's `message` field is relayed, through the plugin screen.
+        message = error.get("message") if isinstance(error, dict) else None
         raise CustomLLMError(status_code=502, message=message or "Codex upstream failed")
     if not isinstance(final, dict):
         raise CustomLLMError(status_code=502, message="Codex upstream did not complete response")
@@ -267,11 +299,13 @@ async def _status_error_from_response(response: Any) -> CustomLLMError | None:
                 if isawaitable(raw_result)
                 else cast(bytes, raw_result)
             )
-            preview = raw.decode("utf-8", errors="replace")[:500]
+            preview = error_message_from_body(raw) or ""
         except Exception:
             preview = ""
     elif isinstance(getattr(response, "text", None), str):
-        preview = response.text[:500]
+        preview = error_message_from_body(response.text) or ""
+    # INVARIANT (OME-1136, #1233 review): only the body's allowlisted JSON `message` is
+    # appended — never raw bytes, so an HTML error page cannot reach the client.
     suffix = f": {preview}" if preview else ""
     return CustomLLMError(
         status_code=status_code,
@@ -308,9 +342,11 @@ def _status_error_from_exception(exc: httpx.HTTPStatusError) -> CustomLLMError:
     if status_code == 401:
         return CustomLLMError(status_code=401, message="Codex upstream rejected OAuth token")
     message = f"Codex upstream request failed with status {status_code}"
-    text = getattr(exc, "text", None) or getattr(exc, "message", None)
-    if isinstance(text, str) and text:
-        message = f"{message}: {text[:500]}"
+    # INVARIANT (#1233 review): the response's allowlisted JSON `message` only — never
+    # `str(exc)` / raw body text.
+    text = error_message_from_response(exc.response)
+    if text:
+        message = f"{message}: {text}"
     return CustomLLMError(status_code=status_code, message=message)
 
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Breaking changes
+
+* `sf.configure(engine_url=...)` with a non-default Engine now requires `scoreboard_url=`, and
+  `SCREAMINGFACE_ENGINE_URL` requires `SCREAMINGFACE_SCOREBOARD_URL`. Previously the pair fell
+  back to the hosted leaderboard, so a local or preview run could publish there.
+  `sf.Client(...)` is unchanged.
+
 ### Fixes
 
 * Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
@@ -13,6 +20,10 @@
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
+  started can reach a hosted Engine without a browser window. A malformed or expired token fails
+  at Client construction with `access_env_token_invalid`.
 
 * **screamingface:** a Fusion with `quorum` or optional members may end in a reducer (`OME-1289`, `OME-1557`). The members reach the combine call as a broadcast panel with one row per member that answered; url4 checks the quorum and the required members first. A failed optional member is a failed Answer with the reason `missing`, never a vote. A judge on such a Fusion gets a panel form of its template (`judge-template@1 returns=<r> input=panel`) and scores only the members that answered. The block form `Pipeline([Fusion(m, Reduce("context"), quorum=…), Model])` keeps its quorum and optional members. A Fusion with no quorum and no optional member keeps its url4 bytes. **Needs an Engine from the same E4a release**: an older Engine refuses the `panel` context permanently.
 

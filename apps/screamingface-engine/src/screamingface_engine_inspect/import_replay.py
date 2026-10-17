@@ -13,10 +13,11 @@ Stages of ``replay_for_import``, in execution order:
 
     Stage 1 — parent: write request.json (task, args, cache root); build the clean-room
               environment exactly as the image side does (replay_environment).
-    Stage 2 — child: import the task module, THEN install the Case Source recorder, so a
-              name the module bound at import (`from inspect_ai.util import download`) is
-              rebound too; call the task function with its args. The recorder learns the
-              Hub commits (no pins exist yet) and forces the dev's seeds (OME-1460).
+    Stage 2 — child: with the scorer-argument recorder open (OME-1602), import the task
+              module, THEN install the Case Source recorder, so a name the module bound at
+              import (`from inspect_ai.util import download`) is rebound too; call the task
+              function with its args. The recorder learns the Hub commits (no pins exist
+              yet) and forces the dev's seeds (OME-1460).
     Stage 3 — child: read the facts off the built Task with the importer's own readers
               (_scorer_facts, _custom_metrics, plus the multiple_choice witness); render
               the Samples by capture (the Task's own solvers with a stand-in generate).
@@ -40,7 +41,12 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
-from screamingface_engine_inspect.capture import captured_case_records
+from screamingface_engine_inspect.capture import (
+    ModelRead,
+    captured_case_records,
+    model_reads,
+    refuse_model_reads,
+)
 from screamingface_engine_inspect.case_set import case_set_digest
 from screamingface_engine_inspect.case_sources import RENDER_PHASE, CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import (
@@ -57,6 +63,8 @@ from screamingface_engine_inspect.importer import (
     _hub_dataset_info,
     _scorer_facts,
     _solver_list,
+    recorded_scorer_arguments,
+    refuse_unrecorded_scorers,
     task_attempts,
 )
 from screamingface_engine_inspect.prepare import (
@@ -105,6 +113,9 @@ class TaskReplayFacts:
     #: The Task's own any-of-N epoch reducer by inspect's name (``max``), only when Attempts
     #: meet an honoured whole-run metric (OME-1527); None on every other import.
     epoch_reducer: str | None = None
+    #: The model role the scorer asks for in its body (``"grader"``), so the row's TODO judge
+    #: fills that role (OME-1602, F2); None on every other import.
+    judge_role: str | None = None
 
 
 @dataclass(frozen=True)
@@ -299,6 +310,7 @@ def _facts_of(
         mean_instead_of=scorers.mean_instead_of,
         attempts=attempts,
         epoch_reducer=epoch_reducer,
+        judge_role=scorers.judge_role,
     )
 
 
@@ -328,20 +340,30 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     task_ref: str = request["task"]
     task_args: dict[str, Any] | None = request["task_args"]
     module_name, _, attribute = task_ref.partition(":")
-    module: Any = import_module(module_name)
-    # Stage 2 — the recorder installs AFTER the import, so names bound at import are rebound.
-    # It is never uninstalled: this process exists only for this one replay.
-    recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
-    # WHY source_pins=None: this run is where the Hub commits are learned (OME-1460); the
-    # seeds are the dev's, known already, so they are forced here as in every later run.
-    recorder.install(
-        FetchPins(
-            source_pins=None,
-            shuffle_seed=request["shuffle_seed"],
-            choice_shuffle_seed=request["choice_shuffle_seed"],
+    # WHY before the import: a scorer built at import or by the task function keeps its
+    # arguments as passed, so the scorer readers can refuse one inspect logs as a name or a
+    # dict (OME-1602, F1). The record stays on each scorer after the block closes.
+    with recorded_scorer_arguments():
+        module: Any = import_module(module_name)
+        # Stage 2 — the recorder installs AFTER the import, so names bound at import are
+        # rebound. It is never uninstalled: this process exists only for this one replay.
+        recorder: CaseSourceRecorder = CaseSourceRecorder(Path(request["cache_root"]))
+        # WHY source_pins=None: this run is where the Hub commits are learned (OME-1460); the
+        # seeds are the dev's, known already, so they are forced here as in every later run.
+        recorder.install(
+            FetchPins(
+                source_pins=None,
+                shuffle_seed=request["shuffle_seed"],
+                choice_shuffle_seed=request["choice_shuffle_seed"],
+            )
         )
-    )
-    task: Any = getattr(module, attribute)(**(task_args or {}))
+        # WHY watched: a task function that reads the model under test would build its
+        # Cases for "none", as on the image side (OME-1602, F3).
+        reads: list[ModelRead]
+        with model_reads() as reads:
+            task: Any = getattr(module, attribute)(**(task_args or {}))
+    refuse_model_reads(reads, "the task function")
+    refuse_unrecorded_scorers(task)
     # WHY count here: every Case Source recorded from now on was fetched by a solver while
     # capture rendered a Sample, not by the loader; the row says so (CaseSource.phase).
     loaded: int = len(recorder.sources)
@@ -371,7 +393,9 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
             else tuple(request["excluded_sample_ids"])
         ),
     )
-    prepared: list[PreparedCase] = captured_case_records(task, spec)
+    # WHY the answered pass here only: a judge inside the solver chain is an import-time
+    # refusal (OME-1602, F4); image builds replay a declaration that already passed it.
+    prepared: list[PreparedCase] = captured_case_records(task, spec, answered_pass=True)
     sources: list[CaseSource] = [
         source if index < loaded else replace(source, phase=RENDER_PHASE)
         for index, source in enumerate(recorder.sources)

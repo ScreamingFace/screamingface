@@ -221,12 +221,14 @@ client = sf.Client(
 
     <p>
       <code>sf.configure(...)</code> takes only <code>engine_url</code> and
-      <code>scoreboard_url</code>. For anything more, construct a <code>Client</code> yourself.
-      <code>sf.close()</code> closes the default and forgets it, so the next shortcut builds a fresh
-      one; it is the tidy end to a script. The fresh default does not keep your
-      <code>sf.configure(...)</code> settings: call <code>sf.configure(...)</code> again, or set
-      <code>SCREAMINGFACE_ENGINE_URL</code>, before the next call, or it will target the hosted
-      engine.
+      <code>scoreboard_url</code>. Pair a non-default <code>engine_url</code> with its own
+      <code>scoreboard_url</code>, so a local run never publishes to the public leaderboard. For
+      anything more, construct a <code>Client</code> yourself. <code>sf.close()</code> closes the
+      default and forgets it, so the next shortcut builds a fresh one; it is the tidy end to a
+      script. The fresh default does not keep your <code>sf.configure(...)</code> settings: call
+      <code>sf.configure(...)</code> again, or set <code>SCREAMINGFACE_ENGINE_URL</code> together
+      with <code>SCREAMINGFACE_SCOREBOARD_URL</code>, before the next call, or it will target the
+      hosted engine.
     </p>
 
     <Note>

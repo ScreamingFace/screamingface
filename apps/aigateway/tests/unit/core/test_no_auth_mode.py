@@ -32,7 +32,13 @@ from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import OAuthConnectionResponse
 from aigateway.core.plugin_base import ModelEntry, OAuthConfig, ProviderPluginBase
 from aigateway.core.profile_models import AuthMode, AuthType, Profile
-from aigateway.routes.chat_credentials import resolved_auth_mode
+from aigateway.core.provider_access import auth_mode_for, auth_type_of
+
+
+def resolved_auth_mode(profile: Any, connection: Any, *, plugin: Any) -> Any:
+    """The port composition the retired `routes/chat_credentials.py` shim wrapped (E2b)."""
+    stored = profile is not None or connection is not None
+    return auth_mode_for(auth_type_of(profile, connection) if stored else None, plugin=plugin)
 
 
 class _NoAuthPlugin(ProviderPluginBase):

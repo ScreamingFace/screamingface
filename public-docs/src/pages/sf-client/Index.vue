@@ -3,7 +3,7 @@ import { RouterLink } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
-import { SF_ENGINE_URL } from '@/lib/engine'
+import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
 import { useThemeStore } from '@/stores/themeStore'
 import {
   sfClientNavigation as navigation,
@@ -19,7 +19,10 @@ const localDiagram = (dark: boolean) =>
 // beside its own member, read both scores. Every name here is shipped API.
 const smallestExample = `import screamingface as sf
 
-sf.configure(engine_url="${SF_ENGINE_URL}")
+sf.configure(
+    engine_url="${SF_ENGINE_URL}",
+    scoreboard_url="${SF_SCOREBOARD_URL}",
+)
 
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 flash = sf.Model("openrouter/google/gemini-3-flash-preview")

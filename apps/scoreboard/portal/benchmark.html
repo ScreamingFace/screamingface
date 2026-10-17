@@ -5,6 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>screamingface — leaderboard</title>
   <meta name="description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
+  <!-- Link previews (Slack, X, LinkedIn, iMessage): crawlers need absolute URLs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ScreamingFace">
+  <meta property="og:title" content="screamingface — leaderboard">
+  <meta property="og:description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
+  <meta property="og:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The ScreamingFace mark above the wordmark ScreamingFace.ai, on black.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="screamingface — leaderboard">
+  <meta name="twitter:description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
+  <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="tokens.css">
@@ -16,12 +29,15 @@
   <script src="analytics.js"></script>
 </head>
 <body>
+  <aside class="grant-banner" aria-label="Announcement">
+    <a class="grant-banner__link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Open call for research grants to explore ensembles &amp; routers →</a>
+  </aside>
   <div class="rail" data-section="nav">
     <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a><span class="sep" hidden>/</span>
     <nav class="crumbs" hidden><a href="#" class="here" id="crumb-benchmark"></a></nav>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
-      <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
+      <a class="rail-link" href="index.html">home</a>
       <a class="rail-link" href="about.html">about</a>
       <a class="rail-link" href="https://github.com/ScreamingFace/screamingface" target="_blank" rel="noopener">github</a>
       <a class="rail-link" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
@@ -40,11 +56,11 @@
     <p class="lead" id="benchmark-desc"></p>
 
     <div class="note" data-section="note">
-      <span class="kicker">about</span> The leaderboard's top row is the current state of the art. Every submission carries its url4 expression, a complete recipe for the run, so any score here can be rerun, verified, and iterated on before you cite it.</div>
+      <span class="kicker">about</span> The leaderboard's top row is the current state of the art. Every submission carries its <a href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> expression, a complete recipe for the run. Copy it with the Copy button in the Run Locally column to rerun, verify or build on any score here.</div>
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
       <div class="s"><span class="k">Best score</span><div class="v gain" id="summary-best">—</div></div>
-      <div class="s"><span class="k">Specs shown</span><div class="v" id="summary-specs">—</div></div>
+      <div class="s"><span class="k">Submissions shown</span><div class="v" id="summary-specs">—</div></div>
       <div class="s" id="summary-frontier-card" hidden><span class="k">Open frontier share</span><div class="v" id="summary-frontier">—</div></div>
     </div>
 
@@ -71,7 +87,7 @@
           <div id="pareto-chart" aria-hidden="true"></div>
         </div>
         <figcaption class="pareto-chart-caption">
-          <span class="pareto-chart-key"><span class="pareto-chart-key__dominated" aria-hidden="true"></span>dominated</span>
+          <span class="pareto-chart-key"><span class="pareto-chart-key__dominated" aria-hidden="true"></span>all submissions</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__frontier" aria-hidden="true"></span>Pareto frontier</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__leader" aria-hidden="true"></span>highest score</span>
           <span class="pareto-chart-key"><span class="pareto-chart-key__unpriced" aria-hidden="true"></span>cost n/a</span>
@@ -79,6 +95,17 @@
         </figcaption>
       </figure>
     </section>
+
+    <!-- The mark column header is deliberately empty and its per-row label is screen-reader-only,
+         so the visible legend names each mark. WHY above the table: a reader meets the key before
+         the marks it explains (marketing review). -->
+    <p id="leaderboard-legend" class="meta legend" hidden>
+      <span id="legend-pareto" class="legend-item" hidden>
+        <span class="pareto-mark" aria-hidden="true"></span>
+        <span>on the Pareto frontier: no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
+      </span>
+      <span class="legend-item">gold row = highest score</span>
+    </p>
 
     <!-- The Cost column pushes this table's min-content past the container at intermediate
          viewport widths, so the complete column set scrolls horizontally there.
@@ -100,16 +127,6 @@
         <tbody id="leaderboard-body"></tbody>
       </table>
     </div>
-
-    <!-- The mark column header is deliberately empty and its per-row label is screen-reader-only,
-         so the visible legend names each mark. -->
-    <p id="leaderboard-legend" class="meta legend" hidden>
-      <span id="legend-pareto" class="legend-item" hidden>
-        <span class="pareto-mark" aria-hidden="true"></span>
-        <span>on the Pareto frontier — no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
-      </span>
-      <span class="legend-item">gold row = highest score</span>
-    </p>
 
     <div data-subscribe="all" data-section="subscribe"></div>
 

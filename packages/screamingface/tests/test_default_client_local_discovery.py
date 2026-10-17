@@ -129,17 +129,18 @@ def test_explicit_engine_env_var_beats_a_running_local_stack(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # INVARIANT: an explicit SCREAMINGFACE_ENGINE_URL keeps absolute precedence —
-    # hosted-while-local-running stays one export away.
+    # hosted-while-local-running stays one export away. (A non-hosted engine export also
+    # needs SCREAMINGFACE_SCOREBOARD_URL — see test_default_client_pairing.py.)
     _write_state(
         isolated_default_client,
         engine_url=live_engine_url,
         scoreboard_url="http://127.0.0.1:9106",
     )
-    monkeypatch.setenv("SCREAMINGFACE_ENGINE_URL", "https://override.example")
+    monkeypatch.setenv("SCREAMINGFACE_ENGINE_URL", _HOSTED_ENGINE)
 
     client = _default_client.default_client()
 
-    assert client.engine_url == "https://override.example"
+    assert client.engine_url == _HOSTED_ENGINE
     assert client.scoreboard_url == _HOSTED_SCOREBOARD
     assert capsys.readouterr().out == ""
 
@@ -231,7 +232,9 @@ def test_configure_ignores_discovery(
         scoreboard_url="http://127.0.0.1:9106",
     )
 
-    client = _default_client.configure(engine_url="https://chosen.example")
+    client = _default_client.configure(
+        engine_url="https://chosen.example", scoreboard_url="https://chosen-board.example"
+    )
 
     assert client.engine_url == "https://chosen.example"
     assert capsys.readouterr().out == ""

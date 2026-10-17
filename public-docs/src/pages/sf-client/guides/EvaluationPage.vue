@@ -3,7 +3,7 @@ import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
-import { SF_ENGINE_URL } from '@/lib/engine'
+import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -51,7 +51,10 @@ sf.reports.delete(ids[0].id)        # remove it from disk`
 const noSave = `client = sf.Client(engine_url="${SF_ENGINE_URL}", save_results=False)`
 
 const clients = `# once, at the top: every later sf.evaluate() call uses it
-sf.configure(engine_url="${SF_ENGINE_URL}")
+sf.configure(
+    engine_url="${SF_ENGINE_URL}",
+    scoreboard_url="${SF_SCOREBOARD_URL}",
+)
 
 # or hold a client yourself
 client = sf.Client(engine_url="${SF_ENGINE_URL}")
@@ -192,10 +195,11 @@ client.close()`
           </td>
         </tr>
         <tr>
-          <td><code>sf.configure(engine_url=…)</code></td>
+          <td><code>sf.configure(engine_url=…, scoreboard_url=…)</code></td>
           <td>
             Repoints the shared Client so every later <code>sf.evaluate()</code> call uses that
-            engine.
+            engine and its leaderboard. A non-default engine without its
+            <code>scoreboard_url</code> keeps the public leaderboard.
           </td>
         </tr>
         <tr>
@@ -307,9 +311,9 @@ client.close()`
     <p>
       <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured it falls back to
       <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not what you want when the engine
-      you mean is your own, so name it once with <code>sf.configure()</code> and every later call
-      uses it. <code>sf.close()</code> forgets that setting, so name the engine again before the
-      next call.
+      you mean is your own, so name it once with <code>sf.configure()</code>, together with its
+      scoreboard, and every later call uses it. <code>sf.close()</code> forgets that setting, so
+      name the engine again before the next call.
     </p>
 
     <p>

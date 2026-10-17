@@ -374,3 +374,484 @@ def test_a_single_scorer_row_carries_no_named_score_line() -> None:
         "not reproduced",
     ):
         assert marker not in plain
+
+
+# --- OME-1602: shapes the importer used to write wrongly, now refused by name -------------
+
+import sys  # noqa: E402
+from collections.abc import Callable  # noqa: E402
+
+from inspect_ai import Task  # noqa: E402
+from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
+from inspect_ai.model import GenerateConfig  # noqa: E402
+from inspect_ai.scorer import Score, Scorer, Target, accuracy, scorer  # noqa: E402
+from inspect_ai.solver import TaskState  # noqa: E402
+
+from screamingface_engine_inspect.importer import (  # noqa: E402
+    ImporterError,
+    ScorerFacts,
+    _scorer_facts,
+    recorded_scorer_arguments,
+)
+
+
+def extract_answer(completion: str) -> str:
+    """A stand-in for drop's answer extractor: the function a scorer is handed."""
+
+    return completion.strip()
+
+
+@scorer(metrics=[accuracy()])
+def keyed(answer_fn: Callable[[str], str] | None = None) -> Scorer:
+    """A stand-in for drop's scorer, which takes the function that pulls out the answer."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def worded(words: tuple[str, ...] = (), config: GenerateConfig | None = None) -> Scorer:
+    """A stand-in for a scorer whose arguments are a tuple of words and a config object."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value="C")
+
+    return score
+
+
+def _built_with_recorder(made: Callable[[], Scorer]) -> Task:
+    """One-Sample Task whose scorer is created while the import child's recorder listens."""
+
+    with recorded_scorer_arguments():
+        return Task(dataset=MemoryDataset([Sample(input="q", target="a")]), scorer=made())
+
+
+def test_a_function_scorer_argument_is_refused_because_inspect_logs_only_its_name() -> None:
+    """drop's shape: inspect logs answer_fn=extract_answer as the string 'extract_answer',
+    so the row would rebuild the scorer with a string where the eval passed a function."""
+
+    task: Task = _built_with_recorder(lambda: keyed(extract_answer))
+
+    with pytest.raises(
+        ImporterError, match=r"keyed is created with answer_fn='extract_answer'.*function"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_an_object_scorer_argument_is_refused_because_its_logged_dict_is_not_the_object() -> None:
+    """An object inspect logs as a dict was written into the row as that dict, so the row
+    rebuilt the scorer with a dict where the eval passed a GenerateConfig."""
+
+    task: Task = _built_with_recorder(lambda: worded(config=GenerateConfig(temperature=0.0)))
+
+    with pytest.raises(ImporterError, match=r"worded is created with config=.*GenerateConfig"):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_tuple_scorer_argument_still_imports_because_it_round_trips_as_the_logged_list() -> None:
+    """A tuple is logged as the equal list; the row writes the list and nothing is lost."""
+
+    task: Task = _built_with_recorder(lambda: worded(("yes", "no")))
+
+    facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
+
+    assert facts.scorer_kwargs == {"words": ["yes", "no"]}
+
+
+#: A stand-in eval for the import child: each task is the smallest Task with one OME-1602
+#: shape. It proves the child's wiring, not any real eval's scorer.
+GUARDED_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.model import get_model
+    from inspect_ai.scorer import Score, Target, accuracy, scorer
+    from inspect_ai.solver import TaskState
+
+    def extract_answer(completion):
+        return completion.strip()
+
+    @scorer(metrics=[accuracy()])
+    def keyed(answer_fn=None):
+        async def score(state: TaskState, target: Target) -> Score:
+            return Score(value="C")
+        return score
+
+    def _task(scorers):
+        return Task(dataset=MemoryDataset([Sample(input="What is 2 plus 2?", target="4", id=1)]),
+                    scorer=scorers)
+
+    @task
+    def function_argument() -> Task:
+        return _task(keyed(extract_answer))
+
+    @scorer(metrics=[accuracy()])
+    def asks_the_grader():
+        async def score(state: TaskState, target: Target) -> Score:
+            await get_model(role="grader").generate("Is it right?")
+            return Score(value="C")
+        return score
+
+    @task
+    def grader_role() -> Task:
+        return _task(asks_the_grader())
+    """
+)
+
+
+@pytest.fixture
+def guarded_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the OME-1602 stand-in eval where the import child can import it."""
+
+    (tmp_path / "fake_guarded_eval.py").write_text(GUARDED_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_guarded_eval"
+
+
+def test_the_import_child_records_scorer_arguments_so_a_function_argument_is_refused(
+    guarded_eval: str,
+) -> None:
+    """Without the recorder in the child, the function would import as its logged name."""
+
+    with pytest.raises(TaskReplayError, match=r"answer_fn='extract_answer'"):
+        replay_for_import(f"{guarded_eval}:function_argument", None)
+
+
+# F2 — judges the importer did not see: the grader role, the model under test, a panel.
+
+from inspect_ai.model import get_model  # noqa: E402
+from inspect_ai.scorer import exact  # noqa: E402
+
+
+async def _ask_the_grader(question: str) -> str:
+    """A stand-in for a same-package helper that reaches the judge for its scorer."""
+
+    reply = await get_model(role="grader").generate(question)
+    return reply.completion
+
+
+@scorer(metrics=[accuracy()])
+def asks_the_grader() -> Scorer:
+    """A stand-in for simpleqa's scorer: it never names a judge, it asks for the grader role."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(role="grader").generate("Is it right?")
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def asks_through_a_helper() -> Scorer:
+    """The grader role asked one helper down, as anima's scorer does."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await _ask_the_grader("Is it right?")
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def asks_the_candidate() -> Scorer:
+    """A scorer that grades with whatever model is under test: get_model() with no model."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model().generate("Is it right?")
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def counts_tokens(model: str = "openai/gpt-4o") -> Scorer:
+    """A stand-in for math's exact-match scorers: get_model(model) names its model, so the
+    body rule must not read it as a judge."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        get_model(model)
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def panel_of_judges(grader_models: list[str] | None = None) -> Scorer:
+    """A stand-in for fortress's scorer, which grades with a list of judges."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value="C")
+
+    return score
+
+
+def _one_sample_task(scorers: Scorer | list[Scorer]) -> Task:
+    """One-Sample Task with the given scorers, built in this process."""
+
+    return Task(dataset=MemoryDataset([Sample(input="q", target="a")]), scorer=scorers)
+
+
+def test_a_scorer_asking_for_the_grader_role_reads_as_judged_by_that_role() -> None:
+    """simpleqa's shape: no judge kwarg, so the old reader wrote an unjudged row whose
+    grader role nobody binds; the role now takes the judged row's path."""
+
+    facts: ScorerFacts = _scorer_facts(_one_sample_task(asks_the_grader()), sys.modules[__name__])
+
+    assert facts.judge_role == "grader"
+
+
+def test_the_grader_role_asked_by_a_same_package_helper_is_read_too() -> None:
+    task: Task = _one_sample_task(asks_through_a_helper())
+
+    assert _scorer_facts(task, sys.modules[__name__]).judge_role == "grader"
+
+
+def test_a_scorer_that_grades_with_the_model_under_test_is_refused() -> None:
+    """A bare get_model() inside a scorer grades with the Candidate's own model; a Benchmark
+    grades with a pinned judge, never the Candidate."""
+
+    with pytest.raises(ImporterError, match=r"asks_the_candidate reads the model under test"):
+        _scorer_facts(_one_sample_task(asks_the_candidate()), sys.modules[__name__])
+
+
+def test_a_panel_of_judges_is_refused_because_a_benchmark_pins_one_judge() -> None:
+    """fortress's shape: a list of judges passed the old judge check, so the row would call
+    every one of them, unmetered."""
+
+    task: Task = _one_sample_task(panel_of_judges(grader_models=["a/judge-1", "b/judge-2"]))
+
+    with pytest.raises(ImporterError, match=r"panel_of_judges grades with a panel of 2 judges"):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_scorer_that_names_its_own_model_is_not_read_as_a_judge() -> None:
+    """get_model(model) is not the model under test; math's exact-match scorers must stay."""
+
+    facts: ScorerFacts = _scorer_facts(_one_sample_task(counts_tokens()), sys.modules[__name__])
+
+    assert facts.judge_role is None
+
+
+def test_a_role_judged_scorer_beside_an_exact_one_is_dropped_by_name() -> None:
+    """In a multi-scorer Task a judged scorer cannot be seated, whichever way it reaches
+    its judge, so it is dropped by name as before."""
+
+    task: Task = _one_sample_task([asks_the_grader(), exact()])
+
+    facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
+
+    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("asks_the_grader",))
+
+
+def test_the_import_child_carries_the_grader_role_back(guarded_eval: str) -> None:
+    replay: ImportReplay = replay_for_import(f"{guarded_eval}:grader_role", None)
+
+    assert replay.facts.judge_role == "grader"
+
+
+def test_a_grader_role_row_renders_a_todo_judge_that_fills_the_grader_role() -> None:
+    """The TODO judge keeps the row unshippable until a human pins the judge (OME-1240);
+    the role says which judge the scorer asks for (OME-1370)."""
+
+    rows: TaskReplayRows = _rows(
+        _facts(scorer="inspect_evals.simpleqa.scorer:simpleqa_scorer", judge_role="grader")
+    )
+
+    assert 'judge=JudgeSpec(model="TODO", model_role="grader"),' in rows.benchmark
+    assert _benchmark(rows).judge == JudgeSpec(model="TODO", model_role="grader")
+
+
+# F5 — an extra scorer's own whole-run metric
+
+from inspect_ai.scorer import Metric, SampleScore, metric  # noqa: E402
+
+
+@metric
+def harmonic_balance() -> Metric:
+    """A stand-in for stereoset's whole-run formula: not a mean of the per-Case scores."""
+
+    def compute(scores: list[SampleScore]) -> float:
+        return 0.0
+
+    return compute
+
+
+@scorer(metrics=[harmonic_balance()])
+def balanced() -> Scorer:
+    """A stand-in for stereoset's second scorer, scored over the run by its own formula."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value=1.0)
+
+    return score
+
+
+def test_an_extra_scorer_with_its_own_whole_run_metric_is_refused() -> None:
+    """stereoset's shape: only the headline's metric was checked, so the extra scorer's
+    formula quietly became a mean published under its Named Score column."""
+
+    task: Task = _one_sample_task([exact(), balanced()])
+
+    with pytest.raises(
+        ImporterError, match=r"extra scorer balanced scores the whole run with harmonic_balance"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+# F1, review finding: a scorer the recorder never saw ---------------------------------------
+
+#: A Task scored by inspect's multi_scorer, which never passes through the @scorer decorator
+#: the recorder watches. Imported by the import child only.
+MULTI_SCORED_EVAL: str = textwrap.dedent(
+    """
+    from inspect_ai import Task, task
+    from inspect_ai.dataset import MemoryDataset, Sample
+    from inspect_ai.scorer import exact, includes, multi_scorer
+
+    @task
+    def multi_scored() -> Task:
+        return Task(
+            dataset=MemoryDataset([Sample(input="What is 2 plus 2?", target="4", id=1)]),
+            scorer=multi_scorer([exact(), includes()], "mean"),
+        )
+    """
+)
+
+
+@pytest.fixture
+def multi_scored_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Write the multi_scorer stand-in eval where the import child can import it."""
+
+    (tmp_path / "fake_multi_scored_eval.py").write_text(MULTI_SCORED_EVAL, encoding="utf-8")
+    existing: str | None = os.environ.get("PYTHONPATH")
+    monkeypatch.setenv(
+        "PYTHONPATH", str(tmp_path) if not existing else f"{tmp_path}{os.pathsep}{existing}"
+    )
+    return "fake_multi_scored_eval"
+
+
+def test_a_scorer_the_recorder_never_saw_is_refused_because_unrecorded_is_not_clean(
+    multi_scored_eval: str,
+) -> None:
+    """multi_scorer's list of scorers is no literal: read from the log alone, the row would
+    rebuild multi_scorer with no scorers, and the argument check was skipped for want of a
+    record."""
+
+    with pytest.raises(TaskReplayError, match=r"scorer multi_scorer was built without passing"):
+        replay_for_import(f"{multi_scored_eval}:multi_scored", None)
+
+
+# Review findings on the first cut of F2 ---------------------------------------------------
+
+
+@scorer(metrics=[accuracy()])
+def judged_by_default(judge_model: str = "openai/gpt-4o") -> Scorer:
+    """niah's shape: a judge parameter nobody passes, so the scorer grades with its default."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(judge_model).generate("Is it right?")
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def asks_a_role_it_was_given(grader_role: str = "grader") -> Scorer:
+    """hle's shape: the role is an argument, never a literal the reader can name."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(role=grader_role).generate("Is it right?")
+        return Score(value="C")
+
+    return score
+
+
+def test_an_extra_scorer_judging_with_its_default_judge_is_dropped_by_name() -> None:
+    """An extra scorer is built bare at grading time, so its default judge would grade the
+    Named Score outside benchmark identity; it cannot be seated, like any judged scorer."""
+
+    task: Task = _one_sample_task([exact(), judged_by_default()])
+
+    facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
+
+    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("judged_by_default",))
+
+
+def test_a_role_held_in_a_variable_is_refused_because_no_row_can_name_it() -> None:
+    task: Task = _one_sample_task(asks_a_role_it_was_given())
+
+    with pytest.raises(ImporterError, match=r"asks_a_role_it_was_given asks for a model role"):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+# Review findings on the second cut of F2 --------------------------------------------------
+
+from screamingface_engine_inspect.judge_shape import JudgeShape  # noqa: E402
+
+
+@scorer(metrics=[accuracy()])
+def asks_two_roles() -> Scorer:
+    """A scorer with a grader and a critic: the row can bind only one role to its judge."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(role="grader").generate("Is it right?")
+        await get_model(role="critic").generate("Is it fair?")
+        return Score(value="C")
+
+    return score
+
+
+@scorer(metrics=[accuracy()])
+def asks_the_critic() -> Scorer:
+    """One role, but not the grader role assembly binds."""
+
+    async def score(state: TaskState, target: Target) -> Score:
+        await get_model(role="critic").generate("Is it fair?")
+        return Score(value="C")
+
+    return score
+
+
+def test_a_scorer_asking_two_roles_is_refused_because_the_second_would_go_unbound() -> None:
+    """The old reader kept roles[0] only, so a human pinned the grader and the critic role
+    graded with the Candidate's own model."""
+
+    with pytest.raises(ImporterError, match=r"asks_two_roles asks for the model role\(s\) "):
+        _scorer_facts(_one_sample_task(asks_two_roles()), sys.modules[__name__])
+
+
+def test_a_scorer_asking_a_role_other_than_grader_is_refused() -> None:
+    with pytest.raises(
+        ImporterError, match=r"asks_the_critic asks for the model role\(s\) 'critic'"
+    ):
+        _scorer_facts(_one_sample_task(asks_the_critic()), sys.modules[__name__])
+
+
+def test_a_scorer_the_reader_cannot_find_is_refused_because_unread_is_not_judge_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Before, a scorer whose source the reader could not find read as judge-free, and the
+    row landed with no judge bound (sciknoweval's shape reads the same way)."""
+
+    import screamingface_engine_inspect.importer as importer_module
+
+    monkeypatch.setattr(
+        importer_module, "judge_shape", lambda _reference: JudgeShape(unread=("no source",))
+    )
+
+    with pytest.raises(ImporterError, match=r"exact could not be read in full \(no source\)"):
+        _scorer_facts(_one_sample_task(exact()), sys.modules[__name__])
+
+
+def test_a_judge_parameter_left_at_its_default_renders_the_todo_judge() -> None:
+    """niah's shape used to render a judge-free row that only failed later, in CI's
+    assembly lane; the TODO judge fails it by name the moment it is reviewed."""
+
+    rows: TaskReplayRows = _rows(_facts(scorer=f"{__name__}:judged_by_default", scorer_kwargs={}))
+
+    assert 'judge=JudgeSpec(model="TODO"),' in rows.benchmark

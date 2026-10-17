@@ -9,7 +9,7 @@ from fastapi import HTTPException, Request
 from litellm.exceptions import Timeout
 
 from aigateway.config import Settings
-from aigateway.core.provider_access import CredentialTarget, RequestDefaults
+from aigateway.core.provider_access import CredentialTarget
 from aigateway.plugins.taxonomy.collector import RequestAccountingCollector
 from aigateway.plugins.taxonomy.session import AccountingSession
 from aigateway.plugins.taxonomy.types import ProviderUsageAccountingEvidence
@@ -65,7 +65,6 @@ async def test_timeout_preserves_accounting_classification(kind):
                 credential_name="fake:default",
                 context_stamp="fake",
                 reauth_url=None,
-                defaults=RequestDefaults(),
             ),
         )
     assert error.value.status_code == 504

@@ -20,7 +20,7 @@ from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import ProfileDefaults, ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileState, credential_name_for
 from aigateway.core.provider_access import (
     ConnectionBackedProviderAccess,
     PairAuthorityStore,
@@ -142,23 +142,6 @@ def test_a_quarantined_pair_keeps_the_legacy_profile_authority(
     assert authorization.headers["Authorization"] == "Bearer tok"
     marker = legacy.call(PairAuthorityStore().read, legacy.account_id, PROVIDER)
     assert (marker.migration_state, marker.generation) == ("quarantined", 1)
-
-
-def test_defaults_never_consult_the_marker(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    legacy.seed_profile(defaults=ProfileDefaults(max_tokens=64))
-
-    async def unavailable(self: PairAuthorityStore, account_id: str, provider: str) -> Any:
-        raise RuntimeError("marker table unavailable")
-
-    monkeypatch.setattr(PairAuthorityStore, "read", unavailable)
-
-    # D16 (a): request defaults live in the legacy index until the Stage C cutover; op 1 sits ahead
-    # of the response cache and must stay a plain index read.
-    defaults = legacy.call(legacy.access.defaults_for, legacy.account_id, PROVIDER, DEFAULT)
-
-    assert defaults == ProfileDefaults(max_tokens=64)
 
 
 def test_an_unreadable_marker_store_never_falls_back_to_the_legacy_credential(

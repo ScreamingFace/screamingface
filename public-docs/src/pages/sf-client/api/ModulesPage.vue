@@ -12,7 +12,10 @@ import {
 
 const shared = `import screamingface as sf
 
-sf.configure(engine_url="http://127.0.0.1:9108")
+sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
 [(b.id, b.case_count) for b in sf.benchmarks.list()][:3]`
 const sharedOut = `[('healthbench-professional', 525), ('healthbench-worst30', 157), ('ifeval', 541)]`
 
@@ -250,8 +253,11 @@ const evaluateSig = `sf.evaluate(
 
     <p>
       Replaces the shared Client and returns the new one. Call it once, before anything else, to
-      point the module-level functions at a different engine. Setting
-      <code>SCREAMINGFACE_ENGINE_URL</code> in the environment does the same thing without a call.
+      point the module-level functions at a different engine. Pair a
+      non-default <code>engine_url</code> with its own <code>scoreboard_url</code>: without it the
+      Client keeps the public leaderboard, so a local run's <code>submit</code> would publish there.
+      Setting <code>SCREAMINGFACE_ENGINE_URL</code> and <code>SCREAMINGFACE_SCOREBOARD_URL</code> in
+      the environment does the same thing without a call.
     </p>
 
     <h3>connect() and disconnect()</h3>

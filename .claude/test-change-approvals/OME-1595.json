@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1595",
+  "branch": "OME-1595-marketing-p0-fixes",
+  "approver": "Filip Boltuzic (owner)",
+  "date": "2026-10-14",
+  "scope": "two assertions in test_portal_static.py: the spec.html crumb now expects 'submission' (was 'spec'); the board note copy check reads the .note text with html.parser (module-level _NoteText helper) and compares it to the new approved copy instead of a raw substring. Order and retired-wording checks unchanged.",
+  "reason": "marketing P0 copy: 'spec' becomes 'submission' in visible text, and url4 in the board note becomes a link, which splits the old raw-substring sentence",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_static.py": {
+      "base_blob": "5f4124963b97a4313f4970b88664b70878c8e1f4",
+      "approved_blob": "bb16753ecc1ae215353d47531f064cbd5560e274"
+    }
+  }
+}

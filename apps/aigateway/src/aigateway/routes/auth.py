@@ -54,6 +54,7 @@ from ..core.provider_access import (
     begin_connection_oauth,
     claim_observed,
     complete_connection_oauth,
+    credential_name_of,
     facade_target,
     fail_connection_oauth,
     guard_refresh,
@@ -62,6 +63,8 @@ from ..core.provider_access import (
     provider_credential_admin_for,
     reauth_url_for,
     refresh_facade,
+    replace_effective,
+    retire_replaced,
 )
 from .api_key_validation import normalize_api_key, require_valid_api_key
 from .credential_persistence import (
@@ -1093,6 +1096,7 @@ async def _record_oauth_connection_completion(
         return
 
     connection = await _connection_for_pending(store, pending, plugin, label)
+    replaced: list = []
     try:
         # INVARIANT: connection lifecycle operations lock the stable connection row before the
         # optional credential row. The pending-only CAS and credential write commit together, so
@@ -1103,7 +1107,18 @@ async def _record_oauth_connection_completion(
                 # claim and compat-document update commit with the activated row and its blob, or
                 # not at all.
                 await claim_observed(pending.observed_pair)
-                await _mark_profile_authenticated(app, pending, plugin, creds)
+                if pending.replaces_effective is None:
+                    await _mark_profile_authenticated(app, pending, plugin, creds)
+                else:
+                    # FEATURE (OME-1209, E1b, R6): this flow repairs a migrated pair — marker
+                    # first (D14), the old row revoked before this one activates.
+                    # INVARIANT (R6, §8 Q7): a repair writes no Profile document.
+                    await replace_effective(pending.replaces_effective, connection_id=connection.id)
+                    replaced = await retire_replaced(
+                        pending.replaces_effective,
+                        alongside=(connection.id,),
+                        identity_sub=getattr(identity, "sub", None),
+                    )
             elif published is not None:
                 # INVARIANT (OME-1497, G0 D14 refinement): the shadow records the credential this
                 # callback published only while the pair still stands where it was published.
@@ -1125,8 +1140,15 @@ async def _record_oauth_connection_completion(
                 str(activated.id),
                 creds,
             )
+        for row in replaced:
+            _invalidate_credential(
+                app, plugin, credential_name_of(plugin, row, account_id=pending.account_id)
+            )
     except PairAuthorityConflict as exc:
         if pending.connection_id is not None:
+            # WHY: a lost native callback retires its row — a stranded `pending` row would keep
+            # its label taken with nothing to clean it up.
+            await store.mark_revoked(connection, "superseded")
             raise _connection_conflict(pending) from exc
         # WHY no error for a shadow: the Profile publication committed while this flow owned the
         # pair; a later ownership change superseded it, so the shadow row retires without a blob.
@@ -1148,20 +1170,24 @@ async def _record_oauth_connection_completion(
         raise
     except Exception as exc:
         await store.mark_pending_error(connection, "connection_activation_failed")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "connection_activation_failed",
-                "provider": pending.provider,
-                "message": "Could not activate OAuth connection. Try again.",
-            },
-        ) from exc
+        raise _activation_failed(pending) from exc
 
 
 def _connection_conflict(pending: PendingAuthEntry) -> HTTPException:
     return HTTPException(
         status_code=409,
         detail={"code": "connection_conflict", "provider": pending.provider},
+    )
+
+
+def _activation_failed(pending: PendingAuthEntry) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "connection_activation_failed",
+            "provider": pending.provider,
+            "message": "Could not activate OAuth connection. Try again.",
+        },
     )
 
 
@@ -1192,6 +1218,10 @@ async def _handle_duplicate_connection_identity(
     label: str,
     identity,
 ) -> bool:
+    if pending.replaces_effective is not None:
+        # FEATURE (OME-1209, E1b, R6): a repair is never a duplicate — it retires every row of the
+        # pair holding this identity under its row locks (`retire_replaced`) and activates its own.
+        return False
     duplicate = await store.find_by_identity(
         pending.account_id, pending.provider, getattr(identity, "sub", None)
     )
@@ -1217,6 +1247,10 @@ async def _handle_duplicate_connection_label(
         return False
     duplicate_label = await store.find_by_label(pending.account_id, pending.provider, label)
     if duplicate_label is None:
+        return False
+    observed = pending.replaces_effective
+    if observed is not None and duplicate_label.id == observed.effective_connection_id:
+        # WHY: the flow asked for the effective row's own label — that row is being replaced.
         return False
     if pending.connection_id is None:
         return True

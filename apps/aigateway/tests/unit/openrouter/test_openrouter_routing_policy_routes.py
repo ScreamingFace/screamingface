@@ -281,7 +281,11 @@ def test_a_zdr_refusal_embedded_in_a_200_body_still_keeps_the_key_valid(
 
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"]["code"] == "provider_error"
-    assert "No endpoints found" not in resp.text
+    # OME-1136: the provider message is relayed only sanitized.
+    assert (
+        resp.json()["detail"]["upstream_message"]
+        == "No endpoints found that support zero data retention"
+    )
     assert "secret-internal-router" not in resp.text
     assert _active_labels(authenticated_client, account_id) == ["work-openrouter"]
 

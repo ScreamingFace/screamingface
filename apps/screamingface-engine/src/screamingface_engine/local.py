@@ -48,10 +48,16 @@ from screamingface_engine.benchmarks import (
     BenchmarkRegistry,
 )
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
-from screamingface_engine.catalog import build_executable_catalog_service
+from screamingface_engine.catalog import (
+    CatalogError,
+    Credential,
+    ExecutableCatalog,
+    build_executable_catalog_service,
+)
 from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from screamingface_engine.connections import build_connections
 from screamingface_engine.metrics import register_fair_share_metrics
+from screamingface_engine.network_policy import is_numeric_loopback_url
 from screamingface_engine.request_scope import (
     CAPTURE_UNSUPPORTED,
     CAPTURE_UNSUPPORTED_MESSAGE,
@@ -68,6 +74,7 @@ from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.world.config import config_file_digest, load_config
 from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
+from screamingface_engine.world.models.registry import LOCAL_MODEL_PROVIDERS
 from screamingface_engine.world.serving import (
     MountTable,
     NodeMountRoute,
@@ -183,6 +190,32 @@ def _with_local_gateway(settings: Settings) -> Settings:
     if settings.aigateway_base_url is not None:
         return settings
     return settings.model_copy(update={"aigateway_base_url": settings.local_aigateway_base_url})
+
+
+def _local_model_prefixes(settings: Settings) -> tuple[str, ...]:
+    """Dynamic local providers are trusted only through a numeric loopback gateway."""
+    raw = settings.aigateway_base_url
+    if raw is None:
+        return ()
+    if not is_numeric_loopback_url(raw):
+        # WHY no address in the log: configuration may carry private topology. The
+        # actionable policy is fixed and sufficient without echoing operator input.
+        _logger.warning("local model overlay disabled: gateway is not numeric loopback")
+        return ()
+    return tuple(sorted(LOCAL_MODEL_PROVIDERS))
+
+
+async def _refresh_local_catalog(
+    catalog: ExecutableCatalog,
+    identity: Mapping[str, str],
+) -> None:
+    try:
+        await catalog.refresh_local_models(Credential.derive(identity))
+    except CatalogError:
+        # WHY keep scheduling: execution failures belong on the run's stream, not as
+        # a control-plane exception before the caller can subscribe. A prior healthy
+        # snapshot remains usable; an empty one fails through normal route resolution.
+        _logger.warning("local model snapshot refresh failed; using previous snapshot")
 
 
 def _local_activity_configuration(
@@ -443,7 +476,13 @@ def create_local_app(
     settings = _with_local_gateway(settings)
     # Catalog before the runner (OME-880): the runner takes the admitted-model overlay so a
     # dynamically admitted model is routable by the very next local run.
-    catalog = build_executable_catalog_service(settings, run_env)
+    local_model_prefixes = _local_model_prefixes(settings)
+    catalog = build_executable_catalog_service(
+        settings,
+        run_env,
+        local_model_prefixes=local_model_prefixes,
+    )
+
     # FEATURE (OME-908): ONE gate, shared by every local run — the composition point that
     # makes local fair-share dynamic where a deployed Job gets a static budget instead.
     # Built beside the runner (its runs' executors bind into it through `build_executor`'s
@@ -470,6 +509,11 @@ def create_local_app(
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
+        refresh_extra_models=(
+            partial(_refresh_local_catalog, catalog)
+            if catalog is not None and local_model_prefixes
+            else None
+        ),
     )
     # INVARIANT: local mode keeps the caller-managed rows that back its BYOK controls; the
     # read-only availability listing is the deployed (Hosted) Engine policy and must not replace

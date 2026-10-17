@@ -2,9 +2,9 @@
 
 # FEATURE: Stage B Target — a pair whose marker is `migrated` is served from its effective
 # Connection; `none` and `quarantined` pairs take today's Profile-backed path, INHERITED — not
-# copied — so every legacy seam stays live. Op 1 (`defaults_for`) never reads the marker (D16 (a):
-# defaults stay in the legacy index until the Stage C cutover); op 3 is pure. Stage E (OME-1209)
-# deletes the parent and this class becomes the only implementation.
+# copied — so every legacy seam stays live. Op 3 is pure; op 1 (the stored-defaults read) was
+# deleted at Stage E, E2b (OME-1209). Stage E deletes the parent and this class becomes the only
+# implementation.
 # INVARIANT (D14): one authority per pair per call — the marker is read once at the top of
 # `resolve`/`availability`; ops 4–5 follow the target's backing. An unreadable marker store
 # propagates its error: never a silent fall-back to a superseded legacy credential.
@@ -21,6 +21,7 @@ from typing import Any
 
 from ..credential_blob import DispatchObservation, OperationalOutcome
 from ..oauth.models import OAuthConnection
+from .auth_mode import available_auth_modes
 from .connection_authority import (
     MigratedBacking,
     authorize_migrated,
@@ -34,7 +35,7 @@ from .connection_authority import (
 )
 from .pair_authority import PairAuthority, PairAuthorityStore
 from .profile_authorize import oauth_connection_store
-from .profile_backed import ProfileBackedProviderAccess
+from .profile_backed import ProfileBackedProviderAccess, targetless
 from .selector import Selector
 from .types import (
     Authorization,
@@ -97,6 +98,8 @@ class ConnectionBackedProviderAccess(ProfileBackedProviderAccess):
         plugin: Any,
         policy: ResolvePolicy = ResolvePolicy.DISPATCH,
     ) -> CredentialTarget:
+        if available_auth_modes(plugin) == ("none",):
+            return targetless(account_id, plugin)
         pair = await self._markers.read(account_id, provider)
         if pair.migration_state != "migrated":
             target = await super().resolve(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
@@ -9,6 +10,7 @@ from litellm.types.utils import ModelResponse
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.content_parts import check_messages
 from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
@@ -22,6 +24,7 @@ from aigateway.core.plugin_base import (
     OAuthConfig,
     ProviderPluginBase,
 )
+from aigateway.core.provider_error_text import credential_values, plugin_error_message
 from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import GeminiApiKeyValidator
@@ -84,7 +87,7 @@ def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
     return {"Retry-After": str(math.ceil(seconds))}
 
 
-def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
+def _detail_for_error(exc: CustomLLMError, *, forbidden: Iterable[str] = ()) -> dict[str, str]:
     status_code = int(exc.status_code or 502)
     code = "provider_error"
     if status_code in (401, 403):
@@ -93,7 +96,10 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
         code = "rate_limited"
     elif status_code >= 500:
         code = "provider_unavailable"
-    return {"code": code, "message": exc.message}
+    return {
+        "code": code,
+        "message": plugin_error_message(exc.message, status=status_code, forbidden=forbidden),
+    }
 
 
 class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
@@ -287,6 +293,15 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         return await discover_gemini_snapshot(client=client, limits=limits)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        # INVARIANT (OME-1541): refuse here, in the route, every part the adapter cannot
+        # carry, so the caller gets the typed 422 instead of LiteLLM's remapped error — and
+        # never a silent drop.
+        check_messages(
+            body.get("messages") or [],
+            provider="gemini-cli",
+            media_roles=frozenset({"user", "assistant"}),
+            allow_remote_images=False,
+        )
         out = dict(body)
         # API-key fallback is gateway-owned via environment, not caller-supplied per request.
         out.pop("api_key", None)
@@ -327,7 +342,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         except CustomLLMError as exc:
             raise HTTPException(
                 status_code=int(exc.status_code or 502),
-                detail=_detail_for_error(exc),
+                detail=_detail_for_error(exc, forbidden=credential_values(body)),
                 headers=_retry_after_header(exc),
             ) from exc
 

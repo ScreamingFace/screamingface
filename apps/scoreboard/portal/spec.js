@@ -84,7 +84,7 @@
       function () {
         // Hide the button and show a quiet note rather than a hard error.
         P.clear(regionNode);
-        regionNode.appendChild(P.el("p", "quiet", "Run link unavailable for the latest submission."));
+        regionNode.appendChild(P.el("p", "quiet", "Run link unavailable for the latest run."));
         regionNode.hidden = false;
       }
     );
@@ -103,7 +103,7 @@
       specId = P.requireParam("spec");
     } catch (e) {
       P.setStatus(statusNode, "error", "");
-      statusNode.appendChild(document.createTextNode("Missing benchmark or spec. "));
+      statusNode.appendChild(document.createTextNode("Missing benchmark or submission. "));
       statusNode.appendChild(P.link(null, "index.html", "Return to the benchmark list."));
       return;
     }
@@ -120,7 +120,7 @@
     setBenchmarkName(benchmarkId);
     document.title = specId + " — screamingface";
 
-    P.showLoading(statusNode, "Loading spec history…");
+    P.showLoading(statusNode, "Loading submission history…");
     contentNode.hidden = true;
 
     resolveBenchmarkName(benchmarkId).then(setBenchmarkName);
@@ -129,13 +129,13 @@
       function (data) {
         var submissions = (data && data.submissions) || [];
         if (submissions.length === 0) {
-          P.showEmpty(statusNode, "No submissions for this spec yet.");
+          P.showEmpty(statusNode, "No runs of this submission yet.");
           return;
         }
 
         var best = Math.max.apply(null, submissions.map(function (s) { return s.score; }));
         document.getElementById("best-score").textContent = P.formatScore(best);
-        // Bare number: the .stats cell label ("Submissions") carries the word.
+        // Bare number: the .stats cell label ("Runs") carries the word.
         document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
         var body = document.getElementById("history-body");
@@ -151,7 +151,7 @@
       function (err) {
         P.showError(statusNode, P.describeError(err, {
           notFound: "Benchmark not found.",
-          generic: "Could not load spec history — try again later.",
+          generic: "Could not load submission history. Try again later.",
         }));
       }
     );

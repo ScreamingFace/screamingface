@@ -530,6 +530,18 @@ def test_extra_models_join_the_world_additively() -> None:
     assert "/claude-haiku-4-5" in routes_for(section.models)
 
 
+def test_local_extra_models_do_not_claim_web_search_tools() -> None:
+    section = _world(
+        {job_env.EXTRA_MODELS: json.dumps(["local/fixture~model", "ollama/llama3~8b", _TARGET])}
+    ).aigateway
+    assert section is not None
+    specs = {model.id: model for model in section.models}
+
+    assert specs["local/fixture~model"].web_search is False
+    assert specs["ollama/llama3~8b"].web_search is False
+    assert specs[_TARGET].web_search is True
+
+
 def test_an_extra_model_never_replaces_a_declared_spec() -> None:
     section = _world({job_env.EXTRA_MODELS: json.dumps(["claude-haiku-4-5"])}).aigateway
     assert section is not None

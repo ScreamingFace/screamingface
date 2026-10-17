@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import pytest
+from test_combine_evidence_wire import _evidence
 from test_shared_grading_aggregation import MESSAGES, _decode, _selected
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore
@@ -233,6 +234,27 @@ def test_case_operations_move_onto_each_attempt() -> None:
         first.operations,
         second.operations,
     ]
+
+
+def test_a_fusion_attempt_keeps_its_combine_evidence_through_the_fold() -> None:
+    # WHY: a Judge or Vote Fusion records what its combine step decided on the operation, and
+    # that evidence only reads its wire name ``schema``. The fold re-checks the Case, so it
+    # must hand the evidence back under that name; otherwise every judged Case with two
+    # Attempts fails as benchmark_unavailable (ARC-AGI-2 judge twins, 2026-10-15).
+    operation = OperationOutput(
+        operation_id="op_synthesis_1",
+        output="42",
+        finish_reason="stop",
+        accounting=None,
+        combine=_evidence(),
+    )
+    first = _attempt("41", [_check("1", False)], operations=[operation])
+    second = _attempt("42", [_check("1", True)], operations=[operation])
+
+    folded = fold_case_attempts([first, second])
+
+    assert folded.attempts is not None
+    assert [attempt.operations for attempt in folded.attempts] == [[operation], [operation]]
 
 
 def test_one_attempt_is_not_a_fold() -> None:

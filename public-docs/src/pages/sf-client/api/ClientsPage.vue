@@ -93,9 +93,10 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
     <Note>
       <code>DEFAULT_ENGINE_URL</code> is the hosted engine, <code>https://fusion.screamingface.ai</code>,
       so a <code>Client()</code> with no arguments talks to one we operate. To use a local engine,
-      pass its address explicitly, or set <code>SCREAMINGFACE_ENGINE_URL</code> and use the
-      module-level functions. <code>DEFAULT_SCOREBOARD_URL</code> is the public ScreamingFace
-      Leaderboard, <code>https://leaderboard.screamingface.ai</code>. Both constants live in
+      pass its address and its scoreboard explicitly, or set <code>SCREAMINGFACE_ENGINE_URL</code>
+      together with <code>SCREAMINGFACE_SCOREBOARD_URL</code> and use the module-level functions.
+      <code>DEFAULT_SCOREBOARD_URL</code> is the public ScreamingFace Leaderboard,
+      <code>https://leaderboard.screamingface.ai</code>. Both constants live in
       <code>screamingface.client</code>.
     </Note>
 

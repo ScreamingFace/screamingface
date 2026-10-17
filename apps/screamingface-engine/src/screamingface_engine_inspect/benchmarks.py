@@ -25,7 +25,7 @@ from functools import partial
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from screamingface_engine.benchmarks.definition import AnswerRule, BenchmarkOrigin, DifficultyTier
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
@@ -57,6 +57,9 @@ from screamingface_engine_inspect.single_shot import (
 )
 from screamingface_engine_inspect.task_replay import prepare_replayed_cases
 from url4.peer.server import Url4Node
+
+if TYPE_CHECKING:
+    from screamingface_engine_inspect.judge_shape import JudgeShape
 
 
 @dataclass(frozen=True)
@@ -5091,8 +5094,16 @@ def _check_judge_declaration(spec: BenchmarkSpec) -> None:
     model would call that provider directly, unmetered). A judge that fills a model role
     (``JudgeSpec.model_role``) is the exception to "the scorer calls it": the scorer
     names no judge, so :func:`_check_model_role_judge` checks that instead.
+
+    Two judges hide from the kwargs (OME-1602, F2): a list of judges under a judge kwarg
+    (only one can be pinned, so the rest would be called unmetered), and a scorer whose
+    constructor reaches a judge on a judge-free row (a judge parameter nobody passes, or a
+    ``get_model`` call in its body). The constructor is read from its source by
+    :func:`~screamingface_engine_inspect.judge_shape.judge_shape`, never imported.
     """
 
+    _check_no_judge_panel(spec)
+    _check_extra_scorers_reach_no_judge(spec)
     called: list[str] = [
         value
         for value in spec.scorer_kwargs.values()
@@ -5134,8 +5145,90 @@ def _check_judge_declaration(spec: BenchmarkSpec) -> None:
                 'or, with no model kwarg, declare JudgeSpec(..., model_role="grader") so the '
                 "grader role binds to the pinned judge (OME-1370)"
             )
+        _check_scorer_reaches_no_judge(spec, scorer_name)
         return
     _check_declared_judge(spec, spec.judge, called, judge_kwargs)
+
+
+def _check_no_judge_panel(spec: BenchmarkSpec) -> None:
+    """Refuse a list of judges under any judge kwarg (OME-1602, F2).
+
+    WHY: a Benchmark pins ONE judge into its identity. fortress passes
+    ``grader_models=[...]``; the old check found the declared judge among the kwarg values
+    and passed, and every other judge in the list would be called unmetered.
+    """
+
+    # WHY lazy: only the judge check reads the judge-shape module; it imports no eval.
+    from screamingface_engine_inspect.judge_shape import JUDGE_PARAMETERS
+
+    for name, value in spec.scorer_kwargs.items():
+        if name in JUDGE_PARAMETERS and isinstance(value, list | tuple):
+            raise ValueError(
+                f"{spec.key}: scorer kwarg {name} names a panel of {len(value)} judges; a "
+                "Benchmark pins one judge, and the others would be called unmetered, outside "
+                "benchmark identity (OME-1602)"
+            )
+
+
+def _check_extra_scorers_reach_no_judge(spec: BenchmarkSpec) -> None:
+    """Refuse an extra scorer that reaches a judge, whatever the row declares (OME-1602, F2).
+
+    WHY every extra scorer: each is built bare at grading time (no kwargs reach it), so a
+    judge it reaches is never the row's pinned one. The source is read, never imported.
+    """
+
+    for reference in spec.extra_scorers:
+        shape: JudgeShape = _read_scorer_shape(spec, reference)
+        if shape.reaches_a_judge:
+            raise ValueError(
+                f"{spec.key}: extra scorer {reference.rpartition(':')[2]} reaches a judge "
+                f"({shape.described()}); an extra scorer is built bare at grading time, so that "
+                "judge would grade outside benchmark identity (OME-1602)"
+            )
+
+
+def _check_scorer_reaches_no_judge(spec: BenchmarkSpec, scorer_name: str) -> None:
+    """Refuse a judge-free row whose scorer constructor still reaches a judge (OME-1602, F2).
+
+    niah's scorer takes ``judge_model`` and grades with its default when nobody passes it;
+    simpleqa's asks for the grader role inside its body. Neither shows in the kwargs, so
+    the row would grade with a judge outside benchmark identity. The source is read, never
+    imported: assembly runs on the Engine's run path.
+    """
+
+    shape: JudgeShape = _read_scorer_shape(spec, spec.scorer)
+    if shape.reaches_a_judge:
+        raise ValueError(
+            f"{spec.key}: scorer {scorer_name} reaches a judge ({shape.described()}) but the "
+            "row declares no judge, so it would grade outside benchmark identity; declare "
+            "judge=JudgeSpec(...) and pin the judge (OME-1602)"
+        )
+
+
+def _read_scorer_shape(spec: BenchmarkSpec, reference: str) -> JudgeShape:
+    """Read how a row's scorer reaches a judge from its source, refusing by the real cause
+    when the reader could not read it because the scorer's package is not installed at all
+    (OME-1602, F2).
+
+    WHY: a scorer the reader cannot read counts as reaching a judge, so without this the
+    refusal would blame a judge for what is a missing install (``inspect_evals`` on an
+    Engine without the inspect extra). Only an unread result is checked: inspect's own
+    scorers are never read, so they never hit the install check. The source is read,
+    never imported.
+    """
+
+    # WHY lazy: only the judge check reads the judge-shape module; it imports no eval.
+    from screamingface_engine_inspect.judge_shape import judge_shape, missing_package
+
+    shape: JudgeShape = judge_shape(reference)
+    package: str | None = missing_package(reference) if shape.unread else None
+    if package is not None:
+        raise ValueError(
+            f"{spec.key}: scorer {reference.rpartition(':')[2]} comes from {package}, which "
+            "is not installed, so assembly cannot read whether it reaches a judge; install "
+            "the Engine's inspect extra (OME-1602)"
+        )
+    return shape
 
 
 def _check_declared_judge(
@@ -5190,6 +5283,33 @@ def _check_model_role_judge(spec: BenchmarkSpec, role: str, judge_kwargs: dict[s
         raise ValueError(
             f"{spec.key}: the scorer asks for the {asked!r} role but the judge fills "
             f"{role!r} — the pinned judge would never be called (OME-1370)"
+        )
+    _check_scorer_asks_only_the_bound_role(spec, role)
+
+
+def _check_scorer_asks_only_the_bound_role(spec: BenchmarkSpec, role: str) -> None:
+    """Refuse a role-judged row whose scorer reaches any judge but the bound role (F2).
+
+    WHY re-read the scorer here: the row binds ONE role to its pinned judge, and inspect
+    hands every other role, or a bare ``get_model()``, the Candidate's own model, so the
+    Candidate would mark its own answers. Once a human pins the judge, this is the only
+    check that still reads the scorer. The source is read, never imported.
+    """
+
+    shape: JudgeShape = _read_scorer_shape(spec, spec.scorer)
+    others: list[str] = [asked for asked, _ in shape.roles if asked != role]
+    if others or shape.model_under_test or shape.unread:
+        found: str = (
+            f"the role(s) {', '.join(map(repr, others))}"
+            if others
+            else f"get_model() in {shape.model_under_test[0]}"
+            if shape.model_under_test
+            else f"unread: {shape.unread[0]}"
+        )
+        raise ValueError(
+            f"{spec.key}: the judge fills the {role!r} role, but the scorer also reaches "
+            f"{found}; that judge is never bound, so it would grade with the Candidate's own "
+            "model (OME-1602)"
         )
 
 

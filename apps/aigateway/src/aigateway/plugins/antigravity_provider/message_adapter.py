@@ -22,6 +22,8 @@ from typing import Any
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.content_parts import gemini_parts, parse_content, text_only
+
 PROVIDER = "antigravity"
 
 
@@ -45,7 +47,7 @@ def build_generate_content_body(
         if not isinstance(message, dict):
             continue
         if message.get("role") == "system":
-            text = _message_content_text(message.get("content"))
+            text = text_only(message.get("content"), provider=PROVIDER, role="system")
             if text:
                 system_chunks.append(text)
             continue
@@ -129,22 +131,6 @@ def _finish_reason(value: Any) -> str | None:
     }.get(value, value.lower())
 
 
-def _message_content_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                parts.append(item)
-            elif isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if isinstance(text, str):
-                    parts.append(text)
-        return "\n".join(parts)
-    return "" if content is None else str(content)
-
-
 def _message_to_content(message: dict[str, Any]) -> dict[str, Any] | None:
     role = str(message.get("role") or "user")
     if role == "system":
@@ -158,14 +144,19 @@ def _message_to_content(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "functionResponse": {
                     "name": str(message.get("name") or message.get("tool_call_id") or "tool"),
-                    "response": {"content": _message_content_text(message.get("content"))},
+                    "response": {
+                        "content": text_only(message.get("content"), provider=PROVIDER, role="tool")
+                    },
                 }
             }
         )
     else:
-        text = _message_content_text(message.get("content"))
-        if text:
-            parts.append({"text": text})
+        # FEATURE (OME-1541): images and PDFs travel as `inlineData`, in content order.
+        parts.extend(
+            gemini_parts(
+                parse_content(message.get("content"), provider=PROVIDER), provider=PROVIDER
+            )
+        )
 
     tool_calls = message.get("tool_calls")
     if isinstance(tool_calls, list):

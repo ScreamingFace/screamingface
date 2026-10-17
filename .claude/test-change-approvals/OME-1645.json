@@ -1,0 +1,62 @@
+{
+  "issue": "OME-1645",
+  "branch": "OME-1645-delete-dead-chat-shims-and-saved-defaults",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-17",
+  "scope": "Stage E, E2b test fallout only. Retired (pinned a deleted declaration only): test_chat_profile_default_provenance.py (all 4 tests; a docstring-only module remains because whole-file deletion is not approvable); test_provider_access_helpers.py (3 apply_defaults tests, the skip_default plugin knob and its should_apply_profile_default method); test_provider_access_resolve_contract.py (3 defaults_for tests, test_defaults_then_resolve_are_two_independent_reads, and the target.defaults assertions in 3 resolve tests); test_connection_backed_resolve_contract.py (one target.defaults assertion); test_connection_backed_routing.py (test_defaults_never_consult_the_marker); test_provider_access_shims.py (6 shim-only tests; the substitution test now calls the port's resolve directly; the two deleted paths leave the file-size list); test_provider_access_port_shape.py (defaults_for leaves the expected operation set and the stable-port substitute); test_provider_access_import_boundary.py (the routes/chat_credentials.py owner exemption). Mechanical, assertions unchanged: provider_access_fake.py, test_admission_accounting.py, test_model_parameters_discovery_wiring.py, test_no_auth_mode.py, gemini/test_profileless_auth_provenance.py (imports of deleted names and defaults= arguments).",
+  "reason": "OME-1645 deletes the chat shims and the saved-defaults pipeline that Stage C (OME-1323) and A2 (OME-1207) left with no production caller. The retired tests pinned only the deleted declarations; the Stage C suites proving chat ignores stored defaults stay unchanged and green. Owner approved the list on 2026-10-17.",
+  "files": {
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_fake.py": {
+      "base_blob": "b4164a9b3b77a90b02a01a2cca0d1c4d5e646731",
+      "approved_blob": "373bb9077c637923d9190ee500ec89e22dd807d7"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_resolve_contract.py": {
+      "base_blob": "aff1423b085baef13cbd6d20a285b862f0ea63b4",
+      "approved_blob": "fbb3689c89a6860b4b98900362eea81b16424edf"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_routing.py": {
+      "base_blob": "9e4fd4ebb68f4b7f21b3ee99bf0d92ff1715e7b2",
+      "approved_blob": "06a7884a1fa4baf2c66d917342da7534e110bc03"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_helpers.py": {
+      "base_blob": "b6aaad3ee97efd9d3b609bc7de901d21aa6bd5d7",
+      "approved_blob": "82f42aa6dfe563243e2a891b2c08a92ed5bf55f9"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_import_boundary.py": {
+      "base_blob": "51f0926b37d1f258a0d93674a83b68960d9e61b8",
+      "approved_blob": "d3364977333441774564831fb90ce5667b8d94bb"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_port_shape.py": {
+      "base_blob": "df5a9094ce0c05ecdb647043f1d5e11e40b4934d",
+      "approved_blob": "02f3537bc11ebaa186d90161565e3ed0ab451fb1"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_resolve_contract.py": {
+      "base_blob": "73a70b82c47d65bb3c2929f421df1872aae86929",
+      "approved_blob": "f39e8a96eebb081f180745d2090cc3442fc14d33"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_shims.py": {
+      "base_blob": "77433f659b839b357278cc50f14ec78bcea56d2b",
+      "approved_blob": "84c185e294fc9dfff3a1fc61c5dee7f36beefe8f"
+    },
+    "apps/aigateway/tests/unit/core/test_no_auth_mode.py": {
+      "base_blob": "6ec6f28f346eb43314870d7e1ae0693c2e559922",
+      "approved_blob": "b28805fb6d1aaad3d35ab9d13441696c6ee15bb8"
+    },
+    "apps/aigateway/tests/unit/gemini/test_profileless_auth_provenance.py": {
+      "base_blob": "94c456a39fae0c58b91f2ab2b30a3398aa5e5107",
+      "approved_blob": "d8d064022fb362b241997556cd528e0f36947f82"
+    },
+    "apps/aigateway/tests/unit/test_admission_accounting.py": {
+      "base_blob": "d0368b82ec130df15c17121f0cc1755d024c271b",
+      "approved_blob": "730ec308076fd0b157f93453595d12abe1242aa0"
+    },
+    "apps/aigateway/tests/unit/test_chat_profile_default_provenance.py": {
+      "base_blob": "6ba6252af31380b4dfc1f2a856e294739e8a78e3",
+      "approved_blob": "dc6a6672ba4236a24025c471dd8fbc9de34a68bd"
+    },
+    "apps/aigateway/tests/unit/test_model_parameters_discovery_wiring.py": {
+      "base_blob": "7f7a571b3a03cca2ea57e3dee9f86dc912f296cd",
+      "approved_blob": "43e814a490e00413ae57f395bf8021d2c8864795"
+    }
+  }
+}

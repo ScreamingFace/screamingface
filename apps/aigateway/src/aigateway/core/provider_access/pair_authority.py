@@ -146,6 +146,18 @@ class PairAuthorityStore:
             result.append((provider, generation))
         return tuple(result)
 
+    async def hold(self, account_id: str, provider: str, *, expected_generation: int) -> None:
+        """Lock the pair's marker row until the caller's transaction ends, fenced like `advance`:
+        a writer that moved the generation first makes this raise `PairAuthorityConflict`.
+        An unmarked pair (generation 0) has no row and takes no lock."""
+        if expected_generation == UNMARKED_GENERATION:
+            return
+        held = await ProviderCredentialSlot.filter(
+            account_id=account_id, provider=provider, generation=expected_generation
+        ).select_for_update()
+        if not held:
+            raise PairAuthorityConflict(provider, expected_generation)
+
     async def advance(
         self,
         account_id: str,

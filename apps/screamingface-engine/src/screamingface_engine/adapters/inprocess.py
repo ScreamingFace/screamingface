@@ -14,7 +14,7 @@ queue and a worker pool.
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from functools import partial
 
 from screamingface_engine import job_env
@@ -30,10 +30,12 @@ from screamingface_engine.run_evidence import (
 from screamingface_engine.subjects import RUN_ROOT_NODE
 from url4.streaming.interfaces import (
     EventPublisher,
+    ExecStep,
     Executor,
     JobAlreadyExists,
     JobRunnerAtCapacity,
     JobStatus,
+    TraceContext,
     job_name,
 )
 from url4.streaming.lifecycle import run as lifecycle_run
@@ -48,6 +50,33 @@ ExecutorFactory = Callable[[Mapping[str, str]], Executor]
 Takes the env rather than the run's fields so it is satisfied by `runner.main.build_executor`
 verbatim — the same entry point a real Job's process calls, given the same variables.
 """
+
+ExtraModelRefresh = Callable[[Mapping[str, str]], Awaitable[None]]
+"""Refresh dynamic model state for one verified caller before its run env is rendered."""
+
+
+class _PreparedExecutor(Executor):
+    """Build the real executor lazily, inside the already-registered run lifecycle."""
+
+    def __init__(self, prepare: Callable[[], Awaitable[Executor]]) -> None:
+        self._prepare = prepare
+
+    async def execute(
+        self,
+        url4: str,
+        *,
+        trace: TraceContext | None = None,
+    ) -> AsyncIterator[ExecStep]:
+        executor = await self._prepare()
+        steps = executor.execute(url4, trace=trace)
+        try:
+            async for step in steps:
+                yield step
+        finally:
+            close = getattr(steps, "aclose", None)
+            if close is not None:
+                await close()
+
 
 # INVARIANT: strictly above the Client's per-Evaluation fan-out, which is 8 (
 # `_MAX_CANDIDATES_IN_FLIGHT` in `packages/screamingface/src/screamingface/_evaluation/
@@ -95,12 +124,14 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS,
         max_history: int = DEFAULT_MAX_HISTORY,
         extra_models: Callable[[], Sequence[str]] | None = None,
+        refresh_extra_models: ExtraModelRefresh | None = None,
     ) -> None:
         self._stream = stream
         self._factory = executor_factory
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
         # the app runs, and a model admitted a second ago must reach the very next run.
         self._extra_models = extra_models
+        self._refresh_extra_models = refresh_extra_models
         # WHY injected rather than read from os.environ here: the deploy-time half of a run's
         # environment (aigateway base URL, Tavily key, runner config path) is ambient in local
         # mode, and taking it as a parameter is what keeps this class testable without monkey-
@@ -265,22 +296,31 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # is always set. Left to `lifecycle.run`, the id would be minted after this returns and
         # this adapter — and the runner's log context — would never learn it.
         run_traceparent = adopt_or_mint_traceparent(traceparent)
-        env = self._env(
-            topic,
-            url4,
-            deadline_s,
-            run_traceparent,
-            identity,
-            cache,
-            answer_seed=answer_seed,
-            shape=shape,
-            capture=capture,
-            replay_frozen_copy=replay_frozen_copy,
-        )
-        # WHY build the Executor here but resolve its world lazily (inside `execute`): a factory
-        # that raised now would take down the caller's request with nothing on the stream, where a
-        # failure inside the run terminates the topic properly. See `Url4Executor._resolve_world`.
-        executor = self._factory(env)
+
+        def build() -> Executor:
+            env = self._env(
+                topic,
+                url4,
+                deadline_s,
+                run_traceparent,
+                identity,
+                cache,
+                answer_seed=answer_seed,
+                shape=shape,
+                capture=capture,
+                replay_frozen_copy=replay_frozen_copy,
+            )
+            return self._factory(env)
+
+        async def prepare() -> Executor:
+            # FEATURE (OME-1499): refresh runs INSIDE the registered lifecycle, but before
+            # `_env` reads the snapshot. Capacity/topic reservation therefore stays atomic,
+            # and a cold fetch never delays the schedule response before a stream exists.
+            assert self._refresh_extra_models is not None
+            await self._refresh_extra_models(identity or {})
+            return build()
+
+        executor = build() if self._refresh_extra_models is None else _PreparedExecutor(prepare)
         watch = TerminalWatch(self._stream)
         task = asyncio.get_running_loop().create_task(
             lifecycle_run(

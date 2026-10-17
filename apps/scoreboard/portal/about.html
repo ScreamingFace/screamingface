@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>screamingface — about the leaderboard</title>
   <meta name="description" content="What the ScreamingFace leaderboard is, how it works, how to contribute, and who builds it.">
+  <!-- Link previews (Slack, X, LinkedIn, iMessage): crawlers need absolute URLs. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ScreamingFace">
+  <meta property="og:title" content="screamingface — about the leaderboard">
+  <meta property="og:description" content="What the ScreamingFace leaderboard is, how it works, how to contribute, and who builds it.">
+  <meta property="og:url" content="https://leaderboard.screamingface.ai/about.html">
+  <meta property="og:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="The ScreamingFace mark above the wordmark ScreamingFace.ai, on black.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="screamingface — about the leaderboard">
+  <meta name="twitter:description" content="What the ScreamingFace leaderboard is, how it works, how to contribute, and who builds it.">
+  <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="tokens.css">
@@ -16,12 +30,15 @@
   <script src="analytics.js"></script>
 </head>
 <body>
+  <aside class="grant-banner" aria-label="Announcement">
+    <a class="grant-banner__link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Open call for research grants to explore ensembles &amp; routers →</a>
+  </aside>
   <div class="rail" data-section="nav">
     <a class="brand" href="index.html"><span class="m" aria-hidden="true">😱</span> screamingface</a><span class="sep">/</span>
     <nav class="crumbs"><a href="#" class="here">about</a></nav>
     <span class="spacer"></span>
     <nav class="rail-nav" aria-label="Site">
-      <a class="rail-link" href="index.html#benchmarks">benchmarks</a>
+      <a class="rail-link" href="index.html">home</a>
       <a class="rail-link" href="about.html">about</a>
       <a class="rail-link" href="https://github.com/ScreamingFace/screamingface" target="_blank" rel="noopener">github</a>
       <a class="rail-link rail-link--end" href="https://docs.screamingface.ai" target="_blank" rel="noopener">docs</a>
@@ -33,7 +50,7 @@
     <header class="masthead hero" data-section="hero">
       <div class="eyebrow">ScreamingFace · About</div>
       <h1 class="hero-title">A verified map of the quality–cost frontier.</h1>
-      <p class="lead hero-lead">For a given cost, what's the best accuracy anyone can reach — and which combination of models gets there?</p>
+      <p class="lead hero-lead">For a given cost, what's the best accuracy anyone can reach, and which combination of models gets there?</p>
     </header>
 
     <section class="about-section" data-section="thesis">
@@ -52,23 +69,23 @@
     <section class="about-section" data-section="how-it-works">
       <h2 class="section-label">How it works</h2>
       <p>screamingface is an open-source toolkit that makes exploring compositions cheap and community-driven. Ensembles, routers and cascades are written in one shared language and published so the next person starts where the last one finished.</p>
-      <p>Every row on the board is a recipe — one <code>url4</code> line that holds the whole run: the models and their versions, the prompts, the seeds, the benchmark and its revision, the full cost. Calls are pinned and runs feed a shared cache, so replaying a published row is free and building on one costs only the calls that are new, reducing the cost of exploring new compositions.</p>
+      <p>Every row on the board is a recipe, one <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> line that holds the whole run: the models and their versions, the prompts, the seeds, the benchmark and its revision, the full cost. Calls are pinned and runs feed a shared cache, so replaying a published row is free and building on one costs only the calls that are new, reducing the cost of exploring new compositions.</p>
       <p class="about-links"><a class="btn--link" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Read the docs →</a></p>
     </section>
 
     <section class="about-section" data-section="contribute">
       <h2 class="section-label">Contribute</h2>
-      <p>Anyone can submit. Compose a method using <a href="https://docs.screamingface.ai/" target="_blank" rel="noopener">screamingface</a>, compile it to a <code>url4</code> recipe, and publish — code and recipes are open under Apache-2.0, and you keep authorship.</p>
+      <p>Anyone can submit. Compose a method using <a href="https://docs.screamingface.ai/" target="_blank" rel="noopener">screamingface</a>, compile it to a <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> recipe, and publish it. Code and recipes are open under Apache-2.0, and you keep authorship.</p>
       <p class="about-links">
-        <a class="btn--link" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Get started →</a>
-        <a class="btn--link" href="index.html">Browse the board →</a>
+        <a class="btn--link" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started →</a>
+        <a class="btn--link" href="index.html">Browse leaderboards →</a>
         <a class="btn--link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Research grant: Ensembles &amp; Routing →</a>
       </p>
     </section>
 
     <section class="about-section" data-section="who-builds-this">
       <h2 class="section-label">Who builds this</h2>
-      <p>ScreamingFace is built in the open by a community of researchers and engineers, with the support of OpenMined, a non-profit foundation that has spent nearly a decade building open-source infrastructure for AI.</p>
+      <p>ScreamingFace is built in the open by a community of researchers and engineers, with the support of <a href="https://openmined.org" target="_blank" rel="noopener">OpenMined</a>, a non-profit foundation that has spent nearly a decade building open-source infrastructure for AI.</p>
     </section>
 
     <div data-subscribe="all" data-section="subscribe"></div>

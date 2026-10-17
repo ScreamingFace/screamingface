@@ -13,14 +13,24 @@ other omits is a local run that silently diverges from a deployed one.
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
+
+import pytest
 
 from screamingface_engine import job_env
-from screamingface_engine.adapters.inprocess import InProcessJobRunner
+from screamingface_engine.adapters.inprocess import InProcessJobRunner, _PreparedExecutor
 from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
-from url4.streaming.interfaces import ExecStep, Executor, TraceContext
+from url4.streaming.interfaces import (
+    ExecStep,
+    Executor,
+    JobAlreadyExists,
+    JobRunnerAtCapacity,
+    TraceContext,
+)
+from url4.streaming.protocol import LogData
 
 _TARGET = "openrouter/qwen/qwen2.5-7b-instruct"
 
@@ -54,6 +64,35 @@ class _NeverExecutor(Executor):
     ) -> AsyncIterator[ExecStep]:  # pragma: no cover - the run is never started
         raise NotImplementedError
         yield  # pragma: no cover - unreachable; makes this an async generator
+
+
+class _ClosingExecutor(Executor):
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def execute(
+        self, url4: str, *, trace: TraceContext | None = None
+    ) -> AsyncIterator[ExecStep]:
+        try:
+            yield LogData.at("INFO", "prepared")
+            await asyncio.Event().wait()
+        finally:
+            self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_closing_prepared_executor_closes_the_inner_iteration() -> None:
+    inner = _ClosingExecutor()
+
+    async def prepare() -> Executor:
+        return inner
+
+    iterator = _PreparedExecutor(prepare).execute("'hi'")
+    await anext(iterator)
+    close = getattr(iterator, "aclose")
+    await close()
+
+    assert inner.closed
 
 
 def test_the_inprocess_adapter_renders_the_same_key() -> None:
@@ -100,3 +139,84 @@ def test_an_ambient_extra_models_value_is_replaced_not_inherited() -> None:
     env = runner._env("t", "gpt(hi)", 60, None, None, None, None)  # noqa: SLF001
 
     assert job_env.EXTRA_MODELS not in env
+
+
+@pytest.mark.asyncio
+async def test_schedule_refreshes_the_overlay_before_rendering_the_run_env() -> None:
+    overlay: list[str] = []
+    captured: dict[str, str] = {}
+    seen_identity: dict[str, str] = {}
+
+    async def refresh(identity: Mapping[str, str]) -> None:
+        seen_identity.update(identity)
+        overlay.append(_TARGET)
+
+    def executor(env: Mapping[str, str]) -> Executor:
+        captured.update(env)
+        return _NeverExecutor()
+
+    runner = InProcessJobRunner(
+        stream=InMemoryEventStream(),
+        executor_factory=executor,
+        extra_models=lambda: tuple(overlay),
+        refresh_extra_models=refresh,
+    )
+
+    await runner.schedule(
+        "t",
+        "gpt(hi)",
+        60,
+        identity={"X-User-Email": "researcher@example.test"},
+    )
+    await asyncio.sleep(0)
+    await runner.aclose()
+
+    assert seen_identity == {"X-User-Email": "researcher@example.test"}
+    assert json.loads(captured[job_env.EXTRA_MODELS]) == [_TARGET]
+
+
+@pytest.mark.asyncio
+async def test_refresh_does_not_delay_schedule_or_open_an_admission_race() -> None:
+    refreshing = asyncio.Event()
+    release = asyncio.Event()
+
+    async def refresh(_identity: Mapping[str, str]) -> None:
+        refreshing.set()
+        await release.wait()
+
+    runner = InProcessJobRunner(
+        stream=InMemoryEventStream(),
+        executor_factory=lambda _env: _NeverExecutor(),
+        max_concurrent_runs=1,
+        refresh_extra_models=refresh,
+    )
+
+    await asyncio.wait_for(runner.schedule("first", "gpt(hi)", 60), timeout=0.1)
+    await asyncio.wait_for(refreshing.wait(), timeout=0.1)
+    with pytest.raises(JobRunnerAtCapacity):
+        await runner.schedule("second", "gpt(hi)", 60)
+
+    release.set()
+    await runner.aclose()
+
+
+@pytest.mark.asyncio
+async def test_refresh_cannot_open_a_duplicate_topic_window() -> None:
+    release = asyncio.Event()
+
+    async def refresh(_identity: Mapping[str, str]) -> None:
+        await release.wait()
+
+    runner = InProcessJobRunner(
+        stream=InMemoryEventStream(),
+        executor_factory=lambda _env: _NeverExecutor(),
+        max_concurrent_runs=2,
+        refresh_extra_models=refresh,
+    )
+
+    await runner.schedule("same", "gpt(hi)", 60)
+    with pytest.raises(JobAlreadyExists):
+        await runner.schedule("same", "gpt(hi)", 60)
+
+    release.set()
+    await runner.aclose()

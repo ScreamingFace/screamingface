@@ -33,6 +33,9 @@ keeping a second copy, because a route path is exactly ``"/" + id`` and the two 
 allowed to disagree.
 """
 
+LOCAL_MODEL_PROVIDERS = frozenset({"local", "ollama"})
+"""Dynamic providers reachable only through the local Engine's loopback overlay."""
+
 _COLON = ":"
 _TILDE = "~"
 
@@ -182,6 +185,7 @@ EMPTY_MODEL_WORLD = ModelRegistry()
 
 __all__ = [
     "EMPTY_MODEL_WORLD",
+    "LOCAL_MODEL_PROVIDERS",
     "ROUTE_ID_RE",
     "ModelRegistry",
     "ProviderSeed",

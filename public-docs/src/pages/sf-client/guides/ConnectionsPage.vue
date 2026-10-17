@@ -22,7 +22,10 @@ const panel = `sf.connect()`
 
 const script = `sf.connect("openrouter", api_key="sk-or-v1-…")`
 
-const local = `sf.configure(engine_url="http://127.0.0.1:9108")`
+const local = `sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)`
 
 const readState = `{c.provider: c.status for c in sf.connections.list()}`
 const readStateOut = `{'anthropic': 'not_connected',

@@ -30,7 +30,6 @@ from aigateway.core.provider_access import (
     Authorization,
     AvailabilityRow,
     CredentialTarget,
-    RequestDefaults,
     ResolvePolicy,
     Selector,
     SelectorAmbiguous,
@@ -85,15 +84,6 @@ class FakeProviderAccess:
             raise RuntimeError("index unreadable")
         return self.profiles.get((account_id, provider, name))
 
-    async def defaults_for(
-        self, account_id: str, provider: str, selector: Selector
-    ) -> RequestDefaults | None:
-        try:
-            profile = self._read(account_id, provider, selector.name)
-        except Exception:
-            return None
-        return RequestDefaults() if profile is None else profile.defaults
-
     async def resolve(
         self,
         account_id: str,
@@ -118,7 +108,6 @@ class FakeProviderAccess:
             context_stamp=f"acct:{account_id}|prof:{account_id}:{provider}:{selector.name}:"
             f"{profile.state.value}:-",
             reauth_url=reauth_url_for(cast(AuthType, profile.auth_type)),
-            defaults=profile.defaults,
             _backing=("profile", (account_id, provider, selector.name)),
         )
 
@@ -147,7 +136,6 @@ class FakeProviderAccess:
                 reauth_url=reauth_url_for(
                     cast(AuthType, chosen.auth_type), connection_id=chosen.id
                 ),
-                defaults=RequestDefaults(),
                 _backing=("connection", chosen.id),
             )
         if active and selector.is_default:
@@ -164,7 +152,6 @@ class FakeProviderAccess:
             credential_name=None,
             context_stamp=f"acct:{account_id}|anon",
             reauth_url=None,
-            defaults=RequestDefaults(),
             _backing=None,
         )
 

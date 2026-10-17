@@ -127,8 +127,8 @@ management stays outside the notebook so **Run All** never starts or stops local
 shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
 boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
 recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -262,8 +262,8 @@ management stays outside the notebook so **Run All** never starts or stops local
 shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
 boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
 recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf"""),
         nbformat.v4.new_markdown_cell("""\
@@ -271,7 +271,8 @@ import screamingface as sf"""),
 
 Module functions such as `sf.models.list()` use one lazy default Client. `sf.configure()`
 replaces
-that default when an application needs another Engine origin, and `sf.close()` closes it.
+that default when an application needs another Engine origin (named with its Scoreboard), and
+`sf.close()` closes it.
 
 Long-running applications can instead own an explicit Client and close it deterministically.
 This
@@ -595,7 +596,10 @@ On a hosted Engine, `sf.connect()` handles login for you: the panel shows a **Lo
 use — you spend shared credits instead of your own keys.
 
 ```python
-sf.configure(engine_url="https://your-engine.example")
+sf.configure(
+    engine_url="https://your-engine.example",
+    scoreboard_url="https://your-scoreboard.example",
+)
 sf.connect()   # log in via the panel, then pick a provider
 ```
 
@@ -674,8 +678,8 @@ management stays outside the notebook so **Run All** never starts or stops local
 shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
 boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
 recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -805,8 +809,8 @@ management stays outside the notebook so **Run All** never starts or stops local
 shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
 boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
 recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_markdown_cell("""\
 Export `TAVILY_API_KEY` before `screamingface up`: the Gemini, Kimi, DeepSeek, and
 Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that
@@ -963,8 +967,9 @@ management stays outside the notebook so **Run All** never starts or stops local
 author in inspect's shape (origin `screamingface`), served by the same machinery as the imported
 inspect_evals boards, so the plain `screamingface up` Engine does not list them. The
 `just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the
-kernel (see `12_inspect_evals_benchmarks`)."""),
+this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
+`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
+`12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1120,8 +1125,9 @@ services.
 inspect's shape (origin `screamingface`), served by the same machinery as the imported
 inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
 `just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting
-the kernel (see `12_inspect_evals_benchmarks`)."""),
+this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
+`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
+`12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1374,18 +1380,22 @@ local runtime's dependencies — a declared conflict, not an accident). The loca
 Engine is a prerequisite for everything past section 1**: the listing works against any Engine,
 and the first cell of section 2 checks for the imported shelf and stops with guidance rather
 than failing partway through. To browse and run the imported catalogue, point the SDK at an
-inspect-capable Engine before starting the kernel:
+inspect-capable Engine, and at its Scoreboard, before starting the kernel:
 
 ```bash
 export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
+export SCREAMINGFACE_SCOREBOARD_URL="https://<its-scoreboard>"
 ```
 
-Leaving it unset falls back to a running local stack, then to the hosted default.
+A non-default Engine without its Scoreboard is refused, so a run can never publish to the public
+leaderboard by accident. Leaving both unset falls back to a running local stack, then to the
+hosted default.
 
 **Running one yourself, from a checkout.** The `just local-stack-notebooks` recipe above does
 exactly this: it bakes the imported snapshots, serves an inspect-capable Engine beside the
 `screamingface up` stack on a free port — reaching the same Gateway on `:9105`, so only the
-Engine URL changes — and exports `SCREAMINGFACE_ENGINE_URL` for the kernel it opens."""),
+Engine URL changes — and exports `SCREAMINGFACE_ENGINE_URL` and `SCREAMINGFACE_SCOREBOARD_URL`
+for the kernel it opens."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1682,8 +1692,9 @@ services.
 inspect's shape (origin `screamingface`), served by the same machinery as the imported
 inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
 `just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting
-the kernel (see `12_inspect_evals_benchmarks`)."""),
+this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
+`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
+`12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -2226,8 +2237,8 @@ Use `screamingface logs` to inspect startup failures and `screamingface down` wh
 shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
 boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
 recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine before starting the kernel (see
-`12_inspect_evals_benchmarks`).
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`).
 """),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf

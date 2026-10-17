@@ -22,7 +22,7 @@ from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import AuthType, Profile, ProfileState, profile_id_for
 from aigateway.main import create_app
-from aigateway.routes import chat, chat_credentials, chat_dispatch
+from aigateway.routes import chat, chat_dispatch
 
 _MODEL = "anthropic/claude-opus-4-8"
 
@@ -152,7 +152,7 @@ def test_chat_dispatch_modules_reference_no_discovery_machinery() -> None:
         "discover_chat_parameter_snapshot",
         "chat_discovery_source",
     )
-    for module in (chat, chat_credentials, chat_dispatch):
+    for module in (chat, chat_dispatch):
         source = inspect.getsource(module)
         for token in forbidden:
             assert token not in source, f"{module.__name__} references {token}"

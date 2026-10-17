@@ -5,7 +5,7 @@ import CodeBlock from '@/components/ui/CodeBlock.vue'
 import Collapsible from '@/components/ui/Collapsible.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import NbCell from '@/components/nb/NbCell.vue'
-import { SF_ENGINE_URL } from '@/lib/engine'
+import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -21,7 +21,10 @@ len(sf.__all__)   # 82`
 
 const point = `import screamingface as sf
 
-sf.configure(engine_url="${SF_ENGINE_URL}")`
+sf.configure(
+    engine_url="${SF_ENGINE_URL}",
+    scoreboard_url="${SF_SCOREBOARD_URL}",
+)`
 
 const loginCode = `client = sf.Client(engine_url="${SF_ENGINE_URL}")
 client.login()          # a script opens Cloudflare Access in your browser; a notebook prints a link to open
@@ -40,7 +43,10 @@ ScreamingFace is ready.
   export SCREAMINGFACE_ENGINE_URL=http://127.0.0.1:9108
   export SCREAMINGFACE_SCOREBOARD_URL=http://127.0.0.1:9106`
 
-const localPoint = `sf.configure(engine_url="http://127.0.0.1:9108")`
+const localPoint = `sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)`
 
 const localBoth = `sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")`
 
@@ -216,8 +222,9 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       </p>
       <CodeBlock :code="ports" language="bash" />
       <p>
-        If you move the <em>engine</em> port, point the client at the new one:
-        <code>sf.configure(engine_url="http://127.0.0.1:9208")</code>.
+        If you move the <em>engine</em> port, point the client at the new one, next to its
+        scoreboard (a non-default engine always needs both):
+        <code>sf.configure(engine_url="http://127.0.0.1:9208", scoreboard_url=…)</code>.
       </p>
       <p>
         One caveat worth knowing: the environment variables are read by <code>up</code>,
