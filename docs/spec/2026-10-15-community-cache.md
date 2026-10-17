@@ -116,10 +116,14 @@ the same.
    every page would scan the remaining rows each time (~120 scans per full pull) to report a
    number that barely moves. The figure is approximate: rows written during the pull are not
    in it, so if loaded rows pass it (a burst of writes mid-pull) the client may ask again.
-9. **Resume.** The cursor (`next`) is the whole state. The client records `next`, the models
-   filter and the revisions after each page commits, and an interrupted pull continues from the
-   recorded cursor. Loading is idempotent (decision 11), so a page replayed after a crash adds
-   nothing. A recorded cursor is discarded if the filter or revisions differ.
+9. **Resume, within one process.** The cursor (`next`) is the whole state, and the client keeps
+   it in memory: a transient page failure (a dropped connection, a 502/503/504, a timeout) is
+   retried inside the call with backoff, and calling `pull_from_remote` again in the same
+   process with the same `url` and filter continues from the last committed page. Nothing is
+   written to disk: a pull whose process ended (a kernel restart, a killed CLI) starts over.
+   That is cheap because loading is idempotent (decision 11) — a restart only re-downloads
+   pages whose rows are already local, at most a full pull's ~2.4 minutes. An on-disk cursor is
+   a follow-up if restarts start to hurt.
 10. **Revisions on every page.** Each page carries `revisions` (the gateway's
     `active_cache_revisions()`). The client compares them with its local gateway's and stops on
     any mismatch: rows keyed under another revision would load and then never hit. A change
@@ -145,10 +149,35 @@ the same.
     every restored row behind its cursor. Such rows come with the next pull, which in v1 always
     walks from the start (a finished pull ends with `next: null`). A row a restore overwrites mid-pull arrives again later in the same
     pull, and the loader keeps whichever version is already local (decision 11).
-14. **SDK surface.** `sf.cache.pull_from_remote(models=None)` pulls from the hosted Engine into
-    the local gateway, with a progress bar, resuming an interrupted pull (`models=None` pulls
-    everything); `sf.cache.enable()` / `disable()` / `status()` manage the local cache, which
-    becomes on by default (pulled rows only help if it is on). CLI: `screamingface cache pull`.
+14. **SDK surface: one verb and one per-call switch** (settled 2026-10-16).
+    - `sf.cache.pull_from_remote(models=None, *, url=None, progress=None) -> PullResult` pulls
+      into the local gateway database (`<data_dir>/aigateway.sqlite3`). `models=None` pulls
+      everything. `url=None` is the hosted production Engine (`DEFAULT_ENGINE_URL`); it never
+      follows `default_client()` or `SCREAMINGFACE_ENGINE_URL`, which point at the local stack
+      or at wherever runs go — the pull's destination, not its source. Sign-in is the existing
+      in-memory Cloudflare Access flow (one browser login per process). It needs the
+      `screamingface[runtime]` extra (the loader lives in `aigateway`) and imports it lazily, so
+      `import screamingface` stays light. Before the first page it loads the gateway's provider
+      plugins so the local revisions include the adapters' (today `openrouter_adapter`), the ones
+      every hosted row is keyed under. `PullResult` reports rows read, rows added, pages,
+      whether it resumed and whether it finished; an interrupted pull's exception carries the
+      same counts.
+    - Progress follows `evaluate`: `progress=None` shows it in a notebook or an interactive
+      terminal and stays quiet when piped. A notebook gets one card updated in place through an
+      IPython display handle (no `ipywidgets` needed); a terminal gets one line on stderr
+      rewritten in place, or a line per ~10% when not interactive and forced on. Both show rows
+      against `remaining`, rows added, bytes, elapsed and an ETA.
+    - `use_cache: bool = True` on every `evaluate` (`Client`, `AsyncClient`, `sf.evaluate`;
+      Recipes and raw URL4). `False` sends `Cache-Control: no-cache` on the run request, which
+      the Engine collapses to `use-cache: false` on every model call of that run; the report
+      shows them as `bypass` / `opted_out`. `True` sends nothing (the Engine's default is on).
+    - The local gateway caches by default: `screamingface up` sets
+      `AIGW_REQUEST_CACHE_ENABLED=true` as a local default (an exported value still wins).
+      Pulled rows only help when it is on. There is no `enable()` / `disable()` — the operator
+      switch is read at boot, so a function that only took effect after a restart would promise
+      more than it does — and no `status()` for v1.
+    - CLI: `screamingface cache pull [--model M]… [--url U] [--data-dir D]`, always with
+      progress; exit 0 finished, 1 refused or failed (one-line reason), 130 interrupted.
 
 ## Wire contract
 
@@ -220,8 +249,8 @@ Authorization: <any signed-in account>
 Incremental pulls (only rows written since the last pull: write order makes this a matter of
 keeping the last cursor and re-reading a margin before it, but the margin and its interaction
 with restores need their own decision); other filters (`provider`; `version=`, blocked by
-OME-1307); anonymous or CDN distribution; `use_cache=False` on `sf.evaluate`; pushing local
-results to the community cache.
+OME-1307); anonymous or CDN distribution; an on-disk resume cursor; a runtime toggle of the
+local gateway's cache switch; pushing local results to the community cache.
 
 ## Risks
 
