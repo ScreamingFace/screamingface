@@ -12,13 +12,12 @@ Case abstains with the reason ``in_band``; the Engine checks the band before the
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
-from screamingface._signals import is_signal_key
+from screamingface._signals import _finite_number, is_signal_key
 from screamingface.combine_evidence import _GATE_CMPS, _GATE_SOURCES, GateCmp, _is_gate_observe
 from screamingface.judge import Judge
 from screamingface.model import Model
@@ -152,15 +151,7 @@ def _cmp(value: object) -> GateCmp:
 
 def _threshold(value: object) -> float:
     """A finite float; an int is stored as a float, a bool is refused."""
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError("Gate threshold must be a number")
-    try:
-        number = float(value)
-    except OverflowError:  # an int beyond the float range
-        raise ValueError("Gate threshold must be finite") from None
-    if not math.isfinite(number):
-        raise ValueError("Gate threshold must be finite")
-    return number
+    return _finite_number(value, "Gate threshold must be a number", "Gate threshold must be finite")
 
 
 def _check_agreement(observe: str, cmp: GateCmp, threshold: float) -> None:
@@ -193,14 +184,11 @@ def _band_pair(value: object) -> tuple[float, float]:
     a bool is refused (the _threshold rule)."""
     if not isinstance(value, tuple | list) or len(value) != 2:
         raise TypeError(_BAND_PAIR)
+    # WHY both types first: a pair such as (inf, True) is a TypeError, not a ValueError.
     if any(isinstance(item, bool) or not isinstance(item, int | float) for item in value):
         raise TypeError(_BAND_PAIR)
-    try:
-        lo, hi = float(value[0]), float(value[1])
-    except OverflowError:  # an int beyond the float range
-        raise ValueError(_BAND_FINITE) from None
-    if not (math.isfinite(lo) and math.isfinite(hi)):
-        raise ValueError(_BAND_FINITE)
+    lo = _finite_number(value[0], _BAND_PAIR, _BAND_FINITE)
+    hi = _finite_number(value[1], _BAND_PAIR, _BAND_FINITE)
     return (lo, hi)
 
 

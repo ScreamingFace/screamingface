@@ -190,6 +190,24 @@ def _finite(value: float) -> float:
     return number + 0.0
 
 
+def _finite_number(value: object, type_message: str, finite_message: str) -> float:
+    """A number that is not a bool, as a finite float (an int becomes a float).
+
+    TypeError(type_message) for any other value; ValueError(finite_message) for NaN, an infinity
+    or an int beyond the float range. The one check of sf.Gate threshold and abstain_band and of an
+    sf.Sum coefficient (E4b part 6 review P6 #5).
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(type_message)
+    try:
+        number = float(value)
+    except OverflowError:  # an int beyond the float range
+        raise ValueError(finite_message) from None
+    if not math.isfinite(number):
+        raise ValueError(finite_message)
+    return number
+
+
 def _rejection(key: str) -> str:
     if key.startswith(FIELD_SIGNAL_PREFIX):
         return "field signal path must be a JSON path like 'a', 'a.b' or 'a[0].b'"

@@ -10,7 +10,6 @@ sf.Sum (E4b part 6, ans:Q1) is derived: it adds other declared names of the same
 
 from __future__ import annotations
 
-import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -18,7 +17,7 @@ from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._regex_rule import check_signal_pattern
-from screamingface._signals import MAX_DECLARED_SIGNALS, is_signal_name
+from screamingface._signals import MAX_DECLARED_SIGNALS, _finite_number, is_signal_name
 
 
 class SignalSource(ABC):
@@ -238,14 +237,11 @@ def _sum_name(name: object) -> str:
 
 
 def _sum_coefficient(name: str, value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError(f"sf.Sum coefficient of {name!r} must be a number")
-    try:
-        number = float(value)
-    except OverflowError:
-        number = math.inf  # WHY: an int too large for a float is not finite either
-    if not math.isfinite(number):
-        raise ValueError(f"sf.Sum coefficient of {name!r} must be finite")
+    number = _finite_number(
+        value,
+        f"sf.Sum coefficient of {name!r} must be a number",
+        f"sf.Sum coefficient of {name!r} must be finite",
+    )
     if number == 0:  # 0, 0.0 and -0.0
         raise ValueError(f"sf.Sum coefficient of {name!r} must not be zero")
     return number
