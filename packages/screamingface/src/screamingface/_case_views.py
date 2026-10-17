@@ -87,7 +87,9 @@ def _output(case: CaseResult, operation_id: str | None) -> str | None:
 # --- the trace -----------------------------------------------------------------------------------
 
 _EMPTY_FIELDS = ("provider", "model", "cost_usd", "latency_ms", "tokens_in", "tokens_out")
-_UNTRACED_KINDS = frozenset({"judge", "writer"})  # not members: never part of a member's closure
+# not members: never part of a member's closure. A sample call is a step row with no member (N8):
+# an outer combine that reads its Fusion must not give it that Fusion's label (review P7 #1).
+_UNTRACED_KINDS = frozenset({"judge", "writer", "sample"})
 _REDUCE_MODES = MappingProxyType(
     {
         "vote": "select",
@@ -311,7 +313,7 @@ def _label_members(
 
 
 def _closure(graph: Mapping[str, OperationInfo], producer: str) -> set[str]:
-    """The producer plus its ancestors; judge and writer operations are never entered."""
+    """The producer plus its ancestors; judge, writer and sample operations are never entered."""
 
     seen = {producer}
     pending = [producer]
