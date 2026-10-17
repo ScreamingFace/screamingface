@@ -114,14 +114,22 @@ _MEAN_OPS: tuple[frozenset[str], frozenset[str]] = (
 
 # The only select op ids a reduce op pairs with; a reduce op not named here pairs with any select.
 # The endpoint checks it after it resolves the four steps (an unknown operator wins).
-# WHY (E4b part 2, review P2 #1): a reduce op with a rule that leaves a member out (erd §6 X1, X2)
-# records that member "excluded", and the evidence refuses a chosen excluded member (CE-I3). A
-# filter@1 marks such a member 0, and only kept@1 reads a mark as pass or miss; any other select
-# reads the mark as a score and can choose the member. The SDK emits filter@1 only with kept@1.
+# WHY (E4b part 2, review P2 #1, #2): a reduce op with a rule that leaves a member out (erd §6 X1,
+# X2) records that member "excluded", and the evidence refuses a chosen excluded member (CE-I3).
+# Each such reduce op lists the selects that never choose a member it left out:
+# - filter@1 marks such a member 0, and only kept@1 reads a mark as pass or miss; any other select
+#   reads the mark as a score and can choose the member.
+# - by_field@1 chooses by the member's own field value and never reads the reduction, so it pairs
+#   with no reduce op that leaves a member out.
+# The SDK emits only listed pairs. test_combine_exclusion_never_chosen runs every pairing.
 # WHY exact ids, not names: a new version of either op is a new pairing, so it must be listed.
 REDUCE_SELECT_RULES: Mapping[str, frozenset[str]] = MappingProxyType(
     {
+        "by_signal@1": frozenset({"best_holder@1", "max_score@1", "top_k@1"}),
         "filter@1": frozenset({"kept@1"}),
+        "weighted_mean@1": frozenset({"nearest@1", "value@1"}),
+        "weighted_median@1": frozenset({"nearest@1", "value@1"}),
+        "weighted_mode@1": frozenset({"first_holder@1", "max_weight_holder@1"}),
     }
 )
 
