@@ -101,15 +101,15 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
     ]
     if not steps:
         return ""
-    # WHY judge_link and not case_trace: the chip reads only the judge id and model of each step,
-    # so the full trace (every extract and model call entry) is not built (Review P4 #4).
-    links = {
-        op.operation_id: judge_link(op.operation_id, op.combine, graph, case.operations)
-        for op in case.operations
-        if op.combine is not None
-    }
     return "".join(
-        _section(op.operation_id, op.combine, links[op.operation_id], graph)
+        _section(
+            op.operation_id,
+            op.combine,
+            # WHY judge_link and not case_trace: the chip reads only the judge id and model of the
+            # step, so the full trace (every extract and model call entry) is not built.
+            judge_link(op.operation_id, op.combine, graph, case.operations),
+            graph,
+        )
         if op.combine is not None
         else _no_evidence_section(op.operation_id, graph)
         for op in steps
@@ -275,8 +275,7 @@ def _tally_html(evidence: CombineEvidence) -> str:
 def combine_summary_html(candidate: CandidateResult) -> str:
     """Per reducer step: chosen and excluded counts, and declared-signal means (ans:Q1, P13).
 
-    Its own pass over the Cases. The Candidate card does not call it: the card feeds a
-    ``CombineSummary`` from the one pass that also counts the abstained Cases (Review P4 #2).
+    Its own pass over the Cases; the Candidate card feeds a ``CombineSummary`` instead (E7).
     """
     summary = CombineSummary()
     for case in candidate.cases:
@@ -289,7 +288,7 @@ class CombineSummary:
     """The run summary of one Candidate, fed one Case at a time. Dicts keep first-seen order.
 
     WHY fed and not a pass of its own: a saved Candidate decodes a Case on each read (DiskCases),
-    so the card reads the Cases once for this summary and the abstained count (Review P4 #2).
+    so the card reads the Cases once for this summary and the abstained count (E7).
     """
 
     steps: dict[str, _StepSummary] = field(default_factory=dict)

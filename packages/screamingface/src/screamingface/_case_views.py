@@ -144,7 +144,7 @@ def _operation_entries(
 
 
 def _combine_entries(
-    operation_id: str, evidence: CombineEvidence, judge_link: Mapping[str, str | None]
+    operation_id: str, evidence: CombineEvidence, link: Mapping[str, str | None]
 ) -> list[TraceEntry]:
     rule = list(evidence.operators[:-2])
     entries = [
@@ -162,12 +162,12 @@ def _combine_entries(
         )
         for row in evidence.members
     ]
-    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence, judge_link)))
+    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence, link)))
     return entries
 
 
 def _reduce_data(
-    operation_id: str, evidence: CombineEvidence, judge_link: Mapping[str, str | None]
+    operation_id: str, evidence: CombineEvidence, link: Mapping[str, str | None]
 ) -> dict[str, object]:
     return {
         "operation_id": operation_id,
@@ -179,8 +179,8 @@ def _reduce_data(
         "signal": _signal_data(evidence),
         "result": evidence.result.to_dict(),
         "dropped": evidence.dropped,
-        "judge_operation_id": judge_link["judge_operation_id"],
-        "judge_model": judge_link["judge_model"],
+        "judge_operation_id": link["judge_operation_id"],
+        "judge_model": link["judge_model"],
     }
 
 

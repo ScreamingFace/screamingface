@@ -356,9 +356,7 @@ def _card_html(
         state = "complete with warnings"
     else:
         state = "complete"
-    # WHY one pass: a saved Candidate decodes a Case on each read (DiskCases), so the abstained
-    # count (as CandidateResult.abstained_count) and the combine run summary share it
-    # (Review P4 #2).
+    # WHY one pass (E7): the abstained count and the run summary share it; see CombineSummary.
     abstained = 0
     summary = CombineSummary()
     for case in candidate.cases:
