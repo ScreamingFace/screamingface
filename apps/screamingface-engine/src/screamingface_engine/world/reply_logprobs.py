@@ -18,6 +18,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from screamingface_engine.combine.ports import finite_float
 from screamingface_engine.operation_accounting import ReplyLogprobs
 
 
@@ -49,15 +50,10 @@ def _content_entries(data: Mapping[str, Any]) -> list[Any] | None:
 def _log_probability(value: object) -> float | None:
     """A finite number <= 0, as a float, else None. A log-probability is never positive.
 
-    A bool is not a number here, and an integer too large for a float is None.
+    A bool is not a number here, and an integer too large for a float is None (``finite_float``).
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        number = float(value)
-    except OverflowError:
-        return None
-    return number if math.isfinite(number) and number <= 0.0 else None
+    number = finite_float(value)
+    return number if number is not None and number <= 0.0 else None
 
 
 def _logprob_sum(content: Sequence[Any]) -> float | None:
