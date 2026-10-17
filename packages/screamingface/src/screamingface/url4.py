@@ -429,6 +429,8 @@ def _validate_topology(
     # WHY the signals clause (E4b part 7 unit 5): a declared source adds calls, so it must prove
     # its bytes. Hand edit: add a consistency entry to the spec of a plain Median url4; without
     # this clause it rebuilds as an sf.Consistency recipe and replays with no sample calls.
+    # WHY not every combine call (review P7 #5): a replay with an unpinned or wrong-stage operator
+    # must fail with its operator error, which the recompile would hide behind a metadata error.
     if (
         _has_fusion_policy(value)
         or _has_executable_fusion_policy(candidate)
@@ -483,6 +485,8 @@ def _has_executable_fusion_policy(candidate: Expression) -> bool:
 def _has_fusion_policy(value: _RecipeTopology) -> bool:
     # WHY samples (E4b part 7): a sample slot is optional and a panel quorum is policy, so a node
     # with samples is policy even when its markers are hand-removed (the recompile must run).
+    # The signals clause of _validate_topology does not cover it: a hand edit can drop the spec's
+    # signals and the markers but keep the samples rider (review P7 #5).
     if value.quorum != "all" or value.optional or value.samples:
         return True
     children = (*value.members, *value.stages)
