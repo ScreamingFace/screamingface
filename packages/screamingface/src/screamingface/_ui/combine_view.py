@@ -275,23 +275,46 @@ def _tally_html(evidence: CombineEvidence) -> str:
 def combine_summary_html(candidate: CandidateResult) -> str:
     """Per reducer step: chosen and excluded counts, and declared-signal means (ans:Q1, P13).
 
-    One pass over the Cases. A step is in the summary only when a Case has its evidence, so a
-    combine step with no evidence (P19) and the steps of an Attempt (P15) are not counted.
+    Its own pass over the Cases. The Candidate card does not call it: the card feeds a
+    ``CombineSummary`` from the one pass that also counts the abstained Cases (Review P4 #2).
     """
-    steps: dict[str, _StepSummary] = {}
+    summary = CombineSummary()
     for case in candidate.cases:
+        summary.add(case)
+    return summary.html(candidate)
+
+
+@dataclass(slots=True)
+class CombineSummary:
+    """The run summary of one Candidate, fed one Case at a time. Dicts keep first-seen order.
+
+    WHY fed and not a pass of its own: a saved Candidate decodes a Case on each read (DiskCases),
+    so the card reads the Cases once for this summary and the abstained count (Review P4 #2).
+    """
+
+    steps: dict[str, _StepSummary] = field(default_factory=dict)
+
+    def add(self, case: CaseResult) -> None:
+        """Count each combine step of this Case that has evidence.
+
+        A step is in the summary only when a Case has its evidence, so a combine step with no
+        evidence (P19) and the steps of an Attempt (P15) are not counted.
+        """
         for operation in case.operations or ():
             if operation.combine is not None:
-                steps.setdefault(
+                self.steps.setdefault(
                     operation.operation_id, _StepSummary(operation.combine.reducer)
                 ).add(operation.combine)
-    if not steps:
-        return ""
-    graph = {info.id: info for info in candidate.operations}
-    blocks = "".join(
-        _summary_html(operation_id, step, graph) for operation_id, step in steps.items()
-    )
-    return f"<div class='sf-detail__k'>combine</div><div class='sf-cmb'>{blocks}</div>"
+
+    def html(self, candidate: CandidateResult) -> str:
+        """The summary block, one table per step; empty when no Case has combine evidence."""
+        if not self.steps:
+            return ""
+        graph = {info.id: info for info in candidate.operations}
+        blocks = "".join(
+            _summary_html(operation_id, step, graph) for operation_id, step in self.steps.items()
+        )
+        return f"<div class='sf-detail__k'>combine</div><div class='sf-cmb'>{blocks}</div>"
 
 
 @dataclass(slots=True)
