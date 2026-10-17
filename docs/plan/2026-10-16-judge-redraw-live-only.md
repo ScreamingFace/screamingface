@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-1646
 status: implemented
 date: 2026-10-16
 spec: ../spec/2026-10-16-judge-redraw-live-only.md
