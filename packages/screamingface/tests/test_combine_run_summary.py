@@ -531,3 +531,31 @@ def test_card_render_reads_the_cases_in_one_pass() -> None:
 
     assert _card_html(result, report, context=context) == expected
     assert passes == 1
+
+
+# --- Review P4 #5 (erratum E6): a value counts only when its own Case declares the name ----------
+
+
+def test_a_value_counts_only_when_its_own_case_declares_the_name() -> None:
+    # Erratum E6: Case 1 declares conf; Case 2 declares and reads ent, and member_1 also has a conf
+    # value there. Case 2's conf value is not in the conf mean, in either Case order.
+    ent = {"ent": {"source": "verbalized", "pattern": "Entropy: ([0-9]+)"}}
+
+    def wire(conf: float, declared: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        members = [_member(1, "answered", "a", conf, ent=5.0), _member(2, "answered", "a", 1.0)]
+        selected = _wire([*members, _member(3, "answered", "a", 1.0)], "member_1", declared)
+        selected["signal"] = {"key": next(iter(declared)), "order": None}
+        return selected
+
+    declares = _evidence(wire(90.0, _DECLARED))
+    other = _evidence(wire(10.0, ent))
+    conf_cell = (
+        "<td><span class='sf-cmb__n' title='90.0'>90</span>"
+        " <span class='sf-cmb__nn'>n=1</span></td>"
+    )
+    for order in ((declares, other), (other, declares)):
+        cases = tuple(_case(k, evidence) for k, evidence in enumerate(order, start=1))
+        summary = combine_summary_html(_candidate(fixture_graph(3), cases))
+
+        assert _CONF_HEAD in summary
+        assert conf_cell in summary
