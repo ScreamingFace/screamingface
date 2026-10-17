@@ -368,8 +368,13 @@ def _reply_numbers(
     looked: _ReaderNumbers,
 ) -> dict[str, float | None]:
     """One logprob or entropy value per member, from the member's reply numbers (C5). None for a
-    member that a quorum panel left out, or whose reply numbers are unknown."""
+    member that a quorum panel left out, or whose reply numbers are unknown.
+
+    An entropy is None too when the member call did not ask for the declared ``top_logprobs``: an
+    entropy over another k is not the declared signal (C1, C2). One count-only warning per step.
+    """
     numbers: dict[str, float | None] = {}
+    other_k = 0
     for member in spec.members:
         row = looked.get(member) if member in context.outputs else None
         if row is None:
@@ -379,8 +384,34 @@ def _reply_numbers(
             total = finite_float(row.get(REPLY_LOGPROB_SUM))
             numbers[member] = logprob_value(tokens, total, source.form)
         else:
-            numbers[member] = entropy_value(finite_float(row.get(REPLY_ENTROPY_MEAN)))
+            value = entropy_value(finite_float(row.get(REPLY_ENTROPY_MEAN)))
+            if value is not None and _asked_top_logprobs(member, context) != str(
+                source.top_logprobs
+            ):
+                other_k += 1
+                value = None
+            numbers[member] = value
+    if other_k:
+        logger.warning(
+            "combine entropy: %d member(s) asked for a top_logprobs other than the declared one",
+            other_k,
+        )
     return numbers
+
+
+def _asked_top_logprobs(member: str, context: CombineContext) -> str | None:
+    """The ``top_logprobs`` param of the member's one source call; None without one such call.
+
+    WHY the source fingerprint and not ``ReplyLogprobs.top_k``: the reader matches this exact
+    fingerprint to the recorded call, and the connector sets ``top_k`` from the same body param,
+    so both give the same k; the fingerprint is already in the core and keeps the port keys as
+    they are.
+    """
+    calls = {} if context.sources is None else context.sources.get(member, {})
+    if len(calls) != 1:
+        return None
+    ((_, params),) = calls.values()
+    return dict(params).get("top_logprobs")
 
 
 def _declared_numbers(

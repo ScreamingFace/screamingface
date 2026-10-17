@@ -260,6 +260,10 @@ def _check_signals(spec: CombineSpec) -> None:
         raise ValueError(f"signals must declare 1 to {MAX_DECLARED_SIGNALS} names")
     if not all(is_signal_name(name) for name in signals):
         raise ValueError("signals has a name that is not a declared signal name")
+    # WHY at most one (C1): every member call asks for one `top_logprobs`, so two entropy sources
+    # could not each get the k they declare.
+    if sum(isinstance(entry, EntropySource) for entry in signals.values()) > 1:
+        raise ValueError("signals declares more than one entropy source")
 
 
 def _check_members(members: list[str]) -> None:
