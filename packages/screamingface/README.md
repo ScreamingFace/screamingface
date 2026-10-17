@@ -991,6 +991,10 @@ call.
 - `sf.Entropy(top_logprobs=5)` is the mean token entropy of the reply, in nats, from the first
   `top_logprobs` alternatives of each token (1 to 20, default 5). A lower entropy means a more
   certain model.
+- `sf.Sum({name: coefficient, ...})` adds other declared signals of the same member, each
+  multiplied by a fixed coefficient (see "Sum signals and the abstain band").
+- `sf.Consistency(n, temperature=1.0)` is the share of `n` extra answers of the member that equal
+  its answer (see "Consistency samples").
 
 Each row is one recipe that you can copy. Each recipe runs offline in the Engine's tests, from the
 url4 that the SDK compiles.
@@ -1302,7 +1306,9 @@ rule that reads a missing value leaves the member out, as for any declared signa
 Each member makes n more calls on every Case: a Fusion of M members makes M × n extra calls, and
 you pay for them. The extra calls run also when the member call fails. A failed extra call does
 not fail the Case: the value is the share of matches over the extra calls that answered, and when
-every extra call fails, the value is missing. The extra calls use fixed seeds that the recipe
+every extra call fails, the value is missing. The extra answers go into the combine context
+with the member answers, so many long extra answers can pass the 64 MiB context limit; the step
+then fails with `combine_input_too_large`. The extra calls use fixed seeds that the recipe
 sets, so a replay returns the same samples; they do not change with the run seed. The free
 preflight checks that each member's model takes `seed` and `temperature` before any call.
 
