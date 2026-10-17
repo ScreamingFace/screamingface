@@ -27,6 +27,7 @@ from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.sqlite_loader import (
     PageLoad,
     PageRejected,
+    check_database,
     check_revisions,
     load_page,
 )
@@ -187,6 +188,52 @@ def test_a_gateway_database_from_before_the_metadata_column_is_refused(tmp_path:
     assert "metadata_json" in str(refused.value)
     with sqlite3.connect(old) as conn:
         assert conn.execute("select count(*) from request_cache_entries").fetchone() == (0,)
+
+
+# --- checking a database before a pull -----------------------------------------------------------
+
+
+def test_a_gateway_database_the_orm_created_passes_the_check(database: Path) -> None:
+    check_database(database)
+
+
+def test_the_check_refuses_a_file_that_is_not_a_gateway_database(tmp_path: Path) -> None:
+    other = tmp_path / "other.sqlite3"
+    with sqlite3.connect(other) as conn:
+        conn.execute("create table something_else (x)")
+
+    with pytest.raises(PageRejected) as refused:
+        check_database(other)
+
+    assert refused.value.reason == "not_a_gateway_database"
+
+
+def test_the_check_refuses_a_gateway_database_from_before_the_metadata_column(
+    tmp_path: Path,
+) -> None:
+    old = tmp_path / "old.sqlite3"
+    with sqlite3.connect(old) as conn:
+        conn.execute(
+            "create table request_cache_entries (id, key_hash unique, prompt_hash, provider,"
+            " model, response_json, response_size_bytes, created_at, updated_at, expires_at,"
+            " last_hit_at, hit_count)"
+        )
+
+    with pytest.raises(PageRejected) as refused:
+        check_database(old)
+
+    assert refused.value.reason == "outdated_gateway_database"
+    assert "metadata_json" in str(refused.value)
+
+
+def test_the_check_refuses_a_missing_database_without_creating_it(tmp_path: Path) -> None:
+    missing = tmp_path / "aigateway.sqlite3"
+
+    with pytest.raises(PageRejected) as refused:
+        check_database(missing)
+
+    assert refused.value.reason == "not_a_gateway_database"
+    assert not missing.exists()
 
 
 # --- revisions -----------------------------------------------------------------------------------
