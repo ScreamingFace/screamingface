@@ -50,7 +50,7 @@ from screamingface._operation_bindings import (
     OPERATION_BINDING_PARAM,
 )
 from screamingface.blocks import Reduce
-from screamingface.reducer import _FALLBACK_JUDGE_KEY, Reducer, _ModelSignal
+from screamingface.reducer import _JUDGE_CALL_KEYS, Reducer, _ModelSignal
 from screamingface.signal_sources import (
     SignalSource,
     declared_from_spec,
@@ -87,7 +87,6 @@ _CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}(?:, sources: \{.*\})?\}\Z"
 _SIGNAL_KEY = re.compile(r"([A-Za-z0-9_]+): '")
 # A call that reads a quorum Fusion's broadcast panel (OME-1289 unit 13).
 _PANEL_CONTEXT = re.compile(r"\bpanel: '\$panel_\d+'")
-_JUDGE_CALL = "judge"  # the _ModelSignal key of a judge call
 
 
 class Url4(str):
@@ -575,7 +574,7 @@ def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSig
     )
     field = _projected_field(signal, calls, call)
     prompt = call.prompt
-    if signal.key in (_JUDGE_CALL, _FALLBACK_JUDGE_KEY):
+    if signal.key in _JUDGE_CALL_KEYS:
         # Lazy: screamingface.judge imports the reducer registry that this module also feeds.
         from screamingface.judge import outputs_form_prompt
 

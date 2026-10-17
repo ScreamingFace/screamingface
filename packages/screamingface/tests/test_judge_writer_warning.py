@@ -297,8 +297,16 @@ def _label_judge(route: str = JUDGE_ROUTE) -> sf.Judge:
             judge=_judge("openrouter/c/d"),
             gate=sf.Gate("agreement", ">=", 0.9, otherwise=_label_judge()),
         ),
+        # both judges use the writer's model: still one warning
+        sf.Vote(
+            extract="last_number",
+            normalize="numeric",
+            weights=sf.signal("score:judge"),
+            judge=_judge(),
+            gate=sf.Gate("agreement", ">=", 0.9, otherwise=_label_judge()),
+        ),
     ],
-    ids=["gate-fallback-judge", "scores-judge-and-gate-fallback-judge"],
+    ids=["gate-fallback-judge", "scores-judge-and-gate-fallback-judge", "both-judges-same-route"],
 )
 def test_gate_fallback_judge_then_same_model_writer_warns(synthesizer: Reducer) -> None:
     pipeline = sf.Pipeline(
