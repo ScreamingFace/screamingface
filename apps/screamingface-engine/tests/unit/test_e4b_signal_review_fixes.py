@@ -131,6 +131,8 @@ def test_engine_accepts_a_logprob_prob_vote_weight() -> None:
     """P14: ``logprob`` in the form ``prob`` is a probability, so it can weight a vote (control)."""
     spec = _weighted_by({"source": "logprob", "form": "prob"})
     context = context_text(["A", "A", "B"], sources=_sources())
+    # WHY "": no member reader, so every weight is None and the vote abstains; the test checks
+    # only that the spec is not refused.
     assert run(spec_text(spec), context, registry=BUILTIN_OPERATORS).output == ""
 
 
@@ -187,4 +189,25 @@ def _reference_verbalized(text: str, pattern: str, ignore_case: bool) -> float |
 def test_verbalized_value_matches_the_str_scan(text: str, pattern: str, ignore_case: bool) -> None:
     """P3 #4: a faster scan keeps the last-match rule and the window exactly."""
     args = MappingProxyType({"pattern": pattern, "ignore_case": ignore_case})
+    assert verbalized_value(text, args) == _reference_verbalized(text, pattern, ignore_case)
+
+
+@pytest.mark.parametrize(
+    ("text", "pattern", "ignore_case", "expected"),
+    [
+        ("a 1 22 3b 4", r"\b([0-9])\b", False, 4.0),
+        ("x\n12\n7 y\n34\nz", r"(?m)^([0-9]+)$", False, 34.0),
+        ("abc 5", r"(\pL+) [0-9]", False, None),  # the group is letters: not a number
+        ("café 5", r"(\pL+) [0-9]", False, None),  # non-ASCII: the str scan
+        ("k K", "(?i)(K)", True, None),  # the group is a letter: not a number
+        ("7x8x", "([0-9]?)x", False, 8.0),
+    ],
+)
+def test_verbalized_value_on_word_line_and_class_patterns(
+    text: str, pattern: str, ignore_case: bool, expected: float | None
+) -> None:
+    """P3 #4: word boundaries, multi-line anchors, Unicode classes, case folding and an optional
+    group read the same on the bytes scan as on the str scan."""
+    args = MappingProxyType({"pattern": pattern, "ignore_case": ignore_case})
+    assert verbalized_value(text, args) == expected
     assert verbalized_value(text, args) == _reference_verbalized(text, pattern, ignore_case)
