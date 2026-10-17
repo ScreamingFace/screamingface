@@ -78,6 +78,8 @@ class _Source:
 
 
 class _Gateway:
+    name = "aigateway.sqlite3"
+
     def __init__(self, *, refuse_revisions: bool = False, refuse_prepare: bool = False) -> None:
         self.loaded: list[str] = []
         self.checked: list[dict[str, str]] = []
@@ -316,3 +318,87 @@ def test_progress_shows_rows_against_the_counted_total() -> None:
     assert [(u.rows_read, u.total) for u in updates] == [(2, 3), (3, 3)]  # type: ignore[union-attr]
     assert report.events[0] == ("preparing", "https://engine.test")
     assert report.events[-1][0] == "finished"
+
+
+def test_an_unexpected_failure_stops_the_progress_and_reaches_the_caller_as_itself() -> None:
+    failure = ValueError("disk on fire")
+
+    class _Broken(_Gateway):
+        def load(self, rows: Any, result: PullResult) -> int:
+            raise failure
+
+    report = _Report()
+    with pytest.raises(ValueError) as raised:
+        _run(_Source({None: [_page(["a"], None)]}), _Broken(), report=report)
+
+    assert raised.value is failure
+    assert report.events[-1] == ("stopped", "ValueError: disk on fire")
+
+
+def test_a_pull_into_another_database_does_not_continue_the_first_ones() -> None:
+    class _Elsewhere(_Gateway):
+        name = "elsewhere/aigateway.sqlite3"
+
+    with pytest.raises(CachePullError):
+        _run(_Source({None: [_page(["a"], "c1")], "c1": [TransientPageError("x")]}), _Gateway())
+
+    source = _Source({None: [_page(["a", "b"], None)]})
+    result = _run(source, _Elsewhere())
+
+    assert source.requests == [(None, True)]
+    assert result == PullResult(rows_read=2, rows_added=2, pages=1, resumed=False, complete=True)
+
+
+@pytest.mark.parametrize(
+    "first_attempt",
+    [
+        pytest.param({"gateway": _Gateway(refuse_prepare=True)}, id="refused-destination"),
+        pytest.param(
+            {"pages": {None: [AuthenticationError("signed out", code="authentication_required")]}},
+            id="failed-first-page",
+        ),
+    ],
+)
+def test_an_attempt_that_completed_no_page_leaves_nothing_to_resume(
+    first_attempt: dict[str, Any],
+) -> None:
+    pages = first_attempt.get("pages", {None: [_page(["a"], None)]})
+    with pytest.raises(CachePullError):
+        _run(_Source(pages), first_attempt.get("gateway", _Gateway()))
+
+    assert pull_module._CURSORS == {}
+    result = _run(_Source({None: [_page(["a"], None)]}), _Gateway())
+    assert result.resumed is False
+
+
+def test_a_resumed_calls_progress_knows_where_this_call_started() -> None:
+    gateway = _Gateway()
+    with pytest.raises(CachePullError):
+        _run(_Source({None: [_page(["a"], "c1")], "c1": [TransientPageError("x")]}), gateway)
+
+    report = _Report()
+    _run(_Source({"c1": [_page(["b"], None)]}), gateway, report=report)
+
+    updates = [event for kind, event in report.events if kind == "update"]
+    assert [(u.rows_read, u.rows_at_start) for u in updates] == [(2, 1)]  # type: ignore[union-attr]
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "waited"),
+    [(None, 2.0), (1.0, 2.0), (30.0, 30.0), (600.0, 60.0)],
+    ids=["no-hint", "shorter-than-backoff", "longer-than-backoff", "capped"],
+)
+def test_a_retry_waits_for_the_engines_retry_after_within_a_cap(
+    retry_after: float | None, waited: float
+) -> None:
+    slept: list[float] = []
+    source = _Source(
+        {None: [TransientPageError("rate limited", retry_after=retry_after), _page(["a"], None)]}
+    )
+
+    result = run_pull(
+        source, _Gateway(), models=(), report=_Report(), sleep=slept.append, clock=lambda: 0.0
+    )
+
+    assert slept == [waited]
+    assert result.complete is True

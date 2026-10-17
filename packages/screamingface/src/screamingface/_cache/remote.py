@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Final
 
+from screamingface._core.retry import _RETRYABLE_STATUS, _retry_after_seconds
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface.errors import AuthenticationError, PlanningError
 
@@ -21,13 +22,14 @@ if TYPE_CHECKING:
     import httpx
 
 _ENTRIES_PATH: Final = "/v1/cache/entries"
-# 502/503/504 are the edge or the gateway being briefly unable to answer; the same page is asked
-# for again. Every other failure is a fact about the request, not about the moment.
-_TRANSIENT_STATUSES: Final = frozenset({502, 503, 504})
 
 
 class TransientPageError(Exception):
     """This page could not be read just now; asking for it again may succeed."""
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class HostedPages:
@@ -67,7 +69,8 @@ class HostedPages:
                     response.read()
                     _raise_for(response)
                 yield response.iter_lines(), lambda: response.num_bytes_downloaded
-        except httpx.TransportError as exc:
+        # WHY DecodingError: a gzip stream cut or garbled in transit reads as corrupt, not dropped.
+        except (httpx.TransportError, httpx.DecodingError) as exc:
             raise TransientPageError(
                 f"the Engine could not be reached ({type(exc).__name__})"
             ) from exc
@@ -77,8 +80,13 @@ def _raise_for(response: httpx.Response) -> None:
     from screamingface._engine.transport import _problem_parts
 
     status = response.status_code
-    if status in _TRANSIENT_STATUSES:
-        raise TransientPageError(f"the Engine answered {status}")
+    # WHY the SDK's shared set: a page crosses the same Cloudflare edge as every other call, and
+    # the Engine's own cache route answers 429 + Retry-After when reads are rate limited. Every
+    # other status is a fact about the request, not about the moment.
+    if status in _RETRYABLE_STATUS:
+        raise TransientPageError(
+            f"the Engine answered {status}", retry_after=_retry_after_seconds(response)
+        )
     detail, code, details = _problem_parts(response)
     if status in {401, 403}:
         raise AuthenticationError(

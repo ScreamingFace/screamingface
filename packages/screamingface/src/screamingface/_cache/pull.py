@@ -6,9 +6,11 @@ Page after page from the hosted Engine into the local gateway, until the cursor 
 - every page header's revisions are checked before any of its rows is loaded;
 - rows are loaded in batches as the page streams in, so download and load overlap and no page is
   held whole;
-- a transient failure (a dropped connection, 502/503/504, a cut page) is retried with backoff;
-- the cursor is kept in memory per `(url, models)`, so calling again in the same process after a
-  failure continues from the last completed page (spec decision 9: nothing is written to disk).
+- a transient failure (a dropped connection, a rate limit or edge error, a cut or garbled page) is
+  retried with backoff, waiting longer when the Engine's `Retry-After` asks to;
+- the cursor is kept in memory per `(url, models)`, together with the database it loads into, so
+  calling again in the same process after a failure continues from the last completed page into
+  the same database (spec decision 9: nothing is written to disk).
 
 INVARIANT: the cursor only ever advances past a page that ended with its trailer. Rows loaded from
 a page that did not are still valid entries, and loading them again adds nothing.
@@ -37,6 +39,10 @@ if TYPE_CHECKING:
 # (~14 s) without turning a genuinely unavailable Engine into a minute of silence.
 _ATTEMPTS: Final = 4
 _BACKOFF_S: Final = (2.0, 4.0, 8.0)
+# WHY a cap on `Retry-After`: a rate-limit hint is honoured, but one of minutes would leave the pull
+# silent that long. A longer hint waits the cap; a limit that outlasts every attempt stops the
+# pull with "call again", which continues from the last loaded page.
+_RETRY_AFTER_CAP_S: Final = 60.0
 
 
 class PageSource(Protocol):
@@ -49,6 +55,9 @@ class PageSource(Protocol):
 
 
 class Destination(Protocol):
+    @property
+    def name(self) -> str: ...
+
     def prepare(self) -> None: ...
 
     def check(self, remote: Any, result: PullResult) -> None: ...
@@ -60,6 +69,7 @@ class Destination(Protocol):
 class _Cursor:
     """One pull's progress, kept for a repeat call in the same process."""
 
+    destination: str
     after: str | None = None
     rows_read: int = 0
     rows_added: int = 0
@@ -68,6 +78,9 @@ class _Cursor:
 
 # INVARIANT (spec decision 9): process memory only. A finished pull's entry is removed, so the
 # next call starts over — a v1 pull always walks from the start.
+# INVARIANT: an entry exists only once a page has completed, and is continued only into the
+# database it was loading. A refused or failed first attempt leaves nothing to resume, and a call
+# into another database starts over rather than skip the pages it never received.
 _CURSORS: dict[tuple[str, tuple[str, ...]], _Cursor] = {}
 
 
@@ -111,6 +124,11 @@ def run_pull(
     except KeyboardInterrupt:
         report.stopped(loop.snapshot(), "interrupted")
         raise
+    except Exception as error:
+        # INVARIANT: every call that started the display stops it. An error nobody anticipated
+        # still reaches the caller as itself, with its own traceback.
+        report.stopped(loop.snapshot(), f"{type(error).__name__}: {error}")
+        raise
 
 
 class _Loop:
@@ -128,11 +146,13 @@ class _Loop:
         self._source = source
         self._destination = destination
         self._key = key
-        self._resumed = key in _CURSORS
-        self._cursor = _CURSORS.setdefault(key, _Cursor())
+        saved = _CURSORS.get(key)
+        self._resumed = saved is not None and saved.destination == destination.name
+        self._cursor = saved if saved and self._resumed else _Cursor(destination.name)
         self._report = report
         self._clock = clock
         self._started = clock()
+        self._rows_at_start = self._cursor.rows_read
         self._total: int | None = None
         self._bytes_before = 0
         self._bytes: Callable[[], int] = lambda: 0
@@ -143,8 +163,10 @@ class _Loop:
             after = _with_retries(partial(self.page, count=first), self, sleep)
             first = False
             self._cursor.after, self._cursor.pages = after, self._cursor.pages + 1
-            if after is None:
-                del _CURSORS[self._key]
+            if after is not None:
+                _CURSORS[self._key] = self._cursor
+            else:
+                _CURSORS.pop(self._key, None)
                 result = self.result(complete=True)
                 self._report.finished(self.snapshot(), result)
                 return result
@@ -189,6 +211,7 @@ class _Loop:
             total=self._total,
             bytes_received=self._bytes_before + self._bytes(),
             elapsed_s=self._clock() - self._started,
+            rows_at_start=self._rows_at_start,
         )
 
 
@@ -206,7 +229,8 @@ def _with_retries(
                     hint="Call pull_from_remote() again to continue from the last loaded page.",
                     result=loop.result(complete=False),
                 ) from exc
-            sleep(_BACKOFF_S[attempt])
+            hint = exc.retry_after if isinstance(exc, TransientPageError) else None
+            sleep(max(_BACKOFF_S[attempt], min(hint or 0.0, _RETRY_AFTER_CAP_S)))
         except MalformedPage as exc:
             raise CachePullError(
                 f"The hosted Engine sent a page this client cannot read: {exc}",

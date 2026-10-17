@@ -105,3 +105,16 @@ def test_an_interrupted_pull_exits_130(
 
     assert exited.value.code == 130
     assert "starts over" in capsys.readouterr().err
+
+
+def test_an_empty_model_name_is_a_usage_error_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = _pull(monkeypatch)
+
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["cache", "pull", "--model", "", "--data-dir", str(tmp_path)])
+
+    assert exited.value.code == 2
+    assert "--model" in capsys.readouterr().err
+    assert calls == []

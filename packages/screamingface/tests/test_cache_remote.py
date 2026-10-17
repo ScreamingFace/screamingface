@@ -158,3 +158,38 @@ def test_any_other_refusal_carries_the_engines_problem_detail() -> None:
 
     assert "bad model" in raised.value.message
     assert raised.value.status == 422
+
+
+def test_a_corrupt_compressed_page_is_transient() -> None:
+    class _Corrupt(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"not gzip at all"
+
+    source, _ = _source(
+        lambda _r: httpx.Response(200, stream=_Corrupt(), headers={"content-encoding": "gzip"})
+    )
+
+    with (
+        pytest.raises(TransientPageError, match="DecodingError"),
+        source.open(after=None, count=False) as (lines, _bytes),
+    ):
+        list(lines)
+
+
+@pytest.mark.parametrize("status", [408, 429, 520, 524])
+def test_the_sdks_shared_retryable_statuses_are_transient(status: int) -> None:
+    source, _ = _source(lambda _r: httpx.Response(status))
+
+    with pytest.raises(TransientPageError) as raised, source.open(after=None, count=False):
+        pass
+
+    assert raised.value.retry_after is None
+
+
+def test_a_rate_limited_page_carries_the_engines_retry_after() -> None:
+    source, _ = _source(lambda _r: httpx.Response(429, headers={"retry-after": "7"}))
+
+    with pytest.raises(TransientPageError) as raised, source.open(after=None, count=False):
+        pass
+
+    assert raised.value.retry_after == 7.0

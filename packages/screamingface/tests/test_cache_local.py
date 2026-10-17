@@ -13,7 +13,9 @@ The SDK test job installs no runtime extra, so the gateway modules are stood in 
 
 from __future__ import annotations
 
+import sqlite3
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -33,6 +35,18 @@ class _Rejected(ValueError):
         self.reason = reason
 
 
+def _check_database(state: SimpleNamespace) -> Callable[[Path], None]:
+    """The loader's `check_database`: a missing file is refused, as the real one refuses it."""
+
+    def check_database(database: Path) -> None:
+        if not database.is_file():
+            raise _Rejected("not_a_gateway_database", f"{database} cannot be opened")
+        if state.database_reject:
+            raise state.database_reject
+
+    return check_database
+
+
 @pytest.fixture
 def gateway_modules(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Stand-ins for the four gateway modules a pull imports, recording what they were asked."""
@@ -42,6 +56,7 @@ def gateway_modules(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         revisions={"parameter_contract": "p1"},
         reject=None,
         check_reject=None,
+        database_reject=None,
     )
 
     loader = ModuleType("aigateway.core.request_cache.sqlite_loader")
@@ -59,6 +74,7 @@ def gateway_modules(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.checked = (dict(remote), dict(local))
 
     loader.load_page = load_page  # type: ignore[attr-defined]
+    loader.check_database = _check_database(state)  # type: ignore[attr-defined]
     loader.check_revisions = check_revisions  # type: ignore[attr-defined]
 
     plugin_loader = ModuleType("aigateway.core.loader")
@@ -193,3 +209,61 @@ def test_missing_runtime_modules_probes_without_importing(monkeypatch: pytest.Mo
 
     assert local_module.missing_runtime_modules() == ("no_such_module_xyz",)
     assert "no_such_module_xyz" not in sys.modules
+
+
+def test_a_database_failure_mid_load_says_to_call_again_with_the_counts_so_far(
+    gateway_modules: SimpleNamespace, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def locked(_rows: Any, _database: Path) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    loader = sys.modules["aigateway.core.request_cache.sqlite_loader"]
+    monkeypatch.setattr(loader, "load_page", locked)
+    halfway = PullResult(10, 5, 1, False, False)
+
+    with pytest.raises(CachePullError) as raised:
+        LocalGateway(database, empty=_EMPTY).load([{"key_hash": "a"}], halfway)
+
+    assert raised.value.code == "local_load_failed"
+    assert "database is locked" in raised.value.message
+    assert "again" in (raised.value.hint or "")
+    assert raised.value.result == halfway
+    assert isinstance(raised.value.__cause__, sqlite3.OperationalError)
+
+
+@pytest.mark.parametrize(
+    ("failure", "code", "hint"),
+    [
+        (
+            _Rejected("outdated_gateway_database", "lacks metadata_json"),
+            "local_gateway_outdated",
+            "migrate",
+        ),
+        (
+            _Rejected("not_a_gateway_database", "has no table"),
+            "local_gateway_missing",
+            "screamingface up",
+        ),
+        (sqlite3.OperationalError("database is locked"), "local_load_failed", "again"),
+    ],
+    ids=["outdated", "not-a-gateway", "locked"],
+)
+def test_a_database_the_pull_cannot_load_into_is_refused_before_any_request(
+    gateway_modules: SimpleNamespace, database: Path, failure: Exception, code: str, hint: str
+) -> None:
+    gateway_modules.database_reject = failure
+
+    with pytest.raises(CachePullError) as raised:
+        LocalGateway(database, empty=_EMPTY).prepare()
+
+    assert raised.value.code == code
+    assert hint in (raised.value.hint or "")
+    assert raised.value.result == _EMPTY
+
+
+def test_a_pull_writes_to_the_database_the_runtime_starts_the_gateway_on(tmp_path: Path) -> None:
+    from screamingface._runtime.config import RuntimeConfig
+
+    started_on = RuntimeConfig(data_dir=tmp_path).gateway_database_url
+
+    assert started_on == f"sqlite://{gateway_database(tmp_path.resolve())}"

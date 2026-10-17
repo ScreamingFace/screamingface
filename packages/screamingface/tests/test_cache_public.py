@@ -76,6 +76,8 @@ def test_models_must_be_a_sequence_of_names(bad: Any, monkeypatch: pytest.Monkey
 
 
 class _Gateway:
+    name = "aigateway.sqlite3"
+
     def __init__(self, database: Path, *, empty: PullResult) -> None:
         self.database = database
         self.rows: list[str] = []

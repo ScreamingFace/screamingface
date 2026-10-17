@@ -106,3 +106,86 @@ settled item by item with the owner on 2026-10-16.
     which also writes the gateway's env defaults into `os.environ` — wrong for a notebook process.
   - `main` in `_runtime/cli.py` gains `PLR0915` beside its existing `C901, PLR0912` noqa (it was
     at the statement limit).
+
+## Review follow-up 1 — errors outside the SDK's own types (2026-10-17, PR #1446 review)
+
+- **Intent:** a failure the pull loop did not anticipate must still stop the progress display
+  and, where it is a known local or download failure, reach the caller as a `CachePullError`
+  carrying the counts so far — not a raw traceback with the card stuck on "pulling…".
+- **Planned:** `_cache/local.py` — `load()` turns `sqlite3.Error` into `CachePullError`
+  (`local_load_failed`, "call again" hint); `_cache/remote.py` — `httpx.DecodingError` is
+  transient like a transport failure; `_cache/pull.py` — `run_pull` stops the display on any
+  other exception and re-raises it unchanged.
+- **Tests (append-only):** `test_cache_local.py` locked database → `local_load_failed` with the
+  halfway result; `test_cache_remote.py` corrupt gzip body → `TransientPageError`;
+  `test_cache_pull.py` an unexpected error stops the display and reaches the caller as itself.
+- **Outcome:** done as planned. Three new tests (no prior test touched); all `screamingface`
+  gates green. `prepare()` was left alone: it touches no SQLite (only a file-exists check and the
+  plugin revisions), so there is nothing there to convert.
+
+## Review follow-up 2 — which data dir a pull writes to (2026-10-17, PR #1446 review)
+
+- **Decision (owner, 2026-10-17):** document, don't add `data_dir=`. `pull_from_remote` writes to
+  `default_data_dir()`, the same stack `sf.connect()` routing discovers (`_runtime/detect.py`);
+  a stack under `up --data-dir` is already invisible to the SDK, and the CLI's
+  `cache pull --data-dir` covers it.
+- **Outcome:** docstring of `sf.cache.pull_from_remote` names the database and both ways to
+  target another stack. No code or test change; public surface unchanged.
+
+## Review follow-ups 3 + 4 — what a repeat call resumes (2026-10-17, PR #1446 review)
+
+- **Intent:** a repeat call resumes only a cursor that loaded into the same database (3), and
+  only one that completed at least a page (4) — so `resumed=True` is never reported for a pull
+  that did nothing, and a pull into another database never skips the pages it never received.
+- **Done:** `Destination` gains `name` (`LocalGateway`: its database path); the cursor records
+  its destination and is continued only into it, otherwise a fresh one replaces it. The cursor is
+  stored in `_CURSORS` when a page completes, not when the call starts. The key stays
+  `(origin, models)`, so `test_an_interrupted_pull_keeps_its_cursor_for_the_next_call` is
+  unchanged; consequence: a call into database B replaces A's cursor (A starts over later —
+  costs only time, loading is idempotent).
+- **Tests (append-only):** another database starts from the first page with `resumed=False`; a
+  refused destination and a failed first page each leave `_CURSORS` empty and the next call
+  unresumed. The two test stand-in gateways gain a `name` attribute (insert-only).
+- **Gates:** all `screamingface` gates green.
+
+## Review follow-up 5 — a resumed pull's ETA (2026-10-17, PR #1446 review)
+
+- **Done:** `Snapshot` gains `rows_at_start` (default 0); `eta_s` divides only the rows this call
+  read by this call's elapsed time. `_Loop` records the cursor's `rows_read` when the call starts.
+- **Tests (append-only):** `test_cache_progress.py` ETA of a resumed snapshot; `test_cache_pull.py`
+  a resumed call's snapshots carry where the call started. Gates green.
+
+## Review follow-up 6 — rate limits are transient (2026-10-17, PR #1446 review)
+
+- **Why it mattered:** the Engine's own cache route answers `429` + `Retry-After`
+  (`CommunityCacheRateLimited`), which the pull treated as a permanent refusal.
+- **Done:** `remote.py` uses the SDK's shared `_core.retry._RETRYABLE_STATUS` (408, 429, 502–504,
+  520–524) instead of its own {502, 503, 504}, and `TransientPageError` carries
+  `_retry_after_seconds(response)`. The retry waits `max(backoff, min(Retry-After, 60 s))`.
+  500 stays permanent, as in the shared set.
+- **Tests (append-only):** the shared statuses are transient; a 429's `Retry-After` is carried;
+  the wait honours, ignores (shorter than backoff) and caps the hint. Gates green.
+
+## Review follow-ups 7–10 (2026-10-17, PR #1446 review)
+
+- **7 — the database is checked before any request.** `LocalGateway.prepare()` calls the loader's
+  new public `check_database()` (added to PR #1433 in `baf7f1d3f`, merged up the stack) in place
+  of the file-exists check: a missing, foreign or unmigrated database is refused before the
+  sign-in, the counted first page and the download, and even when the filter matches no rows. A
+  `sqlite3.Error` there is `local_load_failed`, shared with `load()` via `_unwritable`.
+- **8 — `--model ""` is a usage error.** The parser validates `--model` (argparse exit 2) instead
+  of `_models` raising `TypeError` past `main`. The review's second half did not hold: a bad
+  `--url` raises `ValueError`, which `main` already reports, and every `ScreamingFaceError` is
+  raised inside `run_pull`, which already wraps it.
+- **9 — not changed here.** Measured, then left per-batch; the loader docstring in #1433 now says
+  what one transaction covers and why (see that ledger). Possible follow-up: time-bounded commits.
+- **10 — one name for the gateway database.** `_runtime/config.GATEWAY_DATABASE_NAME` is used by
+  both `RuntimeConfig.gateway_database_url` and `_cache.local.gateway_database`; `DATABASE_NAME`
+  is gone from `_cache.local`.
+- **Stack:** PR #1433 → #1439 → #1446 updated by merge commits (no force-push), owner's choice.
+- **Tests (append-only):** prepare refuses outdated / not-a-gateway / locked before any request;
+  empty `--model` exits 2 without pulling; the pull's database equals the runtime's. The loader
+  stand-in fixture in `test_cache_local.py` gains `check_database` (a module-level helper) —
+  owner-approved 2026-10-17 and recorded in `.claude/test-change-approvals/OME-1639.json`.
+- **Gates:** all `screamingface` gates green after every finding; the review fixes land as one
+  commit (owner's choice).

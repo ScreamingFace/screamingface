@@ -64,7 +64,10 @@ def pull_from_remote(
 
     The first page opens the Engine's sign-in in a browser unless this process is already
     signed in. The rows land in the local gateway database (`screamingface up` must have run once
-    to create it), which needs `screamingface[runtime]`. `progress=None` shows progress in a
+    to create it), which needs `screamingface[runtime]`. That database is the one in
+    `SCREAMINGFACE_DATA_DIR` (default `~/.screamingface`) — the same stack `sf.connect()` finds.
+    For a stack started with `screamingface up --data-dir DIR`, set `SCREAMINGFACE_DATA_DIR=DIR`
+    or run `screamingface cache pull --data-dir DIR`. `progress=None` shows progress in a
     notebook or an interactive terminal; `True` / `False` force it on or off.
 
     A dropped connection or a busy Engine is retried. If the pull still stops, `CachePullError`

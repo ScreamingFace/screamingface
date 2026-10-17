@@ -29,6 +29,9 @@ class Snapshot:
     total: int | None
     bytes_received: int
     elapsed_s: float
+    # WHY: `rows_read` counts a resumed pull's earlier calls too, `elapsed_s` only this one; the
+    # rate behind the ETA is this call's rows over this call's time.
+    rows_at_start: int = 0
 
     @property
     def fraction(self) -> float | None:
@@ -38,9 +41,10 @@ class Snapshot:
 
     @property
     def eta_s(self) -> float | None:
-        if not self.total or self.rows_read <= 0 or self.elapsed_s <= 0:
+        read_now = self.rows_read - self.rows_at_start
+        if not self.total or read_now <= 0 or self.elapsed_s <= 0:
             return None
-        rate = self.rows_read / self.elapsed_s
+        rate = read_now / self.elapsed_s
         return max(0.0, (self.total - self.rows_read) / rate)
 
 
