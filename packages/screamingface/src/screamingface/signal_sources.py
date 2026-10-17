@@ -18,7 +18,7 @@ from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._regex_rule import check_signal_pattern
-from screamingface._signals import is_signal_name
+from screamingface._signals import MAX_DECLARED_SIGNALS, is_signal_name
 
 
 class SignalSource(ABC):
@@ -165,7 +165,7 @@ class Entropy(SignalSource):
         return cls(top_logprobs=top_logprobs)
 
 
-_MAX_SUM_TERMS = 7  # MAX_DECLARED_SIGNALS - 1: a sum and its components share the 8 names
+_MAX_SUM_TERMS = MAX_DECLARED_SIGNALS - 1  # a sum and its components share the 8 names (P4)
 
 
 @dataclass(frozen=True, slots=True, init=False)
