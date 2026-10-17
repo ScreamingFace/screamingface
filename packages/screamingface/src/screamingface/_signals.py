@@ -194,8 +194,10 @@ def _finite_number(value: object, type_message: str, finite_message: str) -> flo
     """A number that is not a bool, as a finite float (an int becomes a float).
 
     TypeError(type_message) for any other value; ValueError(finite_message) for NaN, an infinity
-    or an int beyond the float range. The one check of sf.Gate threshold and abstain_band and of an
-    sf.Sum coefficient (E4b part 6 review P6 #5).
+    or an int beyond the float range. The caller gives both messages.
+
+    WHY ``_finite`` (``_comparison``) stays separate: there a bool is a valid ``==`` threshold,
+    ``+ 0.0`` turns -0.0 into 0.0, and its message differs (one fixed sf.signal text).
     """
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(type_message)
