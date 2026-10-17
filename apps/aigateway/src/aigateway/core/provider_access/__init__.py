@@ -46,7 +46,6 @@ from .connection_oauth import (
     complete_connection_oauth,
     fail_connection_oauth,
 )
-from .defaults import apply_defaults
 from .pair_admin import (
     CredentialState,
     PairConflict,
@@ -81,12 +80,9 @@ from .profile_authorize import (
 from .profile_backed import (
     ProfileBackedProviderAccess,
     context_stamp,
-    legacy_target_parts,
     operational_access_for,
     provider_access_for,
-    target_from_legacy,
 )
-from .profile_defaults import read_defaults
 from .refresh_guard import ConnectionRefreshOwner, ProfileRefreshOwner, guard_refresh
 from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
 from .types import (
@@ -101,7 +97,6 @@ from .types import (
     PairNotManageable,
     ProviderAccessRefusal,
     ProviderUnknown,
-    RequestDefaults,
     ResolvePolicy,
     SelectorAmbiguous,
     SelectorUnknown,
@@ -163,7 +158,6 @@ __all__ = [
     "ProviderCredentialAdmin",
     "ProviderOperationalAccess",
     "ProviderUnknown",
-    "RequestDefaults",
     "ResolvePolicy",
     "Selector",
     "SelectorAmbiguous",
@@ -178,7 +172,6 @@ __all__ = [
     "WriteConflict",
     "allows_chatless",
     "apply_authorization",
-    "apply_defaults",
     "auth_mode",
     "auth_mode_for",
     "auth_type_of",
@@ -207,7 +200,6 @@ __all__ = [
     "hold_observed",
     "hold_pair",
     "invalidate_session",
-    "legacy_target_parts",
     "mark_profile_error_fresh",
     "oauth_connection_store",
     "operational_access_for",
@@ -217,7 +209,6 @@ __all__ = [
     "provider_access_for",
     "provider_credential_admin_for",
     "provider_name_of",
-    "read_defaults",
     "refresh_facade",
     "reauth_url_for",
     "replace_effective",
@@ -228,5 +219,4 @@ __all__ = [
     "store_reads",
     "summary_of",
     "take_over_effective",
-    "target_from_legacy",
 ]

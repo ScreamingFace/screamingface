@@ -1,13 +1,13 @@
 ---
 id: OME-1640
 linear_url: https://linear.app/openmined/issue/OME-1640/aigateway-let-a-native-connection-repair-a-migrated-pairs-credential
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-16
-closed:
+closed: 2026-10-17
 ---
 
 # aigateway: let a native connection repair a migrated pair's credential (Stage E, E1b)

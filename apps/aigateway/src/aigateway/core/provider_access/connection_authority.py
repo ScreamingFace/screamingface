@@ -113,7 +113,6 @@ def migrated_target(
         ),
         context_stamp=context_stamp(account_id, None, connection),
         reauth_url=reauth_url_for(auth_type, connection_id=str(connection.id)),
-        defaults=document.defaults,
         _backing=MigratedBacking(connection),
     )
 
