@@ -166,6 +166,12 @@ def _reduce_data(operation_id: str, evidence: CombineEvidence) -> dict[str, obje
 def _reduce_mode(evidence: CombineEvidence) -> str:
     if evidence.reducer in ("median", "mean"):
         return "compute" if evidence.operators[-1].split("@")[0] == "value" else "select"
+    # WHY: a Pick with output= returns a field of the winner, a new value with no member id
+    # (AR-3), so it computes. `output_missing` is the abstain only that Pick has (E4b PO-E1).
+    if evidence.reducer == "pick" and (
+        evidence.built or evidence.result.reason == "output_missing"
+    ):
+        return "compute"
     return _REDUCE_MODES[evidence.reducer]
 
 
