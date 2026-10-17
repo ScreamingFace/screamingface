@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -584,18 +585,15 @@ def _numeric_extract(extract: object, op: str) -> Extract:
     return Extract(extract.rule, normalize="numeric", **extract.args)
 
 
-def _canonical_median(checked: dict[str, object]) -> None:
-    checked["extract"] = _numeric_extract(checked["extract"], "median")
-    weights = checked.get("weights")
-    if isinstance(weights, Signal):
-        _refuse_judge_signal(weights, "sf.Reduce('median')", _MEDIAN_JUDGE_USE)
+# A median and a mean block differ only in their name: one code path builds and rebuilds both.
+type _Statistic = Literal["median", "mean"]
 
 
-def _canonical_mean(checked: dict[str, object]) -> None:
-    checked["extract"] = _numeric_extract(checked["extract"], "mean")
+def _canonical_statistic(checked: dict[str, object], statistic: _Statistic, use: str) -> None:
+    checked["extract"] = _numeric_extract(checked["extract"], statistic)
     weights = checked.get("weights")
     if isinstance(weights, Signal):
-        _refuse_judge_signal(weights, "sf.Reduce('mean')", _MEAN_SIGNAL_USE)
+        _refuse_judge_signal(weights, f"sf.Reduce({statistic!r})", use)
 
 
 def _canonical_weighted(checked: dict[str, object]) -> None:
@@ -604,7 +602,11 @@ def _canonical_weighted(checked: dict[str, object]) -> None:
 
 # op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
 _CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType(
-    {"median": _canonical_median, "weighted": _canonical_weighted, "mean": _canonical_mean}
+    {
+        "median": partial(_canonical_statistic, statistic="median", use=_MEDIAN_JUDGE_USE),
+        "weighted": _canonical_weighted,
+        "mean": partial(_canonical_statistic, statistic="mean", use=_MEAN_SIGNAL_USE),
+    }
 )
 
 
@@ -650,28 +652,16 @@ def _weighted_plan(block: Reduce) -> _ReducerPlan:
     return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark, judge=judge)
 
 
-def _median_plan(block: Reduce) -> _ReducerPlan:
+def _statistic_plan(block: Reduce, statistic: _Statistic) -> _ReducerPlan:
     extract, _ = _extract_of(block)._steps()
     weights = cast("tuple[float, ...] | Signal | None", block.options.get("weights"))
     steps = _Steps(
         extract=extract,
         normalize=_Step("numeric"),
-        reduce=_Step("median" if weights is None else "weighted_median"),
-        select=_Step("nearest" if block.mode == "select" else "value"),
-    )
-    return _ReducerPlan("median", "answer", steps, weights)
-
-
-def _mean_plan(block: Reduce) -> _ReducerPlan:
-    extract, _ = _extract_of(block)._steps()
-    weights = cast("tuple[float, ...] | Signal | None", block.options.get("weights"))
-    steps = _Steps(
-        extract=extract,
-        normalize=_Step("numeric"),
-        reduce=_Step("mean" if weights is None else "weighted_mean"),
+        reduce=_Step(statistic if weights is None else f"weighted_{statistic}"),
         select=_Step("value" if block.mode == "compute" else "nearest"),
     )
-    return _ReducerPlan("mean", "answer", steps, weights)
+    return _ReducerPlan(statistic, "answer", steps, weights)
 
 
 def _extract_of(block: Reduce) -> Extract:
@@ -684,8 +674,8 @@ _PLANS: Mapping[str, Callable[[Reduce], _ReducerPlan]] = MappingProxyType(
     {
         "plurality": _plurality_plan,
         "weighted": _weighted_plan,
-        "median": _median_plan,
-        "mean": _mean_plan,
+        "median": partial(_statistic_plan, statistic="median"),
+        "mean": partial(_statistic_plan, statistic="mean"),
     }
 )
 
@@ -750,34 +740,25 @@ _NUMERIC_MODES: Mapping[str, ReduceMode] = MappingProxyType(
 assert frozenset(_NUMERIC_MODES) == _NUMERIC_SELECTS
 
 
-def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
+def _rebuild_statistic(spec: Mapping[str, object], statistic: _Statistic) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
     weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
-    reduce = "median" if weights is None else "weighted_median"
+    reduce = statistic if weights is None else f"weighted_{statistic}"
     if _normalize_from_spec(spec) != "numeric" or _op_name(spec["reduce"]) != reduce:
-        raise ValueError("a median shape this SDK version cannot rebuild")
+        raise ValueError(f"a {statistic} shape this SDK version cannot rebuild")
     extract = _extract_from_spec(spec, "numeric")
     options: dict[str, Any] = {} if weights is None else {"weights": weights}
-    return Reduce(
-        "median", mode=_NUMERIC_MODES[_op_name(spec["select"])], extract=extract, **options
-    )
-
-
-def _rebuild_mean(spec: Mapping[str, object]) -> Reduce:
-    _no_args(spec["reduce"])
-    _no_args(spec["select"])
-    weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
-    reduce = "mean" if weights is None else "weighted_mean"
-    if _normalize_from_spec(spec) != "numeric" or _op_name(spec["reduce"]) != reduce:
-        raise ValueError("a mean shape this SDK version cannot rebuild")
-    extract = _extract_from_spec(spec, "numeric")
-    options: dict[str, Any] = {} if weights is None else {"weights": weights}
-    return Reduce("mean", mode=_NUMERIC_MODES[_op_name(spec["select"])], extract=extract, **options)
+    mode = _NUMERIC_MODES[_op_name(spec["select"])]
+    return Reduce(statistic, mode=mode, extract=extract, **options)
 
 
 _REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyType(
-    {"vote": _rebuild_vote, "median": _rebuild_median, "mean": _rebuild_mean}
+    {
+        "vote": _rebuild_vote,
+        "median": partial(_rebuild_statistic, statistic="median"),
+        "mean": partial(_rebuild_statistic, statistic="mean"),
+    }
 )
 
 
