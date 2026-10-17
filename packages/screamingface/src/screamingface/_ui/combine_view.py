@@ -14,6 +14,7 @@ from html import escape
 from typing import TYPE_CHECKING
 
 from screamingface._case_views import judge_link
+from screamingface._ui.text import short
 
 if TYPE_CHECKING:
     from screamingface.case_result import CaseResult
@@ -73,9 +74,7 @@ def text_html(value: str | None, reason: str) -> str:
     """A member value: escaped, at most 80 characters then an ellipsis; None: a dash."""
     if value is None:
         return dash_html(reason)
-    # WHY not report_view._short: report_view imports this module (an import cycle).
-    shown = value if len(value) <= _TEXT_CELL else value[:_TEXT_CELL] + "…"
-    return escape(shown)
+    return escape(short(value, _TEXT_CELL))
 
 
 def missing_reason(row: CombineAnswerRow, label: str) -> str:
