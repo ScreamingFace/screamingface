@@ -4,7 +4,11 @@ from typing import TYPE_CHECKING, Any
 
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 
-from .discovery import discover_ollama_models, resolve_ollama_host
+from .discovery import (
+    discover_ollama_input_modalities,
+    discover_ollama_models,
+    resolve_ollama_host,
+)
 from .parameters import (
     OLLAMA_OBSERVATIONS,
     ollama_chat_parameter_rules,
@@ -32,6 +36,8 @@ class OllamaProviderPlugin(ProviderPluginBase):
             ModelEntry(
                 model_name=f"ollama/{name}",
                 litellm_params={"model": f"ollama_chat/{name}", "api_base": host},
+                # OME-1537: per-model /api/show capabilities; None -> text-only.
+                input_modalities=discover_ollama_input_modalities(host, name),
             )
             for name in discover_ollama_models(host)
         ]

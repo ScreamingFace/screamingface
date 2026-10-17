@@ -31,6 +31,7 @@ from ..chat_parameters import (
     overlay_tool_capabilities,
     stream_transport_capability,
 )
+from ..input_modalities import TEXT_ONLY
 from ._ports import ModelEntry, PluginSettings
 from ._provider import ProviderPluginCore
 
@@ -334,6 +335,21 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         the plugin has real upstream evidence to report as ``provider_support``.
         """
         return (stream_transport_capability(gateway_enabled=self.supports_chat_streaming()),)
+
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        """Which inputs this model takes, for the ``/v1/models`` row (OME-1537).
+
+        Default: the entry's discovered evidence when a listing carried it, else
+        ``("text",)``. A provider with a reviewed per-model/family table overrides
+        this; a provider with catalogue evidence attaches it to the entry instead.
+
+        INVARIANT: unknown is text-only — never vision. Core normalizes whatever this
+        returns onto the closed vocabulary, so an override cannot publish a word
+        outside it or drop ``text``.
+        """
+        if entry.input_modalities is not None:
+            return entry.input_modalities
+        return TEXT_ONLY
 
     def available_auth_modes(self) -> tuple[AuthMode, ...]:
         """Auth modes a client could use with this provider (profile-independent).

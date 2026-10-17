@@ -191,6 +191,11 @@ class HuggingFacePluginSettings(PluginSettings):
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     router_api_base: str = OFFICIAL_ROUTER_API_BASE
     validation_model: str | None = None
+    # OME-1537: read the router catalogue's ``input_modalities`` into the
+    # ``/v1/models`` listing. WHY opt-in: this provider is always loaded, so a
+    # default-on listing source would dial router.huggingface.co on every cold
+    # listing in every deployment. Off -> every HF row reports text-only (unknown).
+    live_modalities: bool = False
 
     @field_validator("default_models")
     @classmethod

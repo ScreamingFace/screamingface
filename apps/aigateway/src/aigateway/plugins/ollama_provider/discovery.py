@@ -12,6 +12,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from aigateway.core.input_modalities import InputModality, normalize_input_modalities
+
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 POSITIVE_DISCOVERY_TTL_SECONDS = 10.0
 NEGATIVE_DISCOVERY_TTL_SECONDS = 2.0
@@ -29,12 +31,88 @@ _CACHE: dict[str, _CacheEntry] = {}
 _IN_FLIGHT: set[str] = set()
 _CACHE_CONDITION = threading.Condition()
 
+# OME-1537: per-(host, model) ``/api/show`` answers. WHY longer than the tag TTL: a
+# model's capabilities change only when that tag is re-pulled, and the listing asks
+# once per installed model; a failure is retried soon so a cold host recovers.
+MODALITIES_POSITIVE_TTL_SECONDS = 60.0
+_MODALITIES_CACHE: dict[tuple[str, str], tuple[tuple[InputModality, ...] | None, float]] = {}
+_MODALITIES_LOCK = threading.Lock()
+
 
 def clear_ollama_discovery_cache() -> None:
     with _CACHE_CONDITION:
         _CACHE.clear()
         _IN_FLIGHT.clear()
         _CACHE_CONDITION.notify_all()
+    with _MODALITIES_LOCK:
+        _MODALITIES_CACHE.clear()
+
+
+def ollama_input_modalities(capabilities: object) -> tuple[InputModality, ...] | None:
+    """Ollama ``capabilities`` -> gateway modalities, or ``None`` when unknown.
+
+    INVARIANT: only ``vision`` -> ``image`` is mapped. ``pdf`` is never reported,
+    whatever Ollama says, because the gateway refuses file parts on Ollama (OME-1641).
+    """
+    if not isinstance(capabilities, list):
+        return None
+    return normalize_input_modalities("image" for c in capabilities if c == "vision")
+
+
+def discover_ollama_input_modalities(
+    host: str,
+    name: str,
+    *,
+    http_client_factory: Callable[[float], httpx.Client] | None = None,
+    timeout_seconds: float = 2.0,
+) -> tuple[InputModality, ...] | None:
+    """One installed model's input modalities via ``POST /api/show`` (cached).
+
+    ``/api/tags`` carries no capabilities, so each model is asked once per TTL.
+    Every failure (unreachable, non-2xx, malformed) is ``None`` -> text-only.
+    """
+    key = (host, name)
+    now = time.monotonic()
+    with _MODALITIES_LOCK:
+        cached = _MODALITIES_CACHE.get(key)
+        if cached is not None and cached[1] > now:
+            return cached[0]
+    modalities = _fetch_ollama_input_modalities(
+        host, name, http_client_factory=http_client_factory, timeout_seconds=timeout_seconds
+    )
+    ttl = (
+        MODALITIES_POSITIVE_TTL_SECONDS
+        if modalities is not None
+        else NEGATIVE_DISCOVERY_TTL_SECONDS
+    )
+    with _MODALITIES_LOCK:
+        _MODALITIES_CACHE[key] = (modalities, time.monotonic() + ttl)
+    return modalities
+
+
+def _fetch_ollama_input_modalities(
+    host: str,
+    name: str,
+    *,
+    http_client_factory: Callable[[float], httpx.Client] | None,
+    timeout_seconds: float,
+) -> tuple[InputModality, ...] | None:
+    factory = http_client_factory or (lambda timeout: httpx.Client(timeout=timeout))
+    try:
+        with factory(timeout_seconds) as client:
+            response = client.post(f"{host}/api/show", json={"model": name})
+    except httpx.HTTPError as exc:
+        logger.warning("Ollama /api/show failed for %s at %s: %s", name, host, type(exc).__name__)
+        return None
+    if response.status_code < 200 or response.status_code >= 300:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return ollama_input_modalities(payload.get("capabilities"))
 
 
 def resolve_ollama_host(environ: Mapping[str, str] | None = None) -> str:
