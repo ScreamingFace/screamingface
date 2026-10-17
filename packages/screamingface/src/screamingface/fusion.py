@@ -21,12 +21,12 @@ from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _reci
 from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, Vote, _read_signal
 from screamingface.signal_sources import (
     INJECTED_PARAMS,
-    Consistency,
     Entropy,
     Logprob,
     SignalSource,
     Sum,
     consistency_seed,
+    consistency_source,
 )
 
 
@@ -325,7 +325,7 @@ def _check_consistency_source(
     """The sf.Consistency rules that need the members (P4, P5; erd CN-I2, CN-I3, CN-I5): each
     member is one sf.Model call, the Fusion makes at most 1024 extra calls, and no member seed
     equals a sample seed of this Fusion."""
-    source = next((s for s in (declared or {}).values() if isinstance(s, Consistency)), None)
+    source = consistency_source(declared)
     if source is None:
         return
     models: list[Model] = []
