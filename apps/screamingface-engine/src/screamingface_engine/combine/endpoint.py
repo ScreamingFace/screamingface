@@ -458,6 +458,10 @@ def _exclusion(
     X4, X5, X6: no rule, so no member is excluded.
     WHY the two sources, not ``_signal_read``'s result: that result merges them, and the reason
     depends on which source it was. Both at once never get here: ``_signal_read`` refused it.
+    INVARIANT: the rule is read from the spec, not reported by the operator, so it holds only
+    because no select op can choose a member the rule leaves out (CE-I3). ``REDUCE_SELECT_RULES``
+    enforces it: a reduce op with such a rule pairs only with the selects that honor it
+    (``_check_pairing``), and test_combine_exclusion_never_chosen runs every accepted pairing.
     """
     if isinstance(spec.weights, SignalWeights) and reduce.reads_weights:
         return _Exclusion("no_weight", spec.weights.signal)
