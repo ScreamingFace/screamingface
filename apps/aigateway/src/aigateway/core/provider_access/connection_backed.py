@@ -2,9 +2,9 @@
 
 # FEATURE: Stage B Target — a pair whose marker is `migrated` is served from its effective
 # Connection; `none` and `quarantined` pairs take today's Profile-backed path, INHERITED — not
-# copied — so every legacy seam stays live. Op 1 (`defaults_for`) never reads the marker (D16 (a):
-# defaults stay in the legacy index until the Stage C cutover); op 3 is pure. Stage E (OME-1209)
-# deletes the parent and this class becomes the only implementation.
+# copied — so every legacy seam stays live. Op 3 is pure; op 1 (the stored-defaults read) was
+# deleted at Stage E, E2b (OME-1209). Stage E deletes the parent and this class becomes the only
+# implementation.
 # INVARIANT (D14): one authority per pair per call — the marker is read once at the top of
 # `resolve`/`availability`; ops 4–5 follow the target's backing. An unreadable marker store
 # propagates its error: never a silent fall-back to a superseded legacy credential.

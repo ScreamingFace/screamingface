@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from aigateway.core.provider_access import auth_mode_for, auth_type_of
 from aigateway.plugins.gemini_provider.discovery import DISCOVERY_SOURCE
 from aigateway.plugins.gemini_provider.plugin import GeminiProviderPlugin
-from aigateway.routes.chat_credentials import resolved_auth_mode
+
+
+def resolved_auth_mode(profile: Any, connection: Any, *, plugin: Any) -> Any:
+    """The port composition the retired `routes/chat_credentials.py` shim wrapped (E2b)."""
+    stored = profile is not None or connection is not None
+    return auth_mode_for(auth_type_of(profile, connection) if stored else None, plugin=plugin)
 
 
 @pytest.mark.parametrize("environment_name", ["GEMINI_API_KEY", "GOOGLE_API_KEY"])

@@ -17,7 +17,7 @@ from ..credential_blob import DispatchObservation, OperationalOutcome
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileIndexStore
-from ..profile_models import AuthMode, Profile, ProfileDefaults, ProfileState, credential_name_for
+from ..profile_models import AuthMode, Profile, ProfileState, credential_name_for
 from .auth_mode import (
     allows_chatless,
     auth_mode,
@@ -30,19 +30,16 @@ from .connection_locator import credential_name_from_locator
 from .ports import ProviderAccess, ProviderOperationalAccess
 from .profile_authorize import (
     authorize,
-    backing_rows,
     oauth_connection_store,
     reauth_url_for,
     record_dispatch_failure,
 )
-from .profile_defaults import read_defaults
 from .selector import Selector
 from .types import (
     Authorization,
     AvailabilityRow,
     AvailabilityStatus,
     CredentialTarget,
-    RequestDefaults,
     ResolvePolicy,
     SelectorAmbiguous,
     SelectorUnknown,
@@ -83,7 +80,6 @@ def profile_target(
         credential_name=credential_name_for(account_id, selector.name),
         context_stamp=context_stamp(account_id, profile, None),
         reauth_url=reauth_url_for(auth_type),
-        defaults=profile.defaults,
         _backing=profile,
     )
 
@@ -112,7 +108,6 @@ def connection_target(
         ),
         context_stamp=context_stamp(account_id, None, connection),
         reauth_url=reauth_url_for(auth_type, connection_id=str(connection.id)),
-        defaults=RequestDefaults(),
         _backing=connection,
     )
 
@@ -125,7 +120,6 @@ def targetless(account_id: str, plugin: Any) -> CredentialTarget:
         credential_name=None,
         context_stamp=context_stamp(account_id, None, None),
         reauth_url=None,
-        defaults=RequestDefaults(),
         _backing=None,
     )
 
@@ -142,11 +136,6 @@ class ProfileBackedProviderAccess:
     @property
     def _index(self) -> ProfileIndexStore:
         return self._app.state.profile_index
-
-    async def defaults_for(
-        self, account_id: str, provider: str, selector: Selector
-    ) -> RequestDefaults | None:
-        return await read_defaults(self._index, account_id, provider, selector)
 
     async def resolve(
         self,
@@ -314,38 +303,3 @@ def operational_access_for(app: Any) -> ProviderOperationalAccess | None:
     """Return the optional outcome capability without widening the stable port."""
     access = provider_access_for(app)
     return access if isinstance(access, ProviderOperationalAccess) else None
-
-
-# --- shim support: dies with `routes/chat_credentials.py` at Stage E (OME-1209) -----------------
-#
-# COMPATIBILITY (OME-1207): A1 scheduled these for A2, on the assumption that migrating the four
-# route call sites would leave `routes/chat_credentials.py` with no importer. It did — no ROUTE
-# imports it any more — but the A1 shim suite still does, and a prior suite is not deleted to
-# make a removal tidy. The shim therefore survives with its translation layer, and both go at
-# Stage E with the legacy vocabulary they exist to speak.
-
-
-def legacy_target_parts(
-    target: CredentialTarget,
-) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
-    """Today's `(profile, connection, defaults)` triple, for the A1 shim's own callers."""
-    profile, connection = backing_rows(target)
-    return profile, connection, target.defaults
-
-
-def target_from_legacy(
-    account_id: str,
-    provider: str,
-    profile_name: str,
-    *,
-    profile: Profile | None,
-    connection: OAuthConnection | None,
-    plugin: Any,
-) -> CredentialTarget:
-    """Rebuild the target a route was handed as a legacy triple (the `_inject_credentials` shim)."""
-    selector = Selector.from_header(profile_name)
-    if connection is not None:
-        return connection_target(account_id, provider, selector, connection, plugin=plugin)
-    if profile is not None:
-        return profile_target(account_id, provider, selector, profile)
-    return targetless(account_id, plugin)

@@ -53,7 +53,6 @@ def test_the_read_interface_declares_the_six_spec_operations() -> None:
     }
 
     assert declared == {
-        "defaults_for",
         "resolve",
         "auth_mode",
         "contract_auth_mode",
@@ -110,7 +109,6 @@ def test_dispatch_observation_operations_keep_provider_context_keyword_only() ->
 
 def test_stable_port_substitute_does_not_claim_the_optional_outcome_capability() -> None:
     legacy = SimpleNamespace(
-        defaults_for=lambda: None,
         resolve=lambda: None,
         auth_mode=lambda: None,
         contract_auth_mode=lambda: None,

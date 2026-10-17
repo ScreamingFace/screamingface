@@ -130,12 +130,6 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # flip the target to ERROR like gemini does (SF-244 audit F14).
         return status_code == 401
 
-    def should_apply_profile_default(self, field: str) -> bool:
-        # The legacy SF Claude backend ignored default_effort. Applying it as a
-        # gateway profile default enables Anthropic thinking on every request and
-        # burns the Claude Code rate-limit pool unexpectedly.
-        return field != "reasoning_effort"
-
     def chat_parameter_rules(
         self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:

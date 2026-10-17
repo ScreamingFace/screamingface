@@ -1,4 +1,4 @@
-"""Port contract — `defaults_for` and `resolve` over a MIGRATED pair (OME-1208, Stage B S2').
+"""Port contract — `resolve` over a MIGRATED pair (OME-1208, Stage B S2').
 
 Re-runs `test_provider_access_resolve_contract` unchanged over `ConnectionBackedHarness`: the same
 situations, seeded as a legacy document + an effective Connection reading the Profile's blob + a
@@ -19,7 +19,7 @@ import test_provider_access_resolve_contract as contract
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER, Harness
 
-from aigateway.core.profile_models import ProfileDefaults, credential_name_for
+from aigateway.core.profile_models import credential_name_for
 
 NOT_REIMPORTED = {
     # WHY: a migrated target is stamped by the Connection it resolves to (`conn:` shape); the
@@ -51,7 +51,7 @@ def test_every_contract_test_is_re_run_or_named_here() -> None:
 
 
 def test_an_authenticated_default_resolves_to_the_effective_connection(harness: Harness) -> None:
-    harness.seed_profile(defaults=ProfileDefaults(system_prompt="be brief"))
+    harness.seed_profile()
 
     target = harness.call(
         harness.access.resolve, harness.account_id, PROVIDER, contract.DEFAULT, plugin=ANTHROPIC
@@ -61,7 +61,6 @@ def test_an_authenticated_default_resolves_to_the_effective_connection(harness: 
     assert target.auth_type == "oauth"
     # INVARIANT (no re-entry): the target reads the blob the legacy Profile already addresses.
     assert target.credential_name == credential_name_for(harness.account_id, "default")
-    assert target.defaults.system_prompt == "be brief"
     assert target.reauth_url == "/v1/oauth/connections"
     assert target.context_stamp.startswith(f"acct:{harness.account_id}|conn:")
     assert ":active:" in target.context_stamp

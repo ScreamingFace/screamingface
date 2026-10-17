@@ -1,9 +1,9 @@
 ---
 ticket: OME-1640
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-15
-finished:
+finished: 2026-10-17
 ---
 
 # e1b-native-oauth-reauth — a migrated OAuth pair is re-authorised through the Connection API

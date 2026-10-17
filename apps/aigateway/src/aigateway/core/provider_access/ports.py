@@ -20,7 +20,6 @@ from .types import (
     AvailabilityRow,
     CredentialSummary,
     CredentialTarget,
-    RequestDefaults,
     ResolvePolicy,
 )
 
@@ -28,18 +27,6 @@ from .types import (
 @runtime_checkable
 class ProviderAccess(Protocol):
     """The read interface plus the two writes the read path performs today (ops 1–6)."""
-
-    async def defaults_for(
-        self, account_id: str, provider: str, selector: Selector
-    ) -> RequestDefaults | None:
-        """Op 1 — stored request defaults, BEFORE any credential is resolved.
-
-        # INVARIANT: never raises and never inspects the target's state — this read sits
-        # ahead of the response-cache lookup, where a refusal would deny a cacheable request.
-        # `None` means the store could not be read (bypass the cache); "no defaults" is an
-        # empty `RequestDefaults`.
-        """
-        ...
 
     async def resolve(
         self,

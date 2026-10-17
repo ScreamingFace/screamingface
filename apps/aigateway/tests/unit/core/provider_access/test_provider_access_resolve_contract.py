@@ -1,4 +1,4 @@
-"""Port contract — `defaults_for` and `resolve` (OME-1200, spec §3.3 ops 1–2).
+"""Port contract — `resolve` (OME-1200, spec §3.3 op 2; op 1 `defaults_for` deleted at E2b).
 
 Runs unchanged over the pure fake and the Profile-backed implementation on the real app.
 # INVARIANT: the refusal for each situation is part of the contract; an implementation that
@@ -21,10 +21,9 @@ from provider_access_harness import (
 )
 
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import ProfileDefaults, ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileState, credential_name_for
 from aigateway.core.provider_access import (
     CredentialTarget,
-    RequestDefaults,
     ResolvePolicy,
     Selector,
     SelectorAmbiguous,
@@ -128,7 +127,6 @@ def test_the_datasheet_policy_permits_an_absent_target_for_the_default_selector_
     assert target.credential_name is None
     assert target.reauth_url is None
     assert target.context_stamp == f"acct:{harness.account_id}|anon"
-    assert target.defaults == RequestDefaults()
 
     with pytest.raises(TargetMissing):
         _resolve(harness, WORK, plugin=_ApiKeyOnlyPlugin(), policy=ResolvePolicy.DATASHEET)
@@ -152,14 +150,13 @@ def test_a_provider_with_an_ambient_credential_yields_the_ambient_kind(harness: 
 
 
 def test_an_authenticated_default_resolves_to_a_stored_target(harness: Harness) -> None:
-    harness.seed_profile(defaults=ProfileDefaults(system_prompt="be brief"))
+    harness.seed_profile()
 
     target = _resolve(harness, DEFAULT)
 
     assert target.kind == "stored"
     assert target.auth_type == "oauth"
     assert target.credential_name == credential_name_for(harness.account_id, "default")
-    assert target.defaults.system_prompt == "be brief"
     assert target.reauth_url == "/v1/oauth/connections"
     assert target.context_stamp.startswith(
         f"acct:{harness.account_id}|prof:{harness.account_id}:{PROVIDER}:default:authenticated:"
@@ -220,7 +217,6 @@ def test_a_single_active_connection_serves_the_default_selector(harness: Harness
         f"acct:{harness.account_id}|conn:{connection_id}:active:"
     )
     assert target.reauth_url == "/v1/oauth/connections"
-    assert target.defaults == RequestDefaults()
 
 
 def test_a_label_selects_among_active_connections(harness: Harness) -> None:
@@ -270,43 +266,6 @@ def test_an_api_key_connection_reauths_through_its_own_replace_route(harness: Ha
 
     assert target.auth_type == "api_key"
     assert target.reauth_url == f"/v1/oauth/connections/{connection_id}/api-key"
-
-
-# --- defaults_for ---------------------------------------------------------------------------
-
-
-def test_defaults_for_reads_stored_defaults_without_inspecting_state(harness: Harness) -> None:
-    harness.seed_profile(
-        state=ProfileState.PENDING,
-        credential=None,
-        defaults=ProfileDefaults(max_tokens=64),
-    )
-
-    defaults = harness.call(harness.access.defaults_for, harness.account_id, PROVIDER, DEFAULT)
-
-    assert defaults == ProfileDefaults(max_tokens=64)
-
-
-def test_defaults_for_is_empty_defaults_when_no_target_exists(harness: Harness) -> None:
-    assert (
-        harness.call(harness.access.defaults_for, harness.account_id, PROVIDER, WORK)
-        == RequestDefaults()
-    )
-
-
-def test_defaults_for_is_none_when_the_index_is_unreadable(harness: Harness) -> None:
-    harness.fail_index_reads()
-
-    assert harness.call(harness.access.defaults_for, harness.account_id, PROVIDER, DEFAULT) is None
-
-
-def test_defaults_then_resolve_are_two_independent_reads(harness: Harness) -> None:
-    harness.seed_profile()
-
-    harness.call(harness.access.defaults_for, harness.account_id, PROVIDER, DEFAULT)
-    _resolve(harness, DEFAULT)
-
-    assert harness.index_reads() == 2
 
 
 # --- refuse, never retarget -----------------------------------------------------------------

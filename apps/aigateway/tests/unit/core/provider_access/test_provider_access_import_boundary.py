@@ -43,10 +43,6 @@ _OWNERS: dict[str, str] = {
         "the legacy admin listing's WIRE schema — `AdminProfileOut.state` is `ProfileState`, so "
         "changing it would change OpenAPI; moves onto the admin port at A3 with `routes/admin.py`"
     ),
-    "routes/chat_credentials.py": (
-        "A1 re-export shim, still imported by the A1 shim suite; deleted at Stage E with the "
-        "legacy names (OME-1209)"
-    ),
     # Wiring and bootstrap: they CONSTRUCT the store, they do not resolve credentials with it.
     "main.py": "builds `app.state.profile_index` at startup; moves with the backing at Stage B",
     "core/plugin_base/": "the provider contract's own type surface",
