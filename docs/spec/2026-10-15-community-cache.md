@@ -117,9 +117,12 @@ the same.
    number that barely moves. The figure is approximate: rows written during the pull are not
    in it, so if loaded rows pass it (a burst of writes mid-pull) the client may ask again.
 9. **Resume, within one process.** The cursor (`next`) is the whole state, and the client keeps
-   it in memory: a transient page failure (a dropped connection, a 502/503/504, a timeout) is
-   retried inside the call with backoff, and calling `pull_from_remote` again in the same
-   process with the same `url` and filter continues from the last committed page. Nothing is
+   it in memory: a transient page failure (a dropped connection or a timeout; a 408, 429, 502,
+   503, 504 or 520–524, honouring `Retry-After` up to 60 s; a page cut off or garbled in transit; a
+   locked local database) is retried inside the call with backoff, and calling `pull_from_remote`
+   again in the same process with the same `url` and filter, into the same local database,
+   continues from the last completed page (a call that never completed a page leaves nothing to
+   resume). Nothing is
    written to disk: a pull whose process ended (a kernel restart, a killed CLI) starts over.
    That is cheap because loading is idempotent (decision 11) — a restart only re-downloads
    pages whose rows are already local, at most a full pull's ~2.4 minutes. An on-disk cursor is
@@ -128,13 +131,17 @@ the same.
     `active_cache_revisions()`). The client compares them with its local gateway's and stops on
     any mismatch: rows keyed under another revision would load and then never hit. A change
     mid-pull (the hosted gateway was redeployed) also stops it; the next pull starts over.
-11. **Local load: a transaction per page, overlapped with the next download.** The loader
-    inserts a page's rows into the local SQLite `request_cache_entries` in one transaction,
-    skipping any row whose `key_hash` the local cache already has, while the client downloads
-    the next page. A per-page transaction holds SQLite's single write lock for under a second,
-    so a local run writing to the cache meanwhile only waits briefly. A malformed row rolls back
-    its page and stops the pull; pages already loaded stay, since every row is an independent,
-    valid cache entry and a partial pull leaves a correct, smaller cache.
+11. **Local load: a transaction per batch, as the page streams in** (revised after the PR 1 and
+    PR 3 reviews). The client loads a page's rows 500 at a time as they arrive, each batch one
+    `load_page` call and one transaction into the local SQLite `request_cache_entries`, skipping
+    any row whose `key_hash` the local cache already has. So the download and the load overlap,
+    and no page is held whole. A transaction spanning a page would hold SQLite's single write
+    lock for the page's whole download, while the running gateway's own writes wait only 5 s for
+    it. The database is checked (`check_database`: it exists and has the current schema) before
+    any request. A malformed row rolls back its batch and stops the pull; rows already loaded
+    stay, since every row is an independent, valid cache entry and a partial pull leaves a
+    correct, smaller cache. The cursor still only advances past a page that ended with its
+    trailer.
 12. **Newline-delimited JSON, gzip'd.** A page is NDJSON: a header line (`schema`,
     `revisions`, and `remaining` when asked), one line per row, and a trailer line carrying
     `next`. Each line parses on its own, so neither the gateway nor the client holds a whole
