@@ -60,8 +60,10 @@ class ReducerRule:
     """What a reducer needs, allows or forbids, and the evidence kind it makes.
 
     ``normalize_name`` is the one operator NAME (any version) its normalize step must have, or
-    None for any. It is the only operator rule in this row. E4b adds two operator rules outside
-    the rows, as a deliberate exception (erratum ER7): `_STATISTIC_REDUCERS` and `_MEAN_OPS`.
+    None for any. It is the only operator rule in this row. E4b adds three operator rules outside
+    the rows, as a deliberate exception (erratum ER7): `_STATISTIC_REDUCERS` and `_MEAN_OPS`
+    (part 1; they match operator NAMES, any version, when the spec is parsed) and
+    `REDUCE_SELECT_RULES` (part 2; it matches exact operator ids, in the endpoint `_plan`).
     """
 
     kind: EvidenceKind
@@ -73,7 +75,9 @@ class ReducerRule:
 
 # Global rule (also checked below): normalize present => extract present.
 # AIDEV-NOTE: units 8-10 may tighten or loosen the presence rows of their own reducers, and still
-# add no operator rule. E4b adds the two operator rules below on purpose (erratum ER7).
+# add no operator rule. E4b adds three operator rules below on purpose (erratum ER7): the median
+# and mean rules `_STATISTIC_REDUCERS` and `_MEAN_OPS` match op NAMES at parse (`_check_stages`);
+# `REDUCE_SELECT_RULES` matches exact op ids after the endpoint resolves the steps (`_plan`).
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
         "vote": ReducerRule("answer", "required", "optional", "optional"),
@@ -106,6 +110,19 @@ _STATISTIC_REDUCERS: Mapping[str, Reducer] = MappingProxyType(
 _MEAN_OPS: tuple[frozenset[str], frozenset[str]] = (
     frozenset({"mean", "weighted_mean"}),
     frozenset({"value", "nearest"}),
+)
+
+# The only select op ids a reduce op pairs with; a reduce op not named here pairs with any select.
+# The endpoint checks it after it resolves the four steps (an unknown operator wins).
+# WHY (E4b part 2, review P2 #1): a reduce op with a rule that leaves a member out (erd §6 X1, X2)
+# records that member "excluded", and the evidence refuses a chosen excluded member (CE-I3). A
+# filter@1 marks such a member 0, and only kept@1 reads a mark as pass or miss; any other select
+# reads the mark as a score and can choose the member. The SDK emits filter@1 only with kept@1.
+# WHY exact ids, not names: a new version of either op is a new pairing, so it must be listed.
+REDUCE_SELECT_RULES: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "filter@1": frozenset({"kept@1"}),
+    }
 )
 
 
@@ -405,6 +422,7 @@ __all__ = [
     "MAX_MEMBERS",
     "MAX_WEIGHT",
     "REDUCER_RULES",
+    "REDUCE_SELECT_RULES",
     "CombineContext",
     "CombineSpec",
     "Presence",

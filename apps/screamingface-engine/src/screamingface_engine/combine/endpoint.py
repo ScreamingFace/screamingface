@@ -89,6 +89,7 @@ from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.combine.spec import (
     MAX_MEMBERS,
     MAX_WEIGHT,
+    REDUCE_SELECT_RULES,
     REDUCER_RULES,
     CombineContext,
     CombineSpec,
@@ -401,6 +402,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     normalize = _resolve(registry, spec.normalize, "normalize")
     reduce = registry.resolve(spec.reduce.op, "reduce")
     select = _resolve(registry, spec.select, "select")
+    _check_pairing(spec)
     bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
     return _Plan(
         extract=cast("_Step[Extractor] | None", _bind(extract, spec.extract)),
@@ -415,6 +417,16 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
         # args (k is an int from 1 to 256) before the cut hook reads them.
         cut=_cut(select, spec.select),
     )
+
+
+def _check_pairing(spec: CombineSpec) -> None:
+    """A reduce op named in ``REDUCE_SELECT_RULES`` pairs only with the select ops it lists.
+
+    The message names the rule from the table, never the select id of the spec.
+    """
+    selects = REDUCE_SELECT_RULES.get(spec.reduce.op)
+    if selects is not None and spec.select.op not in selects:
+        raise SpecInvalid(f"{spec.reduce.op} pairs only with select {', '.join(sorted(selects))}")
 
 
 def _signal_read(

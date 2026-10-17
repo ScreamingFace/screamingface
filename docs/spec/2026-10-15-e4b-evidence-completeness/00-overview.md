@@ -127,4 +127,8 @@ Scope notes:
 
 ## 9. Build errata
 
-None yet.
+These change the spec after the build (code review P2 of 2026-10-17):
+
+| # | Erratum | Record |
+|---|---|---|
+| ER1 | A `filter@1` reduce step pairs only with the `kept@1` select step. Any other select is `combine_spec_invalid`. Before, the threshold form gave a member with no signal the mark 0 and the record `excluded` / `no_signal`, and a select such as `top_k@1` or `best_holder@1` could choose that member: the evidence check then crashed the call. The rule is the table `REDUCE_SELECT_RULES` in `E/combine/spec.py`. The SDK emits `filter@1` only with `kept@1` (`sf.Filter`), so no SDK spec changes. | [member-exclusion](prd/member-exclusion.md), review P2 #1 |
