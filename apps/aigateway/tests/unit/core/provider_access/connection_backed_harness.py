@@ -16,9 +16,10 @@ from uuid import uuid4
 
 from provider_access_harness import PROVIDER, ProfileBackedHarness
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import AuthType, ProfileDefaults, ProfileState
+from aigateway.core.profile_models import ProfileDefaults, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 
 # WHY the alias: `credential_locator_for(<credential-provider>, account, <name>)` spells the very

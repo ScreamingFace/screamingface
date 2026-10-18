@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     GATEWAY_OWNED_FIELDS,
     CacheBehavior,
@@ -37,7 +38,6 @@ from aigateway.core.chat_parameters import (
     ParameterSchema,
 )
 from aigateway.core.parameter_projection import WRAPPER_KEY
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.request_cache.global_keys import (
     BYPASS_DECLARED,
     EXCLUDED_TRANSPORT_FIELDS,

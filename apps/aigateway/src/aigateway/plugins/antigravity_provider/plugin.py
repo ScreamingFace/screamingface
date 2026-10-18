@@ -48,13 +48,13 @@ from .parameters import (
 from .settings import AntigravityPluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
         ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_models import AuthMode
 
 
 def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:

@@ -29,7 +29,7 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
-from aigateway.core.profile_models import credential_name_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 _API_KEY = "sk-ant-api03-cancellation-ordering-key"

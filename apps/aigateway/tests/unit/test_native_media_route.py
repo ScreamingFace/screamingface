@@ -20,14 +20,9 @@ from unittest.mock import patch
 
 import pytest
 
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileDefaults,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.plugins.codex_provider.auth import credential_service_for
 
 _MODEL = "codex/gpt-5.4-mini"

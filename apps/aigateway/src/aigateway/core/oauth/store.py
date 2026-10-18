@@ -8,7 +8,7 @@ from tortoise.exceptions import DoesNotExist
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.auth.models import Account
-from aigateway.core.profile_models import AuthType
+from aigateway.core.auth_types import AuthType
 
 from .identity import AccountIdentity
 from .models import OAuthConnection

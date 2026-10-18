@@ -13,7 +13,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-from .profile_models import AuthType, ProfileDefaults, ProfileState
+from .auth_types import AuthType
+from .profile_models import ProfileDefaults, ProfileState
 
 
 class AdminAccountOut(BaseModel):

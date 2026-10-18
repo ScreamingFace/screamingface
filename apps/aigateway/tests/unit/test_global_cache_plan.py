@@ -28,13 +28,13 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
 )
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.request_cache.global_controls import parse_global_cache_controls
 from aigateway.core.request_cache.global_eligibility import BYPASS_UNPROJECTED_NATIVE
 from aigateway.core.request_cache.global_keys import GlobalCacheKeyResult

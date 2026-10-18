@@ -6,13 +6,13 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ProviderDiscoverySnapshot,
     ProviderParameterObservation,
     ProviderToolObservation,
 )
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.profile_models import AuthMode
 from tests.unit.core.test_provider_contract_conformance import (
     _document,
     _iter_models,

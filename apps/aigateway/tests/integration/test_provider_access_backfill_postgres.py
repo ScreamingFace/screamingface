@@ -27,9 +27,10 @@ import test_provider_access_backing_postgres as backing
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access.backfill_apply import apply_account, run_backfill
 from aigateway.core.provider_access.backfill_classify import BackfillContext
 from aigateway.core.provider_access.models import ProviderCredentialSlot

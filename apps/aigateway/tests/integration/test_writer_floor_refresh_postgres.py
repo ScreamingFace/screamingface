@@ -22,7 +22,8 @@ import test_provider_access_backing_postgres as backing
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from aigateway.core.profile_models import Profile, ProfileState, credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import ProfileRefreshOwner
 from aigateway.core.provider_access.refresh_guard import GuardedRefreshPublication
 from aigateway.plugins.anthropic_provider.auth import credential_service_for

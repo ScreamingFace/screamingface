@@ -20,8 +20,9 @@ from provider_access_harness import (
     ProfileBackedHarness,
 )
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     CredentialTarget,
     ResolvePolicy,

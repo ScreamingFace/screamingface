@@ -35,11 +35,11 @@ import httpx
 import pytest
 
 import aigateway.plugins.gemini_provider.plugin as plugin_module
+from aigateway.core.auth_types import AuthType
 from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.gemini_provider.auth import GEMINI_PROFILE_HEADER
 from aigateway.plugins.gemini_provider.chat_handler import (
     CODE_ASSIST_API_VERSION,

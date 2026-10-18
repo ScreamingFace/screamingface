@@ -25,9 +25,10 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
     CredentialSummary,

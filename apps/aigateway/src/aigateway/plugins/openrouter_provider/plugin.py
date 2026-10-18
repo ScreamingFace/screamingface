@@ -120,6 +120,7 @@ from .web_search import (
 )
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
@@ -128,7 +129,6 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthMode
 
 
 def _credential_service_for(profile_name: str) -> str:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
@@ -25,7 +26,6 @@ from aigateway.core.model_parameter_contract import (
     build_model_parameter_document,
     upstream_model_id,
 )
-from aigateway.core.profile_models import AuthType
 
 _LOCAL_FRESHNESS: dict[str, Any] = {"stale": False, "degraded": False}
 

@@ -17,13 +17,9 @@ from unittest.mock import patch
 import pytest
 from litellm.litellm_core_utils import initialize_dynamic_callback_params
 
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.request_hardening import (
     DISPATCH_CONTROL_FIELDS,
     chat_body_shape_error,

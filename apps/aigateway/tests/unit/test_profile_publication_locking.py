@@ -34,12 +34,9 @@ import httpx
 import pytest
 
 import aigateway.routes.auth as auth_module
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileState
 
 ACCOUNT_ID = "account-1"
 

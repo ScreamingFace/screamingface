@@ -19,6 +19,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.auth_types import AuthType
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
@@ -28,7 +30,7 @@ from aigateway.core.parameter_discovery import (
 )
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import AuthType, Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 
 _PROVIDER = "gemini-cli"
 _MODEL = "gemini-cli/gemini-2.5-pro"

@@ -19,7 +19,7 @@ import test_provider_access_resolve_contract as contract
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER, Harness
 
-from aigateway.core.profile_models import credential_name_for
+from aigateway.core.credential_names import credential_name_for
 
 NOT_REIMPORTED = {
     # WHY: a migrated target is stamped by the Connection it resolves to (`conn:` shape); the

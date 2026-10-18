@@ -56,6 +56,7 @@ from .runtime_guard import (
 from .settings import HuggingFacePluginSettings, pinned_router_target
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
@@ -64,7 +65,6 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthMode
 
 # Caller-supplied copies of these are stripped before the gateway injects its own
 # credential, so a client can never smuggle auth material to the upstream router.

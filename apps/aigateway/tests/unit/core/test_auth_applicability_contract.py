@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
@@ -33,7 +34,6 @@ from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 
 _API_KEY_ONLY: tuple[AuthType, ...] = ("api_key",)
@@ -339,8 +339,9 @@ async def test_the_served_oauth_contract_never_calls_a_shipped_projection_unimpl
 
 
 async def _anthropic_contract(client, credential_blobs, auth_type: AuthType) -> dict[str, Any]:
+    from aigateway.core.credential_names import profile_id_for
     from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+    from aigateway.core.profile_models import Profile, ProfileState
 
     account_id = client.get("/v1/auth/me").json()["id"]
     await ProfileIndexStore(credential_store=credential_blobs.store).upsert(

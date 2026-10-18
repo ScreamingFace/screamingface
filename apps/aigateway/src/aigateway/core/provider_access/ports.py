@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from ..auth_types import AuthMode
 from ..credential_blob import DispatchObservation, OperationalOutcome
-from ..profile_models import AuthMode
 from .selector import Selector
 from .types import (
     Authorization,

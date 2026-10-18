@@ -4,9 +4,9 @@
 # parameters, admission and dispatch-failure marking onto `core/provider_access`; this test is
 # what keeps them there, and what stops a NEW module from reaching around the port.
 # INVARIANT: outside the owners listed in `_OWNERS`, no module under `src/aigateway/` imports
-# `Profile`, `ProfileState`, `ProfileIndexStore` or `OAuthConnection`. Everything else those
-# legacy modules export — `AuthMode`, `AuthType`, `ProfileDefaults`, `credential_name_for` — is
-# core vocabulary the port itself re-exports, so it is deliberately NOT banned.
+# `Profile`, `ProfileState`, `ProfileIndexStore` or `OAuthConnection`. Since E2a (OME-1209) the
+# credential vocabulary — `AuthMode`, `AuthType`, `credential_name_for`, `profile_id_for` — lives in
+# `core/auth_types.py` and `core/credential_names.py`, and no non-owner imports `profile_models`.
 # AIDEV-NOTE: this checks the SOURCE, not runtime behaviour. A module that imports the row lazily
 # inside a function is still a direct dependency, and the AST walk sees it.
 """
@@ -128,3 +128,33 @@ def test_every_owner_exemption_names_a_real_file_and_a_reason() -> None:
     for owner, reason in _OWNERS.items():
         assert reason.strip(), f"{owner} is exempted without a reason"
         assert (_SRC / owner).exists(), f"{owner} no longer exists — drop its exemption"
+
+
+def _imports_profile_models(path: Path) -> bool:
+    """True when this module imports `profile_models` itself, however it spells the import."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.split(".")[-1] == "profile_models" or any(
+                alias.name == "profile_models" for alias in node.names
+            ):
+                return True
+        elif isinstance(node, ast.Import) and any(
+            alias.name.endswith(".profile_models") for alias in node.names
+        ):
+            return True
+    return False
+
+
+def test_no_module_outside_the_documented_owners_imports_profile_models() -> None:
+    """# INVARIANT (OME-1209 E2a): `profile_models` holds only the legacy Profile row. The
+    credential vocabulary lives in `core/auth_types.py` and `core/credential_names.py`, so a
+    module that is not a Profile owner has no reason to import the row's module at all."""
+    offenders = sorted(
+        str(path.relative_to(_SRC))
+        for path in _modules()
+        if not _is_owner(str(path.relative_to(_SRC))) and _imports_profile_models(path)
+    )
+
+    assert offenders == []

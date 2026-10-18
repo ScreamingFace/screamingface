@@ -25,9 +25,10 @@ import pytest
 
 from aigateway import migrate_profiles
 from aigateway.core.auth.models import Account
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.oauth.store import credential_locator_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.db import close_db, init_db
 

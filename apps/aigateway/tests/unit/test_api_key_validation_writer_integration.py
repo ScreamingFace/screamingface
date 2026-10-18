@@ -19,8 +19,8 @@ import json
 import httpx
 import pytest
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import (
     credential_service_for as anthropic_service_for,
 )

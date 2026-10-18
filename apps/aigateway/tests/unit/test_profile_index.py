@@ -10,18 +10,13 @@ from tortoise import Tortoise
 import aigateway.core.credential_blob.store as credential_blob_store
 from aigateway.core.credential_blob.model import CredentialBlob
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import (
     INDEX_CREDENTIAL_SERVICE,
     ProfileIndexStore,
     ProfileTransitionConflict,
 )
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileDefaults,
-    ProfileIndex,
-    ProfileState,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileIndex, ProfileState
 from aigateway.core.secrets.local import LocalSecretStore
 from aigateway.core.secrets.mixin import SecretStoreMixin
 from aigateway.db import build_tortoise_config

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
-from ..profile_models import AuthType
+from ..auth_types import AuthType
 
 if TYPE_CHECKING:
     from .pair_authority import PairAuthority

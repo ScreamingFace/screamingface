@@ -33,17 +33,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.profile_index import (
     INDEX_CREDENTIAL_SERVICE,
     ProfileIndexStore,
     ProfileTransitionConflict,
 )
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 from ._pg_mvcc_store import MvccRowStore

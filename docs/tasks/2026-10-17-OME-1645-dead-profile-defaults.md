@@ -1,13 +1,13 @@
 ---
 id: OME-1645
 linear_url: https://linear.app/openmined/issue/OME-1645/delete-the-dead-chat-shims-and-the-saved-defaults-pipeline-stage-e-e2b
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-17
-closed:
+closed: 2026-10-18
 ---
 
 # Delete the dead chat shims and the saved-defaults pipeline (Stage E, E2b)

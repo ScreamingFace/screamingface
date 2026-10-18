@@ -24,7 +24,8 @@ from test_writer_floor_refresh import (
     use_intruding_tokens,
 )
 
-from aigateway.core.profile_models import ProfileState, profile_id_for
+from aigateway.core.credential_names import profile_id_for
+from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import WriteConflict
 
 

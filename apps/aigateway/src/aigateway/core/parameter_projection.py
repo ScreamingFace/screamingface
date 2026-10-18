@@ -29,6 +29,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from .auth_types import AuthMode
 from .chat_parameters import (
     GATEWAY_OWNED_FIELDS,
     InvalidParameterRuleError,
@@ -36,7 +37,6 @@ from .chat_parameters import (
     ParameterValidationError,
     normalize_rules,
 )
-from .profile_models import AuthMode
 
 # The one caller-facing wrapper for provider-native fields (never dispatched
 # as-is; each nested key is consumed into its rule target).

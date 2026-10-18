@@ -13,11 +13,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..auth_types import AuthMode
 from ..credential_blob import DispatchObservation, OperationalOutcome
+from ..credential_names import credential_name_for
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileIndexStore
-from ..profile_models import AuthMode, Profile, ProfileState, credential_name_for
+from ..profile_models import Profile, ProfileState
 from .auth_mode import (
     allows_chatless,
     auth_mode,

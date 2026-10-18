@@ -22,8 +22,9 @@ from typing import Any, cast
 
 import pytest
 
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.request_cache.global_controls import GlobalCacheControls
 from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.huggingface_provider.parameters import (

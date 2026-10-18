@@ -22,8 +22,9 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway.main as main_module
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
 from aigateway.core.provider_access import profile_authorize as authorize_module
 

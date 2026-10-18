@@ -26,6 +26,7 @@ from typing import Any, cast
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ProviderDiscoverySnapshot,
@@ -40,7 +41,6 @@ from aigateway.core.parameter_discovery import (
     RawResponse,
 )
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_models import AuthType
 
 _REF = DiscoverySourceRef(source="probe:models", revision="probe:reading-1")
 _MODEL = "probe/model-a"
@@ -329,8 +329,9 @@ class _FixedDocuments(DiscoveryHttpClient):
 async def _openrouter_contract(client: Any, credential_blobs: Any) -> dict[str, Any]:
     from fastapi import FastAPI
 
+    from aigateway.core.credential_names import profile_id_for
     from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+    from aigateway.core.profile_models import Profile, ProfileState
 
     app = cast(FastAPI, client.app)
     app.state.discovery_runtime = DiscoveryRuntime(
@@ -372,8 +373,9 @@ async def test_the_route_publishes_the_providers_own_declared_revision(
 async def test_the_route_publishes_null_for_a_provider_with_no_dynamic_source(
     authenticated_client, credential_blobs
 ) -> None:
+    from aigateway.core.credential_names import profile_id_for
     from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+    from aigateway.core.profile_models import Profile, ProfileState
 
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
     await ProfileIndexStore(credential_store=credential_blobs.store).upsert(

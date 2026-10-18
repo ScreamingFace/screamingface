@@ -35,9 +35,9 @@ from .parameter_discovery import (
 )
 
 if TYPE_CHECKING:
+    from .auth_types import AuthMode
     from .chat_parameters import ProviderDiscoverySnapshot
     from .parameter_discovery_cache import CacheLimits, CacheOutcome
-    from .profile_models import AuthMode
 
 # Unit separator: forbidden in a source name, a canonical model id and a revision
 # alike, so the joined key cannot collide across differently-split triples.

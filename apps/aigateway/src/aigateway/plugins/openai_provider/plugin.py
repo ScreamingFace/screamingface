@@ -25,12 +25,12 @@ from .runtime_guard import (
 from .settings import OFFICIAL_API_BASE, OpenAIPluginSettings, is_route_valid_model_id
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_models import AuthMode
     from aigateway.plugins.taxonomy.types import CacheReference
 
 

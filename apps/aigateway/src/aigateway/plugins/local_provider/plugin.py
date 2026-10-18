@@ -13,12 +13,12 @@ from .settings import LocalPluginSettings
 from .transport import post_chat_completion
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
     )
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthMode
 
 
 LOCAL_MODEL_SOURCE = ModelDiscoverySource(

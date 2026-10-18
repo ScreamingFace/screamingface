@@ -28,10 +28,11 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
+from aigateway.core.auth_types import AuthMode, AuthType
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import OAuthConnectionResponse
 from aigateway.core.plugin_base import ModelEntry, OAuthConfig, ProviderPluginBase
-from aigateway.core.profile_models import AuthMode, AuthType, Profile
+from aigateway.core.profile_models import Profile
 from aigateway.core.provider_access import auth_mode_for, auth_type_of
 
 

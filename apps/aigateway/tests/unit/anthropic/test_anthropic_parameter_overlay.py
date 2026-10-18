@@ -22,9 +22,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import inline_supported_parameters
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 
 _MODEL = "anthropic/claude-haiku-4-5"

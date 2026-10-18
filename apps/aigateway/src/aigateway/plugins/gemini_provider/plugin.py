@@ -60,6 +60,7 @@ from .parameters import gemini_chat_parameter_rules, gemini_chat_parameter_tools
 from .settings import GeminiPluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
@@ -68,7 +69,6 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthMode
 
 
 _CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES

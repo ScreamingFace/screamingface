@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.huggingface_provider.plugin import HuggingFaceProviderPlugin
 
 _MODEL = "huggingface/openai/gpt-oss-120b:cerebras"

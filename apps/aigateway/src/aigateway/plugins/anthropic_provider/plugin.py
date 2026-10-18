@@ -41,6 +41,7 @@ from .usage_accounting import (
 )
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
@@ -48,7 +49,6 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import AuthMode
 
 
 # OME-305: this provider's contribution to a global cache key. The date names the

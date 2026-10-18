@@ -35,13 +35,13 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import inline_supported_parameters
 from aigateway.core.model_parameter_contract import build_model_parameter_document
 from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.openrouter_provider import observations as openrouter_observations
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 

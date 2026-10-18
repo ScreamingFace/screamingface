@@ -4,8 +4,10 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import AuthType, Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 
 _MODEL = "anthropic/claude-opus-4-8"
 _GEMINI = "gemini-cli/gemini-2.5-flash"

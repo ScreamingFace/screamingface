@@ -4,9 +4,10 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from .auth_types import AuthType
 from .credential_blob.model import CredentialBlob
 from .credential_blob.store import CredentialBlobStore, ORMStore
-from .profile_models import AuthType, Profile, ProfileDefaults, ProfileIndex, ProfileState
+from .profile_models import Profile, ProfileDefaults, ProfileIndex, ProfileState
 
 logger = logging.getLogger(__name__)
 
