@@ -123,3 +123,18 @@ def test_logprob_counts_content_tokens_only() -> None:
     assert record is not None
     assert record.tokens == 3
     assert record.logprob_sum == -0.6
+
+
+# --- LP#4: each form is computed on its own -----------------------------------------------------
+
+
+def test_logprob_each_form_is_its_own_expression() -> None:
+    assert logprob_value(2, -1.0, "sum") == -1.0
+    assert logprob_value(2, -1.0, "mean") == -0.5
+    assert logprob_value(2, -1.0, "prob") == math.exp(-0.5)
+    # the sum and mean keep the +0.0 that turns -0.0 into 0.0; the prob underflow is its own rule
+    for form in ("sum", "mean"):
+        value = logprob_value(2, -0.0, form)
+        assert value is not None and math.copysign(1.0, value) == 1.0
+    assert logprob_value(1, -800.0, "prob") is None
+    assert logprob_value(1, -800.0, "sum") == -800.0

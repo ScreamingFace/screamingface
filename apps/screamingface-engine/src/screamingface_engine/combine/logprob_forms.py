@@ -26,9 +26,10 @@ def logprob_value(
     if tokens is None or logprob_sum is None or not _usable(tokens, logprob_sum):
         return None
     mean = logprob_sum / tokens + 0.0  # WHY + 0.0: -0.0 becomes 0.0
-    values = {"sum": logprob_sum + 0.0, "mean": mean, "prob": math.exp(mean)}
-    value = values[form]
-    return None if form == "prob" and value == 0.0 else value
+    if form == "prob":
+        value = math.exp(mean)
+        return None if value == 0.0 else value
+    return logprob_sum + 0.0 if form == "sum" else mean
 
 
 def _usable(tokens: float, logprob_sum: float) -> bool:
