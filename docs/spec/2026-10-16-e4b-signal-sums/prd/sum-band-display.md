@@ -56,6 +56,8 @@ def _gate_verdict(gate): # branch None -> "not run"; "band" -> "in band · absta
 # _mean_cell: math.fsum(values) / count; on OverflowError the exact Fraction mean, rounded once
 #   (the part 5 erratum E6 rule, E/combine/gate.py:61-70). Add one WHY comment in _mean_cell
 #   that names E/combine/gate.py `_mean` as its twin, so a later edit changes both copies.
+#   Restack 2026-10-17: part 4 erratum E5 put this rule in `_mean` (S/_ui/combine_view.py), which
+#   `_mean_cell` calls; the WHY comment and the TWIN note are in `_mean`.
 ```
 
 ## 3. Scenarios and acceptance criteria
