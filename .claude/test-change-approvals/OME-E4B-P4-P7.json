@@ -1,0 +1,86 @@
+{
+  "approver": "owner",
+  "date": "2026-10-15",
+  "issue": "OME-E4B-P4-P7",
+  "branch": "e4b-consistency",
+  "scope": "Combined approvals for one PR. OME-E4B-P4: E4b part 4 (show signals), unit 1 (export-trace, P1/P4): report.v1 gets an additive optional 'trace' key as the last key of each exported Case that has combine evidence; the schema id stays screamingface.report.v1. The two report.v1 byte goldens are regenerated (only the new 'trace' keys change), and test_e4b_schema_pins.py lines 29 and 33 pin their new SHA-256 values. No assertion is removed or weakened. | OME-E4B-P5: E4b part 5 (gate record and verifier slot). Unit 1: the combine-spec v1 schema gains the optional gate; the combine-evidence v1 schema gains the optional gate record and the reserved null-only verifier; the public-surface snapshot adds CombineGate and CombineEvidence.gate. Unit 2: the new abstain reason gate_not_met in the combine-evidence v1 and answer v1 schemas and in the word lists of test_combine_evidence_words, test_combine_pick_output, test_evidence_words and test_pick_output; evidence_cases.json gains 5 gate cases (the 32 old cases keep their bytes), so the case-count literal in test_frozen_record_fields goes from 32 to 37. Unit 3: the public-surface snapshot adds sf.Gate and the gate and verify arguments of sf.Vote. No assertion is removed or weakened. | OME-E4B-P6: E4b part 6 (signal sums and the abstain band). The combine-spec v1 schema gains the sum source entry and the optional gate abstain_band; the combine-evidence v1 and answer v1 schemas gain the band record and the new abstain reason in_band; evidence_cases.json gains pick_sum_min and vote_gate_band (old cases keep their bytes), so the case-count literal in test_frozen_record_fields goes from 37 to 39 and the part 5 gate case set in test_combine_gate gains the new cases; the public-surface snapshot adds sf.Sum and the abstain_band argument of sf.Gate (test_gate_api parameter list); the abstain-reason and gate word lists in test_combine_gate_words, test_combine_pick_output, test_combine_evidence_words, test_gate_words, test_evidence_words and test_pick_output gain in_band. No assertion is removed or weakened. | OME-E4B-P7: E4b part 7 (consistency@N), stacked on part 6. The combine-spec v1 schema gains the consistency source entry (n, temperature, match); the combine-evidence v1 schema gains the optional consistency record (sample and failed counts); the public-surface snapshot adds sf.Consistency; test_sum_band_docs (part 6) pins the README sections between Fusion and Install as [Fusion, Sum, Consistency] instead of [Fusion, Sum], still an exact list. No assertion is removed or weakened.",
+  "reason": "The owner chose on 2026-10-18 to ship these parts as one PR (option A); this file joins the per-part approvals, with base_blob at the PR base and approved_blob at the PR tip. No new test change. OME-E4B-P4: Owner approved these 3 pinned test edits and P1 (same id, additive) in chat on 2026-10-15 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sources; approved_blob is the blob at the part 4 tip. | OME-E4B-P5: Owner approved these 10 pinned test edits in chat on 2026-10-16 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-show-signals (4e622af75); approved_blob is the blob at the part 5 tip. | OME-E4B-P6: Owner approved these 14 pinned test edits in chat on 2026-10-16 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-gate-record (633fec3a1); approved_blob is the blob at the part 6 tip. | OME-E4B-P7: Owner approved the 3 build pinned edits and the restack edit of test_sum_band_docs.py in chat on 2026-10-16. Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sums (part 6 tip 642d385d1); approved_blob is the blob at the restacked part 7 tip. Owner approved on 2026-10-17 (simplify H): declares_consistency is dead production code and is removed; test_combine_consistency_words.py keeps its parse and refusal tests and drops only the calls to that helper. base_blob for that file is its pre-change part 7 blob, because the file is new in part 7.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "22d54b15b8c5d8f312b1a962ef6f590b61aa4791",
+      "approved_blob": "b29ab54d6ceae96ce6725f1b4355092c537380fb"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "406747a92a4c44d05aff27f0922e7582250cc31a",
+      "approved_blob": "a008edd2edf22ac699ec3c22f17b8446e5a506d4"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "b3acb2a5cd5c489c570a57384cd40fa5c9f30273",
+      "approved_blob": "e06e002a6c9334c35aece4bdf12319ffdb8529d2"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_consistency_words.py": {
+      "base_blob": "e4b-signal-sources:apps/screamingface-engine/tests/unit/test_combine_consistency_words.py",
+      "approved_blob": "6c97e8d4e27f01d6dd09f3df3753fdbb97083c8b"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_words.py": {
+      "base_blob": "a8abea4cf427116c897af10aa23874cc8ba35570",
+      "approved_blob": "77f810e3800e70df931ffc14d2f0699538783b7e"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_gate.py": {
+      "base_blob": "e4b-signal-sources:apps/screamingface-engine/tests/unit/test_combine_gate.py",
+      "approved_blob": "40771cdee3bd8f2290817265e86118e9483e9cc7"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_gate_words.py": {
+      "base_blob": "e4b-signal-sources:apps/screamingface-engine/tests/unit/test_combine_gate_words.py",
+      "approved_blob": "8adbd5dbc5b62fd2f45d964392525b6f1087bf92"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_pick_output.py": {
+      "base_blob": "261838c2846433a27196cd8a7d7ef724221229b1",
+      "approved_blob": "c9043c2da00ec8ac68eb9568bdd3a75770a94f0a"
+    },
+    "packages/screamingface/tests/data/report_v1_combine_report.json": {
+      "base_blob": "3115e68f9f70c1ee16cc9fd772626ca45dd2d74a",
+      "approved_blob": "390ca9ed5abf3ea512593a59c3ee0757e76e9e08"
+    },
+    "packages/screamingface/tests/data/report_v1_vote_median_report.json": {
+      "base_blob": "10f3247c926236629c8ece7ad05a07bf5c2e5bdb",
+      "approved_blob": "cbd5d1db7c7d912b0c9b1719442da94027a35002"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "6524c2d068967d7f3455329323aa9dbd02ca5065",
+      "approved_blob": "f77ef20e00d55297f3d6beafee741902a0382482"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "b94d62bb8199dd53c1c9ea320184b4ebc8e5968b",
+      "approved_blob": "cd2687de83ac068a3fb26e4a2bbdd8e56839a792"
+    },
+    "packages/screamingface/tests/test_e4b_schema_pins.py": {
+      "base_blob": "8a32a2c2f6ba4a7f8f0581e722139415e784b39b",
+      "approved_blob": "e4e39af0e327d7d63f9e7d8134cb67dde359c70c"
+    },
+    "packages/screamingface/tests/test_evidence_words.py": {
+      "base_blob": "370c43c4377cc9e8726ea85aca7ceab9f07ac114",
+      "approved_blob": "e31c62758af17fdac1140eb97d1f6cbdcf16cec8"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "b0f1493ec8e1616c733b193f14b7c8ef280234b8",
+      "approved_blob": "97028b4ad90eb1b88ec733a42841bcb06b8498e3"
+    },
+    "packages/screamingface/tests/test_gate_api.py": {
+      "base_blob": "e4b-signal-sources:packages/screamingface/tests/test_gate_api.py",
+      "approved_blob": "39d9c5f1030a4a412f4c1f257bb8bfcc5e11be04"
+    },
+    "packages/screamingface/tests/test_gate_words.py": {
+      "base_blob": "e4b-signal-sources:packages/screamingface/tests/test_gate_words.py",
+      "approved_blob": "5d1622bba146b3f974389a264f11baa1e92e84e8"
+    },
+    "packages/screamingface/tests/test_pick_output.py": {
+      "base_blob": "03c12205ca6e56715e55f754c7f5e016ffbe6082",
+      "approved_blob": "c1f04b2e14828a47e3311b200ca3ff4846b73500"
+    },
+    "packages/screamingface/tests/test_sum_band_docs.py": {
+      "base_blob": "e4b-signal-sources:packages/screamingface/tests/test_sum_band_docs.py",
+      "approved_blob": "b81b6d55ce567c1d43e3a028eb01994bd5e5f109"
+    }
+  }
+}
