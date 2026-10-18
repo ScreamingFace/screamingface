@@ -7,6 +7,10 @@
 # `profile_auth_conflict` and writes no document state, no blob and no shadow Connection.
 # INVARIANT (D14 refinement): the shadow Connection of a legacy callback is written only while the
 # pair still stands at the generation that callback published; a later ownership change wins.
+# WHY flows open through `start` (a storage seeder): OME-1209 Stage E3 retired
+# `POST /v1/auth/{provider}/profiles` (410); the callback that claims the observed pair ships until
+# E4. The begin-side test (observed pair recorded, nothing advanced) retired with the route; the
+# seeder reproduces that begin, and `test_writer_floor_native.py` pins the native begin.
 """
 
 from __future__ import annotations
@@ -25,7 +29,6 @@ from connection_backed_admin_probes import (
 from connection_backed_oauth_probes import (
     access_token_of,
     callback,
-    pending_entry,
     start,
     use_tokens,
 )
@@ -33,7 +36,7 @@ from provider_access_harness import PROVIDER, ProfileBackedHarness
 
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.profile_models import ProfileState
-from aigateway.core.provider_access import PairAuthority, PairAuthorityStore
+from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.core.provider_access.writer_floor import claim_pair
 from aigateway.routes import auth as auth_routes
 
@@ -47,24 +50,11 @@ async def _claim_the_current_pair(account_id: str) -> None:
     await claim_pair(await PairAuthorityStore().read(account_id, PROVIDER))
 
 
-def test_a_legacy_start_records_the_pair_it_observed_and_advances_nothing(
-    legacy: ProfileBackedHarness,
-) -> None:
-    started = legacy.client.post(f"/v1/auth/{PROVIDER}/profiles", json={"name": "default"})
-
-    assert started.status_code == 201
-    entry = pending_entry(legacy, started.json()["state"])
-    assert entry.observed_pair == PairAuthority(legacy.account_id, PROVIDER, "none", None, 0, None)
-    # WHY unchanged: the migrated-only fence and the index generation keep their meaning.
-    assert (entry.pair_generation, entry.oauth_generation) == (None, 1)
-    assert marker(legacy).generation == 0
-
-
 def test_a_fresh_legacy_callback_claims_the_pair_and_keeps_it_legacy_owned(
     legacy: ProfileBackedHarness,
 ) -> None:
     use_tokens(legacy, "fresh-tok")
-    state = start(legacy).json()["state"]
+    state = start(legacy)
 
     assert callback(legacy, state).status_code == 200
 
@@ -81,7 +71,7 @@ def test_a_legacy_callback_after_another_ownership_change_loses_and_writes_nothi
     legacy: ProfileBackedHarness,
 ) -> None:
     use_tokens(legacy, "late-tok")
-    state = start(legacy, name="default").json()["state"]
+    state = start(legacy, name="default")
     # WHY another Profile name: the same name would already lose on the index CAS; the pair fence
     # is what makes a key set elsewhere on the pair supersede this flow.
     set_api_key(legacy, "work")
@@ -113,7 +103,7 @@ def test_a_quarantined_pairs_callback_keeps_its_state_and_note(
         migration_note="conflict",
     )
     use_tokens(legacy, "held-tok")
-    state = start(legacy).json()["state"]
+    state = start(legacy)
 
     assert callback(legacy, state).status_code == 200
 
@@ -136,7 +126,7 @@ def test_no_shadow_is_written_when_the_pair_moved_before_the_shadow_row_exists(
 
     monkeypatch.setattr(auth_routes, "_extract_connection_identity", extract_after_an_owner_change)
     use_tokens(legacy, "published-tok")
-    state = start(legacy).json()["state"]
+    state = start(legacy)
 
     assert callback(legacy, state).status_code == 200
 
@@ -161,7 +151,7 @@ def test_a_shadow_row_opened_before_the_pair_moved_is_revoked_without_a_blob(
 
     monkeypatch.setattr(OAuthConnectionStore, "create_pending", create_then_lose_the_pair)
     use_tokens(legacy, "published-tok")
-    state = start(legacy).json()["state"]
+    state = start(legacy)
 
     assert callback(legacy, state).status_code == 200
 

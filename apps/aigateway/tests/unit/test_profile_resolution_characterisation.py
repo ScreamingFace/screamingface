@@ -21,7 +21,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
-import httpx
 import pytest
 
 from aigateway.core.credential_names import credential_name_for, profile_id_for
@@ -115,21 +114,6 @@ def _capturing(captured: dict):
     return fake_chat_completion
 
 
-def _mock_token_factory():
-    transport = httpx.MockTransport(
-        lambda req: httpx.Response(
-            200,
-            json={
-                "access_token": "new-tok",
-                "refresh_token": "new-rt",
-                "expires_in": 3600,
-                "token_type": "Bearer",
-            },
-        )
-    )
-    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
-
-
 @contextmanager
 def _server_errors_as_responses(client) -> Iterator[None]:
     transport = getattr(client, "_transport")
@@ -139,12 +123,6 @@ def _server_errors_as_responses(client) -> Iterator[None]:
         yield
     finally:
         transport.raise_server_exceptions = previous
-
-
-def _anthropic_connections(client) -> list[dict]:
-    listing = client.get("/v1/oauth/connections")
-    assert listing.status_code == 200
-    return [row for row in listing.json()["connections"] if row["provider"] == "anthropic"]
 
 
 _UNSUPPORTED_DETAIL = {
@@ -265,61 +243,9 @@ def test_a_named_x_profile_header_is_rejected_without_dispatch(
 
 
 # --- 3. the shadow Connection outlives the Profile that created it ---------------------------
-
-
-def test_shadow_connection_stays_reachable_after_the_profile_is_deleted(
-    credential_blobs, authenticated_client
-) -> None:
-    """# INVARIANT (legacy, pinned — spec §8 D14): completing a Profile OAuth flow also records
-    an `OAuthConnection` (`auth.py:957-1021`, label falls back to the profile name because the
-    anthropic plugin extracts no identity). `DELETE /v1/auth/{provider}/profiles/{name}`
-    removes the index row and the Profile credential only (`auth.py:1371-1401`); the Connection
-    row and ITS credential survive, and the `default` selector reaches them through the
-    label-match fallback (`chat_credentials.py:170-212`). Documents current behaviour and its
-    risk; the fix is a later decision.
-    """
-    client = authenticated_client
-    account_id = _account_id(client)
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "default"})
-    assert start.status_code == 201
-    state = start.json()["state"]
-    auth_header = client.headers.pop("Authorization")
-    try:
-        callback = client.get(
-            "/v1/auth/anthropic/callback",
-            params={"code": "auth-code-1", "state": state},
-            follow_redirects=False,
-        )
-    finally:
-        client.headers["Authorization"] = auth_header
-    assert callback.status_code == 200
-    assert client.get("/v1/auth/anthropic/profiles/default").json()["state"] == "authenticated"
-
-    (shadow,) = _anthropic_connections(client)
-    assert shadow["status"] == "active"
-    assert shadow["label"] == "default"
-
-    assert client.delete("/v1/auth/anthropic/profiles/default").status_code == 204
-    assert client.get("/v1/auth/anthropic/profiles/default").status_code == 404
-    assert (
-        credential_blobs.read(
-            credential_service_for(credential_name_for(account_id, "default")), "default"
-        )
-        is None
-    )
-
-    (survivor,) = _anthropic_connections(client)
-    assert survivor["id"] == shadow["id"]
-    assert survivor["status"] == "active"
-
-    captured: dict = {}
-    with patch(_ANTHROPIC_CHAT, _capturing(captured)):
-        resp = client.post(_CHAT, json=_body())
-
-    assert resp.status_code == 200
-    assert captured["api_key"] == "new-tok"
+# WHY: retired at OME-1209 Stage E3. The pin needed a Profile-only delete, and the Profile DELETE
+# route answers 410 since then (`test_legacy_profile_routes_retired.py`), so no live route can
+# delete a Profile while leaving its shadow Connection behind.
 
 
 # --- 4. a persistent index fault at the resolver read is UNHANDLED ---------------------------

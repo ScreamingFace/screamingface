@@ -6,14 +6,18 @@ import json
 from dataclasses import dataclass, field
 from unittest.mock import patch
 
+import pytest
+
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import (
     ApiKeyValidationResult,
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
-from aigateway.core.credential_names import credential_name_for
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.oauth.store import credential_key_for
+from aigateway.core.profile_index import ProfileIndexStore
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openai_provider.plugin import PLUGIN
 
 _OLD_KEY = "sk-openai-synthetic-old-key-1234"
@@ -43,61 +47,6 @@ def _service_for(name: str) -> str:
     strategy = PLUGIN.api_key_strategy_for(name)
     assert isinstance(strategy, ApiKeyStrategy)
     return strategy.credential_service()
-
-
-def test_profile_create_failed_replace_and_delete_preserve_atomic_key_state(
-    authenticated_client,
-    credential_blobs,
-) -> None:
-    validation = _StubValidationService(_valid_result())
-    authenticated_client.app.state.api_key_validation_service = validation
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    profile_name = "direct-openai"
-    service = _service_for(credential_name_for(account_id, profile_name))
-
-    created = authenticated_client.put(
-        f"/v1/auth/openai/profiles/{profile_name}/api-key",
-        json={"api_key": _OLD_KEY},
-    )
-
-    assert created.status_code == 200, created.text
-    assert created.json()["auth_type"] == "api_key"
-    assert created.json()["state"] == "authenticated"
-    assert _OLD_KEY not in created.text
-    before = credential_blobs.read(service, "default")
-    assert json.loads(before) == {"auth_type": "api_key", "api_key": _OLD_KEY}
-    assert _OLD_KEY not in (credential_blobs.read_raw(service, "default") or "")
-
-    replaced = authenticated_client.put(
-        f"/v1/auth/openai/profiles/{profile_name}/api-key",
-        json={"api_key": _NEW_KEY},
-    )
-    assert replaced.status_code == 200, replaced.text
-    before = credential_blobs.read(service, "default")
-    assert json.loads(before) == {"auth_type": "api_key", "api_key": _NEW_KEY}
-
-    validation.result = ApiKeyValidationResult(
-        ApiKeyValidationState.INVALID,
-        stage=ApiKeyValidationStage.AUTHENTICATION,
-    )
-    failed = authenticated_client.put(
-        f"/v1/auth/openai/profiles/{profile_name}/api-key",
-        json={"api_key": _REJECTED_KEY},
-    )
-
-    assert failed.status_code == 422
-    assert failed.json()["detail"]["code"] == "api_key_invalid"
-    assert _REJECTED_KEY not in failed.text
-    assert credential_blobs.read(service, "default") == before
-
-    deleted = authenticated_client.delete(f"/v1/auth/openai/profiles/{profile_name}")
-    assert deleted.status_code == 204
-    assert credential_blobs.read(service, "default") is None
-    assert validation.calls == [
-        ("openai", _OLD_KEY),
-        ("openai", _NEW_KEY),
-        ("openai", _REJECTED_KEY),
-    ]
 
 
 def test_connection_create_failed_replace_and_delete_preserve_atomic_key_state(
@@ -173,20 +122,13 @@ def test_failed_initial_validation_writes_neither_surface(
 
     monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", forbidden_write)
 
-    profile = authenticated_client.put(
-        "/v1/auth/openai/profiles/rejected/api-key",
-        json={"api_key": _REJECTED_KEY},
-    )
     connection = authenticated_client.post(
         "/v1/oauth/connections/api-key",
         json={"provider": "openai", "label": "rejected", "api_key": _REJECTED_KEY},
     )
 
-    assert profile.status_code == 422
     assert connection.status_code == 422
-    assert profile.json()["detail"]["code"] == "api_key_invalid"
     assert connection.json()["detail"]["code"] == "api_key_invalid"
-    assert authenticated_client.get("/v1/auth/openai/profiles/rejected").status_code == 404
     assert authenticated_client.get("/v1/oauth/connections").json()["connections"] == []
 
 
@@ -259,39 +201,26 @@ def test_chat_uses_effective_openai_api_key_connection(authenticated_client) -> 
     assert metadata["request_economics"]["direct_cost_status"] == "not_applicable"
 
 
-def test_openai_profiles_are_account_isolated(
-    authenticated_client,
-    provisioned_user_factory,
-) -> None:
-    authenticated_client.app.state.api_key_validation_service = _StubValidationService(
-        _valid_result()
+@pytest.mark.asyncio
+async def test_chat_uses_effective_openai_profile(authenticated_client, credential_blobs) -> None:
+    # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and the
+    # subject here is a legacy Profile that still dispatches, so it is seeded at its own address.
+    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
+    credential_blobs.write(
+        _service_for(credential_name_for(account_id, "default")),
+        "default",
+        json.dumps({"auth_type": "api_key", "api_key": _NEW_KEY}),
     )
-    created = authenticated_client.put(
-        "/v1/auth/openai/profiles/private/api-key",
-        json={"api_key": _OLD_KEY},
+    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
+        Profile(
+            id=profile_id_for(account_id, "openai", "default"),
+            account_id=account_id,
+            provider="openai",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="api_key",
+        )
     )
-    assert created.status_code == 200, created.text
-
-    provisioned_user_factory("openai-other", "other-pass1")
-    login = authenticated_client.post(
-        "/v1/auth/login",
-        json={"username": "openai-other", "password": "other-pass1"},
-    )
-    authenticated_client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
-
-    assert authenticated_client.get("/v1/auth/openai/profiles").json() == {"profiles": []}
-    assert authenticated_client.get("/v1/auth/openai/profiles/private").status_code == 404
-
-
-def test_chat_uses_effective_openai_profile(authenticated_client) -> None:
-    authenticated_client.app.state.api_key_validation_service = _StubValidationService(
-        _valid_result()
-    )
-    created = authenticated_client.put(
-        "/v1/auth/openai/profiles/default/api-key",
-        json={"api_key": _NEW_KEY},
-    )
-    assert created.status_code == 200, created.text
     plugin = authenticated_client.app.state.providers.get("openai")
     captured: dict = {}
 

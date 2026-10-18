@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from functools import partial
 from typing import cast
 from urllib.parse import parse_qs, urlparse
 
@@ -20,11 +21,9 @@ from tortoise.exceptions import IntegrityError, OperationalError
 
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.credential_names import credential_name_for, profile_id_for
-from aigateway.core.errors import AuthError
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.db import init_db
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
 from aigateway.routes.auth import (
@@ -37,6 +36,7 @@ from aigateway.routes.auth import (
     _loopback_host_allowed,
     close_loopback_callbacks,
 )
+from tests.unit.oauth_flow_seed import open_oauth_flow
 
 
 @pytest.fixture
@@ -59,52 +59,43 @@ def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
 
 
-def test_list_profiles_empty(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.get("/v1/auth/profiles")
-    assert resp.status_code == 200
-    assert resp.json() == {"profiles": []}
-
-
-@pytest.mark.asyncio
-async def test_list_profiles_returns_seeded(credential_blobs, authenticated_client) -> None:
-    account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            defaults=ProfileDefaults(model="anthropic/claude-sonnet-4-5"),
+def _open_flow(client, provider: str, name: str, **kwargs) -> str:
+    # FEATURE: Stage E route retirement — the legacy start route answers 410, so the callback
+    # tests open their flow with the shared storage seeder; returns the flow's `state`.
+    return client.portal.call(
+        partial(
+            open_oauth_flow,
+            client.app,
+            account_id=_account_id(client),
+            provider=provider,
+            name=name,
+            **kwargs,
         )
     )
 
-    resp = authenticated_client.get("/v1/auth/profiles")
-    body = resp.json()
-    assert resp.status_code == 200
-    assert len(body["profiles"]) == 1
-    assert body["profiles"][0]["id"] == profile_id_for(account_id, "anthropic", "default")
-    assert body["profiles"][0]["account_id"] == account_id
-    assert "access_token" not in str(body)
 
-
-def test_get_profile_404_on_missing(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.get("/v1/auth/anthropic/profiles/missing")
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
+def _indexed_profile(client, provider: str, name: str) -> dict:
+    # WHY: the retired `GET .../profiles/{name}` returned this exact projection of the index row.
+    profile = client.portal.call(
+        client.app.state.profile_index.get, _account_id(client), provider, name
+    )
+    assert profile is not None
+    return profile.model_dump(mode="json")
 
 
 def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)
-    resp = client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
+    resp = client.post("/v1/oauth/connections", json={"provider": "anthropic", "label": "work"})
     assert resp.status_code == 201
     body = resp.json()
     parsed = urlparse(body["authorize_url"])
-    assert body["profile_id"] == profile_id_for(account_id, "anthropic", "work")
+    connection = client.get(f"/v1/oauth/connections/{body['connection_id']}").json()
+    assert (connection["account_id"], connection["provider"], connection["label"]) == (
+        account_id,
+        "anthropic",
+        "work",
+    )
     assert parsed.scheme == "https"
     assert parsed.netloc == "claude.com"
     assert parsed.path == "/cai/oauth/authorize"
@@ -125,59 +116,18 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert "%2Fcallback&" in body["authorize_url"]
 
 
-def test_start_oauth_uses_request_host_port_for_gateway_callback(client_with_index) -> None:
-    client, _ = client_with_index
-
-    resp = client.post(
-        "/v1/auth/anthropic/profiles",
-        json={"name": "port-check"},
-        headers={"host": "127.0.0.1:9106"},
-    )
-
-    assert resp.status_code == 201
-    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
-    assert query["redirect_uri"] == ["http://localhost:9106/callback"]
-
-
 def test_start_oauth_invalid_host_falls_back_to_app_port(client_with_index) -> None:
     client, _ = client_with_index
 
     resp = client.post(
-        "/v1/auth/anthropic/profiles",
-        json={"name": "fallback-port"},
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "fallback-port"},
         headers={"host": "127.0.0.1:not-a-port"},
     )
 
     assert resp.status_code == 201
     query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
     assert query["redirect_uri"] == [f"http://localhost:{client.app.state.settings.port}/callback"]
-
-
-def test_start_oauth_uses_public_url_for_gateway_callback(client_with_index) -> None:
-    client, _ = client_with_index
-    client.app.state.settings.public_url = "https://aigateway.example.com/base"
-
-    resp = client.post("/v1/auth/anthropic/profiles", json={"name": "public-url"})
-
-    assert resp.status_code == 201
-    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
-    assert query["redirect_uri"] == ["https://aigateway.example.com/base/callback"]
-
-
-def test_start_oauth_accepts_redirect_uri_override(client_with_index) -> None:
-    client, _ = client_with_index
-    redirect_uri = "http://localhost:9105/callback"
-
-    resp = client.post(
-        "/v1/auth/anthropic/profiles",
-        json={"name": "hosted", "redirect_uri": redirect_uri},
-    )
-
-    assert resp.status_code == 201
-    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
-    assert query["redirect_uri"] == [redirect_uri]
-    pending = client.app.state.pending_auth.peek(resp.json()["state"])
-    assert pending.redirect_uri == redirect_uri
 
 
 @pytest.mark.parametrize(
@@ -200,27 +150,12 @@ def test_start_oauth_rejects_invalid_redirect_uri_override(
     client, _ = client_with_index
 
     resp = client.post(
-        "/v1/auth/anthropic/profiles",
-        json={"name": "bad-redirect", "redirect_uri": redirect_uri},
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "bad-redirect", "redirect_uri": redirect_uri},
     )
 
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "invalid_redirect_uri"
-
-
-def test_start_oauth_redirect_uri_override_wins_over_public_url(client_with_index) -> None:
-    client, _ = client_with_index
-    client.app.state.settings.public_url = "https://aigateway.example.com/base"
-    redirect_uri = "http://localhost:9105/callback"
-
-    resp = client.post(
-        "/v1/auth/anthropic/profiles",
-        json={"name": "override-public", "redirect_uri": redirect_uri},
-    )
-
-    assert resp.status_code == 201
-    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
-    assert query["redirect_uri"] == [redirect_uri]
 
 
 @pytest.mark.parametrize("port", [1455, 1457])
@@ -232,8 +167,8 @@ def test_start_oauth_codex_accepts_configured_redirect_override_port(
     redirect_uri = f"http://localhost:{port}/auth/callback"
 
     resp = client.post(
-        "/v1/auth/codex/profiles",
-        json={"name": f"codex-{port}", "redirect_uri": redirect_uri},
+        "/v1/oauth/connections",
+        json={"provider": "codex", "label": f"codex-{port}", "redirect_uri": redirect_uri},
     )
 
     assert resp.status_code == 201
@@ -241,29 +176,20 @@ def test_start_oauth_codex_accepts_configured_redirect_override_port(
     assert query["redirect_uri"] == [redirect_uri]
 
 
-def test_start_oauth_codex_rejects_unconfigured_redirect_override_port(
-    client_with_index,
-) -> None:
-    client, _ = client_with_index
-
-    resp = client.post(
-        "/v1/auth/codex/profiles",
-        json={"name": "codex-bad-port", "redirect_uri": "http://localhost:9105/auth/callback"},
-    )
-
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "invalid_redirect_uri"
-
-
 def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)
 
-    resp = client.post("/v1/auth/codex/profiles", json={"name": "work"})
+    resp = client.post("/v1/oauth/connections", json={"provider": "codex", "label": "work"})
 
     assert resp.status_code == 201
     body = resp.json()
-    assert body["profile_id"] == profile_id_for(account_id, "codex", "work")
+    connection = client.get(f"/v1/oauth/connections/{body['connection_id']}").json()
+    assert (connection["account_id"], connection["provider"], connection["label"]) == (
+        account_id,
+        "codex",
+        "work",
+    )
     parsed = urlparse(body["authorize_url"])
     query = parse_qs(parsed.query)
     assert parsed.scheme == "https"
@@ -282,10 +208,6 @@ def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -
     assert query["codex_cli_simplified_flow"] == ["true"]
     assert query["originator"] == ["codex_cli_rs"]
 
-    profile = client.get("/v1/auth/codex/profiles/work").json()
-    assert profile["state"] == "pending"
-    assert "offline_access" in profile["scopes"]
-
 
 def test_start_oauth_public_url_overrides_loopback_redirect_ports_for_codex(
     client_with_index,
@@ -293,7 +215,7 @@ def test_start_oauth_public_url_overrides_loopback_redirect_ports_for_codex(
     client, _ = client_with_index
     client.app.state.settings.public_url = "https://aigateway.example.com"
 
-    resp = client.post("/v1/auth/codex/profiles", json={"name": "public-codex"})
+    resp = client.post("/v1/oauth/connections", json={"provider": "codex", "label": "public-codex"})
 
     assert resp.status_code == 201
     query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
@@ -308,7 +230,9 @@ def test_start_oauth_loopback_unavailable_returns_503(client_with_index, monkeyp
 
     monkeypatch.setattr(asyncio, "start_server", fail_start_server)
 
-    resp = client.post("/v1/auth/codex/profiles", json={"name": "loopback-busy"})
+    resp = client.post(
+        "/v1/oauth/connections", json={"provider": "codex", "label": "loopback-busy"}
+    )
 
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "oauth_loopback_unavailable"
@@ -321,8 +245,7 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "topcb"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "topcb")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -334,7 +257,7 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     finally:
         client.headers["Authorization"] = auth_header
     assert resp.status_code == 200
-    prof = client.get("/v1/auth/anthropic/profiles/topcb").json()
+    prof = _indexed_profile(client, "anthropic", "topcb")
     assert prof["state"] == "authenticated"
 
 
@@ -342,8 +265,7 @@ def test_oauth2callback_alias_completes_auth(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "oauth2cb"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "oauth2cb")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -355,7 +277,7 @@ def test_oauth2callback_alias_completes_auth(client_with_index) -> None:
     finally:
         client.headers["Authorization"] = auth_header
     assert resp.status_code == 200
-    prof = client.get("/v1/auth/anthropic/profiles/oauth2cb").json()
+    prof = _indexed_profile(client, "anthropic", "oauth2cb")
     assert prof["state"] == "authenticated"
 
 
@@ -367,22 +289,6 @@ def test_top_level_callback_unknown_state_400(client_with_index) -> None:
     finally:
         client.headers["Authorization"] = auth_header
     assert resp.status_code == 400
-
-
-def test_start_oauth_for_unknown_provider_404(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.post("/v1/auth/ghost/profiles", json={"name": "x"})
-    assert resp.status_code == 404
-
-
-class _NoOAuthPlugin:
-    custom_llm_provider = "local"
-
-    def register_models(self) -> list:
-        return []
-
-    def oauth_config(self):
-        return None
 
 
 class _RecordingStrategy:
@@ -827,64 +733,30 @@ async def test_handle_loopback_callback_sanitizes_completion_errors(client_with_
     await Tortoise.close_connections()
 
 
-def test_start_oauth_for_non_oauth_provider_400(client_with_index) -> None:
-    client, _ = client_with_index
-    client.app.state.providers._plugins["local"] = _NoOAuthPlugin()
-
-    resp = client.post("/v1/auth/local/profiles", json={"name": "x"})
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "provider_does_not_use_oauth"
-
-
 def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)
     plugin = _GenericOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
-    start = client.post("/v1/auth/generic/profiles", json={"name": "work"})
-    assert start.status_code == 201
-    start_body = start.json()
-    query = parse_qs(urlparse(start_body["authorize_url"]).query)
-    redirect_uri = query["redirect_uri"][0]
+    redirect_uri = "http://localhost:1455/callback"
+    state = _open_flow(client, "generic", "work", redirect_uri=redirect_uri)
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
-        json={"code": "generic-code", "state": start_body["state"]},
+        json={"code": "generic-code", "state": state},
     )
 
     assert resp.status_code == 200
     assert plugin.exchange_request is not None
     assert plugin.exchange_request.code == "generic-code"
     assert plugin.exchange_request.redirect_uri == redirect_uri
-    assert plugin.exchange_request.state == start_body["state"]
+    assert plugin.exchange_request.state == state
     assert plugin.strategy.creds is not None
     assert plugin.strategy.creds["access_token"] == "generic-token"
-    profile = client.get("/v1/auth/generic/profiles/work").json()
+    profile = _indexed_profile(client, "generic", "work")
     assert profile["id"] == profile_id_for(account_id, "generic", "work")
     assert profile["state"] == "authenticated"
-
-
-def test_exchange_code_uses_redirect_uri_override(client_with_index) -> None:
-    client, _ = client_with_index
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-    redirect_uri = "http://localhost:9105/callback"
-
-    start = client.post(
-        "/v1/auth/generic/profiles",
-        json={"name": "override", "redirect_uri": redirect_uri},
-    )
-    assert start.status_code == 201
-
-    resp = client.post(
-        "/v1/auth/generic/exchange-code",
-        json={"code": "generic-code", "state": start.json()["state"]},
-    )
-
-    assert resp.status_code == 200
-    assert plugin.exchange_request is not None
-    assert plugin.exchange_request.redirect_uri == redirect_uri
 
 
 def test_connection_exchange_uses_redirect_uri_override(client_with_index) -> None:
@@ -1158,15 +1030,14 @@ def test_profile_oauth_persist_failure_is_sanitized_and_marks_error(
         raise RuntimeError(f"credential store exploded with {leak_marker}")
 
     monkeypatch.setattr(plugin.strategy, "persist_credentials", persist_failure)
-    start = client.post("/v1/auth/generic/profiles", json={"name": "persist-failure"})
-    assert start.status_code == 201
+    state = _open_flow(client, "generic", "persist-failure")
 
     auth_header = client.headers.pop("Authorization")
     try:
         with _server_errors_as_responses(client):
             cb = client.get(
                 "/callback",
-                params={"code": "generic-code", "state": start.json()["state"]},
+                params={"code": "generic-code", "state": state},
                 follow_redirects=False,
             )
     finally:
@@ -1174,7 +1045,7 @@ def test_profile_oauth_persist_failure_is_sanitized_and_marks_error(
 
     assert cb.status_code == 503
     assert leak_marker not in cb.text
-    profile = client.get("/v1/auth/generic/profiles/persist-failure").json()
+    profile = _indexed_profile(client, "generic", "persist-failure")
     assert profile["state"] == "error"
 
 
@@ -1184,8 +1055,7 @@ def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
     client, _ = client_with_index
     plugin = _GenericOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
-    start = client.post("/v1/auth/generic/profiles", json={"name": "index-conflict"})
-    assert start.status_code == 201
+    state = _open_flow(client, "generic", "index-conflict")
 
     async def authenticate_conflict(_profile, **_kwargs) -> None:
         raise CredentialBlobMutationConflict("forced contention")
@@ -1201,7 +1071,7 @@ def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
         with _server_errors_as_responses(client):
             cb = client.get(
                 "/callback",
-                params={"code": "generic-code", "state": start.json()["state"]},
+                params={"code": "generic-code", "state": state},
                 follow_redirects=False,
             )
     finally:
@@ -1212,97 +1082,10 @@ def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
     assert "forced contention" not in cb.text
 
 
-def test_start_oauth_creates_pending_profile(client_with_index) -> None:
-    client, _ = client_with_index
-    client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    resp = client.get("/v1/auth/anthropic/profiles/work")
-    assert resp.status_code == 200
-    assert resp.json()["state"] == "pending"
-
-
-def test_start_oauth_replaces_same_profile_pending_state(client_with_index) -> None:
-    client, _ = client_with_index
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    first = client.post("/v1/auth/anthropic/profiles", json={"name": "work"}).json()
-    second = client.post("/v1/auth/anthropic/profiles", json={"name": "work"}).json()
-
-    stale = client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "old-code", "state": first["state"]},
-        follow_redirects=False,
-    )
-    fresh = client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "new-code", "state": second["state"]},
-        follow_redirects=False,
-    )
-
-    assert stale.status_code == 400
-    assert fresh.status_code == 200
-
-
-def test_profiles_are_scoped_to_current_account(
-    client_with_index, provisioned_user_factory
-) -> None:
-    client, _ = client_with_index
-    admin_account_id = _account_id(client)
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "admin-owned"})
-    assert start.status_code == 201
-
-    provisioned_user_factory("bob", "bob-pass1")
-    login = client.post("/v1/auth/login", json={"username": "bob", "password": "bob-pass1"})
-    bob_token = login.json()["token"]
-    client.headers.update({"Authorization": f"Bearer {bob_token}"})
-
-    listing = client.get("/v1/auth/profiles")
-    assert listing.status_code == 200
-    assert listing.json() == {"profiles": []}
-    assert client.get("/v1/auth/anthropic/profiles/admin-owned").status_code == 404
-    assert (
-        profile_id_for(admin_account_id, "anthropic", "admin-owned") == start.json()["profile_id"]
-    )
-
-
-@pytest.mark.asyncio
-async def test_list_provider_profiles_returns_only_current_account(
-    credential_blobs, authenticated_client, provisioned_user_factory
-) -> None:
-    admin_account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(admin_account_id, "anthropic", "admin-owned"),
-            account_id=admin_account_id,
-            provider="anthropic",
-            name="admin-owned",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-    provisioned_user_factory("bob", "bob-pass1")
-    login = authenticated_client.post(
-        "/v1/auth/login", json={"username": "bob", "password": "bob-pass1"}
-    )
-    bob_token = login.json()["token"]
-    authenticated_client.headers.update({"Authorization": f"Bearer {bob_token}"})
-
-    resp = authenticated_client.get("/v1/auth/anthropic/profiles")
-    assert resp.status_code == 200
-    assert resp.json() == {"profiles": []}
-
-
 @pytest.mark.parametrize(
     ("method", "path", "json"),
     [
-        ("GET", "/v1/auth/profiles", None),
-        ("GET", "/v1/auth/anthropic/profiles", None),
-        ("GET", "/v1/auth/anthropic/profiles/default", None),
-        ("POST", "/v1/auth/anthropic/profiles", {"name": "default"}),
         ("POST", "/v1/auth/anthropic/exchange-code", {"code": "x", "state": "y"}),
-        ("GET", "/v1/auth/anthropic/profiles/default/status", None),
-        ("PATCH", "/v1/auth/anthropic/profiles/default", {"account_label": "x"}),
-        ("DELETE", "/v1/auth/anthropic/profiles/default", None),
-        ("POST", "/v1/auth/anthropic/profiles/default/refresh", None),
     ],
 )
 def test_oauth_profile_routes_require_jwt(client, method, path, json) -> None:
@@ -1373,8 +1156,7 @@ def test_callback_completes_auth(client_with_index) -> None:
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "work")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1387,7 +1169,7 @@ def test_callback_completes_auth(client_with_index) -> None:
         client.headers["Authorization"] = auth_header
     assert cb.status_code == 200
 
-    prof = client.get("/v1/auth/anthropic/profiles/work").json()
+    prof = _indexed_profile(client, "anthropic", "work")
     assert prof["state"] == "authenticated"
 
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -1405,21 +1187,31 @@ def test_callback_restores_api_key_blob_when_profile_index_update_fails(
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
     api_key = "sk-ant-api03-existing-1234"
-    api_key_resp = client.put(
-        "/v1/auth/anthropic/profiles/default/api-key",
-        json={"api_key": api_key},
-    )
-    assert api_key_resp.status_code == 200
 
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
     service = credential_service_for(credential_name_for(account_id, "default"))
+    # WHY: the retired `PUT .../api-key` left exactly this legacy state — an AUTHENTICATED
+    # api_key Profile plus its key blob; the flow below then opens over it in place.
+    client.portal.call(
+        client.app.state.profile_index.upsert,
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="api_key",
+        ),
+    )
+    credential_blobs.write(
+        service, "default", json.dumps({"auth_type": "api_key", "api_key": api_key})
+    )
     previous = credential_blobs.read(service, "default")
     assert previous is not None
     assert api_key in previous
 
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "default"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "default")
 
     async def _boom(_profile, **_kwargs) -> None:
         raise RuntimeError("profile index unavailable")
@@ -1443,7 +1235,7 @@ def test_callback_restores_api_key_blob_when_profile_index_update_fails(
     assert cb.status_code == 500
     assert "new-tok" not in cb.text
     assert credential_blobs.read(service, "default") == previous
-    profile = client.get("/v1/auth/anthropic/profiles/default").json()
+    profile = _indexed_profile(client, "anthropic", "default")
     assert profile["auth_type"] == "api_key"
 
 
@@ -1452,8 +1244,7 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
     account_id = _account_id(client)
     client.app.state.codex_http_factory = _mock_codex_token_factory()
 
-    start = client.post("/v1/auth/codex/profiles", json={"name": "work"})
-    state = start.json()["state"]
+    state = _open_flow(client, "codex", "work")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1466,7 +1257,7 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
         client.headers["Authorization"] = auth_header
     assert cb.status_code == 200
 
-    prof = client.get("/v1/auth/codex/profiles/work").json()
+    prof = _indexed_profile(client, "codex", "work")
     assert prof["state"] == "authenticated"
     assert prof["account_label"] == "user@example.com"
 
@@ -1493,8 +1284,7 @@ def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _failing_token_factory()
 
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "retry"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "retry")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1514,7 +1304,7 @@ def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
 
     assert failed.status_code == 500
     assert retried.status_code == 400
-    prof = client.get("/v1/auth/anthropic/profiles/retry").json()
+    prof = _indexed_profile(client, "anthropic", "retry")
     assert prof["state"] == "error"
 
 
@@ -1525,8 +1315,7 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     plugin = _DelayedOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
-    start = client.post("/v1/auth/generic/profiles", json={"name": "race"})
-    state = start.json()["state"]
+    state = _open_flow(client, "generic", "race")
     await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     results = await asyncio.gather(
@@ -1553,12 +1342,10 @@ async def test_complete_oauth_invalidates_provider_profile_session(client_with_i
     plugin = _GenericOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
-    start = client.post("/v1/auth/generic/profiles", json={"name": "reauth"})
+    state = _open_flow(client, "generic", "reauth")
     await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
-    await _complete_oauth_for_app(
-        client.app, "generic", "code-one", start.json()["state"], account_id
-    )
+    await _complete_oauth_for_app(client.app, "generic", "code-one", state, account_id)
 
     assert plugin.invalidated_profiles == [credential_name_for(account_id, "reauth")]
     await Tortoise.close_connections()
@@ -1567,8 +1354,7 @@ async def test_complete_oauth_invalidates_provider_profile_session(client_with_i
 def test_callback_error_html_sanitizes_provider_response(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _html_failing_token_factory()
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "htmlfail"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "htmlfail")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1599,30 +1385,13 @@ def test_callback_with_unknown_state_400(client_with_index) -> None:
     assert resp.status_code == 400
 
 
-def test_status_returns_pending_then_authenticated(client_with_index) -> None:
-    client, _ = client_with_index
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "x"})
-    state = start.json()["state"]
-
-    s1 = client.get("/v1/auth/anthropic/profiles/x/status").json()
-    assert s1["state"] == "pending"
-
-    client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": state})
-
-    s2 = client.get("/v1/auth/anthropic/profiles/x/status").json()
-    assert s2["state"] == "authenticated"
-
-
 def test_exchange_code_runs_oauth(client_with_index) -> None:
     """POST /v1/auth/{provider}/exchange-code completes auth same as GET callback."""
     client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "paste"})
-    state = start.json()["state"]
+    state = _open_flow(client, "anthropic", "paste")
 
     resp = client.post(
         "/v1/auth/anthropic/exchange-code",
@@ -1631,7 +1400,7 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     assert resp.status_code == 200
     assert resp.json() == {"state": "authenticated"}
 
-    prof = client.get("/v1/auth/anthropic/profiles/paste").json()
+    prof = _indexed_profile(client, "anthropic", "paste")
     assert prof["state"] == "authenticated"
 
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -1646,12 +1415,12 @@ def test_exchange_code_with_unknown_provider_404(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.providers._plugins["generic"] = _GenericOAuthPlugin()
 
-    start = client.post("/v1/auth/generic/profiles", json={"name": "gone"})
+    state = _open_flow(client, "generic", "gone")
     client.app.state.providers._plugins.pop("generic")
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
-        json={"code": "generic-code", "state": start.json()["state"]},
+        json={"code": "generic-code", "state": state},
     )
 
     assert resp.status_code == 404
@@ -1664,11 +1433,11 @@ def test_exchange_code_without_oauth_strategy_returns_400(client_with_index, mon
     monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
     client.app.state.providers._plugins["generic"] = plugin
 
-    start = client.post("/v1/auth/generic/profiles", json={"name": "no-strategy"})
+    state = _open_flow(client, "generic", "no-strategy")
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
-        json={"code": "generic-code", "state": start.json()["state"]},
+        json={"code": "generic-code", "state": state},
     )
 
     assert resp.status_code == 400
@@ -1681,12 +1450,12 @@ def test_exchange_code_race_after_validation_returns_unknown_state(
     client, _ = client_with_index
     client.app.state.providers._plugins["generic"] = _GenericOAuthPlugin()
 
-    start = client.post("/v1/auth/generic/profiles", json={"name": "pop-race"})
+    state = _open_flow(client, "generic", "pop-race")
     monkeypatch.setattr(client.app.state.pending_auth, "pop", lambda _state: None)
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
-        json={"code": "generic-code", "state": start.json()["state"]},
+        json={"code": "generic-code", "state": state},
     )
 
     assert resp.status_code == 400
@@ -1737,11 +1506,11 @@ def test_exchange_code_with_unknown_state_400(client_with_index) -> None:
 
 def test_exchange_code_with_provider_mismatch_400(client_with_index) -> None:
     client, _ = client_with_index
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "mismatch"})
+    state = _open_flow(client, "anthropic", "mismatch")
 
     resp = client.post(
         "/v1/auth/ghost/exchange-code",
-        json={"code": "x", "state": start.json()["state"]},
+        json={"code": "x", "state": state},
     )
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "provider_mismatch"
@@ -1751,277 +1520,14 @@ def test_exchange_code_with_other_accounts_state_404(
     client_with_index, provisioned_user_factory
 ) -> None:
     client, _ = client_with_index
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "admin-only"})
+    state = _open_flow(client, "anthropic", "admin-only")
     provisioned_user_factory("bob", "bob-pass1")
     login = client.post("/v1/auth/login", json={"username": "bob", "password": "bob-pass1"})
     client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
 
     resp = client.post(
         "/v1/auth/anthropic/exchange-code",
-        json={"code": "x", "state": start.json()["state"]},
+        json={"code": "x", "state": state},
     )
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
-
-
-def test_status_404_on_missing_profile(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.get("/v1/auth/anthropic/profiles/missing/status")
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
-
-
-def test_patch_404_on_missing_profile(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.patch(
-        "/v1/auth/anthropic/profiles/missing",
-        json={"account_label": "user@example.com"},
-    )
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
-
-
-def test_patch_updates_account_label(client_with_index) -> None:
-    client, _ = client_with_index
-    client.post("/v1/auth/anthropic/profiles", json={"name": "label"})
-
-    resp = client.patch(
-        "/v1/auth/anthropic/profiles/label",
-        json={"account_label": "user@example.com"},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["account_label"] == "user@example.com"
-
-
-def test_delete_unknown_provider_404(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.delete("/v1/auth/ghost/profiles/default")
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "unknown_provider"
-
-
-def test_delete_missing_profile_404(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.delete("/v1/auth/anthropic/profiles/missing")
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
-
-
-def test_refresh_unknown_provider_404(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.post("/v1/auth/ghost/profiles/default/refresh")
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "unknown_provider"
-
-
-def test_refresh_missing_profile_404(client_with_index) -> None:
-    client, _ = client_with_index
-    resp = client.post("/v1/auth/anthropic/profiles/missing/refresh")
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "profile_not_found"
-
-
-@pytest.mark.asyncio
-async def test_refresh_uses_app_store_and_provider_http_factory(
-    credential_blobs, authenticated_client
-) -> None:
-    account_id = _account_id(authenticated_client)
-    credential_name = credential_name_for(account_id, "refreshme")
-
-    from aigateway.plugins.anthropic_provider.auth import credential_service_for
-
-    credential_blobs.write(
-        credential_service_for(credential_name),
-        "default",
-        json.dumps(
-            {
-                "access_token": "old-tok",
-                "refresh_token": "old-rt",
-                "expires_at_ms": int(time.time() * 1000) - 60_000,
-                "token_type": "Bearer",
-            }
-        ),
-    )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "refreshme"),
-            account_id=account_id,
-            provider="anthropic",
-            name="refreshme",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-    authenticated_client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    resp = authenticated_client.post("/v1/auth/anthropic/profiles/refreshme/refresh")
-
-    assert resp.status_code == 200
-    blob = credential_blobs.read(credential_service_for(credential_name), "default")
-    assert blob is not None
-    assert json.loads(blob)["access_token"] == "new-tok"
-
-
-@pytest.mark.asyncio
-async def test_refresh_without_oauth_strategy_returns_400(client_with_index, monkeypatch) -> None:
-    client, credential_blobs = client_with_index
-    account_id = _account_id(client)
-    plugin = _GenericOAuthPlugin()
-    monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
-    client.app.state.providers._plugins["generic"] = plugin
-
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "generic", "needs-refresh"),
-            account_id=account_id,
-            provider="generic",
-            name="needs-refresh",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-
-    resp = client.post("/v1/auth/generic/profiles/needs-refresh/refresh")
-
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "provider_does_not_use_oauth"
-
-
-def test_delete_removes_profile_and_tokens(client_with_index) -> None:
-    client, credential_blobs = client_with_index
-    account_id = _account_id(client)
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "z"})
-    client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
-
-    from aigateway.plugins.anthropic_provider.auth import credential_service_for
-
-    assert (
-        credential_blobs.read(
-            credential_service_for(credential_name_for(account_id, "z")), "default"
-        )
-        is not None
-    )
-
-    resp = client.delete("/v1/auth/anthropic/profiles/z")
-    assert resp.status_code == 204
-    assert (
-        credential_blobs.read(
-            credential_service_for(credential_name_for(account_id, "z")), "default"
-        )
-        is None
-    )
-    g = client.get("/v1/auth/anthropic/profiles/z")
-    assert g.status_code == 404
-
-
-def test_delete_profile_invalidates_provider_profile_session(client_with_index) -> None:
-    client, _ = client_with_index
-    account_id = _account_id(client)
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-
-    start = client.post("/v1/auth/generic/profiles", json={"name": "delete-session"})
-    client.get("/callback", params={"code": "c", "state": start.json()["state"]})
-
-    resp = client.delete("/v1/auth/generic/profiles/delete-session")
-
-    assert resp.status_code == 204
-    credential_name = credential_name_for(account_id, "delete-session")
-    assert plugin.invalidated_profiles == [credential_name, credential_name]
-
-
-@pytest.mark.asyncio
-async def test_refresh_success_does_not_resurrect_a_concurrently_deleted_profile(
-    client_with_index,
-) -> None:
-    """OME-307 H-1 — a successful refresh after a concurrent delete must NOT resurrect it.
-
-    FEATURE: manual OAuth profile refresh with delete-race safety.
-    STORY: as a user who deletes a profile while its refresh is mid-flight, the delete wins —
-    the refresh's successful token write must not recreate the profile I removed.
-
-    INVARIANT (OME-307 H-1): the success branch publishes conditionally (require_present=True),
-    so a profile deleted during the provider network window makes the publication raise
-    ProfileTransitionConflict -> 409 instead of resurrecting an AUTHENTICATED row.
-    """
-    client, credential_blobs = client_with_index
-    account_id = _account_id(client)
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-
-    # WHY: seed through a FRESH probe-backed store bound to THIS (test) event loop. Awaiting the
-    # app's profile_index here would bind its asyncio.Lock to the test loop; the route then
-    # deadlocks re-entering that lock from the TestClient portal loop while this coroutine is
-    # parked inside the synchronous client.post below.
-    seed_idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    profile_id = profile_id_for(account_id, "generic", "race-refresh")
-    await seed_idx.upsert(
-        Profile(
-            id=profile_id,
-            account_id=account_id,
-            provider="generic",
-            name="race-refresh",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-
-    async def _delete_then_succeed() -> None:
-        # A concurrent DELETE commits during the provider network window. Remove through the APP
-        # store, which the route also uses on the portal loop, so the require_present publish
-        # observes the row gone.
-        await client.app.state.profile_index.remove(profile_id)
-
-    plugin.strategy.refresh_credentials = _delete_then_succeed
-
-    resp = client.post("/v1/auth/generic/profiles/race-refresh/refresh")
-
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "profile_conflict"
-    # Not resurrected: the deleted profile is still gone from the user's view.
-    assert client.get("/v1/auth/generic/profiles/race-refresh").status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_refresh_failure_does_not_resurrect_a_concurrently_deleted_profile(
-    client_with_index,
-) -> None:
-    """OME-307 H-1 — a FAILED refresh after a concurrent delete must NOT leave a ghost row.
-
-    INVARIANT (OME-307 H-1): the error branch marks the profile through the CAS-gated
-    mark_authenticated_error and swallows ProfileTransitionConflict, so a profile deleted during
-    the network window is never recreated as a ghost ERROR row (mirrors
-    chat_credentials._mark_profile_error_fresh).
-    """
-    client, credential_blobs = client_with_index
-    account_id = _account_id(client)
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-
-    # WHY: seed via a fresh probe-backed store (test loop); never await the app's profile_index
-    # here — its lock would bind to the test loop and deadlock the portal-loop route.
-    seed_idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    profile_id = profile_id_for(account_id, "generic", "race-refresh-fail")
-    await seed_idx.upsert(
-        Profile(
-            id=profile_id,
-            account_id=account_id,
-            provider="generic",
-            name="race-refresh-fail",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-
-    async def _delete_then_fail() -> None:
-        await client.app.state.profile_index.remove(profile_id)
-        raise AuthError("refresh token rejected")
-
-    plugin.strategy.refresh_credentials = _delete_then_fail
-
-    resp = client.post("/v1/auth/generic/profiles/race-refresh-fail/refresh")
-
-    assert resp.status_code == 401
-    assert resp.json()["detail"]["code"] == "auth_required"
-    # No ghost row: the deleted profile was not recreated in ERROR state.
-    assert client.get("/v1/auth/generic/profiles/race-refresh-fail").status_code == 404

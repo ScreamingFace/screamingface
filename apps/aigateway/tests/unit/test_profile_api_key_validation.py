@@ -1,82 +1,14 @@
-from __future__ import annotations
+"""Retired at OME-1209 Stage E3: Profile API-key validation before every side effect.
 
-import json
-from dataclasses import dataclass
+This module pinned that a rejected key on the tenant Profile API-key PUT touched no pending OAuth
+state, no index row, no credential blob and no provider session. Since Stage E3 that route
+answers 410 `legacy_profile_api_retired` before any I/O, so the test retired with it.
 
-from aigateway.core.api_key_validation import (
-    ApiKeyValidationResult,
-    ApiKeyValidationStage,
-    ApiKeyValidationState,
-)
-from aigateway.core.credential_names import credential_name_for
-from aigateway.plugins.anthropic_provider.auth import credential_service_for
-
-_OLD_KEY = "sk-ant-api03-existing-profile-secret"
-_NEW_KEY = "sk-ant-api03-rejected-profile-secret"
-
-
-@dataclass
-class _StubValidationService:
-    result: ApiKeyValidationResult
-
-    async def validate(self, _plugin, _provider: str, _api_key: str):
-        return self.result
-
-
-def test_profile_validation_failure_precedes_every_side_effect(
-    authenticated_client,
-    credential_blobs,
-    monkeypatch,
-) -> None:
-    service = _StubValidationService(
-        ApiKeyValidationResult(
-            state=ApiKeyValidationState.VALID,
-            stage=ApiKeyValidationStage.READINESS,
-        )
-    )
-    authenticated_client.app.state.api_key_validation_service = service
-    created = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _OLD_KEY},
-    )
-    assert created.status_code == 200
-    before_profile = created.json()
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    credential_service = credential_service_for(credential_name_for(account_id, "work"))
-    before_blob = credential_blobs.read(credential_service, "default")
-    assert json.loads(before_blob)["api_key"] == _OLD_KEY
-
-    service.result = ApiKeyValidationResult(
-        state=ApiKeyValidationState.INVALID,
-        stage=ApiKeyValidationStage.AUTHENTICATION,
-    )
-
-    def forbidden_pending_call(*_args, **_kwargs):
-        raise AssertionError("pending OAuth state must not be touched")
-
-    async def forbidden_upsert(*_args, **_kwargs):
-        raise AssertionError("profile index must not be touched")
-
-    async def forbidden_write(*_args, **_kwargs):
-        raise AssertionError("credential blob must not be touched")
-
-    monkeypatch.setattr(
-        authenticated_client.app.state.pending_auth,
-        "pop_for_profile",
-        forbidden_pending_call,
-    )
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", forbidden_upsert)
-    monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", forbidden_write)
-    plugin = authenticated_client.app.state.providers.get("anthropic")
-    monkeypatch.setattr(plugin, "invalidate_profile_session", forbidden_pending_call)
-
-    response = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _NEW_KEY},
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "api_key_invalid"
-    assert _NEW_KEY not in response.text
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").json() == before_profile
-    assert credential_blobs.read(credential_service, "default") == before_blob
+Successor coverage:
+- the 410 answer: `test_legacy_profile_routes_retired.py`;
+- native validation before persistence: `test_api_key_connection_validation.py`
+  (`test_create_validation_failure_precedes_blob_and_cache_mutation`,
+  `test_create_maps_every_non_valid_state_without_persistence`);
+- the D18 admin write: `test_admin_connections_mutation_routes.py`
+  (`test_a_rejected_key_keeps_the_existing_refusal_and_writes_nothing`).
+"""

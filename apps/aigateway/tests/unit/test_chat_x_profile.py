@@ -1024,8 +1024,12 @@ async def test_chat_bad_anthropic_api_key_marks_profile_error(
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
     assert resp.json()["detail"]["reauth_url"] == "/v1/oauth/connections/api-key"
-    status = authenticated_client.get("/v1/auth/anthropic/profiles/default/status")
-    assert status.json()["state"] == "error"
+    # WHY: the Profile status route answers 410 since OME-1209 Stage E3; the index holds the
+    # state it rendered.
+    index: ProfileIndexStore = authenticated_client.app.state.profile_index
+    status = authenticated_client.portal.call(index.get, account_id, "anthropic", "default")
+    assert status is not None
+    assert status.state == "error"
 
 
 @pytest.mark.asyncio

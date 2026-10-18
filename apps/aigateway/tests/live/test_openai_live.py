@@ -79,11 +79,11 @@ async def test_every_openai_seed_reaches_chat_completions() -> None:
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_openai_key_completes_through_gateway_route(authenticated_client: TestClient) -> None:
     api_key = _live_openai_key()
-    created = authenticated_client.put(
-        "/v1/auth/openai/profiles/default/api-key",
-        json={"api_key": api_key},
+    created = authenticated_client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "openai", "api_key": api_key},
     )
-    assert created.status_code == 200, created.text
+    assert created.status_code == 201, created.text
     assert api_key not in created.text
 
     response = authenticated_client.post(

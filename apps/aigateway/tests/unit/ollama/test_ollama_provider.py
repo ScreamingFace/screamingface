@@ -86,13 +86,6 @@ def test_prepare_chat_body_leaves_ollama_chat_prefix_unchanged(monkeypatch) -> N
     assert out["api_base"] == "http://localhost:11434"
 
 
-def test_auth_start_for_ollama_returns_no_oauth_400(authenticated_client) -> None:
-    response = authenticated_client.post("/v1/auth/ollama/profiles", json={"name": "default"})
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "provider_does_not_use_oauth"
-
-
 def test_public_ollama_chat_prefix_is_not_a_route_level_provider(authenticated_client) -> None:
     response = authenticated_client.post(
         "/v1/chat/completions",

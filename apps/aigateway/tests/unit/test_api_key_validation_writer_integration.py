@@ -1,8 +1,12 @@
-"""Deterministic unstubbed backstops for the three API-key writers (OME-307 D1/F3).
+"""Deterministic unstubbed backstops for the API-key writers (OME-307 D1/F3).
 
 FEATURE: mandatory API-key validation before any credential write.
-STORY: as an operator, when I create/replace an API-key connection or set a profile
-API key, a bad key is rejected before anything is persisted, and a good key is stored.
+STORY: as an operator, when I create/replace an API-key connection, a bad key is rejected
+before anything is persisted, and a good key is stored.
+
+The third writer, the Profile API-key set, retired at OME-1209 Stage E3 with its tests: the
+route answers 410 `legacy_profile_api_retired` (`test_legacy_profile_routes_retired.py`), and the
+two Connection writers below are its successors.
 
 Unlike the frozen route tests (which stub ``ApiKeyValidationService.validate`` via the
 conftest allowlist), this module runs the REAL chain end to end:
@@ -19,7 +23,6 @@ import json
 import httpx
 import pytest
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.plugins.anthropic_provider.auth import (
     credential_service_for as anthropic_service_for,
@@ -82,13 +85,6 @@ def _create_connection(client, *, api_key: str, label: str):
 
 def _connection_blob(credential_blobs, data: dict) -> dict | None:
     service = anthropic_service_for(credential_key_for(data["account_id"], data["id"]))
-    raw = credential_blobs.read(service, "default")
-    return None if raw is None else json.loads(raw)
-
-
-def _profile_blob(client, credential_blobs, name: str) -> dict | None:
-    account_id = client.get("/v1/auth/me").json()["id"]
-    service = anthropic_service_for(credential_name_for(account_id, name))
     raw = credential_blobs.read(service, "default")
     return None if raw is None else json.loads(raw)
 
@@ -205,81 +201,4 @@ def test_connection_replace_invalid_preserves_previous_key(
     )
     assert connection["status"] == "active"
     assert connection["label"] == "work"
-    assert _KEY_B not in resp.text
-
-
-# --- Writer 3: profile API-key set ----------------------------------------------
-
-
-def test_profile_set_valid_authenticates_profile(
-    authenticated_client, anthropic_transport, credential_blobs
-) -> None:
-    anthropic_transport.queue = [_auth_ok(), _readiness_ok()]
-
-    resp = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _KEY_A},
-    )
-
-    assert resp.status_code == 200, resp.text
-    profile = authenticated_client.get("/v1/auth/anthropic/profiles/work")
-    assert profile.status_code == 200
-    assert profile.json()["state"] == "authenticated"
-    assert [r.method for r in anthropic_transport.requests] == ["GET", "POST"]
-    assert anthropic_transport.queue == []
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = anthropic_service_for(credential_name_for(account_id, "work"))
-    assert json.loads(credential_blobs.read(service, "default")) == {
-        "auth_type": "api_key",
-        "api_key": _KEY_A,
-    }
-    assert _KEY_A not in resp.text
-
-
-def test_profile_set_invalid_does_not_create_profile(
-    authenticated_client, anthropic_transport, credential_blobs
-) -> None:
-    anthropic_transport.queue = [_auth_reject()]
-
-    resp = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/reject-me/api-key",
-        json={"api_key": _KEY_A},
-    )
-
-    assert resp.status_code == 422
-    assert resp.json()["detail"]["code"] == "api_key_invalid"
-    # The profile index is not mutated by a rejected key.
-    missing = authenticated_client.get("/v1/auth/anthropic/profiles/reject-me")
-    assert missing.status_code == 404
-    assert _profile_blob(authenticated_client, credential_blobs, "reject-me") is None
-    assert [r.method for r in anthropic_transport.requests] == ["GET"]
-    assert anthropic_transport.queue == []
-    assert _KEY_A not in resp.text
-
-
-def test_profile_set_invalid_preserves_existing_profile_and_key(
-    authenticated_client, anthropic_transport, credential_blobs
-) -> None:
-    anthropic_transport.queue = [_auth_ok(), _readiness_ok()]
-    created = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _KEY_A},
-    )
-    assert created.status_code == 200
-    before_profile = created.json()
-
-    anthropic_transport.queue = [_auth_reject()]
-    resp = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _KEY_B},
-    )
-
-    assert resp.status_code == 422
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").json() == before_profile
-    assert _profile_blob(authenticated_client, credential_blobs, "work") == {
-        "auth_type": "api_key",
-        "api_key": _KEY_A,
-    }
-    assert [r.method for r in anthropic_transport.requests] == ["GET", "POST", "GET"]
-    assert anthropic_transport.queue == []
     assert _KEY_B not in resp.text

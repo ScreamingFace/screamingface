@@ -158,7 +158,7 @@ def _provider_headers(client: httpx.Client | TestClient, case: ProviderCase) -> 
     if connection is not None:
         return {}
 
-    if _default_profile_authenticated(client, case.provider):
+    if _provider_access_connected(client, case.provider):
         return {}
 
     if case.provider == "gemini-cli":
@@ -166,7 +166,7 @@ def _provider_headers(client: httpx.Client | TestClient, case: ProviderCase) -> 
         # the first chat request will return auth_required and be skipped.
         return {}
 
-    pytest.skip(f"{case.provider} has no active OAuth connection or authenticated default profile")
+    pytest.skip(f"{case.provider} has no active OAuth connection or connected provider access")
     raise AssertionError("unreachable after pytest.skip")
 
 
@@ -188,12 +188,16 @@ def _single_active_connection(
     return connections[0]
 
 
-def _default_profile_authenticated(client: httpx.Client | TestClient, provider: str) -> bool:
-    response = client.get(f"/v1/auth/{provider}/profiles/default/status")
+def _provider_access_connected(client: httpx.Client | TestClient, provider: str) -> bool:
+    # WHY the availability listing: the Profile status route answers 410 since OME-1209 Stage E3,
+    # so reading it would silently skip every case; `GET /v1/provider-access` is its successor.
+    response = client.get("/v1/provider-access")
     if response.status_code != 200:
         return False
-    body = response.json()
-    return body.get("state") == "authenticated" or body.get("authenticated") is True
+    return any(
+        row.get("provider") == provider and row.get("status") == "connected"
+        for row in response.json().get("providers", [])
+    )
 
 
 def _chat_json(

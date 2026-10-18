@@ -5,13 +5,14 @@
 # flips the document to PENDING, so the refresh's document stamp is what must leave it alone.
 # AIDEV-NOTE: helpers are bound from `test_writer_floor_refresh`; the intrusion runs inside the
 # refresh's provider window on the app loop.
+# WHY one refresh path: the Profile refresh route answers 410 since OME-1209 Stage E3, so its
+# twin of the in-flight re-auth test retired; the dispatch refresh below keeps the invariant.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-import httpx
 import pytest
 from connection_backed_admin_probes import blob_at_profile_address, document, marker
 from connection_backed_oauth_probes import access_token_of, callback
@@ -27,6 +28,7 @@ from test_writer_floor_refresh import (
 from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import WriteConflict
+from tests.unit.oauth_flow_seed import open_oauth_flow
 
 
 @pytest.fixture
@@ -34,18 +36,17 @@ def legacy(authenticated_client, credential_blobs, monkeypatch) -> ProfileBacked
     return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-def a_reauth_start(h: Any, started: list[httpx.Response]) -> Intrusion:
+def a_reauth_start(h: Any, started: list[str]) -> Intrusion:
     """The user clicks re-auth on the same Profile while the refresh waits on the provider."""
 
     async def intrude() -> None:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=h.client.app),
-            base_url=str(h.client.base_url),
-            headers=dict(h.client.headers),
-        ) as client:
-            started.append(
-                await client.post(f"/v1/auth/{PROVIDER}/profiles", json={"name": "default"})
+        # WHY a seeder: the start route answers 410 since OME-1209 Stage E3; its callback still
+        # completes a flow opened before the deploy, which is what this intrusion stands for.
+        started.append(
+            await open_oauth_flow(
+                h.client.app, account_id=h.account_id, provider=PROVIDER, name="default"
             )
+        )
 
     return intrude
 
@@ -67,30 +68,15 @@ def test_a_dispatch_refresh_leaves_a_reauth_started_in_its_window_pending(legacy
     h = legacy
     h.seed_profile()
     h.blobs.write(profile_service(h), "default", expired_blob())
-    started: list[httpx.Response] = []
+    started: list[str] = []
     use_intruding_tokens(h, ["fresh-tok", "reauthed"], a_reauth_start(h, started))
 
     resolve_and_authorize(h)
 
-    assert started and started[0].status_code in (200, 201), started[0].text
+    assert started
     doc = document(h)
     assert doc is not None and doc.state == ProfileState.PENDING
-    resp = callback(h, started[0].json()["state"])
-    assert resp.status_code < 400, resp.text
-    assert access_token_of(blob_at_profile_address(h)) == "reauthed"
-
-
-def test_a_route_refresh_leaves_a_reauth_started_in_its_window_pending(legacy) -> None:
-    h = legacy
-    h.seed_profile()
-    started: list[httpx.Response] = []
-    use_intruding_tokens(h, ["fresh-tok", "reauthed"], a_reauth_start(h, started))
-
-    refreshed = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
-
-    assert refreshed.status_code == 200, refreshed.text
-    assert refreshed.json()["state"] == ProfileState.PENDING.value
-    resp = callback(h, started[0].json()["state"])
+    resp = callback(h, started[0])
     assert resp.status_code < 400, resp.text
     assert access_token_of(blob_at_profile_address(h)) == "reauthed"
 

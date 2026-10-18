@@ -37,7 +37,6 @@ REFRESHING = frozenset(
         "core.provider_access.connection_authority:_strategy_for",
         "core.provider_access.connection_facade:refresh_facade",
         "core.provider_access.profile_authorize:_strategy_for",
-        "routes.auth:refresh_profile",
         "routes.oauth_connections:refresh_connection",
     }
 )

@@ -67,6 +67,7 @@ from .routes import (
     chat,
     frozen_copies,
     health,
+    legacy_profiles_retired,
     model_admission,
     model_parameters,
     models,
@@ -475,6 +476,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # lifetime): a restart forgets every admission and nothing is persisted.
     app.state.admitted_models = {}
     app.state.admission_catalog_cache = {}
+
+    # WHY first: a retired Profile path answers 410 before any live router can match it (E3).
+    app.include_router(legacy_profiles_retired.router)
 
     for plugin in registry.all():
         auth_router = plugin.auth_router()

@@ -289,7 +289,7 @@ def test_the_audit_line_names_the_actor_and_the_final_status(client, admin_clien
     ), lines
 
 
-def test_the_openapi_contract_names_the_successor_and_keeps_the_legacy_operations(
+def test_the_openapi_contract_names_the_successor_and_drops_the_legacy_operations(
     client,
     admin_client,
 ) -> None:
@@ -304,9 +304,9 @@ def test_the_openapi_contract_names_the_successor_and_keeps_the_legacy_operation
         assert name in components
     assert set(components["AdminConnectionOut"]["properties"]) == DTO_FIELDS
     assert set(components["AdminConnectionOut"]["required"]) == DTO_FIELDS
-    # The legacy surface is unchanged.
-    assert "get" in schema["paths"]["/v1/admin/accounts/{account_id}/profiles"]
-    assert "AdminProfileOut" in components
+    # The legacy surface is retired (OME-1209 Stage E3): no admin Profile path, no Profile schema.
+    assert "/v1/admin/accounts/{account_id}/profiles" not in schema["paths"]
+    assert "AdminProfileOut" not in components
 
 
 def test_a_store_outage_at_the_account_lookup_is_a_503_and_not_cached(

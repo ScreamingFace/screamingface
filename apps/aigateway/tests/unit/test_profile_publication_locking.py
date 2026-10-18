@@ -29,6 +29,7 @@ import asyncio
 import contextlib
 import contextvars
 from collections import defaultdict
+from functools import partial
 
 import httpx
 import pytest
@@ -37,6 +38,8 @@ import aigateway.routes.auth as auth_module
 from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
+
+from .oauth_flow_seed import open_oauth_flow
 
 ACCOUNT_ID = "account-1"
 
@@ -219,10 +222,21 @@ def test_oauth_profile_completion_locks_index_before_optional_credential(
         transport=httpx.MockTransport(_token_handler), timeout=httpx.Timeout(5.0)
     )
 
-    started = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
+    # WHY: the Profile OAuth start route answers 410 since OME-1209 Stage E3; the seeder leaves
+    # the pending document and entry it left, and the legacy-pending callback still ships.
+    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
+    state = authenticated_client.portal.call(
+        partial(
+            open_oauth_flow,
+            authenticated_client.app,
+            account_id=account_id,
+            provider="anthropic",
+            name="work",
+        )
+    )
     completed = authenticated_client.get(
         "/v1/auth/anthropic/callback",
-        params={"code": "code", "state": started.json()["state"]},
+        params={"code": "code", "state": state},
         follow_redirects=False,
     )
 

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from aigateway.config import Settings
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
+from aigateway.core.profile_index import ProfileIndexStore
 from tests.conftest import _prepare_sqlite_db
 
 
@@ -81,9 +82,14 @@ def test_lifespan_skips_bootstrap_by_default(monkeypatch, tmp_path) -> None:
 
     app = main_module.create_app()
     with TestClient(app) as client:
-        resp = client.get("/v1/auth/profiles", headers=_auth_header(client))
+        # WHY: the Profile listing route answers 410 since OME-1209 Stage E3; `/v1/auth/me`
+        # drives the lifespan, and the caller's index slice is what the listing rendered.
+        resp = client.get("/v1/auth/me", headers=_auth_header(client))
         assert resp.status_code == 200
-        assert resp.json() == {"profiles": []}
+        index: ProfileIndexStore = app.state.profile_index
+        portal = client.portal
+        assert portal is not None  # `with TestClient(...)` opened it
+        assert portal.call(index.list, resp.json()["id"]) == []
 
     assert mock_bootstrap.call_count == 0
 
@@ -102,7 +108,7 @@ def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, tmp_path) -> None:
 
     app = main_module.create_app()
     with TestClient(app) as client:
-        client.get("/v1/auth/profiles", headers=_auth_header(client))
+        client.get("/v1/auth/me", headers=_auth_header(client))
 
     assert mock_bootstrap.call_count == 1
     assert mock_bootstrap.call_args.kwargs["account_id"]
