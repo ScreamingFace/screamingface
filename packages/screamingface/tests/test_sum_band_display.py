@@ -323,3 +323,16 @@ def test_a_negative_coefficient_shows_as_written() -> None:
 
     assert _risk_head("sum of 2.0 × a + -0.5 × b") in _section(negative)
     assert _risk_head("sum of 1.0 × a&lt;b") in _section(escaped)
+
+
+# --- restack 2026-10-17: a step whose every Case is in the band ----------------------------------
+
+
+def test_run_summary_shows_the_gate_line_when_every_case_is_in_the_band() -> None:
+    # SD-4 (P14) with the part 5 `gated` count: a Case in the band has a gate record, so a step
+    # whose every Case abstained in the band is a gated step and its gate line shows.
+    summary = _summary("vote_gate_band", "vote_gate_band", "vote_gate_band")
+
+    assert _GATE_CHIP.findall(summary) == [
+        _chip("gate · majority 0 of 3 · fallback 0 of 3 · in band 3 of 3")
+    ]
