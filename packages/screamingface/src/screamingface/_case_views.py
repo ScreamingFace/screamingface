@@ -110,17 +110,18 @@ def case_trace(
     if case.operations is None:
         return ()
     member_of = _member_ids(case.operations, graph)
-    accounting_of = _accounting_index(case.operations)
+    accounting_of = accounting_index(case.operations)
     entries: list[TraceEntry] = []
     for operation in case.operations:
         entries.extend(_operation_entries(operation, graph, member_of, accounting_of))
     return tuple(entries)
 
 
-def _accounting_index(
+def accounting_index(
     operations: Sequence[CaseOperation],
 ) -> dict[str, OperationAccounting | None]:
-    """Operation id -> its accounting, built once per trace; the first operation of an id wins."""
+    """Operation id -> its accounting, built once per trace or Case pane; the first operation of
+    an id wins. ``judge_link`` reads it."""
 
     index: dict[str, OperationAccounting | None] = {}
     for operation in operations:
