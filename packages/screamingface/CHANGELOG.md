@@ -116,6 +116,10 @@
 
 * Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
 
+* `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
+  started can reach a hosted Engine without a browser window. A malformed or expired token fails
+  at Client construction with `access_env_token_invalid`.
+
 ### Features
 * **screamingface:** read benchmark datasets from a separate folder. `screamingface up --benchmark-assets-dir PATH` points the Engine's `URL4_BENCHMARK_ASSETS` at `PATH` instead of `<data-dir>/benchmark-assets`, so an app can ship the datasets read-only in its bundle. A missing folder fails `up` before any service starts. The running stack records the folder in `runtime.json`; `status --json` (new `benchmark_assets_dir` key) and `doctor` (a `benchmark assets dir` line) report it and the bundle status from it, and `restart` keeps it. `prepare` still writes to the data directory and refuses the option. Without the option nothing changes.
 
