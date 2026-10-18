@@ -498,18 +498,6 @@ def declares_reply_sources(spec: CombineSpec) -> bool:
     return any(isinstance(entry, LogprobSource | EntropySource) for entry in signals.values())
 
 
-def declares_consistency(spec: CombineSpec) -> tuple[str, ConsistencySource] | None:
-    """The name and the one consistency source of the spec (E4b part 7), or None.
-
-    Its context then carries ``samples`` (erd §4); ``_check_signals`` allows at most one.
-    The endpoint uses ``_sample_item(plan)`` instead; this function stays for its tests.
-    """
-    for name, entry in (spec.signals or {}).items():
-        if isinstance(entry, ConsistencySource):
-            return name, entry
-    return None
-
-
 def parse_spec(intent: str) -> CombineSpec:
     """Parse the combine intent; a failure never repeats a value from the text."""
     try:
@@ -771,7 +759,6 @@ __all__ = [
     "SumSource",
     "VerbalizedSource",
     "canonical_params",
-    "declares_consistency",
     "declares_reply_sources",
     "parse_context",
     "parse_spec",

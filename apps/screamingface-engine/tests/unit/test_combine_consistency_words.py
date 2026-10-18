@@ -36,7 +36,6 @@ from screamingface_engine.combine.spec import (
     COMBINE_SPEC_SCHEMA,
     ConsistencySource,
     StepSpec,
-    declares_consistency,
     parse_context,
     parse_spec,
 )
@@ -347,7 +346,6 @@ def test_engine_parses_a_consistency_entry() -> None:
     assert entry.temperature == 1.0
     assert entry.match.extract == StepSpec(op="last_number@1", args={})
     assert entry.match.normalize == StepSpec(op="numeric@1", args={})
-    assert declares_consistency(parsed) == ("cons", entry)
 
     zero = parse_spec(
         spec_text(_cons_spec(n=32, temperature=0, match={**_MATCH, "normalize": None}))
@@ -367,10 +365,8 @@ def test_engine_parses_a_consistency_entry() -> None:
         )
     )
     assert mixed.signals is not None
-    assert declares_consistency(mixed) == ("cons", mixed.signals["cons"])
-    conf_only = {**builtin_vote_spec(3), "signals": {"conf": dict(_CONF)}}
-    assert declares_consistency(parse_spec(spec_text(conf_only))) is None
-    assert declares_consistency(parse_spec(spec_text(builtin_vote_spec(3)))) is None
+    assert isinstance(mixed.signals["cons"], ConsistencySource)
+    assert not isinstance(mixed.signals["conf"], ConsistencySource)
 
 
 # --- CR#4: bad consistency entries are refused, and the message echoes no value -----------------
@@ -417,7 +413,7 @@ def test_engine_refuses_bad_consistency_entries_without_echo(
     signals: dict[str, Any], message: str
 ) -> None:
     # control: the CR-1 entry itself parses, so the refusal below is the entry's own fault
-    assert declares_consistency(parse_spec(spec_text(_cons_spec()))) is not None
+    assert parse_spec(spec_text(_cons_spec())).signals is not None
     got = _spec_failure({**builtin_vote_spec(3), "signals": copy.deepcopy(signals)})
 
     assert got == message
