@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1650
 stack: scoreboard
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-10-18
-finished:
+finished: 2026-10-18
 ---
 
 # fix-public-score-read-access-gate — anonymous score read outside the Access path
@@ -73,7 +73,7 @@ Plan: `docs/plan/2026-10-18-fix-public-score-read-access-gate.md`.
   - `apps/scoreboard/tests/unit/guards/test_visibility_exit_guard.py`: allowlist key `get_score` -> `_read_score`, comment.
   - `apps/scoreboard/README.md`, `apps/scoreboard/DEPLOYMENT.md`: one note each.
   - `docs/spec/`, `docs/plan/`, `docs/work/` (this ledger): 2026-10-18 fix-public-score-read-access-gate.
-- **Commits:** one conventional commit on `fix-public-score-read-access-gate` (sha reported by the implementer run; see `git log -1`).
+- **Commits:** `e003f254a` fix(scoreboard): serve anonymous score reads from /v1/public/scores; plus a docs commit filing OME-1650 (ledger + `docs/tasks` mirror). Branch renamed to `OME-1650-public-score-read` at PR-open.
 - **Gates:** all run from `apps/scoreboard` after the review round 2 fix:
   - `uv run ruff check`: exit 0, no findings.
   - `uv run ruff format --check`: exit 0, 153 files already formatted.
