@@ -13,7 +13,7 @@ from fractions import Fraction
 from html import escape
 from typing import TYPE_CHECKING
 
-from screamingface._case_views import judge_link
+from screamingface._case_views import accounting_index, judge_link
 from screamingface._ui.text import short
 
 if TYPE_CHECKING:
@@ -101,13 +101,14 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
     ]
     if not steps:
         return ""
+    accounting_of = accounting_index(case.operations)  # once per pane, not once per step
     return "".join(
         _section(
             op.operation_id,
             op.combine,
             # WHY judge_link and not case_trace: the chip reads only the judge id and model of the
             # step, so the full trace (every extract and model call entry) is not built.
-            judge_link(op.operation_id, op.combine, graph, case.operations),
+            judge_link(op.operation_id, op.combine, graph, accounting_of),
             graph,
         )
         if op.combine is not None
