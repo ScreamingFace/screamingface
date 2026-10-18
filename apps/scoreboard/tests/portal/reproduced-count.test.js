@@ -94,8 +94,9 @@ async function renderSpecPage(score) {
         },
       ],
     },
-    ["/v1/scores/" + SCORE_ID]: score,
+    ["/v1/public/scores/" + SCORE_ID]: score,
   };
+  const requested = [];
   const context = {
     URL,
     URLSearchParams,
@@ -115,6 +116,7 @@ async function renderSpecPage(score) {
     },
     fetch: async (url) => {
       const key = url.replace("https://board.test", "");
+      requested.push(key);
       if (!(key in bodies)) return { ok: false, status: 404, text: async () => "" };
       return { ok: true, status: 200, text: async () => JSON.stringify(bodies[key]) };
     },
@@ -126,7 +128,7 @@ async function renderSpecPage(score) {
     vm.runInContext(fs.readFileSync(path.join(PORTAL, file), "utf8"), context, { filename: file });
   }
   await new Promise((resolve) => setTimeout(resolve, 25));
-  return { content: ids["spec-content"], portal: context.ScorePortal };
+  return { content: ids["spec-content"], portal: context.ScorePortal, requested };
 }
 
 function scoreDetail(extra) {
@@ -137,6 +139,13 @@ function scoreDetail(extra) {
 function reproducedLines(content) {
   return content.children.filter((child) => String(child.textContent).startsWith("Reproduced"));
 }
+
+test("the spec page reads the latest run from the public path, never from /v1/scores", async () => {
+  const { requested } = await renderSpecPage(scoreDetail({}));
+
+  assert.ok(requested.includes("/v1/public/scores/" + SCORE_ID), requested.join(", "));
+  assert.deepEqual(requested.filter((key) => key.startsWith("/v1/scores")), []);
+});
 
 test("a reproduced score shows the count and the last date", async () => {
   const { content, portal } = await renderSpecPage(

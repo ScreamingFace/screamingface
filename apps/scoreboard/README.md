@@ -72,6 +72,8 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 
 The scoreboard service serves the demo portal at `/`. The portal UI, the public JSONL artifacts, and the score and leaderboard GET routes are unauthenticated. The one exception is `GET /v1/scores/{id}/metadata-events` (a submitter's edit log, which holds author emails): it needs an `X-User-Email` identity and answers only the submitter. `PATCH /v1/scores/{id}` needs one too. A private board's GET routes also scope to the caller. `POST /v1/scores` is unauthenticated while `SCOREBOARD_AUTH_MODE` stays at its default (`disabled`).
 
+`GET /v1/public/scores/{id}` is the anonymous score read. It returns the same body as `GET /v1/scores/{id}`, never reads identity, and answers 404 for every private-board score. The portal uses it because production Cloudflare Access gates every `/v1/scores` path.
+
 Public artifact routes are exact-file allowlisted and served as inline `text/plain`:
 
 - `/livetruth-latest.jsonl`
