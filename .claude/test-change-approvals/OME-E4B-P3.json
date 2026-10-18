@@ -27,8 +27,8 @@
       "approved_blob": "31a4e7875a33f83816768fda200f39b1c337db58"
     },
     "packages/screamingface/tests/public_surface_snapshot.json": {
-      "base_blob": "48f0254369557cc83f4a622adce5ab82c51e1b52",
-      "approved_blob": "8b961b377cf44c46d7b4fc39a0fd596c53ba451f"
+      "base_blob": "fdb52e7c7cecc68d999866b0b5f6d7356e5a86f0",
+      "approved_blob": "b94d62bb8199dd53c1c9ea320184b4ebc8e5968b"
     },
     "packages/screamingface/tests/test_signals.py": {
       "base_blob": "9c24fb382a80860cdfc625814218f9d5e4458a15",
