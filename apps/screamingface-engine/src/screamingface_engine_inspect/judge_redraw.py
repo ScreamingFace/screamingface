@@ -19,17 +19,26 @@ from __future__ import annotations
 import asyncio
 import random
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Final
 
 from inspect_ai.model import ChatMessage, GenerateConfig, Model, ModelOutput
 
-from screamingface_engine_inspect.judge_provider import JudgeReplyBlank, fresh_judge_draw
+from screamingface_engine.world.reply_origin import RECORDED_ORIGINS, ReplyOrigin
+from screamingface_engine_inspect.judge_provider import (
+    REPLY_ORIGIN_KEY,
+    JudgeReplyBlank,
+    fresh_judge_draw,
+)
 
 #: How many times an item may be asked AGAIN after an unparseable first reply. Matches the
 #: hand-built boards' ``;retry=2`` (``JUDGE_RETRIES``), so a migrated Benchmark's judge gets
 #: the same three draws per item it had before.
 MAX_JUDGE_REDRAWS: Final[int] = 2
+
+#: The origins the provider reports, by their spelling (a typed lookup, not a cast).
+_ORIGINS: Final[dict[str, ReplyOrigin]] = {"live": "live", "cache": "cache", "replay": "replay"}
 
 #: How much of the last reply the error quotes — enough to see why it failed, no more.
 _REPLY_HEAD_CHARS: Final[int] = 200
@@ -49,7 +58,16 @@ _jitter: Callable[[float, float], float] = random.uniform
 
 class JudgeReplyUnparseable(RuntimeError):
     """The judge never gave a parseable reply for one item; the Case fails as
-    ``judge_reply_invalid`` (the scorer adapter maps it), blaming the judge, not our code."""
+    ``judge_reply_invalid`` (the scorer adapter maps it), blaming the judge, not our code.
+
+    ``redraws`` is how many redraws the item took before it gave up: the full budget after
+    live replies, fewer when a recorded reply ended it (a recorded reply is final). It
+    defaults to 0 for a Case-level give-up that no single item's redraws describe.
+    """
+
+    def __init__(self, message: str, *, redraws: int = 0) -> None:
+        super().__init__(message)
+        self.redraws: int = redraws
 
 
 def _is_temporary(exc: Exception) -> bool:
@@ -122,6 +140,13 @@ async def judge_until_parsed[Verdict](
           failure stored nothing, so the cache can't echo it, and an opt-out would stop the
           good reply from being stored for cache-backed replays. Any other failed call
           propagates at once, never re-asked.
+    3c. A RECORDED reply is final (spec 2026-10-16-judge-redraw-live-only): when the reply
+       with no verdict was served from the gateway cache or replayed from a frozen copy, the
+       item gives up at once, with no redraw. WHY: a replay must reproduce the recording; a
+       redraw would replace a recorded "no verdict" (DRACO's seed records them on purpose)
+       with a fresh, paid verdict, and the score would no longer match. Only a LIVE reply,
+       or one whose origin nobody reported (a judge model outside the gateway provider), is
+       redrawn.
     4. Give up: when the budget is spent on an unparseable reply, raise
        :class:`JudgeReplyUnparseable` naming ``item`` and quoting the last reply's head; the
        scorer adapter turns it into the Case's ``judge_reply_invalid``, never "not met".
@@ -157,16 +182,7 @@ async def judge_until_parsed[Verdict](
     for ask in range(1 + MAX_JUDGE_REDRAWS):
         # Stage 1 / 3a — ask; once a reply failed to parse, every ask leaves the gateway cache.
         try:
-            if unparseable:
-                with fresh_judge_draw():
-                    output: ModelOutput = await judge.generate(prompt, config=config, cache=False)
-            else:
-                output = await judge.generate(prompt, config=config, cache=False)
-        except JudgeReplyBlank:
-            # Stage 2 — a blank reply has no verdict: unparseable, so it costs a redraw.
-            reply = ""
-            unparseable += 1
-            continue
+            answer: _Answer = await _ask(judge, prompt, config, fresh=unparseable > 0)
         except Exception as exc:
             # Stage 3b — a passing gateway fault is asked again after a wait; anything else,
             # or a fault on the last ask, propagates as it came.
@@ -174,16 +190,65 @@ async def judge_until_parsed[Verdict](
                 raise
             await _sleep(_backoff_wait(ask + 1, exc))
             continue
-        reply = output.completion
-        # Stage 2 — parse; a verdict ends the loop.
-        verdict: Verdict | None = parse(reply)
+        # Stage 2 — parse; a verdict ends the loop. A blank reply never reaches ``parse``.
+        reply = answer.text or ""
+        verdict: Verdict | None = None if answer.text is None else parse(answer.text)
         if verdict is not None:
             return JudgedItem(verdict=verdict, redraws=unparseable)
+        # Stage 3c — a recorded reply with no verdict is final: no redraw, no other call.
+        if answer.origin in RECORDED_ORIGINS:
+            raise _recorded_without_verdict(item, reply, answer.origin, unparseable)
         unparseable += 1
     # Stage 4 — the budget is spent on an unparseable reply: fail by name, never "not met".
+    # The count is what was spent: a re-ask after a 429/5xx took one of the asks, not a redraw.
+    redraws: int = max(unparseable - 1, 0)
     raise JudgeReplyUnparseable(
-        f"the judge gave no parseable reply for {item} after {MAX_JUDGE_REDRAWS} redraws; "
-        f"last reply: {reply[:_REPLY_HEAD_CHARS]!r}"
+        f"the judge gave no parseable reply for {item} after {redraws} redraws; "
+        f"last reply: {reply[:_REPLY_HEAD_CHARS]!r}",
+        redraws=redraws,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Answer:
+    """One ask's outcome: the reply text (``None`` for a blank reply, which the provider
+    refuses as :class:`JudgeReplyBlank`) and where the reply came from."""
+
+    text: str | None
+    origin: ReplyOrigin | None
+
+
+async def _ask(
+    judge: Model, prompt: str | list[ChatMessage], config: GenerateConfig, *, fresh: bool
+) -> _Answer:
+    """Ask once — inside :func:`fresh_judge_draw` when ``fresh`` (a redraw) — and say where the
+    reply came from. Any failed call propagates; a blank reply is an answer with no text."""
+
+    try:
+        with fresh_judge_draw() if fresh else nullcontext():
+            output: ModelOutput = await judge.generate(prompt, config=config, cache=False)
+    except JudgeReplyBlank as blank:
+        return _Answer(text=None, origin=blank.origin)
+    return _Answer(text=output.completion, origin=_reply_origin(output))
+
+
+def _reply_origin(output: ModelOutput) -> ReplyOrigin | None:
+    """Where the reply came from, as the gateway judge provider reported it; ``None`` when the
+    judge model reported nothing (any provider other than ours)."""
+
+    origin: object = (output.metadata or {}).get(REPLY_ORIGIN_KEY)
+    return _ORIGINS.get(origin) if isinstance(origin, str) else None
+
+
+def _recorded_without_verdict(
+    item: str, reply: str, origin: ReplyOrigin | None, redraws: int
+) -> JudgeReplyUnparseable:
+    """The failure for a recorded reply with no verdict: the item has no verdict, by name."""
+
+    return JudgeReplyUnparseable(
+        f"the judge's recorded reply ({origin}) for {item} has no verdict, and a recorded "
+        f"reply is final; reply: {reply[:_REPLY_HEAD_CHARS]!r}",
+        redraws=redraws,
     )
 
 

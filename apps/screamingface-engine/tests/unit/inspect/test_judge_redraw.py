@@ -37,8 +37,13 @@ from screamingface_engine.request_scope import (  # noqa: E402
     current_scope,
     request_scope,
 )
+from screamingface_engine.world.reply_origin import (  # noqa: E402
+    ReplyOrigin,
+    record_reply_origin,
+)
 from screamingface_engine_inspect import judge_redraw  # noqa: E402
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
+    REPLY_ORIGIN_KEY,
     JudgeFetch,
     JudgeTransport,
     bound_judge_transport,
@@ -360,3 +365,163 @@ async def test_a_permanent_gateway_error_is_never_asked_again(
         await _judge_through_gateway(fetch)
     assert len(fetch.targets) == 1
     assert waits == []
+
+
+# --- a recorded reply is final (spec 2026-10-16-judge-redraw-live-only) ----------------------
+#
+# FEATURE: a redraw happens only after a LIVE reply. A reply the gateway served from its cache,
+# or a frozen copy replayed, is the recording: if it has no verdict, the item has no verdict.
+# STORY: as someone replaying a recorded run (DRACO's reference seed), the replay reproduces the
+# recorded score and never makes a paid judge call.
+
+
+class _OriginFetch(_FlakyFetch):
+    """A scripted fetch that also plays the connector's part: each reply records where it
+    came from (``world/reply_origin.py``), exactly where the real connector records it."""
+
+    def __init__(self, *script: tuple[str, ReplyOrigin] | int) -> None:
+        super().__init__(*(step if isinstance(step, int) else step[0] for step in script))
+        self.origins: list[ReplyOrigin | None] = [
+            None if isinstance(step, int) else step[1] for step in script
+        ]
+
+    async def __call__(self, target: str) -> str:
+        origin: ReplyOrigin | None = self.origins.pop(0)
+        reply: str = await super().__call__(target)
+        if origin is not None:
+            record_reply_origin(origin)
+        return reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["cache", "replay"])
+async def test_a_recorded_reply_with_no_verdict_is_final_and_never_redrawn(
+    run_scope: RequestScope, origin: ReplyOrigin
+) -> None:
+    """INVARIANT: one call, then the item has no verdict; nothing leaves the recording."""
+
+    fetch: _OriginFetch = _OriginFetch((GARBLED, origin), ("MET", "live"))
+    with pytest.raises(JudgeReplyUnparseable, match="case 7 rubric r2") as raised:
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1
+    assert fetch.participation == [None]
+    assert raised.value.redraws == 0
+    assert origin in str(raised.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["cache", "replay"])
+async def test_a_recorded_blank_reply_is_final_too(
+    run_scope: RequestScope, origin: ReplyOrigin
+) -> None:
+    """A blank is refused by the provider before any parser; a recorded blank is still the
+    recording, so it ends the item the same way."""
+
+    fetch: _OriginFetch = _OriginFetch(("  ", origin), ("MET", "live"))
+    with pytest.raises(JudgeReplyUnparseable, match="case 7 rubric r2"):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_live_reply_with_no_verdict_is_still_redrawn(run_scope: RequestScope) -> None:
+    fetch: _OriginFetch = _OriginFetch((GARBLED, "live"), ("UNMET", "live"))
+    assert await _judge_through_gateway(fetch) == (False, 1)
+    assert fetch.participation == [None, False]
+
+
+@pytest.mark.asyncio
+async def test_a_recorded_reply_with_a_verdict_is_used_as_is(run_scope: RequestScope) -> None:
+    fetch: _OriginFetch = _OriginFetch(("MET", "cache"))
+    assert await _judge_through_gateway(fetch) == (True, 0)
+    assert len(fetch.targets) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_retry_after_a_5xx_still_happens_and_its_recorded_reply_is_final(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """R3: a failure stores nothing, so the retry after a 502 is unchanged; the reply it gets
+    from the cache is then the recording, and is not redrawn."""
+
+    fetch: _OriginFetch = _OriginFetch(502, (GARBLED, "cache"), ("MET", "live"))
+    with pytest.raises(JudgeReplyUnparseable):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 2
+    assert waits == [0.5]
+
+
+@pytest.mark.asyncio
+async def test_a_redraw_that_meets_a_recorded_reply_stops_there(run_scope: RequestScope) -> None:
+    """A live garbled reply earns a redraw; should that redraw be answered from a recording
+    (a frozen-copy replay), the recording is final."""
+
+    fetch: _OriginFetch = _OriginFetch((GARBLED, "live"), (GARBLED, "replay"), ("MET", "live"))
+    with pytest.raises(JudgeReplyUnparseable) as raised:
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 2
+    assert raised.value.redraws == 1
+
+
+@pytest.mark.asyncio
+async def test_spending_the_redraw_budget_reports_how_many_redraws_it_took(
+    run_scope: RequestScope,
+) -> None:
+    """The failure carries its redraw count, so a scorer books what was spent, not a guess."""
+
+    live_garbled: tuple[str, ReplyOrigin] = (GARBLED, "live")
+    fetch: _OriginFetch = _OriginFetch(*[live_garbled] * (1 + MAX_JUDGE_REDRAWS))
+    with pytest.raises(JudgeReplyUnparseable) as raised:
+        await _judge_through_gateway(fetch)
+    assert raised.value.redraws == MAX_JUDGE_REDRAWS
+
+
+# --- review round on PR #1457: the shared budget, R3 for a 429, R4 -------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_5xx_retry_and_the_redraws_spend_one_budget_and_the_failure_books_what_it_took(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """INVARIANT: a re-ask after a 502 and a redraw take asks from ONE budget (the hand-built
+    `;retry=2` did the same), so a 502 leaves one redraw, not two, and no fourth call is made.
+    The failure books the one redraw it took, in its count and its message."""
+
+    fetch: _FlakyFetch = _FlakyFetch(502, GARBLED, GARBLED, "MET")
+    with pytest.raises(JudgeReplyUnparseable, match="after 1 redraws") as raised:
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1 + MAX_JUDGE_REDRAWS
+    assert raised.value.redraws == 1
+    assert fetch.participation == [None, None, False]
+
+
+@pytest.mark.asyncio
+async def test_a_retry_after_a_429_still_happens_and_its_recorded_reply_is_final(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """R3: a 429 is retried like a 5xx (it stored nothing); the cached reply it then gets is
+    the recording, and is not redrawn."""
+
+    fetch: _OriginFetch = _OriginFetch(429, (GARBLED, "cache"), ("MET", "live"))
+    with pytest.raises(JudgeReplyUnparseable):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 2
+    assert waits == [0.5]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", [None, {REPLY_ORIGIN_KEY: "stale-spelling"}])
+async def test_a_reply_whose_origin_is_unknown_is_redrawn_like_a_live_one(
+    metadata: dict[str, str] | None,
+) -> None:
+    """R4: a judge outside the gateway provider reports no origin, and a spelling the helper
+    does not know is no origin either; both count as live, so the redraw stays."""
+
+    outputs: list[ModelOutput] = [
+        ModelOutput.from_content("mockllm/model", reply) for reply in (GARBLED, "MET")
+    ]
+    for output in outputs:
+        output.metadata = metadata
+    judge = get_model("mockllm/model", memoize=False, custom_outputs=outputs)
+    judged = await judge_until_parsed(judge, "Reply MET or UNMET.", _met_or_unmet, item="i1")
+    assert (judged.verdict, judged.redraws) == (True, 1)
