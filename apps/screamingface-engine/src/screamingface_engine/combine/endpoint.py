@@ -641,7 +641,7 @@ def _majority(
     selection: Selection,
     trace: _Trace,
     *,
-    recorded: Mapping[str, Mapping[str, float | None]],
+    recorded: _Recorded,
     gate: GateRecord | None = None,
 ) -> CombineOutcome:
     """The selection's own answer: an ungated vote, or a gate that passed."""
