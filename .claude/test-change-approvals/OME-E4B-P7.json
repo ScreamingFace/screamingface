@@ -15,8 +15,8 @@
       "approved_blob": "e06e002a6c9334c35aece4bdf12319ffdb8529d2"
     },
     "packages/screamingface/tests/public_surface_snapshot.json": {
-      "base_blob": "de441441874f607c042268992b7fe836c09a7772",
-      "approved_blob": "46bcf5333ae12b4b5c419bba1fad1f0f11e825b2"
+      "base_blob": "1470ab8ce9421a6397bed086b7c42330a0c580a0",
+      "approved_blob": "cd2687de83ac068a3fb26e4a2bbdd8e56839a792"
     },
     "packages/screamingface/tests/test_sum_band_docs.py": {
       "base_blob": "c220f646e700d5544fd15f4bdd3a74e3e00e2ea3",
