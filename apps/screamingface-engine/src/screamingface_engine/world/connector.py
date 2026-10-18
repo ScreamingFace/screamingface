@@ -1056,7 +1056,7 @@ async def _fetch_completion(
     )
     if probe is not None:
         probe.read(resp)
-    _raise_for_status(resp, logprobs_requested=body.get("logprobs") is True)
+    _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
@@ -1071,7 +1071,7 @@ async def _fetch_completion(
     )
     if probe is not None:
         probe.read(resp)
-    _raise_for_status(resp, logprobs_requested=body.get("logprobs") is True)
+    _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     # INVARIANT (OME-1220): a possibly billed attempt lost on the FIRST round trip is still spend
     # this call cannot price, even though the re-issue that replaced it ran cleanly.
     return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
@@ -1215,7 +1215,7 @@ async def _fetch_replay(
         raise _replay_unavailable()
     # Any other failure status is the captured original error (it carries X-AIGW-Replay), raised as
     # the original run raised it.
-    _raise_for_status(resp, logprobs_requested=body.get("logprobs") is True)
+    _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     return resp, _REPLAYED
 
 
@@ -1406,6 +1406,11 @@ def _signal_accounting(aigw: object, cache: CacheOutcome) -> SignalAccounting:
         return SignalAccounting()
 
 
+def _asks_logprobs(body: Mapping[str, object]) -> bool:
+    """Whether the call asked for token log-probabilities: ``logprobs`` is exactly ``true``."""
+    return body.get("logprobs") is True
+
+
 def _retain_reply_logprobs(
     data: Mapping[str, Any],
     body: Mapping[str, object],
@@ -1421,7 +1426,7 @@ def _reply_logprobs(data: Mapping[str, Any], body: Mapping[str, object]) -> Repl
 
     WHY only when asked: a call without `logprobs: true` keeps its exact cost and behavior (LC-D4).
     """
-    if body.get("logprobs") is not True:
+    if not _asks_logprobs(body):
         return None
     top_k = body.get("top_logprobs")
     try:
