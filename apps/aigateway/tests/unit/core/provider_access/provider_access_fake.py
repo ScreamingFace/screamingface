@@ -17,15 +17,11 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+from aigateway.core.auth_types import AuthMode, AuthType
 from aigateway.core.credential_blob import DispatchObservation, OperationalOutcome
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import (
-    AuthMode,
-    AuthType,
-    ProfileDefaults,
-    ProfileState,
-    credential_name_for,
-)
+from aigateway.core.profile_models import ProfileDefaults, ProfileState
 from aigateway.core.provider_access import (
     Authorization,
     AvailabilityRow,

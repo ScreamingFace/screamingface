@@ -28,8 +28,8 @@ from ..core.registry import ProviderRegistry
 from .provider_access_http import refusals_as_http, selector_from_request
 
 if TYPE_CHECKING:
+    from ..core.auth_types import AuthMode
     from ..core.plugin_base import ProviderPluginBase
-    from ..core.profile_models import AuthMode
 
 router = APIRouter()
 

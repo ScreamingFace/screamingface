@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 from .chat_parameters import compose_contract_entries, normalize_rules
 
 if TYPE_CHECKING:
+    from .auth_types import AuthMode
     from .chat_parameters import (
         ParameterProjectionRule,
         ParameterSchema,
@@ -36,7 +37,6 @@ if TYPE_CHECKING:
         ToolCapability,
         TransportCapability,
     )
-    from .profile_models import AuthMode
 
 SCHEMA_VERSION = 1
 

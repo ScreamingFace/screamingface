@@ -14,13 +14,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from ..auth_types import AuthType
 from ..credential_strategy_cache import credential_strategy_cache
 from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore
 from ..plugin_base import credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import AuthType, Profile
+from ..profile_models import Profile
 from .refresh_guard import (
     ConnectionRefreshOwner,
     ProfileRefreshOwner,

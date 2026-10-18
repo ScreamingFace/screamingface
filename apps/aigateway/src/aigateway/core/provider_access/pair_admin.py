@@ -23,10 +23,11 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from ..auth_types import AuthType
 from ..oauth.models import OAuthConnection
 from ..oauth.store import DEFAULT_CREDENTIAL_ACCOUNT, OAuthConnectionStore, credential_locator_for
 from ..plugin_base import credential_service_provider_for
-from ..profile_models import AuthType, Profile, ProfileState
+from ..profile_models import Profile, ProfileState
 from ..secrets.mixin import SecretDecryptionError
 from ..storage_outages import STORAGE_OUTAGES
 from .pair_authority import PairAuthority, PairAuthorityDataError, PairAuthorityStore

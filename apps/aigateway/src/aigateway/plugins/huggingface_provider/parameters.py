@@ -19,12 +19,12 @@ separate catalog evidence and never enables an ordinary parameter here.
 
 from __future__ import annotations
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
     ToolCapability,
 )
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
     MAX_TOKENS_SCHEMA,

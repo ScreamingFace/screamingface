@@ -19,17 +19,12 @@ from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError, OperationalError
 
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.errors import AuthError
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileDefaults,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.db import init_db
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
 from aigateway.routes.auth import (

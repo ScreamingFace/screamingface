@@ -16,12 +16,12 @@ before projection, so a later rename/removal/nesting cannot change the answer.
 
 from __future__ import annotations
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import CacheBehavior, ParameterProjectionRule, ParameterSchema
 from aigateway.core.parameter_projection import (
     caller_cache_bypass_paths,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.profile_models import AuthType
 
 _NUM = ParameterSchema(type="number", minimum=0, maximum=2)
 

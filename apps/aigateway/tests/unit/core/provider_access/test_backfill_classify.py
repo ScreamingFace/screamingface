@@ -30,7 +30,8 @@ from connection_backed_admin_probes import KEY
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import PROVIDER
 
-from aigateway.core.profile_models import ProfileState, credential_name_for
+from aigateway.core.credential_names import credential_name_for
+from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access.backfill_classify import BackfillContext, classify_account
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 

@@ -22,7 +22,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..profile_models import AuthMode
+from ..auth_types import AuthMode
 from ._schema import ParameterSchema
 
 # Public enums (fail-closed: Pydantic rejects any value outside these literals).

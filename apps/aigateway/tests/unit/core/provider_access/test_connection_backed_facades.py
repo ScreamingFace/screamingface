@@ -24,9 +24,10 @@ from fastapi.testclient import TestClient
 from litellm.exceptions import AuthenticationError
 from provider_access_harness import PROVIDER, ProfileBackedHarness
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.profile_index import ProfileTransitionConflict
-from aigateway.core.profile_models import ProfileDefaults, ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileDefaults, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 

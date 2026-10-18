@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from ..auth_types import AuthMode, AuthType
 from ..oauth.models import OAuthConnection
-from ..profile_models import AuthMode, AuthType, Profile
+from ..profile_models import Profile
 from .types import CredentialTarget, UnsupportedAuthMode
 
 

@@ -9,8 +9,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState, credential_name_for, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.gemini_provider.auth import credential_service_for
 
 

@@ -25,12 +25,12 @@ Two shapes of enabled field, exactly as the builder reads them:
 
 from __future__ import annotations
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ProviderParameterObservation,
     ToolCapability,
 )
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     STOP_SCHEMA,

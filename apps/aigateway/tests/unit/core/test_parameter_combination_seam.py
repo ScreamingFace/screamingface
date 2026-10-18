@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.loader import load_plugins
 from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.registry import ProviderRegistry
 
 

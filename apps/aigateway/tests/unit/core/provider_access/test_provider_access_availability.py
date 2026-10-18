@@ -19,8 +19,9 @@ from typing import Any
 import pytest
 from provider_access_fake import FakeHarness
 
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import AvailabilityRow
 from aigateway.core.provider_access import profile_authorize as authorize_module
 

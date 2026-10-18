@@ -22,8 +22,8 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.parameter_projection import IncompatibleParametersError
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import REASONING_EFFORT_SCHEMA
 from aigateway.plugins.anthropic_provider.parameters import anthropic_chat_parameter_rules
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings

@@ -24,12 +24,13 @@ from uuid import UUID
 from tortoise.transactions import in_transaction
 
 from ..credential_blob.store import CredentialBlobMutationConflict
+from ..credential_names import credential_name_for
 from ..credential_strategy_cache import credential_strategy_cache
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, credential_locator_for, ensure_anonymous_account
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import Profile, credential_name_for
+from ..profile_models import Profile
 from ..storage_outages import STORAGE_OUTAGES
 from .connection_admin import ConnectionBackedCredentialAdmin, live_connection_ids
 from .connection_native import credential_has_other_owner, credential_name_of, lock_lower_addressers

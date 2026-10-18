@@ -28,8 +28,8 @@ from pair_shadow_harness import (
 )
 from tortoise.exceptions import OperationalError
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
-from aigateway.core.profile_models import credential_name_for
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
     WriteConflict,

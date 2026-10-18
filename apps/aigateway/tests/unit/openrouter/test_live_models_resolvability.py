@@ -18,12 +18,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.model_catalog import ModelCatalog
 from aigateway.core.parameter_discovery import DiscoveryLimits, RawResponse
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openrouter_provider import plugin as plugin_module
 from aigateway.plugins.openrouter_provider.discovery import MODELS_URL, OPENAPI_URL
 from aigateway.plugins.openrouter_provider.live_models import LIVE_MODELS_URL

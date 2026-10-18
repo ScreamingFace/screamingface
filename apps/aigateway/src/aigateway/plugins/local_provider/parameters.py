@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ProviderParameterObservation,
 )
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     direct_parameter_observations,

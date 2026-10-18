@@ -12,13 +12,13 @@ OpenAI param for OpenRouter — is the P0 promotion, projected through
 
 from __future__ import annotations
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
     ToolCapability,
 )
 from aigateway.core.parameter_projection import WRAPPER_KEY
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
     MAX_TOKENS_SCHEMA,

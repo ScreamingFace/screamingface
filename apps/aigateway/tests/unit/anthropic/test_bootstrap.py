@@ -5,8 +5,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
-from aigateway.core.profile_models import Profile, profile_id_for
+from aigateway.core.profile_models import Profile
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.bootstrap import bootstrap_from_claude_code
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings

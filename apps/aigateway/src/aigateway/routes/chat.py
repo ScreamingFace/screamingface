@@ -41,6 +41,7 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.auth_types import AuthMode
 from ..core.credential_blob import DispatchObservation
 from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.frozen_copy.headers import (
@@ -64,7 +65,6 @@ from ..core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from ..core.profile_models import AuthMode
 from ..core.provider_access import (
     CredentialTarget,
     ProviderAccess,

@@ -36,11 +36,11 @@ from ._ports import (
 )
 
 if TYPE_CHECKING:
+    from ..auth_types import AuthMode, AuthType
     from ..credential_blob.store import CredentialBlobStore
     from ..oauth.identity import AccountIdentity
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
     from ..profile_index import ProfileIndexStore
-    from ..profile_models import AuthMode, AuthType
 
 
 class ProviderPluginCore[TSettings: PluginSettings](ABC):

@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import inline_supported_parameters
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.gemini_provider.plugin import GeminiProviderPlugin
 
 _MODEL = "gemini-cli/gemini-2.5-pro"

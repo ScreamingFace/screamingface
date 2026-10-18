@@ -35,8 +35,9 @@ from connection_backed_oauth_probes import access_token_of, callback, start, sta
 from provider_access_harness import ANTHROPIC, PROVIDER
 
 from aigateway import migrate_profiles
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import Selector
 from aigateway.core.provider_access.pair_authority import PairAuthorityStore
 

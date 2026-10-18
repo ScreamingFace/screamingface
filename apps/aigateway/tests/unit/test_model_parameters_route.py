@@ -12,13 +12,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from aigateway.core.auth_types import AuthType
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    AuthType,
-    Profile,
-    ProfileState,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileState
 
 _MODEL = "anthropic/claude-opus-4-8"
 _UNSUPPORTED_DETAIL = {

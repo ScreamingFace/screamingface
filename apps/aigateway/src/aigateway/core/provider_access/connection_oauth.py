@@ -33,12 +33,13 @@ from uuid import uuid4
 from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
+from ..credential_names import profile_id_for
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, credential_locator_for
 from ..pending_auth import PendingAuthEntry
 from ..plugin_base import credential_service_provider_for, credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import Profile, ProfileState, profile_id_for
+from ..profile_models import Profile, ProfileState
 from . import profile_admin
 from .auth_mode import auth_type_of
 from .connection_authority import LEGACY_STATE_FOR_STATUS

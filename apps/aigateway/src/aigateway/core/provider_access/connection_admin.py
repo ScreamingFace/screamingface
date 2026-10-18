@@ -25,11 +25,12 @@ from uuid import UUID, uuid4
 from tortoise.transactions import in_transaction
 
 from ..credential_blob.store import CredentialBlobMutationConflict
+from ..credential_names import credential_name_for, profile_id_for
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, credential_locator_for
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileTransitionConflict
-from ..profile_models import Profile, ProfileState, credential_name_for, profile_id_for
+from ..profile_models import Profile, ProfileState
 from . import profile_admin
 from .connection_authority import LEGACY_STATE_FOR_STATUS
 from .connection_locator import credential_name_from_locator, credential_strategy_for_connection

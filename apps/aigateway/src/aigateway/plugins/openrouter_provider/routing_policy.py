@@ -31,13 +31,13 @@ from collections.abc import Callable, Iterator, Mapping
 from decimal import Decimal
 from typing import Any, NamedTuple
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
     ParameterValidationError,
 )
 from aigateway.core.parameter_projection import WRAPPER_KEY
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import provider_native_rule
 
 from .dispatch_errors import _unexpected_routing_policy_error

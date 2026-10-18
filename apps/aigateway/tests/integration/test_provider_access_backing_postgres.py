@@ -30,15 +30,11 @@ import test_lifecycle_postgres_races as lane
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.auth_types import AuthType
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import (
-    AuthType,
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access.models import ProviderCredentialSlot
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for

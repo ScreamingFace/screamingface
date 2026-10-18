@@ -12,12 +12,12 @@ from .parameters import (
 )
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
         ToolCapability,
     )
-    from aigateway.core.profile_models import AuthMode
 
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
 

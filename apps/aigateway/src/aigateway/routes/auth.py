@@ -19,7 +19,9 @@ from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.auth_types import AuthType
 from ..core.credential_blob.store import CredentialBlobMutationConflict
+from ..core.credential_names import credential_name_for, profile_id_for
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..core.oauth.store import (
@@ -35,13 +37,7 @@ from ..core.plugin_base import (
     credential_strategy_from,
 )
 from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..core.profile_models import (
-    AuthType,
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from ..core.profile_models import Profile, ProfileState
 from ..core.provider_access import (
     PairAuthority,
     PairAuthorityConflict,

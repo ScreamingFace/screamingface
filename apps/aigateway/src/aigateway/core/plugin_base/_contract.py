@@ -35,6 +35,7 @@ from ._ports import ModelEntry, PluginSettings
 from ._provider import ProviderPluginCore
 
 if TYPE_CHECKING:
+    from ..auth_types import AuthMode
     from ..chat_parameters import (
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
@@ -43,7 +44,6 @@ if TYPE_CHECKING:
         TransportCapability,
     )
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits, DiscoverySourceRef
-    from ..profile_models import AuthMode
 
 
 @dataclass(frozen=True)

@@ -18,9 +18,11 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import State
 
 from aigateway.config import Settings
+from aigateway.core.auth_types import AuthType
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import AuthType, Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.main import create_app
 from aigateway.routes import chat, chat_dispatch
 

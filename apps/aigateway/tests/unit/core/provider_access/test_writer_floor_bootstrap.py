@@ -17,8 +17,9 @@ from connection_backed_harness import ConnectionBackedHarness
 from fastapi.testclient import TestClient
 from provider_access_harness import PROVIDER, ProfileBackedHarness
 
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
-from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.core.provider_access.writer_floor import bootstrap_under_the_floor
 from tests.conftest import _prepare_sqlite_db

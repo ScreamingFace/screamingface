@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 
 _MODEL = "openrouter/google/gemini-2.0-flash-001"

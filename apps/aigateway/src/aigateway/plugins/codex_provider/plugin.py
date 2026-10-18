@@ -35,12 +35,12 @@ from .oauth_config import (
 from .parameters import CODEX_OBSERVATIONS, codex_chat_parameter_rules
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_models import AuthMode
 
 
 class CodexProviderPlugin(ProviderPluginBase):

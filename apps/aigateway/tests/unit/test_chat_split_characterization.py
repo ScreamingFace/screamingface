@@ -22,13 +22,9 @@ import httpx
 import pytest
 from litellm.exceptions import BadRequestError, ServiceUnavailableError
 
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 

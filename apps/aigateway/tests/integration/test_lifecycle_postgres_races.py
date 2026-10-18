@@ -28,13 +28,13 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
     credential_locator_for,
 )
-from aigateway.core.profile_models import credential_name_for
 from aigateway.core.provider_access.refresh_guard import GuardedRefreshPublication
 from aigateway.main import create_app
 from aigateway.plugins.anthropic_provider.auth import credential_service_for

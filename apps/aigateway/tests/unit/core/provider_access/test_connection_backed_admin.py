@@ -32,8 +32,9 @@ from connection_backed_admin_probes import (
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import ProfileDefaults, ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileDefaults, ProfileState
 from aigateway.core.provider_access import (
     ConnectionBackedCredentialAdmin,
     CredentialStoreUnavailable,

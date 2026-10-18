@@ -6,15 +6,10 @@ import json
 import logging
 
 from aigateway.core.credential_blob.store import CredentialBlobStore, ORMStore
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.errors import BootstrapError
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileDefaults,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 
 from .auth import credential_service_for
 from .settings import AnthropicPluginSettings

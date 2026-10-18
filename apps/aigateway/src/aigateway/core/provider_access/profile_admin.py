@@ -26,13 +26,15 @@ from typing import Any
 
 from tortoise.transactions import in_transaction
 
+from ..auth_types import AuthType
 from ..credential_blob.store import CredentialBlobMutationConflict
+from ..credential_names import credential_name_for, profile_id_for
 from ..credential_strategy_cache import credential_strategy_cache
 from ..oauth.models import OAuthConnection
 from ..oauth.store import credential_locator_for
 from ..plugin_base import credential_service_provider_for, credential_strategy_from
 from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import AuthType, Profile, ProfileState, credential_name_for, profile_id_for
+from ..profile_models import Profile, ProfileState
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
 from .ports import ProviderCredentialAdmin
 from .profile_authorize import invalidate_session

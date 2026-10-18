@@ -2,31 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
-# INVARIANT: AuthType is the PERSISTED credential type — the only values a stored
-# Profile or OAuthConnection may hold, and the only ones a credential strategy can
-# be built for. AuthMode is the RESOLVED outcome, which additionally admits "none"
-# for a provider that needs no upstream credential at all (OME-636).
-#
-# WHY two literals instead of widening one: "none" must be unforgeable. Keeping it
-# out of AuthType means no persisted model and no request schema ever accepts it,
-# so a client cannot declare it and an operator cannot store it — enforced by the
-# type checker rather than by a validation rule someone can forget to write.
-# AIDEV-NOTE: "none" means no PROVIDER credential. It says nothing about the
-# caller's own authentication to AIGateway, which is unchanged.
-AuthType = Literal["oauth", "api_key"]
-AuthMode = Literal["oauth", "api_key", "none"]
-
-
-def profile_id_for(account_id: str, provider: str, name: str) -> str:
-    return f"{account_id}:{provider}:{name}"
-
-
-def credential_name_for(account_id: str, name: str) -> str:
-    return f"{account_id}:{name}"
+from .auth_types import AuthType
 
 
 class ProfileState(str, Enum):  # noqa: UP042 - keep tuple-base for pydantic-v1 compat

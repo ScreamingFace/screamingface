@@ -32,8 +32,9 @@ from connection_backed_oauth_probes import (
 )
 from provider_access_harness import PROVIDER, ProfileBackedHarness
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore
-from aigateway.core.profile_models import ProfileState, credential_name_for
+from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import connection_facade
 
 REAUTH = "/v1/oauth/connections"
