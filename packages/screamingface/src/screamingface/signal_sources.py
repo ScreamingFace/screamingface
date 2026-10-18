@@ -12,6 +12,7 @@ compile gives it to ``_entry(match)``, and ``_spec()`` is the entry without ``ma
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from contextlib import suppress
