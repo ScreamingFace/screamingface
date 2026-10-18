@@ -25,10 +25,6 @@
 
 ### Features
 
-* `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
-  started can reach a hosted Engine without a browser window. A malformed or expired token fails
-  at Client construction with `access_env_token_invalid`.
-
 * **screamingface:** `sf.Filter` takes `judge=sf.Judge(..., returns="scores")` with `where=sf.signal("score:judge") <op> x` (E4b). One judge call scores every member, and the Filter keeps each member whose score passes, in author order; the next stage gets the Case input and the kept members. `sf.Reduce("filter", where=..., judge=...)` compiles to the same url4, and a url4 is written back as `sf.Filter(...)`. A `score:judge` comparison without a judge, a judge without a `score:judge` comparison, a label judge or an `order="min"` judge raises before any call. **Behavior change:** `sf.Filter(where=sf.signal("score:judge") ...)` with no judge now says to add `judge=` (it said to use `sf.Rank`). No Engine change.
 
 * **screamingface:** add `order="min"` to `sf.Judge(..., returns="scores")` (E4b). The judge is told that a lower number means a better answer (`judge-template@1 returns=scores order=min`), and the answer is the original text of the member with the lowest score; a tie goes to the first member in author order. The combine step is `best_holder@1 {"order":"min"}`, so no Engine change is needed. The default `order="max"` keeps the url4 of every existing judge. `returns="label"` with `order="min"`, and any other order value, raise `ValueError`. `sf.Rank(by=...)`, `sf.Vote(judge=...)` and their block forms refuse a judge with `order="min"`. `sf.Reduce("judge", judge=..., order=...)` overrides the order like `rubric=`. `Url4(...).to_python()` rebuilds the order.
@@ -52,6 +48,10 @@
 * Browse completed reports in live notebooks 25 Case results at a time, with Candidate filtering, exact Case-ID navigation and streamed full-report downloads. Static HTML shows a bounded first-page preview; install the notebook extra for live controls.
 
 * Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
+
+* `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
+  started can reach a hosted Engine without a browser window. A malformed or expired token fails
+  at Client construction with `access_env_token_invalid`.
 
 ### Features
 
