@@ -79,7 +79,8 @@ def test_compile_names_the_users_stage_numbers(
         compile_candidate(build(), operators=flow_operators())
 
     assert _judge_writer_messages(recorded) == [_message(first)]
-    assert recorded[0].filename == __file__
+    judge_writer = [w for w in recorded if issubclass(w.category, JudgeWriterWarning)]
+    assert judge_writer[0].filename == __file__
 
 
 def test_evaluation_compile_names_the_users_stage_numbers() -> None:
