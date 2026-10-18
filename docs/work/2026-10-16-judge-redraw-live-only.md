@@ -82,9 +82,12 @@ live reply; a reply from the gateway cache or a frozen-copy replay is final. Spe
 - **Follow-ups (not filed):** the DRACO metadata count above; a gateway "refresh" cache
   control so a live redraw's good reply replaces the garbled one in the cache (spec §6);
   OME-1642's FrontierScience gap checked against its own raw data.
-- **Seed re-key for "$$" answers (2026-10-16, ops data, outside the repo):**
-  `~/workspace/draco-v5/rekey-dollar/` holds a merge snapshot of 6,372 rows (copies of seed judge
-  rows under the keys the local Task's requests hash to) + manifest + the scripts that made and
-  verified it. Verified on a keyless stack: after the merge, the 11 affected lineups score 100/100
-  Cases with 0 misses; 8 of them equal the published score exactly. Upload through aigateway-ui
-  (merge, with manifest). Remaining gaps are items (b) and (c) above.
+- **Dev seed fixed (ops data, outside the repo), applied 2026-10-18 00:09Z** through the admin
+  snapshot API (merge, with manifest): (1) 6,372 priced judge rows for answers containing "$$",
+  copied from the dev rows of the same judge calls under the keys the local Task's requests hash
+  to; (2) 56 answer rows that the 2026-09-18 archive-pricing merge had reverted to v2 bodies
+  (where the reference recorded an empty answer) restored to v3, with their pricing. Read-back:
+  6,428/6,428 rows byte-identical. A keyless replay of the full dev table with both loads scored
+  every lineup 100/100 Cases (bar the reference's own 7 error rows); all 9 solos and 5 ensembles
+  equal the published score. Remaining gaps are items (b) and (c) above. The working files were
+  deleted afterwards.
