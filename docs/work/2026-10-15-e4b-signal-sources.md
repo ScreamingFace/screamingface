@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1652   # one PR for E4b parts 2 and 3, under epic OME-1290
 stack: repo, aigateway, screamingface-engine, screamingface
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-15
