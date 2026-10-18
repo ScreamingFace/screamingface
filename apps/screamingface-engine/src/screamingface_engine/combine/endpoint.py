@@ -486,25 +486,8 @@ def _decide(
         return _abstain(
             spec, plan, combine_input, reduction, exc.reason, recorded=recorded, gate=_not_run(spec)
         )
-    return _choose(
-        spec, plan, combine_input, context, reduction, selection, trace, recorded=recorded
-    )
-
-
-def _choose(
-    spec: CombineSpec,
-    plan: _Plan,
-    combine_input: CombineInput,
-    context: CombineContext,
-    reduction: Reduction,
-    selection: Selection,
-    trace: _Trace,
-    *,
-    recorded: Mapping[str, Mapping[str, float | None]],
-) -> CombineOutcome:
-    """The selection's own answer (today's path), or the branch the gate takes."""
-    if spec.gate is not None:
-        return _gated(
+    return (
+        _gated(
             spec.gate,
             spec,
             plan,
@@ -515,8 +498,10 @@ def _choose(
             trace,
             recorded=recorded,
         )
-    return _majority(
-        spec, plan, combine_input, context, reduction, selection, trace, recorded=recorded
+        if spec.gate is not None
+        else _majority(
+            spec, plan, combine_input, context, reduction, selection, trace, recorded=recorded
+        )
     )
 
 
@@ -1017,6 +1002,8 @@ def _evidence(
     ranks = {} if plan.ranks is None else plan.ranks(reduction, combine_input, plan.select.args)
     statistic = reduction.statistic
     is_mean = spec.reducer == "mean"
+    # WHY (P14): an abstain keeps tally, agreement and tie, not chosen.
+    kept = selection if result.status == "answered" else None
     return CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
@@ -1034,10 +1021,8 @@ def _evidence(
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
-        chosen=[] if result.status == "abstain" or selection is None else list(selection.chosen),
-        built=result.status == "answered"
-        and selection is not None
-        and selection.output is not None,
+        chosen=[] if kept is None else list(kept.chosen),
+        built=kept is not None and kept.output is not None,
         agreement=(
             None
             if selection is None or selection.agreement is None
