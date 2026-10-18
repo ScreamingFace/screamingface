@@ -35,7 +35,10 @@ recording. The ``;retry=`` re-ask is decided by the verdict route's failure, not
 route that rejects a reply must read the reply's origin (``world/reply_origin.py``,
 :func:`watch_reply_origin`) and raise ``judge_reply_invalid`` as PERMANENT for a recorded one. No
 verdict route raises a retryable ``judge_reply_invalid`` today (every judged Benchmark moved to a
-local inspect Task, whose redraw helper applies the rule; the combine Judge's is permanent).
+local inspect Task, whose redraw helper applies the rule; ``failure_classes.judge_failure`` has no
+production caller; the combine Judge's becomes permanent in ``world/combine.py``), so the opt-out
+below has no production trigger now. ``test_no_production_route_raises_a_retryable_judge_reply_
+invalid`` (``tests/unit/test_fresh_judge_retry.py``) pins this: a new raise site fails it.
 
 What does not change: the request's path, params, messages and identity, so the request key that
 grading accounting joins on (``request_identity.model_request_key``) is the same on every retry

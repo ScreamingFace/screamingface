@@ -43,6 +43,7 @@ from screamingface_engine.world.reply_origin import (  # noqa: E402
 )
 from screamingface_engine_inspect import judge_redraw  # noqa: E402
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
+    REPLY_ORIGIN_KEY,
     JudgeFetch,
     JudgeTransport,
     bound_judge_transport,
@@ -473,3 +474,54 @@ async def test_spending_the_redraw_budget_reports_how_many_redraws_it_took(
     with pytest.raises(JudgeReplyUnparseable) as raised:
         await _judge_through_gateway(fetch)
     assert raised.value.redraws == MAX_JUDGE_REDRAWS
+
+
+# --- review round on PR #1457: the shared budget, R3 for a 429, R4 -------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_5xx_retry_and_the_redraws_spend_one_budget_and_the_failure_books_what_it_took(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """INVARIANT: a re-ask after a 502 and a redraw take asks from ONE budget (the hand-built
+    `;retry=2` did the same), so a 502 leaves one redraw, not two, and no fourth call is made.
+    The failure books the one redraw it took, in its count and its message."""
+
+    fetch: _FlakyFetch = _FlakyFetch(502, GARBLED, GARBLED, "MET")
+    with pytest.raises(JudgeReplyUnparseable, match="after 1 redraws") as raised:
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 1 + MAX_JUDGE_REDRAWS
+    assert raised.value.redraws == 1
+    assert fetch.participation == [None, None, False]
+
+
+@pytest.mark.asyncio
+async def test_a_retry_after_a_429_still_happens_and_its_recorded_reply_is_final(
+    run_scope: RequestScope, waits: list[float]
+) -> None:
+    """R3: a 429 is retried like a 5xx (it stored nothing); the cached reply it then gets is
+    the recording, and is not redrawn."""
+
+    fetch: _OriginFetch = _OriginFetch(429, (GARBLED, "cache"), ("MET", "live"))
+    with pytest.raises(JudgeReplyUnparseable):
+        await _judge_through_gateway(fetch)
+    assert len(fetch.targets) == 2
+    assert waits == [0.5]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", [None, {REPLY_ORIGIN_KEY: "stale-spelling"}])
+async def test_a_reply_whose_origin_is_unknown_is_redrawn_like_a_live_one(
+    metadata: dict[str, str] | None,
+) -> None:
+    """R4: a judge outside the gateway provider reports no origin, and a spelling the helper
+    does not know is no origin either; both count as live, so the redraw stays."""
+
+    outputs: list[ModelOutput] = [
+        ModelOutput.from_content("mockllm/model", reply) for reply in (GARBLED, "MET")
+    ]
+    for output in outputs:
+        output.metadata = metadata
+    judge = get_model("mockllm/model", memoize=False, custom_outputs=outputs)
+    judged = await judge_until_parsed(judge, "Reply MET or UNMET.", _met_or_unmet, item="i1")
+    assert (judged.verdict, judged.redraws) == (True, 1)

@@ -50,7 +50,7 @@ One unit, one stack (`screamingface-engine`), TDD.
 `uv run .claude/scripts/run_gates.py screamingface-engine` and
 `uv run --extra inspect pytest tests/unit/inspect` (the CI inspect job).
 
-## Step 7 — V5 manual replay (open)
+## Step 7 — V5 manual replay (done 2026-10-16; dev seed fixed 2026-10-18)
 
 draco-3pass on `~/sf-local` from `draco-cache-live-v5.sql.gz` with no provider key; compare with
-`stats/by_model.csv`.
+`stats/by_model.csv`. Result and the seed fix: see the ledger.

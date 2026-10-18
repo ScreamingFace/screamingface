@@ -200,10 +200,12 @@ async def judge_until_parsed[Verdict](
             raise _recorded_without_verdict(item, reply, answer.origin, unparseable)
         unparseable += 1
     # Stage 4 — the budget is spent on an unparseable reply: fail by name, never "not met".
+    # The count is what was spent: a re-ask after a 429/5xx took one of the asks, not a redraw.
+    redraws: int = max(unparseable - 1, 0)
     raise JudgeReplyUnparseable(
-        f"the judge gave no parseable reply for {item} after {MAX_JUDGE_REDRAWS} redraws; "
+        f"the judge gave no parseable reply for {item} after {redraws} redraws; "
         f"last reply: {reply[:_REPLY_HEAD_CHARS]!r}",
-        redraws=max(unparseable - 1, 0),
+        redraws=redraws,
     )
 
 

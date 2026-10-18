@@ -38,7 +38,13 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
+from screamingface_engine.world.reply_origin import (  # noqa: E402
+    ReplyOrigin,
+    record_reply_origin,
+)
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
+    REPLY_ORIGIN_KEY,
+    JudgeReplyBlank,
     JudgeTransport,
     bound_judge_transport,
 )
@@ -326,3 +332,62 @@ async def test_delivery_settings_inherited_from_the_eval_are_allowed() -> None:
         active_generate_config_context_var.reset(token)
     assert output.completion == "GRADE: C"
     assert len(fetch.targets) == 1
+
+
+# --- the reply's origin rides the output (spec 2026-10-16-judge-redraw-live-only) ----------
+#
+# FEATURE: the redraw helper reads where each judge reply came from; the provider is the one
+# place that learns it from the connector and hands it on.
+
+
+class _OriginFetch(_RecordingFetch):
+    """A fake node fetch that also plays the connector's part: per call, it records the
+    scripted origin (``None`` = the connector recorded nothing) before it replies."""
+
+    def __init__(self, reply: str, *origins: ReplyOrigin | None) -> None:
+        super().__init__(reply)
+        self.origins: list[ReplyOrigin | None] = list(origins)
+
+    async def __call__(self, target: str) -> str:
+        reply: str = await super().__call__(target)
+        origin: ReplyOrigin | None = self.origins.pop(0)
+        if origin is not None:
+            record_reply_origin(origin)
+        return reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["live", "cache", "replay", None])
+async def test_the_origin_the_connector_records_rides_the_output_metadata(
+    origin: ReplyOrigin | None,
+) -> None:
+    model = get_model("screamingface/judge-4", memoize=False)
+    with bound_judge_transport(JudgeTransport(fetch=_OriginFetch("GRADE: C", origin))):
+        output = await model.generate([ChatMessageUser(content="grade this")])
+    assert output.metadata == {REPLY_ORIGIN_KEY: origin}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["cache", None])
+async def test_a_blank_reply_carries_its_origin(origin: ReplyOrigin | None) -> None:
+    """A blank never becomes an output, so the refusal itself says where it came from."""
+
+    model = get_model("screamingface/judge-4", memoize=False)
+    with (
+        bound_judge_transport(JudgeTransport(fetch=_OriginFetch("  ", origin))),
+        pytest.raises(JudgeReplyBlank) as raised,
+    ):
+        await model.generate([ChatMessageUser(content="grade this")])
+    assert raised.value.origin == origin
+
+
+@pytest.mark.asyncio
+async def test_each_judge_call_watches_its_own_reply() -> None:
+    """INVARIANT: a cache hit on one call never marks the next call's reply as recorded."""
+
+    model = get_model("screamingface/judge-4", memoize=False)
+    with bound_judge_transport(JudgeTransport(fetch=_OriginFetch("GRADE: C", "cache", None))):
+        first = await model.generate([ChatMessageUser(content="grade this")])
+        second = await model.generate([ChatMessageUser(content="grade this")])
+    assert first.metadata == {REPLY_ORIGIN_KEY: "cache"}
+    assert second.metadata == {REPLY_ORIGIN_KEY: None}

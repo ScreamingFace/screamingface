@@ -48,7 +48,8 @@ live reply; a reply from the gateway cache or a frozen-copy replay is final. Spe
   revision, and the edits moved draco, draco-3pass, gdpval-text and frames_oracle
   (`test_published_revisions.py`). The behaviour lives in the shared helper, which is not
   hashed.
-- **Commits:** see `git log` on branch `judge-redraw-live-only`.
+- **Commits:** see `git log` on branch `OME-1646-judge-redraw-live-only` (renamed from
+  `judge-redraw-live-only` at PR-open).
 - **Gates:** `run_gates.py screamingface-engine` ALL GATES GREEN (append-only, ruff, format,
   pyright, layering, pytest + coverage). CI inspect job equivalent:
   `uv run --extra inspect pytest -n auto tests/unit/inspect` → 1963 passed.
@@ -66,7 +67,7 @@ live reply; a reply from the gateway cache or a frozen-copy replay is final. Spe
     revisions: owner decision, follow-up.
   - The scorer docstrings in the four Task files still say "redrawn at most twice"; the rule
     is documented in `judge_redraw.py`. Same revision reason.
-  - V5 ran 2026-10-16 (owner-requested): e2e harness `inspect_replay_stack` +
+  - V5 ran 2026-10-16 (owner-requested; the numbers here predate the seed fix below): e2e harness `inspect_replay_stack` +
     `CacheSeededGateway` (Postgres testcontainer, NO provider credentials) seeded with
     `draco-cache-live-v5.sql.gz`; engine from this branch; roster = the owner's
     `draco-cache-replay.py` (9 solos + 8 ensembles, prompts sha256-checked). 395,896 calls
@@ -91,3 +92,11 @@ live reply; a reply from the gateway cache or a frozen-copy replay is final. Spe
   every lineup 100/100 Cases (bar the reference's own 7 error rows); all 9 solos and 5 ensembles
   equal the published score. Remaining gaps are items (b) and (c) above. The working files were
   deleted afterwards.
+- **PR review round (2026-10-18):** tests added for the open gaps: the provider puts the origin on
+  `ModelOutput.metadata` and on `JudgeReplyBlank`, one watch per call (`test_judge_provider.py`);
+  a 429 retry under R3 and an unknown origin (R4) (`test_judge_redraw.py`); a 5xx retry and the
+  redraws share one budget. The budget give-up message now names the redraws spent, not
+  `MAX_JUDGE_REDRAWS`. The AIDEV-NOTE claim in `fresh_judge_retry.py` is now pinned:
+  `test_no_production_route_raises_a_retryable_judge_reply_invalid` fails on a new retryable
+  `judge_reply_invalid` raise site. The DRACO `judge_redraws` count and the four Task docstrings
+  stay as they are (owner, 2026-10-18: no published revision moves).
