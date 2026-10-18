@@ -93,7 +93,7 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
     """One Combine section per combine step of the Case, in operation order (ans:Q2, P19)."""
     if case.operations is None:
         return ""
-    graph = {info.id: info for info in candidate.operations}
+    graph = candidate._operation_graph()
     steps = [
         op
         for op in case.operations
@@ -310,7 +310,7 @@ class CombineSummary:
         """The summary block, one table per step; empty when no Case has combine evidence."""
         if not self.steps:
             return ""
-        graph = {info.id: info for info in candidate.operations}
+        graph = candidate._operation_graph()
         blocks = "".join(
             _summary_html(operation_id, step, graph) for operation_id, step in self.steps.items()
         )

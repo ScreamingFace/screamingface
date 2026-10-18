@@ -498,6 +498,10 @@ class CandidateResult:
     def duration_ms(self) -> int:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
+    def _operation_graph(self) -> dict[str, OperationInfo]:
+        """This Candidate's operations by id: the graph its traces and Combine views read."""
+        return {operation.id: operation for operation in self.operations}
+
     def to_dict(self) -> dict[str, object]:
         return self._export_fields(cases=list(self._export_cases()))
 
@@ -509,7 +513,7 @@ class CandidateResult:
         ``trace_dict``. WHY ``case.operations`` only: Attempt operations are not traced (P15).
         """
 
-        graph = {operation.id: operation for operation in self.operations}
+        graph = self._operation_graph()
         for case in self.cases:
             selected = case.to_dict()
             # INVARIANT (P1): the key appears only with combine evidence, so every other Case
@@ -1013,7 +1017,7 @@ def _case_entries(case: CaseResult, graph: Mapping[str, OperationInfo]) -> list[
 def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
     # WHY the graph is passed explicitly: it is always the Candidate's own, whatever a shared
     # Case happens to be bound to.
-    graph = {operation.id: operation for operation in candidate.operations}
+    graph = candidate._operation_graph()
     return {
         "candidate": candidate.name,
         "cases": [
