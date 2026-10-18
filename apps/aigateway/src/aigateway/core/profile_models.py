@@ -5,7 +5,9 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from .auth_types import AuthType
+# WHY the module, not the name: `from .auth_types import AuthType` would make
+# `profile_models.AuthType` importable again, a second home E4/E5 would have to keep (OME-1209 E2a).
+from . import auth_types
 
 
 class ProfileState(str, Enum):  # noqa: UP042 - keep tuple-base for pydantic-v1 compat
@@ -34,7 +36,7 @@ class Profile(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     last_refreshed_at: datetime | None = None
     state: ProfileState = ProfileState.PENDING
-    auth_type: AuthType = "oauth"
+    auth_type: auth_types.AuthType = "oauth"
     defaults: ProfileDefaults = Field(default_factory=ProfileDefaults)
 
 

@@ -25,8 +25,10 @@ def test_the_profile_module_keeps_only_the_profile_row() -> None:
     assert defined == {"ProfileState", "ProfileDefaults", "Profile", "ProfileIndex"}
 
 
-@pytest.mark.parametrize("name", ["credential_name_for", "profile_id_for"])
-def test_the_profile_module_no_longer_offers_the_locator_helpers(name: str) -> None:
+@pytest.mark.parametrize("name", ["AuthType", "AuthMode", "credential_name_for", "profile_id_for"])
+def test_the_profile_module_exposes_no_neutral_vocabulary(name: str) -> None:
+    # WHY `hasattr`, not `__module__`: an imported name is still importable from this module, and
+    # a reachable legacy spelling is exactly what would keep E4/E5 from deleting it.
     assert not hasattr(profile_models, name)
 
 
