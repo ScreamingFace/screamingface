@@ -558,9 +558,9 @@ class Pick(Reducer):
         object.__setattr__(self, "output", chosen_output)
 
     def _plan(self) -> _ReducerPlan:
-        output = _output_arg(self.output)
         if self.by_signal is not None:
             return _signal_plan(self.by_signal, cast("str", self.order), self.output)
+        output = _output_arg(self.output)
         assert self.field is not None  # a Pick holds a field or a signal
         # WHY exact ids for the normalizer: by_field@1 assumes the v1 output form of text@1 and
         # numeric@1, so a newer normalizer in the catalog must never change what a Pick means.
