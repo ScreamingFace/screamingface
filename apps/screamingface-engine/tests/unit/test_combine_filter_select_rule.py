@@ -45,6 +45,7 @@ def test_filter_with_another_select_is_spec_invalid(reducer: str, select: dict[s
 
     assert caught.value.code == "combine_spec_invalid"
     assert "filter@1" in str(caught.value)
+    assert select["op"] not in str(caught.value)
 
 
 def test_filter_with_kept_still_runs() -> None:
