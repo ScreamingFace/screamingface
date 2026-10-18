@@ -4,7 +4,7 @@
   "approver": "owner",
   "date": "2026-10-16",
   "scope": "E4b part 7 (consistency@N), stacked on part 6. The combine-spec v1 schema gains the consistency source entry (n, temperature, match); the combine-evidence v1 schema gains the optional consistency record (sample and failed counts); the public-surface snapshot adds sf.Consistency; test_sum_band_docs (part 6) pins the README sections between Fusion and Install as [Fusion, Sum, Consistency] instead of [Fusion, Sum], still an exact list. No assertion is removed or weakened.",
-  "reason": "Owner approved the 3 build pinned edits and the restack edit of test_sum_band_docs.py in chat on 2026-10-16. Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sums (part 6 tip 642d385d1); approved_blob is the blob at the restacked part 7 tip.",
+  "reason": "Owner approved the 3 build pinned edits and the restack edit of test_sum_band_docs.py in chat on 2026-10-16. Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sums (part 6 tip 642d385d1); approved_blob is the blob at the restacked part 7 tip. Owner approved on 2026-10-17 (simplify H): declares_consistency is dead production code and is removed; test_combine_consistency_words.py keeps its parse and refusal tests and drops only the calls to that helper. base_blob for that file is its pre-change part 7 blob, because the file is new in part 7.",
   "files": {
     "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
       "base_blob": "d7dd3788e7c358a3567d9c0b69d4219482a66180",
@@ -21,6 +21,10 @@
     "packages/screamingface/tests/test_sum_band_docs.py": {
       "base_blob": "c220f646e700d5544fd15f4bdd3a74e3e00e2ea3",
       "approved_blob": "b81b6d55ce567c1d43e3a028eb01994bd5e5f109"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_consistency_words.py": {
+      "base_blob": "6ae6ee6ff154e9aa734b7ba927a33f0f698e5861",
+      "approved_blob": "6c97e8d4e27f01d6dd09f3df3753fdbb97083c8b"
     }
   }
 }
