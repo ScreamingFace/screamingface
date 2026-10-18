@@ -160,24 +160,32 @@ def test_an_excluded_member_is_never_chosen(reduce: str, select: str) -> None:
         assert not excluded & set(evidence.chosen)
 
 
-@pytest.mark.parametrize(
-    ("reduce", "select"),
-    [
-        ("by_signal@1", "best_holder@1"),
-        ("by_signal@1", "top_k@1"),
-        ("filter@1", "kept@1"),
-        ("weighted_mode@1", "max_weight_holder@1"),
-        ("weighted_median@1", "nearest@1"),
-        ("weighted_mean@1", "value@1"),
-    ],
-)
+_ALLOWED = [
+    (reduce, select)
+    for reduce, selects in sorted(REDUCE_SELECT_RULES.items())
+    for select in sorted(selects)
+]
+
+
+@pytest.mark.parametrize(("reduce", "select"), _ALLOWED, ids=[f"{r}+{s}" for r, s in _ALLOWED])
 def test_the_guard_runs_see_excluded_members(reduce: str, select: str) -> None:
-    """The guard is not empty: the SDK pairings complete with an excluded member in the input."""
+    """The guard is not empty: every allowed pairing completes with an excluded member."""
     assert any(
         row.status == "excluded"
         for outcome in _outcomes(reduce, select)
         for row in outcome.evidence.members
     )
+
+
+def test_every_reduce_op_that_can_exclude_a_member_is_in_the_rule_table() -> None:
+    excluding = {
+        descriptor.id
+        for descriptor in BUILTIN_OPERATORS
+        if descriptor.stage == "reduce"
+        and (descriptor.reads_weights or descriptor.signal_read is not None)
+    }
+
+    assert excluding <= set(REDUCE_SELECT_RULES)
 
 
 def test_the_rule_table_names_only_registered_ops() -> None:

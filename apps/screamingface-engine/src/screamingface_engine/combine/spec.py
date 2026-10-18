@@ -63,7 +63,8 @@ class ReducerRule:
     None for any. It is the only operator rule in this row. E4b adds three operator rules outside
     the rows, as a deliberate exception (erratum ER7): `_STATISTIC_REDUCERS` and `_MEAN_OPS`
     (part 1; they match operator NAMES, any version, when the spec is parsed) and
-    `REDUCE_SELECT_RULES` (part 2; it matches exact operator ids, in the endpoint `_plan`).
+    ``REDUCE_SELECT_RULES`` (part 2, ER1, ER2; it pairs a reduce op with its select ops and
+    matches exact operator ids, in the endpoint `_plan`).
     """
 
     kind: EvidenceKind
@@ -77,7 +78,8 @@ class ReducerRule:
 # AIDEV-NOTE: units 8-10 may tighten or loosen the presence rows of their own reducers, and still
 # add no operator rule. E4b adds three operator rules below on purpose (erratum ER7): the median
 # and mean rules `_STATISTIC_REDUCERS` and `_MEAN_OPS` match op NAMES at parse (`_check_stages`);
-# `REDUCE_SELECT_RULES` matches exact op ids after the endpoint resolves the steps (`_plan`).
+# `REDUCE_SELECT_RULES` (ER1, ER2) matches exact op ids after the endpoint resolves the steps
+# (`_plan`).
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
         "vote": ReducerRule("answer", "required", "optional", "optional"),
@@ -112,15 +114,23 @@ _MEAN_OPS: tuple[frozenset[str], frozenset[str]] = (
     frozenset({"value", "nearest"}),
 )
 
-# The only select op ids a reduce op pairs with; a reduce op not named here pairs with any select.
-# The endpoint checks it after it resolves the four steps (an unknown operator wins).
+# An allow list: the only select op ids a reduce op pairs with. A reduce op not named here pairs
+# with any select. After a named reduce op, every select that is not in its list is refused as
+# combine_spec_invalid, also a pair that did not crash before: for example weighted_mean@1+top_k@1
+# or by_signal@1+all@1 (they failed later at run time, or abstained when no member voted). The
+# endpoint checks the list after it resolves the four steps (an unknown operator wins).
 # WHY (E4b part 2, review P2 #1, #2): a reduce op with a rule that leaves a member out (erd §6 X1,
 # X2) records that member "excluded", and the evidence refuses a chosen excluded member (CE-I3).
-# Each such reduce op lists the selects that never choose a member it left out:
+# Every such reduce op is named here (the guard test checks it). Its list holds the selects that
+# the guard test runs with it and that never chose an excluded member there:
 # - filter@1 marks such a member 0, and only kept@1 reads a mark as pass or miss; any other select
 #   reads the mark as a score and can choose the member.
 # - by_field@1 chooses by the member's own field value and never reads the reduction, so it pairs
 #   with no reduce op that leaves a member out.
+# - by_signal@1+max_score@1 and weighted_mode@1+first_holder@1 are allowed although the SDK does
+#   not emit them: both ran before this rule, and both read only what the reduce step kept
+#   (by_signal@1 scores only a member with the signal; the weighted_mode@1 tally holds only a
+#   member with a weight), so they cannot choose an excluded member.
 # The SDK emits only listed pairs. test_combine_exclusion_never_chosen runs every pairing.
 # WHY exact ids, not names: a new version of either op is a new pairing, so it must be listed.
 REDUCE_SELECT_RULES: Mapping[str, frozenset[str]] = MappingProxyType(

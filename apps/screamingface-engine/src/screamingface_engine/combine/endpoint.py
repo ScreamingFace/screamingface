@@ -403,7 +403,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     normalize = _resolve(registry, spec.normalize, "normalize")
     reduce = registry.resolve(spec.reduce.op, "reduce")
     select = _resolve(registry, spec.select, "select")
-    _check_pairing(spec)
+    _check_pairing(reduce.id, None if select is None else select.id)
     # WHY this order: the arg checks run reduce, extract, normalize, select (a bad reduce arg wins).
     bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
     bound_extract = cast("_Step[Extractor] | None", _bind(extract, spec.extract))
@@ -423,14 +423,15 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     )
 
 
-def _check_pairing(spec: CombineSpec) -> None:
+def _check_pairing(reduce_id: str, select_id: str | None) -> None:
     """A reduce op named in ``REDUCE_SELECT_RULES`` pairs only with the select ops it lists.
 
-    The message names the rule from the table, never the select id of the spec.
+    It reads the ids of the resolved descriptors. The message names the rule from the table,
+    never the select id of the spec.
     """
-    selects = REDUCE_SELECT_RULES.get(spec.reduce.op)
-    if selects is not None and spec.select.op not in selects:
-        raise SpecInvalid(f"{spec.reduce.op} pairs only with select {', '.join(sorted(selects))}")
+    selects = REDUCE_SELECT_RULES.get(reduce_id)
+    if selects is not None and select_id not in selects:
+        raise SpecInvalid(f"{reduce_id} pairs only with select {', '.join(sorted(selects))}")
 
 
 def _signal_sources(
