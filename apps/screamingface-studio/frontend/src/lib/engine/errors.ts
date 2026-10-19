@@ -41,3 +41,7 @@ export function kindForStatus(status: number): EngineErrorKind {
 export function isEngineError(value: unknown): value is EngineError {
   return value instanceof EngineError;
 }
+
+export function asEngineError(error: unknown): EngineError {
+  return isEngineError(error) ? error : new EngineError("unknown");
+}

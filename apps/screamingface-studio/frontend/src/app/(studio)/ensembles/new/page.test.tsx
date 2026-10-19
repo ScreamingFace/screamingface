@@ -184,6 +184,27 @@ describe("EnsembleComposerPage run benchmark picker", () => {
     expect(screen.getByText("Full benchmark — 52 cases.")).toBeInTheDocument();
   });
 
+  it("selects Full when the chosen preset is larger than the benchmark", async () => {
+    client.listBenchmarks.mockResolvedValue([benchmark("tiny", "Tiny", 30)]);
+    const user = await openRuns();
+    await user.click(await screen.findByRole("radio", { name: "Tiny" }));
+
+    expect(screen.getByRole("button", { name: "50q" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Full" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Full benchmark — 30 cases.")).toBeInTheDocument();
+  });
+
+  it("disables a benchmark with no cases", async () => {
+    client.listBenchmarks.mockResolvedValue([
+      benchmark("empty", "Empty", 0),
+      benchmark("ifeval", "IFEval", 541),
+    ]);
+    await openRuns();
+
+    expect(await screen.findByRole("radio", { name: "Empty" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "IFEval" })).toBeEnabled();
+  });
+
   it("clamps a custom sample size to the benchmark's case count", async () => {
     client.listBenchmarks.mockResolvedValue([benchmark("small", "Small", 52)]);
     const user = await openRuns();

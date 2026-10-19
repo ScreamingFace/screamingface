@@ -84,16 +84,34 @@ describe("useBenchmarkStore", () => {
     expect(error?.kind).toBe("unknown");
   });
 
-  it("makes one request for two concurrent refreshes", async () => {
-    client.listBenchmarks.mockResolvedValue([IFEVAL]);
+  it("lets only the newest of two overlapping refreshes write", async () => {
+    let releaseOlder: (rows: BenchmarkSummary[]) => void = () => {};
+    client.listBenchmarks
+      .mockReturnValueOnce(
+        new Promise<BenchmarkSummary[]>((resolve) => (releaseOlder = resolve)),
+      )
+      .mockResolvedValueOnce([IFEVAL]);
 
-    await Promise.all([
-      useBenchmarkStore.getState().refresh(),
-      useBenchmarkStore.getState().refresh(),
-    ]);
+    const older = useBenchmarkStore.getState().refresh();
+    await useBenchmarkStore.getState().refresh();
+    releaseOlder([]);
+    await older;
 
-    expect(client.listBenchmarks).toHaveBeenCalledTimes(1);
-    expect(useBenchmarkStore.getState().status).toBe("ready");
+    expect(useBenchmarkStore.getState().benchmarks).toEqual([IFEVAL]);
+  });
+
+  it("does not let a request that never settles block a later refresh", async () => {
+    client.listBenchmarks
+      .mockReturnValueOnce(new Promise<BenchmarkSummary[]>(() => {}))
+      .mockResolvedValueOnce([IFEVAL]);
+
+    void useBenchmarkStore.getState().refresh();
+    await useBenchmarkStore.getState().refresh();
+
+    expect(useBenchmarkStore.getState()).toMatchObject({
+      status: "ready",
+      benchmarks: [IFEVAL],
+    });
   });
 
   it("keeps the loaded list on screen while a later refresh runs", async () => {

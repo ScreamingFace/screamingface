@@ -1066,10 +1066,15 @@ function RunsPanel({
   const benchmark = benchmarks.find((item) => item.id === benchmarkId) ?? null;
   // Listed but not runnable: the local runtime has no web-search key (plan U3).
   const runnable =
-    benchmark !== null && !benchmarkPresentation(benchmark.id).needsWebSearch;
+    benchmark !== null &&
+    benchmark.case_count > 0 &&
+    !benchmarkPresentation(benchmark.id).needsWebSearch;
+  // A preset larger than the benchmark runs every case, so it shows as Full.
+  const wholeBenchmark =
+    full || (benchmark !== null && !custom && sampleSize > benchmark.case_count);
   // The size this run would use: never more cases than the benchmark has.
   const selectedSize = benchmark
-    ? full
+    ? wholeBenchmark
       ? benchmark.case_count
       : Math.min(sampleSize, benchmark.case_count)
     : sampleSize;
@@ -1164,7 +1169,7 @@ function RunsPanel({
           benchmarkId: benchmark.id,
           benchmarkName: benchmark.title,
           sampleSize: selectedSize,
-          full,
+          full: wholeBenchmark,
           useCache,
           saveCache,
           compute: effectiveCompute,
@@ -1346,7 +1351,7 @@ function RunsPanel({
               >
                 {benchmarks.map((item) => {
                   const webSearch = benchmarkPresentation(item.id).needsWebSearch;
-                  const unavailable = running || webSearch;
+                  const unavailable = running || webSearch || item.case_count === 0;
                   return (
                     <label
                       key={item.id}
@@ -1365,7 +1370,7 @@ function RunsPanel({
                         <RadioGroupItem
                           id={`benchmark-${item.id}`}
                           value={item.id}
-                          disabled={webSearch}
+                          disabled={webSearch || item.case_count === 0}
                           aria-label={item.title}
                           aria-describedby={`benchmark-${item.id}-about`}
                           className="mt-0.5"
@@ -1410,7 +1415,7 @@ function RunsPanel({
                   const tooLarge =
                     benchmark !== null && size > benchmark.case_count;
                   const active =
-                    !full && !custom && !tooLarge && sampleSize === size;
+                    !wholeBenchmark && !custom && sampleSize === size;
                   return (
                     <Button
                       key={size}
@@ -1433,8 +1438,8 @@ function RunsPanel({
                 <Button
                   type="button"
                   size="sm"
-                  aria-pressed={!full && custom}
-                  variant={!full && custom ? "default" : "outline"}
+                  aria-pressed={!wholeBenchmark && custom}
+                  variant={!wholeBenchmark && custom ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
                   onClick={() => {
@@ -1447,8 +1452,8 @@ function RunsPanel({
                 <Button
                   type="button"
                   size="sm"
-                  aria-pressed={full}
-                  variant={full ? "default" : "outline"}
+                  aria-pressed={wholeBenchmark}
+                  variant={wholeBenchmark ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
                   onClick={() => {
@@ -1459,7 +1464,7 @@ function RunsPanel({
                   Full
                 </Button>
               </div>
-              {!full && custom && (
+              {!wholeBenchmark && custom && (
                 <div className="mt-3 flex items-center gap-2">
                   <Input
                     type="number"
@@ -1486,7 +1491,7 @@ function RunsPanel({
                   <span className="text-xs text-muted-foreground">cases</span>
                 </div>
               )}
-              {full && benchmark && (
+              {wholeBenchmark && benchmark && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Full benchmark — {benchmark.case_count.toLocaleString()} cases.
                 </p>
@@ -1625,7 +1630,7 @@ function RunsPanel({
               <div className="flex items-center gap-3">
                 <LoaderCircle className="size-4 animate-spin text-primary" />
                 <p className="min-w-0 flex-1 truncate text-sm">
-                  Running {benchmark?.title} · {full ? "Full" : `${selectedSize}q`} · {effectiveCompute === "om" ? "OM compute" : "own compute"}
+                  Running {benchmark?.title} · {wholeBenchmark ? "Full" : `${selectedSize}q`} · {effectiveCompute === "om" ? "OM compute" : "own compute"}
                 </p>
                 <span className="font-mono text-xs text-muted-foreground">
                   {answeredQuestions.toLocaleString()} / {totalQuestions.toLocaleString()} questions

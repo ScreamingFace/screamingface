@@ -3,7 +3,7 @@
 import { create } from "zustand";
 
 import { getEngineClient } from "@/lib/engine";
-import { EngineError, isEngineError } from "@/lib/engine/errors";
+import { asEngineError, type EngineError } from "@/lib/engine/errors";
 import type { BenchmarkSummary } from "@/lib/engine/types";
 import type { LoadState } from "@/lib/model-store";
 
@@ -14,9 +14,9 @@ type BenchmarkState = {
   refresh: () => Promise<void>;
 };
 
-// WHY one shared in-flight request: the Run panel and a Retry click can both ask at once, and the
-// catalog is the same answer for both. A second caller waits for the first request.
-let inFlight: Promise<void> | null = null;
+// WHY a sequence number, not one shared request: the Run panel and a Retry click can both ask at
+// once. Only the newest request may write, and a request that never settles can't hold up the next.
+let refreshSequence = 0;
 
 // The Engine's installed benchmarks (`GET /v1/benchmarks`). Server state only: kept in memory,
 // never persisted, so a restarted runtime with other datasets is picked up on the next refresh.
@@ -25,24 +25,18 @@ export const useBenchmarkStore = create<BenchmarkState>()((set, get) => ({
   benchmarks: [],
   error: null,
 
-  refresh: () => {
-    if (inFlight) return inFlight;
+  refresh: async () => {
+    const sequence = ++refreshSequence;
     // A loaded list stays on screen while it refreshes.
     if (get().status !== "ready") set({ status: "loading" });
-    inFlight = (async () => {
-      try {
-        const client = await getEngineClient();
-        const benchmarks = await client.listBenchmarks();
-        set({ benchmarks, status: "ready", error: null });
-      } catch (error) {
-        set({
-          status: "error",
-          error: isEngineError(error) ? error : new EngineError("unknown"),
-        });
-      } finally {
-        inFlight = null;
-      }
-    })();
-    return inFlight;
+    try {
+      const client = await getEngineClient();
+      const benchmarks = await client.listBenchmarks();
+      if (sequence !== refreshSequence) return;
+      set({ benchmarks, status: "ready", error: null });
+    } catch (error) {
+      if (sequence !== refreshSequence) return;
+      set({ status: "error", error: asEngineError(error) });
+    }
   },
 }));
