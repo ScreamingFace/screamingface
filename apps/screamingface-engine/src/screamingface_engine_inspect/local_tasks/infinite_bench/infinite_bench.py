@@ -1,0 +1,131 @@
+# pyright: reportMissingImports=false
+# WHY file-level: this module imports the `inspect` extra's packages (inspect_ai,
+# inspect_evals), absent in the default (extra-less) install the typecheck gate runs against;
+# it is loaded only behind `inspect_available()`, like every other module in this package.
+"""InfiniteBench Math.Find as a LOCAL inspect Task, cut once for every model (OME-1602).
+
+Think of it as inspect_evals' own exam with one sheet of the rules rewritten. Upstream's Task
+asks which model is sitting the exam before it prints the question: its truncation solver calls
+`get_model()` and cuts each long input to that model's context window. Task replay runs with
+the model named `none`, so the Cases it sealed would be cut for a model that does not exist,
+and the importer refuses that shape by name (F3). Here the cut is fixed: every input is cut to
+the same 128k-token budget, whoever answers, so the Cases are the same for every Candidate.
+
+Execution order, as the importer and the Engine see it:
+
+    1. `infinite_bench_math_find()` loads the pinned `math_find.jsonl` through upstream's own
+       loader pieces (dataset id, revision, features, `record_to_sample_math_find`), so the
+       question text is exactly upstream's.
+    2. the solver chain is upstream's, in upstream's order, except the cut: the system message,
+       then `fixed_cut_solver` (this module) in place of `truncate_input_solver`, then the
+       prompt template, then `generate()`.
+    3. `fixed_cut` keeps the first and last halves of `MAX_CHARS` characters and joins them
+       with `...` at the nearest whitespace or symbol, exactly as upstream's `truncate_raw_text`
+       does for a model it has no tokenizer for. Worked example: a 600,000-character input
+       keeps its first 223,125 and last 223,125 characters (`MAX_CHARS` = 446,250), each
+       trimmed back to a boundary, with `...` between them.
+    4. grading is inspect's own `exact()` against the single answer, as upstream grades.
+
+NAMED DEVIATION: upstream cuts per model (tiktoken for a `gpt*` name, a character estimate
+otherwise, with a 128k default and 200k for the Claude 3 models in its table). This Task always
+uses the character estimate at 128k tokens, the budget upstream gives every model outside its
+table. In practice no Math.Find input reaches it: the longest is 120,155 characters (mean
+118,028; measured at import, 2026-10-16), so every Case is upstream's whole input. The fixed
+cut is what makes that a guarantee, whoever answers, instead of a property of today's data.
+
+INVARIANT: `MAX_TOKENS`, `TOKEN_BUFFER`, `TOKEN_TO_CHAR_RATIO` and the cut itself are Benchmark
+identity: they sit inside the Case Digest, so an edit is a new Benchmark, not a tweak.
+
+References:
+    - Paper: https://arxiv.org/abs/2402.13718
+    - Upstream Task: inspect_evals.infinite_bench.infinite_bench:infinite_bench_math_find
+    - Case Source: https://huggingface.co/datasets/xinrongzhang2022/InfiniteBench
+"""
+
+from __future__ import annotations
+
+from inspect_ai import Task, task
+from inspect_ai.model import ChatMessageUser
+from inspect_ai.scorer import exact
+from inspect_ai.solver import Generate, Solver, TaskState, generate, prompt_template, solver
+from inspect_ai.solver import system_message as system_message_solver
+from inspect_evals.infinite_bench.constants import TASK_METADATA, ft
+from inspect_evals.infinite_bench.infinite_bench import (
+    DATASET_PATH,
+    INFINITE_BENCH_DATASET_REVISION,
+    record_to_sample_math_find,
+)
+from inspect_evals.infinite_bench.truncate_input import find_nearest_boundary
+from inspect_evals.infinite_bench.utils import create_system_msg
+from inspect_evals.utils.huggingface import hf_dataset
+
+TASK_NAME = "math_find"
+
+# ── the cut: upstream's character estimate at its default budget ──────────────────────
+#: The token budget upstream gives a model missing from its context-size table.
+MAX_TOKENS = 128 * 1000
+#: Upstream's safety margin under the window (`constants.TOKEN_BUFFER`).
+TOKEN_BUFFER = 500
+#: Upstream's characters-per-token estimate (`constants.TOKEN_TO_CHAR_RATIO`).
+TOKEN_TO_CHAR_RATIO = 3.5
+#: The longest input a Case keeps: int((128,000 - 500) * 3.5) = 446,250 characters.
+MAX_CHARS = int((MAX_TOKENS - TOKEN_BUFFER) * TOKEN_TO_CHAR_RATIO)
+
+
+def fixed_cut(text: str) -> str:
+    """Cut one over-long input to `MAX_CHARS`, keeping its start and end, as upstream does.
+
+    WHY a copy of upstream's `truncate_raw_text` body and not a call: upstream's reads the
+    budget from a model name, and this Task must never name one. Copied from
+    https://github.com/UKGovernmentBEIS/inspect_evals/blob/360484a06383f9260279938262d78ed646ddbca1/src/inspect_evals/infinite_bench/truncate_input.py
+    (v0.20.0, the pinned version).
+    """
+
+    if len(text) <= MAX_CHARS:
+        return text
+    half: int = MAX_CHARS // 2
+    kept: str = text[:half] + text[-half:]
+    left: int = find_nearest_boundary(kept, half, "left")
+    right: int = find_nearest_boundary(kept, half, "right")
+    return kept[:left].rstrip() + "..." + kept[right:].lstrip()
+
+
+@solver
+def fixed_cut_solver() -> Solver:
+    """Cut the last user message to the fixed budget; upstream's solver, minus `get_model()`."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        for index in range(len(state.messages) - 1, -1, -1):
+            message = state.messages[index]
+            if isinstance(message, ChatMessageUser):
+                if isinstance(message.content, str):
+                    state.messages[index] = ChatMessageUser(content=fixed_cut(message.content))
+                break
+        return state
+
+    return solve
+
+
+@task
+def infinite_bench_math_find() -> Task:
+    """InfiniteBench Math.Find: find one of seven key numbers in a very long list."""
+
+    dataset = hf_dataset(
+        path=DATASET_PATH,
+        name="default",
+        data_files={TASK_NAME: TASK_METADATA[TASK_NAME]["data_file"]},
+        split=TASK_NAME,
+        features=ft,
+        sample_fields=record_to_sample_math_find,
+        revision=INFINITE_BENCH_DATASET_REVISION,
+    )
+    return Task(
+        dataset=dataset,
+        solver=[
+            system_message_solver(create_system_msg(TASK_NAME)),
+            fixed_cut_solver(),
+            prompt_template(TASK_METADATA[TASK_NAME]["prompt_template"]),
+            generate(),
+        ],
+        scorer=exact(),
+    )
