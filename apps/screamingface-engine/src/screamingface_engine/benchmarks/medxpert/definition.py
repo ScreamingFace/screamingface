@@ -216,13 +216,10 @@ MEDXPERT = Benchmark(
     focus="Expert medical multiple choice",
     dataset_url=DATASET_URL,
     declaration=BenchmarkDeclaration(
-        # WHY "coverage_declare" and NOT "withhold": this axis governs a Case that never got a
-        # valid grade, and those are infrastructure failures, which this benchmark hands to the
-        # shared `finalize_candidate_result` — it scores the gradeable subset and publishes
-        # coverage. An empty ANSWER is a different thing: it does get a grade, of 0.0, per the
-        # official empty-prediction verdict. That behaviour lives in `aggregate._scored`, not
-        # here, and declaring `withhold` for it would misdescribe what the reducer does.
-        failure_policy="coverage_declare",
+        # WHY "withhold" (OME-1642): a Case that never got a valid grade counts 0 over every
+        # selected Case, the same as an empty ANSWER, which the official empty-prediction verdict
+        # grades 0.0 (`aggregate._scored`). Coverage still shows the graded count beside the score.
+        failure_policy="withhold",
         # WHY "multi_turn": the benchmark invokes the Candidate twice per Case — reason, then
         # commit. Declared because it doubles the invocation cost and changes what a Fusion entrant
         # is asked to do (the exchange wraps the ensemble, not each member).

@@ -48,6 +48,7 @@ from screamingface_engine.benchmarks.definition import (
     BenchmarkOrigin,
     DifficultyTier,
     DraftFeedbackOffer,
+    FailurePolicy,
     candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
@@ -372,6 +373,7 @@ def single_shot_benchmark(
     install: Callable[[Url4Node, Path], None],
     with_check_surface: bool,
     difficulty: DifficultyTier,
+    failure_policy: FailurePolicy,
     multiple_correct: bool = False,
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
@@ -407,6 +409,8 @@ def single_shot_benchmark(
         title, description, focus, dataset_url: leaderboard display fields (OME-904).
         difficulty: the catalogue's hand-assigned easy→hard tier, authored on the
             BenchmarkSpec row (OME-1257).
+        failure_policy: what a Case that never got a valid grade does to the score, authored
+            on the BenchmarkSpec row (OME-1642); passed into the declaration verbatim.
         case_count: rows in the pinned split — the benchmark's declared benchmark size.
         revision_pins: every dataset fact that participates in benchmark identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
@@ -491,6 +495,19 @@ def single_shot_benchmark(
         raise ValueError(
             f"{benchmark_id}: scorer_draft_feedback needs a Draft Feedback offer "
             "(with_check_surface=True)"
+        )
+    if failure_policy == "withhold" and (whole_run_metric_factory is not None or inverted_grade):
+        # WHY (OME-1642): a whole-run metric is not a mean of Case grades (F1 score, per-task
+        # accuracy), and on a refusal-measuring row the failed Case is the behaviour the
+        # Benchmark rewards, so "a failed Case counts 0" has no meaning for either until each
+        # has its own rule. Whole-run-metric rows (spec §5, group F) and inverted-grade rows
+        # (group E) stay coverage_declare. The message names the cause that fired.
+        cause = (
+            "a whole-run metric" if whole_run_metric_factory is not None else "an inverted grade"
+        )
+        raise ValueError(
+            f"{benchmark_id}: failure_policy withhold cannot score {cause} — "
+            "the row needs its own failure rule first (OME-1642)"
         )
     if (
         judge is not None
@@ -591,10 +608,9 @@ def single_shot_benchmark(
         answer_rule=answer_rule,
         **provenance,
         declaration=BenchmarkDeclaration(
-            # WHY "coverage_declare": imported benchmarks reduce through the shared
-            # finalize_candidate_result, which scores the gradeable subset and
-            # publishes coverage — the declaration matches the code (OME-1039).
-            failure_policy="coverage_declare",
+            # WHY the row's own policy, threaded through verbatim (OME-1642): the cover sheet
+            # names the rule the row declares, never a default (OME-1039).
+            failure_policy=failure_policy,
             interaction="single_shot",
             # The tier is authored on the BenchmarkSpec row (the imported benchmark's one
             # authoring site) and threaded through verbatim (OME-1257).

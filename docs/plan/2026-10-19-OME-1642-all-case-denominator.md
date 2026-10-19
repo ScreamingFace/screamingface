@@ -45,6 +45,25 @@ test changes only through the owner-approved manifest in U5.
 New test `tests/unit/inspect/test_failure_policy_rows.py`: pins the policy of all 77 rows +
 medxpert to the table; checks both guards.
 
+**Owner decision (2026-10-19, after the first U1 run stopped):** the field and the factory
+keyword stay REQUIRED. Consequences, both part of U1:
+
+- **Construction-only test edits.** Every existing test that builds `BenchmarkSpec(...)` or
+  calls the single-shot factory directly (about 101 tests in 14 files, plus 5 files with direct
+  factory calls: `test_benchmark_stage_installation.py`, `test_local_task_arc_agi_2.py`,
+  `test_published_revision.py`, `test_inspect_single_shot.py`, `test_whole_run_metric.py`)
+  gets ONLY the added keyword `failure_policy="coverage_declare"`, so each test keeps today's
+  behavior. No other edit, no assertion change. These files join the U5 manifest.
+- **Row renderer.** `src/screamingface_engine_inspect/task_replay_rows.py` writes
+  `failure_policy="TODO"` with a review comment, the same pattern as `difficulty="TODO"`
+  (OME-1257): registration refuses the literal by name, so an unreviewed imported row cannot
+  ship. The renderer's signature does not change, so no caller or test changes (verified: the
+  14 importer/renderer tests pass unchanged).
+- Gate runs before U5 may use `--skip-append-only`; the U5 run must pass without it.
+- pyright and the full suite run in the CI environment (`uv sync --dev`). The inspect lane runs
+  as CI does (`uv run --extra inspect pytest tests/unit/inspect`), followed by `uv sync --dev`
+  before the next pyright run (the extra makes pyright report errors that CI does not see).
+
 ## U2 — The reduction
 
 - `finalize_candidate_result` (`benchmarks/aggregation.py:79`): new REQUIRED keyword
@@ -105,9 +124,12 @@ These existing tests assert values that this change moves on purpose:
 - `tests/unit/inspect/test_benchmark_declaration.py:140–175` (the `coverage_declare` table).
 - `tests/unit/test_medxpert_migration_golden.py` if it pins the medxpert revision.
 
-Each is updated to the new value only (no other edit). The approval manifest
+Each is updated to the new value only (no other edit). The U1 construction-only edits (the
+`failure_policy=` keyword in direct `BenchmarkSpec`/factory calls, and the renderer test
+expectation) are in the same manifest. The approval manifest
 `.claude/test-change-approvals/OME-1642.json` pins each file's base and approved blob (format of
-`OME-1134.json`; approver: the owner; scope "revision literals and policy table only").
+`OME-1134.json`; approver: the owner; scope "revision literals, the policy table, and the
+construction-only `failure_policy=` keyword").
 Any other failing existing test is a STOP: it means a behavior change outside the spec.
 
 ## U6 — Verification and ledger

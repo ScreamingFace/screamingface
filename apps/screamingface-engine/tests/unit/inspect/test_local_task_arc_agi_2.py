@@ -250,6 +250,7 @@ def _assembled_from_row(key: str, case_count: int) -> ImportedBenchmark:
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="hard",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=benchmarks._whole_run_metric_factory(row),
         epoch_reducer_factory=benchmarks._epoch_reducer_factory(row),
         attempts=row.attempts,

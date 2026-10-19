@@ -13,9 +13,10 @@ so its accuracy was not the same measurement as a model that answered all of the
 
 AIDEV-NOTE: that is deliberately NOT the benchmark's `failure_policy`. That axis governs a Case
 which never got a valid grade — an infrastructure failure — and those go through the shared grading
-code's failure ladder into the shared `finalize_candidate_result`, which scores the gradeable subset
-and publishes coverage. Hence the benchmark declares `coverage_declare`. An empty answer DOES get
-a grade here, of 0.0.
+code's failure ladder into the shared `finalize_candidate_result`. Hence the benchmark declares
+`withhold` (OME-1642): such a Case counts 0 over every selected Case, the same as an empty answer,
+and coverage still shows the graded count beside the score. An empty answer DOES get a grade here,
+of 0.0.
 
 INVARIANT — a failure to COMMIT and a failure to RUN are different facts. A model that replies
 without a valid letter has answered badly (score 0.0, `answered: false`). A Case whose invocation

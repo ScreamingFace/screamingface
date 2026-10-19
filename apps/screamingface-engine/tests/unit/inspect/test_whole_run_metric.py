@@ -210,6 +210,7 @@ def _benchmark(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=metric_factory,
     )
 
@@ -570,6 +571,7 @@ def _arc_benchmark(key: str, row: BenchmarkSpec) -> ImportedBenchmark:
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="hard",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=benchmarks._whole_run_metric_factory(row),
         epoch_reducer_factory=benchmarks._epoch_reducer_factory(row),
         attempts=row.attempts,
@@ -753,6 +755,7 @@ async def test_a_dict_valued_named_score_case_is_read_by_its_headline_column(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=strict_rate,
     )
 
@@ -843,7 +846,7 @@ def _spec(key: str = "gsm8k", **overrides: Any) -> BenchmarkSpec:
     test. gsm8k drops its Sample metadata; aime24 keeps it."""
 
     row: BenchmarkSpec = next(spec for spec in BENCHMARKS if spec.key == key)
-    return replace(row, **overrides)
+    return replace(row, failure_policy="coverage_declare", **overrides)
 
 
 def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> ImportedBenchmark:
@@ -1050,6 +1053,7 @@ def _dict_benchmark(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=metric_factory,
         whole_run_headline=headline,
     )

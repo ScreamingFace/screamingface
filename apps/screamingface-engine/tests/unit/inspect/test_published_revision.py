@@ -40,6 +40,7 @@ def _assemble(key: str, pin: str, published_revision: str | None = None) -> Impo
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         published_revision=published_revision,
     )
 

@@ -41,6 +41,7 @@ def _string_match_spec(**overrides: Any) -> BenchmarkSpec:
         "focus": "test",
         "dataset_url": "https://example.test/ds",
         "difficulty": "easy",
+        "failure_policy": "coverage_declare",
         "scorer": "inspect_ai.scorer:match",
         "scorer_kwargs": {"numeric": True},
     }
