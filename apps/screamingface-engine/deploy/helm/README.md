@@ -148,8 +148,9 @@ What the pool's pods get:
   the pod limit and each run's RESIDENT budget. The worker reads the run's process-tree RSS and
   stops a run over it with a permanent `memory_budget_exceeded` (not redelivered), before the
   pod's cgroup OOM-kills it or a co-tenant. The child's `RLIMIT_AS` stays a runaway backstop at
-  `addressSpaceFactor ×` the budget (default 2 — the code's long-standing 2 GiB — and the chart
-  refuses < 2).
+  `addressSpaceFactor ×` the budget (default 2, and the chart refuses < 2). The default budget is
+  2,560 Mi (OME-1648): every ContractEval run parses its whole 192 MiB case file, which peaked at
+  1,828 MiB resident in kind. With 4 slots the pod limit is 10,496 Mi; the request is unchanged.
 - `ARROW_DEFAULT_MEMORY_POOL=system` and one OpenBLAS/OpenMP/MKL thread for every child: pyarrow's
   default pool reserves a 1 GiB arena and OpenBLAS a buffer per node CPU, address space a run
   never uses but `RLIMIT_AS` counts (a `draco-3pass` run died at 459 MiB resident without them).
