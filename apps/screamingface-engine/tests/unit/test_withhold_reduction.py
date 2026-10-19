@@ -278,3 +278,22 @@ async def test_the_incremental_path_hands_the_scorer_the_cases_the_aggregations_
 
     assert seen == [scored_ids]
     assert result["coverage"] == 0.5
+
+
+# --- the wire contract accepts the withhold shape ----------------------------------------
+
+
+def test_a_withhold_payload_passes_the_wire_validation() -> None:
+    """A score over ALL Cases beside a coverage below 1 is a valid CandidateResult.
+
+    INVARIANT: `_candidate_outcome` constrains coverage (graded / selected) and that a scored
+    Candidate has a graded Case; it never ties the score to the graded subset, so the withhold
+    shape (score 0.375 over 4 Cases, coverage 0.75) round-trips through the wire model.
+    """
+
+    result = _finalize("withhold", [_scored(1, 1.0), _scored(2, 0.5), _scored(3, 0.0), _failed(4)])
+    payload = result.as_payload()
+
+    assert payload["score"] == 0.375
+    assert payload["coverage"] == 0.75
+    assert CandidateResult.model_validate(payload) == result

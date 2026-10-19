@@ -23,7 +23,11 @@ def test_exact_schema_and_client_parser_conformance(monkeypatch):
     try:
         with run.bind():
             completed_case(
-                "board", "v1", result, lambda cases: CandidateScore(score=0.5, metrics={})
+                "board",
+                "v1",
+                result,
+                lambda cases: CandidateScore(score=0.5, metrics={}),
+                failure_policy="coverage_declare",
             )
     finally:
         asyncio.run(run.aclose())
@@ -91,15 +95,22 @@ def test_nested_candidate_suppressed_and_boards_and_revisions_independent(monkey
     run = RunObservations((ActivityObserver,))
     try:
         with run.bind():
-            with candidate_invocation_scope(), grading_progress("nested", "v1", scorer):
-                completed_case("nested", "v1", result, scorer)
+            with (
+                candidate_invocation_scope(),
+                grading_progress("nested", "v1", scorer, failure_policy="coverage_declare"),
+            ):
+                completed_case("nested", "v1", result, scorer, failure_policy="coverage_declare")
             assert snapshots == []
             for board, revision in [("a", "v1"), ("b", "v1"), ("a", "v2")]:
-                completed_case(board, revision, result, scorer)
+                completed_case(board, revision, result, scorer, failure_policy="coverage_declare")
             for board, revision in [("a", "v1"), ("b", "v1"), ("a", "v2")]:
-                with grading_progress(board, revision, scorer):
+                with grading_progress(board, revision, scorer, failure_policy="coverage_declare"):
                     completed_case(
-                        board, revision, result.model_copy(update={"case_id": 2}), scorer
+                        board,
+                        revision,
+                        result.model_copy(update={"case_id": 2}),
+                        scorer,
+                        failure_policy="coverage_declare",
                     )
             assert [
                 (

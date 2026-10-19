@@ -139,12 +139,17 @@ def test_a_withhold_benchmark_moves_off_its_old_revision(key: str, old_revision:
 
 
 def test_no_withhold_row_pins_a_published_revision() -> None:
-    """A pinned `published_revision` wins over the fingerprint, so a withhold row that pinned
-    one would keep its old revision and mix old and new scores on one board."""
+    """A pinned `published_revision` wins over the fingerprint, so a withhold row that still
+    pinned its OLD revision would keep serving it and mix old and new scores on one board.
 
-    pinned: list[str] = [
+    A pin to a NEW revision is fine (the row moved on purpose); only the old value is refused.
+    """
+
+    stale: list[str] = [
         spec.key
         for spec in BENCHMARKS
-        if spec.failure_policy == "withhold" and spec.published_revision is not None
+        if spec.failure_policy == "withhold"
+        and spec.published_revision is not None
+        and spec.published_revision == _MOVED_FROM.get(spec.key)
     ]
-    assert pinned == []
+    assert stale == []

@@ -48,11 +48,22 @@ class Scoring:
         )
         if result is None:
             raise ValueError("completed execution must produce a Case result")
-        completed_case(self.benchmark_id, self.revision, result, self.scorer)
+        completed_case(
+            self.benchmark_id,
+            self.revision,
+            result,
+            self.scorer,
+            failure_policy=self.path.failure_policy,
+        )
         return encode_result(result, benchmark_id=self.benchmark_id, revision=self.revision)
 
     async def finish(self, raw: str) -> dict[str, Any]:
-        with grading_progress(self.benchmark_id, self.revision, self.scorer):
+        with grading_progress(
+            self.benchmark_id,
+            self.revision,
+            self.scorer,
+            failure_policy=self.path.failure_policy,
+        ):
             rows = json.loads(raw)
             if not isinstance(rows, list) or len(rows) > len(self.selected):
                 raise ValueError("graded results must be an array within the selected Case count")
@@ -76,7 +87,13 @@ class Scoring:
             observed = {case.case_id for case in results}
             for case in finalized.cases:
                 if case.case_id not in observed:
-                    completed_case(self.benchmark_id, self.revision, case, self.scorer)
+                    completed_case(
+                        self.benchmark_id,
+                        self.revision,
+                        case,
+                        self.scorer,
+                        failure_policy=self.path.failure_policy,
+                    )
             return finalized.as_payload()
 
     async def _completed_row(self, row, selected, index) -> CaseResult | None:
@@ -98,7 +115,13 @@ class Scoring:
             if result is not None:
                 # WHY: these terminal failures had no early grade to publish.
                 # The run observer deduplicates retries of the same canonical result.
-                completed_case(self.benchmark_id, self.revision, result, self.scorer)
+                completed_case(
+                    self.benchmark_id,
+                    self.revision,
+                    result,
+                    self.scorer,
+                    failure_policy=self.path.failure_policy,
+                )
             return result
         result = decode_results(
             json.dumps([row]),

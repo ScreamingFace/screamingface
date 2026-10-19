@@ -106,7 +106,7 @@ async def test_later_cases_finishing_first_move_neither_results_nor_progress(
     monkeypatch.setattr(
         benchmark_aggregation,
         "completed_case",
-        lambda benchmark, revision, result, scorer: published.append(result.case_id),
+        lambda benchmark, revision, result, scorer, **_: published.append(result.case_id),
     )
 
     async def grade(request: GradeRequest) -> CaseGradeOutcome:

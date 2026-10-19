@@ -1253,8 +1253,10 @@ def _whole_run_tally(
     turns the marks into one headline. :func:`_accuracy` adds and divides; this hands the
     graded Cases' own inspect Scores to the eval's metric instead. Stages, in execution order:
 
-    Stage 1 — the graded Cases only (the finalizer passes exactly those; a failed Case
-              never reaches a metric, as with the mean). Each one's Score was filed by the
+    Stage 1 — the graded Cases only. The finalizer passes exactly those because the
+              withhold guard in ``single_shot`` (OME-1642) keeps every whole-run row on
+              ``coverage_declare``, so a failed Case never reaches a metric, as with the
+              ``coverage_declare`` mean. Each one's Score was filed by the
               scorer adapter in ``kept`` under its Case id, already reduced the way inspect
               reduces a Sample before any metric runs. For a Case asked several times
               (Attempts), that is the Task's own any-of-N reducer over its Attempt Scores.

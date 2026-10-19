@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.case_context import (
 )
 from screamingface_engine.benchmarks.case_grading_report import GradingState
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.phases import PhaseScope
 from screamingface_engine.benchmarks.progress import ScoreCases
 from screamingface_engine.grading_call_scope import current_grading_case
@@ -66,18 +67,28 @@ class ActivityObserver:
         result: CaseResult,
         scorer: ScoreCases,
         emit: LogEmitter | None,
+        *,
+        failure_policy: FailurePolicy,
     ) -> None:
         if self.session is not None and self.session.active and emit is not None:
             progress = self._progress.setdefault((benchmark, revision), Progress())
-            progress.observe(benchmark, revision, result, scorer, emit)
+            progress.observe(
+                benchmark, revision, result, scorer, emit, failure_policy=failure_policy
+            )
 
     def flush_progress(
-        self, benchmark: str, revision: str, scorer: ScoreCases, emit: LogEmitter | None
+        self,
+        benchmark: str,
+        revision: str,
+        scorer: ScoreCases,
+        emit: LogEmitter | None,
+        *,
+        failure_policy: FailurePolicy,
     ) -> None:
         if self.session is not None and self.session.active and emit is not None:
             progress = self._progress.get((benchmark, revision))
             if progress is not None:
-                progress.flush(benchmark, revision, scorer, emit)
+                progress.flush(benchmark, revision, scorer, emit, failure_policy=failure_policy)
 
     def bridge_loss(self, dropped: int) -> dict[str, Scalar]:
         if self.session is None or not self.session.active:

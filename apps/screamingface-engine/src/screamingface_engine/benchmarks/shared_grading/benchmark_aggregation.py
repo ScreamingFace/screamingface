@@ -308,7 +308,9 @@ class BenchmarkAggregation:
         published, in roll-call order.
         """
 
-        with grading_progress(benchmark_id, benchmark_revision, scorer):
+        with grading_progress(
+            benchmark_id, benchmark_revision, scorer, failure_policy=self.failure_policy
+        ):
             case_results: list[CaseResult] = []
             marking: Callable[..., AsyncGenerator[CaseResult]] = (
                 self.iter_case_results
@@ -327,7 +329,13 @@ class BenchmarkAggregation:
                 async for result in stream:
                     case_results.append(result)
                     # INVARIANT: publish only after canonical grading; observing never regrades.
-                    completed_case(benchmark_id, benchmark_revision, result, scorer)
+                    completed_case(
+                        benchmark_id,
+                        benchmark_revision,
+                        result,
+                        scorer,
+                        failure_policy=self.failure_policy,
+                    )
             # Stage 5 — fold the marks into the class results.
             finalized = finalize_candidate_result(
                 benchmark_id=benchmark_id,
@@ -341,7 +349,13 @@ class BenchmarkAggregation:
             observed = {case.case_id for case in case_results}
             for case in finalized.cases:
                 if case.case_id not in observed:
-                    completed_case(benchmark_id, benchmark_revision, case, scorer)
+                    completed_case(
+                        benchmark_id,
+                        benchmark_revision,
+                        case,
+                        scorer,
+                        failure_policy=self.failure_policy,
+                    )
             return finalized.as_payload()
 
     async def iter_case_results(

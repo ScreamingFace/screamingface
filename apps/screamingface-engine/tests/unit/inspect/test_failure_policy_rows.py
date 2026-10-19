@@ -133,7 +133,7 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 77 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 82 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
     assert len(BENCHMARKS) == 82
     assert len(_WITHHOLD) == 65
@@ -228,3 +228,24 @@ def test_the_renderer_writes_the_policy_as_a_todo_that_registration_refuses() ->
     rows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
     assert 'failure_policy="TODO"' in rows.benchmark
     assert _benchmark(rows).failure_policy == "TODO"
+
+    # The registration half: the declaration refuses the literal by name, so a row left at TODO
+    # cannot reach the catalogue.
+    from screamingface_engine_inspect.single_shot import single_shot_benchmark
+
+    with pytest.raises(ValueError, match=r"failure_policy must be one of .*got 'TODO'"):
+        single_shot_benchmark(
+            benchmark_key="policy-probe-todo",
+            title="Probe",
+            description="One non-comparable structural probe.",
+            focus="Probing",
+            dataset_url="https://example.com/probe",
+            case_count=3,
+            revision_pins=("dataset", "rev-a", "split=test"),
+            scorer_factory=lambda: None,
+            prepare=lambda out: {},
+            install=lambda node, assets: None,
+            with_check_surface=False,
+            difficulty="easy",
+            failure_policy="TODO",  # type: ignore[arg-type]  # the rendered placeholder
+        )

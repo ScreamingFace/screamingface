@@ -6,6 +6,7 @@ from typing import Protocol, runtime_checkable
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.contract import CaseResult
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.observations import LogEmitter, current_observations
 from url4.observe import current_log_sink
@@ -22,10 +23,19 @@ class ProgressObserver(Protocol):
         result: CaseResult,
         scorer: ScoreCases,
         emit: LogEmitter | None,
+        *,
+        failure_policy: FailurePolicy,
     ) -> None: ...
 
 
-def completed_case(benchmark: str, revision: str, result: CaseResult, scorer: ScoreCases) -> None:
+def completed_case(
+    benchmark: str,
+    revision: str,
+    result: CaseResult,
+    scorer: ScoreCases,
+    *,
+    failure_policy: FailurePolicy,
+) -> None:
     # INVARIANT: an evaluation nested inside a candidate must not score its outer run.
     if in_candidate_invocation():
         return
@@ -34,18 +44,33 @@ def completed_case(benchmark: str, revision: str, result: CaseResult, scorer: Sc
         for observer in run.observers:
             with run.guard():
                 if isinstance(observer, ProgressObserver):
-                    observer.case_completed(benchmark, revision, result, scorer, current_log_sink())
+                    observer.case_completed(
+                        benchmark,
+                        revision,
+                        result,
+                        scorer,
+                        current_log_sink(),
+                        failure_policy=failure_policy,
+                    )
 
 
 @runtime_checkable
 class ProgressFlusher(Protocol):
     def flush_progress(
-        self, benchmark: str, revision: str, scorer: ScoreCases, emit: LogEmitter | None
+        self,
+        benchmark: str,
+        revision: str,
+        scorer: ScoreCases,
+        emit: LogEmitter | None,
+        *,
+        failure_policy: FailurePolicy,
     ) -> None: ...
 
 
 @contextmanager
-def grading_progress(benchmark: str, revision: str, scorer: ScoreCases) -> Iterator[None]:
+def grading_progress(
+    benchmark: str, revision: str, scorer: ScoreCases, *, failure_policy: FailurePolicy
+) -> Iterator[None]:
     """Publish coalesced completion while the execution's log bridge is still open."""
     try:
         yield
@@ -55,4 +80,10 @@ def grading_progress(benchmark: str, revision: str, scorer: ScoreCases) -> Itera
             for observer in run.observers:
                 with run.guard():
                     if isinstance(observer, ProgressFlusher):
-                        observer.flush_progress(benchmark, revision, scorer, current_log_sink())
+                        observer.flush_progress(
+                            benchmark,
+                            revision,
+                            scorer,
+                            current_log_sink(),
+                            failure_policy=failure_policy,
+                        )
