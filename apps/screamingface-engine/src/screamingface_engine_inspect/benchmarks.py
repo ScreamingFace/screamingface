@@ -27,7 +27,12 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from screamingface_engine.benchmarks.definition import AnswerRule, BenchmarkOrigin, DifficultyTier
+from screamingface_engine.benchmarks.definition import (
+    AnswerRule,
+    BenchmarkOrigin,
+    DifficultyTier,
+    FailurePolicy,
+)
 from screamingface_engine.benchmarks.deployment import BenchmarkRegistration
 from screamingface_engine.benchmarks.nltk_data import (
     NLTK_DATA_DIR,
@@ -81,6 +86,11 @@ class BenchmarkSpec:
     #: The catalogue's hand-assigned easy→hard tier (OME-1257) — authored here because
     #: this row IS the imported benchmark's authoring site; reviewed in the PR that lands it.
     difficulty: DifficultyTier
+    #: What a Case that never got a valid grade does to the score (OME-1642). Required, like
+    #: ``difficulty``: a policy nobody can see is a policy nobody can approve (OME-1039).
+    #: ``withhold``: a failed Case counts 0 over all selected Cases. ``coverage_declare``: a
+    #: failed Case leaves the score, and coverage says so. The factory passes it on verbatim.
+    failure_policy: FailurePolicy
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
     #: Scorer arguments that are functions (drop's ``answer_fn``), each a dotted
@@ -309,6 +319,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/openai/gsm8k",
         # Grade-school material frontier models saturate — quick, cheap signal (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: inspect_evals.gsm8k.gsm8k's Task declares scorer=match(numeric=True).
         scorer="inspect_ai.scorer:match",
         scorer_kwargs={"numeric": True},
@@ -375,6 +386,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/cais/mmlu",
         # Broad knowledge with real headroom, but no expert-frontier stakes (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: inspect_evals.mmlu.mmlu's Task declares scorer=choice().
         scorer="inspect_ai.scorer:choice",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
@@ -430,6 +442,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
         # Grade-school material frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_easy. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
@@ -482,6 +495,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Built as the subset simple baselines get wrong — still differentiates the
         # small/local models a fusion draws on, unlike its saturated Easy sibling (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.arc.arc:arc_challenge. License: cc-by-sa-4.0.
         scorer="inspect_ai.scorer:choice",
@@ -534,6 +548,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
         # Everyday commonsense frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.commonsense_qa.commonsense_qa:commonsense_qa. License: mit.
         scorer="inspect_ai.scorer:choice",
@@ -591,6 +606,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
         # Binary adjudication frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.paws.paws:paws. License: other.
         scorer="inspect_ai.scorer:includes",
@@ -648,6 +664,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/google/boolq",
         # Passage-grounded yes/no frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
         scorer="inspect_ai.scorer:pattern",
@@ -702,6 +719,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Harder than MMLU but still curated benchmark knowledge, not expert-written
         # frontier work (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.mmlu_pro.mmlu_pro:mmlu_pro. License: mit.
         scorer="inspect_ai.scorer:choice",
@@ -757,6 +775,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/allenai/winogrande",
         # Binary commonsense frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.winogrande.winogrande:winogrande. License: UNKNOWN.
         scorer="inspect_ai.scorer:choice",
@@ -817,6 +836,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/ehovy/race",
         # High-school reading benchmarks frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.race_h.race_h:race_h. License: other.
         scorer="inspect_ai.scorer:choice",
@@ -875,6 +895,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # unsaturated for frontier reasoning models — headroom without expert
         # professional stakes (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.aime2024.aime2024:aime2024.
         # License: mit.
@@ -929,6 +950,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/math-ai/aime25",
         # Same tier as aime24 — the sibling year of one competition (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.aime2025.aime2025:aime2025.
         # License: apache-2.0.
@@ -983,6 +1005,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Multi-step narrative reasoning frontier models handle well but do not
         # saturate — headroom without expert stakes (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.musr.musr:musr.
         # License: cc-by-4.0.
@@ -1037,6 +1060,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert-written knowledge probe with real headroom; an MCQ capability
         # measure, not expert work models visibly fail (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.wmdp.wmdp:wmdp_bio.
         # License: mit.
@@ -1105,6 +1129,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
         # Same family and rubric as wmdp_bio (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.wmdp.wmdp:wmdp_chem.
         # License: mit.
@@ -1173,6 +1198,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
         # Same family and rubric as wmdp_bio (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.wmdp.wmdp:wmdp_cyber.
         # License: mit.
@@ -1248,6 +1274,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
         # Everyday commonsense continuation frontier models saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.hellaswag.hellaswag:hellaswag.
         # License: UNKNOWN on the HF card; MIT per the upstream source repo
@@ -1306,6 +1333,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert biology-research material — the LAB-Bench paper reports frontier
         # models well below human-expert accuracy across subsets (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.lab_bench.lab_bench:lab_bench_litqa.
         # License: cc-by-sa-4.0.
@@ -1367,6 +1395,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert biology-research material — the LAB-Bench paper reports frontier
         # models well below human-expert accuracy across subsets (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.lab_bench.lab_bench:lab_bench_suppqa.
         # License: cc-by-sa-4.0.
@@ -1428,6 +1457,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert biology-research material — the LAB-Bench paper reports frontier
         # models well below human-expert accuracy across subsets (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.lab_bench.lab_bench:lab_bench_dbqa.
         # License: cc-by-sa-4.0.
@@ -1490,6 +1520,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert biology-research material — the LAB-Bench paper reports frontier
         # models well below human-expert accuracy across subsets (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.lab_bench.lab_bench:lab_bench_protocolqa.
         # License: cc-by-sa-4.0.
@@ -1552,6 +1583,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert biology-research material — the LAB-Bench paper reports frontier
         # models well below human-expert accuracy across subsets (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.lab_bench.lab_bench:lab_bench_seqqa.
         # License: cc-by-sa-4.0.
@@ -1615,6 +1647,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Expert biology-research material — the LAB-Bench paper reports frontier
         # models well below human-expert accuracy across subsets (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.lab_bench.lab_bench:lab_bench_cloning_scenarios.
         # License: cc-by-sa-4.0.
@@ -1675,6 +1708,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/openai/frontierscience",
         # Frontier-research material — the hard end of the catalogue (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.frontierscience.frontierscience:frontierscience.
         # License: apache-2.0.
@@ -1751,6 +1785,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Grade-12 benchmark material; OpenThaiGPT's published 70B-class results span
         # roughly 24-90% by subject, math and science the hardest (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.onet.onet:onet_m6.
         # License: apache-2.0.
@@ -1808,6 +1843,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # single-human performance of 78% accuracy, with frontier models near it
         # (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.pubmedqa.pubmedqa:pubmedqa.
         # License: mit.
@@ -1868,6 +1904,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier chat models comply with nearly all of these prompts; the benchmark
         # separates the few that over-refuse (OME-1257).
         difficulty="easy",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.xstest.xstest:xstest.
         # License: cc-by-4.0.
@@ -1940,6 +1977,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier chat models refuse nearly all of these mild prompts; the benchmark
         # separates the few that go along (OME-1257).
         difficulty="easy",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.xstest.xstest:xstest.
         # License: cc-by-4.0.
@@ -2010,6 +2048,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Constraint puzzles the AGIEval paper reports as its weakest task for strong models
         #  (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_lsat_ar.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2068,6 +2107,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/ruixiangcui/AGIEval",
         # Short-argument reasoning; strong models score well but below SAT level (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_lsat_lr.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2126,6 +2166,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/ruixiangcui/AGIEval",
         # Long-passage comprehension; strong models score well but not near ceiling (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_lsat_rc.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2183,6 +2224,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/ruixiangcui/AGIEval",
         # High-school exam math that frontier models nearly saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_sat_math.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2241,6 +2283,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/ruixiangcui/AGIEval",
         # High-school reading with the passage given; frontier models nearly saturate it (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_sat_en.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2300,6 +2343,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The passage is withheld, so many questions are underdetermined; scores stay low
         #  (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_sat_en_without_passage.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2358,6 +2402,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/ruixiangcui/AGIEval",
         # Multi-step algebra word problems; harder than SAT math for current models (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_aqua_rat.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2417,6 +2462,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Translated exam logic questions where strong models stay well below SAT-level scores
         #  (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.agieval.agieval:agie_logiqa_en.
         # License: mit (owner decision 2026-10-01: MIT, ruixiangcui/AGIEval LICENSE; no dataset
@@ -2476,6 +2522,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Professional-exam medicine; frontier models pass comfortably but not at ceiling
         #  (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.medqa.medqa:medqa.
         # License: mit (owner decision 2026-10-01: MIT, jind11/MedQA LICENSE; the bigbio card says
@@ -2531,6 +2578,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/google-research/url-nlp/tree/main/mgsm",
         # Grade-school material frontier models saturate, as with GSM8K (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.mgsm.mgsm:mgsm.
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, google-research/url-nlp
@@ -2592,6 +2640,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Ambiguous contexts reward answering unknown over a stereotype; strong models still slip
         #  (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.bbq.bbq:bbq.
         # License: cc-by-4.0.
@@ -2651,6 +2700,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/ybisk/piqa",
         # Everyday physical commonsense frontier models nearly saturate (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.piqa.piqa:piqa.
         # License: unknown (owner decision 2026-10-01: no license found; the ybisk/piqa card says
@@ -2708,6 +2758,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/cybermetric/CyberMetric",
         # Textbook security knowledge frontier models mostly answer (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cybermetric.cybermetric:cybermetric_80.
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
@@ -2768,6 +2819,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/cybermetric/CyberMetric",
         # Textbook security knowledge frontier models mostly answer (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cybermetric.cybermetric:cybermetric_500.
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
@@ -2826,6 +2878,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/cybermetric/CyberMetric",
         # Textbook security knowledge frontier models mostly answer (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cybermetric.cybermetric:cybermetric_2000.
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
@@ -2884,6 +2937,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/cybermetric/CyberMetric",
         # Textbook security knowledge frontier models mostly answer (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cybermetric.cybermetric:cybermetric_10000.
         # License: unknown (owner decision 2026-10-01: cybermetric/CyberMetric carries no license
@@ -2943,6 +2997,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Applied threat-intelligence reading; a small set where strong models score well but not at
         #  ceiling (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sevenllm.sevenllm:sevenllm_mcq_zh.
         # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on
@@ -3003,6 +3058,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Applied threat-intelligence reading; a small set where strong models score well but not at
         #  ceiling (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sevenllm.sevenllm:sevenllm_mcq_en.
         # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the SEVENLLM-Dataset card on
@@ -3063,6 +3119,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Simple-looking world reasoning where models stay far from ceiling and show answer bias
         #  (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.worldsense.worldsense:worldsense.
         # License: cc-by-nc-4.0 (owner decision 2026-10-01: CC-BY-NC-4.0,
@@ -3134,6 +3191,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The paper's abstract: most models show "significantly high compliance rates
         # (up to 30%)" in some of these categories (OME-1257).
         difficulty="medium",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.coconot.coconot:coconot (subset="original").
         # License: odc-by (the dataset card's Licensing Information; its header also
@@ -3221,6 +3279,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Written to be answered, like xstest_safe; the set separates the models that
         # over-refuse look-alike requests (OME-1257).
         difficulty="easy",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.coconot.coconot:coconot (subset="contrast").
         # License: odc-by (as coconot_original) — owner decision 2026-10-01.
@@ -3304,6 +3363,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts Claude 3 Opus at 0.86 and Haiku at 0.79 over two options:
         #  well above chance, below ceiling (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sad.sad:sad_facts_llms.
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
@@ -3364,6 +3424,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts Claude 3 Opus at 0.95 over two options: near ceiling for a
         #  strong model (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sad.sad:sad_facts_human_defaults.
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
@@ -3424,6 +3485,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts Claude 3 Opus at 0.84 and Haiku at 0.58 over two options
         #  (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sad.sad:sad_influence.
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
@@ -3485,6 +3547,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts Claude 3 Opus at 0.52 and Haiku at 0.50 over two options:
         #  chance (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sad.sad:sad_stages_oversight.
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
@@ -3546,6 +3609,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts Claude 3 Haiku at 0.30 and Opus at 0.47 over four
         #  options (chance 0.25) (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.sad.sad:sad_stages_full.
         # License: cc-by-4.0 (owner decision 2026-10-01: CC-BY-4.0, LRudL/sad LICENSE; no
@@ -3609,6 +3673,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report (17 of 750 cases) puts frontier models at 0.94 to 1.00
         #  acceptance (OME-1257).
         difficulty="easy",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cyberseceval_4.mitre_frr.task:cyse4_mitre_frr.
         # License: mit (owner decision 2026-10-05: the eval's code states PurpleLlama's MIT
@@ -3680,6 +3745,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts the strongest 2025 models at 0.75 over four or five
         #  options: well above chance, a quarter short of ceiling (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.pre_flight.pre_flight:pre_flight.
         # License: mit (owner decision 2026-10-01: MIT, the AirsideLabs/pre-flight-06 card on
@@ -3744,6 +3810,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The eval's own report puts gpt-4o at 0.079 (harmonic mean over tasks) and 0.224 on the
         #  mini subset (micro average): near floor for a strong model (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.bbeh.bbeh:bbeh.
         # License: apache-2.0 (owner decision 2026-10-01: Apache-2.0, the BBEH/bbeh card on
@@ -3811,6 +3878,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # against span keys has real headroom ("specialized extraction", OME-1257), so
         # medium, not easy (review finding on #1251).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.squad.squad:squad.
         # License: cc-by-sa-4.0.
@@ -3880,6 +3948,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Strong non-reasoning models score in the 70s on exact match and reasoning models
         #  above 90, so the full set still separates the two (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.math.math:math.
         # License: mit.
@@ -3959,6 +4028,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/dgslibisey/MuSiQue",
         # Frontier models still visibly fail multi-hop composition over decoys (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.musique.musique:musique — a LOCAL Task
         #   (OME-1513): our own eval in inspect's shape, so there is no eval.yaml and no inspect
@@ -4049,6 +4119,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier models still fail most grids at moderate cost; the top verified scores
         # needed maximum reasoning effort (OME-1476).
         difficulty="hard",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.arc_agi_2.arc_agi_2:arc_agi_2 — a LOCAL
         #   Task (OME-1476): the ARC Prize harness's prompt and parser in inspect's shape, so
@@ -4134,6 +4205,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # containment over given text — no expert-frontier stakes (OME-1257; the hand-built
         # Benchmark's tier, kept).
         difficulty="medium",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.contracteval.contracteval:contracteval — a
         #   LOCAL Task (OME-1527), the hand-built Benchmark moved into inspect's shape; every
@@ -4196,6 +4268,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Real professional deliverables graded on expert rubrics — the benchmark that appears
         # in frontier-model launch tables (OME-1257; the hand-built Benchmark's tier, kept).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.gdpval.gdpval:gdpval_text — a LOCAL Task
         #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
@@ -4283,6 +4356,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Open-ended deep-research reports frontier models still visibly fail (OME-1257; the
         # hand-built Benchmark's tier, kept).
         difficulty="hard",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.draco.draco:draco — a LOCAL Task
         #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
@@ -4380,6 +4454,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Open-ended deep-research reports frontier models still visibly fail (OME-1257; the
         # hand-built Benchmark's tier, kept).
         difficulty="hard",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.draco.draco:draco_3pass — a LOCAL Task
         #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
@@ -4477,6 +4552,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # By construction the 30% of the benchmark top models score worst on (OME-1257; the
         # hand-built Benchmark's tier, kept).
         difficulty="hard",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:healthbench_worst30
         #   — a LOCAL Task (OME-1527), the hand-built Benchmark moved into inspect's shape; every
@@ -4569,6 +4645,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # saturation, so the full benchmark is frontier work too (OME-1257; the hand-built
         # Benchmark's tier, kept).
         difficulty="hard",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.healthbench.healthbench:
         #   healthbench_professional — a LOCAL Task (OME-1527), the hand-built Benchmark moved
@@ -4669,6 +4746,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # material itself is everyday prose, not expert work (OME-1257; the hand-built
         # Benchmark's tier, kept).
         difficulty="medium",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.ifeval.ifeval:ifeval — a LOCAL Task
         #   (OME-1527), the hand-built Benchmark moved into inspect's shape; every field below is
@@ -4756,6 +4834,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # are expected higher but still miss numerical and tabular hops (OME-1481; the first
         # paid run confirms the tier).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.frames.frames:frames_oracle — a LOCAL Task
         #   (OME-1481): our own eval in inspect's shape, so there is no eval.yaml and no inspect
@@ -4830,6 +4909,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/math-ai/aime26",
         # Same tier as aime24 and aime25 — the sibling year of one competition (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.aime2026.aime2026:aime2026.
         # License: apache-2.0.
@@ -4888,6 +4968,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier models still answer well under 80% correctly and guess on the rest
         # (OME-1257: headroom without expert stakes).
         difficulty="medium",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.simpleqa.simpleqa:simpleqa, with task arg scorer=original (the
         #   paper's A/B/C grader; the eval's default tool-calling grader is refused, F1).
@@ -5094,6 +5175,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The paper's best model scores 0.556 F1; frontier models are far from saturating it
         # (OME-1257).
         difficulty="medium",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.simpleqa.simpleqa:simpleqa_verified, with task arg scorer=original.
         # License: mit.
@@ -5330,6 +5412,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/ScaleAI/fortress_public",
         # The paper's models refuse a median 3.2% of these prompts (OME-1257).
         difficulty="easy",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.fortress.fortress:fortress_benign.
         # License: cc-by-4.0.
@@ -5411,6 +5494,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Aligned frontier models refuse nearly all of these when no jailbreak is applied
         # (OME-1257).
         difficulty="easy",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.strong_reject.strong_reject:strong_reject.
         # License: MIT, the alexandrasouly/strongreject repository the CSV is pinned from.
@@ -5483,6 +5567,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/CraneAILabs/UCCB",
         # Niche regional knowledge with no published frontier number yet (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of inspect_evals.uccb.uccb:uccb.
         # The judge template reads the Sample's expected_answer, so the importer kept the
         # Sample metadata (--keep-sample-metadata).
@@ -5577,6 +5662,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The paper's best model scored 0.60 at 128k tokens; long-context reading still
         # trips frontier models (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench
         #   :infinite_bench_math_find,
@@ -5644,6 +5730,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/stanford-crfm/air-bench-2024",
         # The best HELM score is 0.932 and the spread across models is wide (OME-1257).
         difficulty="medium",
+        failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.air_bench.air_bench:air_bench, a LOCAL
         #   Task built from inspect_evals' air_bench (OME-1602, owner decision 2026-10-16):
@@ -5723,6 +5810,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The last sourced frontier score is about 0.60; the options make test-taking tricks
         # possible, so modern models likely score higher (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.truthfulqa.truthfulqa:truthfulqa, with task arg target=mc1 (inspect's
         #   mc2 is an exact-set score, not the paper's MC2; owner decision on OME-1602).
@@ -5777,6 +5865,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/jablonkagroup/ChemBench",
         # The best verified bare model reaches about 0.71: real headroom (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.chembench.chembench:chembench.
         # License: mit.
@@ -5844,6 +5933,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/McGill-NLP/stereoset",
         # GPT-4 already picks a related continuation about 97% of the time (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.stereoset.stereoset:stereoset (task_type intersentence).
         # License: cc-by-sa-4.0.
@@ -5912,6 +6002,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
         # The paper's best model gets about a third exactly right (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis.
         # License: CC-BY-SA-4.0, CrowdStrike's hybrid-analysis LICENSE.md (owner decision
@@ -5984,6 +6075,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier base models score in the 80s on 3-shot F1; still below expert humans at
         # 96 (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of inspect_evals.drop.drop:drop,
         #   with its defaults: 3 worked examples, drawn with the eval's fixed seed.
         # License: CC-BY-SA-4.0, the original DROP release (owner decision on OME-1602,
@@ -6070,6 +6162,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         focus=spec.focus,
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
+        failure_policy=spec.failure_policy,
         case_count=cases_spec.case_count,
         revision_pins=(
             identity_pins

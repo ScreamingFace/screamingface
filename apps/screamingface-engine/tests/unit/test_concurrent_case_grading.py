@@ -106,7 +106,7 @@ async def test_later_cases_finishing_first_move_neither_results_nor_progress(
     monkeypatch.setattr(
         benchmark_aggregation,
         "completed_case",
-        lambda benchmark, revision, result, scorer: published.append(result.case_id),
+        lambda benchmark, revision, result, scorer, **_: published.append(result.case_id),
     )
 
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
@@ -155,6 +155,7 @@ async def test_a_failing_case_publishes_exactly_what_serial_marking_publishes() 
         )
     ]
     expected: dict[str, Any] = finalize_candidate_result(
+        failure_policy="withhold",
         benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1, 2, 3, 4),

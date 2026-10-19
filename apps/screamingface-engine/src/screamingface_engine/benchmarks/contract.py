@@ -561,7 +561,8 @@ class CandidateResult(_StrictWireModel):
       numeric Benchmark grade. Generic `metrics.coverage` is forbidden because
       Benchmarks had used it for incompatible meanings.
     - with any numeric Case grade, the Candidate publishes the Benchmark score
-      over exactly those Cases and may retain ungradeable failed Cases alongside it.
+      over the selected Cases the declared failure policy counts (OME-1642) and may retain
+      ungradeable failed Cases alongside it.
       Benchmark-specific metrics remain deliberately open.
     - with no numeric Case grade, `score is None`, `coverage == 0`, and
       `metrics == {}` — infrastructure failure never becomes a plausible zero.
@@ -593,7 +594,7 @@ class CandidateResult(_StrictWireModel):
     # for every Benchmark would break every SDK that predates the mark.
     inverted_grade: bool = Field(default=False, exclude_if=lambda value: not value)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate — each the mean of
-    # its column over the graded Cases, headline first; `score` IS the headline.
+    # its column over the Cases the failure policy counts, headline first; `score` IS the headline.
     # INVARIANT: absent unless set, for the same reason as the mark above.
     scores: dict[str, float | None] = Field(
         default_factory=dict, exclude_if=lambda value: not value

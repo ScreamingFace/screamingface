@@ -276,8 +276,10 @@ The share of a Benchmark's Cases that received a valid Case Grade, reported besi
 _Avoid_: Completion rate
 
 **Failure Policy**:
-A Benchmark's declared rule for how a Case without a valid Case Grade affects its score: counted
-as a failure, or excluded and reported through Coverage.
+A Benchmark's declared rule for how a Case without a valid Case Grade affects its score:
+`withhold` counts it as 0 and keeps it in the denominator (the score is the mean over every
+selected Case), or `coverage_declare` excludes it and reports it through Coverage. Coverage
+means the same under both.
 _Avoid_: Error handling
 
 **Inspect**:

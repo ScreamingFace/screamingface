@@ -25,6 +25,7 @@ from screamingface_engine.benchmarks.contract import (
     is_declared_failure_code,
     validate_case_id,
 )
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 from screamingface_engine.error_text import public_identifier, public_message
@@ -73,7 +74,31 @@ class CandidateScore:
     scores: dict[str, float | None] = field(default_factory=dict)
 
 
+# Scorer contract (OME-1642): under ``coverage_declare`` the scorer receives only the Cases that
+# carry a numeric grade and averages over them. Under ``withhold`` it receives EVERY selected
+# Case, so it must divide by ``len(cases)``, a Case with no numeric grade counting 0.
 Scorer = Callable[[Sequence[CaseResult]], CandidateScore]
+
+
+def gradeable_cases(cases: Sequence[CaseResult]) -> tuple[CaseResult, ...]:
+    """The Cases that carry a numeric Benchmark grade."""
+
+    return tuple(case for case in cases if case.grade is not None and case.grade.score is not None)
+
+
+def policy_cases(
+    cases: Sequence[CaseResult], failure_policy: FailurePolicy
+) -> Sequence[CaseResult] | None:
+    """The Cases a scorer receives under ``failure_policy``; None when no Case is graded.
+
+    WHY one helper (OME-1642): the final result and the live progress projection must pick
+    the same Cases, or a withhold Benchmark's in-run score would differ from its final one.
+    """
+
+    gradeable = gradeable_cases(cases)
+    if not gradeable:
+        return None
+    return tuple(cases) if failure_policy == "withhold" else gradeable
 
 
 def finalize_candidate_result(
@@ -83,10 +108,18 @@ def finalize_candidate_result(
     selected_cases: Sequence[SelectedCase | Mapping[str, Any]],
     cases: Sequence[CaseResult | Mapping[str, Any]],
     scorer: Scorer,
+    failure_policy: FailurePolicy,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
     inverted_grade: bool = False,
 ) -> CandidateResult:
-    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades.
+    """Preserve Cases and score them under the Benchmark's declared failure policy.
+
+    FEATURE (OME-1642): ``failure_policy`` decides which Cases the scorer is given.
+    ``coverage_declare`` hands it exactly the subset carrying numeric Benchmark grades (the
+    failed Cases leave the score; coverage shows them). ``withhold`` hands it EVERY selected
+    Case, failed ones included, so the scorer counts each one as 0 in the denominator. Under
+    both, a Candidate with no numeric Case grade publishes ``score=None`` and the scorer never
+    runs (R4), and coverage stays graded / selected.
 
     ``inverted_grade`` marks a Benchmark whose Case scores are already 1 − the eval's grade
     (OME-1400); it rides the result so a replayed report can show it.
@@ -140,10 +173,8 @@ def finalize_candidate_result(
         for selected in selection
     ]
 
-    gradeable = tuple(
-        case for case in typed_cases if case.grade is not None and case.grade.score is not None
-    )
-    scored = scorer(gradeable) if gradeable else None
+    scoring_cases = policy_cases(typed_cases, failure_policy)
+    scored = scorer(scoring_cases) if scoring_cases is not None else None
     result = CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,

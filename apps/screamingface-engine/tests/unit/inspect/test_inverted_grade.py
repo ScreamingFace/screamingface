@@ -41,6 +41,7 @@ def _string_match_spec(**overrides: Any) -> BenchmarkSpec:
         "focus": "test",
         "dataset_url": "https://example.test/ds",
         "difficulty": "easy",
+        "failure_policy": "coverage_declare",
         "scorer": "inspect_ai.scorer:match",
         "scorer_kwargs": {"numeric": True},
     }
@@ -80,8 +81,8 @@ def test_an_uninverted_row_assembles_to_the_revision_it_always_had(
     spec: BenchmarkSpec = next(row for row in benchmarks.BENCHMARKS if row.key == "gsm8k")
 
     assert (
-        str(_assembled(spec, monkeypatch).benchmark.revision) == "330615c3213bb681"
-    )  # moved once: offer off (OME-1513)
+        str(_assembled(spec, monkeypatch).benchmark.revision) == "075954bfd63059e0"
+    )  # moved twice: offer off (OME-1513), withhold policy pin (OME-1642)
 
 
 @pytest.mark.asyncio

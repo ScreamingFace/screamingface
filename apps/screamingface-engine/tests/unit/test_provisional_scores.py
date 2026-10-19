@@ -36,8 +36,8 @@ def test_snapshots_are_cumulative_private_and_deduplicated(monkeypatch):
 
     result = _result()
     with run.bind():
-        completed_case("board", "v1", result, scorer)
-        completed_case("board", "v1", result, scorer)
+        completed_case("board", "v1", result, scorer, failure_policy="coverage_declare")
+        completed_case("board", "v1", result, scorer, failure_policy="coverage_declare")
     assert len(logs) == 1
     assert logs[0]["sf.progress.score"] == 0.0
     assert logs[0]["sf.progress.completed"] == 1
@@ -53,7 +53,11 @@ def test_observer_failure_does_not_change_execution(monkeypatch):
     run = RunObservations((ActivityObserver,))
     with run.bind():
         completed_case(
-            "board", "v1", _result(), lambda cases: CandidateScore(score=1.0, metrics={})
+            "board",
+            "v1",
+            _result(),
+            lambda cases: CandidateScore(score=1.0, metrics={}),
+            failure_policy="coverage_declare",
         )
     assert run.fault_reported
 
@@ -114,11 +118,23 @@ def test_coalesced_snapshot_recovers_all_cases_without_double_counting(monkeypat
 
     for case_id in (1, 2):
         state.observe(
-            "board", "v1", _result().model_copy(update={"case_id": case_id}), scorer, emit
+            "board",
+            "v1",
+            _result().model_copy(update={"case_id": case_id}),
+            scorer,
+            emit,
+            failure_policy="coverage_declare",
         )
     assert len(logs) == 1
     now[0] = 1.0
-    state.observe("board", "v1", _result().model_copy(update={"case_id": 3}), scorer, emit)
+    state.observe(
+        "board",
+        "v1",
+        _result().model_copy(update={"case_id": 3}),
+        scorer,
+        emit,
+        failure_policy="coverage_declare",
+    )
     assert logs[-1]["sf.progress.completed"] == 3
     assert logs[-1]["sf.progress.score"] == 1.0
 
@@ -133,7 +149,7 @@ async def test_disabled_and_closed_observers_do_not_score(monkeypatch):
     )
     run = RunObservations((lambda: ActivityObserver(enabled=False),))
     with run.bind():
-        completed_case("board", "v1", _result(), forbidden)
+        completed_case("board", "v1", _result(), forbidden, failure_policy="coverage_declare")
     await run.aclose()
     with run.bind():
-        completed_case("board", "v1", _result(), forbidden)
+        completed_case("board", "v1", _result(), forbidden, failure_policy="coverage_declare")

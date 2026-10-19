@@ -324,8 +324,9 @@ class CandidateResult:
     capture_partial_reasons: tuple[str, ...]
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
-    # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
-    # single-scorer Benchmark. Shown in the report; never submitted, never ranked.
+    # its column over the Cases the Benchmark's failure policy counts (OME-1642), headline
+    # first; `score` IS the headline. Empty on a single-scorer Benchmark. Shown in the report;
+    # never submitted, never ranked.
     _scores: Mapping[str, float | None] = field(repr=False)
 
     def __init__(

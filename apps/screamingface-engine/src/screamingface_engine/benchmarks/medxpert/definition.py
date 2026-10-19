@@ -31,6 +31,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
+    FailurePolicy,
     candidate,
     candidate_call,
 )
@@ -67,6 +68,11 @@ DATASET_URL = "https://huggingface.co/datasets/TsinghuaC3I/MedXpertQA"
 # INVARIANT: grading is retrieval-free — the answer key is a fixed letter, and a model that
 # searched would be answering a different question from the one the leaderboard asks.
 CANDIDATE_WEB_SEARCH = False
+# WHY "withhold" (OME-1642): a Case that never got a valid grade counts 0 over every selected
+# Case, the same as an empty ANSWER, which the official empty-prediction verdict grades 0.0
+# (`aggregate._scored`). Coverage still shows the graded count beside the score. One constant,
+# read by the declaration and by the revision, so the two cannot drift.
+FAILURE_POLICY: FailurePolicy = "withhold"
 
 
 def compute_revision(
@@ -74,13 +80,15 @@ def compute_revision(
     dataset_revision: str = DATASET_REVISION,
     cot_template: str = COT_PROMPT_TEMPLATE,
     trigger_template: str = COT_TRIGGER_TEMPLATE,
+    failure_policy: FailurePolicy = FAILURE_POLICY,
 ) -> str:
     """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
     WHY the prompt templates are hashed: this benchmark has no judge, so the prompt is the only
     thing between a model and its score. A changed template is a changed benchmark and must
     re-address every route — otherwise already-recorded submissions would silently become
-    incomparable.
+    incomparable. The failure policy is hashed for the same reason (OME-1642): a ``withhold``
+    score is a different number from the same answers, so it gets its own revision.
     """
 
     return compute_benchmark_revision(
@@ -94,6 +102,9 @@ def compute_revision(
         CANDIDATE_RESULT_SCHEMA,
         cot_template,
         trigger_template,
+        # WHY conditional (OME-1642): only withhold moves the revision, the same rule as the
+        # imported rows' fingerprint pin.
+        *(("failure_policy=withhold",) if failure_policy == "withhold" else ()),
     )
 
 
@@ -202,8 +213,8 @@ MEDXPERT = Benchmark(
         "2,450 expert-level medical multiple-choice questions (MedXpertQA Text). The model "
         "reasons step by step, then commits to one lettered choice; grading is an exact match "
         "against the published key, so no judge tokens are spent. Benchmark score = plain "
-        "accuracy over the cases run, reported beside the fraction actually answered — a model "
-        "that returns nothing on some rows is scored over fewer of them. "
+        "accuracy over every case run, reported beside the fraction actually answered — a case "
+        "the model leaves unanswered, or that fails, counts as wrong. "
         "The two-turn exchange is applied at the candidate boundary, which reproduces the "
         "official protocol for a single model; for a fusion the exchange wraps the whole "
         "ensemble rather than each member, so those numbers are not comparable to a per-member "
@@ -216,13 +227,8 @@ MEDXPERT = Benchmark(
     focus="Expert medical multiple choice",
     dataset_url=DATASET_URL,
     declaration=BenchmarkDeclaration(
-        # WHY "coverage_declare" and NOT "withhold": this axis governs a Case that never got a
-        # valid grade, and those are infrastructure failures, which this benchmark hands to the
-        # shared `finalize_candidate_result` — it scores the gradeable subset and publishes
-        # coverage. An empty ANSWER is a different thing: it does get a grade, of 0.0, per the
-        # official empty-prediction verdict. That behaviour lives in `aggregate._scored`, not
-        # here, and declaring `withhold` for it would misdescribe what the reducer does.
-        failure_policy="coverage_declare",
+        # See FAILURE_POLICY (OME-1642).
+        failure_policy=FAILURE_POLICY,
         # WHY "multi_turn": the benchmark invokes the Candidate twice per Case — reason, then
         # commit. Declared because it doubles the invocation cost and changes what a Fusion entrant
         # is asked to do (the exchange wraps the ensemble, not each member).

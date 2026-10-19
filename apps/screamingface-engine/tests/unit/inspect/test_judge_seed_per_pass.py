@@ -299,6 +299,7 @@ def _judged_spec(judge: JudgeSpec) -> BenchmarkSpec:
         "focus": "test",
         "dataset_url": "https://example.test/ds",
         "difficulty": "easy",
+        "failure_policy": "coverage_declare",
         "scorer": "inspect_ai.scorer:model_graded_qa",
         "scorer_kwargs": {"model": "screamingface/judge-4"},
         "judge": judge,

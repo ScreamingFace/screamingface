@@ -136,6 +136,7 @@ async def test_imported_benchmark_stages_use_the_same_optional_port(monkeypatch,
         install=lambda node, root: None,
         with_check_surface=True,
         difficulty="easy",
+        failure_policy="coverage_declare",
     )
     node = Url4Node("imported")
     single_shot.install_imported_benchmark(node, tmp_path, benchmark.benchmark.id)

@@ -122,6 +122,7 @@ async def test_two_cases_judged_at_once_each_book_their_judge_call_to_their_own_
         return Score(value=1.0 if output.completion == "GRADE: C" else 0.0)
 
     path = BenchmarkAggregation(
+        failure_policy="withhold",
         reader=CaseGradeReader(
             benchmark_label="Judged",
             error_type=ValueError,

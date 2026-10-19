@@ -16,6 +16,11 @@ from screamingface_engine.benchmarks.aggregation import (
     scored_case_result,
 )
 from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult, Failure
+from screamingface_engine.benchmarks.definition import FailurePolicy
+
+# OME-1642: the policy is the finalizer's own axis, so a test of an invariant that holds
+# whatever the policy runs under both; a test of one policy's reduction names that policy.
+_POLICIES: tuple[FailurePolicy, ...] = ("coverage_declare", "withhold")
 
 
 def _scored(case_id: int) -> CaseResult:
@@ -61,7 +66,8 @@ def _selected(*case_ids: int) -> list[SelectedCase]:
     ]
 
 
-def test_all_scored_cases_are_passed_to_the_scorer_in_stable_order() -> None:
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_all_scored_cases_are_passed_to_the_scorer_in_stable_order(policy: FailurePolicy) -> None:
     observed: list[int | str] = []
 
     def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
@@ -69,6 +75,7 @@ def test_all_scored_cases_are_passed_to_the_scorer_in_stable_order() -> None:
         return CandidateScore(score=0.75, metrics={"pass_rate": 0.5})
 
     result = finalize_candidate_result(
+        failure_policy=policy,
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=_selected(2, 1),
@@ -82,7 +89,9 @@ def test_all_scored_cases_are_passed_to_the_scorer_in_stable_order() -> None:
     assert result.coverage == 1.0
 
 
-def test_a_failed_case_is_excluded_while_the_gradeable_subset_is_scored() -> None:
+def test_under_coverage_declare_a_failed_case_is_excluded_and_the_gradeable_subset_is_scored() -> (
+    None
+):
     observed: list[int | str] = []
 
     def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
@@ -90,6 +99,7 @@ def test_a_failed_case_is_excluded_while_the_gradeable_subset_is_scored() -> Non
         return CandidateScore(score=1.0, metrics={"pass_rate": 1.0})
 
     result = finalize_candidate_result(
+        failure_policy="coverage_declare",
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=_selected(1, 2),
@@ -102,7 +112,10 @@ def test_a_failed_case_is_excluded_while_the_gradeable_subset_is_scored() -> Non
     assert result.coverage == 0.5
 
 
-def test_a_candidate_level_failure_does_not_erase_gradeable_case_truth() -> None:
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_a_candidate_level_failure_does_not_erase_gradeable_case_truth(
+    policy: FailurePolicy,
+) -> None:
     failure = Failure(
         stage="aggregation",
         code="asset_unavailable",
@@ -113,6 +126,7 @@ def test_a_candidate_level_failure_does_not_erase_gradeable_case_truth() -> None
     )
 
     result = finalize_candidate_result(
+        failure_policy=policy,
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=_selected(1),
@@ -126,9 +140,11 @@ def test_a_candidate_level_failure_does_not_erase_gradeable_case_truth() -> None
     assert result.failures == [failure]
 
 
-def test_duplicate_case_identity_is_rejected_before_scoring() -> None:
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_duplicate_case_identity_is_rejected_before_scoring(policy: FailurePolicy) -> None:
     with pytest.raises(ValueError, match="duplicate case_id"):
         finalize_candidate_result(
+            failure_policy=policy,
             benchmark_id="benchmark",
             benchmark_revision="revision",
             selected_cases=_selected(1),
@@ -137,8 +153,21 @@ def test_duplicate_case_identity_is_rejected_before_scoring() -> None:
         )
 
 
-def test_a_missing_selected_case_is_retained_and_lowers_coverage() -> None:
+@pytest.mark.parametrize(
+    ("policy", "score"),
+    [
+        # coverage_declare scores the one graded Case; withhold also hands the scorer the
+        # synthesized failed Case for the missing selection, so it sees both selected Cases (the
+        # scorer here returns len(cases) / 2).
+        ("coverage_declare", 0.5),
+        ("withhold", 1.0),
+    ],
+)
+def test_a_missing_selected_case_is_retained_and_lowers_coverage(
+    policy: FailurePolicy, score: float
+) -> None:
     result = finalize_candidate_result(
+        failure_policy=policy,
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=[
@@ -146,11 +175,11 @@ def test_a_missing_selected_case_is_retained_and_lowers_coverage() -> None:
             SelectedCase(case_id=2, input="input 2", metadata={"split": "test"}),
         ],
         cases=[_scored(1)],
-        scorer=lambda cases: CandidateScore(score=float(len(cases)), metrics={}),
+        scorer=lambda cases: CandidateScore(score=len(cases) / 2, metrics={}),
     )
 
     assert [case.case_id for case in result.cases] == [1, 2]
-    assert result.score == 1.0
+    assert result.score == score
     assert result.coverage == 0.5
     missing = result.cases[1]
     assert missing.status == "failed"
@@ -159,9 +188,11 @@ def test_a_missing_selected_case_is_retained_and_lowers_coverage() -> None:
     assert [failure.code for failure in missing.failures] == ["case_result_missing"]
 
 
-def test_scorer_cannot_reintroduce_generic_metrics_coverage() -> None:
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_scorer_cannot_reintroduce_generic_metrics_coverage(policy: FailurePolicy) -> None:
     with pytest.raises(ValueError, match="metrics.coverage"):
         finalize_candidate_result(
+            failure_policy=policy,
             benchmark_id="benchmark",
             benchmark_revision="revision",
             selected_cases=_selected(1),
@@ -170,10 +201,12 @@ def test_scorer_cannot_reintroduce_generic_metrics_coverage() -> None:
         )
 
 
-def test_finalizer_rejects_boolean_and_non_finite_scores() -> None:
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_finalizer_rejects_boolean_and_non_finite_scores(policy: FailurePolicy) -> None:
     for score in (True, float("nan"), float("inf")):
         with pytest.raises(ValueError, match="finite number"):
             finalize_candidate_result(
+                failure_policy=policy,
                 benchmark_id="benchmark",
                 benchmark_revision="revision",
                 selected_cases=_selected(1),
@@ -216,9 +249,11 @@ def test_shared_case_constructors_own_the_public_case_envelope() -> None:
     assert failed.failures == [failure]
 
 
-def test_finalizer_does_not_coerce_a_string_score() -> None:
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_finalizer_does_not_coerce_a_string_score(policy: FailurePolicy) -> None:
     with pytest.raises(ValueError):
         finalize_candidate_result(
+            failure_policy=policy,
             benchmark_id="benchmark",
             benchmark_revision="revision",
             selected_cases=_selected(1),

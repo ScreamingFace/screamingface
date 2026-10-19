@@ -148,6 +148,7 @@ def _path(hook: _Hook, **overrides: Any) -> BenchmarkAggregation:
         "method": "rubric",
         "grading_failure_code": "test_grading_failed",
         "grading_failure_message": "test: the grader could not grade this Case",
+        "failure_policy": "withhold",
     }
     values.update(overrides)
     return BenchmarkAggregation(**values)

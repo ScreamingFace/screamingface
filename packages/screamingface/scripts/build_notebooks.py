@@ -1647,9 +1647,11 @@ in section 1 and match the synthesiser's prompt to how that board is graded:
 
 A `limit=N` run is a smoke test, not a ranking: on small subsamples a point or two between
 two systems is noise. Run the whole set before quoting a comparison, and read `coverage`
-beside the score — these boards score the gradeable subset and publish how much of the run
-that was, so a good score over thin coverage is a formatting failure wearing a knowledge
-result's clothes."""),
+beside the score. Every board in this list counts a Case with no grade as 0 (the `withhold`
+failure policy): the score is a mean over all selected Cases and `coverage` publishes how much
+of the run was graded, so a good score over thin coverage cannot hide a formatting failure.
+A few other boards keep the graded-only mean (`coverage_declare`): there a Case without a
+grade leaves the score and shows only in `coverage`."""),
     )
 
 

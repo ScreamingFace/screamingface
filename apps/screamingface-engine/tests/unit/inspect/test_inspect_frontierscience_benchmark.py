@@ -184,7 +184,8 @@ def test_the_benchmarks_revision_is_pinned() -> None:
     """The judged benchmark's benchmark identity, frozen — the published-revisions test
     covers the string-match benchmarks; this literal is FrontierScience's."""
 
-    assert BENCHMARK.benchmark.revision == "fb33b1e6a2cf0c12"
+    # Moved once (OME-1642): FrontierScience declares withhold, a different score.
+    assert BENCHMARK.benchmark.revision == "826050de44778515"
 
 
 @pytest.mark.asyncio
