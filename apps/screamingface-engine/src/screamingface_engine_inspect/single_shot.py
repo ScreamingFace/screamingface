@@ -568,6 +568,10 @@ def single_shot_benchmark(
                 # WHY conditional (OME-1527, R9): what the Candidate is told mid-run is
                 # identity; unset adds nothing, so no published revision moves.
                 *(("draft_feedback=scorer",) if scorer_draft_feedback else ()),
+                # WHY conditional (OME-1642): the denominator is Benchmark identity — a withhold
+                # score is a different number from the same answers, so old and new scores never
+                # share a board; coverage_declare adds nothing, so no such revision moves.
+                *(("failure_policy=withhold",) if failure_policy == "withhold" else ()),
             )
         ).encode()
     ).hexdigest()[:16]
