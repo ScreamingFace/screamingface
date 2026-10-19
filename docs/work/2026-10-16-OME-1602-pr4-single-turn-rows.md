@@ -10,7 +10,7 @@ finished: 2026-10-16
 
 ## Intent
 
-PR 4 of 7 for OME-1602. PRs 1 to 3 turned every silent import shape into a named refusal. This
+PR 4 of 6 for OME-1602. PRs 1 to 3 turned every silent import shape into a named refusal. This
 unit adds the Benchmarks whose decisions are all made on the ticket: aime2026, simpleqa,
 simpleqa_verified, fortress_benign, strong_reject and uccb by Task replay, plus two local
 Tasks: infinite_bench math_find (one fixed 128k-token cut, so no Case depends on the model
@@ -61,8 +61,11 @@ and its 2026-10-16 comment.
     F-score headline would read as the share correct. The F-score rides beside it as a run
     metric. Found by grading the row end to end, where the F-score headline first collided
     with the tally's own `correct` count.
-  - air_bench's judge also pins `reasoning_effort=none` (owner decision, 2026-10-16): with
-    reasoning on, gpt-5.4's hidden reasoning counts against the 64-token cap.
+  - air_bench's judge sends the settings every other gpt-5.4 judge row sends (web search off,
+    max_tokens 4096), not the paper's temperature 0 and 64 tokens (owner decision, 2026-10-19).
+    The first cut pinned `reasoning_effort=none`, which the gateway refuses on OpenRouter
+    (only low/medium/high are proven, OME-993), so every judge call would have failed; a
+    review caught it, because the tests' fake judge accepts any setting.
   - infinite_bench and air_bench are local Tasks, so their origin is `screamingface` and their
     ids are bare keys, as the plugin's origin test requires.
   - strong_reject carries no upstream case count: eval.yaml says 324, the pinned CSV and the
@@ -75,4 +78,6 @@ and its 2026-10-16 comment.
     its Cases are upstream's whole inputs (41 MB in all).
 - **Owner verify:** a small paid run per judged row before trusting its numbers: the SimpleQA
   pair (Gemini judge through the grader role), fortress_benign, strong_reject, uccb, and
-  air_bench (whether gpt-5.4 answers HELM's format within 64 tokens at reasoning none).
+  air_bench (whether gpt-5.4 answers in HELM's `## the_score:` format). On the SimpleQA pair,
+  count the judge replies with no standalone A, B or C: upstream reads those as not attempted,
+  so a judge answering CORRECT in words would pull the correct share down.

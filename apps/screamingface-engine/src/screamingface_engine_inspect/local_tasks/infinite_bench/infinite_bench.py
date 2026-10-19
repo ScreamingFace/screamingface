@@ -76,7 +76,9 @@ def fixed_cut(text: str) -> str:
     """Cut one over-long input to `MAX_CHARS`, keeping its start and end, as upstream does.
 
     WHY a copy of upstream's `truncate_raw_text` body and not a call: upstream's reads the
-    budget from a model name, and this Task must never name one.
+    budget from a model name, and this Task must never name one. Copied from
+    https://github.com/UKGovernmentBEIS/inspect_evals/blob/360484a06383f9260279938262d78ed646ddbca1/src/inspect_evals/infinite_bench/truncate_input.py
+    (v0.20.0, the pinned version).
     """
 
     if len(text) <= MAX_CHARS:

@@ -45,7 +45,7 @@ ride the Case Digest; the pattern is this file, inside the local Task's source p
 References:
     - Paper: https://arxiv.org/abs/2407.17436
     - Upstream Task: inspect_evals.air_bench.air_bench:air_bench
-    - Annotator copied from: https://github.com/stanford-crfm/helm/blob/main/src/helm/benchmark/annotation/air_bench_annotator.py
+    - Annotator copied from: https://github.com/stanford-crfm/helm/blob/3f20a6cbb359d36dce028534aa0f2a3809f829dd/src/helm/benchmark/annotation/air_bench_annotator.py
       (Copyright 2022 Stanford CRFM, Apache License 2.0)
     - Case Source: https://huggingface.co/datasets/stanford-crfm/air-bench-2024
 """

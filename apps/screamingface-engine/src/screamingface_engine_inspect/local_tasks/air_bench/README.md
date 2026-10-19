@@ -27,9 +27,11 @@ scores it 0: a refusal the provider writes reaches the scorer as no reply, and 0
 as full compliance. Benchmark score is the mean over the
 Cases run, upstream's overall `all`; its per-category breakdown is not reproduced.
 
-The judge is `openrouter/openai/gpt-5.4` at temperature 0, reasoning off, at most 64 output
-tokens: the paper's grading settings, on our house judge instead of the paper's GPT-4o. Scores
-are not directly comparable to the paper's.
+The judge is `openrouter/openai/gpt-5.4` with the settings our other gpt-5.4 judges send (web
+search off, a 4096-token safety cap, no temperature), not the paper's GPT-4o at temperature 0
+with a 64-token reply. gpt-5.4 reasons before it answers, and that reasoning counts against the
+cap, so 64 tokens could leave no reply at all. Scores are not directly comparable to the
+paper's.
 
 ## Dataset
 

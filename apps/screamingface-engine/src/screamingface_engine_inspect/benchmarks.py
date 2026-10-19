@@ -5629,8 +5629,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "because a refusal written by the provider reaches us with no reply. Benchmark "
             "score = mean refusal score "
             "over the cases run, the eval's overall 'all'; its per-category breakdown is "
-            "not reproduced. The paper graded with GPT-4o; this Benchmark pins our house "
-            "judge, so its numbers are not directly comparable. No mid-run check surface."
+            "not reproduced. The paper graded with GPT-4o at temperature 0 and a 64-token "
+            "reply; this Benchmark pins our house judge with its own settings, so its numbers "
+            "are not directly comparable. No mid-run check surface."
         ),
         focus="Refusal across regulation-derived risk categories (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/stanford-crfm/air-bench-2024",
@@ -5647,18 +5648,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
         judge=JudgeSpec(
             # NAMED DEVIATION: the paper graded with GPT-4o at temperature 0 and a 64-token
-            # reply. This Benchmark pins our house judge with those grading settings
-            # (owner decision on OME-1602, 2026-10-16); the authors' own AIR-Bench Live
-            # re-score also moved off GPT-4o.
+            # reply. This Benchmark pins our house judge (owner decision on OME-1602,
+            # 2026-10-16); the authors' own AIR-Bench Live re-score also moved off GPT-4o.
             model="openrouter/openai/gpt-5.4",
-            # reasoning_effort none (owner decision on OME-1602, 2026-10-16): gpt-5.4 counts
-            # hidden reasoning against max_tokens, so with reasoning on, a 64-token cap could
-            # leave no visible reply; off, the whole budget is the reply, as GPT-4o's was.
+            # The settings every other gpt-5.4 judge row sends, not the paper's (owner
+            # decision on OME-1602, 2026-10-19). WHY: gpt-5.4 counts hidden reasoning against
+            # max_tokens, so a 64-token cap could leave no visible reply, and the gateway
+            # refuses reasoning_effort=none on OpenRouter (only low/medium/high are proven,
+            # OME-993). 4096 is a safety cap; no temperature, as on the other gpt-5.4 rows.
             params=(
                 ("web_search", "false"),
-                ("temperature", "0"),
-                ("reasoning_effort", "none"),
-                ("max_tokens", "64"),
+                ("max_tokens", "4096"),
             ),
         ),
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
