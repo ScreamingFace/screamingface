@@ -194,4 +194,15 @@ const router = createRouter({
   },
 })
 
+// One canonical per page. index.html can't carry one: every route serves that same file.
+router.afterEach((to) => {
+  let link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'canonical'
+    document.head.appendChild(link)
+  }
+  link.href = `https://docs.screamingface.ai${to.path}`
+})
+
 export default router
