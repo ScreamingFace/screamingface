@@ -118,7 +118,9 @@ and pins it in `tests/unit/inspect/test_benchmark_declaration.py`.
 - FrontierScience (expected, from the exported grades): claude-opus-5.5 0.6287,
   claude-fable-5.1 0.5958, qwen3.8-2.4t-a95b 0.5952, glm-5.3 0.5894. The 6 candidates with
   no failed Case keep their values, on the new revision.
-- GDPval-text: sota_cheap_synth 0.8064, member_synth_trio 0.8205.
+- GDPval-text (expected all-Case values): sota_cheap_synth 0.8064 (the published candidate in
+  §2) and member_synth_trio 0.8205 (also an attachment value). external_synth_trio is
+  unpublished (0.7935 in §2).
 - Every Group A–C Benchmark gets a new revision (R6). Its current leaderboard rows stop
   ranking on the default board after the new Engine is deployed (D5).
 - Benchmarks in groups D–G: no change.

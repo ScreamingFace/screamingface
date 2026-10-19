@@ -1,7 +1,7 @@
 ---
 ticket: OME-1642
 spec: ../spec/2026-10-19-OME-1642-all-case-denominator.md
-status: proposed — waiting for owner approval to start code
+status: approved and implemented (U1–U5); V7 pending
 date: 2026-10-19
 stack: python (apps/screamingface-engine)
 branch: all-case-denominator (renamed OME-1642-all-case-denominator at PR-open)
@@ -158,9 +158,9 @@ These existing tests assert values that this change moves on purpose:
   `inspect/test_inspect_gsm8k_benchmark.py`, `inspect/test_inspect_mmlu_benchmark.py`,
   `inspect/test_local_task_frames.py`, `test_medxpert_aggregate.py`
   (the over-window and no-row tests now state the all-Case score).
-- `inspect/test_local_task_gdpval.py` waits for the owner decision on gdpval-text (its Case
-  grades are unclamped and can be negative, so a failed Case worth 0 can RAISE the score;
-  see the spec, Group C and D4).
+- `inspect/test_local_task_gdpval.py` states the all-Case gdpval-text value. The owner decided
+  (2026-10-19) that a failed Case counts 0 there too, although its Case grades are unclamped
+  and can be negative, so a failed Case worth 0 can RAISE the score (spec, Group C and D4).
 
 Each is updated to the new value only where the value is the point; a test that pinned old
 behavior gets its assertion, docstring and name updated to say what it now checks. The U1
@@ -193,7 +193,7 @@ Any other failing existing test is a STOP: it means a behavior change outside th
 
 ## Risks
 
-- **Leaderboard reset.** 61 Benchmarks get a new revision; their current rows stop ranking on
+- **Leaderboard reset.** 66 Benchmarks get a new revision; their current rows stop ranking on
   the default board after deploy until the D5 re-run unit. Deploy and the re-run belong
   together.
 - **Hidden aggregators.** A path that calls a scorer without `finalize_candidate_result` would
@@ -201,3 +201,21 @@ Any other failing existing test is a STOP: it means a behavior change outside th
   caller.
 - **Rounding.** Scores keep `round(..., 4)` once, at the end; the V7 values must match spec §6
   exactly.
+
+## Addendum (2026-10-19)
+
+- Rebase onto `a87da68c1` added five OME-1602 rows (`truthfulqa_mc1`, `chembench`, `stereoset`,
+  `cyse4_malware_analysis`, `drop`). All five are Group A, so they declare `withhold`.
+- Final totals: 82 imported rows plus medxpert = 65 + 1 = 66 `withhold` and 17
+  `coverage_declare`. The "77 rows" and "61 `withhold`" numbers above are the pre-rebase plan.
+- gdpval-text: owner decision, a failed Case counts 0 (as for every `withhold` row), even
+  though its Case grades can be negative.
+- Renderer TODO: the import renderer writes `failure_policy="TODO"` for a new row; registration
+  refuses that literal by name, so a new row needs an owner choice. A test pins both halves.
+- Test updates are policy-aware: a test that names a real Benchmark asserts its all-Case
+  result, and a generic finalizer test names the policy it depends on. The approval manifest
+  `.claude/test-change-approvals/OME-1642.json` lists every edited existing test.
+- Design-review fixes: the live progress score now picks its Cases with the same
+  `policy_cases` helper as the finalizer (`failure_policy` is threaded through
+  `grading_progress`, `completed_case` and `Progress`, required), and the old-rule comments
+  and docs were rewritten for both policies.

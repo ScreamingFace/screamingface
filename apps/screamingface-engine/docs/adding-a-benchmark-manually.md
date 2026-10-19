@@ -171,16 +171,27 @@ rubric, several passes).
 
 ```python
 declaration = BenchmarkDeclaration(
-    failure_policy="coverage_declare",
+    failure_policy="withhold",  # or "coverage_declare"; see below
     interaction="multi_turn",  # medxpert; single_shot for most benchmarks
 )
 ```
 
 <img src="diagrams/failure-ladder-and-policy.png" width="1300">
 
-The invariant every benchmark factory repeats: **declare `withhold` only if your aggregate
-actually withholds** — every current benchmark reduces through the shared path, which scores
-exactly the gradeable subset and publishes coverage, i.e. `coverage_declare`.
+`failure_policy` is **required**: there is no default, so you must choose. It says what a Case
+with no numeric grade (a failed Case) does to the score:
+
+- `withhold` — the failed Case counts 0 and stays in the denominator. The score is the mean
+  over EVERY selected Case. Coverage still shows graded / selected beside it. MedXpertQA
+  declares this.
+- `coverage_declare` — the failed Case leaves the score. The score is the mean over the graded
+  Cases only, and coverage is the only place the failed Case shows.
+
+Under both, a run with no graded Case at all publishes no score. A `withhold` scorer must
+divide by every Case it receives (`Scorer` in `benchmarks/aggregation.py`), and the policy is
+Benchmark identity: changing it moves the revision. Pass the same value to the
+`BenchmarkAggregation` below (`failure_policy=`, also required), so the hooks and the
+declaration cannot disagree.
 
 Bundle the hooks into a `BenchmarkAggregation` (`benchmarks/shared_grading/benchmark_aggregation.py`) — MedXpertQA's is the smallest
 complete registration of the whole surface (`medxpert/aggregate.py`):
@@ -194,6 +205,7 @@ _PATH = BenchmarkAggregation(
     grading_failure_code=...,
     grading_failure_message=...,
     missing_material_code="missing_answer_asset",  # default: "missing_rubric_asset"
+    failure_policy=declaration.failure_policy,  # required; the same value as the declaration
 )
 ```
 

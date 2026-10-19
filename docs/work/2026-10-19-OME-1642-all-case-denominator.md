@@ -26,8 +26,9 @@ declared `withhold` failure policy. Spec: `docs/spec/2026-10-19-OME-1642-all-cas
 ## Planned changes
 
 Owner approved D1–D6 as recommended (2026-10-19). Units U1–U6 in
-`docs/plan/2026-10-19-OME-1642-all-case-denominator.md`: declare the policy per row (61
-`withhold`, 17 `coverage_declare`), the reduction, the revision pin, copy, owner-approved test
+`docs/plan/2026-10-19-OME-1642-all-case-denominator.md`: declare the policy per row (66
+`withhold` = 65 imported rows + medxpert, 17 `coverage_declare`; 82 imported rows after the
+rebase), the reduction, the revision pin, copy, owner-approved test
 literal updates, verification.
 
 ## Test plan
