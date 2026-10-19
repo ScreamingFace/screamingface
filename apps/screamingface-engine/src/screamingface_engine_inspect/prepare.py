@@ -1593,7 +1593,9 @@ def _validated_answer_key(
     choices: list[str] = [str(choice) for choice in sample.choices]
     if not choices or any(not choice.strip() for choice in choices):
         raise PrepareError(f"case {case_id}: sample carries an empty choice")
-    letters: str = "".join(chr(ord("A") + index) for index in range(len(choices)))
+    # WHY a list, not a joined string: `"BC" in "ABCD"` is a substring match, so a run of
+    # letters passed as one option while inspect's choice() reads it as two, B and C.
+    letters: list[str] = [chr(ord("A") + index) for index in range(len(choices))]
     # WHY by value too: an eval that lists its options inside the question and asks for a
     # number (worldsense: choices "1" "2" "3", target "2") keys its answer by the choice's
     # value, not a letter; its own scorer reads it that way. Either form names one option.
