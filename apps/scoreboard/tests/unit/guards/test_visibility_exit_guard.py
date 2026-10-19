@@ -70,6 +70,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::get_spec_history", "Raise"): 2,
     ("leaderboard.py::get_frontier", "Raise"): 1,
     ("scores.py::_read_score", "Raise"): 3,
+    # OME-1596, owner approved 2026-10-19: malformed-id 404 and database-error 503 carry no
+    # score data. The successful return is revalidated and must NEVER be exempted here.
+    ("scores.py::get_score_by_pinned_cache", "Raise"): 2,
     ("store.py::benchmark_to_schema", "Return"): 1,
     ("store.py::_content_hash", "Return"): 1,
     ("store.py::_scoped_idempotency_key", "Return"): 3,
@@ -81,6 +84,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("store.py::_resolve_owned", "Return"): 3,
     ("store.py::_readable_by", "Return"): 3,
     ("store.py::_links_to_a_private_board", "Return"): 1,
+    # OME-1596: initial private/unknown refusal, or a candidate passed to the route whose
+    # final turned_private check guards serialization. Neither helper return is an HTTP response.
+    ("store.py::public_score_for_pinned_cache", "Return"): 2,
     ("store.py::submit", "Raise"): 1,
     ("seed.py::_apply_orphan_visibility", "Return"): 1,
     ("seed.py::_classify_configured", "Return"): 1,

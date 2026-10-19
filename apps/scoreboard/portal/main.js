@@ -217,16 +217,42 @@ window.ScorePortal = (function () {
   // clipboard — the exact string pasted into the desktop app's Eval Studio
   // "URL4 expression" field. We copy it verbatim (no encoding, no sf://run
   // wrapper): a url4 spec can contain / ( ) ! $ # : and must survive intact.
+  var copyStatus = null;
   function createCopyButton(specId, expression, opts) {
     opts = opts || {};
     var label = opts.label || "Copy";
     var btn = el("button", opts.compact ? "btn ghost" : "btn", label);
     btn.type = "button";
-    btn.setAttribute("aria-label", "Copy the URL4 expression for " + specId);
+    // `ariaLabel` and `title` let another copy action (the Reproduce button) reuse this one, with
+    // the same copied/failed feedback, while naming what it copies.
+    var ariaLabel = opts.ariaLabel || "Copy the URL4 expression for " + specId;
+    btn.setAttribute("aria-label", ariaLabel);
+    // Mount an empty live region before interaction so clipboard outcomes can be announced
+    // without moving focus. Share it across all copy buttons on the page.
+    if (!copyStatus && document.body) {
+      copyStatus = el("span", "sr-only", "");
+      copyStatus.setAttribute("role", "status");
+      copyStatus.setAttribute("aria-live", "polite");
+      copyStatus.setAttribute("aria-atomic", "true");
+      document.body.appendChild(copyStatus);
+    }
+    if (opts.title) btn.title = opts.title;
     btn.addEventListener("click", function () {
       function done(ok) {
+        var feedback = ok ? "copied" : "copy failed";
         btn.textContent = ok ? "✓ copied" : "copy failed";
-        setTimeout(function () { btn.textContent = label; }, 1600);
+        btn.setAttribute("aria-label", feedback + ": " + ariaLabel);
+        if (copyStatus) {
+          // A separate update lets an identical outcome be announced on a second click too.
+          copyStatus.textContent = "";
+          setTimeout(function () {
+            copyStatus.textContent = label + " for " + specId + ": " + feedback;
+          }, 50);
+        }
+        setTimeout(function () {
+          btn.textContent = label;
+          btn.setAttribute("aria-label", ariaLabel);
+        }, 1600);
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(expression).then(

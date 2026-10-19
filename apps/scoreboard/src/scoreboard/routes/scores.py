@@ -22,6 +22,7 @@ from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi.exceptions import RequestValidationError
 from tortoise.exceptions import OperationalError
 
 from scoreboard.config import AuthMode, Settings
@@ -43,10 +44,12 @@ from scoreboard.routes.dependencies import (
 )
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
+    CaptureStatus,
     CodedErrorResponse,
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
+    PinnedCacheSchema,
     ReproductionSchema,
     ReproductionSubmission,
     ScoreMetadataEventSchema,
@@ -59,6 +62,8 @@ from scoreboard.scores.schemas import (
 from scoreboard.scores.store import (
     BenchmarkVisibilityChanged,
     ConcurrentScoreUpdate,
+    CreditMetadataInvalid,
+    FrozenCopyClaimed,
     PrivateBoardRequiresIdentity,
     ReproductionRunIdConflict,
     ScoreStore,
@@ -137,6 +142,15 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
         "model": FieldErrorResponse,
         "description": "Unknown benchmark_id.",
+    },
+    422: {
+        "model": CodedErrorResponse | ValidationErrorResponse,
+        "description": (
+            "Two shapes. `{code: frozen_copy_claimed}` (`CodedErrorResponse`): another score "
+            "already names this frozen_copy_id; one copy names one score. A list `detail` "
+            "(`ValidationErrorResponse`): the body failed validation, including an "
+            "`authors_metadata` key that is not a credited author."
+        ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: {
         "model": MessageErrorResponse,
@@ -235,6 +249,50 @@ def _score_not_found() -> HTTPException:
         status_code=status.HTTP_404_NOT_FOUND,
         detail=SCORE_NOT_FOUND_DETAIL,
         headers=PRIVATE_CACHE_HEADERS,
+    )
+
+
+def _invalid_credit_metadata(exc: CreditMetadataInvalid) -> RequestValidationError:
+    """The store's credit validation refusal as the framework's own 422, one per problem.
+
+    WHY the framework's shape: the shape checks on the same field already answer this way (from the
+    request schema), so a client reads credit metadata problems in the same shape.
+    """
+    return RequestValidationError(
+        [
+            {
+                "type": (
+                    "authors_metadata_unmatched"
+                    if problem.loc[0] == "authors_metadata"
+                    else "metadata_invalid"
+                ),
+                "loc": ("body", *problem.loc),
+                "msg": problem.message,
+                "input": problem.loc[-1],
+            }
+            for problem in exc.problems
+        ]
+    )
+
+
+def _submission_refusal(
+    exc: CreditMetadataInvalid | FrozenCopyClaimed,
+) -> RequestValidationError | HTTPException:
+    """The 422 for a submission the store refused for what it claims (OME-1596).
+
+    WHY one helper for both: `submit_score` sits at the repo's complexity limits, and both are the
+    same kind of answer, a request that cannot be stored as sent.
+    """
+    if isinstance(exc, CreditMetadataInvalid):
+        return _invalid_credit_metadata(exc)
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "frozen_copy_claimed",
+            # Neutral (review round 2): after a visibility flip the holder can be the caller's
+            # own row, which a retry can no longer read back; "another" would be untrue there.
+            "message": "a score already names this frozen_copy_id",
+        },
     )
 
 
@@ -345,6 +403,8 @@ async def submit_score(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=CONCURRENT_UPDATE_DETAIL,
             ) from exc
+        except (CreditMetadataInvalid, FrozenCopyClaimed) as exc:
+            raise _submission_refusal(exc) from exc
         except PrivateBoardRequiresIdentity as exc:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -466,6 +526,64 @@ async def get_public_score(score_id: UUID, request: Request, response: Response)
     return await _read_score(request, response, score_id, identity=None)
 
 
+@router.get(
+    "/public/scores/by-pinned-cache/{frozen_copy_id}",
+    response_model=PinnedCacheSchema,
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "model": MessageErrorResponse,
+            "description": (
+                "No public score names this pinned cache: unknown, malformed, or on a private "
+                "board. One answer for all three."
+            ),
+        },
+        status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
+            status.HTTP_503_SERVICE_UNAVAILABLE
+        ],
+    },
+)
+async def get_score_by_pinned_cache(frozen_copy_id: str, request: Request) -> PinnedCacheSchema:
+    """The public score a pinned cache (frozen copy) belongs to, with what a replay needs.
+
+    FEATURE: OME-1596 — the SDK's `evaluate(pinned_cache=...)` reads the url4, seed and published
+    result from here, replays from the copy and judges against the score.
+
+    INVARIANT: the SAME 404 (`_score_not_found`, private cache policy included) for an unknown id,
+    a malformed id and a score on a private board, so nobody can learn that a private copy exists.
+    The route rechecks visibility after the store read, immediately before serialization.
+    WHY under `/v1/public`: Cloudflare Access gates every `/v1/scores` subpath, so an anonymous
+    researcher replaying a published run would get a 302 there (see `get_public_score`).
+    Neither check takes identity: a private board's own submitter gets the 404 too.
+    """
+    try:
+        copy = str(UUID(frozen_copy_id))
+    except ValueError:
+        raise _score_not_found() from None
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        score = await store.public_score_for_pinned_cache(copy)
+        # INVARIANT (OME-894): the initial public read can go stale. Keep this the last await
+        # before serialization, inside the store-unavailable boundary, like other public reads.
+        if score is None or await turned_private(cast(str, getattr(score, "benchmark_id"))):
+            raise _score_not_found()
+        return PinnedCacheSchema(
+            score_id=score.id,
+            benchmark_id=cast(str, getattr(score, "benchmark_id")),
+            benchmark_revision=score.benchmark_revision,
+            url4_expression=score.url4_expression,
+            answer_seed=score.answer_seed,
+            score=score.score,
+            total_questions=score.total_questions,
+            case_digest=score.case_digest,
+            capture_status=cast("CaptureStatus | None", score.capture_status),
+        )
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+
+
 async def _load_visible_score(
     request: Request, score_id: UUID, identity: str
 ) -> tuple[Score, bool]:
@@ -542,10 +660,12 @@ async def patch_score(
     response: Response,
     identity: VerifiedIdentity,
 ) -> ScoreSchema:
-    """Edit the authors and paper link of a score you submitted (E14 A1).
+    """Edit the authors, paper link and metadata of a score you submitted (E14 A1, OME-1596).
 
-    An absent key leaves the field unchanged; `paper_url: null` clears the link. Every change is
-    logged (`GET /v1/scores/{id}/metadata-events`); a request that changes nothing is a no-op.
+    An absent key leaves the field unchanged; `paper_url: null` clears the link. A sent
+    `authors_metadata` or `paper_metadata` replaces the whole object and `null` clears it
+    (`paper_metadata: null` also clears the link). Every change is logged
+    (`GET /v1/scores/{id}/metadata-events`); a request that changes nothing is a no-op.
     """
     score, private = await _load_owned_score(request, score_id, identity)
     if private:
@@ -561,6 +681,8 @@ async def patch_score(
             benchmark_id=cast(str, getattr(score, "benchmark_id")),
             expect_private=private,
         )
+    except CreditMetadataInvalid as exc:
+        raise _invalid_credit_metadata(exc) from exc
     except BenchmarkVisibilityChanged as exc:
         # The board changed between the check above and the locked write. Same answer as the
         # resubmit path: nothing is wrong with the request, and a retry sees one consistent view.
