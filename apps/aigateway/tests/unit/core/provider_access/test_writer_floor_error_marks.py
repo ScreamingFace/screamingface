@@ -10,8 +10,8 @@
 # `status=active` cannot tell the old key's failure from the new key's; the generation can.
 # INVARIANT: a lost check marks nothing and changes no answer; a check never moves the generation.
 # AIDEV-NOTE: `migrated` pairs keep their own fences (§5.3) and are not covered here. The Profile
-# marks and the OAuth-callback failures are already fenced on the credential version and on the
-# flow's own pending row; the pins at the end prove they lose to the same ownership changes.
+# marks are already fenced on the credential version; the pin at the end proves they lose to the
+# same ownership change. The legacy OAuth-callback pin retired with that callback (OME-1209 E3b).
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from connection_backed_admin_probes import document, marker, put_pair_key, set_api_key
-from connection_backed_oauth_probes import callback, start, use_failing_exchange
+from connection_backed_admin_probes import document, marker, put_pair_key
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
 from aigateway.core.api_key_validation import (
@@ -280,30 +279,16 @@ class _Rejects:
         raise self._exc
 
 
-# --- pins: paths already fenced on the credential version or the flow's own row ---------------
+# --- pins: paths already fenced on the credential version -------------------------------------
 
 
 def test_a_profile_dispatch_failure_after_a_legacy_key_put_keeps_the_new_key(harness) -> None:
     harness.seed_profile(auth_type="api_key", credential="sk-ant-api03-old-key-1111")
     target = _resolve(harness)
-    set_api_key(harness, key=NEW_KEY)
+    put_pair_key(harness, key=NEW_KEY)
 
     _record(harness, target)
 
     current = document(harness)
     assert current is not None
     assert current.state is ProfileState.AUTHENTICATED
-
-
-def test_a_legacy_oauth_failure_after_a_legacy_key_put_leaves_the_document_alone(harness) -> None:
-    state = start(harness)
-    put_pair_key(harness, key=NEW_KEY)
-    use_failing_exchange(harness)
-
-    # WHY raises: the failed exchange surfaces as today's 500; this harness re-raises it.
-    with pytest.raises(AuthError):
-        callback(harness, state)
-
-    current = document(harness)
-    assert current is not None
-    assert (current.state, current.auth_type) == (ProfileState.AUTHENTICATED, "api_key")

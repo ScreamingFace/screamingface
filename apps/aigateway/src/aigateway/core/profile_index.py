@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from .auth_types import AuthType
 from .credential_blob.model import CredentialBlob
 from .credential_blob.store import CredentialBlobStore, ORMStore
-from .profile_models import Profile, ProfileDefaults, ProfileIndex, ProfileState
+from .profile_models import Profile, ProfileIndex, ProfileState
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ _INDEX_ACCOUNT_PREFIX = "account:"
 
 
 class ProfileTransitionConflict(RuntimeError):
-    """Raised when a stale authentication flow no longer owns a pending profile."""
+    """Raised when the document changed or vanished under a conditional write."""
 
 
 def _index_account_for(account_id: str) -> str:
@@ -139,142 +139,6 @@ class ProfileIndexStore:
         await self._store.mutate(INDEX_CREDENTIAL_SERVICE, _index_account_for(account_id), mutate)
         return stamped[0]
 
-    async def begin_pending(self, profile: Profile) -> int:
-        """Publish ``profile`` as pending and claim a fresh ownership generation.
-
-        Returns the generation assigned to THIS operation. INVARIANT (OME-307 Blocker 1):
-        the profile row and its ownership generation are written in ONE atomic index-row CAS,
-        so a later ``begin_pending`` for the same profile strictly supersedes this one. The
-        generation the caller receives is the token it must later present to
-        ``authenticate_pending``; a stale caller whose generation was bumped loses even though
-        the row is still PENDING. The generation is an internal nonce — never surfaced via API.
-        """
-        if not profile.account_id:
-            raise ValueError("profile.account_id is required")
-
-        assigned: dict[str, int] = {}
-        async with self._lock:
-            legacy_seed = await self._read_legacy_account_index(profile.account_id)
-
-            def mutate(raw: str | None) -> str:
-                idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
-                generation = idx.oauth_generations.get(profile.id, 0) + 1
-                idx.oauth_generations[profile.id] = generation
-                idx.profiles = [p for p in idx.profiles if p.id != profile.id] + [profile]
-                # On a CAS retry mutate() re-runs against the latest committed row, so the
-                # last (successful) run's generation is the one that is durably stored.
-                assigned["generation"] = generation
-                return idx.model_dump_json()
-
-            await self._store.mutate(
-                INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(profile.account_id),
-                mutate,
-            )
-        return assigned["generation"]
-
-    async def authenticate_pending(
-        self,
-        profile: Profile,
-        *,
-        expected_generation: int | None = None,
-        account_label: str | None = None,
-    ) -> None:
-        """Atomically replace a still-pending profile with its authenticated form.
-
-        INVARIANT: exactly ONE conditional durable publication under a SINGLE process-
-        lock acquisition. The optimistic CAS below (guarded on the current ciphertext by
-        ``ORMStore.mutate``) is the sole cross-worker serializer; the process ``_lock`` is
-        only a same-process convenience. The lock is released before the caller's
-        enclosing transaction commits and is never re-acquired afterwards, so a second
-        writer can never invert the application-lock / index-row-lock order (OME-307
-        Unit 1 — a trailing ``upsert`` here previously deadlocked concurrent OAuth
-        callbacks on PostgreSQL).
-
-        INVARIANT (OME-307 Blocker 1): when ``expected_generation`` is supplied, OWNERSHIP is
-        enforced INSIDE this same atomic CAS — not by a separate in-memory precheck. A stale
-        flow whose generation was superseded by a newer ``begin_pending`` loses here even
-        though the row is still PENDING, closing the check-then-act TOCTOU window. The
-        ``state is PENDING`` guard remains as defense in depth for the case where a newer flow
-        (or an API-key write) has already committed a non-pending state.
-        """
-        if not profile.account_id:
-            raise ValueError("profile.account_id is required")
-
-        async with self._lock:
-            legacy_seed = await self._read_legacy_account_index(profile.account_id)
-
-            def mutate(raw: str | None) -> str:
-                idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
-                current = next((item for item in idx.profiles if item.id == profile.id), None)
-                # INVARIANT: a consumed OAuth callback cannot overwrite a later API-key choice.
-                if current is None or current.state is not ProfileState.PENDING:
-                    raise ProfileTransitionConflict("profile is no longer pending")
-                if (
-                    expected_generation is not None
-                    and idx.oauth_generations.get(profile.id) != expected_generation
-                ):
-                    raise ProfileTransitionConflict("a newer OAuth flow owns this pending profile")
-                changes = {
-                    "state": profile.state,
-                    "auth_type": profile.auth_type,
-                    # WHY (OME-307 M-1): publish last_refreshed_at inside this SAME CAS so it
-                    # joins mark_authenticated_error's ownership fence. Omitting it left the row
-                    # at the pending None, letting a stale refresh-failure carrying that None
-                    # error the freshly re-authenticated owner.
-                    "last_refreshed_at": profile.last_refreshed_at,
-                }
-                if account_label is not None:
-                    changes["account_label"] = account_label
-                published = current.model_copy(update=changes)
-                # INVARIANT: merge lifecycle fields into the row validated by this CAS. A
-                # metadata PATCH that committed after the callback's earlier read must survive.
-                idx.profiles = [item for item in idx.profiles if item.id != profile.id] + [
-                    published
-                ]
-                return idx.model_dump_json()
-
-            await self._store.mutate(
-                INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(profile.account_id),
-                mutate,
-            )
-
-    async def mark_pending_error(self, profile_id: str, *, expected_generation: int) -> None:
-        """Transition a still-owned pending profile to ERROR under ONE atomic index CAS.
-
-        INVARIANT (OME-307 Blocker 2): mark ERROR only if the profile is still present, still
-        PENDING, and still owned by ``expected_generation``. A newer OAuth flow, a committed
-        API-key write, or a delete means this failed operation no longer owns the row, so the
-        stale failure raises ``ProfileTransitionConflict`` (the caller treats it as "not mine,
-        nothing to mark") rather than corrupting the newer state. The presence check is
-        require_present — a deleted profile is NEVER recreated. All three conditions are checked
-        inside the mutator so they re-evaluate on every ``ORMStore.mutate`` CAS retry.
-        """
-        account_id = _account_id_from_profile_id(profile_id)
-
-        async with self._lock:
-            legacy_seed = await self._read_legacy_account_index(account_id)
-
-            def mutate(raw: str | None) -> str:
-                idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
-                current = next((p for p in idx.profiles if p.id == profile_id), None)
-                if current is None or current.state is not ProfileState.PENDING:
-                    raise ProfileTransitionConflict(
-                        "profile is not a pending profile this operation owns"
-                    )
-                if idx.oauth_generations.get(profile_id) != expected_generation:
-                    raise ProfileTransitionConflict("a newer OAuth flow owns this pending profile")
-                errored = current.model_copy(update={"state": ProfileState.ERROR})
-                idx.profiles = [p for p in idx.profiles if p.id != profile_id] + [errored]
-                return idx.model_dump_json()
-
-            await self._store.mutate(
-                INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(account_id),
-                mutate,
-            )
-
     async def mark_authenticated_error(
         self,
         profile_id: str,
@@ -308,42 +172,6 @@ class ProfileIndexStore:
                 mutate,
             )
 
-    async def update_metadata(
-        self,
-        profile_id: str,
-        *,
-        defaults: ProfileDefaults | None = None,
-        account_label: str | None = None,
-    ) -> Profile:
-        """Patch non-lifecycle fields against the latest present profile atomically."""
-        account_id = _account_id_from_profile_id(profile_id)
-        updated: dict[str, Profile] = {}
-
-        async with self._lock:
-            legacy_seed = await self._read_legacy_account_index(account_id)
-
-            def mutate(raw: str | None) -> str:
-                idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
-                current = next((p for p in idx.profiles if p.id == profile_id), None)
-                if current is None:
-                    raise ProfileTransitionConflict("profile was concurrently deleted")
-                changes = {}
-                if defaults is not None:
-                    changes["defaults"] = defaults
-                if account_label is not None:
-                    changes["account_label"] = account_label
-                patched = current.model_copy(update=changes)
-                idx.profiles = [p for p in idx.profiles if p.id != profile_id] + [patched]
-                updated["profile"] = patched
-                return idx.model_dump_json()
-
-            await self._store.mutate(
-                INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(account_id),
-                mutate,
-            )
-        return updated["profile"]
-
     async def remove(self, profile_id: str) -> None:
         account_id = _account_id_from_profile_id(profile_id)
 
@@ -353,10 +181,6 @@ class ProfileIndexStore:
             def mutate(raw: str | None) -> str:
                 idx = legacy_seed if raw is None else ProfileIndex.model_validate_json(raw)
                 idx.profiles = [p for p in idx.profiles if p.id != profile_id]
-                # INVARIANT: retain the last generation as an internal tombstone. Reusing an old
-                # number after delete/recreate would let a callback consumed before the delete
-                # authenticate the new pending profile. Presence/state checks still prevent a
-                # deleted profile from being authenticated or marked ERROR.
                 return idx.model_dump_json()
 
             await self._store.mutate(

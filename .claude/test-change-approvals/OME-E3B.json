@@ -1,0 +1,142 @@
+{
+  "issue": "OME-E3B",
+  "branch": "e3b-retire-dead-profile-core",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-19",
+  "scope": "Stage E, E3b: the core left without a producer after E3 is deleted. Prior tests migrate per the owner-approved E3b test map (80 retire, 51 adapt, 8 keep). A test whose only subject or only actor is a deleted symbol is removed; a file whose every test retired keeps only its docstring naming the successors, including the helper module oauth_flow_seed.py. A test whose subject survives is adapted: setup through the retired Profile flow seeder or the deleted admin operations moves to the native OAuth start, a direct store seed, set_pair_api_key or delete_pair; PendingAuthEntry constructors drop profile_id and pass connection_id. Assertion edits per the map: credential reads move from the Profile address to the Connection locator; a failed callback is observed on its own Connection (status error) instead of the Profile; the index version document drops oauth_generations; the evicted and invalidated lists follow the single surviving publication path; summary projections of the deleted admin are dropped. Inventory and no-write loops drop the deleted symbols. One adapted race moves its intrusion point: the revoked-between test in test_connection_backed_admin.py revokes on the second Connection listing, outside the PUT transaction, instead of on index.get; its assertions are unchanged.",
+  "reason": "OME-1209 Stage E3b deletes the Profile-era core that only the retired E3 handlers and legacy pending flows reached (owner decision D3), so tests driving those symbols can no longer run. Owner decisions 2026-10-19: the E3b test map as proposed, PendingAuthEntry.connection_id required, ProfileIndex.oauth_generations deleted, the dead callback branches moved from E4 to E3b.",
+  "files": {
+    "apps/aigateway/tests/integration/test_lifecycle_postgres_races.py": {
+      "base_blob": "432cfd4ce96161cd712acdfd58ff51c2ed7ef882",
+      "approved_blob": "1f3089902fbdb890794d73f99839bdf655ac82ec"
+    },
+    "apps/aigateway/tests/integration/test_provider_access_backing_postgres.py": {
+      "base_blob": "035dd0f4f6ef3197ce9b58d1e32270a93696a501",
+      "approved_blob": "8f3f73c391b45dc89db03dc7815a53e1b09fc714"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/connection_backed_admin_probes.py": {
+      "base_blob": "b5296cc5ebfb2cc203ad529f6d5d7bb0ca2adf26",
+      "approved_blob": "77ff26da8b5375794daf24671830fabefe5786f1"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/connection_backed_oauth_probes.py": {
+      "base_blob": "e3a90b9d1f7106887ff001bec8d4590667f99d0e",
+      "approved_blob": "9817bab5771468768d07df15a63b83b519a3df61"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin.py": {
+      "base_blob": "27a95435463aaf968090ab33ffea5792310849c0",
+      "approved_blob": "97ae7ee6f6f62ff70fe371fa8ba1140ddf8c7189"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin_contract.py": {
+      "base_blob": "26f3dcf6444c5ca1e7941c090ca0612dd72f690a",
+      "approved_blob": "5bf4ee08fcaac097696f3d8ce1135b9fa3c6180a"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin_delete_list.py": {
+      "base_blob": "8c60a5f9f035ecf06c8da3bd6398876c6482bba8",
+      "approved_blob": "1866ce3657d33da4baaf85f1a625b5e3f2b894f2"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_oauth_fences.py": {
+      "base_blob": "498e1c6f63e612bc7fc7ba3f9a8f8037c1111508",
+      "approved_blob": "0ddbb44b401789ffcfe67f2fe2a0c78acffbbc0b"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_oauth_flow.py": {
+      "base_blob": "1cb62dcda42fa1e8c4126d25d12f2b0d547d685b",
+      "approved_blob": "a024cdbacd3db76c3e08d633bba488f9a3e8dc56"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_shared_addresses.py": {
+      "base_blob": "166eec72e81de9c6c7c0979f71eae703ac718c29",
+      "approved_blob": "5a66fc31b5e676a3bde487ac0667341eef3277d3"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_error_mark_inventory.py": {
+      "base_blob": "285b49ad8b8dc61a9dd5e8fb86d63fb3f747eda6",
+      "approved_blob": "1facad1c6dfdc5e6615b9241f1051a001161c7a9"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_mutations.py": {
+      "base_blob": "2ca8d7fbf0afc598f45e8885c938a511a072f1e2",
+      "approved_blob": "46e1458dcf879928656e7dc451cb547820c604ad"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_availability.py": {
+      "base_blob": "2862b3ff44ef114406ef93b9b1c4ae8beb380872",
+      "approved_blob": "81198e6124b7487a2b6b25dfbf387a14fc0c4e09"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_http_admin_rows.py": {
+      "base_blob": "4d1091f5d89188df69e00ab26595424c63518c0f",
+      "approved_blob": "c862d8e8682c7298ae7c7cc9ab4e5c5b741a6b17"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_port_shape.py": {
+      "base_blob": "02f3537bc11ebaa186d90161565e3ed0ab451fb1",
+      "approved_blob": "b91160d85ee5f579f35eaab96f4bd15b582ad3d4"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_credential_admin.py": {
+      "base_blob": "ad31a7e7b55f6f00e15f5d810c3314ba3afade2d",
+      "approved_blob": "21f396fc72a6cdc1be6c6a37df169e2cc303846a"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_refresh_guard_inventory.py": {
+      "base_blob": "9f39a7b151a6366b922746354a653fa42722c230",
+      "approved_blob": "f41fb7b86fa778c8c3e8738302f9ff1cfc969b41"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_error_marks.py": {
+      "base_blob": "e79e8b731e156b6c2b4f63076e7bf329ae3652b0",
+      "approved_blob": "f0d3ac9288e69a6e89fd03bf9e78fd4910fea7f0"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_legacy_admin.py": {
+      "base_blob": "3adf214743583fc38d637ad97f8e9029706dcdb2",
+      "approved_blob": "065f768408b7e96857cd531e7b8631c99556db7b"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_legacy_oauth.py": {
+      "base_blob": "ae61b14ddb8a8510181ad2b7a74b9da2aee5425d",
+      "approved_blob": "678df65ac161d1650f588b69a02f7b4592cffb81"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_native.py": {
+      "base_blob": "d0bb7b1968e78ab9af8b7bcfad133eb57db56111",
+      "approved_blob": "e081ece9b98a930047fac5128b82b0c1630cb4a9"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_refresh.py": {
+      "base_blob": "95a34809eaef0bbcd66b9777df90c7f670d4e419",
+      "approved_blob": "510e672da5248fe0a42902e130dc5a195de52422"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_refresh_reauth.py": {
+      "base_blob": "5156d90efffd221ce896fc25860ddd790c088dd8",
+      "approved_blob": "4b87422fc7810880981aa0320e33cd7bb542b908"
+    },
+    "apps/aigateway/tests/unit/oauth_flow_seed.py": {
+      "base_blob": "d19ee433adb525e37d914742a1b112610616a694",
+      "approved_blob": "0a9e11d27f4e30fc1a863e9887cc85fbbdcfbea4"
+    },
+    "apps/aigateway/tests/unit/test_admin_connections_mutation_routes.py": {
+      "base_blob": "0f5cbc9a736e8b0b636e424c91d89980880fc0f6",
+      "approved_blob": "7d8dc761a53f34aae8bc70f95d15d50189290eef"
+    },
+    "apps/aigateway/tests/unit/test_api_key_validation_routes.py": {
+      "base_blob": "750230c4c9c97c1df317cf9e8919e06b051d1f18",
+      "approved_blob": "4a542f26d99560b5baed7c082f0b78d7093926dd"
+    },
+    "apps/aigateway/tests/unit/test_auth_routes.py": {
+      "base_blob": "be65cd8413edbd648eb83c6b59c055070b985f3a",
+      "approved_blob": "326a06db2bb7d90ab92a3bd23897b75194b2ad35"
+    },
+    "apps/aigateway/tests/unit/test_pending_auth.py": {
+      "base_blob": "0ecf3b217f7018c507657c612df78753ad9b71a9",
+      "approved_blob": "b56bcf4b2995393d8d2b0e27a061ed7bc34ebf91"
+    },
+    "apps/aigateway/tests/unit/test_profile_api_key_races.py": {
+      "base_blob": "205ca0df1ef8aefd9314b5d413fcc2d166b9e8ed",
+      "approved_blob": "34135329d104d100bbfbc68e255f7b12da7f13dd"
+    },
+    "apps/aigateway/tests/unit/test_profile_index.py": {
+      "base_blob": "cc2df60789f95f1351c2db7c5aebe3e7f4ed29f2",
+      "approved_blob": "af4696ef6246245fa01956d05edb31b4a7044d62"
+    },
+    "apps/aigateway/tests/unit/test_profile_oauth_flow_ownership.py": {
+      "base_blob": "86b167544fc4b6996b5f2d7e562611d7f08cc35f",
+      "approved_blob": "7b959a3be09f919b05ebf1b0481cd64a77ce113a"
+    },
+    "apps/aigateway/tests/unit/test_profile_publication_locking.py": {
+      "base_blob": "92f5bd3a11b6f813bd84454820d236a5bd2d1718",
+      "approved_blob": "47d459832b10da0e416105866d48a5be1c260845"
+    },
+    "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
+      "base_blob": "4d616effdb7afd0d0423c0a5d0378ef4d9a42820",
+      "approved_blob": "12ba74cbd21c29d5a38ab3a688b34218663cf5cd"
+    }
+  }
+}

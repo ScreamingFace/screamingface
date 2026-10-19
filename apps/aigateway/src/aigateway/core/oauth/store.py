@@ -69,9 +69,9 @@ class OAuthConnectionStore:
     ) -> OAuthConnection:
         """Create a pending Connection; `credential_locator` defaults to today's UUID address.
 
-        WHY the keyword (OME-1208, S2'b2): a MIGRATED pair's Profile-facade OAuth flow opens its
-        fresh pending row on the requested name's Profile blob address, so an R1 rollback reads
-        the credential exactly where the legacy path expects it.
+        WHY the keyword (OME-1208, S2'b2): the backfill creates a Profile's Connection on that
+        Profile's blob address, so an R1 rollback reads the credential exactly where the legacy
+        path expects it.
         """
         await ensure_anonymous_account(account_id)
         return await OAuthConnection.create(

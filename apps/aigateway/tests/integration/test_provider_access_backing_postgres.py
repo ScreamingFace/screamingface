@@ -3,9 +3,9 @@
 # FEATURE: Stage B Target — on PostgreSQL (READ COMMITTED) the pair marker's compare-and-set is a
 # ROW-LOCK fence: two authority writers on one migrated pair never both commit; the loser's whole
 # transaction rolls back and it answers 409. SQLite's single writer cannot show this.
-# INVARIANT (D14): one write owner per owned pair — the native routes, the legacy op 8 and the
-# Profile-facade OAuth callback all advance the SAME marker row first, so whoever holds that row
-# lock decides, and the other re-evaluates its `WHERE generation = <stale>` to zero rows.
+# INVARIANT (D14): one write owner per owned pair — the native routes and the legacy op 8 both
+# advance the SAME marker row first, so whoever holds that row lock decides, and the other
+# re-evaluates its `WHERE generation = <stale>` to zero rows.
 # AIDEV-NOTE: the lane's fixtures are bound from `test_lifecycle_postgres_races.py` (one container
 # per module, migrated to head by the tortoise CLI — a broken 0012 fails at fixture time). Run
 # with `AIGW_TEST_PG=1`; the module skips otherwise. The admin account is shared by every test,
@@ -19,7 +19,6 @@ import json
 import threading
 import time
 from collections.abc import Callable, Coroutine
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any
 from uuid import UUID, uuid4
@@ -38,7 +37,6 @@ from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access.models import ProviderCredentialSlot
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
-from tests.unit.oauth_flow_seed import open_oauth_flow
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -289,56 +287,7 @@ def test_a_migrated_pair_reads_through_its_locator_on_postgres(pg_client: TestCl
 # --- two authority writers on one pair ----------------------------------------------------------
 
 
-def test_oauth_callback_holding_the_marker_makes_the_native_key_route_lose_on_postgres(
-    pg_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    account_id = _account_id(pg_client)
-    name = _fresh_name()
-    effective = _seed(pg_client, account_id, name, auth_type="api_key", blob=_api_key_blob(KEY))
-    _app(pg_client).state.anthropic_http_factory = _token_factory("oauth-tok")
-    # WHY the seeder: the Profile start route answers 410 since OME-1209 Stage E3, while the
-    # migrated-pair facade callback branch under test ships until E4.
-    state = _call(
-        pg_client,
-        open_oauth_flow,
-        _app(pg_client),
-        account_id=account_id,
-        provider=PROVIDER,
-        name=name,
-    )
-    generation_after_start = _marker(pg_client, account_id).generation
-    hold = _MarkerHold(monkeypatch, holds=lambda i, _kw: i == 0)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        callback = executor.submit(
-            pg_client.get,
-            f"/v1/auth/{PROVIDER}/callback",
-            params={"code": "code-1", "state": state},
-            follow_redirects=False,
-        )
-        assert hold.held.wait(20), "the callback never advanced the marker"
-        setting = executor.submit(
-            pg_client.put,
-            f"/v1/oauth/connections/{effective}/api-key",
-            json={"api_key": "sk-ant-api03-postgres-replacement-key-8642"},
-        )
-        assert hold.attempted.wait(20), "the key replacement never reached its marker advance"
-        hold.release.set()
-        completed = callback.result(timeout=30)
-        set_result = setting.result(timeout=30)
-
-    assert completed.status_code == 200, completed.text
-    assert set_result.status_code == 409, set_result.text
-    assert set_result.json()["detail"]["code"] == "connection_conflict"
-    row = _connection(pg_client, account_id, effective)
-    assert (row.status, row.auth_type) == ("active", "oauth")
-    pair = _marker(pg_client, account_id)
-    assert (pair.effective_connection_id, pair.generation) == (
-        effective,
-        generation_after_start + 1,
-    )
-    blob = _profile_blob(pg_client, account_id, name)
-    assert blob is not None and json.loads(blob)["access_token"] == "oauth-tok"
-    assert "replacement-key" not in blob
-    document = _document(pg_client, account_id, name)
-    assert document is not None and document.auth_type == "oauth"
+# WHY no facade-callback marker race: the Profile-facade OAuth callback retired at OME-1209
+# Stage E3b; a native callback holding the marker against a racing key write is pinned by
+# `test_native_repair_postgres.py`
+# (`test_a_repair_holding_the_marker_makes_a_racing_key_takeover_lose_on_postgres`).

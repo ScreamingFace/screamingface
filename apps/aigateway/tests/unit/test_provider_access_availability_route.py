@@ -238,8 +238,6 @@ def test_route_reads_only_the_index_builds_no_strategy_and_writes_nothing(
         "upsert",
         "remove",
         "mark_authenticated_error",
-        "mark_pending_error",
-        "update_metadata",
     ):
         monkeypatch.setattr(edge.index, name, _no_write)
 

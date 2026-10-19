@@ -19,7 +19,7 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-from connection_backed_admin_probes import blob_at_connection_address, document, marker, set_api_key
+from connection_backed_admin_probes import blob_at_connection_address, document, marker
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of, callback, pending_entry, use_tokens
 from fastapi import HTTPException
@@ -340,7 +340,7 @@ def test_a_native_callback_after_another_ownership_change_loses_and_activates_no
     use_tokens(legacy, "late-tok")
     started = _start(legacy)
     state = started.json()["state"]
-    set_api_key(legacy, "default")
+    legacy.call(_claim_the_current_pair, legacy.account_id)
 
     response = callback(legacy, state)
 
@@ -360,7 +360,7 @@ def test_a_native_callback_that_lost_the_pair_leaves_a_same_named_profile_unchan
     before = document(legacy, "work")
     use_tokens(legacy, "late-tok")
     started = _start(legacy, label="work")
-    set_api_key(legacy, "default")
+    legacy.call(_claim_the_current_pair, legacy.account_id)
 
     _assert_connection_conflict(callback(legacy, started.json()["state"]))
 

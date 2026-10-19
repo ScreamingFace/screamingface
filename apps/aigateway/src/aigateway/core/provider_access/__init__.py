@@ -22,9 +22,7 @@ from .auth_mode import (
 )
 from .backfill_apply import BackfillReport, all_account_ids, run_backfill
 from .backfill_classify import BackfillContext, PairPlan, classify_account
-from .connection_admin import ConnectionBackedCredentialAdmin
 from .connection_backed import ConnectionBackedProviderAccess
-from .connection_facade import FacadeTarget, facade_target, patch_facade, refresh_facade
 from .connection_native import (
     claim_for_connection,
     claim_native_write,
@@ -39,12 +37,6 @@ from .connection_native import (
     retire_effective,
     retire_replaced,
     take_over_effective,
-)
-from .connection_oauth import (
-    MigratedFlow,
-    begin_connection_oauth,
-    complete_connection_oauth,
-    fail_connection_oauth,
 )
 from .pair_admin import (
     CredentialState,
@@ -64,12 +56,7 @@ from .pair_authority import (
     PairAuthorityConflict,
     PairAuthorityStore,
 )
-from .ports import ProviderAccess, ProviderCredentialAdmin, ProviderOperationalAccess
-from .profile_admin import (
-    ProfileBackedCredentialAdmin,
-    provider_credential_admin_for,
-    summary_of,
-)
+from .ports import ProviderAccess, ProviderOperationalAccess
 from .profile_authorize import (
     apply_authorization,
     invalidate_session,
@@ -92,7 +79,6 @@ from .types import (
     CredentialAuthorityUnavailable,
     CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
-    CredentialSummary,
     CredentialTarget,
     PairNotManageable,
     ProviderAccessRefusal,
@@ -113,8 +99,6 @@ from .writer_floor import (
     claim_observed,
     claim_pair,
     fences_writer,
-    hold_observed,
-    hold_pair,
 )
 
 __all__ = [
@@ -128,7 +112,6 @@ __all__ = [
     "Authorization",
     "AvailabilityRow",
     "AvailabilityStatus",
-    "ConnectionBackedCredentialAdmin",
     "ConnectionBackedProviderAccess",
     "ConnectionRefreshOwner",
     "CredentialAuthorityUnavailable",
@@ -136,10 +119,7 @@ __all__ = [
     "CredentialStoreReadUnavailable",
     "CredentialStoreUnavailable",
     "MigrationState",
-    "CredentialSummary",
     "CredentialTarget",
-    "FacadeTarget",
-    "MigratedFlow",
     "PairAuthority",
     "PairAuthorityConflict",
     "PairConflict",
@@ -150,12 +130,10 @@ __all__ = [
     "PairMutation",
     "PairNotManageable",
     "PairAuthorityStore",
-    "ProfileBackedCredentialAdmin",
     "ProfileBackedProviderAccess",
     "ProfileRefreshOwner",
     "ProviderAccess",
     "ProviderAccessRefusal",
-    "ProviderCredentialAdmin",
     "ProviderOperationalAccess",
     "ProviderUnknown",
     "ResolvePolicy",
@@ -176,7 +154,6 @@ __all__ = [
     "auth_mode_for",
     "auth_type_of",
     "available_auth_modes",
-    "begin_connection_oauth",
     "bootstrap_under_the_floor",
     "claim_for_connection",
     "claim_native_write",
@@ -185,7 +162,6 @@ __all__ = [
     "classify_pair",
     "delete_pair",
     "set_pair_api_key",
-    "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",
     "credential_has_other_owner",
@@ -193,23 +169,16 @@ __all__ = [
     "credential_name_of",
     "effective_pair_of",
     "effective_to_replace",
-    "facade_target",
-    "fail_connection_oauth",
     "fences_writer",
     "guard_refresh",
-    "hold_observed",
-    "hold_pair",
     "invalidate_session",
     "mark_profile_error_fresh",
     "oauth_connection_store",
     "operational_access_for",
     "pair_inventory",
-    "patch_facade",
     "profileless_auth_mode",
     "provider_access_for",
-    "provider_credential_admin_for",
     "provider_name_of",
-    "refresh_facade",
     "reauth_url_for",
     "replace_effective",
     "replaced_label",
@@ -217,6 +186,5 @@ __all__ = [
     "retire_effective",
     "retire_replaced",
     "store_reads",
-    "summary_of",
     "take_over_effective",
 ]

@@ -23,7 +23,6 @@ import httpx
 import pytest
 from connection_backed_admin_probes import (
     KEY,
-    admin_of,
     blob_at_connection_address,
     blob_at_profile_address,
     connection,
@@ -31,7 +30,7 @@ from connection_backed_admin_probes import (
     marker,
 )
 from connection_backed_harness import ConnectionBackedHarness
-from connection_backed_oauth_probes import access_token_of, callback, start, use_tokens
+from connection_backed_oauth_probes import access_token_of, callback, use_tokens
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
 from aigateway.core.credential_names import credential_name_for
@@ -44,6 +43,8 @@ from aigateway.core.provider_access import (
     ResolvePolicy,
     Selector,
     WriteConflict,
+    delete_pair,
+    set_pair_api_key,
 )
 from aigateway.core.provider_access.refresh_guard import (
     ConnectionRefreshOwner,
@@ -113,18 +114,24 @@ def an_ownership_claim(h: Any) -> Intrusion:
     return intrude
 
 
+async def _accept_key() -> None:
+    return None
+
+
 def a_key_replacement(h: Any) -> Intrusion:
+    """The D18 admin PUT of a new key — the surviving key write since OME-1209 E3b."""
+
     async def intrude() -> None:
-        await admin_of(h).set_api_key(
-            h.account_id, PROVIDER, raw_api_key=KEY, legacy_name="default"
-        )
+        await set_pair_api_key(h.client.app, h.account_id, PROVIDER, KEY, validate=_accept_key)
 
     return intrude
 
 
 def a_delete(h: Any) -> Intrusion:
+    """The D18 admin DELETE of the pair's credential."""
+
     async def intrude() -> None:
-        await admin_of(h).delete(h.account_id, PROVIDER, legacy_name="default")
+        await delete_pair(h.client.app, h.account_id, PROVIDER)
 
     return intrude
 
@@ -294,7 +301,12 @@ def test_a_reauth_in_flight_survives_an_ordinary_refresh(migrated) -> None:
     # captured still completes after a refresh published in between.
     h = migrated
     h.seed_profile()
-    state = start(h)
+    # WHY the effective row's own label: a native flow named like it re-authenticates the pair.
+    started = h.client.post(
+        "/v1/oauth/connections", json={"provider": PROVIDER, "label": "default"}
+    )
+    assert started.status_code == 201, started.text
+    state, connection_id = started.json()["state"], started.json()["connection_id"]
     before = marker(h).generation
     use_tokens(h, "refreshed")
     effective = h.migrated["default"]
@@ -305,7 +317,7 @@ def test_a_reauth_in_flight_survives_an_ordinary_refresh(migrated) -> None:
     resp = callback(h, state)
 
     assert resp.status_code < 400, resp.text
-    assert access_token_of(blob_at_profile_address(h)) == "reauthed"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "reauthed"
 
 
 # --- a strategy outside the app ---------------------------------------------------------------

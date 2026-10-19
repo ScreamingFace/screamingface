@@ -6,9 +6,8 @@ and every read-path mutation lands on that Connection or its exact strategy-decl
 
 # FEATURE: Stage B Target — Connection-backed authority behind the unchanged provider-access port.
 # INVARIANT (D14): the legacy document's own state is never authority for a migrated pair; the
-# effective Connection's status is. The document contributes its defaults (D16 (a)) and its name —
-# the selector still names it, so every facade URL stays the legacy one.
-# INVARIANT (facade parity): legacy op 4/5 rules still apply to unclassified failures. A classified
+# effective Connection's status is.
+# INVARIANT (legacy parity): legacy op 4/5 rules still apply to unclassified failures. A classified
 # `needs_reauth` outcome instead preserves lifecycle, evicts and invalidates, while resolve exposes
 # the pinned OME-1198 refusal; `insufficient_credits` remains dispatchable for recovery.
 """
@@ -50,14 +49,6 @@ from .types import (
     WriteConflict,
 )
 
-# WHY public: the design card's state mapping in the LEGACY vocabulary (active→authenticated,
-# pending→pending, error→error; revoked/absent have no legacy state) — the admin facade renders a
-# migrated pair's compat document with it.
-LEGACY_STATE_FOR_STATUS: dict[str, str] = {
-    "active": "authenticated",
-    "pending": "pending",
-    "error": "error",
-}
 _AVAILABILITY_FOR_STATUS: dict[str, AvailabilityStatus] = {
     "active": "connected",
     "pending": "pending",
@@ -159,7 +150,7 @@ async def authorize_migrated(
         credential_strategy_cache(app).evict(credential_name)
         if isinstance(exc, AuthError):
             # WHY only a REJECTED credential marks: an absent blob is recoverable, and flipping
-            # the authority to error would hide that (the Profile rule, kept for the facade).
+            # the authority to error would hide that (the Profile rule, kept).
             await oauth_connection_store(app).mark_error(backing.connection, str(exc))
             invalidate_session(plugin, credential_name)
         raise TargetReauthRequired(provider, target.reauth_url or "", message=str(exc)) from exc

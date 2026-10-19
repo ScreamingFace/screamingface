@@ -35,7 +35,7 @@ Paths are relative to `apps/aigateway/src/aigateway` unless stated.
 
 ```
 E1 successor pointers ─▶ E1b native re-authorisation ─┐
-                                                      ├─▶ E3 route retirement ─▶ (census + backfill, owner) ─▶ E4 authority end
+                                                      ├─▶ E3 route retirement ─▶ E3b dead core ─▶ (census + backfill, owner) ─▶ E4 authority end
 E2a neutral types ────────────────────────────────────┤
 E2b dead defaults ────────────────────────────────────┘
 ```
@@ -137,7 +137,7 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   method they served, `include_in_schema=False`, and answers R1 from a static table
   (path → successor) without reading the body or touching storage. The old handlers, their
   request/response schemas and `_begin_legacy_pending` are deleted. The OAuth callbacks stay
-  (their legacy-pending branch is E4).
+  (their legacy-pending branch is E3b).
 - Catalog delta (spec §8 Q6), in the design repository, before E3 merges: the retired
   operations and schemas are recorded as retired with historical provenance in the aigateway
   catalog (`protocol/http-api/openapi.yaml`, `protocol/provider-access` with
@@ -152,6 +152,36 @@ path until it is migrated. E4 starts only after the owner reports the census (§
   successor route or to store seeding, assertions unchanged) and *keep*. The map is shown to the
   owner and becomes the manifest `OME-<E3>.json` before any test is edited.
 
+### E3b — dead core after the route retirement
+
+Added 2026-10-19 (owner decision D3). After E3 the only producer of a `PendingAuthEntry` is the
+native start `POST /v1/oauth/connections`, and the pending table is per process with a 600 s TTL,
+so no Profile or facade flow survives a deploy. E3b deletes the core that only those flows and the
+retired handlers reached. Nothing live changes.
+
+- Callbacks (`routes/auth.py`): only the native path stays. The legacy-pending and migrated-facade
+  branches move here from E4. `PendingAuthEntry.connection_id` becomes a required `str`;
+  `profile_id`, `oauth_generation`, `pair_generation`, `compatibility_profile_name` and
+  `pop_for_profile` are deleted.
+- Deleted modules and symbols: `connection_oauth.py`, `connection_facade.py`; the Profile-backed
+  and Connection-backed admin operations (`list`, `set_api_key`, `delete`), `summary_of`,
+  `provider_credential_admin_for`, `legacy_view`, the `ProviderCredentialAdmin` port,
+  `CredentialSummary`, `hold_observed`, `LEGACY_STATE_FOR_STATUS`, the legacy delete refusal
+  renderers, `app.state.provider_credential_admin`; `ProfileIndexStore.begin_pending`,
+  `authenticate_pending`, `mark_pending_error`, `update_metadata`; `ProfileIndex.oauth_generations`
+  (the model ignores the extra key on read, so no migration).
+- Kept for E4: the D14 mirror on the native callback, the D18 pair PUT/DELETE
+  (`publish_api_key`, its sibling mirror, `addressed_by_a_live_connection`), Profile bootstrap,
+  the `stamp_refreshed` PENDING branch, and the `ProfileBackedCredentialAdmin` base class (its
+  collapse is E5).
+- Tightenings: `_credential_strategy_for_credential_name` loses `auth_type`; `publish_api_key`
+  requires `expected_live` and `claim_check`; the package no longer re-exports
+  `ConnectionBackedCredentialAdmin`.
+- Test map first, as in E3: retire, adapt or keep per test, new tests for every live branch whose
+  only test retires; the map becomes the manifest `OME-<E3b>.json`.
+- Not in E3b: purging expired entries of other states from the pending table. Its only caller was
+  `pop_for_profile`, idle since E3; it is parked as an improvement idea.
+
 ### E4 — authority end
 
 Precondition (owner, outside the repo): a census in every environment shows every pair
@@ -161,8 +191,7 @@ read-only census command and its expected output; it does not run it.
 - Chat and model admission resolve through the Connection authority only:
   `ConnectionBackedProviderAccess` stops subclassing the Profile-backed class; an absent, `none`
   or `quarantined` marker fails closed with a coded refusal instead of reading the index.
-- Removed: the D14 dual write in the native OAuth callback, the legacy-pending branch of the
-  callbacks, Profile bootstrap (`writer_floor.py`, `plugins/anthropic_provider/bootstrap.py`,
+- Removed: the D14 dual write in the native OAuth callback, Profile bootstrap (`writer_floor.py`, `plugins/anthropic_provider/bootstrap.py`,
   `bootstrap_profiles`), the D18 none-pair bridge and the Profile read in `pair_admin*`,
   `ProfileIndexStore` wiring in `main.py`.
 - Plugin hooks: Profile-only hooks are deleted with their callers; the surviving ones get
@@ -183,6 +212,7 @@ read-only census command and its expected output; it does not run it.
 | E2a | full suite green with only import lines changed; boundary test fails when a non-Profile module imports `profile_models` |
 | E2b | chat on a stored target builds no defaults; deleted names absent (`git grep` check in the ledger); full suite green |
 | E3 | each of the 13 paths × each method it served → 410, R1 body, `Cache-Control: private, no-store`, with and without a body, with no storage read (spy) and no audit write; a malformed body still gets 410, not 422; OpenAPI has no `/profiles` path and none of the retired schemas; successor routes' OpenAPI fragments byte-identical before and after; callbacks unchanged |
+| E3b | every deleted symbol has no production caller; the native start and callback, the D14 mirror, the D18 pair PUT/DELETE and chat keep their assertions; live branches whose only test retires gain one: `publish_api_key` conflict mapping, index-before-blob order, an unsupported auth mode, the sibling mirror, `addressed_by_a_live_connection` both ways, `stamp_refreshed` on a PENDING document, the D14 mirror's `last_refreshed_at`; PostgreSQL lane green for the touched concurrency suites |
 | E4 | with every pair `migrated`: chat, D18 and native OAuth construct no `ProfileIndexStore` (spy); absent/`none`/`quarantined` marker → coded refusal, no index read; the native callback writes no Profile document; startup writes no Profile; PostgreSQL lane green for the concurrency suites listed in the D18 plan §4 |
 
 ## 5. Gates
@@ -213,5 +243,7 @@ AIGW_TEST_PG=1 uv run pytest -m needs_postgres -v
   ends authority before cleaning up the legacy surface (spec §8). Accepted because every pair
   with a Profile document is `migrated`.
 - E3 gains the catalog delta (spec §8 Q6), which this plan did not list.
+- Added 2026-10-19: E3b, between E3 and E4. It takes the callbacks' legacy-pending and facade
+  branches from E4, because E3 left them without a producer; E4 keeps the authority end.
 
 The spec's §4 table was updated to match on approval.

@@ -8,5 +8,7 @@ production (owner decision D1: retire) and the test retired with it.
 Successor coverage:
 - the 410 answer: `test_legacy_profile_routes_retired.py`;
 - native API-key races: `test_api_key_connection_races.py`;
-- a stale callback never overwriting a newer owner: `test_profile_oauth_flow_ownership.py`.
+- a stale callback never overwriting a newer owner:
+  `core/provider_access/test_writer_floor_native.py`
+  (`test_a_second_native_oauth_start_supersedes_the_first_flow`).
 """

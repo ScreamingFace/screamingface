@@ -92,24 +92,6 @@ class AvailabilityRow:
     status: AvailabilityStatus
 
 
-@dataclass(frozen=True)
-class CredentialSummary:
-    """Minimal admin-facing description of one stored target (spec §3.2; implemented at A3).
-
-    `legacy_projection` is the ONE opaque window-only projection field (F1, owner decision
-    2026-09-18): today's Profile JSON, so the compatibility shells return byte-identical bodies
-    without reaching the index themselves. Nothing in the successor reads it; it is excluded from
-    equality and repr, and it is REMOVED at Stage E (OME-1209) together with the shells.
-    # INVARIANT: masked — a projection carries `account_label` ("API key ····WXYZ"), never a key.
-    """
-
-    provider: str
-    selector: str
-    auth_type: AuthType
-    state: str
-    legacy_projection: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
-
-
 # --- refusals -----------------------------------------------------------------------------------
 
 
