@@ -1,10 +1,10 @@
 ---
 id: OME-1642
 linear_url: https://linear.app/openmined/issue/OME-1642/calculate-screamingface-scores-across-all-cases-not-just-successful
-status: in_progress
+status: in_review
 type: fix
 priority: high
-labels: [screamingface-engine]
+labels: [bug, screamingface-engine, agentic, autonomous]
 parent:
 created: 2026-10-16
 closed:

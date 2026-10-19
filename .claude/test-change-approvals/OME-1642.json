@@ -1,6 +1,6 @@
 {
   "issue": "OME-1642",
-  "branch": "all-case-denominator",
+  "branch": "OME-1642-all-case-denominator",
   "approver": "IonesioJunior (owner)",
   "date": "2026-10-19",
   "scope": "(1) construction-only: failure_policy= added where existing tests build BenchmarkSpec, call the single-shot factory, call finalize_candidate_result or build BenchmarkAggregation; (2) policy-aware updates: tests that name a real Benchmark now assert its all-Case (withhold) result (frames_oracle, medxpert, gdpval-text, the gsm8k/mmlu declarations, the declaration table incl. the five OME-1602 PR 5/6 rows, squad/gsm8k Named Scores), and generic finalizer tests name the policy they depend on; (3) revision literals of the 66 withhold Benchmarks (published-revision tables, FrontierScience, gsm8k in test_inverted_grade, medxpert golden, the medxpert canonical-url4 sha, the early-grade fixture); (4) construction-only: the required failure_policy keyword added where tests call completed_case, grading_progress, Progress.observe or replace their stubs (test_progress_contract, test_progress_retention, test_provisional_scores, test_early_grade_compatibility, test_concurrent_case_grading), added in the OME-1642 design-review fixes.",
