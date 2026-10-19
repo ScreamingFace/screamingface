@@ -252,6 +252,12 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-uccb": ("coverage_declare", "single_shot", "medium"),
         "infinite_bench_math_find": ("coverage_declare", "single_shot", "medium"),
         "air_bench": ("coverage_declare", "single_shot", "medium"),
+        # OME-1602 PR 5: the multi-letter-key imports; StereoSet's coherence score is near its
+        # ceiling, the malware questions are hard for every model the paper ran.
+        "inspect-truthfulqa_mc1": ("coverage_declare", "single_shot", "medium"),
+        "inspect-chembench": ("coverage_declare", "single_shot", "medium"),
+        "inspect-stereoset": ("coverage_declare", "single_shot", "easy"),
+        "inspect-cyse4_malware_analysis": ("coverage_declare", "single_shot", "hard"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
         "musique": ("coverage_declare", "single_shot", "hard"),
         # OME-1476: the second local Task, and the first published Benchmark with Attempts.

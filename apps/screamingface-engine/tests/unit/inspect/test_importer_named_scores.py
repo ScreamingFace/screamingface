@@ -24,6 +24,7 @@ The renderer half hands facts straight to the row renderer, no child.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import textwrap
@@ -645,7 +646,9 @@ def test_a_role_judged_scorer_beside_an_exact_one_is_dropped_by_name() -> None:
 
     facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
 
-    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("asks_the_grader",))
+    # One scorer kept grades like a single-scorer row: no lone Named Score (OME-1602 PR 5,
+    # owner-approved change; a lone name tells the grader to expect a dict).
+    assert (facts.named_scores, facts.dropped_scorers) == ((), ("asks_the_grader",))
 
 
 def test_the_import_child_carries_the_grader_role_back(guarded_eval: str) -> None:
@@ -779,7 +782,9 @@ def test_an_extra_scorer_judging_with_its_default_judge_is_dropped_by_name() -> 
 
     facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
 
-    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("judged_by_default",))
+    # One scorer kept grades like a single-scorer row: no lone Named Score (OME-1602 PR 5,
+    # owner-approved change; a lone name tells the grader to expect a dict).
+    assert (facts.named_scores, facts.dropped_scorers) == ((), ("judged_by_default",))
 
 
 def test_a_role_held_in_a_variable_is_refused_because_no_row_can_name_it() -> None:
@@ -855,3 +860,68 @@ def test_a_judge_parameter_left_at_its_default_renders_the_todo_judge() -> None:
     rows: TaskReplayRows = _rows(_facts(scorer=f"{__name__}:judged_by_default", scorer_kwargs={}))
 
     assert 'judge=JudgeSpec(model="TODO"),' in rows.benchmark
+
+
+# --- OME-1602: an extra scorer the importing agent leaves out by name ---
+
+
+def _stereoset_task() -> Any:
+    """stereoset's two scorers on a stand-in dataset, as its real Task declares them."""
+
+    from inspect_ai import Task
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    return Task(
+        dataset=MemoryDataset([Sample(input="q", target=["A"], choices=["x", "y", "z"])]),
+        scorer=[stereoset_module.multiple_choice_scorer(), stereoset_module.stereoset_scorer()],
+    )
+
+
+def test_an_extra_scorer_dropped_by_name_is_a_named_deviation_on_the_row() -> None:
+    """stereoset's bias score runs a whole-run metric no Named Score column can carry, so the
+    import refuses it as an extra scorer; the owner chose to leave it out by name instead
+    (OME-1602), and the row then shows the drop."""
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    with pytest.raises(ImporterError, match="stereotype_score"):
+        _scorer_facts(_stereoset_task(), stereoset_module)
+
+    facts: ScorerFacts = _scorer_facts(
+        _stereoset_task(), stereoset_module, drop_scorers=("stereoset_scorer",)
+    )
+
+    # One scorer left grades like a single-scorer row: no lone Named Score, which would tell
+    # the grader to expect a dict and fail every Case on the scorer's plain "C".
+    assert facts.named_scores == ()
+    assert facts.scorer == "inspect_evals.stereoset.stereoset:multiple_choice_scorer"
+    assert facts.dropped_scorers == ("stereoset_scorer",)
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [("multiple_choice_scorer", "headline scorer"), ("bias_scorer", "declares no scorer")],
+)
+def test_the_headline_or_an_unknown_name_cannot_be_dropped(name: str, reason: str) -> None:
+    """Dropping the headline would grade by something else under the eval's name; a name the
+    Task does not declare is a typo that would otherwise drop nothing silently."""
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    with pytest.raises(ImporterError, match=reason):
+        _scorer_facts(_stereoset_task(), stereoset_module, drop_scorers=(name,))
+
+
+def test_a_scorer_already_dropped_as_judged_cannot_be_dropped_again_by_name() -> None:
+    """A --drop-scorer that names a scorer the import already left out would read as a
+    decision with no effect; it is refused so the flag always means what it says."""
+
+    task: Task = Task(
+        dataset=MemoryDataset([Sample(input="q", target="a")]),
+        scorer=[asks_the_grader(), exact()],
+    )
+
+    with pytest.raises(ImporterError, match="already left out"):
+        _scorer_facts(task, sys.modules[__name__], drop_scorers=("asks_the_grader",))

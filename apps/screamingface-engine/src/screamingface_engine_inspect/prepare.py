@@ -102,6 +102,13 @@ class TaskReplayCasesSpec:
     #: Assembly allows it only beside the eval's own judge-free scorer (OME-1527, R5). No
     #: identity pin: the Case Digest seals the empty keys, as it does for has_answer_key.
     empty_answer_key_allowed: bool = False
+    #: Some multiple-choice Cases key several options: a list of option letters (truthfulqa's
+    #: ``["B"]``, stereoset's two related continuations) or one comma-joined string of them
+    #: (chembench's ``"A,D"``, which its pattern scorer compares as text). Accepted only on a
+    #: row that says so, every letter checked against the Case's options (OME-1602, F6); a
+    #: default row still refuses a list beside choices. No identity pin: the Case Digest
+    #: seals the keys.
+    letter_list_key: bool = False
     #: A NAMED DEVIATION: upstream Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
     #: Samples with an empty question). Every id must still be there, or Case Preparation
@@ -1553,6 +1560,80 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         # License: cc-by-4.0, the stanford-crfm/air-bench-2024 card.
         license="cc-by-4.0",
     ),
+    # truthfulqa_mc1 — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.truthfulqa.truthfulqa:truthfulqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face truthfulqa/truthful_qa/multiple_choice
+    #     pin revision 741b8276f2d1982aa3d5b832d3ee81ed3b896490
+    "truthfulqa_mc1": TaskReplayCasesSpec(
+        task="inspect_evals.truthfulqa.truthfulqa:truthfulqa",
+        task_args={"target": "mc1"},
+        case_count=817,
+        case_digest="ce34c311dff8cd88df4be1ea90bc82127f266cf61595f0a39c15cc85d20af48a",
+        case_set_digest="b610a432259d6fe81ed039d903c663f6a86bc9ab27ede305f2ed3628f6ce3be9",
+        letter_list_key=True,
+        source_pins={
+            "truthfulqa/truthful_qa": "741b8276f2d1982aa3d5b832d3ee81ed3b896490",
+        },
+        shuffle_seed=20260917,
+        choice_shuffle_seed=20260917,
+        license="apache-2.0",
+    ),
+    # chembench — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.chembench.chembench:chembench.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jablonkagroup/ChemBench
+    #     pin revision a8f7e226e0d01553018194711b4b3d87d5a5164e
+    "chembench": TaskReplayCasesSpec(
+        task="inspect_evals.chembench.chembench:chembench",
+        case_count=2785,
+        case_digest="24c74217fb19c8fc066a2a070918579ddc98ec6322304fa20874c4aeb218fb7d",
+        case_set_digest="9800709ea250e542e92d1dec59366fce33644a532fd909509e2e94f0c6b85858",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        source_pins={
+            "jablonkagroup/ChemBench": "a8f7e226e0d01553018194711b4b3d87d5a5164e",
+        },
+        shuffle_seed=20260917,
+        license="mit",
+    ),
+    # stereoset — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.stereoset.stereoset:stereoset.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face McGill-NLP/stereoset/intersentence
+    #     pin revision bf6e7ce50491784d094fb7afe60a70ecccb89035
+    "stereoset": TaskReplayCasesSpec(
+        task="inspect_evals.stereoset.stereoset:stereoset",
+        case_count=2115,
+        case_digest="1c3774ed7ab9dc0ed30e77707ef33c6b0b0c2b822c9e78b35aceb71196b97f6a",
+        case_set_digest="69db3f56f3d47eede7314c04d9de8d73ce8eb6b3e2bd297a70c6cae0f9cbe548",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        source_pins={
+            "McGill-NLP/stereoset": "bf6e7ce50491784d094fb7afe60a70ecccb89035",
+        },
+        shuffle_seed=20260917,
+        license="cc-by-sa-4.0",
+    ),
+    # cyse4_malware_analysis — imported by Task replay on 2026-10-16 from
+    #   inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   url https://github.com/CrowdStrike/CyberSOCEval_data/archive/ce7daa5bc7da51559ca97476d2277be02631783e.zip
+    #     pin sha256 0764361ca83c32e27a4befdce79c9387a13331f90f7a426672c3d87e49fb59f4
+    "cyse4_malware_analysis": TaskReplayCasesSpec(
+        task="inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis",
+        case_count=608,
+        case_digest="d1e4d7239737704e2113ea4f01ebbc18d861a1857a340d05912602e6809f0267",
+        case_set_digest="4bed9cb49af4cb115835e13a4073d374a7ec9300e5e243dccbb543313a18928b",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        # NAMED DEVIATION: question 425 of upstream's 609 has no correct option listed, so it
+        # has no answer key to grade against; the paper counts the same 608.
+        excluded_sample_ids=("cyse4_malware_analysis_994447af",),
+        # License: owner decision 2026-10-01 (OME-1273): CC-BY-SA-4.0, CrowdStrike's
+        #  hybrid-analysis LICENSE.md, for the detonation reports.
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
@@ -1588,6 +1669,7 @@ def prepared_case(
         case_id,
         spec.has_answer_key,
         empty_answer_key_allowed=spec.empty_answer_key_allowed,
+        letter_list_key=spec.letter_list_key,
     )
     record: dict[str, Any] = (
         {"target": target} if choices is None else {"target": target, "choices": choices}
@@ -1692,6 +1774,7 @@ def _validated_answer_key(
     has_answer_key: bool = True,
     *,
     empty_answer_key_allowed: bool = False,
+    letter_list_key: bool = False,
 ) -> tuple[str | list[str], list[str] | None]:
     """The one trust boundary on eval-produced Samples — never prepare an unkeyed Case.
 
@@ -1704,16 +1787,18 @@ def _validated_answer_key(
     FEATURE (OME-1268): a LIST of accepted answers (SQuAD's every accepted span) is a valid
     key on a free-text Case; it is frozen as the list inspect's own f1 and exact read, so
     the grading code is untouched. A list beside multiple-choice options is refused: that
-    would be a multi-answer MCQ, which no row declares.
+    would be a multi-answer MCQ, unless the row declares one (``letter_list_key``, OME-1602
+    F6): then a list of option letters, or one comma-joined string of them, is checked letter
+    by letter against the options and frozen as the eval wrote it.
     """
 
     _require_a_question(sample, case_id)
     target: object = sample.target
-    empty_key: str | list[str] | None = _accepted_empty_key(
-        sample, has_answer_key, empty_answer_key_allowed
+    opted_in: tuple[str | list[str], list[str] | None] | None = _opted_in_key(
+        sample, case_id, has_answer_key, empty_answer_key_allowed, letter_list_key
     )
-    if empty_key is not None:
-        return empty_key, None
+    if opted_in is not None:
+        return opted_in
     key: str | list[str]
     if isinstance(target, list):
         key = _validated_list_key(target, sample, case_id)
@@ -1740,6 +1825,63 @@ def _validated_answer_key(
             "choices nor one of them"
         )
     return target, choices
+
+
+def _opted_in_key(
+    sample: Sample,
+    case_id: int,
+    has_answer_key: bool,
+    empty_answer_key_allowed: bool,
+    letter_list_key: bool,
+) -> tuple[str | list[str], list[str] | None] | None:
+    """The key a row's opt-in accepts (an empty key, or several option letters), or None to
+    check the Sample's key the default way."""
+
+    empty_key: str | list[str] | None = _accepted_empty_key(
+        sample, has_answer_key, empty_answer_key_allowed
+    )
+    if empty_key is not None:
+        return empty_key, None
+    if letter_list_key and sample.choices is not None and _names_several_letters(sample.target):
+        return _validated_letter_list_key(sample.target, sample.choices, case_id)
+    return None
+
+
+def _names_several_letters(target: object) -> bool:
+    """Whether a key beside choices takes the several-letter form: a list, or a comma-joined
+    string (a single letter stays on the one-option path)."""
+
+    return isinstance(target, list) or (isinstance(target, str) and "," in target)
+
+
+def _validated_letter_list_key(
+    target: str | list[Any], choices: Sequence[Any], case_id: int
+) -> tuple[str | list[str], list[str]]:
+    """A key naming several options, checked against them and frozen as the eval wrote it.
+
+    Worked example, four options A to D: ``["B", "D"]`` and ``"A,D"`` are kept as given;
+    ``["B", "E"]`` names an option past D, ``["B", "B"]`` names one twice, ``[]`` and
+    ``"A,"`` name none for a slot, and ``["Paris"]`` is not a letter, so each is refused.
+    """
+
+    options: list[str] = [str(choice) for choice in choices]
+    if not options or any(not option.strip() for option in options):
+        raise PrepareError(f"case {case_id}: sample carries an empty choice")
+    letters: list[str] = (
+        target.split(",") if isinstance(target, str) else [str(item) for item in target]
+    )
+    valid: str = "".join(chr(ord("A") + index) for index in range(len(options)))
+    if not letters or any(
+        not isinstance(letter, str) or len(letter) != 1 or letter not in valid for letter in letters
+    ):
+        raise PrepareError(
+            f"case {case_id}: target {target!r} must name options by letter, each within "
+            f"{len(options)} choices"
+        )
+    if len(set(letters)) != len(letters):
+        raise PrepareError(f"case {case_id}: target {target!r} names an option twice")
+    key: str | list[str] = target if isinstance(target, str) else list(letters)
+    return key, options
 
 
 def _accepted_empty_key(

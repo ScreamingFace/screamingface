@@ -5699,6 +5699,262 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         notebook="12_inspect_evals_benchmarks",
         upstream_case_count=5694,
     ),
+    BenchmarkSpec(
+        key="truthfulqa_mc1",
+        title="TruthfulQA (MC1)",
+        description=(
+            "817 questions that some humans would answer falsely because of a common "
+            "misconception (TruthfulQA's MC1 setting), imported from inspect_evals. The model "
+            "picks one option from four to thirteen; exactly one is true. Grading is "
+            "inspect's own choice scorer against the published key, so no judge tokens are "
+            "spent. Cases and their options are served in a fixed seeded shuffle (the eval "
+            "shuffles both per run). Benchmark score = plain accuracy over the cases run. No "
+            "mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Truthfulness against common misconceptions (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/truthfulqa/truthful_qa",
+        # The last sourced frontier score is about 0.60; the options make test-taking tricks
+        # possible, so modern models likely score higher (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.truthfulqa.truthfulqa:truthfulqa, with task arg target=mc1 (inspect's
+        #   mc2 is an exact-set score, not the paper's MC2; owner decision on OME-1602).
+        # License: apache-2.0.
+        scorer="inspect_ai.scorer:choice",
+        paper_url="https://arxiv.org/abs/2109.07958",
+        authors="Lin et al., 2022",
+        citation=(
+            "@misc{lin2022truthfulqameasuringmodelsmimic,\n"
+            "      title={TruthfulQA: Measuring How Models Mimic Human Falsehoods}, \n"
+            "      author={Stephanie Lin and Jacob Hilton and Owain Evans},\n"
+            "      year={2022},\n"
+            "      eprint={2109.07958},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2109.07958}, \n"
+            "}"
+        ),
+        inspect_contributors=("seddy-aisi",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/truthfulqa",
+        license="Apache-2.0",
+        human_baseline=NotPublished(
+            reason="the paper's 94% human score is on the generation task, not MC1",
+        ),
+        # Frontier score: MC1 accuracy, read off the GPT-4 report's Figure 7 ("around 60%").
+        frontier_score=FrontierScore(
+            score=0.6,
+            model="GPT-4 (RLHF)",
+            source_url="https://arxiv.org/abs/2303.08774",
+            as_of="2023-03",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=817,
+    ),
+    BenchmarkSpec(
+        key="chembench",
+        title="ChemBench",
+        description=(
+            "2,785 chemistry questions from ChemBench, across topics from general and "
+            "organic chemistry to toxicity and safety, imported from inspect_evals. Most are "
+            "multiple choice, some with several correct options the model must list "
+            "together (for example A,D); the rest ask for a number. Grading is the eval's "
+            "own scorer: the multiple-choice answer must match the key exactly, ignoring "
+            "letter case, letters in the key's order and comma-joined with no spaces (A,D; "
+            "'A, D' and 'D,A' score 0, as upstream), and a number "
+            "must fall within 1% of the answer, so no judge tokens are spent. Cases are served "
+            "in a fixed seeded shuffle (the eval shuffles per run). Benchmark score = plain "
+            "accuracy over the cases run; the eval's per-topic breakdown is not reproduced. "
+            "No mid-run check surface."
+        ),
+        focus="Chemistry knowledge and reasoning",
+        dataset_url="https://huggingface.co/datasets/jablonkagroup/ChemBench",
+        # The best verified bare model reaches about 0.71: real headroom (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.chembench.chembench:chembench.
+        # License: mit.
+        scorer="inspect_evals.chembench.chembench:chembench_scorer",
+        # NAMED DEVIATION: the eval scores the whole run with grouped accuracy, one mean per
+        # topic beside the overall mean; this Benchmark reports the overall mean per-Case
+        # score (chosen at import, OME-1527), which is that overall figure.
+        paper_url="https://arxiv.org/abs/2404.01475",
+        authors="Mirza et al., 2024",
+        citation=(
+            "@misc{mirza2024largelanguagemodelssuperhuman,\n"
+            "      title={Are large language models superhuman chemists?}, \n"
+            "      author={Adrian Mirza and Nawaf Alampara and Sreekanth Kunchapu and "
+            "Martiño Ríos-García and Benedict Emoekabu and Aswanth Krishnan and Tanya Gupta "
+            "and Mara Schilling-Wilhelmi and Macjonathan Okereke and Anagha Aneesh and Amir "
+            "Mohammad Elahi and Mehrdad Asgari and Juliane Eberhardt and Hani M. Elbeheiry and "
+            "María Victoria Gil and Maximilian Greiner and Caroline T. Holick and Christina "
+            "Glaubitz and Tim Hoffmann and Abdelrahman Ibrahim and Lea C. Klepsch and Yannik "
+            "Köster and Fabian Alexander Kreth and Jakob Meyer and Santiago Miret and Jan "
+            "Matthias Peschel and Michael Ringleb and Nicole Roesner and Johanna Schreiber and "
+            "Ulrich S. Schubert and Leanne M. Stafast and Dinga Wonanke and Michael Pieler and "
+            "Philippe Schwaller and Kevin Maik Jablonka},\n"
+            "      year={2024},\n"
+            "      eprint={2404.01475},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2404.01475}, \n"
+            "}"
+        ),
+        inspect_contributors=("Esther-Guo", "MrtinoRG", "r-fedorov"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/chembench",
+        license="MIT",
+        human_baseline=NotPublished(
+            reason="the paper's experts answered only the 236-question ChemBench-Mini subset",
+        ),
+        # Frontier score: the best verified entry with no tools on the official leaderboard
+        # data (an agent entry scores higher, but it is not a bare model).
+        frontier_score=FrontierScore(
+            score=0.709,
+            model="Claude Opus 4.7",
+            source_url="https://huggingface.co/datasets/jablonkagroup/ChemBench-Results",
+            as_of="2026-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # No upstream count: eval.yaml says 2,786 and the paper 2,788, but the pinned Hub
+        # revision holds 2,785 questions, with no duplicates; the count is stale upstream
+        # metadata, not a different exam.
+    ),
+    BenchmarkSpec(
+        key="stereoset",
+        title="StereoSet (intersentence)",
+        description=(
+            "2,115 short contexts from StereoSet's intersentence task, each followed by "
+            "three possible next sentences: a stereotypical one, an anti-stereotypical one "
+            "and an unrelated one, imported from inspect_evals. The model picks one. Grading "
+            "is the eval's own multiple-choice scorer: picking either related sentence "
+            "scores 1 and the unrelated one 0, so no judge tokens are spent. Benchmark score "
+            "= the paper's language modeling score, the share of related picks. The eval's "
+            "bias score (how often the stereotypical sentence wins) is left out by name, an "
+            "owner decision, so this measures coherence, not bias. Cases are served in a "
+            "fixed seeded shuffle (the eval shuffles per run). No mid-run check surface "
+            "(elimination attack over three options)."
+        ),
+        focus="Coherent continuation over stereotyped contexts (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/McGill-NLP/stereoset",
+        # GPT-4 already picks a related continuation about 97% of the time (OME-1257).
+        difficulty="easy",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.stereoset.stereoset:stereoset (task_type intersentence).
+        # License: cc-by-sa-4.0.
+        scorer="inspect_evals.stereoset.stereoset:multiple_choice_scorer",
+        # NAMED DEVIATION (owner decision on OME-1602, 2026-10-14): the Task also declares
+        # stereoset_scorer, the bias score, scored over the whole run by stereotype_score,
+        # which no Named Score column can carry. It is left out by name (--drop-scorer); the
+        # dropped name is part of the Benchmark Revision.
+        dropped_scorers=("stereoset_scorer",),
+        paper_url="https://arxiv.org/abs/2004.09456",
+        authors="Nadeem et al., 2020",
+        citation=(
+            "@misc{nadeem2020stereosetmeasuringstereotypicalbias,\n"
+            "      title={StereoSet: Measuring stereotypical bias in pretrained language "
+            "models}, \n"
+            "      author={Moin Nadeem and Anna Bethke and Siva Reddy},\n"
+            "      year={2020},\n"
+            "      eprint={2004.09456},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2004.09456}, \n"
+            "}"
+        ),
+        inspect_contributors=("Xodarap",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/stereoset",
+        license="CC-BY-SA-4.0",
+        content_warning=(
+            "Contexts and continuations state stereotypes about gender, profession, race and "
+            "religion; one option per Case is deliberately stereotyped."
+        ),
+        human_baseline=NotPublished(
+            reason="crowdworkers only validated the examples; the paper's ideal score of 1 is "
+            "by definition",
+        ),
+        # Frontier score: the language modeling score from inspect_evals' own run on this
+        # split (the paper's best, 0.894, is on its hidden test set with likelihood scoring).
+        frontier_score=FrontierScore(
+            score=0.967,
+            model="GPT-4",
+            source_url="https://github.com/UKGovernmentBEIS/inspect_evals/blob/main/src/inspect_evals/stereoset/README.md",
+            as_of="2025-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # No upstream count: eval.yaml's 4,299 is the package's figure, not this task's. The
+        # pinned intersentence split holds 2,123 records, and the eval itself drops 8 that
+        # share a hashed id, so its Task yields the 2,115 Cases served here.
+    ),
+    BenchmarkSpec(
+        key="cyse4_malware_analysis",
+        title="CyberSecEval 4: malware analysis",
+        description=(
+            "608 multiple-choice questions on real malware detonation reports from "
+            "CrowdStrike's CyberSOCEval (part of CyberSecEval 4), imported from "
+            "inspect_evals. Each Case pastes one sandbox report, about 131,000 characters "
+            "on average and up to 260,000, then asks a question where several options may "
+            "be correct; the model lists every letter it thinks is right. Grading is the "
+            "eval's own scorer, so no judge tokens are spent: a Case scores 1 only when the "
+            "letters match the key exactly, and its Jaccard overlap with the key is published "
+            "beside it as partial credit. Benchmark score = exact-match accuracy over the "
+            "cases run; the eval's per-topic, difficulty and attack breakdowns are not "
+            "reproduced. One question with no answer key is left out. Upstream runs the "
+            "model at temperature 0; this benchmark imposes no generation settings. Use a "
+            "model with a long context window. No mid-run check surface."
+        ),
+        focus="Malware analysis from sandbox reports (multiple answers)",
+        dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
+        # The paper's best model gets about a third exactly right (OME-1257).
+        difficulty="hard",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis.
+        # License: CC-BY-SA-4.0, CrowdStrike's hybrid-analysis LICENSE.md (owner decision
+        #   2026-10-01, OME-1273).
+        scorer="inspect_evals.cyberseceval_4.malware_analysis:choice_with_jaccard",
+        # The scorer's dict value: "score" (exact match, the headline) and Jaccard overlap.
+        named_scores=("score", "jaccard_similarity"),
+        # NAMED DEVIATION: the eval scores the whole run with accuracy, the mean of "score",
+        # plus grouped breakdowns and a grouped Jaccard; this Benchmark reports the mean
+        # per-Case score (chosen at import, OME-1527), which is that accuracy.
+        multiple_correct=True,
+        paper_url="https://arxiv.org/abs/2509.20166",
+        authors="Deason et al., 2025",
+        citation=(
+            "@misc{deason2025cybersocevalbenchmarkingllmscapabilities,\n"
+            "      title={CyberSOCEval: Benchmarking LLMs Capabilities for Malware Analysis "
+            "and Threat Intelligence Reasoning}, \n"
+            "      author={Lauren Deason and Adam Bali and Ciprian Bejean and Diana Bolocan "
+            "and James Crnkovich and Ioana Croitoru and Krishna Durai and Chase Midler and "
+            "Calin Miron and David Molnar and Brad Moon and Bruno Ostarcevic and Alberto "
+            "Peltea and Matt Rosenberg and Catalin Sandu and Arthur Saputkin and Sagar Shah "
+            "and Daniel Stan and Ernest Szocs and Shengye Wan and Spencer Whitman and Sven "
+            "Krasser and Joshua Saxe},\n"
+            "      year={2025},\n"
+            "      eprint={2509.20166},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CR},\n"
+            "      url={https://arxiv.org/abs/2509.20166}, \n"
+            "}"
+        ),
+        inspect_contributors=("ckane",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cyberseceval_4",
+        license="CC-BY-SA-4.0",
+        license_note=(
+            "the detonation reports, CrowdStrike/CyberSOCEval_data hybrid-analysis LICENSE.md "
+            "(owner decision 2026-10-01)"
+        ),
+        human_baseline=NotPublished(reason="the paper reports only random-guess baselines"),
+        # Frontier score: exact-match accuracy in the paper's Figure 8, over the 579 answers
+        # the paper could parse.
+        frontier_score=FrontierScore(
+            score=0.335,
+            model="Claude 3.7 Sonnet",
+            source_url="https://arxiv.org/abs/2509.20166",
+            as_of="2025-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # 609 upstream Samples less the one with no answer key (excluded_sample_ids).
+        upstream_case_count=609,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -5748,6 +6004,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _judge_prompt_pins(spec)
             + _inverted_grade_pins(spec)
             + _attempts_pins(spec)
+            + _multiple_correct_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_dependency_pins(spec)
@@ -6449,6 +6706,17 @@ def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
     # of N must never keep a revision its published scores hang off.
     return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
+
+
+def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Several-letter answers as Benchmark identity, a pin only when set, so no published
+    revision moves (OME-1602, PR 5 review).
+
+    WHY: the flag decides how a reply is read; "ANSWER: B, D" scores 1 with it and 0 without
+    on a two-letter key, so flipping it must never keep a revision.
+    """
+
+    return ("multiple_correct=1",) if spec.multiple_correct else ()
 
 
 def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

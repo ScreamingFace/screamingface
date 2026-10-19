@@ -155,6 +155,11 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "uccb": "judged",
     "infinite_bench_math_find": "free_text",
     "air_bench": "judged",
+    # OME-1602 PR 5: several-letter answer keys. chembench mixes multiple choice and numbers.
+    "truthfulqa_mc1": "mcq",
+    "chembench": "mcq",
+    "stereoset": "mcq",
+    "cyse4_malware_analysis": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -291,6 +296,10 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "onet_m6",
         # OME-1602: UCCB shuffles with no seed; the import forces 20260917.
         "uccb",
+        # OME-1602 PR 5: the same for truthfulqa (questions and options), chembench, stereoset.
+        "truthfulqa_mc1",
+        "chembench",
+        "stereoset",
     }
 
 

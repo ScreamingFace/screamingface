@@ -123,4 +123,6 @@ def replay_in_process_over_rows(
 STAND_IN_METADATA: dict[str, dict[str, object]] = {
     "musique": {"supporting_idx": [3, 11]},
     "ifeval": {"instruction_id_list": ["punctuation:no_comma"], "kwargs": [{}]},
+    # OME-1602: chembench's scorer picks its multiple-choice or numeric rule by task_type.
+    "chembench": {"task_type": "multiple_choice_grade", "subset_name": "organic_chemistry"},
 }

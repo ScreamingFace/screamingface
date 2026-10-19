@@ -72,6 +72,13 @@ FAKE_EVAL: str = textwrap.dedent(
         return solve
 
     @task
+    def multi_quiz() -> Task:
+        # cyse4 malware_analysis's shape: the Candidate may pick several letters
+        return Task(dataset=json_dataset(QUIZ, FieldSpec(input="q", target="a", id="id",
+                                                        choices="choices")),
+                    solver=multiple_choice(multiple_correct=True), scorer=choice())
+
+    @task
     def wrapped_quiz() -> Task:
         return Task(dataset=json_dataset(QUIZ, FieldSpec(input="q", target="a", id="id",
                                                         choices="choices")),
@@ -188,6 +195,17 @@ def test_an_mcq_task_reports_its_choice_scorer_and_mcq(fake_eval: str) -> None:
     assert replay.facts.mcq is True
     assert replay.facts.scorer == "inspect_ai.scorer:choice"
     assert replay.prepared[0]["grading_material"]["choices"] == ["41", "42"]
+
+
+def test_a_multiple_correct_solver_reaches_the_facts(fake_eval: str) -> None:
+    """OME-1602 F6: the grader must read every letter the Candidate picks when the eval's
+    solver allows several; the import reads that off the solver, never guesses it."""
+
+    several: ImportReplay = replay_for_import(f"{fake_eval}:multi_quiz", None)
+    one: ImportReplay = replay_for_import(f"{fake_eval}:quiz", None)
+
+    assert several.facts.multiple_correct is True
+    assert one.facts.multiple_correct is False
 
 
 def test_a_wrapped_mcq_solver_is_still_mcq_by_its_choice_scorer(fake_eval: str) -> None:

@@ -116,6 +116,9 @@ class TaskReplayFacts:
     #: The model role the scorer asks for in its body (``"grader"``), so the row's TODO judge
     #: fills that role (OME-1602, F2); None on every other import.
     judge_role: str | None = None
+    #: The Task's ``multiple_choice(multiple_correct=True)``: the Candidate may pick several
+    #: letters, and the grader must read them all (OME-1602, F6); False on every other import.
+    multiple_correct: bool = False
 
 
 @dataclass(frozen=True)
@@ -140,11 +143,13 @@ def replay_for_import(
     excluded_sample_ids: tuple[str, ...] | None = None,
     has_answer_key: bool = True,
     empty_answer_key_allowed: bool = False,
+    letter_list_key: bool = False,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
     keep_sample_metadata: bool = False,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
     whole_run_metric: WholeRunMetricChoice | None = None,
+    drop_scorers: tuple[str, ...] = (),
 ) -> ImportReplay:
     """Run the import child once and read back Cases, Case Sources and facts.
 
@@ -156,6 +161,8 @@ def replay_for_import(
             accepted (spec R19).
         empty_answer_key_allowed: True when some Cases' empty key is itself the answer the
             eval's own scorer reads (OME-1527, R5), so an empty one is accepted there.
+        letter_list_key: True when multiple-choice keys name several options by letter
+            (OME-1602, F6), so such a key is checked letter by letter instead of refused.
         shuffle_seed: forced onto an ``hf_dataset`` row shuffle the eval makes without one.
         choice_shuffle_seed: forced onto a bare ``shuffle_choices=True``.
         keep_sample_metadata: keep the Sample metadata even under one of inspect's own
@@ -163,6 +170,7 @@ def replay_for_import(
         timeout: seconds before a stalled replay is abandoned.
         whole_run_metric: the agent's choice for a headline metric that is not a plain mean,
             honour it or keep the mean (OME-1527); None refuses such a Task.
+        drop_scorers: extra scorers left out by registry name, a Named Deviation (OME-1602).
 
     Returns:
         The child's Cases (numbered 1..N by the shared writer), the upstream Sample ids in
@@ -184,10 +192,12 @@ def replay_for_import(
             "excluded_sample_ids": list(excluded_sample_ids) if excluded_sample_ids else None,
             "has_answer_key": has_answer_key,
             "empty_answer_key_allowed": empty_answer_key_allowed,
+            "letter_list_key": letter_list_key,
             "shuffle_seed": shuffle_seed,
             "choice_shuffle_seed": choice_shuffle_seed,
             "keep_sample_metadata": keep_sample_metadata,
             "whole_run_metric": whole_run_metric,
+            "drop_scorers": list(drop_scorers),
             "cache_root": str(cache_root),
         }
         request_path.write_text(json.dumps(request), encoding="utf-8")
@@ -252,16 +262,18 @@ def _facts_of(
     task_args: dict[str, Any] | None,
     samples_carry_choices: bool,
     whole_run_metric: WholeRunMetricChoice | None = None,
+    drop_scorers: tuple[str, ...] = (),
 ) -> TaskReplayFacts:
     """Stage 3a — read the built Task with the importer's scorer readers; ``whole_run_metric``
     is the agent's choice for a non-mean headline (OME-1527)."""
 
+    from inspect_ai._util.registry import registry_params
     from inspect_ai.scorer._reducer.registry import reducer_log_names
 
     # WHY first: a Task whose epochs are not any-match is refused before any of its scorer
     # facts are read (OME-1458).
     attempts: int = task_attempts(task)
-    scorers: ScorerFacts = _scorer_facts(task, module, whole_run_metric)
+    scorers: ScorerFacts = _scorer_facts(task, module, whole_run_metric, drop_scorers)
     # INVARIANT (OME-1458): the Attempts fold credits each Check on its own, and a Named
     # Score has no Checks to fold. Refused here, where both facts are known, because the
     # marking room's own refusal comes after every Case was asked N times and paid for.
@@ -311,6 +323,10 @@ def _facts_of(
         attempts=attempts,
         epoch_reducer=epoch_reducer,
         judge_role=scorers.judge_role,
+        multiple_correct=any(
+            registry_params(solver).get("multiple_correct") is True
+            for solver in _multiple_choice_solvers(task)
+        ),
     )
 
 
@@ -321,16 +337,28 @@ def _uses_multiple_choice(task: Any) -> bool:
     about the solvers needs reading.
     """
 
+    return bool(_multiple_choice_solvers(task))
+
+
+def _multiple_choice_solvers(task: Any) -> list[Any]:
+    """Every inspect multiple_choice solver in the Task's setup and solver chain, in order.
+
+    WHY its arguments matter: ``multiple_correct=True`` changes how the grader reads the
+    reply (every letter, not the first), and inspect keeps the arguments a solver was built
+    with, so the import reads them instead of guessing (OME-1602, F6).
+    """
+
     from inspect_ai._util.registry import registry_info
 
+    found: list[Any] = []
     pending: list[Any] = [*_solver_list(task.setup), *_solver_list(task.solver)]
     for solver in pending:
         name: str = registry_info(solver).name.rpartition("/")[2]
         if name == "chain" and hasattr(solver, "__iter__"):
             pending.extend(solver)
         elif name == "multiple_choice":
-            return True
-    return False
+            found.append(solver)
+    return found
 
 
 def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
@@ -376,6 +404,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         task_args,
         any(sample.choices for sample in samples),
         request.get("whole_run_metric"),
+        tuple(request.get("drop_scorers", ())),
     )
     if request["keep_sample_metadata"]:
         facts = replace(facts, keep_sample_metadata=True)
@@ -387,6 +416,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         keep_sample_metadata=facts.keep_sample_metadata,
         has_answer_key=request["has_answer_key"],
         empty_answer_key_allowed=request["empty_answer_key_allowed"],
+        letter_list_key=request.get("letter_list_key", False),
         excluded_sample_ids=(
             None
             if request["excluded_sample_ids"] is None
@@ -429,12 +459,14 @@ def import_by_task_replay(
     excluded_sample_ids: tuple[str, ...] | None = None,
     has_answer_key: bool = True,
     empty_answer_key_allowed: bool = False,
+    letter_list_key: bool = False,
     shuffle_seed: int | None = None,
     choice_shuffle_seed: int | None = None,
     keep_sample_metadata: bool = False,
     dataset_info: Callable[[str, str | None], Any] | None = None,
     timeout: float = TASK_REPLAY_TIMEOUT_SECONDS,
     whole_run_metric: WholeRunMetricChoice | None = None,
+    drop_scorers: tuple[str, ...] = (),
 ) -> TaskReplayImport:
     """Import one eval by Task replay: run 1 reads, the declaration is sealed, run 2 proves it.
 
@@ -467,6 +499,8 @@ def import_by_task_replay(
         has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
         empty_answer_key_allowed: True when some Cases' empty key is the answer the eval's
             own scorer reads, in both runs (OME-1527, R5).
+        letter_list_key: True when multiple-choice keys name several options by letter, in
+            both runs (OME-1602, F6).
         shuffle_seed: the seed both runs force onto an unseeded ``hf_dataset`` row shuffle.
         choice_shuffle_seed: the seed both runs force onto a bare ``shuffle_choices=True``.
         keep_sample_metadata: keep the Sample metadata although the scorer is inspect's own,
@@ -476,6 +510,8 @@ def import_by_task_replay(
         timeout: seconds before either run is abandoned.
         whole_run_metric: honour the eval's non-mean headline metric or keep the mean
             (OME-1527); None refuses such a Task. Run 1 reads it; it shapes no Case.
+        drop_scorers: extra scorers left out by registry name (OME-1602); run 1 reads them,
+            they shape no Case.
 
     Returns:
         The sealed declaration, the Case Sources run 1 recorded, and the Task's facts.
@@ -492,11 +528,13 @@ def import_by_task_replay(
             excluded_sample_ids=excluded_sample_ids,
             has_answer_key=has_answer_key,
             empty_answer_key_allowed=empty_answer_key_allowed,
+            letter_list_key=letter_list_key,
             shuffle_seed=shuffle_seed,
             choice_shuffle_seed=choice_shuffle_seed,
             keep_sample_metadata=keep_sample_metadata,
             timeout=timeout,
             whole_run_metric=whole_run_metric,
+            drop_scorers=drop_scorers,
         )
     except TaskReplayError as exc:
         raise ImporterError(str(exc)) from exc
@@ -521,6 +559,7 @@ def import_by_task_replay(
         keep_sample_metadata=first.facts.keep_sample_metadata,
         has_answer_key=has_answer_key,
         empty_answer_key_allowed=empty_answer_key_allowed,
+        letter_list_key=letter_list_key,
         excluded_sample_ids=excluded_sample_ids,
         source_pins=hub.source_pins,
         shuffle_seed=shuffle_seed,

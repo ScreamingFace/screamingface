@@ -251,6 +251,23 @@ def _refuse_injectable_import(
         )
 
 
+def _answer_key_lines(declaration: TaskReplayCasesSpec) -> list[str]:
+    """The declaration's answer-key opt-ins, each written only when set, so no existing row's
+    text moves."""
+
+    lines: list[str] = []
+    if not declaration.has_answer_key:
+        # WHY written: the empty keys are inside the Case Digest, as the metadata is (R19).
+        lines.append("        has_answer_key=False,")
+    if declaration.empty_answer_key_allowed:
+        # WHY written: the empty keys are inside the Case Digest too (OME-1527, R5).
+        lines.append("        empty_answer_key_allowed=True,")
+    if declaration.letter_list_key:
+        # WHY written: the several-letter keys are inside the Case Digest too (OME-1602, F6).
+        lines.append("        letter_list_key=True,")
+    return lines
+
+
 def _declaration_lines(
     key: str, imported: TaskReplayImport, license: str, card_license: str | None
 ) -> list[str]:
@@ -276,13 +293,7 @@ def _declaration_lines(
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")
-    if not declaration.has_answer_key:
-        # WHY written: the empty keys are inside the Case Digest, as the metadata is (R19).
-        lines.append("        has_answer_key=False,")
-    if declaration.empty_answer_key_allowed:
-        # WHY written: the empty keys are inside the Case Digest too; only when set, so no
-        # existing row's text moves (OME-1527, R5).
-        lines.append("        empty_answer_key_allowed=True,")
+    lines.extend(_answer_key_lines(declaration))
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
     if declaration.nltk_resources:
@@ -426,6 +437,10 @@ def _benchmark_row_lines(
             judge_role=facts.judge_role,
         )
     )
+    if facts.multiple_correct:
+        # WHY only when set (OME-1602, F6): the grader reads every letter the Candidate picks,
+        # as the eval's multiple_choice solver asked; every other row renders byte-identically.
+        lines.append("        multiple_correct=True,")
     if facts.attempts > 1:
         # WHY only above 1 (OME-1458): every one-epoch Task's row renders byte-identically.
         lines.extend(
