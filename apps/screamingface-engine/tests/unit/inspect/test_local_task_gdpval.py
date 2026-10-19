@@ -156,9 +156,10 @@ _HAND_BUILT: list[tuple[float, list[bool]] | None] = [
     None,
 ]
 
-#: The hand-built mean scorer's headline over the four graded Cases:
-#: (0.25 + 0.5 − 2.5 + 1.0) / 4 = −0.1875 — unclamped, the failed Case left out.
-_HAND_BUILT_HEADLINE: float = -0.1875
+#: The headline over all five selected Cases (OME-1642: gdpval-text declares `withhold`, so the
+#: failed Case counts 0): (0.25 + 0.5 − 2.5 + 1.0 + 0) / 5 = −0.15 — unclamped. Grades here can
+#: be negative, so a failed Case worth 0 can raise a negative mean; owner decision 2026-10-19.
+_ALL_CASE_HEADLINE: float = -0.15
 
 #: The hand-built judge route and its JUDGE_PARAMS, in wire order.
 _JUDGE_ROUTE: str = "/openrouter/google/gemini-3.1-pro-preview"
@@ -275,12 +276,10 @@ async def test_each_case_is_graded_as_the_hand_built_grader_graded_it(
 
 
 @pytest.mark.asyncio
-async def test_the_run_headline_is_the_hand_built_mean(
-    tmp_path: Path, judge: _ScriptedJudge
-) -> None:
-    """The headline guarantee: the same replies score −0.1875 here and in the hand-built
-    Benchmark — a plain, unclamped mean over the four graded Cases; the Case whose judge never
-    gave a verdict is left out of the mean and counted against coverage, never scored 0."""
+async def test_the_run_headline_is_the_all_case_mean(tmp_path: Path, judge: _ScriptedJudge) -> None:
+    """The headline guarantee (OME-1642): a plain, unclamped mean over all five selected Cases;
+    the Case whose judge never gave a verdict stays failed, counts 0 in the mean, and is still
+    counted against coverage."""
 
     prepared: list[PreparedCase] = [
         {
@@ -298,7 +297,7 @@ async def test_the_run_headline_is_the_hand_built_mean(
         imported_benchmark("gdpval-text"), rows, tmp_path, case_ids=(1, 2, 3, 4, 5)
     )
 
-    assert result["score"] == _HAND_BUILT_HEADLINE
+    assert result["score"] == _ALL_CASE_HEADLINE
     assert result["metrics"]["scored_cases"] == 4
     statuses: list[str] = [case["status"] for case in result["cases"]]
     assert statuses.count("failed") == 1

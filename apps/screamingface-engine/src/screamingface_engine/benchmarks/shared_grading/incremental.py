@@ -71,6 +71,7 @@ class Scoring:
                 selected_cases=self.selected,
                 cases=results,
                 scorer=self.scorer,
+                failure_policy=self.path.failure_policy,
             )
             observed = {case.case_id for case in results}
             for case in finalized.cases:

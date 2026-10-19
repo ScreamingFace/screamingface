@@ -155,6 +155,7 @@ async def test_a_failing_case_publishes_exactly_what_serial_marking_publishes() 
         )
     ]
     expected: dict[str, Any] = finalize_candidate_result(
+        failure_policy="withhold",
         benchmark_id="test-benchmark",
         benchmark_revision="rev",
         selected_cases=_selected(1, 2, 3, 4),

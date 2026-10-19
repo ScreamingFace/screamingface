@@ -65,8 +65,11 @@ def _result(*, inverted_grade: bool | None) -> CandidateResult:
     )
     selected: list[SelectedCase] = [SelectedCase(case_id=1, input="input 1", metadata={})]
     if inverted_grade is None:
-        # The default call every existing aggregate makes — no new kwarg.
+        # The default call: no `inverted_grade` kwarg. WHY coverage_declare: the inverted rows
+        # (xstest_unsafe, coconot_original, fortress_benign) declare it, and the factory
+        # refuses `withhold` on an inverted row (OME-1642), so no other policy is realistic here.
         return finalize_candidate_result(
+            failure_policy="coverage_declare",
             benchmark_id="benchmark",
             benchmark_revision="revision",
             selected_cases=selected,
@@ -74,6 +77,7 @@ def _result(*, inverted_grade: bool | None) -> CandidateResult:
             scorer=scorer,
         )
     return finalize_candidate_result(
+        failure_policy="coverage_declare",
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=selected,
@@ -145,6 +149,8 @@ def _aggregation(**overrides: object) -> BenchmarkAggregation:
         "method": "test",
         "grading_failure_code": "test_grading_failed",
         "grading_failure_message": "the grader could not grade this Case",
+        # WHY coverage_declare: an inverted row never declares `withhold` (see `_result`).
+        "failure_policy": "coverage_declare",
     }
     values.update(overrides)
     return BenchmarkAggregation(**values)  # type: ignore[arg-type]

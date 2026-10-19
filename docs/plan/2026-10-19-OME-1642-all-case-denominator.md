@@ -82,20 +82,39 @@ keyword stay REQUIRED. Consequences, both part of U1:
   Under `coverage_declare` the scorer only ever receives graded Cases, so its numbers do not
   change.
 - medxpert `_accuracy` (`benchmarks/medxpert/aggregate.py:221`): same rule.
-- **Existing call sites (owner decision of U1, applied to U2):** existing tests that call
-  `finalize_candidate_result` (17 calls, 5 files) or build `BenchmarkAggregation` (6 files)
-  gain ONLY `failure_policy="coverage_declare"`, so each keeps today's behavior; they join the
-  U5 manifest.
-- `_column_means` under `withhold`: column names come from the first graded Case; each
-  ungraded Case adds 0.0 to every column. The headline denominator is the number of Cases the
-  scorer receives; `scored_cases`, `correct` and verdict counts stay over graded Cases.
+- **Existing call sites (owner decision, replaces the construction-only rule for U2):** the
+  owner asked for a proper change to the existing tests, not a blanket `coverage_declare`.
+  Rule for every existing test that calls `finalize_candidate_result` or builds
+  `BenchmarkAggregation`:
+  1. A test that names a real Benchmark (its id, or its row) declares that row's policy, and
+     its assertions, docstring and name say what it checks under it (squad and gsm8k in
+     `test_named_scores_contract.py`, medxpert, frames_oracle, the gsm8k and mmlu declaration
+     tests, the declaration table).
+  2. A test of the generic finalizer whose assertion depends on one policy names that policy
+     (`coverage_declare` for "a failed Case is excluded") and its name says so; when the
+     invariant holds under both policies it is parametrized over both.
+  3. A fixture where the policy changes nothing (all Cases graded, the scorer ignores
+     failures) declares `withhold`, the policy of 61 of the 77 rows, except where the row
+     it stands for cannot declare it (inverted-grade rows keep `coverage_declare`; the factory
+     refuses `withhold` there).
+  Every edited test goes in the U5 manifest. The U1 construction-only edits already
+  committed (hand-built `BenchmarkSpec`/factory fixtures) stay as they are.
+- `_column_means(graded, case_count)` (no default): column names come from the first graded
+  Case; each ungraded Case adds 0.0 to every column; every column divides by `case_count`,
+  the number of Cases the scorer receives (the headline uses `len(cases)` the same way);
+  `scored_cases`, `correct` and verdict counts stay over graded Cases.
+- medxpert's `BenchmarkAggregation` reads its policy from `MEDXPERT.declaration.failure_policy`
+  (one source of truth; `definition.py` does not import `aggregate.py` at import time).
 - `_whole_run_tally` (`single_shot.py:1217`): no change. It only runs on F rows, which stay
   `coverage_declare` (U1 guard).
 - `contract.py:563–567` docstring: "the score is over the selected Cases the declared failure
   policy counts". `_candidate_outcome` logic does not change (a scored Candidate still needs
   ≥1 numeric grade; coverage formula unchanged).
 
-New tests `tests/unit/test_withhold_reduction.py` (spec V1–V4): 3 graded (1.0, 0.5, 0.0) + 1
+New tests `tests/unit/test_withhold_reduction.py` (spec V1–V4, plus the batch and incremental
+paths handing the scorer the Cases the policy counts) and
+`tests/unit/inspect/test_withhold_aggregation_wiring.py` (a row's declared policy reaches its
+`aggregation()`): 3 graded (1.0, 0.5, 0.0) + 1
 failed → `withhold` 0.375 / coverage 0.75, `coverage_declare` 0.5 / 0.75; Named Scores under
 `withhold`; no graded Case → `None`, coverage 0, under both; a textless content-filter refusal
 (`refusal_case_result`) adds 0 under `withhold`; medxpert all-Case mean.
@@ -131,9 +150,22 @@ These existing tests assert values that this change moves on purpose:
 - `tests/unit/inspect/test_benchmark_declaration.py:140–175` (the `coverage_declare` table).
 - `tests/unit/test_medxpert_migration_golden.py` if it pins the medxpert revision.
 
-Each is updated to the new value only (no other edit). The U1 construction-only edits (the
-`failure_policy=` keyword in direct `BenchmarkSpec`/factory calls, and the renderer test
-expectation) are in the same manifest. The approval manifest
+- Existing tests changed by the U2 call-site rule above, and by the moved withhold rows:
+  `test_attempt_fold.py`, `test_benchmark_aggregation.py`, `test_benchmark_failure_policy.py`,
+  `test_benchmark_inverted_grade.py`, `test_concurrent_case_grading.py`,
+  `test_named_scores_contract.py`, `test_shared_grading_aggregation.py`,
+  `test_shared_grading_case_grader.py`, `inspect/test_concurrent_judge_booking.py`,
+  `inspect/test_inspect_gsm8k_benchmark.py`, `inspect/test_inspect_mmlu_benchmark.py`,
+  `inspect/test_local_task_frames.py`, `test_medxpert_aggregate.py`
+  (the over-window and no-row tests now state the all-Case score).
+- `inspect/test_local_task_gdpval.py` waits for the owner decision on gdpval-text (its Case
+  grades are unclamped and can be negative, so a failed Case worth 0 can RAISE the score;
+  see the spec, Group C and D4).
+
+Each is updated to the new value only where the value is the point; a test that pinned old
+behavior gets its assertion, docstring and name updated to say what it now checks. The U1
+construction-only edits (the `failure_policy=` keyword in direct `BenchmarkSpec`/factory calls,
+and the renderer test expectation) are in the same manifest. The approval manifest
 `.claude/test-change-approvals/OME-1642.json` pins each file's base and approved blob (format of
 `OME-1134.json`; approver: the owner; scope "revision literals, the policy table, and the
 construction-only `failure_policy=` keyword").

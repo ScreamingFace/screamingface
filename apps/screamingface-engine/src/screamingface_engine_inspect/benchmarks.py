@@ -5810,6 +5810,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The last sourced frontier score is about 0.60; the options make test-taking tricks
         # possible, so modern models likely score higher (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.truthfulqa.truthfulqa:truthfulqa, with task arg target=mc1 (inspect's
         #   mc2 is an exact-set score, not the paper's MC2; owner decision on OME-1602).
@@ -5864,6 +5865,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/jablonkagroup/ChemBench",
         # The best verified bare model reaches about 0.71: real headroom (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.chembench.chembench:chembench.
         # License: mit.
@@ -5931,6 +5933,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://huggingface.co/datasets/McGill-NLP/stereoset",
         # GPT-4 already picks a related continuation about 97% of the time (OME-1257).
         difficulty="easy",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.stereoset.stereoset:stereoset (task_type intersentence).
         # License: cc-by-sa-4.0.
@@ -5999,6 +6002,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
         # The paper's best model gets about a third exactly right (OME-1257).
         difficulty="hard",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
         #   inspect_evals.cyberseceval_4.malware_analysis:cyse4_malware_analysis.
         # License: CC-BY-SA-4.0, CrowdStrike's hybrid-analysis LICENSE.md (owner decision
@@ -6071,6 +6075,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier base models score in the 80s on 3-shot F1; still below expert humans at
         # 96 (OME-1257).
         difficulty="medium",
+        failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of inspect_evals.drop.drop:drop,
         #   with its defaults: 3 worked examples, drawn with the eval's fixed seed.
         # License: CC-BY-SA-4.0, the original DROP release (owner decision on OME-1602,

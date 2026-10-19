@@ -79,6 +79,13 @@ _WITHHOLD: frozenset[str] = frozenset(
         "musique",
         "gdpval-text",
         "frames_oracle",
+        # OME-1602 PR 5/6 rows, added on main after the plan's table: each is a per-Case mean
+        # (no whole-run metric, not inverted, a decline is never the right answer) — Group A.
+        "truthfulqa_mc1",
+        "chembench",
+        "stereoset",
+        "cyse4_malware_analysis",
+        "drop",
     }
 )
 

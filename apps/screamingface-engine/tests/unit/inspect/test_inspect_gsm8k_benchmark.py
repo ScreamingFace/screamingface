@@ -76,7 +76,7 @@ def test_benchmark_identity_and_declaration() -> None:
     assert benchmark.id == "inspect-gsm8k"
     assert len(benchmark.revision) == 16 and int(benchmark.revision, 16) >= 0
     assert benchmark.declaration.as_block() == {
-        "failure_policy": "coverage_declare",
+        "failure_policy": "withhold",
         "interaction": "single_shot",
         # OME-1257: grade-school material frontier models saturate.
         "difficulty": "easy",

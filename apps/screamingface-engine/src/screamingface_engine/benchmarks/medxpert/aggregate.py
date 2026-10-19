@@ -35,6 +35,7 @@ from screamingface_engine.benchmarks.aggregation import CandidateScore, Selected
 from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.medxpert.case_grade import decode_case_grade
+from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -222,6 +223,10 @@ def _match_evidence(committed: str, label: str, correct: bool) -> dict[str, Any]
 def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     """Plain accuracy, with the answered fraction reported beside it.
 
+    FEATURE (OME-1642): the mean is over the Cases the scorer is given — every selected Case
+    under the declared `withhold` policy — and a Case with no numeric grade adds 0.
+    `scored_cases`, `correct`, `answered` and `answered_rate` stay over the graded Cases.
+
     WHY report `answered` even though the empty-prediction verdict already counts
     unanswered Cases as wrong: 40% built from 40% correct reads very differently from
     40% built from 90% correct and half the rows unanswered, and only the second is a
@@ -235,7 +240,7 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     values = [float(grade.score) for grade in scored if grade.score is not None]
     answered = sum(1 for grade in scored if grade.metrics.get("answered"))
     return CandidateScore(
-        score=round(sum(values) / len(values), 4),
+        score=round(sum(values) / len(cases), 4),
         metrics={
             "correct": sum(1 for value in values if value >= 1.0),
             "scored_cases": len(values),
@@ -260,6 +265,9 @@ _PATH = BenchmarkAggregation(
     grading_failure_code="medxpert_grading_failed",
     grading_failure_message="the MedXpertQA checker could not grade this Case",
     missing_material_code="missing_answer_asset",
+    # WHY read from the declaration: the reducer and the declared policy are one decision, so
+    # the score denominator cannot drift from what the catalogue says (OME-1642).
+    failure_policy=MEDXPERT.declaration.failure_policy,
 )
 
 __all__ = ["AggregateError", "aggregate", "load_answer", "selected_cases"]

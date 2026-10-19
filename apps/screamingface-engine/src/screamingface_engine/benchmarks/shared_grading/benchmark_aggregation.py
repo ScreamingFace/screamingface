@@ -80,6 +80,7 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
@@ -206,6 +207,10 @@ class BenchmarkAggregation:
             there would contradict its own message.
         inverted_grade: the Benchmark's Case scores are already 1 − its eval's grade
             (OME-1400). Stamped onto the run result so a replayed report can show it.
+        failure_policy: the Benchmark's declared policy (OME-1642), required and
+            keyword-only: it decides whether a Case that never got a numeric grade counts 0 in
+            the score (``withhold``) or leaves it (``coverage_declare``). A default here would
+            let a hand-built Benchmark pick a score denominator nobody declared.
     """
 
     reader: CaseGradeReader
@@ -226,6 +231,7 @@ class BenchmarkAggregation:
     # row, so marking side by side would buy it nothing. A Benchmark whose hook calls a
     # judge sets `CASE_GRADING_CONCURRENCY`.
     case_grading_concurrency: int = 1
+    failure_policy: FailurePolicy = field(kw_only=True)
 
     def aggregate(
         self,
@@ -329,6 +335,7 @@ class BenchmarkAggregation:
                 selected_cases=list(selected_cases),
                 cases=case_results,
                 scorer=scorer,
+                failure_policy=self.failure_policy,
                 inverted_grade=self.inverted_grade,
             )
             observed = {case.case_id for case in case_results}

@@ -25,6 +25,7 @@ from screamingface_engine.benchmarks.contract import (
     is_declared_failure_code,
     validate_case_id,
 )
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 from screamingface_engine.error_text import public_identifier, public_message
@@ -83,10 +84,18 @@ def finalize_candidate_result(
     selected_cases: Sequence[SelectedCase | Mapping[str, Any]],
     cases: Sequence[CaseResult | Mapping[str, Any]],
     scorer: Scorer,
+    failure_policy: FailurePolicy,
     failures: Sequence[Failure | Mapping[str, Any]] = (),
     inverted_grade: bool = False,
 ) -> CandidateResult:
-    """Preserve Cases and score exactly the subset carrying numeric Benchmark grades.
+    """Preserve Cases and score them under the Benchmark's declared failure policy.
+
+    FEATURE (OME-1642): ``failure_policy`` decides which Cases the scorer is given.
+    ``coverage_declare`` hands it exactly the subset carrying numeric Benchmark grades (the
+    failed Cases leave the score; coverage shows them). ``withhold`` hands it EVERY selected
+    Case, failed ones included, so the scorer counts each one as 0 in the denominator. Under
+    both, a Candidate with no numeric Case grade publishes ``score=None`` and the scorer never
+    runs (R4), and coverage stays graded / selected.
 
     ``inverted_grade`` marks a Benchmark whose Case scores are already 1 − the eval's grade
     (OME-1400); it rides the result so a replayed report can show it.
@@ -143,7 +152,9 @@ def finalize_candidate_result(
     gradeable = tuple(
         case for case in typed_cases if case.grade is not None and case.grade.score is not None
     )
-    scored = scorer(gradeable) if gradeable else None
+    scored = (
+        scorer(typed_cases if failure_policy == "withhold" else gradeable) if gradeable else None
+    )
     result = CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,

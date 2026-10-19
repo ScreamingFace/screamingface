@@ -324,12 +324,13 @@ def _collected_failure(error: ResolutionError) -> dict[str, object]:
 
 
 @pytest.mark.asyncio
-async def test_an_over_window_prompt_fails_its_case_and_the_run_completes(
+async def test_an_over_window_prompt_fails_its_case_counts_zero_and_the_run_completes(
     tmp_path: Path, judge: _ScriptedJudge
 ) -> None:
     """Decision 4: a prompt longer than the Candidate's window comes back from the provider as
     a 400, which the gateway connector raises as ``aigateway_http_400``. That one Case fails
-    and leaves Coverage; the other two are graded and the run's score is over them alone."""
+    and shows in Coverage (2 of 3 graded). frames_oracle declares ``withhold`` (OME-1642), so
+    the failed Case counts 0 in the score: (1 + 0 + 0) / 3, not the graded pair's 0.5."""
 
     # Keyed by gold answer, not call order: the aggregate grades Cases concurrently.
     judge.scripts = {"Jane Ballou": [_TRUE], "Eliza Ballou": [_FALSE]}
@@ -355,7 +356,7 @@ async def test_an_over_window_prompt_fails_its_case_and_the_run_completes(
     assert [case["status"] for case in result["cases"]] == ["scored", "failed", "scored"]
     assert [failure["code"] for failure in result["cases"][1]["failures"]] == ["aigateway_http_400"]
     assert result["coverage"] == round(2 / 3, 4)
-    assert result["score"] == 0.5
+    assert result["score"] == round(1 / 3, 4)
 
 
 # ── the loader's join ───────────────────────────────────────────────────────────────────────

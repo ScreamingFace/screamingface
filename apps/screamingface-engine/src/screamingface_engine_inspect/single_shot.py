@@ -348,6 +348,7 @@ class ImportedBenchmark:
             # marking Cases side by side shortens the run's tail; a judge-free scorer
             # finishes at once and keeps serial marking.
             case_grading_concurrency=CASE_GRADING_CONCURRENCY if self.judge is not None else 1,
+            failure_policy=self.benchmark.declaration.failure_policy,
         )
 
 
@@ -1200,16 +1201,23 @@ def _case_by_input(root: Path, prompt: str) -> int:
 
 
 def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Mean score over the graded Cases — the imported single-shot reduction.
+    """Mean score over the Cases the scorer is given — the imported single-shot reduction.
 
-    With Named Scores (OME-1268) every column is averaged over the SAME graded Cases as the
-    headline, so all columns share Coverage's denominator (the adapter never half-grades a
+    FEATURE (OME-1642): under ``coverage_declare`` the finalizer hands this only the graded
+    Cases, so the mean is over graded Cases exactly as before. Under ``withhold`` it hands
+    every selected Case, and a Case with no numeric grade adds 0 to the headline and to every
+    Named Score column — the denominator is the number of Cases given. ``scored_cases``,
+    ``correct`` and the verdict counts stay over the graded Cases.
+
+    With Named Scores (OME-1268) every column is averaged over the SAME Cases as the
+    headline, so all columns share one denominator (the adapter never half-grades a
     Case; a column one graded Case could not fill is published as unknown, never over
-    fewer Cases). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 →
-    score 0.667, scores f1 0.667, exact 0.5.
+    fewer Cases). Worked example, 2 graded Cases under ``coverage_declare``: f1 1.0 and 0.334,
+    exact 1.0 and 0.0 → score 0.667, scores f1 0.667, exact 0.5. Under ``withhold``, with a
+    third Case that failed: score 0.4447, scores f1 0.4447, exact 0.3333.
 
     A judging scorer's verdict counts (``verdicts_expected`` / ``accepted`` / ``rejected``,
-    OME-1527 row 18b) are added up over the same graded Cases, so the Report can warn when
+    OME-1527 row 18b) are added up over the graded Cases, so the Report can warn when
     grading did not fully land; a row whose scorer writes none publishes none.
     """
 
@@ -1220,13 +1228,13 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     if not values:  # pragma: no cover - a Benchmark always selects one Case
         raise AssertionError("an imported board's scorer requires at least one scored Case")
     return CandidateScore(
-        score=round(sum(values) / len(values), 4),
+        score=round(sum(values) / len(cases), 4),
         metrics={
             "correct": sum(1 for value in values if value >= 1.0),
             "scored_cases": len(values),
             **run_verdict_counts(grade.metrics for grade in graded),
         },
-        scores=_column_means(graded),
+        scores=_column_means(graded, len(cases)),
     )
 
 
@@ -1508,9 +1516,10 @@ def _is_headline(value: object) -> bool:
     )
 
 
-def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
-    """Each Named Score column's mean over the graded Cases, in the headline-first order
-    the first Case declares; empty when the Benchmark has no Named Scores."""
+def _column_means(graded: Sequence[CaseGrade], case_count: int) -> dict[str, float | None]:
+    """Each Named Score column's sum over the graded Cases divided by ``case_count``, the Cases
+    the scorer was given (the ungraded ones add 0), in the headline-first order the first
+    graded Case declares; empty when the Benchmark has no Named Scores."""
 
     names: tuple[str, ...] = tuple(graded[0].scores) if graded else ()
     means: dict[str, float | None] = {}
@@ -1518,9 +1527,11 @@ def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
         column: list[float | None] = [grade.scores.get(name) for grade in graded]
         # INVARIANT: every column shares the headline's denominator. A column one graded
         # Case could not fill (a None value) has no honest mean over those Cases, so it is
-        # published as unknown — never as a mean over fewer Cases, never as 0.0.
+        # published as unknown — never as a mean over fewer Cases, never as 0.0. A Case
+        # with no grade at all (`withhold`, OME-1642) is a failed Case, not an unfilled
+        # column: it adds 0.0 to every column, as it does to the headline.
         filled: list[float] = [float(value) for value in column if value is not None]
-        means[name] = round(sum(filled) / len(filled), 4) if len(filled) == len(column) else None
+        means[name] = round(sum(filled) / case_count, 4) if len(filled) == len(column) else None
     return means
 
 
