@@ -182,7 +182,9 @@ async def test_public_read_carries_the_reproduction_count(
     assert response.status_code == 200
     body = response.json()
     assert body["reproduction_count"] == 2
-    assert body["last_reproduced_at"].startswith("2026-10-06T12:30:00")
+    assert datetime.fromisoformat(body["last_reproduced_at"]) == datetime(
+        2026, 10, 6, 12, 30, tzinfo=UTC
+    )
 
 
 async def test_public_read_unknown_id_is_the_private_404(score_client: AsyncClient) -> None:
@@ -301,12 +303,12 @@ async def test_openapi_documents_the_public_read(score_client: AsyncClient) -> N
 
     assert set(operation) == {"get"}
     get = operation["get"]
-    assert get["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
-        "/ScoreSchema"
+    assert get["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/ScoreSchema"
     )
-    assert get["responses"]["404"]["content"]["application/json"]["schema"]["$ref"].endswith(
-        "/MessageErrorResponse"
+    assert get["responses"]["404"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/MessageErrorResponse"
     )
-    assert get["responses"]["503"]["content"]["application/json"]["schema"]["$ref"].endswith(
-        "/MessageErrorResponse"
+    assert get["responses"]["503"]["content"]["application/json"]["schema"]["$ref"] == (
+        "#/components/schemas/MessageErrorResponse"
     )
