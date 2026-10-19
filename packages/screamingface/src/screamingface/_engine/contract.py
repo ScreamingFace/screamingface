@@ -553,12 +553,31 @@ def _log(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Log:
 
 
 def _span(envelope: dict[str, Any], data: Mapping[str, object]) -> events.Span:
+    name = _text(data, "name")
+    start = _timestamp(data.get("start"))
+    end = _optional_timestamp(data.get("end"))
+    # WHY clamp here rather than let `events.Span` refuse it: an Engine that read the wall clock at
+    # both ends of a span published `end` before `start` whenever the host stepped its clock back
+    # between them (lima-guestagent's `SyncTime`, about 211 ms), and that bare `ValueError`
+    # aborted a run the Engine reported as succeeded. Same rule as the cost total-vs-parts case:
+    # incoherent producer telemetry is resolved with a warning, never fatal.
+    # INVARIANT: clamp, never drop. The span still feeds `_hit_spans` and the saved-cost totals,
+    # so dropping it would under-count the run's hits and savings; `end=None` would falsely claim
+    # the span never finished. The public `events.Span` keeps rejecting `end < start`.
+    if end is not None and end < start:
+        _LOG.warning(
+            "SF Engine span %r ends before it starts; clamping end to start (start=%s, end=%s)",
+            name,
+            start,
+            end,
+        )
+        end = start
     return events.Span(
         **envelope,
-        name=_text(data, "name"),
+        name=name,
         operation=_text(data, "gen_ai.operation.name"),
-        start=_timestamp(data.get("start")),
-        end=_optional_timestamp(data.get("end")),
+        start=start,
+        end=end,
         status=_span_status(_text(data, "status")),
         span_kind=_span_kind(_text(data, "kind")),
         provider=_optional_text(data.get("gen_ai.provider.name"), "span provider"),
