@@ -1015,7 +1015,8 @@ class ScoreSchema(BaseModel):
     # copy id above. The score read returns it; a reproduction is compared against it.
     case_digest: str | None = Field(default=None, exclude_if=lambda value: value is None)
     # FEATURE: OME-1307 — recorded reproductions, DERIVED on read (never stored on `scores`). Only
-    # `GET /v1/scores/{id}` fills them; every other path that builds this DTO leaves the default.
+    # `GET /v1/scores/{id}` and `GET /v1/public/scores/{id}` fill them; every other path that
+    # builds this DTO leaves the default.
     #
     # INVARIANT: EXCLUDED WHEN ZERO or null, for the reason `paper_url` records. An absent count
     # reads as 0 (K8), so a row with no reproductions serializes as it did before the field: the
@@ -1024,12 +1025,18 @@ class ScoreSchema(BaseModel):
     reproduction_count: int = Field(
         default=0,
         exclude_if=lambda value: value == 0,
-        description="Recorded reproductions; only `GET /v1/scores/{id}` carries it. Absent: 0.",
+        description=(
+            "Recorded reproductions; only `GET /v1/scores/{id}` and "
+            "`GET /v1/public/scores/{id}` carry it. Absent: 0."
+        ),
     )
     last_reproduced_at: datetime | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
-        description="Latest reproduction time; only `GET /v1/scores/{id}` carries it.",
+        description=(
+            "Latest reproduction time; only `GET /v1/scores/{id}` and "
+            "`GET /v1/public/scores/{id}` carry it."
+        ),
     )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a

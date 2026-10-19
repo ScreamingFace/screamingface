@@ -36,7 +36,7 @@ pytestmark = pytest.mark.anyio
 # so the caller receives less than it could have, never more.
 #   _private_leaderboard / get_leaderboard   the private response itself
 #   get_spec_history / get_frontier          the 404s a private board answers with
-#   get_score                                404 for a private row, 404 unknown id, 503 store down
+#   _read_score                              404 for a private row, 404 unknown id, 503 store down
 #   submit                                   PrivateBoardRequiresIdentity
 #
 # PURE — no request, no I/O, nothing to go stale between.
@@ -69,7 +69,7 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::get_leaderboard", "Return"): 1,
     ("leaderboard.py::get_spec_history", "Raise"): 2,
     ("leaderboard.py::get_frontier", "Raise"): 1,
-    ("scores.py::get_score", "Raise"): 3,
+    ("scores.py::_read_score", "Raise"): 3,
     ("store.py::benchmark_to_schema", "Return"): 1,
     ("store.py::_content_hash", "Return"): 1,
     ("store.py::_scoped_idempotency_key", "Return"): 3,

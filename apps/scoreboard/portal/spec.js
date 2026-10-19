@@ -2,10 +2,12 @@
  *
  * Reads ?benchmark=<id>&spec=<spec_id>. The history endpoint deliberately
  * omits url4_expression, so the top "Run Locally" link is built from the most
- * recent submission's score detail via GET /v1/scores/{submissions[0].id}
+ * recent submission's score detail via GET /v1/public/scores/{submissions[0].id}
  * (submissions are newest-first). That id is the same Score UUID the scores
- * route accepts. This link intentionally uses the newest submission, which may
- * differ from the best-per-spec url4 shown on the leaderboard row.
+ * route accepts. `/v1/scores/*` is behind Cloudflare Access in production, so an
+ * anonymous page must not call it. This link intentionally uses the newest
+ * submission, which may differ from the best-per-spec url4 shown on the
+ * leaderboard row.
  */
 (function (P) {
   "use strict";
@@ -68,7 +70,7 @@
   }
 
   function renderRunLink(contentNode, regionNode, specId, latestId) {
-    P.fetchJson("/v1/scores/" + encodeURIComponent(latestId)).then(
+    P.fetchJson("/v1/public/scores/" + encodeURIComponent(latestId)).then(
       function (score) {
         renderPaperLink(contentNode, score);
         renderMetadataEdited(contentNode, score);

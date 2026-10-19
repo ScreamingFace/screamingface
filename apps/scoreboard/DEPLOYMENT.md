@@ -214,6 +214,8 @@ The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE
 
 The scoreboard service owns the public portal at `https://scoreboard.screamingface.ai/`. The portal calls `/v1/*` same-origin, so CORS is not needed for the portal itself.
 
+Production Access has a path-scoped application on `/v1/scores` (all subpaths, all methods). Anonymous pages must use `/v1/public/scores/{id}`, `/v1/benchmarks` and `/v1/leaderboard/*`.
+
 The service also exposes exact public JSONL routes as inline text:
 
 ```bash

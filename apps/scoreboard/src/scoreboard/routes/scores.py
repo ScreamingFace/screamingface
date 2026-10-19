@@ -1,6 +1,8 @@
 """Public score submission and score lookup routes.
 
-Reads are always public. Writes trust the client-supplied ``submitted_by`` free text by
+Reads are always public. The anonymous alias `GET /v1/public/scores/{id}` exists because
+Cloudflare Access gates every `/v1/scores` subpath.
+Writes trust the client-supplied ``submitted_by`` free text by
 default (``auth_mode=disabled``); setting ``SCOREBOARD_AUTH_MODE=cloudflare_headers``
 requires and trusts the mesh-verified `X-User-Email` identity header instead (OME-404,
 following OME-326). The verified_by_screamingface response field is a separate, independent
@@ -365,14 +367,13 @@ async def submit_score(
         ) from exc
 
 
-@router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
-async def get_score(
-    score_id: UUID, request: Request, response: Response, identity: ReadIdentity
+async def _read_score(
+    request: Request, response: Response, score_id: UUID, identity: str | None
 ) -> ScoreSchema:
-    """Return a public score by id.
+    """The score detail ``identity`` may read, or the 503 / 404 refusal (OME-894).
 
-    ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
-    submissions and nothing attests execution provenance (OME-820, OME-821).
+    Shared by `GET /v1/scores/{id}` and `GET /v1/public/scores/{id}` so the access rules exist
+    once. ``identity`` None means an anonymous caller.
     """
 
     try:
@@ -435,6 +436,34 @@ async def get_score(
     return ScoreSchema.model_validate(score, from_attributes=True).model_copy(
         update={"reproduction_count": count, "last_reproduced_at": last_reproduced_at}
     )
+
+
+@router.get("/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
+async def get_score(
+    score_id: UUID, request: Request, response: Response, identity: ReadIdentity
+) -> ScoreSchema:
+    """Return a public score by id.
+
+    ``verified_by_screamingface`` carries no verification claim yet: nothing re-runs
+    submissions and nothing attests execution provenance (OME-820, OME-821).
+    """
+
+    return await _read_score(request, response, score_id, identity)
+
+
+@router.get("/public/scores/{score_id}", response_model=ScoreSchema, responses=GET_SCORE_RESPONSES)
+async def get_public_score(score_id: UUID, request: Request, response: Response) -> ScoreSchema:
+    """Return a public score by id, for anonymous readers such as the portal.
+
+    FEATURE: the production Cloudflare Access application is scoped to the path `/v1/scores`
+    and covers every subpath. Access cannot scope by method, so an anonymous GET of
+    `/v1/scores/{id}` gets a 302 to the login page. This path is outside that scope.
+
+    INVARIANT: this route NEVER reads the caller's identity. No step verifies identity on a path
+    Access does not cover, so a private-board score is the same 404 here for every caller, the
+    owner included. The owner reads it through `GET /v1/scores/{id}`.
+    """
+    return await _read_score(request, response, score_id, identity=None)
 
 
 async def _load_visible_score(
