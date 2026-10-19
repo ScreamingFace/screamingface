@@ -31,12 +31,12 @@ from backfill_probes import (
 from connection_backed_admin_probes import (
     KEY,
     blob_at_profile_address,
+    connection,
     connections,
     document,
     marker,
 )
-from connection_backed_harness import ConnectionBackedHarness
-from connection_backed_oauth_probes import status
+from connection_backed_harness import LEGACY_STATE_FOR_STATUS, ConnectionBackedHarness
 from provider_access_harness import PROVIDER
 
 from aigateway.core.oauth.store import credential_locator_for
@@ -50,6 +50,22 @@ OTHER = "openrouter"
 @pytest.fixture
 def h(authenticated_client: Any, credential_blobs: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     return ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+
+
+def served(h: Any) -> tuple[str, str] | None:
+    """The pair's (state, auth_type) as its authority serves it; None when nothing serves it."""
+    # WHY: the Profile status shell that rendered this answers 410 since OME-1209 Stage E3; the
+    # same read now comes from the authority itself — the effective Connection of a migrated pair,
+    # else the Profile document.
+    pair = marker(h)
+    if pair.migration_state == "migrated":
+        if pair.effective_connection_id is None:
+            return None
+        row = connection(h, str(pair.effective_connection_id))
+        status = str(row.status)
+        return LEGACY_STATE_FOR_STATUS.get(status, status), str(row.auth_type)
+    doc = document(h)
+    return None if doc is None else (doc.state.value, doc.auth_type)
 
 
 def only_record(report: Any, provider: str = PROVIDER) -> Any:
@@ -107,9 +123,7 @@ def test_apply_migrates_a_profile_only_oauth_pair_without_re_entry(h: Any) -> No
     assert blob_at_profile_address(h) == blob_before
     assert document(h) == document_before
     # The pair is now served THROUGH the Connection: the shell and the native token route agree.
-    shown = status(h)
-    assert shown.status_code == 200, shown.text
-    assert (shown.json()["state"], shown.json()["auth_type"]) == ("authenticated", "oauth")
+    assert served(h) == ("authenticated", "oauth")
     token = token_of(h, row.id)
     assert token.status_code == 200, token.text
     assert token.json()["access_token"] == "tok"
@@ -120,8 +134,7 @@ def test_apply_migrates_a_profile_only_api_key_pair(h: Any) -> None:
     run(h, "apply")
     row = connections(h)[0]
     assert (row.status, row.auth_type) == ("active", "api_key")
-    shown = status(h)
-    assert (shown.json()["state"], shown.json()["auth_type"]) == ("authenticated", "api_key")
+    assert served(h) == ("authenticated", "api_key")
 
 
 def test_apply_names_a_single_active_connection_and_invents_no_profile(h: Any) -> None:
@@ -164,7 +177,8 @@ def test_apply_quarantines_a_differing_pair_and_keeps_legacy_behaviour(h: Any) -
     assert pair.migration_note == "credentials_differ"
     # INVARIANT (D3): legacy authority kept — the Profile answers, the Connection row is untouched,
     # neither secret is chosen or rewritten.
-    assert status(h).json()["state"] == "authenticated"
+    shown = served(h)
+    assert shown is not None and shown[0] == "authenticated"
     assert h.connection_status(shadow) == "active"
     assert snapshot(h)[0] == blobs_before
 
@@ -296,8 +310,8 @@ def test_rollback_returns_a_migrated_pair_to_legacy_authority_keeping_every_blob
     # INVARIANT (D5): every blob and row kept; only the marker moved.
     assert snapshot(h)[0] == before[0] and snapshot(h)[1] == before[1]
     assert h.connection_status(effective) == "active"
-    shown = status(h)
-    assert shown.status_code == 200 and shown.json()["state"] == "authenticated"
+    shown = served(h)
+    assert shown is not None and shown[0] == "authenticated"
     # Idempotent: a second rollback finds nothing migrated.
     assert only_record(run(h, "rollback")).applied is False
 

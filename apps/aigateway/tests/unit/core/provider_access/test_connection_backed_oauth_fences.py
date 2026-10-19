@@ -23,7 +23,7 @@ from connection_backed_admin_probes import (
     connections,
     document,
     marker,
-    set_api_key,
+    put_pair_key,
 )
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import (
@@ -34,7 +34,6 @@ from connection_backed_oauth_probes import (
     pending_entry,
     server_errors_as_responses,
     start,
-    status,
     use_failing_exchange,
     use_tokens,
 )
@@ -58,9 +57,8 @@ def _open_flow(h: ConnectionBackedHarness, token: str) -> tuple[str, str, int]:
     h.seed_profile()
     effective = h.migrated["default"]
     use_tokens(h, token)
-    started = start(h)
-    assert started.status_code == 201
-    return effective, started.json()["state"], marker(h).generation
+    state = start(h)
+    return effective, state, marker(h).generation
 
 
 # --- fences -------------------------------------------------------------------------------------
@@ -97,7 +95,7 @@ def test_a_delete_between_start_and_callback_wins(migrated) -> None:
     h = migrated
     effective, state, _ = _open_flow(h, "late-tok")
 
-    assert h.client.delete(f"/v1/auth/{PROVIDER}/profiles/default").status_code == 204
+    assert h.client.delete(f"/v1/oauth/connections/{effective}").status_code == 204
     late = callback(h, state)
 
     assert (late.status_code, late.json()["detail"]) == (409, STALE)
@@ -108,14 +106,14 @@ def test_a_delete_between_start_and_callback_wins(migrated) -> None:
     assert document(h) is None
     gone = marker(h)
     assert (gone.migration_state, gone.effective_connection_id) == ("migrated", None)
-    assert h.client.get(f"/v1/auth/{PROVIDER}/profiles/default").status_code == 404
+    assert h.profile_state() is None
 
 
 def test_an_api_key_written_between_start_and_callback_wins(migrated) -> None:
     h = migrated
     effective, state, _ = _open_flow(h, "late-tok")
 
-    set_api_key(h)
+    put_pair_key(h)
     late = callback(h, state)
 
     assert (late.status_code, late.json()["detail"]) == (409, STALE)
@@ -135,9 +133,7 @@ def test_a_failed_exchange_on_a_fresh_flow_marks_the_pending_connection_error(mi
     h.seed_authority()
     detach_effective(h, h.migrated["default"])
     use_failing_exchange(h)
-    started = start(h)
-    assert started.status_code == 201
-    state = started.json()["state"]
+    state = start(h)
     claimed = marker(h)
     new_id = str(claimed.effective_connection_id)
 
@@ -151,7 +147,7 @@ def test_a_failed_exchange_on_a_fresh_flow_marks_the_pending_connection_error(mi
     assert blob_at_profile_address(h) is None
     doc = document(h)
     assert doc is not None and doc.state is ProfileState.ERROR
-    assert status(h).json()["state"] == "error"
+    assert h.connection_status(new_id) == "error"
     moved = marker(h)
     assert (str(moved.effective_connection_id), moved.generation) == (
         new_id,
@@ -164,12 +160,11 @@ def test_a_failed_exchange_during_in_place_reauth_keeps_the_working_credential(m
     h.seed_profile()
     effective = h.migrated["default"]
     use_failing_exchange(h)
-    started = start(h)
-    assert started.status_code == 201
+    state = start(h)
     claimed = marker(h).generation
 
     with server_errors_as_responses(h.client):
-        failed = callback(h, started.json()["state"])
+        failed = callback(h, state)
 
     assert failed.status_code == 500
     assert SENTINEL not in failed.text
@@ -254,8 +249,7 @@ def test_a_failure_whose_pending_row_was_taken_marks_nothing(migrated) -> None:
     h.seed_authority()
     detach_effective(h, h.migrated["default"])
     use_failing_exchange(h)
-    started = start(h)
-    assert started.status_code == 201
+    state = start(h)
     claimed = marker(h)
     new_id = str(claimed.effective_connection_id)
 
@@ -264,7 +258,7 @@ def test_a_failure_whose_pending_row_was_taken_marks_nothing(migrated) -> None:
 
     h.monkeypatch.setattr(OAuthConnectionStore, "mark_pending_error", taken)
     with server_errors_as_responses(h.client):
-        failed = callback(h, started.json()["state"])
+        failed = callback(h, state)
 
     assert failed.status_code == 500
     assert connection(h, new_id).status == "pending"

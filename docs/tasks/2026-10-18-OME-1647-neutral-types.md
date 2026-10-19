@@ -1,13 +1,13 @@
 ---
 id: OME-1647
 linear_url: https://linear.app/openmined/issue/OME-1647/move-the-credential-vocabulary-out-of-profile-models-stage-e-e2a
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-18
-closed:
+closed: 2026-10-18
 ---
 
 # Move the credential vocabulary out of profile_models (Stage E, E2a)

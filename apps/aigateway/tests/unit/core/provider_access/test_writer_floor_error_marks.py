@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from connection_backed_admin_probes import document, marker, set_api_key
+from connection_backed_admin_probes import document, marker, put_pair_key, set_api_key
 from connection_backed_oauth_probes import callback, start, use_failing_exchange
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
@@ -296,14 +296,13 @@ def test_a_profile_dispatch_failure_after_a_legacy_key_put_keeps_the_new_key(har
 
 
 def test_a_legacy_oauth_failure_after_a_legacy_key_put_leaves_the_document_alone(harness) -> None:
-    started = start(harness)
-    assert started.status_code == 201, started.text
-    set_api_key(harness, key=NEW_KEY)
+    state = start(harness)
+    put_pair_key(harness, key=NEW_KEY)
     use_failing_exchange(harness)
 
     # WHY raises: the failed exchange surfaces as today's 500; this harness re-raises it.
     with pytest.raises(AuthError):
-        callback(harness, started.json()["state"])
+        callback(harness, state)
 
     current = document(harness)
     assert current is not None

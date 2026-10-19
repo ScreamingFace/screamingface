@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, cast
 from unittest.mock import patch
@@ -20,12 +21,14 @@ import pytest
 from litellm.exceptions import AuthenticationError
 
 from aigateway.core.credential_blob.model import CredentialBlob
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
     credential_locator_for,
 )
+from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
@@ -54,11 +57,27 @@ def _migrated_profile_slot(
     client: Any, *, status: str = "active", effective: bool = True
 ) -> str | None:
     """A legacy api-key Profile, then the backfill's `profile_only` migration onto its blob."""
-    resp = client.put(f"/v1/auth/{PROVIDER}/profiles/default/api-key", json={"api_key": KEY})
-    assert resp.status_code in (200, 201), resp.text
     account_id = _account(client)
 
     async def migrate() -> str | None:
+        # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and
+        # the native create would write the blob at a Connection address, not the Profile one
+        # this migration points its locator at.
+        await client.app.state.credential_store.write(
+            f"aigateway:{PROVIDER}:{credential_name_for(account_id, 'default')}",
+            "default",
+            json.dumps({"auth_type": "api_key", "api_key": KEY}),
+        )
+        await client.app.state.profile_index.upsert(
+            Profile(
+                id=profile_id_for(account_id, PROVIDER, "default"),
+                account_id=account_id,
+                provider=PROVIDER,
+                name="default",
+                state=ProfileState.AUTHENTICATED,
+                auth_type="api_key",
+            )
+        )
         store = OAuthConnectionStore()
         connection: OAuthConnection = await store.create_pending(
             account_id=account_id,

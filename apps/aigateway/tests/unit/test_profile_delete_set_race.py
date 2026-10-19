@@ -19,6 +19,13 @@ this race needs (review requirement). ``_PostgresRowLockStore`` models the relev
 READ COMMITTED behavior — an UPDATE/DELETE inside a transaction takes that row's lock until
 COMMIT, and the transaction rolls back its own row writes on failure — so two independent
 tasks contend exactly as two PostgreSQL backends would, on the same event loop.
+
+The two route-level tests (the HTTP delete removing blob and index entry, and a delete winning
+over a stale PATCH) retired at OME-1209 Stage E3 with the Profile DELETE and PATCH routes, which
+answer 410 `legacy_profile_api_retired` since then (`test_legacy_profile_routes_retired.py`). The
+native successors are `test_oauth_connection_api_key_routes.py`
+(`test_delete_api_key_connection_removes_blob`) and `test_api_key_connection_races.py`
+(`test_delete_wins_over_inflight_key_replacement`).
 """
 
 from __future__ import annotations
@@ -26,39 +33,20 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
-import threading
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import (
     INDEX_CREDENTIAL_SERVICE,
     ProfileIndexStore,
     ProfileTransitionConflict,
 )
 from aigateway.core.profile_models import Profile, ProfileState
-from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 from ._pg_mvcc_store import MvccRowStore
-
-_API_KEY = "sk-ant-api03-delete-set-race-key"
-
-
-class _ValidValidationService:
-    async def validate(self, _plugin, _provider: str, _api_key):
-        from aigateway.core.api_key_validation import (
-            ApiKeyValidationResult,
-            ApiKeyValidationStage,
-            ApiKeyValidationState,
-        )
-
-        return ApiKeyValidationResult(
-            ApiKeyValidationState.VALID, stage=ApiKeyValidationStage.READINESS
-        )
-
 
 ACCOUNT_ID = "account-1"
 # A stand-in for the profile's credential-blob slot (the chat path's real slot); only its
@@ -323,89 +311,6 @@ async def test_delete_wins_over_set_when_set_commits_first_credential_absent() -
     assert await index_del.get(ACCOUNT_ID, "anthropic", "work") is None
     assert store.committed.get((CRED_SERVICE, CRED_ACCOUNT)) is None  # no orphan credential
     assert (INDEX_CREDENTIAL_SERVICE, f"account:{ACCOUNT_ID}") in store.committed
-
-
-def test_delete_profile_route_removes_both_credential_blob_and_index_entry(
-    authenticated_client,
-    credential_blobs,
-) -> None:
-    """Route-level counterpart to the store-double race, over the real HTTP path + ORMStore.
-
-    INVARIANT (OME-307 Unit 3): ``delete_profile`` publishes the credential deletion and the
-    profile-index removal in ONE transaction, so after a delete NEITHER the encrypted
-    credential blob NOR the index entry survives — a committed delete never leaves an orphan
-    credential. This guards the real transaction wiring the store-double race cannot exercise.
-    """
-    authenticated_client.app.state.api_key_validation_service = _ValidValidationService()
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-
-    created = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _API_KEY},
-    )
-    assert created.status_code == 200
-    # Both halves of the durable state exist before the delete.
-    assert credential_blobs.read(service, "default") is not None
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").status_code == 200
-
-    deleted = authenticated_client.delete("/v1/auth/anthropic/profiles/work")
-    assert deleted.status_code == 204
-
-    # The atomic delete removed BOTH profile and blob state — no orphan credential remains.
-    assert credential_blobs.read(service, "default") is None
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").status_code == 404
-
-
-def test_delete_wins_over_stale_profile_patch(
-    authenticated_client,
-    credential_blobs,
-    monkeypatch,
-) -> None:
-    """PATCH must not resurrect the whole profile snapshot it read before DELETE."""
-    authenticated_client.app.state.api_key_validation_service = _ValidValidationService()
-    created = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/work/api-key",
-        json={"api_key": _API_KEY},
-    )
-    assert created.status_code == 200
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-    index = authenticated_client.app.state.profile_index
-    get_profile = index.get
-    patch_read = threading.Event()
-    release_patch = threading.Event()
-    get_count = 0
-    get_count_lock = threading.Lock()
-
-    async def _stall_first_get(*args, **kwargs):
-        nonlocal get_count
-        profile = await get_profile(*args, **kwargs)
-        with get_count_lock:
-            get_count += 1
-            call_number = get_count
-        if call_number == 1:
-            patch_read.set()
-            if not await asyncio.to_thread(release_patch.wait, 5):
-                raise TimeoutError("profile PATCH was not released")
-        return profile
-
-    monkeypatch.setattr(index, "get", _stall_first_get)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        patch = executor.submit(
-            authenticated_client.patch,
-            "/v1/auth/anthropic/profiles/work",
-            json={"account_label": "stale-label"},
-        )
-        assert patch_read.wait(5), "PATCH never read its stale profile snapshot"
-        deleted = authenticated_client.delete("/v1/auth/anthropic/profiles/work")
-        release_patch.set()
-        patched = patch.result(timeout=5)
-
-    assert deleted.status_code == 204
-    assert patched.status_code == 409
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").status_code == 404
-    assert credential_blobs.read(service, "default") is None
 
 
 @pytest.mark.asyncio

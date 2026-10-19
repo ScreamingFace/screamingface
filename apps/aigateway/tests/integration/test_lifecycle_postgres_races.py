@@ -9,8 +9,8 @@ import threading
 import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
-from typing import Any
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
@@ -35,9 +35,9 @@ from aigateway.core.oauth.store import (
     credential_key_for,
     credential_locator_for,
 )
-from aigateway.core.provider_access.refresh_guard import GuardedRefreshPublication
 from aigateway.main import create_app
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.oauth_flow_seed import open_oauth_flow
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -137,16 +137,6 @@ def _read_credential(client: TestClient, service: str, account: str) -> str | No
     return value
 
 
-def _failing_token_factory():
-    async def _handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(400, json={"error": "invalid_grant"})
-
-    return lambda: httpx.AsyncClient(
-        transport=httpx.MockTransport(_handler),
-        timeout=httpx.Timeout(5.0),
-    )
-
-
 def _profile_credential(client: TestClient, account_id: str, name: str) -> str | None:
     service = credential_service_for(credential_name_for(account_id, name))
     return _read_credential(client, service, "default")
@@ -190,7 +180,15 @@ def test_postcondition_owner_check_and_cas_are_atomic_on_postgres(
     name = f"ownership-{uuid4()}"
     account_id = pg_client.get("/v1/auth/me").json()["id"]
     _app(pg_client).state.anthropic_http_factory = _token_factory("oauth-A-token")
-    start_a = pg_client.post("/v1/auth/anthropic/profiles", json={"name": name})
+    # WHY the seeder: the Profile start route answers 410 since OME-1209 Stage E3, while the
+    # legacy-pending callback branch under test ships until E4.
+    open_flow = partial(
+        open_oauth_flow, _app(pg_client), account_id=account_id, provider="anthropic", name=name
+    )
+    portal = pg_client.portal
+    if portal is None:
+        raise AssertionError("TestClient portal is not active")
+    state_a = portal.call(open_flow)
     index = _app(pg_client).state.profile_index
     authenticate_pending = index.authenticate_pending
     cas_reached = threading.Event()
@@ -207,165 +205,27 @@ def test_postcondition_owner_check_and_cas_are_atomic_on_postgres(
         callback_a = executor.submit(
             pg_client.get,
             "/v1/auth/anthropic/callback",
-            params={"code": "code-A", "state": start_a.json()["state"]},
+            params={"code": "code-A", "state": state_a},
             follow_redirects=False,
         )
         assert cas_reached.wait(10), "A never reached its production durable-CAS boundary"
-        start_b = pg_client.post("/v1/auth/anthropic/profiles", json={"name": name})
+        state_b = portal.call(open_flow)
         release_cas.set()
         response_a = callback_a.result(timeout=10)
 
-    assert start_b.status_code == 201
     assert response_a.status_code == 409
     assert response_a.json()["detail"]["code"] == "profile_auth_conflict"
     assert _profile_credential(pg_client, account_id, name) is None
-    assert pg_client.get(f"/v1/auth/anthropic/profiles/{name}").json()["state"] == "pending"
+    profile = portal.call(index.get, account_id, "anthropic", name)
+    assert profile is not None and profile.state.value == "pending"
 
     _app(pg_client).state.anthropic_http_factory = _token_factory("oauth-B-token")
     response_b = pg_client.get(
         "/v1/auth/anthropic/callback",
-        params={"code": "code-B", "state": start_b.json()["state"]},
+        params={"code": "code-B", "state": state_b},
         follow_redirects=False,
     )
     assert response_b.status_code == 200
-
-
-def test_stale_error_read_before_delete_cannot_resurrect_profile_on_postgres(
-    pg_client: TestClient,
-    monkeypatch,
-) -> None:
-    name = f"error-delete-{uuid4()}"
-    account_id = pg_client.get("/v1/auth/me").json()["id"]
-    _app(pg_client).state.anthropic_http_factory = _failing_token_factory()
-    started = pg_client.post("/v1/auth/anthropic/profiles", json={"name": name})
-    index = _app(pg_client).state.profile_index
-    mark_pending_error = index.mark_pending_error
-    error_precondition_read = threading.Event()
-    release_error_cas = threading.Event()
-
-    async def _pause_after_error_precondition(profile_id: str, **kwargs) -> None:
-        observed = await index.get(account_id, "anthropic", name)
-        assert observed is not None and observed.state.value == "pending"
-        error_precondition_read.set()
-        if not await asyncio.to_thread(release_error_cas.wait, 10):
-            raise TimeoutError("error CAS was not released")
-        await mark_pending_error(profile_id, **kwargs)
-
-    monkeypatch.setattr(index, "mark_pending_error", _pause_after_error_precondition)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        callback = executor.submit(
-            pg_client.get,
-            "/callback",
-            params={"code": "bad-code", "state": started.json()["state"]},
-            follow_redirects=False,
-        )
-        assert error_precondition_read.wait(10), "failure path never read its pending profile"
-        deleted = pg_client.delete(f"/v1/auth/anthropic/profiles/{name}")
-        release_error_cas.set()
-        failed = callback.result(timeout=10)
-
-    assert deleted.status_code == 204
-    assert failed.status_code == 500
-    assert pg_client.get(f"/v1/auth/anthropic/profiles/{name}").status_code == 404
-    assert _profile_credential(pg_client, account_id, name) is None
-
-
-def test_profile_absent_credential_delete_set_commit_orders_on_postgres(
-    pg_client: TestClient,
-    monkeypatch,
-) -> None:
-    account_id = pg_client.get("/v1/auth/me").json()["id"]
-    index = _app(pg_client).state.profile_index
-
-    delete_first = f"profile-delete-first-{uuid4()}"
-    assert (
-        pg_client.post("/v1/auth/anthropic/profiles", json={"name": delete_first}).status_code
-        == 201
-    )
-    remove = index.remove
-    upsert = index.upsert
-    delete_holds_index = threading.Event()
-    set_attempted_index = threading.Event()
-    release_delete = threading.Event()
-
-    async def _holding_remove(profile_id: str) -> None:
-        await remove(profile_id)
-        delete_holds_index.set()
-        if not await asyncio.to_thread(release_delete.wait, 10):
-            raise TimeoutError("profile delete was not released")
-
-    async def _attempting_upsert(*args, **kwargs) -> None:
-        set_attempted_index.set()
-        await upsert(*args, **kwargs)
-
-    monkeypatch.setattr(index, "remove", _holding_remove)
-    monkeypatch.setattr(index, "upsert", _attempting_upsert)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        deleting = executor.submit(
-            pg_client.delete,
-            f"/v1/auth/anthropic/profiles/{delete_first}",
-        )
-        assert delete_holds_index.wait(10)
-        setting = executor.submit(
-            pg_client.put,
-            f"/v1/auth/anthropic/profiles/{delete_first}/api-key",
-            json={"api_key": _API_KEY},
-        )
-        assert _overlaps(pg_client, set_attempted_index)
-        release_delete.set()
-        deleted = deleting.result(timeout=10)
-        set_result = setting.result(timeout=10)
-
-    assert deleted.status_code == 204
-    assert set_result.status_code == 409
-    assert pg_client.get(f"/v1/auth/anthropic/profiles/{delete_first}").status_code == 404
-    assert _profile_credential(pg_client, account_id, delete_first) is None
-
-    monkeypatch.setattr(index, "remove", remove)
-    monkeypatch.setattr(index, "upsert", upsert)
-    set_first = f"profile-set-first-{uuid4()}"
-    assert (
-        pg_client.post("/v1/auth/anthropic/profiles", json={"name": set_first}).status_code == 201
-    )
-    set_holds_index = threading.Event()
-    delete_attempted_index = threading.Event()
-    release_set = threading.Event()
-
-    async def _holding_upsert(*args, **kwargs) -> None:
-        await upsert(*args, **kwargs)
-        set_holds_index.set()
-        if not await asyncio.to_thread(release_set.wait, 10):
-            raise TimeoutError("profile set was not released")
-
-    async def _attempting_remove(profile_id: str) -> None:
-        delete_attempted_index.set()
-        await remove(profile_id)
-
-    monkeypatch.setattr(index, "upsert", _holding_upsert)
-    monkeypatch.setattr(index, "remove", _attempting_remove)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        setting = executor.submit(
-            pg_client.put,
-            f"/v1/auth/anthropic/profiles/{set_first}/api-key",
-            json={"api_key": _API_KEY},
-        )
-        assert set_holds_index.wait(10)
-        deleting = executor.submit(
-            pg_client.delete,
-            f"/v1/auth/anthropic/profiles/{set_first}",
-        )
-        assert _overlaps(pg_client, delete_attempted_index)
-        release_set.set()
-        set_result = setting.result(timeout=10)
-        deleted = deleting.result(timeout=10)
-
-    assert set_result.status_code == 200
-    # WHY 409 (OME-1497, G0 §5.3): the delete read the pair before the set's claim committed, so
-    # its own claim loses and its whole transaction rolls back; a retry reads the new pair.
-    assert deleted.status_code == 409
-    assert pg_client.delete(f"/v1/auth/anthropic/profiles/{set_first}").status_code == 204
-    assert pg_client.get(f"/v1/auth/anthropic/profiles/{set_first}").status_code == 404
-    assert _profile_credential(pg_client, account_id, set_first) is None
 
 
 def test_connection_absent_credential_delete_set_commit_orders_on_postgres(
@@ -555,75 +415,3 @@ def test_connection_refresh_republish_loses_to_committed_revoke_on_postgres(
     # Not resurrected: the conditional update matched zero rows, so the row stays revoked.
     assert pg_client.get(f"/v1/oauth/connections/{connection_id}").json()["status"] == "revoked"
     assert _connection_credential(pg_client, account_id, connection_id) is None
-
-
-def test_profile_refresh_publication_loses_to_committed_delete_on_postgres(
-    pg_client: TestClient,
-    monkeypatch,
-) -> None:
-    """OME-307 H-1 — profile refresh success-publish loses to a concurrent committed delete.
-
-    FEATURE: manual profile refresh with delete-race safety.
-    INVARIANT (OME-307 H-1): the success branch publishes with upsert(require_present=True). When a
-    DELETE commits on an independent transaction during the refresh's provider-network window, the
-    publication's require_present CAS WAITS on the profile-index row lock, RE-EVALUATES after the
-    delete commits, finds the row ABSENT, and raises ProfileTransitionConflict -> the route 409s
-    instead of resurrecting the profile as AUTHENTICATED.
-    """
-    account_id = pg_client.get("/v1/auth/me").json()["id"]
-    name = f"refresh-delete-{uuid4()}"
-    assert pg_client.post("/v1/auth/anthropic/profiles", json={"name": name}).status_code == 201
-
-    # WHY (OME-1497, G0 §5.3): the refresh publishes under the guard, so the probe is the guard's
-    # publication (marker, then the account index row), reached with a real OAuth refresh against a
-    # mocked provider.
-    app = _app(pg_client)
-    portal = pg_client.portal
-    if portal is None:
-        raise AssertionError("TestClient portal is not active")
-    portal.call(
-        app.state.credential_store.write,
-        credential_service_for(credential_name_for(account_id, name)),
-        "default",
-        '{"access_token": "old", "refresh_token": "rt", "token_type": "Bearer", '
-        '"expires_at_ms": 0}',
-    )
-    app.state.anthropic_http_factory = _token_factory("refreshed-token")
-
-    index = app.state.profile_index
-    remove = index.remove
-    real_publish = GuardedRefreshPublication.publish
-    delete_holds_index = threading.Event()
-    refresh_reached_publish = threading.Event()
-    release_delete = threading.Event()
-
-    async def _holding_remove(profile_id: str) -> None:
-        # Runs inside delete_profile's in_transaction(): remove DELETEs the index row by PK,
-        # holding its row lock until we release and the transaction commits.
-        await remove(profile_id)
-        delete_holds_index.set()
-        if not await asyncio.to_thread(release_delete.wait, 10):
-            raise TimeoutError("profile delete was not released")
-
-    async def _attempting_publish(self: Any, captured: object, write: Any) -> None:
-        # Signal just before the guarded publication, which then blocks on the delete's row locks.
-        refresh_reached_publish.set()
-        await real_publish(self, captured, write)
-
-    monkeypatch.setattr(index, "remove", _holding_remove)
-    monkeypatch.setattr(GuardedRefreshPublication, "publish", _attempting_publish)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        deleting = executor.submit(pg_client.delete, f"/v1/auth/anthropic/profiles/{name}")
-        assert delete_holds_index.wait(10), "delete never took the profile-index row lock"
-        refreshing = executor.submit(pg_client.post, f"/v1/auth/anthropic/profiles/{name}/refresh")
-        assert refresh_reached_publish.wait(10), "refresh never reached the require_present publish"
-        release_delete.set()
-        deleted = deleting.result(timeout=10)
-        refreshed = refreshing.result(timeout=10)
-
-    assert deleted.status_code == 204
-    assert refreshed.status_code == 409
-    assert refreshed.json()["detail"]["code"] == "profile_conflict"
-    # Not resurrected: the row stays deleted, so the require_present publication found no row.
-    assert pg_client.get(f"/v1/auth/anthropic/profiles/{name}").status_code == 404
-    assert _profile_credential(pg_client, account_id, name) is None

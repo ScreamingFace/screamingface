@@ -189,26 +189,6 @@ def test_replace_non_valid_key_preserves_existing_connection_and_blob(
     assert after == created
 
 
-def test_profile_non_valid_key_does_not_create_profile(authenticated_client) -> None:
-    service = _install(
-        authenticated_client,
-        ApiKeyValidationResult(
-            state=ApiKeyValidationState.UNAVAILABLE,
-            stage=ApiKeyValidationStage.AUTHENTICATION,
-        ),
-    )
-
-    response = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/invalid/api-key",
-        json={"api_key": _KEY},
-    )
-
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "api_key_validation_unavailable"
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/invalid").status_code == 404
-    assert service.calls == [("anthropic", _KEY)]
-
-
 def test_validation_endpoint_requires_authentication(client) -> None:
     response = client.post(
         "/v1/oauth/connections/api-key/validate",

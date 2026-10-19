@@ -38,6 +38,7 @@ from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access.models import ProviderCredentialSlot
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.oauth_flow_seed import open_oauth_flow
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -280,100 +281,12 @@ def test_a_migrated_pair_reads_through_its_locator_on_postgres(pg_client: TestCl
     # WHY: JSONB comes back as a mapping — the shape `credential_name_from_locator` parses.
     assert isinstance(row.credential_locator, dict)
     assert row.credential_locator["service"].endswith(f":{account_id}:{name}")
-    status = pg_client.get(f"/v1/auth/{PROVIDER}/profiles/{name}/status")
-    assert status.status_code == 200, status.text
-    assert (status.json()["state"], status.json()["auth_type"]) == ("authenticated", "oauth")
     token = pg_client.get(f"/v1/oauth/connections/{effective}/token")
     assert token.status_code == 200, token.text
     assert token.json()["access_token"] == "tok"
 
 
 # --- two authority writers on one pair ----------------------------------------------------------
-
-
-def test_native_delete_holding_the_marker_makes_the_legacy_key_route_lose_on_postgres(
-    pg_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    account_id = _account_id(pg_client)
-    name = _fresh_name()
-    effective = _seed(pg_client, account_id, name, auth_type="oauth", blob=_oauth_blob("tok"))
-    hold = _MarkerHold(monkeypatch, holds=lambda _i, kw: kw.get("effective_connection_id") is None)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        deleting = executor.submit(pg_client.delete, f"/v1/oauth/connections/{effective}")
-        assert hold.held.wait(20), "the delete never advanced the marker"
-        setting = executor.submit(
-            pg_client.put, f"/v1/auth/{PROVIDER}/profiles/{name}/api-key", json={"api_key": KEY}
-        )
-        assert hold.attempted.wait(20), "op 8 never reached its marker advance"
-        hold.release.set()
-        deleted = deleting.result(timeout=30)
-        set_result = setting.result(timeout=30)
-
-    assert deleted.status_code == 204, deleted.text
-    assert set_result.status_code == 409, set_result.text
-    assert set_result.json()["detail"]["code"] == "connection_conflict"
-    pair = _marker(pg_client, account_id)
-    assert (pair.migration_state, pair.effective_connection_id, pair.generation) == (
-        "migrated",
-        None,
-        2,
-    )
-    assert _connection(pg_client, account_id, effective).status == "revoked"
-    assert _document(pg_client, account_id, name) is None
-    assert _profile_blob(pg_client, account_id, name) is None
-
-    # The retried op 8 starts over: a NEW effective Connection at the Profile address.
-    retry = pg_client.put(f"/v1/auth/{PROVIDER}/profiles/{name}/api-key", json={"api_key": KEY})
-    assert retry.status_code == 200, retry.text
-    pair = _marker(pg_client, account_id)
-    assert pair.generation == 3
-    assert pair.effective_connection_id is not None and pair.effective_connection_id != effective
-    blob = _profile_blob(pg_client, account_id, name)
-    assert blob is not None and json.loads(blob)["api_key"] == KEY
-
-
-def test_legacy_key_route_holding_the_marker_makes_the_native_delete_lose_on_postgres(
-    pg_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    account_id = _account_id(pg_client)
-    name = _fresh_name()
-    effective = _seed(pg_client, account_id, name, auth_type="oauth", blob=_oauth_blob("tok"))
-    hold = _MarkerHold(
-        monkeypatch, holds=lambda _i, kw: kw.get("effective_connection_id") is not None
-    )
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        setting = executor.submit(
-            pg_client.put, f"/v1/auth/{PROVIDER}/profiles/{name}/api-key", json={"api_key": KEY}
-        )
-        assert hold.held.wait(20), "op 8 never advanced the marker"
-        deleting = executor.submit(pg_client.delete, f"/v1/oauth/connections/{effective}")
-        assert hold.attempted.wait(20), "the delete never reached its marker advance"
-        hold.release.set()
-        set_result = setting.result(timeout=30)
-        deleted = deleting.result(timeout=30)
-
-    assert set_result.status_code == 200, set_result.text
-    assert deleted.status_code == 409, deleted.text
-    assert deleted.json()["detail"]["code"] == "connection_conflict"
-    row = _connection(pg_client, account_id, effective)
-    assert (row.status, row.auth_type) == ("active", "api_key")
-    pair = _marker(pg_client, account_id)
-    assert (pair.effective_connection_id, pair.generation) == (effective, 2)
-    blob = _profile_blob(pg_client, account_id, name)
-    assert blob is not None and json.loads(blob)["api_key"] == KEY
-    document = _document(pg_client, account_id, name)
-    assert document is not None and document.auth_type == "api_key"
-
-    # The retried delete then retires the pair.
-    retry = pg_client.delete(f"/v1/oauth/connections/{effective}")
-    assert retry.status_code == 204, retry.text
-    pair = _marker(pg_client, account_id)
-    assert (pair.effective_connection_id, pair.generation) == (None, 3)
-    assert _connection(pg_client, account_id, effective).status == "revoked"
-    assert _profile_blob(pg_client, account_id, name) is None
-    assert _document(pg_client, account_id, name) is None
 
 
 def test_oauth_callback_holding_the_marker_makes_the_native_key_route_lose_on_postgres(
@@ -383,8 +296,16 @@ def test_oauth_callback_holding_the_marker_makes_the_native_key_route_lose_on_po
     name = _fresh_name()
     effective = _seed(pg_client, account_id, name, auth_type="api_key", blob=_api_key_blob(KEY))
     _app(pg_client).state.anthropic_http_factory = _token_factory("oauth-tok")
-    started = pg_client.post(f"/v1/auth/{PROVIDER}/profiles", json={"name": name})
-    assert started.status_code == 201, started.text
+    # WHY the seeder: the Profile start route answers 410 since OME-1209 Stage E3, while the
+    # migrated-pair facade callback branch under test ships until E4.
+    state = _call(
+        pg_client,
+        open_oauth_flow,
+        _app(pg_client),
+        account_id=account_id,
+        provider=PROVIDER,
+        name=name,
+    )
     generation_after_start = _marker(pg_client, account_id).generation
     hold = _MarkerHold(monkeypatch, holds=lambda i, _kw: i == 0)
 
@@ -392,7 +313,7 @@ def test_oauth_callback_holding_the_marker_makes_the_native_key_route_lose_on_po
         callback = executor.submit(
             pg_client.get,
             f"/v1/auth/{PROVIDER}/callback",
-            params={"code": "code-1", "state": started.json()["state"]},
+            params={"code": "code-1", "state": state},
             follow_redirects=False,
         )
         assert hold.held.wait(20), "the callback never advanced the marker"

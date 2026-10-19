@@ -369,7 +369,7 @@ def test_the_audit_line_names_the_actor_and_the_final_status(client, admin_clien
     assert not any(KEY in line for line in lines)
 
 
-def test_the_openapi_contract_declares_both_mutations_and_keeps_the_legacy_ones(
+def test_the_openapi_contract_declares_both_mutations_and_drops_the_legacy_ones(
     client, admin_client
 ) -> None:
     schema = admin_client.get("/openapi.json").json()
@@ -388,9 +388,11 @@ def test_the_openapi_contract_declares_both_mutations_and_keeps_the_legacy_ones(
     delete = paths["/v1/admin/accounts/{account_id}/connections/{provider}"]["delete"]
     assert delete["operationId"] == "delete_admin_account_connection"
     assert "204" in delete["responses"]
-    # The legacy Profile operations are unchanged.
-    assert "put" in paths["/v1/admin/accounts/{account_id}/profiles/{provider}/{name}/api-key"]
-    assert "delete" in paths["/v1/admin/accounts/{account_id}/profiles/{provider}/{name}"]
+    # The legacy Profile operations are retired (OME-1209 Stage E3): no admin Profile path, no
+    # Profile schema.
+    assert "/v1/admin/accounts/{account_id}/profiles/{provider}/{name}/api-key" not in paths
+    assert "/v1/admin/accounts/{account_id}/profiles/{provider}/{name}" not in paths
+    assert "AdminProfileOut" not in schema["components"]["schemas"]
 
 
 # --- review follow-ups --------------------------------------------------------------------------

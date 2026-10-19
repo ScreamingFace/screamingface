@@ -231,8 +231,11 @@ class ProfileBackedHarness:
         return self._reads
 
     def profile_state(self, name: str = "default") -> str | None:
-        resp = self.client.get(f"/v1/auth/{PROVIDER}/profiles/{name}")
-        return None if resp.status_code == 404 else resp.json()["state"]
+        # WHY a fresh store: it reads the same index blob without passing the counting `get`, so
+        # an observation never moves `index_reads()`.
+        idx = ProfileIndexStore(credential_store=self.blobs.store)
+        profile = self.call(idx.get, self.account_id, PROVIDER, name)
+        return None if profile is None else profile.state.value
 
     def _connection_row(self, connection_id: str) -> dict[str, Any] | None:
         rows = self.client.get("/v1/oauth/connections").json()["connections"]

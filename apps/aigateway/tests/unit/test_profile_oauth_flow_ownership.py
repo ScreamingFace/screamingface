@@ -11,6 +11,14 @@ superseded by a newer pending flow for the same account/provider/profile receive
 retryable ``profile_auth_conflict`` (409) and modifies neither the credential nor the
 profile owned by the newer flow. The profile-state CAS remains as defense in depth for
 the case where the newer flow has already committed.
+
+The Profile OAuth start route answers 410 since OME-1209 Stage E3, but the legacy-pending callback
+branch these tests observe still ships until E4 (owner decision D2): flows are opened with the
+shared `open_oauth_flow` seeder and the profile is read from the index. Tests whose only subject or
+only legacy actor was a retired route (a failing start or redirect never superseding an older flow;
+a stale failure racing a Profile API-key PUT or a Profile DELETE; a delete-and-recreate reusing a
+generation) retired with those routes (owner decision D1); `test_legacy_profile_routes_retired.py`
+pins the 410.
 """
 
 from __future__ import annotations
@@ -22,6 +30,8 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from functools import partial
+from typing import Any
 
 import httpx
 import pytest
@@ -33,6 +43,7 @@ from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 from ._pg_mvcc_store import MvccRowStore
+from .oauth_flow_seed import open_oauth_flow
 
 
 @contextmanager
@@ -93,18 +104,24 @@ def _failing_token_factory(
     )
 
 
-class _ValidValidationService:
-    async def validate(self, _plugin, _provider: str, _api_key):
-        from aigateway.core.api_key_validation import (
-            ApiKeyValidationResult,
-            ApiKeyValidationStage,
-            ApiKeyValidationState,
+# WHY: the Profile OAuth start and status routes answer 410 since OME-1209 Stage E3; the seeder
+# leaves exactly the pending document and entry the start route left, which is all the callback
+# reads, and the index holds what the status route rendered.
+def _open_flow(client, account_id: str) -> str:
+    """Open one Profile OAuth flow for `anthropic/work`; returns its `state`."""
+    return client.portal.call(
+        partial(
+            open_oauth_flow, client.app, account_id=account_id, provider="anthropic", name="work"
         )
+    )
 
-        return ApiKeyValidationResult(
-            ApiKeyValidationState.VALID,
-            stage=ApiKeyValidationStage.READINESS,
-        )
+
+def _profile(client, account_id: str) -> dict[str, Any]:
+    """The `anthropic/work` Profile as the retired status route rendered it."""
+    index: ProfileIndexStore = client.app.state.profile_index
+    profile = client.portal.call(index.get, account_id, "anthropic", "work")
+    assert profile is not None, "profile anthropic/work is missing from the index"
+    return profile.model_dump(mode="json")
 
 
 def test_stale_oauth_callback_does_not_publish_into_newer_flow(
@@ -113,7 +130,7 @@ def test_stale_oauth_callback_does_not_publish_into_newer_flow(
 ) -> None:
     """Concrete schedule:
 
-    1. Flow A starts (POST /profiles) and its callback stalls during token exchange
+    1. Flow A starts (seeded pending flow) and its callback stalls during token exchange
        (A has already consumed its own pending state before the exchange await).
     2. Flow B starts for the SAME account/provider/profile, creating a new pending
        operation that now owns the profile.
@@ -127,11 +144,8 @@ def test_stale_oauth_callback_does_not_publish_into_newer_flow(
         "oauth-A-token", stall=release_exchange, started=exchange_started
     )
 
-    start_a = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    assert start_a.status_code == 201
-    state_a = start_a.json()["state"]
-
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
+    state_a = _open_flow(authenticated_client, account_id)
     service = credential_service_for(credential_name_for(account_id, "work"))
 
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -144,9 +158,7 @@ def test_stale_oauth_callback_does_not_publish_into_newer_flow(
         assert exchange_started.wait(5), "flow A never reached token exchange"
 
         # Flow B starts for the same profile while A is stalled: B is now the owner.
-        start_b = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-        assert start_b.status_code == 201
-        state_b = start_b.json()["state"]
+        state_b = _open_flow(authenticated_client, account_id)
 
         release_exchange.set()
         response_a = callback_a.result(timeout=5)
@@ -155,7 +167,7 @@ def test_stale_oauth_callback_does_not_publish_into_newer_flow(
     assert response_a.status_code == 409
     assert response_a.json()["detail"]["code"] == "profile_auth_conflict"
     assert "oauth-A-token" not in response_a.text
-    profile = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
+    profile = _profile(authenticated_client, account_id)
     assert profile["state"] == "pending"  # still B's pending profile
     # INVARIANT: a rejected stale publication leaves no orphan credential behind.
     assert credential_blobs.read(service, "default") is None
@@ -168,7 +180,7 @@ def test_stale_oauth_callback_does_not_publish_into_newer_flow(
         follow_redirects=False,
     )
     assert response_b.status_code == 200
-    profile_b = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
+    profile_b = _profile(authenticated_client, account_id)
     assert profile_b["state"] == "authenticated"
     assert profile_b["auth_type"] == "oauth"
     assert "oauth-B-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]
@@ -182,7 +194,7 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
     """OME-307 Blocker 5 — a cancelled callback must not strand the profile pending.
 
     Schedule:
-    1. Flow A starts (POST /profiles) and publishes its pending profile + ownership generation.
+    1. Flow A starts (seeded pending flow) and publishes its pending profile + ownership generation.
     2. A's callback consumes (pops) its pending state, then a ``BaseException`` cancellation
        fires during the token-exchange await (Python 3.12 ``asyncio.CancelledError`` escapes
        ``except Exception``).
@@ -197,10 +209,8 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
     """
     authenticated_client.app.state.anthropic_http_factory = _token_factory("oauth-A-token")
 
-    start = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    assert start.status_code == 201
-    state = start.json()["state"]
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
+    state = _open_flow(authenticated_client, account_id)
     service = credential_service_for(credential_name_for(account_id, "work"))
 
     async def _cancel_during_exchange(*_args, **_kwargs):
@@ -221,7 +231,7 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
     # INVARIANT (Blocker 5): the consumed state is restored, so the flow is still completable.
     assert authenticated_client.app.state.pending_auth.peek(state) is not None
     # The profile is untouched and no credential was written or corrupted.
-    profile = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
+    profile = _profile(authenticated_client, account_id)
     assert profile["state"] == "pending"
     assert credential_blobs.read(service, "default") is None
 
@@ -234,61 +244,9 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
         follow_redirects=False,
     )
     assert retry.status_code == 200
-    profile_done = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
+    profile_done = _profile(authenticated_client, account_id)
     assert profile_done["state"] == "authenticated"
     assert profile_done["auth_type"] == "oauth"
-    assert "oauth-A-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]
-
-
-def test_oauth_start_does_not_supersede_older_flow_until_publication_succeeds(
-    authenticated_client,
-    credential_blobs,
-    monkeypatch,
-) -> None:
-    """OME-307 Blocker 5 — a NEW start must not irreversibly supersede an older flow until it has
-    itself been fully published.
-
-    Schedule:
-    1. Flow A starts and owns a completable pending profile.
-    2. Flow B starts for the SAME profile, but its ``begin_pending`` publication fails.
-    3. B's failure must be atomic: A's pending flow is left intact (it is superseded only AFTER
-       B publishes), so A can still complete.
-
-    If ``start_oauth`` evicted older flows BEFORE publishing the new one, A would be destroyed by
-    a flow that never started — this test is RED under that (inverted) ordering.
-    """
-    authenticated_client.app.state.anthropic_http_factory = _token_factory("oauth-A-token")
-
-    start_a = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    assert start_a.status_code == 201
-    state_a = start_a.json()["state"]
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-
-    async def _failing_begin_pending(_profile):
-        raise RuntimeError("index publication failed")
-
-    monkeypatch.setattr(
-        authenticated_client.app.state.profile_index, "begin_pending", _failing_begin_pending
-    )
-
-    with _server_errors_as_responses(authenticated_client):
-        start_b = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    assert start_b.status_code == 500
-
-    # INVARIANT (Blocker 5): A is untouched — it was NOT superseded by B's failed publication.
-    assert authenticated_client.app.state.pending_auth.peek(state_a) is not None
-
-    # A completes successfully, proving its flow survived B's failed start intact.
-    monkeypatch.undo()
-    response_a = authenticated_client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "code-A", "state": state_a},
-        follow_redirects=False,
-    )
-    assert response_a.status_code == 200
-    profile_a = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
-    assert profile_a["state"] == "authenticated"
     assert "oauth-A-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]
 
 
@@ -314,10 +272,8 @@ def test_stale_oauth_failure_does_not_corrupt_newer_owner(
         stall=release_exchange, started=exchange_started, sentinel=sentinel
     )
 
-    start_a = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    assert start_a.status_code == 201
-    state_a = start_a.json()["state"]
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
+    state_a = _open_flow(authenticated_client, account_id)
     service = credential_service_for(credential_name_for(account_id, "work"))
 
     with (
@@ -333,9 +289,7 @@ def test_stale_oauth_failure_does_not_corrupt_newer_owner(
         assert exchange_started.wait(5), "flow A never reached token exchange"
 
         # Flow B starts and becomes the pending owner while A is stalled.
-        start_b = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-        assert start_b.status_code == 201
-        state_b = start_b.json()["state"]
+        state_b = _open_flow(authenticated_client, account_id)
 
         release_exchange.set()
         response_a = callback_a.result(timeout=5)
@@ -344,7 +298,7 @@ def test_stale_oauth_failure_does_not_corrupt_newer_owner(
     assert response_a.status_code == 500
     assert sentinel not in response_a.text
     # B still owns a PENDING profile — A's stale failure did NOT mark it ERROR.
-    profile = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
+    profile = _profile(authenticated_client, account_id)
     assert profile["state"] == "pending"
     assert credential_blobs.read(service, "default") is None  # no credential written or corrupted
 
@@ -356,126 +310,10 @@ def test_stale_oauth_failure_does_not_corrupt_newer_owner(
         follow_redirects=False,
     )
     assert response_b.status_code == 200
-    profile_b = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
+    profile_b = _profile(authenticated_client, account_id)
     assert profile_b["state"] == "authenticated"
     assert profile_b["auth_type"] == "oauth"
     assert "oauth-B-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]
-
-
-def test_stale_oauth_failure_does_not_corrupt_committed_api_key(
-    authenticated_client,
-    credential_blobs,
-) -> None:
-    """A failed callback cannot flip a newer API-key profile to ERROR."""
-    exchange_started = threading.Event()
-    release_exchange = threading.Event()
-    authenticated_client.app.state.anthropic_http_factory = _failing_token_factory(
-        stall=release_exchange,
-        started=exchange_started,
-    )
-    start = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-    api_key = "sk-ant-api03-newer-api-key-1234"
-    authenticated_client.app.state.api_key_validation_service = _ValidValidationService()
-
-    with (
-        _server_errors_as_responses(authenticated_client),
-        ThreadPoolExecutor(max_workers=1) as executor,
-    ):
-        callback = executor.submit(
-            authenticated_client.get,
-            "/v1/auth/anthropic/callback",
-            params={"code": "code-A", "state": start.json()["state"]},
-            follow_redirects=False,
-        )
-        assert exchange_started.wait(5), "flow A never consumed state and reached exchange"
-        set_key = authenticated_client.put(
-            "/v1/auth/anthropic/profiles/work/api-key",
-            json={"api_key": api_key},
-        )
-        release_exchange.set()
-        failed = callback.result(timeout=5)
-
-    assert set_key.status_code == 200
-    assert failed.status_code == 500
-    profile = authenticated_client.get("/v1/auth/anthropic/profiles/work").json()
-    assert profile["state"] == "authenticated"
-    assert profile["auth_type"] == "api_key"
-    assert json.loads(credential_blobs.read(service, "default")) == {
-        "auth_type": "api_key",
-        "api_key": api_key,
-    }
-
-
-def test_stale_oauth_failure_does_not_resurrect_deleted_profile(
-    authenticated_client,
-    credential_blobs,
-) -> None:
-    """A failed callback cannot recreate a profile after DELETE commits."""
-    exchange_started = threading.Event()
-    release_exchange = threading.Event()
-    authenticated_client.app.state.anthropic_http_factory = _failing_token_factory(
-        stall=release_exchange,
-        started=exchange_started,
-    )
-    start = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-
-    with (
-        _server_errors_as_responses(authenticated_client),
-        ThreadPoolExecutor(max_workers=1) as executor,
-    ):
-        callback = executor.submit(
-            authenticated_client.get,
-            "/v1/auth/anthropic/callback",
-            params={"code": "code-A", "state": start.json()["state"]},
-            follow_redirects=False,
-        )
-        assert exchange_started.wait(5), "flow A never consumed state and reached exchange"
-        deleted = authenticated_client.delete("/v1/auth/anthropic/profiles/work")
-        release_exchange.set()
-        failed = callback.result(timeout=5)
-
-    assert deleted.status_code == 204
-    assert failed.status_code == 500
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").status_code == 404
-    assert credential_blobs.read(service, "default") is None
-
-
-def test_oauth_redirect_failure_leaves_older_flow_usable(
-    authenticated_client,
-    credential_blobs,
-    monkeypatch,
-) -> None:
-    """A replacement that cannot prepare its redirect never supersedes flow A."""
-    authenticated_client.app.state.anthropic_http_factory = _token_factory("oauth-A-token")
-    start_a = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    state_a = start_a.json()["state"]
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-
-    async def _redirect_failure(*_args, **_kwargs):
-        raise RuntimeError("loopback listener unavailable")
-
-    monkeypatch.setattr(auth_module, "_redirect_uri_for", _redirect_failure)
-    with _server_errors_as_responses(authenticated_client):
-        start_b = authenticated_client.post(
-            "/v1/auth/anthropic/profiles",
-            json={"name": "work", "redirect_uri": "http://localhost:9105/callback"},
-        )
-    assert start_b.status_code == 500
-    assert authenticated_client.app.state.pending_auth.peek(state_a) is not None
-
-    monkeypatch.undo()
-    completed_a = authenticated_client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "code-A", "state": state_a},
-        follow_redirects=False,
-    )
-    assert completed_a.status_code == 200
-    assert "oauth-A-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]
 
 
 @pytest.mark.asyncio
@@ -562,55 +400,3 @@ async def test_oauth_completion_preserves_metadata_patch_committed_before_cas() 
     assert completed is not None
     assert completed.state is ProfileState.AUTHENTICATED
     assert completed.defaults.max_tokens == 2048
-
-
-def test_delete_recreate_does_not_reuse_oauth_generation(
-    authenticated_client,
-    credential_blobs,
-) -> None:
-    """A consumed callback must stay stale across delete and recreation of the same profile id.
-
-    INVARIANT: delete removes public profile state but retains the internal monotonic generation
-    tombstone. Reusing generation 1 would let A authenticate B's recreated pending profile.
-    """
-    exchange_started = threading.Event()
-    release_exchange = threading.Event()
-    authenticated_client.app.state.anthropic_http_factory = _token_factory(
-        "oauth-A-token", stall=release_exchange, started=exchange_started
-    )
-    start_a = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-    state_a = start_a.json()["state"]
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    service = credential_service_for(credential_name_for(account_id, "work"))
-
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        callback_a = executor.submit(
-            authenticated_client.get,
-            "/v1/auth/anthropic/callback",
-            params={"code": "code-A", "state": state_a},
-            follow_redirects=False,
-        )
-        assert exchange_started.wait(5), "flow A never consumed its state and reached exchange"
-
-        deleted = authenticated_client.delete("/v1/auth/anthropic/profiles/work")
-        assert deleted.status_code == 204
-        start_b = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
-        assert start_b.status_code == 201
-        state_b = start_b.json()["state"]
-
-        release_exchange.set()
-        response_a = callback_a.result(timeout=5)
-
-    assert response_a.status_code == 409
-    assert response_a.json()["detail"]["code"] == "profile_auth_conflict"
-    assert credential_blobs.read(service, "default") is None
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/work").json()["state"] == "pending"
-
-    authenticated_client.app.state.anthropic_http_factory = _token_factory("oauth-B-token")
-    response_b = authenticated_client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "code-B", "state": state_b},
-        follow_redirects=False,
-    )
-    assert response_b.status_code == 200
-    assert "oauth-B-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]

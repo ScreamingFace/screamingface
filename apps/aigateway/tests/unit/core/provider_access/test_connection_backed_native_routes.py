@@ -27,13 +27,11 @@ from connection_backed_admin_probes import (
     connections,
     document,
     marker,
-    set_api_key,
 )
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import (
     SENTINEL,
     access_token_of,
-    status,
     use_failing_exchange,
     use_tokens,
 )
@@ -166,7 +164,7 @@ def test_a_rejected_refresh_of_the_effective_row_marks_only_the_row(migrated) ->
     # D-S2b4-5: the shells render from the Connection; the document's state is not rewritten.
     doc = document(h)
     assert doc is not None and doc.state is ProfileState.AUTHENTICATED
-    assert status(h).json()["state"] == "error"
+    assert h.profile_state() == "error"
 
 
 def test_token_of_the_effective_row_serves_the_locator_blob(migrated) -> None:
@@ -202,7 +200,7 @@ def test_deleting_the_effective_row_retires_the_pair(migrated) -> None:
         2,
     )
     assert document(h) is None
-    assert status(h).status_code == 404
+    assert h.profile_state() is None
     assert locator_name(h) in h.evicted()
 
 
@@ -265,7 +263,7 @@ def test_replacing_the_key_on_the_effective_row_fences_the_pair_and_mirrors(migr
         f"API key ····{KEY[-4:]}",
     )
     assert locator_name(h) in h.evicted()
-    assert status(h).json()["state"] == "authenticated"
+    assert h.profile_state() == "authenticated"
 
 
 def test_replacing_the_key_on_an_errored_effective_row_reactivates_it(migrated) -> None:
@@ -273,14 +271,14 @@ def test_replacing_the_key_on_an_errored_effective_row_reactivates_it(migrated) 
     accept_keys(h)
     h.seed_profile(auth_type="api_key", state=ProfileState.ERROR, credential=OLD_KEY)
     effective = h.migrated["default"]
-    assert status(h).json()["state"] == "error"
+    assert h.profile_state() == "error"
 
     resp = put_key(h, effective)
 
     assert resp.status_code == 200, resp.text
     assert connection(h, effective).status == "active"
     assert api_key_of(blob_at_profile_address(h)) == KEY
-    assert status(h).json()["state"] == "authenticated"
+    assert h.profile_state() == "authenticated"
 
 
 def test_replacing_the_key_on_the_effective_row_loses_to_a_racing_authority_change(
@@ -386,7 +384,7 @@ def test_a_rejected_token_refresh_of_the_effective_row_marks_only_the_row(migrat
     assert connection(h, effective).status == "error"
     doc = document(h)
     assert doc is not None and doc.state is ProfileState.AUTHENTICATED
-    assert status(h).json()["state"] == "error"
+    assert h.profile_state() == "error"
 
 
 def test_deleting_the_effective_row_of_a_documentless_pair_retires_it(migrated) -> None:
@@ -425,26 +423,3 @@ def test_replacing_the_key_loses_when_the_document_vanishes_in_the_window(migrat
     assert connection(h, effective).status == "active"
     # INVARIANT: one transaction — the marker advance rolled back with the failed mirror.
     assert marker(h).generation == 1
-
-
-def test_after_a_native_delete_the_legacy_key_route_starts_over(migrated) -> None:
-    """Post-delete shape = op 9's: op 8 mints a NEW effective Connection at the Profile address."""
-    h = migrated
-    h.seed_profile()
-    effective = h.migrated["default"]
-    assert delete(h, effective).status_code == 204
-
-    set_api_key(h)
-
-    pair = marker(h)
-    assert pair.generation == 3
-    assert pair.effective_connection_id is not None
-    assert str(pair.effective_connection_id) != effective
-    assert connection(h, effective).status == "revoked"
-    assert api_key_of(blob_at_profile_address(h)) == KEY
-    doc = document(h)
-    assert doc is not None and doc.auth_type == "api_key"
-    assert (status(h).json()["state"], status(h).json()["auth_type"]) == (
-        "authenticated",
-        "api_key",
-    )

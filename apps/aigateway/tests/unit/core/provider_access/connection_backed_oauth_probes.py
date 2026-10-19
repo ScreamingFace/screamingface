@@ -19,6 +19,7 @@ from provider_access_harness import PROVIDER
 
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.provider_access import PairAuthorityStore
+from tests.unit.oauth_flow_seed import open_oauth_flow
 
 SENTINEL = "SENSITIVE-PROVIDER-BODY"
 
@@ -70,8 +71,17 @@ def use_failing_exchange(harness: Any, *, sentinel: str = SENTINEL) -> None:
     harness.client.app.state.anthropic_http_factory = failing_token_factory(sentinel=sentinel)
 
 
-def start(harness: Any, name: str = "default", **body: Any) -> httpx.Response:
-    return harness.client.post(f"/v1/auth/{PROVIDER}/profiles", json={"name": name, **body})
+def start(harness: Any, name: str = "default") -> str:
+    """Open a Profile-era OAuth flow for `name`; returns its `state`."""
+    # WHY a seeder: `POST /v1/auth/{provider}/profiles` answers 410 since OME-1209 Stage E3, but
+    # the callback branches it fed ship until E4, so these suites open the flow in storage.
+    return harness.call(
+        open_oauth_flow,
+        harness.client.app,
+        account_id=harness.account_id,
+        provider=PROVIDER,
+        name=name,
+    )
 
 
 def callback(harness: Any, state: str, code: str = "code-1") -> httpx.Response:
@@ -80,10 +90,6 @@ def callback(harness: Any, state: str, code: str = "code-1") -> httpx.Response:
         params={"code": code, "state": state},
         follow_redirects=False,
     )
-
-
-def status(harness: Any, name: str = "default") -> httpx.Response:
-    return harness.client.get(f"/v1/auth/{PROVIDER}/profiles/{name}/status")
 
 
 def pending_entry(harness: Any, state: str) -> Any:
@@ -131,7 +137,6 @@ __all__ = [
     "pending_entry",
     "server_errors_as_responses",
     "start",
-    "status",
     "token_factory",
     "use_failing_exchange",
     "use_tokens",

@@ -22,8 +22,16 @@ import pytest
 import test_provider_access_backing_postgres as backing
 from fastapi.testclient import TestClient
 
+from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.provider_access import WriteConflict, delete_pair, set_pair_api_key
+from aigateway.core.profile_models import Profile, ProfileState
+from aigateway.core.provider_access import (
+    PairAuthorityStore,
+    WriteConflict,
+    delete_pair,
+    set_pair_api_key,
+)
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -68,8 +76,32 @@ def _bridge_delete(client: TestClient, account_id: str) -> Any:
     )
 
 
-def _legacy_put(client: TestClient, name: str) -> Any:
-    return client.put(f"/v1/auth/{PROVIDER}/profiles/{name}/api-key", json={"api_key": LEGACY_KEY})
+async def _seed_legacy_profile(app: Any, account_id: str, name: str) -> None:
+    """What the retired legacy key route left on a `none` pair: its claim, document and blob.
+
+    # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and the
+    # native create would write a Connection-addressed blob, not the sole Profile under test.
+    """
+    markers = PairAuthorityStore()
+    pair = await markers.read(account_id, PROVIDER)
+    await markers.advance(
+        account_id, PROVIDER, expected_generation=pair.generation, migration_state="none"
+    )
+    await app.state.credential_store.write(
+        credential_service_for(credential_name_for(account_id, name)),
+        "default",
+        backing._api_key_blob(LEGACY_KEY),
+    )
+    await app.state.profile_index.upsert(
+        Profile(
+            id=profile_id_for(account_id, PROVIDER, name),
+            account_id=account_id,
+            provider=PROVIDER,
+            name=name,
+            state=ProfileState.AUTHENTICATED,
+            auth_type="api_key",
+        )
+    )
 
 
 def _race(monkeypatch: pytest.MonkeyPatch, first: Any, second: Any) -> tuple[Any, Any]:
@@ -138,7 +170,7 @@ def test_a_bridge_put_and_delete_on_a_sole_profile_commit_exactly_one_on_postgre
 ) -> None:
     account_id = _fresh_pair(pg_client)
     name = backing._fresh_name()
-    assert _legacy_put(pg_client, name).status_code == 200
+    backing._call(pg_client, _seed_legacy_profile, backing._app(pg_client), account_id, name)
     put = partial(_bridge_put, pg_client, account_id)
     delete = partial(_bridge_delete, pg_client, account_id)
 
@@ -159,33 +191,3 @@ def test_a_bridge_put_and_delete_on_a_sole_profile_commit_exactly_one_on_postgre
         assert _live(pg_client, account_id) == []
         assert backing._document(pg_client, account_id, name) is None
         assert _blob(pg_client, account_id, name) is None
-
-
-@pytest.mark.parametrize("bridge_first", [True, False], ids=["bridge-first", "legacy-first"])
-def test_a_bridge_and_a_legacy_put_on_one_none_pair_commit_exactly_one_on_postgres(
-    pg_client: TestClient, monkeypatch: pytest.MonkeyPatch, bridge_first: bool
-) -> None:
-    account_id = _fresh_pair(pg_client)
-    name = backing._fresh_name()
-    bridge = partial(_bridge_put, pg_client, account_id)
-    legacy = partial(_legacy_put, pg_client, name)
-
-    won, lost = _race(monkeypatch, *((bridge, legacy) if bridge_first else (legacy, bridge)))
-
-    pair = backing._marker(pg_client, account_id)
-    assert pair.generation == 1
-    if bridge_first:
-        assert not isinstance(won, WriteConflict), won
-        assert lost.status_code == 409, lost.text
-        assert lost.json()["detail"]["code"] == "profile_conflict"
-        assert pair.migration_state == "migrated"
-        assert backing._document(pg_client, account_id, name) is None
-        assert _blob(pg_client, account_id, name) is None
-        assert _blob(pg_client, account_id, "default") == KEY
-    else:
-        assert won.status_code == 200, won.text
-        assert _superseded(lost), lost
-        assert pair.migration_state == "none"
-        assert _live(pg_client, account_id) == []
-        assert _blob(pg_client, account_id, name) == LEGACY_KEY
-        assert _blob(pg_client, account_id, "default") is None

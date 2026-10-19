@@ -11,10 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
-
-from .auth_types import AuthType
-from .profile_models import ProfileDefaults, ProfileState
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AdminAccountOut(BaseModel):
@@ -82,48 +79,6 @@ class PatchAdminAccountRequest(BaseModel):
 
     display_name: str | None = Field(default=None, max_length=255)
     is_active: bool | None = None
-
-
-class AdminProfileOut(BaseModel):
-    """One credential profile belonging to a tenant.
-
-    `account_label` is the MASKED display form (`"API key ····WXYZ"`). The raw key is never present
-    in this model — there is no field for it, which is the point.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    account_id: str
-    provider: str
-    name: str
-    account_label: str | None = None
-    state: ProfileState
-    auth_type: AuthType
-    defaults: ProfileDefaults
-    last_refreshed_at: datetime | None = None
-
-
-class AdminProfileList(BaseModel):
-    profiles: list[AdminProfileOut]
-
-
-class SetAdminApiKeyRequest(BaseModel):
-    """Attach or replace a provider API key on a tenant's profile.
-
-    `hide_input_in_errors` matters here more than anywhere else in the app: without it a validation
-    failure echoes the offending value back in the 422 body, which for this model is the API key.
-    """
-
-    model_config = ConfigDict(hide_input_in_errors=True)
-
-    api_key: SecretStr
-
-
-class PatchAdminProfileRequest(BaseModel):
-    # WHY no `defaults` (OME-1323, D2): saved defaults are no longer written; a body that still
-    # carries the member is refused by the route before this model matters.
-    account_label: str | None = None
 
 
 # --- response-cache admin (OME-952) ---------------------------------------------------------------

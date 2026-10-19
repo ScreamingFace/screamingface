@@ -59,27 +59,20 @@ def _live_client() -> TestClient:
 
 
 def _require_default_profile(client: TestClient) -> None:
-    listing = client.get("/v1/auth/profiles")
+    # WHY the availability listing: the Profile listing answers 410 since OME-1209 Stage E3, and
+    # `GET /v1/provider-access` is its backing-neutral successor for "can this caller dispatch".
+    listing = client.get("/v1/provider-access")
     assert listing.status_code == 200, listing.text
-    profile = next(
-        (
-            p
-            for p in listing.json()["profiles"]
-            if p["provider"] == "anthropic" and p["name"] == "default"
-        ),
+    status = next(
+        (row["status"] for row in listing.json()["providers"] if row["provider"] == "anthropic"),
         None,
     )
-    if profile is None:
+    if status is None:
+        pytest.skip("anthropic is not a registered provider in this gateway.")
+    if status != "connected":
         pytest.skip(
-            "anthropic:default profile not present. Run `claude auth login` or seed a "
-            "profile via /v1/auth/anthropic/profiles."
-        )
-    assert profile is not None
-    state = profile["state"]
-    if state != "authenticated":
-        pytest.skip(
-            f"anthropic:default profile is {state!r}, not 'authenticated'. "
-            "Complete auth before running live Anthropic tests."
+            f"anthropic access is {status!r}, not 'connected'. Connect Anthropic via "
+            "/v1/oauth/connections before running live Anthropic tests."
         )
 
 

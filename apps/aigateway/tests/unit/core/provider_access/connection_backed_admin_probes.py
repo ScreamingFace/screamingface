@@ -20,6 +20,7 @@ from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import (
     PairAuthorityStore,
     Selector,
+    set_pair_api_key,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
@@ -40,6 +41,22 @@ def set_api_key(harness: Any, name: str | None = "default", key: str = KEY, **kw
         raw_api_key=key,
         legacy_name=name,
         **kwargs,
+    )
+
+
+async def _accept_key() -> None:
+    return None
+
+
+def put_pair_key(harness: Any, key: str = KEY) -> Any:
+    """The surviving pair-level key write (D18) — what an intruder key write is since E3."""
+    return harness.call(
+        set_pair_api_key,
+        harness.client.app,
+        harness.account_id,
+        PROVIDER,
+        key,
+        validate=_accept_key,
     )
 
 
@@ -103,6 +120,7 @@ __all__ = [
     "document",
     "list_summaries",
     "marker",
+    "put_pair_key",
     "seed_legacy_provider",
     "set_api_key",
 ]

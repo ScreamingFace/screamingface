@@ -147,9 +147,15 @@ def test_app_lifespan_runs_anthropic_bootstrap(credential_blobs, monkeypatch, tm
 
     app = create_app()
     with TestClient(app) as client:  # `with` triggers the lifespan
-        resp = client.get("/v1/auth/profiles", headers=_auth_header(client))
+        # WHY: the Profile listing route answers 410 since OME-1209 Stage E3; `/v1/auth/me`
+        # names the caller, and the caller's index slice is what the listing rendered.
+        resp = client.get("/v1/auth/me", headers=_auth_header(client))
         assert resp.status_code == 200
-        profiles = resp.json()["profiles"]
+        index: ProfileIndexStore = app.state.profile_index
+        portal = client.portal
+        assert portal is not None  # `with TestClient(...)` opened it
+        listed = portal.call(index.list, resp.json()["id"])
+        profiles = [profile.model_dump(mode="json") for profile in listed]
         assert len(profiles) == 1
         assert profiles[0]["provider"] == "anthropic"
         assert profiles[0]["name"] == "default"
