@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # epic OME-1290 is the parent; the leaf is filed at PR-open
+ticket: OME-1653   # one PR for E4b parts 4 to 7, under epic OME-1290
 stack: screamingface, repo
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-15
