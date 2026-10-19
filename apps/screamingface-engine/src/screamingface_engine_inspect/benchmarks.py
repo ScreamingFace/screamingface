@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.provenance import (
     NotPublished,
     ProvenanceFields,
 )
+from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.local_tasks import task_source_pin
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
@@ -82,6 +83,12 @@ class BenchmarkSpec:
     difficulty: DifficultyTier
     scorer: str
     scorer_kwargs: Mapping[str, Any] = field(default_factory=dict)
+    #: Scorer arguments that are functions (drop's ``answer_fn``), each a dotted
+    #: ``module:attribute`` reference into the eval's own package, imported at grading and
+    #: passed beside ``scorer_kwargs`` (OME-1602, PR 6). WHY a field of its own: a real string
+    #: argument, such as a regex, can contain a colon, so a string can never mean "import
+    #: this". Benchmark identity when set, so no other row moves.
+    scorer_function_kwargs: Mapping[str, str] = field(default_factory=dict)
     #: Draft Feedback — the Corrective Loop's mid-run check (§4 dual registration). OFF unless
     #: the owner turns it on for this Benchmark by name (owner rule 2026-10-07, OME-1513):
     #: never a default, never inferred from the grading family. Today only IFEval (a local
@@ -5955,6 +5962,70 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # 609 upstream Samples less the one with no answer key (excluded_sample_ids).
         upstream_case_count=609,
     ),
+    BenchmarkSpec(
+        key="drop",
+        title="DROP",
+        description=(
+            "9,535 questions over Wikipedia paragraphs from DROP's validation split, each "
+            "needing discrete reasoning over the text: counting, sorting, adding or "
+            "comparing numbers and dates, imported from inspect_evals. The model sees three "
+            "worked examples from the training split (a fixed seeded draw, as the eval sends "
+            "them), then the passage and question, and ends its reply with an 'Answer:' "
+            "line. Grading is inspect's own F1, which reads that line through the eval's "
+            "answer extractor and takes the best token overlap with any accepted answer, so "
+            "no judge tokens are spent. inspect's F1 is not DROP's official scorer, which "
+            "also matches numbers span by span, so numbers are close to, not identical with, "
+            "the paper's. Benchmark score = mean F1 over the cases run. Free-form replies "
+            "make the mid-run check surface legitimate, but none is offered without an owner "
+            "decision."
+        ),
+        focus="Discrete reasoning over paragraphs (reading comprehension)",
+        dataset_url="https://huggingface.co/datasets/EleutherAI/drop",
+        # Frontier base models score in the 80s on 3-shot F1; still below expert humans at
+        # 96 (OME-1257).
+        difficulty="medium",
+        # Provenance: this scorer is declared by the Task of inspect_evals.drop.drop:drop,
+        #   with its defaults: 3 worked examples, drawn with the eval's fixed seed.
+        # License: CC-BY-SA-4.0, the original DROP release (owner decision on OME-1602,
+        #   2026-10-14); the EleutherAI mirror's card says cc-by-4.0.
+        scorer="inspect_ai.scorer:f1",
+        # Functions the eval passes its scorer, resolved by reference at grading: the eval's
+        # own reader of the reply's "Answer:" line (OME-1602, PR 6).
+        scorer_function_kwargs={"answer_fn": "inspect_evals.drop.drop:extract_answer"},
+        paper_url="https://arxiv.org/abs/1903.00161",
+        authors="Dua et al., 2019",
+        citation=(
+            "@misc{dua2019dropreadingcomprehensionbenchmark,\n"
+            "      title={DROP: A Reading Comprehension Benchmark Requiring Discrete Reas"
+            "oning Over Paragraphs}, \n"
+            "      author={Dheeru Dua and Yizhong Wang and Pradeep Dasigi and Gabriel Sta"
+            "novsky and Sameer Singh and Matt Gardner},\n"
+            "      year={2019},\n"
+            "      eprint={1903.00161},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/1903.00161}, \n"
+            "}"
+        ),
+        inspect_contributors=("xeon27",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/drop",
+        license="CC-BY-SA-4.0",
+        license_note=(
+            "the original DROP release (allenai); the EleutherAI mirror's card says cc-by-4.0 "
+            "(owner decision on OME-1602, 2026-10-14)"
+        ),
+        # Human baseline: expert human F1 in the paper's abstract.
+        human_baseline=HumanBaseline(score=0.96, source_url="https://arxiv.org/abs/1903.00161"),
+        # Frontier score: 3-shot DROP F1 in Meta's model card (pretrained model).
+        frontier_score=FrontierScore(
+            score=0.848,
+            model="Llama 3.1 405B (pretrained)",
+            source_url="https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/MODEL_CARD.md",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        upstream_case_count=9535,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -5982,6 +6053,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     _check_judge_declaration(spec)
     _check_verdict_grades(spec)
     _check_named_scores(spec)
+    _check_scorer_function_kwargs(spec)
     _check_whole_run_metric(spec)
     _check_whole_run_headline(spec)
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
@@ -6007,6 +6079,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _multiple_correct_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
+            + _scorer_function_pins(spec)
             + _scorer_dependency_pins(spec)
             + _whole_run_metric_pins(spec)
         ),
@@ -6738,6 +6811,41 @@ def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     return tuple(pins)
 
 
+def _scorer_function_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The scorer's function arguments as Benchmark identity, a pin only when set, so no
+    published revision moves (OME-1602, PR 6).
+
+    WHY: the function decides what the scorer reads from a reply (drop's answer line), so
+    pointing it elsewhere must never keep a revision its published scores hang off.
+    """
+
+    if not spec.scorer_function_kwargs:
+        return ()
+    canonical: str = json.dumps(dict(spec.scorer_function_kwargs), sort_keys=True)
+    return (f"scorer_function_kwargs={canonical}",)
+
+
+def _check_scorer_function_kwargs(spec: BenchmarkSpec) -> None:
+    """Refuse a function argument the row could not name safely (OME-1602, PR 6).
+
+    Each value must pass the importer's own rule (`function_reference_problem`): a
+    ``module:attribute`` reference inside the package holding the eval's Task module or its
+    scorer's module (``inspect_evals.drop.drop:extract_answer`` for drop's Task). No name may
+    also be a literal argument. Checked by spelling only: assembly never imports the eval.
+    """
+
+    for name, reference in spec.scorer_function_kwargs.items():
+        if name in spec.scorer_kwargs:
+            raise ValueError(
+                f"{spec.key}: scorer argument {name!r} is both a literal and a function"
+            )
+        problem: str | None = function_reference_problem(
+            reference, task=_cases_declaration(spec.key).task, scorer=spec.scorer
+        )
+        if problem is not None:
+            raise ValueError(f"{spec.key}: scorer argument {name}={reference!r} {problem}")
+
+
 def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """Each declared scorer dependency at its INSTALLED version as Benchmark identity —
     ``sympy==1.14.0`` — a pin only when set, so no published revision moves (OME-1268).
@@ -6793,7 +6901,10 @@ def _scorer_factory(spec: BenchmarkSpec) -> Callable[[], Any]:
     """Resolve the eval's own scorer from the row's dotted reference, lazily."""
 
     def factory() -> Any:
-        return _constructor(spec.scorer)(**dict(spec.scorer_kwargs))
+        functions: dict[str, Any] = {
+            name: _constructor(reference) for name, reference in spec.scorer_function_kwargs.items()
+        }
+        return _constructor(spec.scorer)(**dict(spec.scorer_kwargs), **functions)
 
     return factory
 

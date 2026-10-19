@@ -144,6 +144,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # graded by two of the eval's three scorers (the self-grading one dropped by name).
     "squad": "free_text",
     "math": "free_text",
+    # OME-1602 PR 6: DROP's reply ends with an Answer line read by the eval's own function.
+    "drop": "free_text",
     # OME-1602: aime26 copies aime25; the rest are judged — the SimpleQA pair through the
     # grader role, the refusal Benchmarks and UCCB by a named judge, and air_bench by a local
     # Task's scorer. infinite_bench's local Task grades by inspect's exact match.
@@ -248,6 +250,20 @@ def test_benchmark_row_scorer_resolves_and_constructs(key: str) -> None:
     module_name, _, attribute = spec.scorer.partition(":")
     constructor = getattr(import_module(module_name), attribute)
     assert constructor(**dict(spec.scorer_kwargs)) is not None
+
+
+@pytest.mark.parametrize("key", sorted(_NEW_KEYS))
+def test_benchmark_row_scorer_builds_through_the_factory_grading_uses(key: str) -> None:
+    # WHY beside the test above (review finding on OME-1602 PR 6): that one rebuilds the
+    # scorer from the row by hand, so a row's function references (scorer_function_kwargs),
+    # which only the factory imports, went unchecked; a misspelled `extract_answr` on drop
+    # passed CI. Assembly checks a reference by spelling only, so this is where a reference
+    # that does not import fails, before any run.
+    import_module("screamingface_engine_inspect.judge_provider")
+    from screamingface_engine_inspect.benchmarks import _scorer_factory
+
+    spec = next(spec for spec in BENCHMARKS if spec.key == key)
+    assert _scorer_factory(spec)() is not None
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))

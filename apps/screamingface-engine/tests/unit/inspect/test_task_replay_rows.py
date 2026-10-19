@@ -642,3 +642,28 @@ def test_a_moved_headline_is_flagged_even_with_one_scorer_left() -> None:
     assert "# TODO(review): the Headline Score is the one scorer kept, not upstream's" in (
         rows.benchmark
     )
+
+
+# --- OME-1602 PR 6: a function the eval passes its scorer ------------------------------------
+
+
+def test_a_function_scorer_argument_is_written_by_reference_in_its_own_field() -> None:
+    """The reference rides its own field, never scorer_kwargs, where a string means itself."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "drop",
+        _imported(
+            facts=_facts(
+                mcq=False,
+                scorer="inspect_ai.scorer:f1",
+                scorer_function_kwargs={"answer_fn": "inspect_evals.drop.drop:extract_answer"},
+            )
+        ),
+        "TODO",
+    )
+
+    assert (
+        '        scorer_function_kwargs={"answer_fn": "inspect_evals.drop.drop:extract_answer"},\n'
+        in rows.benchmark
+    )
+    assert "scorer_kwargs=" not in rows.benchmark

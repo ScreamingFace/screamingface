@@ -37,13 +37,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import inspect
 import json
 import re
 import sys
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from inspect import BoundArguments, Parameter, Signature
 from pathlib import Path
 from types import CodeType, FunctionType
@@ -54,6 +55,7 @@ from screamingface_engine.benchmarks.nltk_data import (
     NltkDataError,
     download_nltk_data,
 )
+from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.judge_shape import (
     JUDGE_PARAMETERS,
     UNKNOWN_ROLE,
@@ -232,6 +234,9 @@ class ScorerFacts:
     #: The model role the headline scorer asks inspect for in its body (simpleqa's
     #: ``get_model(role="grader")``), so the row's judge must fill it (OME-1602, F2).
     judge_role: str | None = None
+    #: Headline-scorer arguments that are module-level functions (drop's ``answer_fn=
+    #: extract_answer``), each as a dotted ``module:attribute`` reference (OME-1602, F1).
+    scorer_function_kwargs: dict[str, str] = field(default_factory=dict)
 
 
 #: The importing agent's per-Benchmark choice for a headline metric that is not a plain mean.
@@ -326,6 +331,7 @@ def _scorer_facts(
             whole_run_metric=honoured,
             mean_instead_of=kept_mean,
             judge_role=judge_role,
+            scorer_function_kwargs=_function_arguments(headline_scorer),
         )
     _check_kept_scorers(declared, resolved, kept)
     dropped_metrics: list[str] = []
@@ -347,6 +353,7 @@ def _scorer_facts(
         dropped_metrics=tuple(dropped_metrics),
         whole_run_metric=honoured,
         mean_instead_of=kept_mean,
+        scorer_function_kwargs=_function_arguments(headline_scorer),
     )
 
 
@@ -576,19 +583,44 @@ def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]
     passed: dict[str, Any] | None = getattr(scorer, _PASSED_ARGUMENTS, None)
     if passed is not None:
         _refuse_unwritable_arguments(name, logged, passed)
-    params: dict[str, Any] = {key: value for key, value in logged.items() if _is_literal(value)}
+    # WHY skip a function: inspect logs it as its name, a literal string that would rebuild
+    # the scorer with that string; the row names it by reference instead (OME-1602, PR 6).
+    functions: set[str] = set(_function_arguments(scorer))
+    params: dict[str, Any] = {
+        key: value for key, value in logged.items() if _is_literal(value) and key not in functions
+    }
+    reference: str
     if package == "inspect_ai":
         import inspect_ai.scorer as scorer_module
 
         if not hasattr(scorer_module, name):
             raise ImporterError(f"scorer {registry_name!r} is not exported by inspect_ai.scorer")
-        return f"inspect_ai.scorer:{name}", params, name
-    if hasattr(module, name):
-        return f"{module.__name__}:{name}", params, name
-    raise ImporterError(
-        f"cannot resolve scorer {registry_name!r} to an importable constructor — "
-        "add the row by hand with the eval's own scorer reference"
-    )
+        reference = f"inspect_ai.scorer:{name}"
+    elif hasattr(module, name):
+        reference = f"{module.__name__}:{name}"
+    else:
+        raise ImporterError(
+            f"cannot resolve scorer {registry_name!r} to an importable constructor — "
+            "add the row by hand with the eval's own scorer reference"
+        )
+    _refuse_foreign_functions(name, reference, module, scorer)
+    return reference, params, name
+
+
+def _refuse_foreign_functions(name: str, reference: str, module: Any, scorer: Any) -> None:
+    """Refuse a function argument from outside the eval's own package, here at import, by the
+    rule assembly applies to the row (`function_reference_problem`), so no row is written that
+    assembly would refuse. Example: ``keyed(answer_fn=textwrap.dedent)`` is refused."""
+
+    for argument, function in _function_arguments(scorer).items():
+        problem: str | None = function_reference_problem(
+            function, task=module.__name__, scorer=reference
+        )
+        if problem is not None:
+            raise ImporterError(
+                f"scorer {name} is created with {argument}={function}, which {problem}. Add "
+                "the row by hand (OME-1602)"
+            )
 
 
 #: The attribute the recorder sets on each scorer it sees: the creation arguments as passed.
@@ -704,11 +736,51 @@ def _refuse_unwritable_arguments(
         value: Any = passed.get(argument, _NOT_RECORDED)
         if _is_literal(value) and _as_logged(value) == logged_value:
             continue
+        if _function_reference(value) is not None:
+            # A module-level function the row can name and grading can import (OME-1602,
+            # PR 6): written as a reference beside the literal kwargs, never as its name.
+            continue
         raise ImporterError(
             f"scorer {scorer_name} is created with {argument}={logged_value!r}, but that is how "
             f"inspect logs a {type(value).__name__} it cannot write down; the row would "
             "rebuild the scorer with a different value. Add the row by hand (OME-1602)"
         )
+
+
+def _function_reference(value: Any) -> str | None:
+    """A function's dotted ``module:attribute`` reference when importing that name gives back
+    this very function, else None.
+
+    Worked example: drop's ``extract_answer`` → ``inspect_evals.drop.drop:extract_answer``. A
+    lambda, a function defined inside another (``<locals>`` in its qualified name), a bound
+    method, or a name that now points elsewhere gives None, so the scorer stays refused: the
+    row could not rebuild the same argument.
+    """
+
+    if not inspect.isfunction(value):
+        return None
+    qualified: str = value.__qualname__
+    module: Any = sys.modules.get(value.__module__)
+    nameable: bool = (
+        "<" not in qualified
+        and "." not in qualified
+        and module is not None
+        and getattr(module, qualified, None) is value
+    )
+    return f"{value.__module__}:{qualified}" if nameable else None
+
+
+def _function_arguments(scorer: Any) -> dict[str, str]:
+    """The headline scorer's function arguments as references, from the recorder's record;
+    empty when the recorder did not see the scorer (an in-process caller)."""
+
+    passed: dict[str, Any] = getattr(scorer, _PASSED_ARGUMENTS, None) or {}
+    references: dict[str, str] = {}
+    for argument, value in passed.items():
+        reference: str | None = _function_reference(value)
+        if reference is not None:
+            references[argument] = reference
+    return references
 
 
 def _as_logged(value: Any) -> Any:
@@ -757,6 +829,25 @@ def _hub_dataset_info(dataset: str, revision: str | None) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _function_argument_lines(scorer_function_kwargs: Mapping[str, str]) -> list[str]:
+    """The row's function arguments by reference, or nothing when the scorer takes none.
+
+    WHY its own field: a real string argument (a regex) may contain a colon, so a function
+    reference must never share scorer_kwargs (OME-1602, PR 6).
+    """
+
+    if not scorer_function_kwargs:
+        return []
+    rendered: str = ", ".join(
+        f"{json.dumps(name)}: {json.dumps(reference)}"
+        for name, reference in sorted(scorer_function_kwargs.items())
+    )
+    return [
+        "        # Functions the eval passes its scorer, resolved by reference at grading.",
+        f"        scorer_function_kwargs={{{rendered}}},",
+    ]
+
+
 def _scorer_lines(
     scorer: str,
     scorer_kwargs: Mapping[str, Any],
@@ -773,6 +864,7 @@ def _scorer_lines(
     mean_instead_of: str | None = None,
     whole_run_headline: str | None = None,
     judge_role: str | None = None,
+    scorer_function_kwargs: Mapping[str, str] | None = None,
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
@@ -793,6 +885,7 @@ def _scorer_lines(
             for name, value in sorted(scorer_kwargs.items())
         )
         benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    benchmark_lines.extend(_function_argument_lines(scorer_function_kwargs or {}))
     benchmark_lines.extend(
         _named_score_lines(
             extra_scorers, named_scores, dropped_scorers, headline_differs, dropped_metrics
