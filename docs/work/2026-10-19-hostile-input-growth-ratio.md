@@ -39,6 +39,11 @@ near 4 for linear code and near 16 for quadratic code, whatever the machine's sp
 - **Commits:** one test commit.
 - **Gates:** the test file plain (6 passed) and under `-n 8` with coverage and 12 CPU burners
   (6 of 6 runs passed); ruff check and format, and pyright on the file.
+- **Review fixes (2026-10-19):** the failure message now carries both times and the growth;
+  the comment on the vendored regex says what was measured (0.27s at 32 KB, 4.3s at 128 KB,
+  16x) instead of "tens of seconds"; a note states the check's limit: two sizes see only the
+  dominant term, so a large linear cost can hide a small quadratic one (a real O(n^2) change
+  measured 5.1x to 7.0x in review and passed, as it did under the old 5s budget).
 - **Deviations:** none. The ticket is the existing bug OME-1619, which lists this test among
   four; this unit fixes one, so the ticket stays open. Main's version also passed under local
   load (this laptop is fast), so the evidence for the flake is CI's history, not a local repro.
