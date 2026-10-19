@@ -10,7 +10,7 @@ finished: 2026-10-16
 
 ## Intent
 
-PR 5 of 7 for OME-1602. Case Preparation refuses a multiple-choice Case whose answer key names
+PR 5 of 6 for OME-1602. Case Preparation refuses a multiple-choice Case whose answer key names
 several options: a list of letters (truthfulqa, stereoset, cyse4 malware_analysis) or one
 comma-joined string (chembench's "A,D"). The importer also never writes `multiple_correct`, so
 an eval that lets the Candidate pick several letters would be graded as if it picked one. This
