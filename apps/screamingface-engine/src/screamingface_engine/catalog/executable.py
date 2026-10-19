@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Mapping
+import logging
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Protocol
 
 from screamingface_engine.catalog.admission import (
@@ -16,6 +17,7 @@ from screamingface_engine.catalog.json_projection import replace_json_string_at_
 from screamingface_engine.catalog.local_models import LocalModels
 from screamingface_engine.catalog.port import (
     CatalogBadResponse,
+    CatalogError,
     Credential,
     ModelCatalog,
     ModelNotInstalled,
@@ -24,6 +26,8 @@ from screamingface_engine.catalog.port import (
     compute_etag,
 )
 from screamingface_engine.world.models.registry import decode_route_id, encode_route_id
+
+_logger = logging.getLogger(__name__)
 
 
 class ExecutableCatalogSource(CatalogService, Protocol):
@@ -272,6 +276,53 @@ class ExecutableModelParameterSource:
         if response is not None:
             return response
         return await self._admit_and_fetch(credential, model, real_model, traceparent)
+
+    async def admit_run_models(
+        self,
+        credential: Credential,
+        model_ids: Sequence[str],
+        *,
+        traceparent: str | None = None,
+    ) -> None:
+        """Make each dynamically admissible id routable before a run is scheduled (OME-878).
+
+        WHY through ``fetch_model_parameters`` and not ``_admit_and_fetch`` directly: an overlay
+        member must take the F1 heal path too. A gateway that restarted forgot the admission, and
+        a run scheduled on the stale overlay entry would have every chat call refused. Reusing
+        the one lookup flow keeps a single admission rule — no second copy to drift.
+
+        WHY declared, local and non-admissible ids are skipped: they cost a gateway round trip
+        that cannot change the run's world. Declared ids are in it already; local ids are
+        refreshed with the catalog; anything else would only refuse locally.
+
+        INVARIANT (``RunModelAdmission``): never raises for one model. A refusal, an
+        unanswerable gateway or a transport failure is logged and the next id is still asked —
+        the run then fails on its own stream, as it did before (precedent: local.py's
+        schedule-time refresh).
+        """
+        for model in model_ids:
+            if not self._needs_admission(model):
+                continue
+            try:
+                response = await self.fetch_model_parameters(
+                    credential, model, traceparent=traceparent
+                )
+            except CatalogError as exc:
+                # The class name only: the message may echo upstream text, and the credential's
+                # identity never belongs in a log line.
+                _logger.warning(
+                    "schedule-time admission failed model=%s error=%s", model, type(exc).__name__
+                )
+                continue
+            if response.status != 200:
+                _logger.warning(
+                    "schedule-time admission refused model=%s status=%d", model, response.status
+                )
+
+    def _needs_admission(self, model: str) -> bool:
+        if model in self._model_ids or not is_dynamically_admissible(model):
+            return False
+        return self._local is None or not self._local.accepts(model)
 
     async def _refresh_and_forward_local(
         self,
