@@ -10,7 +10,7 @@ finished: 2026-10-16
 
 ## Intent
 
-PR 6 of 7 for OME-1602. drop hands inspect's `f1` its own `extract_answer`, which reads the
+PR 6 of 6 for OME-1602. drop hands inspect's `f1` its own `extract_answer`, which reads the
 reply's "Answer:" line. inspect logs that argument as the string `'extract_answer'`, so PR 1
 refuses drop (F1). This unit writes a module-level function argument as a `module:attribute`
 reference in a row field of its own, imports it at grading, and imports drop with its three
@@ -50,4 +50,11 @@ worked examples, as the eval sends them (owner decision on the ticket).
   functions PR 6"). They now pin the refusal of a lambda, still unnameable; a new test pins
   the reference. The licence is CC-BY-SA-4.0 from the original DROP release, though the
   EleutherAI mirror's card says cc-by-4.0 (owner decision on the ticket).
+- **Review fixes (2026-10-19):** the package rule now lives in one helper
+  (`function_references.py`) that both the importer and assembly call, so the importer refuses
+  a function from outside the eval's package (`textwrap:dedent`) instead of writing a row that
+  only assembly refuses. The rule narrowed from the top-level package (any `inspect_evals.*`)
+  to the package holding the eval's Task or scorer module. A new per-row test builds each
+  scorer through `_scorer_factory`, the path grading takes, so a misspelled reference fails
+  in CI; assembly and the image build's replay never import the scorer.
 - **Owner verify:** none paid; drop needs no judge.

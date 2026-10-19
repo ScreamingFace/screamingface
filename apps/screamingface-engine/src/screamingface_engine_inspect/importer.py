@@ -55,6 +55,7 @@ from screamingface_engine.benchmarks.nltk_data import (
     NltkDataError,
     download_nltk_data,
 )
+from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.judge_shape import (
     JUDGE_PARAMETERS,
     UNKNOWN_ROLE,
@@ -588,18 +589,38 @@ def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]
     params: dict[str, Any] = {
         key: value for key, value in logged.items() if _is_literal(value) and key not in functions
     }
+    reference: str
     if package == "inspect_ai":
         import inspect_ai.scorer as scorer_module
 
         if not hasattr(scorer_module, name):
             raise ImporterError(f"scorer {registry_name!r} is not exported by inspect_ai.scorer")
-        return f"inspect_ai.scorer:{name}", params, name
-    if hasattr(module, name):
-        return f"{module.__name__}:{name}", params, name
-    raise ImporterError(
-        f"cannot resolve scorer {registry_name!r} to an importable constructor — "
-        "add the row by hand with the eval's own scorer reference"
-    )
+        reference = f"inspect_ai.scorer:{name}"
+    elif hasattr(module, name):
+        reference = f"{module.__name__}:{name}"
+    else:
+        raise ImporterError(
+            f"cannot resolve scorer {registry_name!r} to an importable constructor — "
+            "add the row by hand with the eval's own scorer reference"
+        )
+    _refuse_foreign_functions(name, reference, module, scorer)
+    return reference, params, name
+
+
+def _refuse_foreign_functions(name: str, reference: str, module: Any, scorer: Any) -> None:
+    """Refuse a function argument from outside the eval's own package, here at import, by the
+    rule assembly applies to the row (`function_reference_problem`), so no row is written that
+    assembly would refuse. Example: ``keyed(answer_fn=textwrap.dedent)`` is refused."""
+
+    for argument, function in _function_arguments(scorer).items():
+        problem: str | None = function_reference_problem(
+            function, task=module.__name__, scorer=reference
+        )
+        if problem is not None:
+            raise ImporterError(
+                f"scorer {name} is created with {argument}={function}, which {problem}. Add "
+                "the row by hand (OME-1602)"
+            )
 
 
 #: The attribute the recorder sets on each scorer it sees: the creation arguments as passed.

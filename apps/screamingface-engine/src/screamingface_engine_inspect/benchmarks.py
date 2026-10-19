@@ -41,6 +41,7 @@ from screamingface_engine.benchmarks.provenance import (
     NotPublished,
     ProvenanceFields,
 )
+from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.local_tasks import task_source_pin
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
@@ -6827,10 +6828,10 @@ def _scorer_function_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
 def _check_scorer_function_kwargs(spec: BenchmarkSpec) -> None:
     """Refuse a function argument the row could not name safely (OME-1602, PR 6).
 
-    Each value must be a ``module:attribute`` reference into the eval's own top-level
-    package, the scorer's or the Task's (``inspect_evals.drop.drop:extract_answer`` for
-    drop's Task), and no name may also be a literal argument. Checked by spelling only:
-    assembly never imports the eval.
+    Each value must pass the importer's own rule (`function_reference_problem`): a
+    ``module:attribute`` reference inside the package holding the eval's Task module or its
+    scorer's module (``inspect_evals.drop.drop:extract_answer`` for drop's Task). No name may
+    also be a literal argument. Checked by spelling only: assembly never imports the eval.
     """
 
     for name, reference in spec.scorer_function_kwargs.items():
@@ -6838,28 +6839,11 @@ def _check_scorer_function_kwargs(spec: BenchmarkSpec) -> None:
             raise ValueError(
                 f"{spec.key}: scorer argument {name!r} is both a literal and a function"
             )
-        if _FUNCTION_REFERENCE.fullmatch(reference) is None:
-            raise ValueError(
-                f"{spec.key}: scorer argument {name}={reference!r} is not a module:attribute "
-                "function reference"
-            )
-        if not _same_top_package(reference, spec.scorer) and not _same_top_package(
-            reference, _cases_declaration(spec.key).task
-        ):
-            raise ValueError(
-                f"{spec.key}: scorer argument {name}={reference!r} points outside the eval's "
-                "own package; a row may only name the eval's own functions"
-            )
-
-
-#: ``package.module:function``: dotted identifiers, one colon, one plain attribute.
-_FUNCTION_REFERENCE: re.Pattern[str] = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*:[A-Za-z_]\w*")
-
-
-def _same_top_package(reference: str, other: str) -> bool:
-    """Whether two dotted references start in the same top-level package."""
-
-    return reference.split(".", 1)[0].split(":", 1)[0] == other.split(".", 1)[0].split(":", 1)[0]
+        problem: str | None = function_reference_problem(
+            reference, task=_cases_declaration(spec.key).task, scorer=spec.scorer
+        )
+        if problem is not None:
+            raise ValueError(f"{spec.key}: scorer argument {name}={reference!r} {problem}")
 
 
 def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

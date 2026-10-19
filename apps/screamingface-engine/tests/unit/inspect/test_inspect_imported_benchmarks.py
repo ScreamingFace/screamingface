@@ -253,6 +253,20 @@ def test_benchmark_row_scorer_resolves_and_constructs(key: str) -> None:
 
 
 @pytest.mark.parametrize("key", sorted(_NEW_KEYS))
+def test_benchmark_row_scorer_builds_through_the_factory_grading_uses(key: str) -> None:
+    # WHY beside the test above (review finding on OME-1602 PR 6): that one rebuilds the
+    # scorer from the row by hand, so a row's function references (scorer_function_kwargs),
+    # which only the factory imports, went unchecked; a misspelled `extract_answr` on drop
+    # passed CI. Assembly checks a reference by spelling only, so this is where a reference
+    # that does not import fails, before any run.
+    import_module("screamingface_engine_inspect.judge_provider")
+    from screamingface_engine_inspect.benchmarks import _scorer_factory
+
+    spec = next(spec for spec in BENCHMARKS if spec.key == key)
+    assert _scorer_factory(spec)() is not None
+
+
+@pytest.mark.parametrize("key", sorted(_NEW_KEYS))
 def test_benchmark_row_prose_is_filled_not_todo(key: str) -> None:
     """AI-first onboarding: the importing agent writes the catalogue prose; a
     leftover TODO placeholder means the diff was never finished."""

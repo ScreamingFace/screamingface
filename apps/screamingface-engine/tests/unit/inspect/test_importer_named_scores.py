@@ -402,6 +402,22 @@ def extract_answer(completion: str) -> str:
     return completion.strip()
 
 
+def replaced_reader(completion: str) -> str:
+    """What this module's name ``replaced_reader`` holds now."""
+
+    return completion.upper()
+
+
+def _replaced_reader(completion: str) -> str:
+    """A stand-in for a function whose module name was later rebound: it calls itself
+    ``replaced_reader`` (set below), but importing that name gives back the function above."""
+
+    return completion
+
+
+_replaced_reader.__name__ = _replaced_reader.__qualname__ = "replaced_reader"
+
+
 @scorer(metrics=[accuracy()])
 def keyed(answer_fn: Callable[[str], str] | None = None) -> Scorer:
     """A stand-in for drop's scorer, which takes the function that pulls out the answer."""
@@ -464,6 +480,30 @@ def test_a_function_defined_inside_another_is_refused() -> None:
     task: Task = _built_with_recorder(lambda: keyed(nested))
 
     with pytest.raises(ImporterError, match=r"answer_fn='nested'"):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_function_from_outside_the_evals_package_is_refused_at_import() -> None:
+    """The importer refuses the row assembly would refuse, by the same rule, so no row is
+    written that only fails later (review finding on OME-1602 PR 6). The stand-in Task lives
+    in this module, so its package is this module; textwrap is not inside it."""
+
+    task: Task = _built_with_recorder(lambda: keyed(textwrap.dedent))
+
+    with pytest.raises(
+        ImporterError, match=r"answer_fn=textwrap:dedent, which points outside the eval's own"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_function_whose_name_now_points_elsewhere_is_refused() -> None:
+    """Importing the logged name would give back a different function, so the row could not
+    rebuild the same argument: ``_replaced_reader`` calls itself ``replaced_reader``, but that
+    module name holds another function."""
+
+    task: Task = _built_with_recorder(lambda: keyed(_replaced_reader))
+
+    with pytest.raises(ImporterError, match=r"answer_fn='replaced_reader'"):
         _scorer_facts(task, sys.modules[__name__])
 
 

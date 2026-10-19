@@ -99,6 +99,12 @@ def test_the_drop_row_names_the_evals_reader_and_no_literal_stands_in_for_it() -
     [
         ({"answer_fn": "inspect_evals.drop.drop.extract_answer"}, {}, "not a module:attribute"),
         ({"answer_fn": "os:system"}, {}, "outside the eval's own package"),
+        # Another eval's function shares the top-level inspect_evals package, but not drop's.
+        (
+            {"answer_fn": "inspect_evals.gsm8k.gsm8k:record_to_sample"},
+            {},
+            "outside the eval's own package",
+        ),
         (
             {"answer_fn": "inspect_evals.drop.drop:extract_answer"},
             {"answer_fn": "extract_answer"},
