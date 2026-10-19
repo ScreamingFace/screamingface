@@ -108,6 +108,12 @@ GDPval-text (`2e839377e3ee28d4` → `f6ea752427e71362`):
 | claude-opus-5.5 | 0.7500 | 0.6838 | 0.9118 | 4174 |
 | grok-4.7 | 0.1187 | 0.1187 | 1.0 | 4549 |
 
+CI follow-up (PR #1469): the SDK e2e golden for gdpval-text pinned the old revision and the
+graded-only score. Regenerated from a local replay of the committed snapshot (same setup as CI):
+revision `f6ea752427e71362`, new expression_sha, final_score 0.8044 → 0.6435 (= 0.8044 × 20/25);
+statuses, failure codes and coverage unchanged. The refresh tool refuses revision moves by design,
+so the values were set from the replay, as 967ada253 did.
+
 Deviations: the five OME-1602 rows were classified by the spec §5 criteria (not in the original
 table); `failure-ladder-and-policy.png` is not re-exported (no draw.io CLI) — the `.drawio` source is
 updated. Follow-ups: re-run published entries on the new revisions after deploy (D5); per-metric

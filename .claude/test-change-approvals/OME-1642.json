@@ -3,7 +3,7 @@
   "branch": "OME-1642-all-case-denominator",
   "approver": "IonesioJunior (owner)",
   "date": "2026-10-19",
-  "scope": "(1) construction-only: failure_policy= added where existing tests build BenchmarkSpec, call the single-shot factory, call finalize_candidate_result or build BenchmarkAggregation; (2) policy-aware updates: tests that name a real Benchmark now assert its all-Case (withhold) result (frames_oracle, medxpert, gdpval-text, the gsm8k/mmlu declarations, the declaration table incl. the five OME-1602 PR 5/6 rows, squad/gsm8k Named Scores), and generic finalizer tests name the policy they depend on; (3) revision literals of the 66 withhold Benchmarks (published-revision tables, FrontierScience, gsm8k in test_inverted_grade, medxpert golden, the medxpert canonical-url4 sha, the early-grade fixture); (4) construction-only: the required failure_policy keyword added where tests call completed_case, grading_progress, Progress.observe or replace their stubs (test_progress_contract, test_progress_retention, test_provisional_scores, test_early_grade_compatibility, test_concurrent_case_grading), added in the OME-1642 design-review fixes.",
+  "scope": "(1) construction-only: failure_policy= added where existing tests build BenchmarkSpec, call the single-shot factory, call finalize_candidate_result or build BenchmarkAggregation; (2) policy-aware updates: tests that name a real Benchmark now assert its all-Case (withhold) result (frames_oracle, medxpert, gdpval-text, the gsm8k/mmlu declarations, the declaration table incl. the five OME-1602 PR 5/6 rows, squad/gsm8k Named Scores), and generic finalizer tests name the policy they depend on; (3) revision literals of the 66 withhold Benchmarks (published-revision tables, FrontierScience, gsm8k in test_inverted_grade, medxpert golden, the medxpert canonical-url4 sha, the early-grade fixture); (4) construction-only: the required failure_policy keyword added where tests call completed_case, grading_progress, Progress.observe or replace their stubs (test_progress_contract, test_progress_retention, test_provisional_scores, test_early_grade_compatibility, test_concurrent_case_grading), added in the OME-1642 design-review fixes. (4) the gdpval-text e2e golden: revision, expression_sha and final_score regenerated from a replay of the committed snapshot (0.8044 over 20 graded Cases -> 0.6435 over all 25; statuses, failure codes and coverage unchanged), as 967ada253 did for an intended revision move.",
   "reason": "OME-1642 spec R1 (withhold divides by every selected Case) and R6 (the failure policy is Benchmark identity, so withhold Benchmarks move to a new revision). Owner decisions 2026-10-19: required failure_policy with approved test edits; policy-aware test updates; gdpval-text failed Case counts 0.",
   "note": "Blobs pinned against merge base a87da68c1 (origin/main). coverage_declare Benchmarks keep byte-identical revisions and scores (tests/unit/inspect/test_failure_policy_revisions.py). New test files are not listed: append-only allows them.",
   "files": {
@@ -150,6 +150,10 @@
     "apps/screamingface-engine/tests/unit/test_shared_grading_case_grader.py": {
       "base_blob": "93d7b88c20274bb8e8eae04979d2237082950444",
       "approved_blob": "975f5b59cebe0fb45ee347719ebb7b5fd363decb"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/gdpval-text.golden.json": {
+      "base_blob": "d13aef5149a34a9b37b0d57a2fb88557d4a33ae4",
+      "approved_blob": "3a6ffbadd8d24425ccb4197b8d4eea8cec1d9db5"
     }
   }
 }
