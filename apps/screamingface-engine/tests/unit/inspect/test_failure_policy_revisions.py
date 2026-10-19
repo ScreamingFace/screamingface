@@ -6,7 +6,7 @@
 The failure policy is Benchmark identity (spec R6): a `withhold` score is a different number
 from the same answers, so every `withhold` Benchmark gets a new revision and its old and new
 scores never share a board. A `coverage_declare` Benchmark scores exactly as before, so its
-revision stays byte-identical. Both tables are the revisions served on origin/main cbce4b202
+revision stays byte-identical. Both tables are the revisions served on origin/main a87da68c1
 (2026-10-19), the last commit before the change.
 
 Runs only with the `inspect` extra installed.
@@ -54,7 +54,7 @@ _KEPT: dict[str, str] = {
     "xstest_unsafe": "fad9dd3ebabd84a5",
 }
 
-#: The 61 withhold Benchmarks: the revision each served BEFORE OME-1642, which it must
+#: The 66 withhold Benchmarks: the revision each served BEFORE OME-1642, which it must
 #: no longer serve.
 _MOVED_FROM: dict[str, str] = {
     "agieval_aqua_rat": "878ad44393d431a4",
@@ -73,11 +73,14 @@ _MOVED_FROM: dict[str, str] = {
     "bbeh": "9ad134d74b1574ef",
     "bbq": "9df63a8c954c961d",
     "boolq": "d29adda5bb6a246c",
+    "chembench": "938a8fae2b248252",
     "commonsense_qa": "c133584254776a5e",
     "cybermetric_10000": "1174c252ffaebfab",
     "cybermetric_2000": "4d53683a812ef2c5",
     "cybermetric_500": "9ff30cf33ee155e4",
     "cybermetric_80": "6cfebaf54236f398",
+    "cyse4_malware_analysis": "be3d13d6f920331a",
+    "drop": "c73bd1c99d0b878a",
     "frames_oracle": "eb27d52bf8431b07",
     "frontierscience": "fb33b1e6a2cf0c12",
     "gdpval-text": "2e839377e3ee28d4",
@@ -112,6 +115,8 @@ _MOVED_FROM: dict[str, str] = {
     "sevenllm_mcq_en": "c8ef9b7c8db97e9a",
     "sevenllm_mcq_zh": "a8177911cb41f07e",
     "squad": "d0075817a5457cfb",
+    "stereoset": "b8c6f39677782849",
+    "truthfulqa_mc1": "322dc1560be7b5b1",
     "uccb": "c00d690b97fc6d5e",
     "winogrande": "07e46e0177ff0cb9",
     "wmdp_bio": "8b36af2e74e0c6d5",
