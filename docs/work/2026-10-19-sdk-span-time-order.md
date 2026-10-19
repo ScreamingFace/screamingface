@@ -1,5 +1,5 @@
 ---
-ticket: unfiled (bug, filed at PR-open)
+ticket: OME-1665 (engine), OME-1666 (SDK sub-issue)
 stack: screamingface-engine, screamingface
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-19
