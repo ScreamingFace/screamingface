@@ -18,7 +18,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, cast
 
@@ -310,7 +310,15 @@ class _SpanState:
 
     kind: str
     detail: str
+    # WHY two readings of one moment: `start` is the wall-clock ANCHOR the wire publishes, and
+    # `start_monotonic` is what `_finish` measures the duration from. CLOCK_REALTIME is not
+    # monotonic — on the kind-on-Colima stack lima-guestagent's `SyncTime` steps the guest clock
+    # back about 211 ms every 10 s — and most spans last about 2 us (both events drain from the
+    # bridge in one batch), so a SECOND wall reading at the finish published `end` before `start`
+    # and the SDK refused the whole run over it.
+    # INVARIANT: `end = start + monotonic elapsed`, so `end >= start` holds by construction.
     start: datetime
+    start_monotonic: float
     parent_span_id: str | None
     usage: _SpanUsage | None = field(default=None)
     # INVARIANT: a LIST, accumulated — one span can make several model calls (the web-tools loop
@@ -402,7 +410,11 @@ class _RunState:
             self.root_span_id = event.root_span_id
         elif isinstance(event, NodeStarted):
             self.spans[event.span_id] = _SpanState(
-                event.node_kind, event.detail, datetime.now(UTC), event.parent_span_id
+                event.node_kind,
+                event.detail,
+                datetime.now(UTC),
+                time.monotonic(),
+                event.parent_span_id,
             )
         elif isinstance(event, Log):
             # The engine attributes each log line to the span that emitted it; carry that through
@@ -537,9 +549,12 @@ class _RunState:
         )
 
     def _finish(self, event: NodeFinished) -> list[Traced]:
+        finished_monotonic = time.monotonic()
         span = self.spans.pop(event.span_id, None)
         if span is None:
-            span = _SpanState("", "", datetime.now(UTC), None)
+            # No start was recorded, so no duration is known: the span opens and closes at the
+            # same reading, `end == start`.
+            span = _SpanState("", "", datetime.now(UTC), finished_monotonic, None)
         kind, detail, start, usage, parent_span_id = (
             span.kind,
             span.detail,
@@ -576,7 +591,9 @@ class _RunState:
             cache_saved_cost_usd=span.saved_cost.saved_cost_usd,
             cache_saved_cost_archive_usd=span.saved_cost.saved_cost_archive_usd,
             start=start,
-            end=datetime.now(UTC),
+            # Never a second wall reading — see `_SpanState.start_monotonic`. The `max` only guards
+            # a clock that misbehaves; a monotonic clock never runs backwards.
+            end=start + timedelta(seconds=max(0.0, finished_monotonic - span.start_monotonic)),
             status="ok" if event.status == "ok" else "error",
         )
         frames: list[Traced] = [
