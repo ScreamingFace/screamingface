@@ -1,6 +1,6 @@
 ---
 ticket: OME-1642
-status: approved (owner, 2026-10-19 — D1–D6 as recommended)
+status: implemented (owner-approved 2026-10-19, D1–D6 as recommended); V7 passed
 date: 2026-10-19
 related: OME-1039 (failure policy declaration), OME-1037 (refusal status split), OME-1268 (Named Scores), OME-1646 (judge redraw, DRACO reference rule)
 ---

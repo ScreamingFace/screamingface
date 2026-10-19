@@ -1,7 +1,7 @@
 ---
 ticket: OME-1642
 spec: ../spec/2026-10-19-OME-1642-all-case-denominator.md
-status: approved and implemented (U1–U5); V7 pending
+status: implemented (U1–U5 + review fixes); V7 passed 2026-10-19
 date: 2026-10-19
 stack: python (apps/screamingface-engine)
 branch: all-case-denominator (renamed OME-1642-all-case-denominator at PR-open)
