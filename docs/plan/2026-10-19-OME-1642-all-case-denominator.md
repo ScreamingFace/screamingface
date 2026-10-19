@@ -82,6 +82,13 @@ keyword stay REQUIRED. Consequences, both part of U1:
   Under `coverage_declare` the scorer only ever receives graded Cases, so its numbers do not
   change.
 - medxpert `_accuracy` (`benchmarks/medxpert/aggregate.py:221`): same rule.
+- **Existing call sites (owner decision of U1, applied to U2):** existing tests that call
+  `finalize_candidate_result` (17 calls, 5 files) or build `BenchmarkAggregation` (6 files)
+  gain ONLY `failure_policy="coverage_declare"`, so each keeps today's behavior; they join the
+  U5 manifest.
+- `_column_means` under `withhold`: column names come from the first graded Case; each
+  ungraded Case adds 0.0 to every column. The headline denominator is the number of Cases the
+  scorer receives; `scored_cases`, `correct` and verdict counts stay over graded Cases.
 - `_whole_run_tally` (`single_shot.py:1217`): no change. It only runs on F rows, which stay
   `coverage_declare` (U1 guard).
 - `contract.py:563–567` docstring: "the score is over the selected Cases the declared failure
