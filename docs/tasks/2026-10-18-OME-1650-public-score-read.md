@@ -17,4 +17,4 @@ copy-url4 button, paper link, metadata note and reproduction count. Fix: an anon
 `GET /v1/public/scores/{id}` that shares `_read_score` and never reads identity; the portal calls
 it. Related: `OME-1649`.
 
-Ledger: ../work/2026-10-18-fix-public-score-read-access-gate.md
+Ledger: ../work/2026-10-18-OME-1650-fix-public-score-read-access-gate.md

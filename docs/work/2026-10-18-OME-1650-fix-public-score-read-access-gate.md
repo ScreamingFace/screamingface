@@ -72,7 +72,7 @@ Plan: `docs/plan/2026-10-18-fix-public-score-read-access-gate.md`.
   - `apps/scoreboard/tests/portal/paper-link.test.js`: public key.
   - `apps/scoreboard/tests/unit/guards/test_visibility_exit_guard.py`: allowlist key `get_score` -> `_read_score`, comment.
   - `apps/scoreboard/README.md`, `apps/scoreboard/DEPLOYMENT.md`: one note each.
-  - `docs/spec/`, `docs/plan/`, `docs/work/` (this ledger): 2026-10-18 fix-public-score-read-access-gate.
+  - `docs/spec/`, `docs/plan/`: 2026-10-18 fix-public-score-read-access-gate; `docs/work/` (this ledger): 2026-10-18 OME-1650-fix-public-score-read-access-gate.
 - **Commits:** `e003f254a` fix(scoreboard): serve anonymous score reads from /v1/public/scores; plus a docs commit filing OME-1650 (ledger + `docs/tasks` mirror). Branch renamed to `OME-1650-public-score-read` at PR-open.
 - **Gates:** all run from `apps/scoreboard` after the review round 2 fix:
   - `uv run ruff check`: exit 0, no findings.

@@ -194,6 +194,6 @@ All must exit 0. No SDK gate is needed: no file under `packages/` changes.
 
 ## Step 7. Close the ledger
 
-Fill the "Outcome" section of `docs/work/2026-10-18-fix-public-score-read-access-gate.md`.
+Fill the "Outcome" section of `docs/work/2026-10-18-OME-1650-fix-public-score-read-access-gate.md`.
 Do not commit until the user says so. Do not file a Linear issue until the PR is opened and the
 user says yes.
