@@ -80,3 +80,16 @@ simulated run itself stays until slice C.
     unchanged apart from taking the title and the clamped size from the store.
   - No visual check against a live Engine in this unit (no runtime running here); covered by
     the slice C manual end-to-end (T-C5).
+
+## Review follow-up (2026-10-20, PR #1326, changes requested)
+
+The reviewer found three picker defects. Each now has a regression test that was seen failing first.
+
+- **Clearing Custom and typing `10` gave `110`.** The input showed the clamped number, so clearing it snapped to `1`.
+  - The box now keeps its own draft text, so it can stay empty.
+  - A clamped value still shows the clamp.
+  - Run is disabled while the box is empty, rather than silently using the last valid size.
+- **The catalog was fetched once per app session.** The store outlives the panel, and the fetch was gated on `idle`. Now every Run panel mount refetches, and the loaded list stays on screen while it does.
+- **The empty catalog was not announced.** It now shares one `role="status"` region with "Loading…". The text changes in place, so screen readers announce it.
+
+Gates: lint, typecheck and build are clean. 120 tests pass. Coverage is unchanged at 93.24% lines.

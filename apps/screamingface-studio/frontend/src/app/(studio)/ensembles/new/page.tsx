@@ -1041,6 +1041,9 @@ function RunsPanel({
   const [sampleSize, setSampleSize] = useState(50);
   const [full, setFull] = useState(false);
   const [custom, setCustom] = useState(false);
+  // What the Custom box shows while it is edited, so a cleared box stays empty instead of
+  // snapping to 1. `null` means "show the size the run would use".
+  const [customDraft, setCustomDraft] = useState<string | null>(null);
   const [useCache, setUseCache] = useState(true);
   const [saveCache, setSaveCache] = useState(true);
   const [compute, setCompute] = useState<"om" | "own">("om");
@@ -1072,6 +1075,9 @@ function RunsPanel({
     : sampleSize;
   const selectedRun =
     runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+  // A cleared Custom box has no size yet; Run waits rather than using one the user can't see.
+  const customEmpty =
+    custom && !full && customDraft !== null && Number.isNaN(Number.parseInt(customDraft, 10));
 
   useEffect(
     () => () => {
@@ -1080,9 +1086,11 @@ function RunsPanel({
     [],
   );
 
+  // Every mount asks the Engine again: the store outlives this panel, and a restarted runtime
+  // may have different benchmarks. A loaded list stays on screen while it refreshes.
   useEffect(() => {
-    if (benchmarkStatus === "idle") void refreshBenchmarks();
-  }, [benchmarkStatus, refreshBenchmarks]);
+    void refreshBenchmarks();
+  }, [refreshBenchmarks]);
 
   function cancelRun() {
     if (intervalRef.current) window.clearInterval(intervalRef.current);
@@ -1094,7 +1102,7 @@ function RunsPanel({
   }
 
   function startRun() {
-    if (slots.length === 0 || !benchmark || !runnable) return;
+    if (slots.length === 0 || !benchmark || !runnable || customEmpty) return;
     setRunning(true);
     setProgress(0);
     setJudgeStatus("idle");
@@ -1311,17 +1319,21 @@ function RunsPanel({
                     Retry
                   </Button>
                 </div>
-              ) : benchmarkStatus === "ready" ? (
-                <p className="rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground">
-                  The Engine has no benchmarks installed.
-                </p>
               ) : (
+                // One live region for both states, so the empty result is announced when it
+                // replaces "Loading…" rather than appearing silently in a new node.
                 <p
                   role="status"
                   className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground"
                 >
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                  Loading benchmarks…
+                  {benchmarkStatus === "ready" ? (
+                    "The Engine has no benchmarks installed."
+                  ) : (
+                    <>
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                      Loading benchmarks…
+                    </>
+                  )}
                 </p>
               )
             ) : (
@@ -1454,17 +1466,22 @@ function RunsPanel({
                     min={1}
                     max={benchmark?.case_count}
                     inputMode="numeric"
-                    value={selectedSize}
+                    value={customDraft ?? selectedSize}
                     disabled={running}
                     aria-label="Custom sample size"
                     className="h-8 w-28 font-mono"
                     onChange={(event) => {
                       const next = Number.parseInt(event.target.value, 10);
+                      if (Number.isNaN(next)) {
+                        setCustomDraft(event.target.value);
+                        return;
+                      }
                       const most = benchmark?.case_count ?? Number.POSITIVE_INFINITY;
-                      setSampleSize(
-                        Number.isNaN(next) ? 1 : Math.min(most, Math.max(1, next)),
-                      );
+                      const size = Math.min(most, Math.max(1, next));
+                      setSampleSize(size);
+                      setCustomDraft(size === next ? null : String(size));
                     }}
+                    onBlur={() => setCustomDraft(null)}
                   />
                   <span className="text-xs text-muted-foreground">cases</span>
                 </div>
@@ -1589,7 +1606,7 @@ function RunsPanel({
         <div className="mt-8">
           {!running ? (
             <Button
-              disabled={slots.length === 0 || !runnable}
+              disabled={slots.length === 0 || !runnable || customEmpty}
               className="rounded-xl"
               onClick={startRun}
             >

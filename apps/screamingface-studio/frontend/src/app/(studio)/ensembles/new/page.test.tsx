@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { EngineClient } from "@/lib/engine/client";
@@ -195,6 +195,41 @@ describe("EnsembleComposerPage run benchmark picker", () => {
     await user.type(input, "9999");
 
     expect(input).toHaveValue(52);
+    expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeEnabled();
+  });
+
+  it("lets a cleared custom sample size be retyped", async () => {
+    client.listBenchmarks.mockResolvedValue([benchmark("small", "Small", 52)]);
+    const user = await openRuns();
+    await user.click(await screen.findByRole("radio", { name: "Small" }));
+    await user.click(screen.getByRole("button", { name: "Custom" }));
+
+    const input = screen.getByRole("spinbutton", { name: "Custom sample size" });
+    await user.clear(input);
+    expect(input).toHaveValue(null);
+    expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeDisabled();
+
+    await user.type(input, "10");
+
+    expect(input).toHaveValue(10);
+    expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeEnabled();
+  });
+
+  it("refetches the catalog when the Run panel mounts again", async () => {
+    useBenchmarkStore.setState({
+      status: "ready",
+      benchmarks: [benchmark("retired", "Retired", 10)],
+      error: null,
+    });
+    await openRuns();
+
+    expect(
+      await within(await screen.findByRole("radiogroup", { name: "Benchmark" })).findAllByRole(
+        "radio",
+      ),
+    ).toHaveLength(8);
+    expect(screen.queryByRole("radio", { name: "Retired" })).not.toBeInTheDocument();
+    expect(client.listBenchmarks).toHaveBeenCalledTimes(1);
   });
 
   it("shows a loading message while the catalog loads", async () => {
@@ -219,6 +254,24 @@ describe("EnsembleComposerPage run benchmark picker", () => {
       await screen.findByText("The Engine has no benchmarks installed."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeDisabled();
+  });
+
+  it("announces an empty catalog in the same live region as loading", async () => {
+    let release: (rows: BenchmarkSummary[]) => void = () => {};
+    client.listBenchmarks.mockReturnValue(
+      new Promise<BenchmarkSummary[]>((resolve) => (release = resolve)),
+    );
+    await openRuns();
+
+    const region = await screen.findByRole("status");
+    expect(region).toHaveTextContent("Loading benchmarks…");
+
+    release([]);
+
+    await waitFor(() =>
+      expect(region).toHaveTextContent("The Engine has no benchmarks installed."),
+    );
+    expect(screen.getByRole("status")).toBe(region);
   });
 
   it("shows a failed load with Retry, and Retry recovers", async () => {
