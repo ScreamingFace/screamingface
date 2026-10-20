@@ -1,7 +1,7 @@
 ---
 ticket: OME-1686
 stack: aigateway
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-20
 finished:
 ---
@@ -23,13 +23,14 @@ key. The fields for the actual spend do not change. Spec:
 - `apps/aigateway/src/aigateway/plugins/taxonomy/render.py` — pure selector helper; new key from
   all `records`.
 - `apps/aigateway/src/aigateway/plugins/taxonomy/usage_accounting.schema.json` — key in
-  `request_economics` properties and `required`; `$id` `v3` (if Q1 is accepted).
+  `request_economics` properties and `required`; `$id` stays `v2` (owner, Q1).
 - `apps/aigateway/docs/usage-accounting.md` — example, and "Cost of intelligence and actual spend".
 - New tests: `tests/unit/usage_accounting/test_succeeded_attempt_cost.py`,
   `tests/unit/usage_accounting/test_succeeded_attempt_cost_route.py`.
-- Prior tests (owner approval needed, spec §5): `test_release_fixtures.py` hash values,
-  `test_handoff_contract.py` exact dict, regenerated `fixtures/cache_hit_contract/openrouter_hit.json`,
-  and with Q1 `test_openrouter_proven_zero_strict_evidence.py:431`.
+- Prior tests (approved by the owner 2026-10-20, spec §5): `test_release_fixtures.py` hash values,
+  `test_handoff_contract.py` exact dict, regenerated `fixtures/cache_hit_contract/openrouter_hit.json`.
+  Recorded in `.claude/test-change-approvals/OME-1686.json`.
+- Owner decisions 2026-10-20: Q1 keep `$id` v2; Q2 approved; Q3 no forced `null` on error bodies.
 - No schema/model (ORM) change, so no migration (rule S1 does not apply).
 
 ## Test plan

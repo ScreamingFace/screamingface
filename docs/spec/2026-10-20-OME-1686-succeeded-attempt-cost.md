@@ -96,7 +96,13 @@ gateway does not change or summarize the value. Thus:
 `accounting_error_response` (`session.py:481-510`) renders `_aigw` beside `detail` with the same
 renderer. On known failure paths no record keeps `outcome == "succeeded"`: the collector downgrades
 it (D1). Thus the value is `null` on an error body. The renderer stays a pure function of records
-and `cache_status`; it does not know about the error path. See open question Q3.
+and `cache_status`; it does not know about the error path.
+
+Owner decision (2026-10-20, Q3): the renderer does **not** force `null` on error bodies. If a
+future failure path keeps a succeeded record, the error body shows that attempt's cost. This is
+safe because the Engine never reads `_aigw` on a failed response: `_raise_for_status` runs before
+the body is parsed (`apps/screamingface-engine/src/screamingface_engine/world/connector.py:1052`,
+`:1067`), and `_report_usage` reads `_aigw` only after a successful round trip (`connector.py:238`).
 
 ### D5 — Streaming
 
@@ -122,10 +128,9 @@ key. Changes:
   `{"oneOf": [{"$ref": "#/$defs/direct_cost"}, {"type": "null"}]}`.
 - Add it to `required`. The gateway always emits it, and `required` makes the null/absent difference
   explicit.
-- Bump the document `$id` from `aigw-usage-accounting.v2.json` to `aigw-usage-accounting.v3.json`.
-  The convention (`docs/usage-accounting.md`, "Status rules", lines on `v2`) numbers the schema
-  document when a closed contract expands, so strict consumers can reject or adopt it. A new key
-  in a closed object is the same type of expansion. See open question Q1.
+- Owner decision (2026-10-20, Q1): **keep** the document `$id` `aigw-usage-accounting.v2.json`.
+  Do not bump it. The contract is pre-beta and consumers update with it
+  (`docs/usage-accounting.md`, intro).
 - The top-level `request_economics.schema` marker stays `aigw.request_economics`. The doc says
   these markers carry no numbered version (`docs/usage-accounting.md`, intro).
 
@@ -164,8 +169,9 @@ owner approval before a prior test changes:
    The Engine suite reads this file (`apps/screamingface-engine/tests/unit/test_cache_hit_contract.py:53`).
    The Engine run-events output must stay the same; the plan runs that Engine test against the
    regenerated file to prove it.
-4. If Q1 is accepted: `tests/unit/usage_accounting/test_openrouter_proven_zero_strict_evidence.py:431`
-   asserts `$id.endswith("aigw-usage-accounting.v2.json")`.
+Owner decision (2026-10-20, Q2): items 1–3 are approved, and nothing else in prior tests changes.
+The approval is recorded byte-exact in `.claude/test-change-approvals/OME-1686.json`. Because the
+`$id` stays `v2`, `test_openrouter_proven_zero_strict_evidence.py:431` does not change.
 
 `tests/unit/test_frozen_copy_replay.py:395-420` seeds a hand-written `_aigw` as stored input. It
 is not a rendered output, so it does not change.
@@ -184,16 +190,15 @@ is not a rendered output, so it does not change.
 - `docs/usage-accounting.md` documents the key and the two meanings.
 - Full `aigateway` gates pass.
 
-## 7. Open questions
+## 7. Owner decisions (2026-10-20)
 
-- **Q1 — Schema `$id` bump.** Recommendation: bump to `v3` (D7). This changes one prior assertion
-  (§5 item 4). The alternative is no bump, because the contract is pre-beta and "consumers must
-  update". Which do you want?
-- **Q2 — Approval to change prior tests.** §5 items 1–3 are unavoidable for an always-present key.
-  Do you approve these changes? (The alternative, to omit the key when it is `null`, breaks the
-  fixed contract in §3 and still changes items 1 and 2.)
-- **Q3 — A succeeded record on an error body.** If a future failure happens after a successful
-  send without a downgrade hook (for example, a client disconnect after the 200), the error body
-  shows that attempt's cost. The Engine does not read `_aigw` on a failed response, so the price
-  does not change. Is this acceptable, or must the renderer force `null` on error bodies? Forcing
-  it needs a new renderer argument from `accounting_error_response`.
+The owner approved this spec and the plan on 2026-10-20.
+
+- **Q1 — Schema `$id`:** keep `aigw-usage-accounting.v2.json`. Add the key to the current schema's
+  `properties` and `required` as `direct_cost | null` (D7).
+- **Q2 — Prior tests:** §5 items 1–3 are approved. Nothing else in prior tests changes.
+- **Q3 — Error bodies:** do not force `null`. The Engine never reads `_aigw` on a failure (D4).
+- **Cache row:** the request-cache write-time block already stores the cost of the last succeeded
+  send (`plugins/taxonomy/entry_metadata.py:184-213`). No change is needed there. The new
+  selector uses the same rule (the last record with `outcome == "succeeded"`), which is the same
+  record as the highest `sequence` because records are in send order.

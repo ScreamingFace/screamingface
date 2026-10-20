@@ -6,8 +6,9 @@ Branch: `OME-1686-succeeded-attempt-cost`. Consumer: `OME-1687` (Engine), blocke
 
 ## Preconditions
 
-- The owner approves the spec in plain words, including Q1 (schema `$id` bump), Q2 (prior-test
-  changes) and Q3 (error-body rule). No code starts before this approval.
+- Done 2026-10-20: the owner approved the spec and this plan. Q1: keep `$id` `v2`. Q2: the three
+  prior-test changes are approved (manifest `.claude/test-change-approvals/OME-1686.json`). Q3: do
+  not force `null` on error bodies.
 - No Engine file changes in this branch. The Engine is `OME-1687`.
 
 ## Steps
@@ -58,7 +59,7 @@ Branch: `OME-1686-succeeded-attempt-cost`. Consumer: `OME-1687` (Engine), blocke
      clear the key, and a `# FEATURE:` comment that names the cost-of-intelligence rule and
      `OME-1686`.
 6. `apps/aigateway/src/aigateway/plugins/taxonomy/usage_accounting.schema.json`: add the key to
-   `$defs.request_economics.properties` and `required`; bump `$id` to `v3` if Q1 is accepted.
+   `$defs.request_economics.properties` and `required`. Keep `$id` `v2` (Q1).
 7. Run the new tests (green) and the full aigateway suite. Expect red only in the prior tests
    that spec §5 lists.
 
@@ -75,12 +76,14 @@ Branch: `OME-1686-succeeded-attempt-cost`. Consumer: `OME-1687` (Engine), blocke
     `apps/screamingface-engine`, run `uv run pytest tests/unit/test_cache_hit_contract.py`. It
     reads the regenerated gateway fixture by repository path. The Engine run-events fixture must
     not change. If it changes, STOP and report (it is `OME-1687` scope).
-12. If Q1 is accepted: `test_openrouter_proven_zero_strict_evidence.py:431` expects `v3`.
+12. Record the three approved files byte-exact in `.claude/test-change-approvals/OME-1686.json`
+    (`base_blob` from `origin/main`, `approved_blob` from `git hash-object`), in the format of the
+    existing manifests.
 
 ### Docs, refactor, gates
 
 13. `apps/aigateway/docs/usage-accounting.md`: add the key to the example; add the section
-    "Cost of intelligence and actual spend" (spec D8); update the `$id` sentence if Q1 is accepted.
+    "Cost of intelligence and actual spend" (spec D8).
 14. Refactor while green. Keep `render.py` under 450 lines.
 15. Gates, from the repository root:
     `uv run .claude/scripts/run_gates.py aigateway --base origin/main`.
@@ -98,9 +101,10 @@ Branch: `OME-1686-succeeded-attempt-cost`. Consumer: `OME-1687` (Engine), blocke
 
 - new: `tests/unit/usage_accounting/test_succeeded_attempt_cost.py`
 - new: `tests/unit/usage_accounting/test_succeeded_attempt_cost_route.py`
-- changed (approval needed): `test_release_fixtures.py` (hash values only),
+- changed (approved 2026-10-20): `test_release_fixtures.py` (hash values only),
   `test_handoff_contract.py` (one dict), `fixtures/cache_hit_contract/openrouter_hit.json`
-  (regenerated), and, with Q1, `test_openrouter_proven_zero_strict_evidence.py` (one string)
+  (regenerated)
+- new: `.claude/test-change-approvals/OME-1686.json`
 
 ## Stop conditions
 
