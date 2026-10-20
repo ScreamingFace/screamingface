@@ -1,6 +1,6 @@
 # E4b surface: map → select → reduce — overview
 
-**Status:** draft, 2026-10-20. Waiting for owner review. **Epic:** E4b (OME-1290). **Leaf:**
+**Status:** approved by the owner on 2026-10-20 (spec, plan, O1–O14; O14 = refuse). **Epic:** E4b (OME-1290). **Leaf:**
 OME-1653 (PR #1461). The change lands as new commits on top of #1461, so the E4b stack merges with
 the final surface.
 **Base:** branch `OME-1653-e4b-display-gate-sums-consistency` at `e4d44281c` (parts 4–7, on #1460
@@ -176,7 +176,7 @@ lower to `by_signal` from unit 3; the old field form goes away at the swap.
 | O11 | A narrow step before `Merge`, `JudgePick`, or a `Gate` whose `otherwise` is not `"abstain"` is refused (rule `NR-C1`). | These steps make their own model call over the whole Fusion context (`S/fields.py:387`, `E/combine/endpoint.py:740-772`), so they would see the members that the narrow step left out. Giving them only the live set is a wire change. |
 | O12 | The README and the `sf.Vote` docstring say: `weights="score:judge"` uses the score as it is, so a rubric where a lower number is better gives the wrong members more weight. | With D2 the template no longer says which direction is better, and the SDK cannot read the rubric. |
 | O13 | Every user-facing message and public docstring names the new surface only. The messages that reach the user get new text at the swap: among others `S/fusion.py:126-127`, `:284`, `:296`, `S/reducer.py:382`, `S/recipe.py:81`, `:124`, `S/_evaluation/model.py:315`, `:326`, and the messages in `S/_evaluation/topology.py`, `linking.py` and `compilation.py`. `MSG-1` finds them by a scan, not by a list (surface §11). | A message that says "use sf.Pick" after `sf.Pick` is gone is a bug. |
-| O14 | `sf.Gate(then=sf.Vote(over=...))` with `over=` an extractor with arguments (`"field:<path>"`, `sf.Extract(...)`) is refused (`GA-6`): "a gated vote reads a rule name in over= until E4c". **Owner choice:** the other option is to give `ReduceNode` a gate. | `VoteNode` holds an op name only and `ReduceNode` has no gate (`S/url4.py:564-566`). E4c reworks the gate. |
+| O14 | `sf.Gate(then=sf.Vote(over=...))` with `over=` an extractor with arguments (`"field:<path>"`, `sf.Extract(...)`) is refused (`GA-6`): "a gated vote reads a rule name in over= until E4c". Owner 2026-10-20: refuse (the other option was a gate on `ReduceNode`). | `VoteNode` holds an op name only and `ReduceNode` has no gate (`S/url4.py:564-566`). E4c reworks the gate. |
 
 ## 6. Units
 
