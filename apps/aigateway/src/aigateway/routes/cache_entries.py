@@ -7,7 +7,8 @@ Spec: ``docs/spec/2026-10-15-community-cache.md``.
 
 A page is NDJSON: a header line (``schema``, ``revisions``, and ``remaining`` when the caller sent
 ``count=true``), one line per row, and a trailer line carrying ``next`` — the cursor for the next
-page, or null after the last. A page without its trailer was cut off; the client discards it.
+page, or null when no eligible row follows this page's last. A page without its trailer was cut
+off; the client discards it.
 
 INVARIANT: any authenticated account, never anonymous. ``CurrentAccount`` answers 401 for a
 caller without an identity in every mode that authenticates (``jwt``, ``cloudflare_headers``).
@@ -16,12 +17,14 @@ AIDEV-NOTE: ``AIGW_AUTH_MODE=disabled`` is the exception: ``CurrentAccount`` ret
 account, so every caller may read. That mode is loopback-only (``AuthDisabledLocalOnlyMiddleware``),
 the same footing the admin routes give it.
 INVARIANT: no hop holds a whole page. A page of the heaviest model is ~235 MB of rows, against
-~240 MiB of headroom on a gateway pod; the body is written one ``BATCH_ROWS`` batch at a time.
+~240 MiB of headroom on a gateway pod; the body is written one batch at a time, and a batch is
+bounded by bytes as well as rows (``community_pages.BATCH_BYTES``).
 """
 
 from __future__ import annotations
 
 import json
+import re
 import zlib
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -39,7 +42,7 @@ from ..core.request_cache.community_pages import (
     InvalidCursor,
     PageCursor,
     count_rows,
-    cursor_after,
+    has_rows_after,
     iter_page,
 )
 from ..core.request_cache.revisions import active_cache_revisions
@@ -50,6 +53,8 @@ ModelName = Annotated[str, StringConstraints(min_length=1, max_length=255)]
 
 # gzip framing (wbits 16 + 15), so the body is what `Content-Encoding: gzip` promises.
 _GZIP_WBITS = 31
+# RFC 9110 §12.4.2 qvalue: "0" with up to three decimals, or "1" with up to three zeros.
+_QVALUE = re.compile(r"0(\.[0-9]{0,3})?|1(\.0{0,3})?")
 
 
 def _line(value: dict[str, Any]) -> bytes:
@@ -65,8 +70,23 @@ def _rows(batch: list[dict[str, Any]]) -> bytes:
 
 
 def _accepts_gzip(request: Request) -> bool:
-    accepted = request.headers.get("accept-encoding", "")
-    return any(part.split(";")[0].strip() == "gzip" for part in accepted.split(","))
+    # RFC 9110 §12.5.3: codings are case-insensitive, `q=0` refuses one, and `*` stands for every
+    # coding not listed by name. A malformed weight refuses, so the safe answer is identity.
+    weights: dict[str, float] = {}
+    for part in request.headers.get("accept-encoding", "").split(","):
+        coding, *params = (piece.strip() for piece in part.split(";"))
+        if coding:
+            weights[coding.lower()] = _weight(params)
+    return weights.get("gzip", weights.get("*", 0.0)) > 0
+
+
+def _weight(params: list[str]) -> float:
+    for param in params:
+        name, _, value = param.partition("=")
+        if name.strip().lower() == "q":
+            value = value.strip()
+            return float(value) if _QVALUE.fullmatch(value) else 0.0
+    return 1.0
 
 
 async def _gzip(lines: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
@@ -105,16 +125,17 @@ async def community_cache_entries(
 
     async def lines() -> AsyncIterator[bytes]:
         yield _line(header)
-        last: list[dict[str, Any]] = []
-        sent = 0
+        last: PageCursor | None = None
         async for batch in iter_page(after=cursor, limit=limit, models=models, now=now):
-            # WHY a worker thread: a batch of the largest-response models is ~4.6 MB of rows,
-            # and encoding it (then gzip, ~57 ms per 1,000 rows) on the loop would stall every
-            # other request on the pod, cache hits included.
+            # WHY a worker thread: a batch is up to ``BATCH_BYTES`` of rows, and encoding it
+            # (then gzip, ~57 ms per 1,000 rows) on the loop would stall every other request on
+            # the pod, cache hits included.
             yield await run_in_threadpool(_rows, batch)
-            last, sent = batch[-1:], sent + len(batch)
-        next_cursor = cursor_after(last, limit=1) if sent == limit else None
-        yield _line({"next": next_cursor.encode() if next_cursor else None})
+            last = PageCursor(updated_at=batch[-1]["updated_at"], key_hash=batch[-1]["key_hash"])
+        # WHY look ahead rather than compare the row count with ``limit``: a page of exactly
+        # ``limit`` rows that ends the cache must say so, or the client asks for an empty page.
+        more = last is not None and await has_rows_after(after=last, models=models, now=now)
+        yield _line({"next": last.encode() if more and last is not None else None})
 
     headers = {"Cache-Control": "private, no-store", "Vary": "Accept-Encoding"}
     body = lines()
