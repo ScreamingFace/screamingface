@@ -5,6 +5,7 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
+from screamingface import _surface as sx
 
 
 def test_pipeline_is_an_immutable_ordered_recipe() -> None:
@@ -44,13 +45,13 @@ def test_then_builds_the_same_canonical_ordered_pipeline() -> None:
     review = sf.Model("provider/review")
     final = sf.Model("provider/final")
 
-    pair = draft.then(review)
-    trio = pair.then(final)
+    pair = draft >> review
+    trio = pair >> final
 
-    assert isinstance(pair, sf.Pipeline)
-    assert pair.stages == (draft, review)
-    assert trio.stages == (draft, review, final)
-    assert pair.stages == (draft, review)
+    assert isinstance(pair, sx.Pipeline)
+    assert pair.steps == (draft, review)
+    assert trio.steps == (draft, review, final)
+    assert pair.steps == (draft, review)
     assert trio.name == "draft->review->final"
 
 
@@ -73,9 +74,9 @@ def test_then_preserves_an_explicitly_named_pipeline_as_one_stage() -> None:
     )
     final = sf.Model("provider/final")
 
-    pipeline = named.then(final)
+    pipeline = named >> final
 
-    assert pipeline.stages == (named, final)
+    assert pipeline.steps == (named, final)
     assert pipeline.name == "review-chain->final"
 
 
@@ -85,10 +86,10 @@ def test_unnamed_nested_pipelines_flatten_to_one_canonical_stage_sequence() -> N
     final = sf.Model("provider/final")
 
     constructed = sf.Pipeline([draft, sf.Pipeline([review, final])])
-    chained = draft.then(sf.Pipeline([review, final]))
+    chained = draft >> sf.Pipeline([review, final])
 
     assert constructed.stages == (draft, review, final)
-    assert chained.stages == (draft, review, final)
+    assert chained.steps == (draft, review, final)
 
 
 def test_fusion_accepts_pipelines_as_members_and_complete_recipe_synthesizers() -> None:
@@ -100,54 +101,56 @@ def test_fusion_accepts_pipelines_as_members_and_complete_recipe_synthesizers() 
         [sf.Model("provider/judge"), sf.Model("provider/writer")],
         name="judge-and-write",
     )
-    nested_fusion_synthesizer = sf.Fusion(
-        [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")],
-        synthesizer="provider/final-editor",
-    )
+    nested_fusion_synthesizer = sx.Fanout(
+        [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")]
+    ) >> sx.Synthesize("provider/final-editor")
 
-    with_pipeline = sf.Fusion(
-        [pipeline_member, sf.Model("provider/alternative")],
-        synthesizer=pipeline_synthesizer,
+    with_pipeline = sx.Fanout([pipeline_member, sf.Model("provider/alternative")]) >> sx.Synthesize(
+        pipeline_synthesizer
     )
-    with_nested_fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        synthesizer=nested_fusion_synthesizer,
-    )
+    with_nested_fusion = sx.Fanout(
+        [sf.Model("provider/a"), sf.Model("provider/b")]
+    ) >> sx.Synthesize(nested_fusion_synthesizer)
 
-    assert with_pipeline.members[0] is pipeline_member
-    assert with_pipeline.synthesizer is pipeline_synthesizer
-    assert with_nested_fusion.synthesizer is nested_fusion_synthesizer
+    fanout, writer = with_pipeline.steps
+    nested_writer = with_nested_fusion.steps[1]
+    assert isinstance(fanout, sx.Fanout)
+    assert isinstance(writer, sx.Synthesize)
+    assert isinstance(nested_writer, sx.Synthesize)
+    assert fanout.members[0] is pipeline_member
+    assert writer.model is pipeline_synthesizer
+    assert nested_writer.model is nested_fusion_synthesizer
 
 
 def test_then_accepts_any_complete_recipe_or_route_and_rejects_a_list() -> None:
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        synthesizer="provider/synth",
+    fusion = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+        "provider/synth"
     )
-    pipeline = sf.Model("provider/draft").then(fusion)
+    pipeline = sf.Model("provider/draft") >> fusion
 
-    assert pipeline.stages[1] is fusion
-    assert sf.Model("provider/draft").then("provider/final").stages == (
+    # WHY steps[1:]: an unnamed chain stage is flattened into the chain, step by step.
+    assert pipeline.steps[1:] == fusion.steps
+    assert (sf.Model("provider/draft") >> "provider/final").steps == (
         sf.Model("provider/draft"),
         sf.Model("provider/final"),
     )
 
     with pytest.raises(TypeError, match="Pipeline stage must be"):
-        sf.Model("provider/draft").then(cast(Any, [sf.Model("provider/final")]))
+        _ = sf.Model("provider/draft") >> cast(Any, [sf.Model("provider/final")])
 
 
 def test_recipe_values_have_structural_equality_and_are_unhashable() -> None:
     left = sf.Pipeline(
         [
             "provider/draft",
-            sf.Fusion(["provider/a"], synthesizer="provider/synth"),
+            sx.Fanout(["provider/a"]) >> sx.Synthesize("provider/synth"),
         ],
         name="candidate",
     )
     right = sf.Pipeline(
         [
             sf.Model("provider/draft"),
-            sf.Fusion([sf.Model("provider/a")], synthesizer=sf.Model("provider/synth")),
+            sx.Fanout([sf.Model("provider/a")]) >> sx.Synthesize(sf.Model("provider/synth")),
         ],
         name="candidate",
     )

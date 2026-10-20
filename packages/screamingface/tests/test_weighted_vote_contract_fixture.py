@@ -16,6 +16,7 @@ import json
 import sys
 
 from _combine_contract import COMBINE_CONTRACT, engine_operators, read_contract, requires_engine_app
+from _nodes import ReduceNode, VoteNode
 
 import screamingface as sf
 from screamingface._evaluation.combine_spec import combine_spec_text
@@ -37,9 +38,9 @@ _WEIGHTS: dict[str, tuple[float, ...]] = {
 
 
 # name -> (reducer, member count): weights read from a named number on each Answer (unit 7, SR-1)
-_SIGNAL_SPECS: dict[str, tuple[sf.Reduce, int]] = {
+_SIGNAL_SPECS: dict[str, tuple[ReduceNode, int]] = {
     "weighted_signal_field_3": (
-        sf.Reduce(
+        ReduceNode(
             "weighted",
             extract=sf.Extract("field", path="answer", normalize="text"),
             weights=sf.signal("field:confidence"),
@@ -53,7 +54,7 @@ def weighted_vote_specs() -> dict[str, str]:
     operators = engine_operators()
     constant = {
         name: combine_spec_text(
-            sf.Vote(extract="last_number", normalize="numeric", weights=weights),
+            VoteNode(extract="last_number", normalize="numeric", weights=weights),
             member_count=len(weights),
             operators=operators,
         )
