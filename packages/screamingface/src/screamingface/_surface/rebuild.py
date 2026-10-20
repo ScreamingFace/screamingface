@@ -17,13 +17,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT, DEFAULT_SYNTHESIS_PROMPT
 from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.chain import Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Fallback, Gate
 from screamingface._surface.judge import Judge, JudgePick
 from screamingface._surface.refs import (
+    FieldEquals,
     GateRef,
     _condition,
     agreement,
@@ -31,7 +31,7 @@ from screamingface._surface.refs import (
     signal,
     with_normalizer,
 )
-from screamingface._surface.render import render
+from screamingface._surface.render import dispatch, model_options, render
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -66,6 +66,14 @@ _CANNOT_REBUILD = "URL4 Candidate has a recipe this SDK version cannot rebuild"
 _FIELD_PREFIX = "field:"
 
 
+class _Unexpressible(Exception):
+    """A value of today that has no new-surface form; ``_converted`` names it "cannot rebuild".
+
+    WHY a dedicated exception: only these refusals become "cannot rebuild", so a programming error
+    in a converter surfaces as itself.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class Rebuilt:
     """A rebuilt url4: the chain value and the code that builds it through the alias ``sf``."""
@@ -81,85 +89,66 @@ def rebuild(url4: str) -> Rebuilt:
     from screamingface.url4 import (
         _decode_candidate,
         _recipe_from_topology,
+        _recompiles,
         _replay_check_surface,
-        _require_recompiles,
     )
 
     decoded = _decode_candidate(url4)
-    value = surface_value(_recipe_from_topology(decoded.topology, decoded.calls))
-    try:
-        _require_recompiles(
-            decoded.candidate,
-            value,
-            decoded.calls,
-            check_surface=_replay_check_surface(decoded.topology),
-        )
-    except ValueError as exc:
-        raise ValueError(_CANNOT_REBUILD) from exc
+    # editable: a model call whose prompt is its role's default comes back with no prompt
+    today = _recipe_from_topology(decoded.topology, decoded.calls, editable=True)
+    value = surface_value(today)
+    check_surface = _replay_check_surface(decoded.topology)
+    if not _recompiles(decoded.candidate, value, decoded.calls, check_surface=check_surface):
+        raise ValueError(_CANNOT_REBUILD)
     return Rebuilt(value, f"candidate = {render(value, 'sf.')}")
 
 
-def surface_value(value: Recipe, *, synthesis: bool | None = False) -> Recipe:
-    """Today's ``value`` in the new surface: a Fusion becomes a block, a Pipeline a chain.
+def surface_value(value: Recipe) -> Recipe:
+    """Today's ``value`` in the new surface: a Fusion becomes a block, a Pipeline a chain."""
 
-    ``synthesis`` is the role the compiler gives the value (``S/_evaluation/candidate.py``): True
-    in a Fusion synthesizer slot (and the first stage of a Pipeline there), False as a member or a
-    later stage, None inside a corrective loop, whose roles this rebuild does not read. A Model
-    whose prompt is the default of its role rebuilds with no prompt, as ``to_python`` writes it.
-    """
-
-    for kind, convert in _RECIPES:
-        if isinstance(value, kind):
-            return convert(value, synthesis)
-    raise ValueError(_CANNOT_REBUILD)  # pragma: no cover - the url4 topology has no other kind
+    convert = dispatch(_RECIPES, value)
+    if convert is None:  # pragma: no cover - the url4 topology has no other kind
+        raise ValueError(_CANNOT_REBUILD)
+    return convert(value)
 
 
-def _fusion(fusion: Fusion, _synthesis: bool | None) -> Chain:
+def _model(model: Model) -> Model:
+    return model
+
+
+def _fusion(fusion: Fusion) -> Chain:
     return Chain(_block(fusion), optional=fusion.optional)
 
 
-def _loop(loop: CorrectiveLoop, _synthesis: bool | None) -> CorrectiveLoop:
+def _loop(loop: CorrectiveLoop) -> CorrectiveLoop:
     return CorrectiveLoop(
-        [surface_value(member, synthesis=None) for member in loop.members],
-        judge=surface_value(loop.judge, synthesis=None),
+        [surface_value(member) for member in loop.members],
+        judge=surface_value(loop.judge),
         max_rounds=loop.max_rounds,
         name=_kept_name(loop.name, _inferred_name(loop.members)),
     )
 
 
-def _solo(solo: SelfCorrective, _synthesis: bool | None) -> SelfCorrective:
+def _solo(solo: SelfCorrective) -> SelfCorrective:
     return SelfCorrective(
-        surface_value(solo.member, synthesis=None),
+        surface_value(solo.member),
         max_rounds=solo.max_rounds,
         name=_kept_name(solo.name, _inferred_self_name(solo.member)),
     )
 
 
-def _model(model: Model, synthesis: bool | None) -> Model:
-    if synthesis is None:
-        return model
-    default = DEFAULT_SYNTHESIS_PROMPT if synthesis else DEFAULT_ANSWER_PROMPT
-    if model.prompt != default:
-        return model
-    params = dict(model.params) or None
-    return Model(model.model, name=model._sample_id, params=params, optional=model.optional)
-
-
-def _chain(pipeline: Pipeline, synthesis: bool | None) -> Chain:
+def _chain(pipeline: Pipeline) -> Chain:
     """Today's stages as one chain: a selection Fusion and the stage after it are one block,
     ``Fanout >> <narrow> >> Synthesize(next stage)`` (rebuild-display §1)."""
 
     items: list[Recipe | Step] = []
-    stages = list(enumerate(pipeline.stages))
+    stages = list(pipeline.stages)
     while stages:
-        index, stage = stages.pop(0)
-        role = None if synthesis is None else synthesis and index == 0
-        if not isinstance(stage, Fusion) or stage.optional:
-            items.append(surface_value(stage, synthesis=role))
+        stage = stages.pop(0)
+        if not isinstance(stage, Fusion):
+            items.append(surface_value(stage))
         elif _is_selection(stage) and stages:
-            index, writer = stages.pop(0)
-            role = None if synthesis is None else synthesis and index == 0
-            items.extend(_block(stage, writer=writer, writer_role=role))
+            items.extend(_block(stage, writer=stages.pop(0)))
         else:
             items.extend(_block(stage))
     name = pipeline.name if pipeline._is_named else None
@@ -167,7 +156,7 @@ def _chain(pipeline: Pipeline, synthesis: bool | None) -> Chain:
 
 
 # The recipe kinds of today and their new-surface form.
-_RECIPES: tuple[tuple[type, Callable[[Any, bool | None], Recipe]], ...] = (
+_RECIPES: tuple[tuple[type, Callable[[Any], Recipe]], ...] = (
     (Model, _model),
     (Fusion, _fusion),
     (Pipeline, _chain),
@@ -181,9 +170,7 @@ def _is_selection(fusion: Fusion) -> bool:
     return isinstance(synthesizer, Reducer) and synthesizer._combine_plan().kind == "selection"
 
 
-def _block(
-    fusion: Fusion, writer: Recipe | None = None, writer_role: bool | None = False
-) -> list[Recipe | Step]:
+def _block(fusion: Fusion, writer: Recipe | None = None) -> list[Recipe | Step]:
     """One Fusion as the steps of one block: the Fanout, then the steps of its synthesizer; a
     ``writer`` (the Pipeline stage after a selection) closes it with ``Synthesize``."""
 
@@ -195,24 +182,20 @@ def _block(
     )
     synthesizer = fusion.synthesizer
     if not isinstance(synthesizer, Reducer):
-        return [fanout, _synthesize(synthesizer, synthesis=True)]
+        return [fanout, _synthesize(synthesizer)]
     steps: list[Recipe | Step] = [fanout, *_reducer_steps(synthesizer)]
     if writer is not None:
-        steps.append(_synthesize(writer, synthesis=writer_role))
+        steps.append(_synthesize(writer))
     return steps
 
 
-def _synthesize(writer: Recipe, *, synthesis: bool | None) -> Synthesize:
-    """The writer step: a Model with a prompt and no other option shows its prompt on the step."""
+def _synthesize(writer: Recipe) -> Synthesize:
+    """The writer step: a Model whose one option is its prompt shows the prompt on the step."""
 
-    writer = surface_value(writer, synthesis=synthesis)
-    if (
-        isinstance(writer, Model)
-        and writer.prompt is not None
-        and repr(writer) == f"Model({writer.model!r}, prompt={writer.prompt!r})"
-    ):
-        return Synthesize(writer.model, prompt=writer.prompt)
-    return Synthesize(writer)
+    rebuilt = surface_value(writer)
+    if isinstance(rebuilt, Model) and model_options(rebuilt) == {"prompt"}:
+        return Synthesize(rebuilt.model, prompt=rebuilt.prompt)
+    return Synthesize(rebuilt)
 
 
 # ---------------------------------------------------------------- a reducer as steps
@@ -224,70 +207,105 @@ def _reducer_steps(reducer: Reducer) -> list[Step]:
     judges: list[JudgeNode] = []
     narrow = [_converted(step, judges) for step in _narrow_steps(reducer)]
     main = _converted(reducer, judges)
-    return [*_judge_step(judges, reducer.name), *narrow, main]
+    try:
+        judge = _judge_step(judges)
+    except _Unexpressible as exc:
+        raise _cannot_rebuild(reducer.name) from exc
+    return [*judge, *narrow, main]
 
 
-def _judge_step(judges: list[JudgeNode], name: str) -> list[Step]:
+def _judge_step(judges: list[JudgeNode]) -> list[Step]:
     """One ``Judge`` for every step that reads ``score:judge``; two different judges: refuse."""
 
     steps: list[Step] = [
-        Judge(judge.model, rubric=judge.rubric, params=dict(judge.params) or None)
+        _built(Judge, judge.model, rubric=judge.rubric, params=dict(judge.params) or None)
         for judge in judges
     ]
     if any(step != steps[0] for step in steps[1:]):
-        raise _cannot_rebuild(name)
+        raise _Unexpressible("two different judges in one block")
     return steps[:1]
 
 
 def _converted(reducer: Reducer, judges: list[JudgeNode]) -> Step:
     """One reducer of today as its step; a value with no new-surface form is "cannot rebuild"."""
 
-    convert = _CONVERSIONS.get(type(reducer))
+    convert = dispatch(_CONVERSIONS, reducer)
     if convert is None:
         raise _cannot_rebuild(reducer.name)
     try:
         return convert(reducer, judges)
-    except (TypeError, ValueError) as exc:
+    except _Unexpressible as exc:
         raise _cannot_rebuild(reducer.name) from exc
+
+
+def _built[T](build: Callable[..., T], *args: object, **kwargs: object) -> T:
+    """A new-surface value built from url4 data: its own refusal means no new-surface form."""
+
+    try:
+        return build(*args, **kwargs)
+    except (TypeError, ValueError) as exc:
+        raise _Unexpressible(str(exc)) from exc
 
 
 def _rule(op: str) -> str:
     """An Engine extract op as its rule name, with its pin (erratum E2: ``json_object@1`` is
-    ``json@1``); ``benchmark`` has no op."""
+    ``json@1``); ``benchmark`` has no op; an op of no rule (a hand edit) has no form."""
 
     if op == BENCHMARK_EXTRACT:
         return op
     name, at, version = op.partition("@")
-    return f"{_REVERSE_RULES[name]}{at}{version}"
+    rule = _REVERSE_RULES.get(name)
+    if rule is None:
+        raise _Unexpressible(f"no extract rule for {op!r}")
+    return f"{rule}{at}{version}"
 
 
 def _over(extract: Extract) -> str | Extract:
-    """A field extract with only its path as ``"field:<path>"`` (the S4 spelling), else itself."""
+    """A field extract with only its path as ``"field:<path>"`` (the S4 spelling), else itself
+    with no normalizer (the step holds the normalizer)."""
 
     if extract.rule == "field" and set(extract.args) == {"path"}:
         return f"{_FIELD_PREFIX}{extract.args['path']}"
-    return with_normalizer(extract, None)  # the step holds the normalizer
+    return with_normalizer(extract, None)
+
+
+def _filter_over(extract: Extract) -> str | Extract:
+    """The ``over=`` a Filter's extract was written with: a rule name with no argument, a field,
+    or the ``sf.Extract`` itself when it holds a normalizer or other arguments."""
+
+    if extract.normalize is not None:
+        return extract
+    if not extract.args:
+        return str(extract.rule)
+    return _over(extract)
+
+
+def _unpinned(select: str) -> str:
+    """A statistic's select op with no pin: ``select=`` takes ``"nearest"`` or ``"value"``."""
+
+    return select.partition("@")[0]
 
 
 def _vote(vote: VoteNode, judges: list[JudgeNode]) -> Vote:
     if vote.judge is not None:
         judges.append(vote.judge)
     if vote.extract == BENCHMARK_EXTRACT:
-        return Vote(over=BENCHMARK_EXTRACT, weights=vote.weights)
-    return Vote(over=_rule(vote.extract), normalize=vote.normalize, weights=vote.weights)
+        return _built(Vote, over=BENCHMARK_EXTRACT, weights=vote.weights)
+    return _built(Vote, over=_rule(vote.extract), normalize=vote.normalize, weights=vote.weights)
 
 
 def _gated(vote: VoteNode, judges: list[JudgeNode]) -> Vote | Gate:
     gate = vote.gate
     if gate is None:
         return _vote(vote, judges)
-    ref = _gate_ref(gate.observe)
+    ref = _built(_gate_ref, gate.observe)
     band = gate.abstain_band
-    return Gate(
-        when=_condition(ref, gate.cmp, gate.threshold),
+    return _built(
+        Gate,
+        when=_built(_condition, ref, gate.cmp, gate.threshold),
         then=_vote(vote, judges),
         otherwise=_fallback(gate.otherwise),
-        abstain_if=None if band is None else ref.between(*band),
+        abstain_if=None if band is None else _built(ref.between, *band),
     )
 
 
@@ -300,18 +318,17 @@ def _gate_ref(observe: str) -> GateRef:
 
 def _fallback(otherwise: Literal["abstain"] | JudgeNode | Model) -> Fallback:
     if isinstance(otherwise, JudgeNode):
-        return JudgePick(
-            otherwise.model, rubric=otherwise.rubric, params=dict(otherwise.params) or None
-        )
+        params = dict(otherwise.params) or None
+        return _built(JudgePick, otherwise.model, rubric=otherwise.rubric, params=params)
     if isinstance(otherwise, Model):
-        # WHY no role: the url4 rebuild of a fallback writer already drops the default prompt
-        return _synthesize(otherwise, synthesis=None)
+        return _synthesize(otherwise)
     return otherwise
 
 
 def _statistic(node: MedianNode | MeanNode, _judges: list[JudgeNode]) -> Median | Mean:
     step = Median if isinstance(node, MedianNode) else Mean
-    return step(over=_rule(node.extract), select=node.select, weights=node.weights)
+    select = _unpinned(node.select)
+    return _built(step, over=_rule(node.extract), select=select, weights=node.weights)
 
 
 def _block_form(block: Reduce, judges: list[JudgeNode]) -> Step:
@@ -324,29 +341,33 @@ def _block_form(block: Reduce, judges: list[JudgeNode]) -> Step:
         judge = options.get("judge")
         if isinstance(judge, JudgeNode):
             judges.append(judge)
-        return Vote(over=_over(extract), normalize=extract.normalize, weights=weights)
+        return _built(Vote, over=_over(extract), normalize=extract.normalize, weights=weights)
     if block.op in ("median", "mean"):
         step = Median if block.op == "median" else Mean
         select = "nearest" if block.mode == "select" else "value"
-        return step(over=_over(extract), select=select, weights=weights)
-    raise _cannot_rebuild(block.name)
+        return _built(step, over=_over(extract), select=select, weights=weights)
+    raise _Unexpressible(f"no step for sf.Reduce({block.op!r})")
 
 
 def _pick(pick: PickNode, _judges: list[JudgeNode]) -> Step:
     if pick.by_signal is not None:
         best = ArgMax if pick.order == "max" else ArgMin
-        return best(pick.by_signal, output=pick.output)
+        return _built(best, pick.by_signal, output=pick.output)
     if pick.field is not None and pick.equals is not None:
-        return First(
-            where=field(pick.field, normalize=pick.normalize) == pick.equals, output=pick.output
-        )
+        where = _built(_field_test, pick.field, pick.normalize, pick.equals)
+        return _built(First, where=where, output=pick.output)
     # D3: a field pick by order reads a signal in the new surface (ArgMax("field:x"))
-    raise _cannot_rebuild(pick.name)
+    raise _Unexpressible("a field pick by order")
+
+
+def _field_test(path: str, normalize: Any, value: str) -> FieldEquals:
+    return field(path, normalize=normalize) == value
 
 
 def _judge_pick(judge: JudgeNode, judges: list[JudgeNode]) -> Step:
     if judge.returns == "label":
-        return JudgePick(judge.model, rubric=judge.rubric, params=dict(judge.params) or None)
+        params = dict(judge.params) or None
+        return _built(JudgePick, judge.model, rubric=judge.rubric, params=params)
     judges.append(judge)
     return ArgMax("score:judge") if judge.order == "max" else ArgMin("score:judge")
 
@@ -354,39 +375,40 @@ def _judge_pick(judge: JudgeNode, judges: list[JudgeNode]) -> Step:
 def _rank(rank: RankNode, judges: list[JudgeNode]) -> Rank:
     if rank.by is not None:
         judges.append(rank.by)
-        return Rank(rank.k, by="score:judge", order=rank.order)
+        return _built(Rank, rank.k, by="score:judge", order=rank.order)
     if rank.by_signal is None:
-        raise _cannot_rebuild(rank.name)  # D3: today's Rank(by_field=)
-    return Rank(rank.k, by=rank.by_signal, order=rank.order)
+        raise _Unexpressible("a rank by field")  # D3: today's Rank(by_field=)
+    return _built(Rank, rank.k, by=rank.by_signal, order=rank.order)
 
 
 def _filter(node: FilterNode, judges: list[JudgeNode]) -> Filter:
     if node.judge is not None:
         judges.append(node.judge)
-    return Filter(where=node.where, over=node.extract)
+    over = None if node.extract is None else _filter_over(node.extract)
+    return _built(Filter, where=node.where, over=over)
 
 
 def _concat(node: ConcatNode, _judges: list[JudgeNode]) -> Concat:
-    return Concat(node.separator, label=node.label)
+    return _built(Concat, node.separator, label=node.label)
 
 
 def _merge(node: MergeNode, _judges: list[JudgeNode]) -> Merge:
-    return Merge(node.fields)
+    return _built(Merge, node.fields)
 
 
 # Each internal reducer of today and its step (the inverse of the lowering table, lowering §2.2).
-_CONVERSIONS: dict[type, Callable[[Any, list[JudgeNode]], Step]] = {
-    VoteNode: _gated,
-    MedianNode: _statistic,
-    MeanNode: _statistic,
-    Reduce: _block_form,
-    PickNode: _pick,
-    JudgeNode: _judge_pick,
-    RankNode: _rank,
-    FilterNode: _filter,
-    ConcatNode: _concat,
-    MergeNode: _merge,
-}
+_CONVERSIONS: tuple[tuple[type, Callable[[Any, list[JudgeNode]], Step]], ...] = (
+    (VoteNode, _gated),
+    (MedianNode, _statistic),
+    (MeanNode, _statistic),
+    (Reduce, _block_form),
+    (PickNode, _pick),
+    (JudgeNode, _judge_pick),
+    (RankNode, _rank),
+    (FilterNode, _filter),
+    (ConcatNode, _concat),
+    (MergeNode, _merge),
+)
 
 
-__all__ = ["Rebuilt", "rebuild", "surface_value"]
+__all__ = ["Rebuilt", "rebuild"]

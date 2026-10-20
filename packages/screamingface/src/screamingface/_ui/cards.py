@@ -131,7 +131,10 @@ def block_card_html(block: _Block) -> str:
 
 
 def chain_card_html(chain: Chain) -> str:
-    """Render one chain of the new surface: its stages in order; a block shows as one stage."""
+    """Render one chain of the new surface: its stages in order; a block shows as one stage.
+
+    A chain that ends inside a block (CH-8) shows that open block last, with the steps it has.
+    """
 
     # WHY lazy: the surface package imports the recipe tree, which imports this module's users
     from screamingface._surface.chain import _Block
@@ -142,6 +145,8 @@ def chain_card_html(chain: Chain) -> str:
         else _recipe_detail(stage, index=index)
         for index, stage in enumerate(chain._stages, start=1)
     )
+    if chain._open:
+        stages += _open_stage(chain._open, len(chain._stages) + 1)
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace chain'>"
         "<div class='sf-card__accent sf-card__accent--pipeline'></div>"
@@ -156,6 +161,18 @@ def _block_stage(block: _Block, index: int) -> str:
         f"<div class='sf-detail__item'><div class='sf-detail__index'>stage {index}</div>"
         f"<div class='sf-detail__name'>{escape(block.name)}</div>"
         "<div class='sf-card__hint'>fanout block</div></div>"
+    )
+
+
+def _open_stage(steps: tuple[Step, ...], index: int) -> str:
+    """The open block of a chain: its Fanout name, then the steps after the Fanout."""
+
+    fanout, *rest = steps
+    return (
+        f"<div class='sf-detail__item'><div class='sf-detail__index'>stage {index}</div>"
+        f"<div class='sf-detail__name'>{escape(getattr(fanout, 'name', ''))}</div>"
+        "<div class='sf-card__hint'>open fanout block</div></div>"
+        + "".join(_step_detail(step) for step in rest)
     )
 
 

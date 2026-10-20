@@ -41,6 +41,7 @@ from screamingface._surface.steps import (
     Rank,
     Vote,
     _ArgBest,
+    filter_extract,
 )
 from screamingface._surface.synthesize import Synthesize
 from screamingface.blocks import Extract, Reduce
@@ -264,7 +265,8 @@ def _rank_node(step: Rank, judge: JudgeNode | None) -> Reducer:
 
 
 def _filter_node(step: Filter, judge: JudgeNode | None) -> Reducer:
-    return FilterNode(where=step.where, extract=step.over, judge=judge)
+    extract = None if step.over is None else filter_extract(step.over)
+    return FilterNode(where=step.where, extract=extract, judge=judge)
 
 
 def _concat_node(step: Concat, _judge: JudgeNode | None) -> Reducer:

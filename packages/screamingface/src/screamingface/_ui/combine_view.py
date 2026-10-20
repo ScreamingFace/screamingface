@@ -210,16 +210,17 @@ def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
 # --- the narrow steps (E4b map-reduce surface, rebuild-display §4) ------------------------------
 
 
-def _narrow_steps(evidence: CombineEvidence) -> list[tuple[CombineNarrow, tuple[str, ...]]]:
+def _narrow_records(evidence: CombineEvidence) -> list[tuple[CombineNarrow, tuple[str, ...]]]:
     """Each narrow record with the members live before it: the answered members (a failed
-    member is never live), then the members the step before kept (NR-I1). None: no step."""
+    member is never live), then the members the step before kept (NR-I1). An evidence with no
+    narrow step gives an empty list."""
 
-    steps: list[tuple[CombineNarrow, tuple[str, ...]]] = []
+    records: list[tuple[CombineNarrow, tuple[str, ...]]] = []
     live = tuple(row.member_id for row in evidence.members if row.status != "fail")
     for record in evidence.narrow or ():
-        steps.append((record, live))
+        records.append((record, live))
         live = record.kept
-    return steps
+    return records
 
 
 def _narrow_word(record: CombineNarrow) -> str:
@@ -232,11 +233,11 @@ def _narrow_chips(evidence: CombineEvidence) -> list[str]:
     """One chip per narrow step: ``filter · kept 2 of 4`` or ``rank top 2 · max``."""
 
     chips: list[str] = []
-    for record, live in _narrow_steps(evidence):
-        if _narrow_word(record) == "rank" and record.cut is not None:
+    for record, live in _narrow_records(evidence):
+        word = _narrow_word(record)
+        if word == "rank" and record.cut is not None:
             chips.append(escape(f"rank top {record.cut.k} · {record.cut.order}"))
         else:
-            word = _narrow_word(record)
             chips.append(escape(f"{word} · kept {len(record.kept)} of {len(live)}"))
     return chips
 
@@ -245,7 +246,7 @@ def _left_out(evidence: CombineEvidence) -> dict[str, int]:
     """member id -> the 1-based narrow step that left it out (NR-I3: the first step only)."""
 
     steps: dict[str, int] = {}
-    for index, (record, live) in enumerate(_narrow_steps(evidence), start=1):
+    for index, (record, live) in enumerate(_narrow_records(evidence), start=1):
         for member_id in live:
             if member_id not in record.kept:
                 steps.setdefault(member_id, index)
@@ -395,8 +396,9 @@ def _member_row(
     opening = "<tr>" if row.status == "answered" else "<tr class='sf-cmb__out'>"
     status = "answered" if row.status == "answered" else f"{row.status} · {row.reason}"
     if row.member_id in left_out:
-        reason = str(row.reason).replace("_", " ")
-        status = f"left out at step {left_out[row.member_id]}: {reason}"
+        status = f"left out at step {left_out[row.member_id]}"
+        if row.reason is not None:  # NR-I3 gives every left-out member a reason; never "None"
+            status += ": " + row.reason.replace("_", " ")
     numbers = "".join(f"<td>{_number_cell(row, column)}</td>" for column in columns)
     signals = "".join(f"<td>{_signal_cell(row, evidence, key)}</td>" for key in keys)
     chosen = "&check;" if row.member_id in evidence.chosen else ""
@@ -550,7 +552,7 @@ class _StepSummary:
 
     def _add_narrow(self, evidence: CombineEvidence) -> None:
         """Add, per narrow step, the members it read and the members it left out."""
-        for index, (record, live) in enumerate(_narrow_steps(evidence)):
+        for index, (record, live) in enumerate(_narrow_records(evidence)):
             if index == len(self.narrow):
                 self.narrow.append(_NarrowCount(_narrow_word(record)))
             count = self.narrow[index]
