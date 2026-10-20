@@ -105,7 +105,7 @@ def test_nc1_filter_then_mean_writes_one_narrow_item() -> None:
 
     assert spec["narrow"] == [
         _item(
-            _step("filter@1", {"key": "field:confidence", "cmp": ">", "value": 0.7}),
+            _step("filter@1", {"key": "field:confidence", "cmp": "gt", "value": 0.7}),
             _step("kept@1"),
         )
     ]
@@ -137,10 +137,8 @@ def test_nc1_rank_then_vote_writes_a_by_signal_item() -> None:
         >> sx.Rank(2, by="field:confidence")
         >> sx.Vote(over="field:answer")
     )
-    today = sf.Fusion(
-        _json_members(),
-        synthesizer=sf.Reduce("plurality", extract=sf.Extract("field", path="answer")),
-    )
+    # the same block with no narrow step (the parity tests tie it to today's bytes)
+    plain = sx.Fanout(_json_members()) >> sx.Vote(over="field:answer")
 
     spec = _spec(chain)
 
@@ -150,7 +148,7 @@ def test_nc1_rank_then_vote_writes_a_by_signal_item() -> None:
             _step("top_k@1", {"k": 2, "order": "max"}),
         )
     ]
-    assert _without_narrow(spec) == _spec(today)
+    assert _without_narrow(spec) == _spec(plain)
 
 
 def test_nc1_a_pattern_filter_keeps_its_extract() -> None:
@@ -276,7 +274,7 @@ def test_nc3_a_judge_with_two_readers_is_one_call() -> None:
     url4 = _url4(chain)
 
     assert len(_judge_calls(url4)) == 1
-    spec = spec_of(url4)
+    spec: dict[str, Any] = dict(spec_of(url4))
     assert spec["weights"] == {"signal": "score:judge"}
     assert [item["reduce"] for item in spec["narrow"]] == [_step("scores@1", {"source": "judge"})]
 
@@ -302,6 +300,7 @@ def test_nc3_a_judge_pick_after_a_filter_leaves_the_judge_step_as_it_is() -> Non
     lowered = lower(chain)
 
     assert isinstance(lowered, Fusion)
+    assert isinstance(lowered.synthesizer, sf.Judge)
     assert lowered.synthesizer._narrow != ()
     # the block's judge node is shared by its readers: the carrier is set on a copy
     assert judge._node._narrow == ()
@@ -323,14 +322,14 @@ def test_a_narrow_rank_over_the_member_count_is_refused() -> None:
 
 def test_a_declared_narrow_read_compiles() -> None:
     chain = (
-        sx.Fanout(_ROUTES, signals={"p": sf.Verbalized()})
+        sx.Fanout(_ROUTES, signals={"p": sf.Verbalized("Confidence: ([0-9.]+)")})
         >> sx.Filter(where=sx.signal("p") >= 0.5)
         >> sx.Vote()
     )
 
     spec = _spec(chain)
 
-    assert spec["narrow"][0]["reduce"] == _step("filter@1", {"key": "p", "cmp": ">=", "value": 0.5})
+    assert spec["narrow"][0]["reduce"] == _step("filter@1", {"key": "p", "cmp": "ge", "value": 0.5})
     assert set(spec["signals"]) == {"p"}
 
 

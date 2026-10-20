@@ -16,6 +16,9 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+# WHY the alias: Pick has a field named ``field``, which shadows the name in its class body.
+from dataclasses import field as dataclass_field
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
@@ -524,6 +527,9 @@ class Pick(Reducer):
     equals: str | None
     normalize: FieldNormalizer | None
     output: str | None
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = dataclass_field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -550,6 +556,7 @@ class Pick(Reducer):
             chosen = _normalizer(normalize, "Pick")
         chosen_output = _output_field(output)
         object.__setattr__(self, "name", "pick")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "field", field)
         object.__setattr__(self, "by_signal", by_signal)
         object.__setattr__(self, "order", order)

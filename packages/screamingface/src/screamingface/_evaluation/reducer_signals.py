@@ -114,6 +114,9 @@ def _compile_signals(
     signals = plan.signal_calls
     if not signals:
         return _CompiledSignals(MappingProxyType({}), (), (), ())
+    # INVARIANT (narrow.md §6): the plan of a whole combine call (``Reducer._combine_plan``) lists
+    # each key once, so a judge that a narrow step and the main step both read is ONE call here.
+    assert len({signal.key for signal in signals}) == len(signals)
     roles: list[_SignalRole] = [_signal_call_role(signal) for signal in signals]
     # INVARIANT: _reducer_synthesizer refuses a reducer without a catalog before it reaches here.
     operators = compiler._operators

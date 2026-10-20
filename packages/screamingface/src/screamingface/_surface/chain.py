@@ -153,9 +153,6 @@ def _check_block(judge: Step | None, narrow: tuple[Step, ...], terminal: Step) -
             f"sf.{type(terminal).__name__} makes its own call over every member, so it cannot "
             "follow a narrow step"
         )
-    if narrow and (terminal._category == "reduce" or len(narrow) > 1):
-        # CH-12: the spec ``narrow`` key compiles with unit 5.
-        raise ValueError("narrow before a reducer is not built yet")
     reads = any(step._reads_judge() for step in (*narrow, terminal))
     if judge is not None and not reads:
         raise ValueError("sf.Judge scores the members, but no step reads score:judge")  # CH-10

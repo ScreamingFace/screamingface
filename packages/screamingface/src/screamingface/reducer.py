@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, fields, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
@@ -103,6 +104,10 @@ class _ReducerPlan:
     reads: Signal | None = None
     # E4b part 5 (P1): the vote's gate; combine_spec_text writes its _spec() as "gate".
     gate: Gate | None = None
+    # E4b narrow (narrow.md §6): the plans of the narrow steps that run before this step in the
+    # same combine call, in chain order; combine_spec_text writes them as the spec "narrow" list.
+    # Only ``Reducer._combine_plan`` fills it, so a step's own ``_plan()`` leaves it empty.
+    narrow: tuple[_ReducerPlan, ...] = ()
 
 
 _MAX_PATH_CHARS = 256
@@ -127,6 +132,73 @@ def _read_signal(plan: _ReducerPlan) -> Signal | None:
     # INVARIANT (GE5): a spec reads at most one signal, so weights and reads never both hold one.
     assert not (isinstance(plan.weights, Signal) and plan.reads is not None)
     return plan.weights if isinstance(plan.weights, Signal) else plan.reads
+
+
+def _step_plans(plan: _ReducerPlan) -> tuple[_ReducerPlan, ...]:
+    """The plan of each step of one combine call: the narrow steps in order, then the main step.
+
+    WHY per step: each step reads at most one signal (NR-S3), so a check that reads a plan's
+    signal or weights runs on each of these (narrow.md §5).
+    """
+
+    return (*plan.narrow, plan)
+
+
+def _with_narrow(plan: _ReducerPlan, narrow: tuple[Reducer, ...]) -> _ReducerPlan:
+    """``plan`` with the plans of its narrow steps, and the model calls of every step once.
+
+    INVARIANT (narrow.md §6): a judge that more than one step reads is ONE call, so the combine
+    call reads each signal key once. Two calls under one key that differ (a different prompt or
+    params) cannot be one call, so they are refused.
+    """
+
+    if not narrow:
+        return plan
+    plans = tuple(step._plan() for step in narrow)
+    calls: dict[str, _ModelSignal] = {}
+    for call in (*(call for step in plans for call in step.signal_calls), *plan.signal_calls):
+        known = calls.setdefault(call.key, call)
+        if known != call:
+            raise ValueError(
+                f"the steps of one combine call read the {call.key!r} call in two different "
+                "forms; give every step the same judge"
+            )
+    return replace(plan, narrow=plans, signal_calls=tuple(calls.values()))
+
+
+def _narrow_steps(reducer: Reducer) -> tuple[Reducer, ...]:
+    """The narrow steps a reducer carries (lowering §2.2, "the narrow carrier").
+
+    WHY ``getattr``: only the reducer classes that a narrow step can come before have the field;
+    Merge, a label judge as a step and the internal projection never carry one (NR-C1).
+    """
+
+    return cast("tuple[Reducer, ...]", getattr(reducer, "_narrow", ()))
+
+
+# The reducers a narrow step lowers to (narrow.md §2, NARROW_RULES): sf.Rank and sf.Filter.
+_NARROW_REDUCERS: frozenset[str] = frozenset({"rank", "filter"})
+
+
+def _narrowed[R: Reducer](reducer: R, narrow: tuple[Reducer, ...]) -> R:
+    """A copy of ``reducer`` that runs ``narrow`` first, in the same combine call.
+
+    WHY a copy: a lowered step can be a value that other steps share (the block's judge node is
+    the synthesizer of ``ArgMax("score:judge")``), so the carrier is never set on it in place.
+    The lowering (``S/_surface/lowering.py``) and the url4 rebuild (``S/url4.py``) are the only
+    callers. A bad step or a judge in two forms raises here, when the block closes.
+    """
+
+    if "_narrow" not in {item.name for item in fields(cast("Any", reducer))}:
+        raise ValueError(f"sf.{type(reducer).__name__} cannot follow a narrow step")
+    for step in narrow:
+        plan = step._plan()
+        if plan.reducer not in _NARROW_REDUCERS or _narrow_steps(step):
+            raise ValueError(f"sf.{type(step).__name__} is not a narrow step")
+    _with_narrow(reducer._plan(), narrow)
+    copied = copy.copy(reducer)
+    object.__setattr__(copied, "_narrow", narrow)
+    return copied
 
 
 def _refuse_judge_signal(signal: Signal, label: str, use: str) -> None:
@@ -154,6 +226,12 @@ class Reducer(ABC):
     def _plan(self) -> _ReducerPlan:
         """The reducer name, kind (answer | selection | projection), unpinned operator steps and
         weights; the compiler pins the steps against the Engine catalog."""
+
+    def _combine_plan(self) -> _ReducerPlan:
+        """The plan of the whole combine call: ``_plan()`` with the narrow steps this reducer
+        carries (narrow.md §6). Every compile place reads this one, never ``_plan()`` alone."""
+
+        return _with_narrow(self._plan(), _narrow_steps(self))
 
     @classmethod
     @abstractmethod
@@ -602,6 +680,9 @@ class Vote(Reducer):
     judge: Judge | None
     gate: Gate | None
     verify: None
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -615,6 +696,7 @@ class Vote(Reducer):
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
         object.__setattr__(self, "name", "vote")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "normalize", _vote_normalize(extract, normalize))
         object.__setattr__(
@@ -805,6 +887,9 @@ class Median(Reducer):
     extract: str
     select: str
     weights: tuple[float, ...] | Signal | None
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -822,6 +907,7 @@ class Median(Reducer):
             judge_use=_MEDIAN_JUDGE_USE,
         )
         object.__setattr__(self, "name", "median")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
         object.__setattr__(self, "weights", checked)
@@ -858,6 +944,9 @@ class Mean(Reducer):
     extract: str
     select: str
     weights: tuple[float, ...] | Signal | None
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -875,6 +964,7 @@ class Mean(Reducer):
             judge_use=_MEAN_SIGNAL_USE,
         )
         object.__setattr__(self, "name", "mean")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
         object.__setattr__(self, "weights", checked)

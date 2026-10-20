@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -435,6 +435,9 @@ class Reduce(Reducer):
     op: str
     mode: ReduceMode
     options: Mapping[str, object]
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(self, op: str, mode: ReduceMode | None = None, **options: object) -> None:
         if not isinstance(op, str):
@@ -455,6 +458,7 @@ class Reduce(Reducer):
             canonical(checked)
         checked = _block_form_options(op, checked)
         object.__setattr__(self, "name", row.reducer)
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "op", op)
         object.__setattr__(self, "mode", selected_mode)
         object.__setattr__(self, "options", MappingProxyType(checked))
@@ -466,7 +470,13 @@ class Reduce(Reducer):
         return (self.op, self.mode, options)
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Reduce) and self._key() == other._key()
+        # WHY the carrier is not in ``_key``: a narrow step (Rank, Filter) has no hash. Equal
+        # values still have equal hashes.
+        return (
+            isinstance(other, Reduce)
+            and self._key() == other._key()
+            and self._narrow == other._narrow
+        )
 
     def __hash__(self) -> int:
         return hash(self._key())
