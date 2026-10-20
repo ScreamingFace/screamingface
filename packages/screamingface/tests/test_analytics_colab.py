@@ -403,7 +403,9 @@ def test_enable_returns_confirmed_consent_ready_for_next_operation(browser, monk
 
     monkeypatch.setattr(colab, "exchange", exchange)
     result = []
-    caller = threading.Thread(target=lambda: result.append(analytics.enable()))
+    caller = threading.Thread(
+        target=lambda: (analytics.enable(), result.append(analytics.status()))
+    )
     caller.start()
     try:
         assert entered.wait(1)
@@ -422,7 +424,8 @@ def test_enable_returns_confirmed_consent_ready_for_next_operation(browser, monk
 
 def test_enable_reports_unavailable_without_claiming_success(browser, monkeypatch, capsys):
     monkeypatch.setattr(colab, "exchange", lambda *args, **kwargs: {"unavailable": True})
-    result = analytics.enable()
+    analytics.enable()
+    result = analytics.status()
     assert result["enabled"] is False
     assert result["pending"] is False
     assert "Couldn't enable analytics; tracking remains off." in capsys.readouterr().out
@@ -441,7 +444,8 @@ def test_enable_timeout_cancels_late_acceptance(browser, monkeypatch, capsys):
     monkeypatch.setattr(colab, "exchange", exchange)
     start = time.monotonic()
     try:
-        result = analytics.enable()
+        analytics.enable()
+        result = analytics.status()
         elapsed = time.monotonic() - start
         assert 2 <= elapsed < 4
         assert result["enabled"] is False
@@ -465,7 +469,9 @@ def test_disable_interrupts_waiting_enable(browser, monkeypatch):
 
     monkeypatch.setattr(colab, "exchange", exchange)
     result = []
-    caller = threading.Thread(target=lambda: result.append(analytics.enable()))
+    caller = threading.Thread(
+        target=lambda: (analytics.enable(), result.append(analytics.status()))
+    )
     caller.start()
     try:
         assert entered.wait(1)
@@ -478,3 +484,17 @@ def test_disable_interrupts_waiting_enable(browser, monkeypatch):
     finally:
         release.set()
         caller.join(1)
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_enable_has_no_notebook_display_value(browser, monkeypatch, capsys, available):
+    reply = accepted() if available else {"unavailable": True}
+    monkeypatch.setattr(colab, "exchange", lambda *args, **kwargs: reply)
+    assert analytics.enable() is None
+    assert analytics.status()["enabled"] is available
+    expected = (
+        "Analytics enabled.\n"
+        if available
+        else "Couldn't enable analytics; tracking remains off.\n"
+    )
+    assert capsys.readouterr().out == expected

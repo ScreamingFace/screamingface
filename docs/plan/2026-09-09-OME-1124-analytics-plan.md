@@ -99,7 +99,8 @@ Add a shared, validated, process-cached analytics origin resolver. Route native 
 
 `sf.analytics.enable()` waits at most three seconds, including worker queue delay,
 for browser consent and a usable ID. It prints a clear enabled/unavailable message
-and retains its status-dictionary return value. Timeout invalidates the pending
+and returns None so notebooks do not display internal state. Detailed state is
+available through `sf.analytics.status()`; CLI controls retain JSON output. Timeout invalidates the pending
 acceptance so late replies cannot enable local tracking. Automatic setup, event
 delivery, and local opt-out remain nonblocking; browser decline persistence is
 still asynchronous. Verification must cover immediate evaluation readiness,

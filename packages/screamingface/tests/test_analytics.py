@@ -25,9 +25,11 @@ def test_status_does_not_create_identity_or_storage(config):
 
 
 def test_enable_reuses_id_reset_rotates_and_disable_removes_it(config):
-    first = analytics.enable()["installation_id"]
+    assert analytics.enable() is None
+    first = analytics.status()["installation_id"]
     assert UUID(first).version == 4
-    assert analytics.enable()["installation_id"] == first
+    assert analytics.enable() is None
+    assert analytics.status()["installation_id"] == first
     assert analytics.reset_identifier()["installation_id"] != first
     assert config.stat().st_mode & 0o777 == 0o600
     assert analytics.disable()["choice"] == "declined"
@@ -43,12 +45,14 @@ def test_bad_state_fails_off(config, contents):
 
 def test_dnt_overrides_explicit_enable(config, monkeypatch):
     monkeypatch.setenv("DO_NOT_TRACK", "1")
-    assert analytics.enable()["enabled"] is False
+    assert analytics.enable() is None
+    assert analytics.status()["enabled"] is False
     assert not config.exists()
 
 
 def test_session_only_enable_does_not_claim_persistence(config):
-    state = analytics.enable(persist=False)
+    assert analytics.enable(persist=False) is None
+    state = analytics.status()
     assert state["enabled"] is True
     assert state["scope"] == "session"
     assert not config.exists()
@@ -72,14 +76,17 @@ def test_concurrent_processes_share_one_installation(config):
     import subprocess
     import sys
 
-    code = "from screamingface import analytics; print(analytics.enable()['installation_id'])"
+    code = (
+        "from screamingface import analytics; analytics.enable(); "
+        "print(analytics.status()['installation_id'])"
+    )
     processes = [
         subprocess.Popen(
             [sys.executable, "-c", code], env=os.environ.copy(), stdout=subprocess.PIPE, text=True
         )
         for _ in range(4)
     ]
-    identifiers = [p.communicate(timeout=15)[0].strip() for p in processes]
+    identifiers = [p.communicate(timeout=15)[0].strip().splitlines()[-1] for p in processes]
     assert all(p.returncode == 0 for p in processes)
     assert len(set(identifiers)) == 1
     assert UUID(identifiers[0]).version == 4
@@ -138,7 +145,8 @@ def test_colab_is_deferred(config, monkeypatch):
     import types
 
     monkeypatch.setitem(sys.modules, "google.colab", types.ModuleType("google.colab"))
-    assert analytics.enable()["enabled"] is False
+    assert analytics.enable() is None
+    assert analytics.status()["enabled"] is False
     assert not config.exists()
 
 

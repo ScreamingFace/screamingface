@@ -1313,8 +1313,8 @@ In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in 
 background worker. Unknown consent shows the same nonblocking disclosure. Use
 `sf.analytics.enable()` to accept: it waits up to three seconds for confirmed browser
 consent and a usable ID, then prints `Analytics enabled.` or
-`Couldn't enable analytics; tracking remains off.` Its returned status dictionary
-is retained for programmatic checks. After successful return, the next evaluation
+`Couldn't enable analytics; tracking remains off.` It returns `None`, so notebooks show only the confirmation message. Use
+`sf.analytics.status()` for programmatic checks and detailed state. After successful return, the next evaluation
 can be tracked without a separate polling cell. A timed-out acceptance is cancelled
 locally so a late response cannot silently enable tracking.
 

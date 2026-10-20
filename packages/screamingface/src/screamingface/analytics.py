@@ -49,8 +49,18 @@ def status() -> dict:
     }
 
 
-def enable(*, persist: bool = True) -> dict:
-    """Opt in; Colab waits up to three seconds for browser confirmation."""
+def enable(*, persist: bool = True) -> None:
+    """Opt in and print confirmation; use status() for details. Colab waits up to 3s."""
+    result = _enable(persist=persist)
+    print(
+        "Analytics enabled."
+        if result["enabled"]
+        else "Couldn't enable analytics; tracking remains off."
+    )
+
+
+def _enable(*, persist: bool = True) -> dict:
+    """Shared consent operation; the CLI renders its result as JSON."""
     global _process_disabled, _session_only
     _process_disabled = False
     if _disabled():
@@ -63,13 +73,7 @@ def enable(*, persist: bool = True) -> dict:
                 "Colab analytics requires browser consent; persist=False is unsupported"
             )
         bridge().accept()
-        result = status()
-        print(
-            "Analytics enabled."
-            if result["enabled"]
-            else "Couldn't enable analytics; tracking remains off."
-        )
-        return result
+        return status()
     _session_only = not persist
     if persist:
         LocalConsentStore(config_path()).change("accepted")

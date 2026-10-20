@@ -227,3 +227,26 @@ append-only tests, lint/format, Pyright, full parallel tests with the 95% covera
 floor, notebook validation, build and distribution checks. No live Colab rerun of
 this revised confirmation flow was performed in this iteration; prior browser
 results do not constitute verification of this new wait behavior.
+
+### Confirmation-only enable output — 20 October 2026
+
+Owner approved hiding the returned dictionary: public `enable()` now returns None
+and prints its result; `status()` remains the explicit details API. Keep CLI JSON
+output through the same internal consent operation. Existing return-value tests
+and the verification notebook will be migrated to status() without removing their
+consent, identity or race assertions. This owner-approved API change supersedes
+the previous dictionary-return compatibility decision.
+
+Outcome: enable() now returns None and prints one confirmation line; status() is
+unchanged. The CLI invokes the shared private consent operation and still prints
+JSON. Updated notebook/docs and migrated old return-value assertions to status()
+while preserving identity, consent, cancellation and concurrency checks.
+
+Validation: both new output tests failed before the fix; all 58 focused analytics
+tests passed afterward. An actual local IPython run_cell display check (consent
+operation stubbed) produced exactly `Analytics enabled.` and no rich display output.
+The full SDK gate runner passed lint/format, Pyright, complete parallel tests with
+95% coverage floor, notebook checks, build and distribution checks. It ran with
+--skip-append-only specifically for the owner-approved return-contract test
+migration; no test was removed or behavior assertion relaxed. No live browser
+persistence or PostHog revalidation was claimed for this output-only change.
