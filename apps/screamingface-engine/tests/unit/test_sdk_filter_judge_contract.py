@@ -78,6 +78,6 @@ async def test_engine_runs_sdk_filter_by_judge_then_writer() -> None:
     )
     judge = next(call for call in seen if call["model"] == "prov/judge")
     assert judge["messages"][0]["role"] == "system"
-    assert judge["messages"][0]["content"].startswith("judge-template@1 returns=scores")
+    assert judge["messages"][0]["content"].startswith("judge-template@2 returns=scores")
     # WHY: the attribution param stays in the engine and never reaches the gateway
     assert all("binding" not in body for body in seen)

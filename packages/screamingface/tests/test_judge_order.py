@@ -3,8 +3,8 @@
 FEATURE: judge-order — a benchmark author scores answers where a lower number is better.
 STORY: as a benchmark author, I want a third-party judge to score each answer where a lower score is
 better, and to return the original answer with the lowest score.
-INVARIANT: a judge without an order (or with order="max") compiles the same bytes as before.
-INVARIANT: order="min" is a Fusion synthesizer only; Rank, Vote and Filter refuse it.
+INVARIANT: a judge without an order is the same judge as order="max".
+INVARIANT: the order is only the select step: a min judge writes the one neutral template (D2).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.judge import JUDGE_TEMPLATES
-from screamingface.reducer import Reducer, _refuse_min_order_judge
+from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 _SPEC_HEAD = '{"extract":null,"members":["member_1","member_2","member_3"],"normalize":null,'
@@ -67,14 +67,14 @@ def _recovered(url4: str) -> sf.Recipe:
 
 
 def test_sdk_judge_scores_without_order_compiles_max_score() -> None:
-    # JO-3 (CHAR): a judge with no order keeps today's bytes and today's template.
+    # JO-3: a judge with no order compiles max_score and the neutral template (judge-template@2).
     judge = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
 
     assert combine_spec_text(judge, member_count=3, operators=flow_operators()) == _MAX_SPEC
     prompt = _judge_prompt(_url4(judge))
     assert prompt == JUDGE_TEMPLATES["scores"] + RUBRIC
-    assert prompt.split("\n", 1)[0] == "judge-template@1 returns=scores"
-    assert "A higher number means a better answer." in prompt
+    assert prompt.split("\n", 1)[0] == "judge-template@2 returns=scores"
+    assert "Score each member as the rubric says." in prompt
 
 
 def test_sdk_judge_order_min_compiles_best_holder_min() -> None:
@@ -85,27 +85,13 @@ def test_sdk_judge_order_min_compiles_best_holder_min() -> None:
     )
 
 
-def test_sdk_judge_order_min_tells_the_judge_lower_is_better() -> None:
-    # JO-2 / ans:Q11: the judge is told that a lower number is better.
+def test_sdk_judge_order_min_writes_the_neutral_template() -> None:
+    # JO-2 / D2: the judge call of a min judge is the max judge's call; the rubric gives the
+    # direction, and the order is only the select step.
     prompt = _judge_prompt(_url4(_judge(order="min")))
-    expected = (
-        JUDGE_TEMPLATES["scores"]
-        .replace(
-            "judge-template@1 returns=scores\n",
-            "judge-template@1 returns=scores order=min\n",
-            1,
-        )
-        .replace(
-            "A higher number means a better answer.", "A lower number means a better answer.", 1
-        )
-        + RUBRIC
-    )
 
-    assert prompt.split("\n", 1)[0] == "judge-template@1 returns=scores order=min"
-    assert "A lower number means a better answer." in prompt
-    assert "A higher number" not in prompt
-    assert prompt == expected
-    assert _judge(order="min")._signal_call().prompt == expected
+    assert prompt == JUDGE_TEMPLATES["scores"] + RUBRIC
+    assert _judge(order="min")._signal_call().prompt == _judge()._signal_call().prompt
 
 
 def test_sdk_judge_label_refuses_an_order() -> None:
@@ -146,62 +132,6 @@ def test_sdk_judge_refuses_an_unknown_order(order: object) -> None:
         sf.Reduce("judge", judge=_judge(), order=order)
 
 
-def test_rank_vote_and_filter_refuse_a_min_order_judge() -> None:
-    # JO-D1 (H x M): Rank, Vote and Filter have their own order or threshold, so a min judge is
-    # refused there. The messages never echo the rubric.
-    low = _judge(order="min")
-    high = _judge()
-
-    with pytest.raises(ValueError) as caught:
-        sf.Rank(2, by=low)
-    assert str(caught.value).startswith("Rank cannot use sf.Judge(..., order='min')")
-
-    with pytest.raises(ValueError) as caught:
-        sf.Reduce("top_k", k=2, by=low)
-    assert str(caught.value).startswith(
-        "sf.Reduce('top_k'): Rank cannot use sf.Judge(..., order='min')"
-    )
-    assert RUBRIC not in str(caught.value)
-
-    with pytest.raises(ValueError) as caught:
-        sf.Vote(
-            extract="last_number",
-            normalize="numeric",
-            weights=sf.signal("score:judge"),
-            judge=low,
-        )
-    assert str(caught.value).startswith("Vote cannot use sf.Judge(..., order='min')")
-    assert RUBRIC not in str(caught.value)
-
-    with pytest.raises(ValueError) as caught:
-        sf.Reduce(
-            "weighted",
-            extract=sf.Extract("last_number", normalize="numeric"),
-            weights=sf.signal("score:judge"),
-            judge=low,
-        )
-    assert str(caught.value).startswith(
-        "sf.Reduce('weighted') cannot use sf.Judge(..., order='min')"
-    )
-    assert RUBRIC not in str(caught.value)
-
-    # Filter half: unit 6 wires sf.Filter(judge=); here only the shared check is pinned.
-    with pytest.raises(ValueError) as caught:
-        _refuse_min_order_judge(low, "Filter")
-    assert str(caught.value).startswith("Filter cannot use sf.Judge(..., order='min')")
-    assert RUBRIC not in str(caught.value)
-
-    # controls: a judge with the default order passes every check
-    sf.Rank(2, by=high)
-    sf.Vote(
-        extract="last_number",
-        normalize="numeric",
-        weights=sf.signal("score:judge"),
-        judge=high,
-    )
-    _refuse_min_order_judge(high, "Filter")
-
-
 def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
     # JO-D2 (H x M): the url4 keeps the order; the SDK rebuilds it, and the judge block keeps it.
     low = _judge(order="min", params={"temperature": 0})
@@ -230,29 +160,17 @@ def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
         params={"temperature": 0}
     )
 
-    # tampered template: the order tail is gone, so the url4 is refused
-    old = "returns=scores order=min"
-    assert old in url4
-    with pytest.raises(ValueError, match="unsupported judge call"):
-        sf.Url4(url4.replace(old, "returns=scores", 1)).to_python()
-
-    # tampered spec: the select step is the max step, so the url4 is refused
-    old_select = '"select":{"args":{"order":"min"},"op":"best_holder@1"}'
-    assert old_select in url4
-    with pytest.raises(ValueError, match="unsupported judge call"):
-        sf.Url4(url4.replace(old_select, '"select":{"args":{},"op":"max_score@1"}', 1)).to_python()
-
 
 def test_panel_judge_order_min_first_line() -> None:
-    # JO-D4 (M x L): the panel form puts the input tail before the order tail.
+    # JO-D4 (M x L): the panel form has the input tail and no order tail.
     low = _judge(order="min")
     members = ["provider/a", "provider/b", sf.Model("provider/c", optional=True)]
     url4 = _url4(low, members, quorum=2)
     prompt = _judge_prompt(url4)
 
-    assert prompt.split("\n", 1)[0] == "judge-template@1 returns=scores input=panel order=min"
+    assert prompt.split("\n", 1)[0] == "judge-template@2 returns=scores input=panel"
     assert '"panel" is the JSON text of a list' in prompt
-    assert "A lower number means a better answer." in prompt
+    assert "Score each member as the rubric says." in prompt
     assert (
         f"sf.Judge('provider/j', returns='scores', rubric={RUBRIC!r}, order='min')"
         in sf.Url4(url4).to_python()

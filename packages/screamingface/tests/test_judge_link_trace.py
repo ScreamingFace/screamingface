@@ -230,37 +230,38 @@ def _link(case: sf.CaseResult) -> dict[str, Any]:
 
 # --- JM#1, JM#2: CHAR ---------------------------------------------------------------------------
 
-# sha256 of each judge url4 fixture at the part base 0f4b9e292 (file text minus its last newline).
+# sha256 of each judge url4 fixture (file text minus its last newline): the part base 0f4b9e292,
+# then the judge-template@2 bytes of unit 7b (overview §4.3).
 _JUDGE_URL4: list[tuple[str, Callable[[], str], str]] = [
     (
         "recipe_s10.url4",
         lambda: compile_recipe("recipe_s10.url4"),
-        "7f7ea75dbde50336952d4c4bad31cc7e720d69ad6dfbbdfc6c4dfe02dfa76a7d",
+        "d66e02f8838c46d0f4d1d9305ea6e4891777c188f1409dfccaf985517e7711e4",
     ),
     (
         "recipe_s11_max.url4",
         lambda: compile_recipe("recipe_s11_max.url4"),
-        "e379f5226ca4025a48708f3704534929149833d4fba098c75211335ed94885d2",
+        "7edd0c1dde469b72c3623c5280175dd9366e3cf81a826c9e19cd98e5fdc39f43",
     ),
     (
         "judge_vote_candidate.url4",
         judge_vote_url4,
-        "1214caa04591737be413ab9931968b2ec3c42fcb069e0e0cedf23227b6779558",
+        "b6273d0b30369d224efa04497907fd16273a8c86a4a882b8c56ec96d309be308",
     ),
     (
         "filter_judge_candidate.url4",
         filter_judge_url4,
-        "43092580df6433ed2446f952bd4bb32fa2e9cf920ae224f15398ba63c37150dd",
+        "58378dd3f08f126d5b074bd855d7025f97c0e7566cdd944c87e1e2e53572439e",
     ),
     (
         "judge_order_min_candidate.url4",
         judge_order_min_url4,
-        "f9475003815fb29a417a512262c02b324a42402433f98e5fd6034724aede8ff3",
+        "bfee9ed7b4d10851890adb2ac1134054206a5b703c20b58f6a574a3aa5c360a1",
     ),
     (
         "quorum_judge_vote_candidate.url4",
         quorum_judge_vote_url4,
-        "242155df787fedbfeb81f2f2a5ad9b09949ac7610488a080951c35c0aaee1f6e",
+        "a3317a46ff7fbb53917f5bcf78d1a7c7d80126efdd55eebeb45581bfa01ff0c4",
     ),
 ]
 

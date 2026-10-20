@@ -308,22 +308,6 @@ def test_nc3_an_argmax_by_the_judge_after_a_filter_leaves_the_judge_step_as_it_i
     assert len(_judge_calls(_url4(chain))) == 1
 
 
-def test_nc3_an_argmin_by_the_judge_after_a_judge_narrow_step_is_refused() -> None:
-    # Until the neutral judge template (overview §4.1, unit 7), ArgMin's judge is told that a lower
-    # number is better and a narrow Rank's judge that a higher one is: two different judge calls.
-    with pytest.raises(
-        ValueError,
-        match=r'^sf\.ArgMin\("score:judge"\) cannot follow a narrow step that reads score:judge '
-        r"until the neutral judge template$",
-    ):
-        _ = (
-            sx.Fanout(_ROUTES)
-            >> _judge()
-            >> sx.Rank(2, by="score:judge")
-            >> sx.ArgMin("score:judge")
-        )
-
-
 # ---------------------------------------------------------------- the checks of every step
 
 

@@ -63,9 +63,9 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
 
     assert "judge_1" in calls
     assert calls["judge_1"].context == "{input: '$input', " + outs + "}"
-    assert calls["judge_1"].prompt.splitlines()[0] == "judge-template@1 returns=scores"
+    assert calls["judge_1"].prompt.splitlines()[0] == "judge-template@2 returns=scores"
     assert calls["judge_1"].prompt.endswith("Rubric:\nScore each draft.")
-    assert "A higher number means a better answer." in calls["judge_1"].prompt
+    assert "Score each member as the rubric says." in calls["judge_1"].prompt
     assert (
         calls["synthesis_1"].context
         == "{input: '$input', " + outs + ", signals: {judge: '$judge_1'}}"
@@ -81,7 +81,7 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
         "weights": None,
     }
     # WHY one judge call for the whole panel: Q10 defers the one-call-per-member form
-    assert url4.count("judge-template@1") == 1
+    assert url4.count("judge-template@2") == 1
     assert '"role":"judge"' in url4
 
 
@@ -130,12 +130,11 @@ def test_sdk_filter_judge_without_score_judge_where_is_refused() -> None:
         sf.Reduce("filter", where=JUDGED, judge="provider/j")
 
 
-# --- FJ-D2: a label judge or an order="min" judge is refused ------------------------------------
+# --- FJ-D2: a label judge is refused --------------------------------------------------------------
 
 
-def test_sdk_filter_refuses_a_label_or_min_judge() -> None:
+def test_sdk_filter_refuses_a_label_judge() -> None:
     label = sf.Judge("provider/j", returns="label", rubric=SECRET)
-    low = sf.Judge("provider/j", returns="scores", rubric=SECRET, order="min")
 
     with pytest.raises(
         ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
@@ -143,19 +142,10 @@ def test_sdk_filter_refuses_a_label_or_min_judge() -> None:
         sf.Filter(where=JUDGED, judge=label)
     assert SECRET not in str(caught.value)
 
-    with pytest.raises(ValueError) as caught:
-        sf.Filter(where=JUDGED, judge=low)
-    assert "order" in str(caught.value)
-    assert SECRET not in str(caught.value)
-
     with pytest.raises(
         ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
     ) as caught:
         sf.Reduce("filter", where=JUDGED, judge=label)
-    assert SECRET not in str(caught.value)
-    with pytest.raises(ValueError) as caught:
-        sf.Reduce("filter", where=JUDGED, judge=low)
-    assert "order" in str(caught.value)
     assert SECRET not in str(caught.value)
 
 
