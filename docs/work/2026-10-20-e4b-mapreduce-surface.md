@@ -196,3 +196,26 @@ LO-P2, E4, E6 (test plan "Unit 3").
     stage numbers 1 and 2 (today's message for the same form, `Pipeline([Fusion(Rank by judge),
     writer])`); the chain's own stage numbers stay the user's.
   - `FieldRule` is re-exported from `screamingface._surface`.
+
+### Fix round (unit 3 review: ACCEPT WITH FIXES)
+
+- **Fixed:** (1) `sf.field(path) == value` keys on the value's JSON text (today's `Pick`), so
+  `== 7` and `== "7"` are equal and `== 1` and `== True` are not. (2) `Merge` equality follows
+  the field order. (3) `sf.field ==`, `output=` and `First` refusals have new-surface messages
+  (no deleted `Pick` name). (4) `ArgMax`/`ArgMin` are two leaves of the private `_ArgBest`.
+  (5) `Judge`/`JudgePick` share the private `_JudgeStep` (`_returns`); the repr shows `params`
+  only when set. (6) `readme-418-pick-confidence` and `readme-528-rank-by-field` are in the doc
+  parity again, compared in-process with today's `by_signal` rewrite (`_TODAY_REWRITE`), not with
+  the golden. (9) exact-message JU-1, CH-2 after a `Judge`, CH-3 for a `JudgePick` after
+  `Judge >> Rank`. (10) the probe-judge invariant comment. (12) style: the comment above the
+  return, `_judge` for unused parameters, `step_node` not in `__all__`, `matches` from `blocks`
+  in the package, the field-path alias renamed, a test renamed to what it checks.
+- **Note:** JU-1 is today's construction rule, so `Median(weights="score:judge")` raises when it
+  is built, before the `>>` that would close the block; the test builds the `Fanout >> Judge`
+  chain first and shows the refusal in that expression.
+- **Commits:** `655af1a3b` test (RED), `e53872539` fix (GREEN), this ledger commit.
+- **Tests:** 379 in the 11 surface test files.
+- **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check lists only the
+  owner-approved unit-1 files (`answer.v1.json`, `public_surface_snapshot.json`,
+  `test_band_words.py`, `test_evidence_words.py`, `test_gate_words.py`, `test_pick_output.py`);
+  with `--skip-append-only` ALL GATES GREEN. `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
