@@ -406,3 +406,41 @@ cards and the report labels stay until the swap.
 ### Rows
 
 RB-1, RB-3, DS-1, DS-2.
+
+### Outcome
+
+- **Actual files:** new `S/_surface/rebuild.py` (`rebuild(url4) -> Rebuilt(value, python)`,
+  `surface_value`), new `S/_surface/render.py` (the one renderer of `repr` and of the rebuilt code);
+  `S/url4.py` (`_decode_candidate`, the one decode path of `to_python` and the rebuild, and
+  `_replay_check_surface`); `S/_surface/chain.py` (`repr` through the renderer, `_repr_html_`),
+  the step modules (`repr=False`, so the renderer is the repr), `S/_surface/__init__.py` (`Model`,
+  `CorrectiveLoop`, `SelfCorrective` and the signal sources, the names the rebuilt code reads);
+  `S/_ui/cards.py` (`block_card_html`, `chain_card_html`, a chain member is a "nested chain");
+  `S/_ui/combine_view.py` (narrow chips, left-out status cells, per-step summary counts). New tests
+  `ST/test_surface_rebuild.py` (96), `ST/test_surface_cards.py` (8), `ST/test_narrow_display.py`
+  (10); goldens `ST/data/surface_cards/*.html`.
+- **Commits:** `4c81994a3` test (RED), `ed6e76d12` feat (GREEN), this ledger commit.
+- **Tests:** full SDK suite 5531 passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check lists only the
+  owner-approved unit-1 files; with `--skip-append-only` ALL GATES GREEN. `run_gates.py repo --base
+  e4d44281c` ALL GATES GREEN. The Engine is not touched.
+- **Deviations:**
+  - U5a decision: the rebuild reuses today's decode and `_recipe_from_topology`, then converts
+    today's values (one converter, `surface_value`). Its byte check is `_require_recompiles` on the
+    converted chain; a mismatch is "URL4 Candidate has a recipe this SDK version cannot rebuild",
+    and a value with no new-surface form is today's "has a {name} spec this SDK version cannot
+    rebuild" (a field pick, `Rank(by_field=)`).
+  - A `ReduceNode` field extract with only a path rebuilds as `over="field:<path>"` (the S4
+    spelling), not `over=sf.Extract("field", path=...)`; any other extract rebuilds as
+    `sf.Extract(...)`. Both compile to the same bytes; the string is the form the user writes.
+  - A Model whose prompt is the default of its compile role (answer prompt as a member or a later
+    stage, synthesis prompt in a Fusion synthesizer slot) rebuilds with no prompt, as `to_python`
+    writes it; inside a corrective loop the prompts are kept as they are.
+  - The rebuilt code is one line, `candidate = <expr>`, with no import line, so a test runs it in
+    `{"sf": screamingface._surface}`. It holds no benchmark call for a linked url4.
+  - U5d: `Url4.to_python()` keeps its narrow refusal: today's classes have no spelling for a narrow
+    step. The swap switches `to_python` to `rebuild` and lifts it.
+  - The card goldens hold the card without the shared `CARD_STYLE` sheet (the test checks the
+    prefix), so a house CSS change does not move them.
+  - The judge rows (S10, S11, the README judge examples) also round-trip before the swap, because
+    the new surface still compiles today's `@1` judge template; RB-1b/RB-2 stay unit 7.
