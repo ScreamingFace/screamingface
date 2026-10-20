@@ -119,9 +119,9 @@ def test_warning_does_not_change_the_url4() -> None:
     assert warned.url4 == quiet.url4
     assert warned.operations == quiet.operations
     assert hashlib.sha256(warned.url4.encode()).hexdigest() == (
-        "82946974fa5fb2bd5b9115a9dd5c93089cfd61f44279c266dff4648f0e252d16"
+        "49111ad6bff27b24d853931defe03f18b0ab05a55779f62eee814829e05dd971"
     )
-    assert len(warned.url4) == 2558
+    assert len(warned.url4) == 2557
 
 
 def test_different_writer_model_does_not_warn() -> None:

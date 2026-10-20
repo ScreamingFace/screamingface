@@ -49,7 +49,7 @@ def test_a_quorum_judge_reads_the_panel_and_round_trips() -> None:
 
     assert judge_call.context == "{input: '$input', panel: '$panel_1'}"
     assert JUDGE_PANEL_TEMPLATES["scores"].splitlines()[0] == (
-        "judge-template@1 returns=scores input=panel"
+        "judge-template@2 returns=scores input=panel"
     )
     assert _url4(_recovered(url4), flow_operators()) == url4
     plain = _url4(sf.Fusion(["provider/a", "provider/b"], synthesizer=judge), flow_operators())
