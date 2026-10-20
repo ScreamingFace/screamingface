@@ -415,6 +415,8 @@ def test_restart_keeps_the_recorded_folder_unless_given_a_new_one(
 ) -> None:
     bundled = tmp_path / "bundled"
     other = tmp_path / "other"
+    bundled.mkdir()
+    other.mkdir()
     started: list[RuntimeConfig] = []
     monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
     monkeypatch.setattr(cli, "_down", lambda _config: None)
@@ -429,3 +431,82 @@ def test_restart_keeps_the_recorded_folder_unless_given_a_new_one(
     kept, replaced = started
     assert kept.assets_dir == bundled.resolve()
     assert replaced.assets_dir == other.resolve()
+
+
+# --- PR #1328 review: lifecycle -------------------------------------------------------
+
+
+@pytest.mark.parametrize("case", ["missing", "file", "missing-recorded"])
+def test_restart_checks_the_folder_before_stopping_the_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    recorded = tmp_path / "recorded"
+    requested = tmp_path / "requested"
+    if case == "file":
+        requested.write_text("not a folder")
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
+
+    def never(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the running stack was stopped")
+
+    monkeypatch.setattr(cli, "_down", never)
+    monkeypatch.setattr(cli, "_up", never)
+    config = RuntimeConfig(data_dir=tmp_path / "data")
+    _owned_state(config, recorded)
+    option = [] if case == "missing-recorded" else ["--benchmark-assets-dir", str(requested)]
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path / "data"), "restart", *option])
+    expected = recorded if case == "missing-recorded" else requested
+
+    with pytest.raises(RuntimeError, match=str(expected.resolve())):
+        cli._restart(cli._config(args), args, foreground=False)
+
+
+@pytest.mark.parametrize("recorded", ["other", None])
+def test_up_refuses_a_healthy_runtime_serving_another_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recorded: str | None
+) -> None:
+    _owned_and_healthy(monkeypatch)
+    requested = tmp_path / "requested"
+    requested.mkdir()
+    config = RuntimeConfig(data_dir=tmp_path / "data", benchmark_assets_dir=requested)
+    _owned_state(config, None if recorded is None else tmp_path / recorded)
+
+    with pytest.raises(RuntimeError, match="screamingface restart --benchmark-assets-dir"):
+        cli._up(config, foreground=False)
+
+
+def test_up_adopts_a_healthy_runtime_serving_the_same_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _owned_and_healthy(monkeypatch)
+    requested = tmp_path / "requested"
+    requested.mkdir()
+    config = RuntimeConfig(data_dir=tmp_path / "data", benchmark_assets_dir=requested)
+    _owned_state(config, requested)
+
+    cli._up(config, foreground=False)
+
+    assert "already running" in capsys.readouterr().out
+
+
+def test_status_json_reports_artifacts_and_the_recorded_folder_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _owned_and_healthy(monkeypatch)
+    bundled = _prepared_folder(tmp_path / "bundled")
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "result").write_bytes(b"12345")
+    config = RuntimeConfig(data_dir=tmp_path / "data")
+    _owned_state(config, bundled)
+    state = cli._read_state(config)
+    assert state is not None
+    cli._write_state(config, {**state, "artifacts_dir": str(artifacts.resolve())})
+
+    assert cli._print_status(config, json_output=True) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["artifacts_dir"] == str(artifacts.resolve())
+    assert payload["artifacts_bytes"] == 5
+    assert payload["benchmark_assets_dir"] == str(bundled.resolve())
+    assert payload["benchmarks"] == dict.fromkeys(_BENCHMARKS, "prepared")

@@ -223,6 +223,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
         _ensure_adoptable(state)
         health = _health(_state_services(state))
         if all(health.values()):
+            _refuse_other_assets(config, state)
             print("ScreamingFace is already running.")
             # STORY: as an operator re-running `up` over a live stack, I see the RUNNING
             # stack's effective config — exactly the case where a stale env bites hardest.
@@ -293,6 +294,25 @@ def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
     folder = config.benchmark_assets_dir
     if folder is not None and not folder.is_dir():
         raise RuntimeError(f"benchmark assets folder not found: {folder}")
+
+
+def _refuse_other_assets(config: RuntimeConfig, state: dict[str, object] | None) -> None:
+    """Refuse to adopt a healthy stack that serves a different datasets folder than asked for.
+
+    WHY: a new app version starts `up` with its own bundle path while the previous stack is
+    still healthy; adopting it would keep serving the old, possibly removed, datasets.
+    """
+    requested = config.benchmark_assets_dir
+    if requested is None:
+        return
+    recorded = state.get("benchmark_assets_dir") if state else None
+    serving = Path(recorded) if isinstance(recorded, str) else None
+    if serving == requested:
+        return
+    raise RuntimeError(
+        f"the running stack serves benchmark datasets from {serving or 'the data directory'}, "
+        f"not {requested}; run `screamingface restart --benchmark-assets-dir {requested}`"
+    )
 
 
 def _benchmark_assets_arguments(config: RuntimeConfig) -> list[str]:
@@ -510,6 +530,9 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
             engine_port=values["engine"],
             benchmark_assets_dir=assets,
         )
+    # WHY before `_down`: a missing or replaced folder must leave the running stack untouched,
+    # not stop it and then fail to bring it back.
+    _require_benchmark_assets_dir(config)
     _down(config)
     _up(config, foreground=foreground)
 

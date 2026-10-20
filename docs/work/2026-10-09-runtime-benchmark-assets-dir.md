@@ -72,3 +72,15 @@ Approved inputs (landing with the slice A PR, `studio-compose-fusion-run` branch
   - `_runtime/cli.py` status JSON: #1217 merged with `artifacts_*` keys. Kept both those keys and this PR's `benchmarks` (from the effective folder) and `benchmark_assets_dir`. #1217 also records its folder in `runtime.json` state, the same pattern this PR uses, so nothing else changed.
 - **Main changed what `prepare` covers.** Five benchmarks are now local inspect Tasks (`5dff3a366`…`2d04f7810`), and `cli._BENCHMARKS` is `("medxpert",)`. This PR's tests hardcoded the old six-bundle list, so they now use `cli._BENCHMARKS`. No assertion was weakened.
 - **Gates:** ruff, format and pyright are clean. 4217 passed and 33 skipped, with 97.02% coverage. Notebooks pass.
+
+## Review follow-up (2026-10-20, PR #1328: keelancj, HupBaHa)
+
+- **Restart checks the folder before stopping the stack.** `_restart` resolves the requested or recorded folder, then calls `_require_benchmark_assets_dir` before `_down`. A missing path, a file, or a recorded folder that disappeared now leaves the running stack untouched.
+  - New test: `test_restart_checks_the_folder_before_stopping_the_runtime[missing|file|missing-recorded]`. It failed first, with `_down` called.
+  - The existing restart test now creates its folders, because restart checks them.
+- **`up` no longer adopts a healthy stack serving a different folder.** With an explicit `--benchmark-assets-dir`, an owned healthy stack is adopted only if it serves exactly that folder. Otherwise `up` refuses with `run screamingface restart --benchmark-assets-dir <path>`. That includes a stack serving the data directory.
+  - New test: `test_up_refuses_a_healthy_runtime_serving_another_folder[other|None]`, which failed first.
+  - Guard test: `test_up_adopts_a_healthy_runtime_serving_the_same_folder`.
+- **Merged-tree test:** `test_status_json_reports_artifacts_and_the_recorded_folder_together` asserts the artifact status (#1217) and the recorded datasets folder in one response. It is a guard; the rebase had already put both together.
+- **Not done (the reviewer marked it as a follow-up):** `doctor` failing rather than passing when a recorded folder is missing or unreadable, and tightening how stale state feeds remembered config.
+- **Gates:** ruff, format and pyright are clean. 4224 passed and 33 skipped, with 97.02% coverage. Notebooks pass.
