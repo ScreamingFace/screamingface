@@ -55,8 +55,9 @@ def refuse_remote_media(
 ) -> None:
     """Raise `UnsupportedContentPart` (422) for the first non-inline media reference.
 
-    ``allow_remote_image_urls`` relaxes `http(s)` **image** URLs only — for a provider whose
-    upstream, not our process, fetches them (Codex, OME-1541). Files stay data:-only.
+    ``allow_remote_image_urls`` relaxes `https` **image** URLs only — for a provider whose
+    upstream, not our process, fetches them (Codex, OME-1541). Plaintext `http` is refused even
+    then (``remote_url_not_https``). Files stay data:-only.
     """
     for message in messages:
         if not isinstance(message, Mapping):
@@ -90,9 +91,12 @@ def _check_image(value: Any, provider: str, allow_remote: bool) -> None:
         if stripped.startswith("data:"):
             return
         if stripped.lower().startswith(_HTTP_SCHEMES):
-            if allow_remote:
+            # INVARIANT (owner decision, PR #1479): only https is ever forwarded — no plaintext,
+            # local or not. The upstream (OpenAI) fetches it, so a local http address is
+            # unreachable anyway, and everywhere else a local address is the SSRF target.
+            if allow_remote and stripped.lower().startswith("https://"):
                 return
-            _refuse(provider, "image_url", "remote_url")
+            _refuse(provider, "image_url", "remote_url_not_https" if allow_remote else "remote_url")
     _refuse(provider, "image_url", "not_data_uri")
 
 

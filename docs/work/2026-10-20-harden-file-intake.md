@@ -73,3 +73,7 @@ body (413 naming the limit), refuses every non-`data:` image/file reference with
   runs at ingress for every provider instead, leaving `content_parts.py` untouched (no conflict with
   #1447 / #1441). Cache keys unchanged (spec §4: no cacheable request can carry a URL; pre-hashing
   saves ≤ ~14 ms per 8 MiB body).
+- **2026-10-20 owner decisions (PR #1479):** Codex forwards **https** image URLs only — plaintext
+  `http`, local or not, now gets 422 `remote_url_not_https` (new tests in
+  `test_codex_https_only_route.py`, append-only). Strict 422s for opaque `file_id`s, raw base64
+  image strings and URL keys in unknown parts are kept (behaviour change, release-noted).
