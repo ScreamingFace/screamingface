@@ -12,11 +12,14 @@ as the answer.
 from __future__ import annotations
 
 import re
-from typing import cast
+from dataclasses import dataclass
+from typing import Any, ClassVar, cast
 
 from screamingface._signals import FIELD_PATH, FIELD_SIGNAL_PREFIX, Signal, signal
-from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule
+from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule, matches
+from screamingface.fields import FieldNormalizer, _normalizer
 from screamingface.reducer import BENCHMARK_EXTRACT, _weights_option
+from screamingface.reducer import _field_path as _field_path_of
 
 # The rule names over= takes: every sf.Extract rule with no required argument (EX-1). A rule with
 # arguments ("field", "regex") is written as "field:<path>" or as sf.Extract(...).
@@ -94,6 +97,85 @@ def weights(value: object, label: str) -> Weights | None:
     return _weights_option(signal(value) if isinstance(value, str) else value, label)
 
 
+def signal_key(value: object, label: str) -> Signal:
+    """A ``by=`` value: one signal, as a key string or ``sf.signal(key)`` (RA-1).
+
+    A key string goes through ``sf.signal(key)``, so it has the same check and the same messages.
+    """
+
+    if isinstance(value, str):
+        return signal(value)
+    if not isinstance(value, Signal):
+        raise TypeError(
+            f"{label} by= must be one signal: a key string such as 'cost_usd' or sf.signal(key)"
+        )
+    return value
+
+
+_SI2 = "sf.field compares with == only; use sf.signal('field:...') for numbers"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class FieldEquals:
+    """``sf.field(path) == value``: the condition of ``sf.First``."""
+
+    path: str
+    normalize: FieldNormalizer | None
+    value: object
+
+    def _key(self) -> tuple[object, ...]:
+        # WHY the type: True == 1 == 1.0, but each compares as other JSON text (as GE21).
+        return (self.path, self.normalize, type(self.value), self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, FieldEquals) and self._key() == other._key()
+
+    def __hash__(self) -> int:
+        return hash(self._key())
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class FieldRef:
+    """A JSON field of each member, for ``sf.First(where=sf.field(path) == value)``.
+
+    It compares with ``==`` only (SI-2): the value compares as text, with today's
+    ``Pick(equals=)`` rules. For a number, use ``sf.signal("field:<path>")``.
+    """
+
+    path: str
+    normalize: FieldNormalizer | None
+
+    def __eq__(self, other: object) -> Any:
+        return FieldEquals(self.path, self.normalize, other)
+
+    def __ne__(self, other: object) -> Any:
+        raise TypeError(_SI2)
+
+    def __lt__(self, other: object) -> Any:
+        raise TypeError(_SI2)
+
+    def __le__(self, other: object) -> Any:
+        raise TypeError(_SI2)
+
+    def __gt__(self, other: object) -> Any:
+        raise TypeError(_SI2)
+
+    def __ge__(self, other: object) -> Any:
+        raise TypeError(_SI2)
+
+    __hash__: ClassVar[Any] = None
+
+
+def field(path: str, *, normalize: FieldNormalizer | None = None) -> FieldRef:
+    """A JSON field reference for ``sf.First``: ``sf.field("answer") == "yes"`` (surface §9).
+
+    ``normalize``: None (the value compares as JSON text, so ``== 7`` also matches ``"7"``),
+    ``"text"`` or ``"numeric"``.
+    """
+
+    return FieldRef(_field_path_of(path, "sf.field path"), _normalizer(normalize, "sf.field"))
+
+
 def _rule_name(value: str) -> str:
     pinned = _PINNED.fullmatch(value)
     return value if pinned is None else pinned.group(1)
@@ -107,4 +189,4 @@ def _field_path(value: str) -> None:
         )
 
 
-__all__ = ["Extract", "signal"]
+__all__ = ["Extract", "field", "matches", "signal"]

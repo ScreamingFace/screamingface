@@ -1070,6 +1070,9 @@ def _warn_judge_writers(recipe: Recipe) -> None:
         if isinstance(value, Chain):
             # WJ-1: a chain of the new surface, before the lowering: a closed block is one stage.
             _warn_judge_writer(value.name, value._stage_values())
+            # E6: a block that lowers to Pipeline([Fusion, writer]) holds a judge and a writer.
+            for inner in value._block_pipelines():
+                _warn_judge_writer(inner.name, inner.stages)
             pending.extend(reversed(value._held_recipes()))
         else:
             pending.extend(reversed(_children(value)))
