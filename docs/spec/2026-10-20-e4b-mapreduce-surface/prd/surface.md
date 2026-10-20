@@ -160,7 +160,9 @@ sf.Filter(*, where, over=None)
 
 - `where`: `sf.signal(key) <op> x` (`>`, `>=`, `<`, `<=`, `==`) or `sf.matches(pattern)`.
 - `over`: an extractor (§8). Only with `sf.matches`: the regex reads the extracted text. `FI-1`
-  `over=` with a signal comparison is refused.
+  `over=` with a signal comparison is refused. Erratum U3a: `Filter(over=)` refuses a pinned rule
+  name (`"last_line@1"`), because the filter's extract is a block extract that never pins a version
+  (D-13).
 - `judge=` and `extract=` are deleted. A `score:judge` comparison needs a `Judge` in the block
   (`CH-10`).
 
@@ -287,4 +289,8 @@ signature. Each old class stays an internal compile node with a `Node` name (O7)
   public docstring of `sf.*`, and checks that none names `sf.Fusion`, `sf.Pick`, `sf.Reduce`,
   `returns=`, `by_field`, `by_signal`, `.then(` or `synthesizer=`. The allow list is explicit and
   short: internal-only messages that name `FusionNode` or its `synthesizer` field, and
-  `CorrectiveLoop(judge=)`, which stays.
+  `CorrectiveLoop(judge=)`, which stays. Erratum U3c: no allow-list entry may hide a message that a
+  new-surface value reaches at block close, for example "Rank keeps k=4 members but the Fusion has
+  3" or "the synthesizer reads sf.signal('c'), which this Fusion does not declare"; bare "Pick ..."
+  texts count too. Erratum U3d: `Judge` equality uses today's judge key, so the routes `"/p/j"` and
+  `"p/j"` are unequal values with equal bytes (accepted).
