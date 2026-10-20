@@ -30,8 +30,15 @@ _NEEDS_TERMINAL = (  # CH-2
 _NAMED_OPEN = (  # CH-14
     "a named sf.Pipeline groups its stages, so close the sf.Fanout block inside it"
 )
+_SELECTION_GOES_ON = (  # CH-5
+    "a selection goes to sf.Synthesize, a reducer, or another narrow step"
+)
+_ONE_JUDGE = (  # CH-3
+    "a block takes one judge: sf.Judge and sf.JudgePick use the same judge signal"
+)
 # The step categories that close a block (surface §1).
 _TERMINALS: frozenset[str] = frozenset({"reduce", "write"})
+_MAX_NARROW = 4  # O10: a bound for the spec and the evidence
 
 
 class _Chainable:
@@ -52,11 +59,22 @@ class Step(_Chainable):
 
     __slots__ = ()
     _category: ClassVar[_Category]
+    # Concat: only sf.Synthesize can follow it (CH-7).
+    _needs_writer: ClassVar[bool] = False
+    # Merge, JudgePick: the step makes its own model call over every member (NR-C1, O11).
+    _sees_every_member: ClassVar[bool] = False
+    # Judge, JudgePick: the step writes the block's one judge signal (CH-3, O9).
+    _writes_judge_signal: ClassVar[bool] = False
 
     def _recipes(self) -> tuple[Recipe, ...]:
         """The recipes this step holds as the user wrote them (members, a writer recipe)."""
 
         return ()
+
+    def _reads_judge(self) -> bool:
+        """Whether this step reads ``score:judge``, which only a ``sf.Judge`` step writes."""
+
+        return False
 
 
 def refuse_step(value: object) -> None:
@@ -81,8 +99,8 @@ def refuse_step(value: object) -> None:
 class _Block:
     """One closed block: ``Fanout``, at most one judge, 0–4 narrow steps, one terminal step.
 
-    ``node`` is the lowered value (lowering §2.2). It is built here, so a bad block raises at the
-    ``>>`` that closes it (CH-9). Unit 3 fills ``judge`` and ``narrow``.
+    ``node`` is the lowered value (lowering §2.2). It is built here, after the block rules, so a
+    bad block raises at the ``>>`` that closes it (CH-9).
     """
 
     fanout: Fanout
@@ -103,6 +121,7 @@ class _Block:
         object.__setattr__(self, "judge", judge)
         object.__setattr__(self, "narrow", narrow)
         object.__setattr__(self, "terminal", terminal)
+        _check_block(judge, narrow, terminal)
         # WHY lazy: lowering.py imports this module
         from screamingface._surface.lowering import block_node
 
@@ -118,6 +137,26 @@ class _Block:
         return (*self.fanout._recipes(), *self.terminal._recipes())
 
     __hash__: ClassVar[Any] = None
+
+
+def _check_block(judge: Step | None, narrow: tuple[Step, ...], terminal: Step) -> None:
+    """The rules of a whole block, checked when it closes (surface §2.2)."""
+
+    if judge is not None and terminal._writes_judge_signal:
+        raise ValueError(_ONE_JUDGE)  # CH-3
+    if narrow and terminal._sees_every_member:
+        raise ValueError(  # NR-C1 (O11): the step would see the members the narrow step left out
+            f"sf.{type(terminal).__name__} makes its own call over every member, so it cannot "
+            "follow a narrow step"
+        )
+    if narrow and (terminal._category == "reduce" or len(narrow) > 1):
+        # CH-12: the spec ``narrow`` key compiles with unit 5.
+        raise ValueError("narrow before a reducer is not built yet")
+    reads = any(step._reads_judge() for step in (*narrow, terminal))
+    if judge is not None and not reads:
+        raise ValueError("sf.Judge scores the members, but no step reads score:judge")  # CH-10
+    if judge is None and reads:
+        raise ValueError("score:judge needs sf.Judge(...) after sf.Fanout")  # CH-10
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -172,6 +211,16 @@ class Pipeline(Recipe, _Chainable):
         """
 
         return tuple(stage.node if isinstance(stage, _Block) else stage for stage in self._stages)
+
+    def _block_pipelines(self) -> tuple[TodayPipeline, ...]:
+        """The lowered values of the blocks that lower to two stages, ``Pipeline([Fusion,
+        writer])``: a judge and a writer inside one block (WJ-1, erratum E6)."""
+
+        return tuple(
+            stage.node
+            for stage in self._stages
+            if isinstance(stage, _Block) and isinstance(stage.node, TodayPipeline)
+        )
 
     def _held_recipes(self) -> tuple[Recipe, ...]:
         """The recipes this chain holds as the user wrote them: its recipe stages, and the members
@@ -232,7 +281,7 @@ class _Chain:
 
     def _add_stage(self, stage: Recipe | _Block) -> None:
         if self.open:
-            raise ValueError(_NEEDS_TERMINAL)
+            _check_next(self.open, "recipe")
         self.stages.append(stage)
 
     def _add_step(self, step: Step) -> None:
@@ -241,10 +290,36 @@ class _Chain:
                 raise ValueError(f"sf.{type(step).__name__} needs a sf.Fanout before it")  # CH-1
             self.open.append(step)
             return
+        _check_next(self.open, step._category)
         if step._category not in _TERMINALS:
-            raise ValueError(_NEEDS_TERMINAL)  # CH-2; unit 3 adds the score and narrow states
-        self.stages.append(_Block(cast("Fanout", self.open[0]), step))
+            self.open.append(step)
+            return
+        self.stages.append(_closed(self.open, step))
         self.open.clear()
+
+
+def _check_next(open_block: list[Step], category: str) -> None:
+    """Refuse a step or a recipe that cannot come next in an open block (CH-2..CH-7)."""
+
+    if open_block[-1]._needs_writer and category != "write":
+        raise ValueError("sf.Concat must be followed by sf.Synthesize")  # CH-7
+    narrowed = sum(step._category == "narrow" for step in open_block)
+    if category in ("map", "recipe"):
+        raise ValueError(_SELECTION_GOES_ON if narrowed else _NEEDS_TERMINAL)  # CH-5, CH-2
+    if category == "score" and len(open_block) > 1:
+        # A judge comes once, right after the Fanout: CH-6 after a narrow step, else CH-3.
+        raise ValueError("sf.Judge comes right after sf.Fanout" if narrowed else _ONE_JUDGE)
+    if category == "narrow" and narrowed == _MAX_NARROW:
+        raise ValueError(f"a block takes at most {_MAX_NARROW} narrow steps")  # CH-4
+
+
+def _closed(open_block: list[Step], terminal: Step) -> _Block:
+    """The block record of an open block and the step that closes it."""
+
+    rest = open_block[1:]
+    judge = next((step for step in rest if step._category == "score"), None)
+    narrow = tuple(step for step in rest if step._category == "narrow")
+    return _Block(cast("Fanout", open_block[0]), terminal, judge=judge, narrow=narrow)
 
 
 def _items(values: object) -> Sequence[str | Recipe | Step]:

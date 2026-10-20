@@ -119,3 +119,10 @@ def test_field_checks_its_path_and_normalizer() -> None:
 def test_first_where_takes_a_field_equals_condition(where: object) -> None:
     with pytest.raises(TypeError, match=r"^sf\.First where= takes sf\.field\(path\) == value$"):
         sx.First(where=where)  # type: ignore[arg-type]
+
+
+def test_a_field_condition_tells_a_bool_from_a_number() -> None:
+    assert (sx.field("a") == 1) == (sx.field("a") == 1)
+    assert (sx.field("a") == 1) != (sx.field("a") == True)  # noqa: E712
+    assert hash(sx.field("a") == 1) == hash(sx.field("a") == 1)
+    assert sx.First(where=sx.field("a") == 1) != sx.First(where=sx.field("a") == True)  # noqa: E712

@@ -8,17 +8,29 @@ bad option raises here and never after a model call.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal, cast
 
-from screamingface._signals import JUDGE_SIGNAL, Signal
+from screamingface._signals import JUDGE_SIGNAL, Signal, _Comparison
 from screamingface._surface.chain import Step, _Category
-from screamingface._surface.refs import Extractor, Weights, extractor, with_normalizer
+from screamingface._surface.refs import (
+    Extractor,
+    FieldEquals,
+    Weights,
+    extractor,
+    field_extract,
+    is_rule_name,
+    signal_key,
+    with_normalizer,
+)
 from screamingface._surface.refs import weights as weights_option
-from screamingface.blocks import Extract
+from screamingface.blocks import Extract, ExtractRule, Matches
+from screamingface.fields import FieldRule
+from screamingface.fields import Merge as MergeNode
 from screamingface.reducer import _DEFAULT_NORMALIZE, BENCHMARK_EXTRACT, _check_verify
 from screamingface.reducer import _Step as _OperatorStep
+from screamingface.selection import _DEFAULT_SEPARATOR
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -61,6 +73,9 @@ class Vote(Step):
         _check_verify(verify)
         object.__setattr__(self, "verify", None)
         _check_by_lowering(self)
+
+    def _reads_judge(self) -> bool:
+        return reads_judge(self.weights)
 
     __hash__: ClassVar[Any] = None
 
@@ -123,6 +138,164 @@ class Mean(Step):
     __hash__: ClassVar[Any] = None
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Rank(Step):
+    """Keep the ``k`` members with the highest (``order="max"``) or lowest value of one signal.
+
+    ``by`` is a signal key string (``"cost_usd"``, ``"field:confidence"``, ``"score:judge"``, a
+    declared name) or ``sf.signal(key)``. A ``"field:<path>"`` key reads the field as a number; a
+    member with no number for ``by`` is left out. A tie at the cut goes to the earlier member.
+    """
+
+    _category: ClassVar[_Category] = "narrow"
+    k: int
+    by: Signal
+    order: Literal["max", "min"]
+
+    def __init__(self, k: int, *, by: str | Signal, order: Literal["max", "min"] = "max") -> None:
+        object.__setattr__(self, "k", k)
+        object.__setattr__(self, "by", signal_key(by, "sf.Rank"))
+        object.__setattr__(self, "order", order)
+        _check_by_lowering(self)
+
+    def _reads_judge(self) -> bool:
+        return reads_judge(self.by)
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Filter(Step):
+    """Keep the members that pass a test, in author order.
+
+    ``where`` is ``sf.signal(key) <op> x`` (``>``, ``>=``, ``<``, ``<=``, ``==``) or
+    ``sf.matches(pattern)``. ``over=`` (only with ``sf.matches``) is the extractor whose text the
+    pattern tests: a rule name, ``"field:<path>"`` or ``sf.Extract(...)``.
+    """
+
+    _category: ClassVar[_Category] = "narrow"
+    where: Matches | _Comparison
+    over: Extract | None
+
+    def __init__(self, *, where: Matches | _Comparison, over: str | Extract | None = None) -> None:
+        if not isinstance(where, Matches | _Comparison):
+            raise TypeError(
+                "sf.Filter where= takes sf.matches(...) or a signal comparison such as "
+                "sf.signal(key) >= 0.6"
+            )
+        if over is not None and isinstance(where, _Comparison):
+            raise ValueError(  # FI-1
+                "sf.Filter over= reads the text for sf.matches: a signal comparison takes no over="
+            )
+        object.__setattr__(self, "where", where)
+        object.__setattr__(self, "over", None if over is None else _filter_extract(over))
+        _check_by_lowering(self)
+
+    def _reads_judge(self) -> bool:
+        return isinstance(self.where, _Comparison) and reads_judge(self.where.signal)
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Concat(Step):
+    """Join the members' texts for a ``sf.Synthesize`` writer, which must follow it.
+
+    ``label=True`` heads each text with its member's name. The writer gets the joined text, with no
+    envelope.
+    """
+
+    _category: ClassVar[_Category] = "narrow"
+    _needs_writer: ClassVar[bool] = True
+    separator: str
+    label: bool
+
+    def __init__(self, separator: str = _DEFAULT_SEPARATOR, *, label: bool = True) -> None:
+        object.__setattr__(self, "separator", separator)
+        object.__setattr__(self, "label", label)
+        _check_by_lowering(self)
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ArgMax(Step):
+    """Copy the member with the highest value of one signal, unchanged.
+
+    ``by`` is a signal key string or ``sf.signal(key)``; a member with no value is left out.
+    ``by="score:judge"`` reads a ``sf.Judge`` step of the block. ``output="<field>"`` makes the
+    answer that top-level field of the winner's JSON reply; a judge pick takes no ``output=``.
+    """
+
+    _category: ClassVar[_Category] = "reduce"
+    _order: ClassVar[Literal["max", "min"]] = "max"
+    by: Signal
+    output: str | None
+
+    def __init__(self, by: str | Signal, *, output: str | None = None) -> None:
+        object.__setattr__(self, "by", signal_key(by, f"sf.{type(self).__name__}"))
+        if output is not None and reads_judge(self.by):
+            raise ValueError(  # JU-2
+                "output= reads a member field; a judge pick returns the member text"
+            )
+        object.__setattr__(self, "output", output)
+        _check_by_lowering(self)
+
+    def _reads_judge(self) -> bool:
+        return reads_judge(self.by)
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ArgMin(ArgMax):
+    """Copy the member with the lowest value of one signal, unchanged (see ``sf.ArgMax``)."""
+
+    _order: ClassVar[Literal["max", "min"]] = "min"
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class First(Step):
+    """Copy the first member, in author order, whose JSON field equals a value.
+
+    ``where`` is ``sf.field(path, normalize=None) == value``. With no normalizer the value
+    compares as JSON text, so ``== 7`` also matches the string ``"7"``. ``output`` works as in
+    ``sf.ArgMax``.
+    """
+
+    _category: ClassVar[_Category] = "reduce"
+    where: FieldEquals
+    output: str | None
+
+    def __init__(self, *, where: FieldEquals, output: str | None = None) -> None:
+        if not isinstance(where, FieldEquals):
+            raise TypeError("sf.First where= takes sf.field(path) == value")
+        object.__setattr__(self, "where", where)
+        object.__setattr__(self, "output", output)
+        _check_by_lowering(self)
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Merge(Step):
+    """One JSON object with exactly the declared fields, each built by its ``sf.FieldRule``.
+
+    A model-written field makes its own call over every member, so a ``Merge`` cannot follow a
+    narrow step.
+    """
+
+    _category: ClassVar[_Category] = "reduce"
+    _sees_every_member: ClassVar[bool] = True
+    fields: Mapping[str, FieldRule]
+
+    def __init__(self, fields: Mapping[str, FieldRule]) -> None:
+        # WHY today's Merge holds the fields: it checks them and keeps them in a read-only map.
+        object.__setattr__(self, "fields", MergeNode(fields).fields)
+
+    __hash__: ClassVar[Any] = None
+
+
 def reads_judge(value: Weights | None) -> bool:
     """Whether a weight reads ``score:judge``, which only a ``sf.Judge`` step writes."""
 
@@ -177,11 +350,38 @@ def _numeric_over(over: Extractor, label: str) -> Extractor:
     return over
 
 
-def _check_by_lowering(step: Vote | Median | Mean) -> None:
+def _filter_extract(over: str | Extract) -> Extract:
+    """The ``sf.Extract`` a Filter reads: a rule name with no version, a field, or an extract."""
+
+    selected = extractor(over)
+    if isinstance(selected, Extract):
+        return selected
+    if not is_rule_name(selected):
+        return field_extract(selected, None)
+    if "@" in selected:
+        raise ValueError(
+            "sf.Filter over= takes a rule name with no version, 'field:<path>' or "
+            f"sf.Extract(...), not {selected!r}"
+        )
+    return Extract(cast("ExtractRule", selected))
+
+
+def _check_by_lowering(step: Step) -> None:
     # WHY lazy: lowering.py imports this module
     from screamingface._surface.lowering import check_step
 
     check_step(step)
 
 
-__all__ = ["Mean", "Median", "Vote"]
+__all__ = [
+    "ArgMax",
+    "ArgMin",
+    "Concat",
+    "Filter",
+    "First",
+    "Mean",
+    "Median",
+    "Merge",
+    "Rank",
+    "Vote",
+]
