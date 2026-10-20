@@ -1,13 +1,13 @@
 ---
 id: OME-1602
 linear_url: https://linear.app/openmined/issue/OME-1602/import-the-remaining-single-turn-text-inspect-evals-benchmarks
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, human, design-session]
 parent: OME-1412
 created: 2026-10-14
-closed:
+closed: 2026-10-20
 ---
 
 # Import the remaining single-turn text inspect_evals benchmarks
@@ -15,7 +15,7 @@ closed:
 A probe of every remaining single-turn text package in OME-1412 found that only five import
 with row edits alone. The rest either break at grading (several silently), need an importer
 change, or aren't single-turn. The ticket carries the per-package table, the fault boxes F1–F11
-and the owner decisions; this mirror tracks the six-PR stack.
+and the owner decisions; this mirror tracks the seven-PR stack.
 
 - PR 1: guards for scorer arguments (F1) and extra-scorer metrics (F5). Adds no Benchmark.
 - PR 2: guard for judges the importer doesn't see (F2). Adds no Benchmark.
@@ -26,8 +26,11 @@ and the owner decisions; this mirror tracks the six-PR stack.
 - PR 5: multi-letter answer keys (F6). truthfulqa mc1, chembench, stereoset,
   cyse4_malware_analysis (+4). cyse4_threat_intelligence waits for its PDF mirror.
 - PR 6: function scorer arguments (F1). drop (+1).
+- PR 7: cyse4_threat_intelligence (+1), its 26 non-CrowdStrike report PDFs served from the
+  owner's Hugging Face mirror by the Case Source prefetch, and pypdf pinned for the text.
 - The inspect_evals 0.20.0 to 0.24.0 bump and the sciknoweval slices moved to OME-1410.
 
 - 2026-10-14: filed; owner decisions recorded on the ticket (aime2026 and uccb in, the pin bump is part of this ticket).
 - 2026-10-15: the guards PR was split into three at the owner's call; PRs 1–3 opened as drafts.
 - 2026-10-19: the pin bump (planned as PR 7) moved to OME-1410 at the owner's call, so a Benchmark's published ID moves only where its exam changed; the stack is six PRs.
+- 2026-10-20: the owner uploaded the 26-PDF mirror (khoaguin/cyberseceval4-threat-intel-reports @ ab38cf24); PR 7 imports cyse4_threat_intelligence with 587 of 588 questions (one key names an option the question lacks, excluded at the owner's call). PR 7 is the last planned import, so the ticket closes with it; the table's Later and Parked rows were never in this stack.

@@ -162,6 +162,7 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "chembench": "mcq",
     "stereoset": "mcq",
     "cyse4_malware_analysis": "mcq",
+    "cyse4_threat_intelligence": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

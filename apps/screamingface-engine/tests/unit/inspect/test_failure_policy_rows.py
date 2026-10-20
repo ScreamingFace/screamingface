@@ -86,6 +86,7 @@ _WITHHOLD: frozenset[str] = frozenset(
         "stereoset",
         "cyse4_malware_analysis",
         "drop",
+        "cyse4_threat_intelligence",
     }
 )
 
@@ -133,10 +134,10 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 82 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 83 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
-    assert len(BENCHMARKS) == 82
-    assert len(_WITHHOLD) == 65
+    assert len(BENCHMARKS) == 83
+    assert len(_WITHHOLD) == 66
     assert len(_COVERAGE_DECLARE) == 17
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED

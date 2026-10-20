@@ -97,6 +97,10 @@ benchmarks = [
     # every candidate is asked.
     "pdfplumber==0.11.10",
     "python-docx==1.2.0",
+    # cyse4_threat_intelligence's loader extracts each report PDF's text with pypdf at build
+    # time, and that text is frozen into every Case's prompt. Pinned exactly for the same
+    # reason as pdfplumber (OME-1602).
+    "pypdf==6.19.0",
 ]
 
 # The benchmark-plugin loading dock (spec OME-1113 §3.1): engine core discovers this
