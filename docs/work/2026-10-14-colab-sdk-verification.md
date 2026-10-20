@@ -68,3 +68,23 @@ Sources checked via PostHog MCP:
 The SDK README/disclosure now avoid claiming that the 90-day target is enforced.
 The implementation remains dev-only, anonymous, and draft; website analytics and
 identity linking are not included in this change.
+
+## 20 October 2026 — main reconciliation and review
+
+Rebased the two analytics commits onto `c77a85222f6cd04c08059cce41b9edf188ad71e5`.
+Resolved overlapping SDK imports/exports and README/changelog additions while preserving
+main's report/reproduction APIs, default-client validation and submission handling.
+The rebased tree matches the separately validated conflict-resolution snapshot.
+
+Validation completed: Pyright; Ruff lint/format; deterministic notebook check; build
+and distribution validation; 69 focused analytics tests; five Node browser-script tests.
+Full SDK regression/coverage and refreshed remote CI are tracked separately from these
+completed checks; do not infer their result from the focused pass.
+
+Read-only review using `.claude/agents/sf-code-review.md` found a Colab opt-out race:
+when a pending state/accept response resolves after `analytics.disable()`, JavaScript
+can still issue its subsequent `id` request. Python's generation guard ignores the
+result but cannot prevent that new request. Reproduced with real SDK disable and the
+actual parent script against a simulated iframe transport; no external cookies or
+services changed. This remains an action-required finding, not fixed by the rebase.
+No review comments were posted and the PR remains draft.
