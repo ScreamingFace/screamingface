@@ -46,29 +46,57 @@
   </div>
 
   <div class="wrap wide landing">
-    <header class="masthead hero" data-section="hero">
-      <div class="eyebrow">ScreamingFace · open leaderboard</div>
-      <h1 class="hero-title">Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
-      <p class="lead hero-lead">The first verified map of the quality–cost frontier for ensembles and routers.</p>
-    </header>
-
-    <dl class="kv defs hero-defs" aria-label="How to read the board">
-      <dt class="dt-repro">Reproducible</dt>
-      <dd>Ran on shared compute and stored on the global cache. Anyone can re-run it and get the same
-      score.</dd>
-      <dt>Unverified</dt>
-      <dd>Self-reported, or imported from a third-party board. Not yet reproduced on the global cache.</dd>
-      <dt>Solo model</dt>
-      <dd>A single model, shown as a reference baseline (no submitter).</dd>
-    </dl>
-
-    <div class="hero-cta" data-section="hero">
-      <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
-      <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
+    <div class="la-top">
+      <div>
+        <header class="masthead hero" data-section="hero">
+          <div class="eyebrow">ScreamingFace · open leaderboard</div>
+          <h1 class="hero-title hero-title--index">The leaderboard for fusions &amp; routers.</h1>
+          <p class="lead hero-lead">The first verified map of the quality–cost frontier for composed AI systems: the core of sovereign, pro-human AI.</p>
+        </header>
+        <div class="hero-cta" data-section="hero">
+          <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
+          <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
+        </div>
+      </div>
+      <div class="colab" aria-label="A Colab notebook: load a copied url4 and reproduce its score">
+        <div class="colab__cell">
+          <div class="colab__in">
+            <span class="colab__run" aria-hidden="true">▶</span>
+            <pre class="colab__code"><span class="tok-c"># Copy url4 of any row</span>
+<span class="tok-k">import</span> screamingface <span class="tok-k">as</span> sf
+candidate = sf.load(url4)
+print(candidate)</pre>
+          </div>
+          <div class="colab__out">
+            <span class="colab__tag" aria-hidden="true">[1]</span>
+            <div class="frepr">
+              <span class="frepr__name">Fusion</span>
+              <table class="frepr__t">
+                <tr><td>model</td><td>claude-opus-4.8</td></tr>
+                <tr><td>model</td><td>gemini-3-pro</td></tr>
+                <tr><td>synthesizer</td><td>gpt-5.5</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="colab__cell">
+          <div class="colab__in">
+            <span class="colab__run" aria-hidden="true">▶</span>
+            <pre class="colab__code">sf.evaluate(candidate)</pre>
+          </div>
+          <div class="colab__out">
+            <span class="colab__tag" aria-hidden="true">[2]</span>
+            <table class="colab__result">
+              <tr><td>score</td><td>cost</td><td>cache</td></tr>
+              <tr><td>0.734</td><td>$0</td><td>100/100</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
 
     <section id="benchmarks" class="benchmarks-section" data-section="catalogue">
-      <h2 class="section-label">Catalogue</h2>
+      <h2 class="section-label">Browse latest benchmarks</h2>
 
       <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 

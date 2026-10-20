@@ -49,43 +49,113 @@
   <div class="wrap wide landing">
     <header class="masthead hero" data-section="hero">
       <div class="eyebrow">ScreamingFace · About</div>
-      <h1 class="hero-title">A verified map of the quality–cost frontier.</h1>
-      <p class="lead hero-lead">For a given cost, what's the best accuracy anyone can reach, and which combination of models gets there?</p>
+      <h1 class="hero-title hero-title--oneline">The first verified map of the quality–cost frontier.</h1>
+      <p class="lead hero-lead">What's the best accuracy anyone can reach at a price point they can afford, and which combination of models gets them there?</p>
     </header>
+    
+    <section class="about-section about-evidence" data-section="evidence">
+      <div class="about-evidence__text">
+        <br>
+        <p>Research already shows multi-model AI systems beat single models at the same cost.</p>
+      <p>But each result lives in its own code, on its own benchmark, against last year's models, and testing against today's frontier means paying the full inference bill before seeing a single number.</p>
+      <p>The ScreamingFace leaderboards centralize this prior work, enabling researchers to test it against today's frontier, move the frontier forward, while allowing everyone to see and reproduce them at no cost.</p>
+      </div>
 
-    <section class="about-section" data-section="thesis">
-      <h2 class="section-label">Thesis</h2>
-      <p>The best answer to a hard question will come from several models working together: one routes it, a few attempt it, one checks the work. Intelligence built this way has the properties of good engineering: every contribution is visible, any part can be swapped, and parts can come from anywhere, open-weight or closed. Capability that comes from many places is harder to capture, easier to check and improve.</p>
-      <p>The evidence is already here. At the same cost, compositions beat the best single model: cascades that match frontier accuracy at a fraction of the price, mixtures of open models that outscore closed ones, routers that keep the quality and cut the bill. But each method lives in its own code, on its own benchmark, against last year's models. Reproducing one means paying the inference bill again; comparing two means rebuilding both.</p>
-      <p>A growing community is pushing this work forward. For it to compound, it needs to:</p>
-      <ul class="about-bullets">
-        <li>make the best recipe at each budget public knowledge;</li>
-        <li>trust a result only when a stranger can rerun it and the error bars agree;</li>
-        <li>pay the expensive part of the work once, for everyone;</li>
-        <li>let the people who use the map be the ones who draw it.</li>
-      </ul>
+      <div class="about-evidence__media">
+        <h2 class="sr-only">Papers: combinations of models beating single models</h2>
+        <div class="papers" tabindex="0" aria-label="Papers showing combinations of models beating single models at the same cost">
+          <div class="papers-track">
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2305.05176" target="_blank" rel="noopener" aria-label="FrugalGPT — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/frugalgpt.jpg" alt="First page of FrugalGPT" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2406.04692" target="_blank" rel="noopener" aria-label="Mixture-of-Agents — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/mixture-of-agents.jpg" alt="First page of Mixture-of-Agents" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2203.11171" target="_blank" rel="noopener" aria-label="Self-Consistency — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/self-consistency.jpg" alt="First page of Self-Consistency Improves Chain of Thought Reasoning" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2406.18665" target="_blank" rel="noopener" aria-label="RouteLLM — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/routellm.jpg" alt="First page of RouteLLM" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2306.02561" target="_blank" rel="noopener" aria-label="LLM-Blender — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/llm-blender.jpg" alt="First page of LLM-Blender" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2401.02994" target="_blank" rel="noopener" aria-label="Blending Is All You Need — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/blending.jpg" alt="First page of Blending Is All You Need" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2404.14618" target="_blank" rel="noopener" aria-label="Hybrid LLM — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/hybrid-llm.jpg" alt="First page of Hybrid LLM" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2305.14325" target="_blank" rel="noopener" aria-label="Multiagent Debate — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/multiagent-debate.jpg" alt="First page of Improving Factuality and Reasoning through Multiagent Debate" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2311.08692" target="_blank" rel="noopener" aria-label="ZOOTER — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/zooter.jpg" alt="First page of ZOOTER" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2308.00352" target="_blank" rel="noopener" aria-label="MetaGPT — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/metagpt.jpg" alt="First page of MetaGPT" loading="lazy">
+          </a>
+        </div>
+        <div class="paper-card">
+          <a class="paper-card__link" href="https://arxiv.org/abs/2402.05120" target="_blank" rel="noopener" aria-label="More Agents Is All You Need — read on arXiv">
+            <img class="paper-card__thumb" src="assets/papers/more-agents.jpg" alt="First page of More Agents Is All You Need" loading="lazy">
+          </a>
+        </div>
+        </div>
+      </div>
+      </div>
     </section>
 
-    <section class="about-section" data-section="how-it-works">
-      <h2 class="section-label">How it works</h2>
-      <p>screamingface is an open-source toolkit that makes exploring compositions cheap and community-driven. Ensembles, routers and cascades are written in one shared language and published so the next person starts where the last one finished.</p>
-      <p>Every row on the board is a recipe, one <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> line that holds the whole run: the models and their versions, the prompts, the seeds, the benchmark and its revision, the full cost. Calls are pinned and runs feed a shared cache, so replaying a published row is free and building on one costs only the calls that are new, reducing the cost of exploring new compositions.</p>
-      <p class="about-links"><a class="btn--link" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Read the docs →</a></p>
+    <section class="about-section" data-section="how-a-result">
+      <h2 class="section-label">How a result gets on a leaderboard</h2>
+      <p>Every fusion entry comes with its code, in a single <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> line that contains all the details of the run. Each call in the recipe is pinned to an exact model version, prompt, and seed.</p>
+      <p>A result appears only after it can be independently rerun on the hosted engine and registered on the shared cache. Replaying a published row costs nothing, and starting from someone else's recipe means you pay only for what you change.</p>
+    </section>
+
+    <section class="about-section" data-section="how-to-read">
+      <h2 class="section-label">How to read the leaderboards</h2>
+      <p>Each leaderboard plots every fusion and every solo model by score and run cost, and the frontier is the edge of that plot, revealing the best accuracy anyone has reached at each budget. Fusions and the strongest solo models sit on the same board, so you can see exactly how each fusion compares.</p>
+      <p>A fusion depends on its member models, but not on any single one. If a developer reprices or retires a model, the board shows which replacements come closest and what each one costs.</p>
+    </section>
+
+    <section class="about-section" data-section="how-the-map">
+      <h2 class="section-label">How the map gets drawn</h2>
+      <p>Each leaderboard covers one benchmark. Put together, they form the first verified map of the quality–cost frontier, showing where combinations of models beat the best single model and where they don't yet. Verified means a result only appears on the leaderboard after it has been run on the shared engine with full cached results and confirmed reproducibility, so anyone can re-run and obtain the same results.</p>
     </section>
 
     <section class="about-section" data-section="contribute">
       <h2 class="section-label">Contribute</h2>
-      <p>Anyone can submit. Compose a method using <a href="https://docs.screamingface.ai/" target="_blank" rel="noopener">screamingface</a>, compile it to a <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> recipe, and publish it. Code and recipes are open under Apache-2.0, and you keep authorship.</p>
+      <p>Anyone can compose a fusion using the Client, compile it to a <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> recipe, score it against a benchmark of your choice, and publish it on its corresponding leaderboard. Code and recipes are open under Apache-2.0.</p>
       <p class="about-links">
-        <a class="btn--link" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started →</a>
+        <a class="btn--link" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Start fusing →</a>
         <a class="btn--link" href="index.html">Browse leaderboards →</a>
-        <a class="btn--link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Research grant: Ensembles &amp; Routing →</a>
+        <a class="btn--link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Get paid to try →</a>
       </p>
     </section>
 
     <section class="about-section" data-section="who-builds-this">
       <h2 class="section-label">Who builds this</h2>
-      <p>ScreamingFace is built in the open by a community of researchers and engineers, with the support of <a href="https://openmined.org" target="_blank" rel="noopener">OpenMined</a>, a non-profit foundation that has spent nearly a decade building open-source infrastructure for AI.</p>
+      <p>ScreamingFace is built in the open by a community of researchers and engineers, with the support of <a href="https://openmined.org" target="_blank" rel="noopener">OpenMined</a>.</p>
+      <p class="about-links"><a class="btn--link" href="https://screamingface.ai" target="_blank" rel="noopener">Learn more at screamingface.ai →</a></p>
     </section>
 
     <div data-subscribe="all" data-section="subscribe"></div>
@@ -98,5 +168,6 @@
 
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>
+  <script src="papers.js" defer></script>
 </body>
 </html>
