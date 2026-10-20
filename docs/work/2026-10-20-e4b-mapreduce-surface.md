@@ -84,4 +84,33 @@ EX-2, LO-P1 (test plan "Unit 2").
 
 ### Outcome
 
-- (filled at the end of the unit)
+- **Actual files:** as planned. New `S/_surface/` (`__init__.py`, `chain.py`, `fanout.py`,
+  `synthesize.py`, `steps.py`, `refs.py`, `lowering.py`). Edited `S/recipe.py`,
+  `S/_evaluation/candidate.py`, `model.py`, `compilation.py`, `runner.py`. Seven new test files
+  (232 tests).
+- **Commits:** `43579afa7` test (RED), `03ebdbaf2` feat (GREEN), this ledger commit.
+- **Compile entry call sites** (`rg "rewrite_fusion_recipe|_candidate_values|recipes_need_operators"`):
+  `model.py` `_candidate_values` lowers (the Evaluation entry) and then runs the judge-writer
+  walk on the user's values; `runner.py` (`_evaluation_inputs`, `_operators_sync`,
+  `_operators_async`, both `compile_evaluation` calls with `lowered=True`) reads the lowered
+  values; `compilation.py` `compile_evaluation` lowers through `entry_recipe` unless `lowered=True`,
+  then calls `compile_candidate(..., lowered=True)`; `candidate.py` `compile_candidate` runs
+  `entry_recipe` (warn, then `lower`) unless `lowered=True`, then `rewrite_fusion_recipe`;
+  `recipes_need_operators` is unchanged (it reads lowered values). `url4.py` has no build from a
+  user recipe: `_require_recompiles` compiles internal values, so `lower()` is the identity there.
+- **Gates:** `run_gates.py screamingface --base e4d44281c` ALL GATES GREEN;
+  `run_gates.py repo --base e4d44281c` ALL GATES GREEN. No pinned file changed.
+- **Deviations:**
+  - `over="json"` lowers to the operator `json_object` (and `json@1` to `json_object@1`): the
+    named reducers store an operator name, and the Extract rule `json` is the operator
+    `json_object`. The spec says "rule name → `VoteNode(extract=e)`" literally.
+  - `normalize=` is on `Vote` only: surface §6 gives `Median`/`Mean` no `normalize=` (the
+    normalizer is always numeric), although §9 EX-2 names a passed value for them.
+  - `S/recipe.py` `_recipe` refuses a step (CH-11) and an open chain (CH-8) and accepts a closed
+    chain, so `CorrectiveLoop`/`SelfCorrective` take chains as members (surface §1) and today's
+    containers can hold one; `lower()` walks them.
+  - `compile_candidate` and `compile_evaluation` have a new keyword `lowered=False`: the
+    Evaluation entry lowers and warns once, and the compile does not warn a second time.
+  - `Vote(weights="score:judge")` with no `sf.Judge` raises the CH-10 message at block close
+    (unit 3 adds the judge).
+  - WJ-1 uses today's judge Fusion as a chain stage: `sf.Judge` arrives in unit 3.
