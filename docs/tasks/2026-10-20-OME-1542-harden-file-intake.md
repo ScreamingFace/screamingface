@@ -20,4 +20,4 @@ drop. Spec `docs/spec/2026-10-20-harden-file-intake.md`, plan
 
 - 2026-10-09: ticket filed by the owner (Backlog).
 - 2026-10-20: Khoa's input on the cap: MMMU's largest Case is 3.78 MB inline; 8 MB proposed.
-- 2026-10-20: implemented on branch `OME-1542-harden-file-intake`; PR opened (Refs: OME-1542).
+- 2026-10-20: implemented on branch `OME-1542-harden-file-intake`; PR [#1479](https://github.com/ScreamingFace/screamingface/pull/1479) opened (Refs: OME-1542), reviewer HupBaHa.
