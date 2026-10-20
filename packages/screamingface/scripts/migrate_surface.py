@@ -977,7 +977,11 @@ def _migrate(to: str, paths: Sequence[Path], *, check: bool) -> int:
         else:
             path.write_text(result.text)
     if changed and not check:
-        subprocess.run([sys.executable, "-m", "ruff", "format", "-q", *changed], check=True)
+        # WHY isort first: the added sx import goes after the sf import, which is not always the
+        # sorted place (a relative import, an import under TYPE_CHECKING).
+        ruff = [sys.executable, "-m", "ruff"]
+        subprocess.run([*ruff, "check", "-q", "--select", "I", "--fix", *changed], check=False)
+        subprocess.run([*ruff, "format", "-q", *changed], check=True)
     sys.stdout.write("".join(f"{line}\n" for line in report))
     verb = "would change" if check else "changed"
     sys.stdout.write(f"migrate_surface: {len(changed)} {verb}, {len(report)} hand cases\n")
