@@ -21,7 +21,7 @@ from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _reci
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
     Reducer,
-    Vote,
+    VoteNode,
     _narrow_steps,
     _read_signal,
     _step_plans,
@@ -38,7 +38,7 @@ from screamingface.signal_sources import (
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Fusion(Recipe):
+class FusionNode(Recipe):
     """Combine ordered parallel members through an explicit synthesizer Recipe.
 
     ``quorum`` is the successful-member floor, checked after members finish.
@@ -246,7 +246,7 @@ def _check_read_name(signal: Signal, declared: Mapping[str, SignalSource] | None
 def _check_gate_name(reducer: Reducer, declared: Mapping[str, SignalSource] | None) -> None:
     """A vote gate that reads a name this Fusion does not declare fails here, before any call
     (GA-E2)."""
-    gate = reducer.gate if isinstance(reducer, Vote) else None
+    gate = reducer.gate if isinstance(reducer, VoteNode) else None
     name = None if gate is None else gate._declared_name()
     names = () if declared is None else tuple(declared)
     if gate is None or name is None or name in names:
@@ -436,3 +436,7 @@ def _members(values: object, kind: str = "Fusion") -> tuple[Recipe, ...]:
 
 
 __all__ = ["Fusion"]
+
+
+# The public name until the swap (unit 7e) exports the new surface.
+Fusion = FusionNode

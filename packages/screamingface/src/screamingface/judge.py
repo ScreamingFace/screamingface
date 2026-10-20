@@ -139,7 +139,7 @@ def judge_intent(
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Judge(Reducer):
+class JudgeNode(Reducer):
     """A judge model picks one member; the Fusion's answer is that member's text, unchanged.
 
     ``returns="label"``: the judge names one member id. ``returns="scores"``: it gives every
@@ -151,6 +151,7 @@ class Judge(Reducer):
     the url4 of a judge that has no order.
     """
 
+    _public_name: ClassVar[str] = "Judge"
     name: str
     model: str
     returns: JudgeReturns
@@ -210,11 +211,11 @@ class Judge(Reducer):
         )
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Judge:
+    def _from_spec(cls, spec: Mapping[str, object]) -> JudgeNode:
         raise ValueError("URL4 Candidate has a judge reducer without its judge call")
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Judge:
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> JudgeNode:
         returns, order = _shape_of(spec)
         return judge_from_signals(signals, returns, order)
 
@@ -235,7 +236,7 @@ class Judge(Reducer):
         # WHY the carrier is not in ``_key``: a narrow step (Rank, Filter) has no hash. Equal
         # values still have equal hashes.
         return (
-            isinstance(other, Judge)
+            isinstance(other, JudgeNode)
             and self._key() == other._key()
             and self._narrow == other._narrow
         )
@@ -244,13 +245,13 @@ class Judge(Reducer):
         return hash(self._key())
 
 
-def _with_overrides(judge: Judge, rubric: object, order: object) -> Judge:
+def _with_overrides(judge: JudgeNode, rubric: object, order: object) -> JudgeNode:
     """The block form's overrides: the same judge with another rubric (F3) or order (JO-D2)."""
 
     if rubric is None and order is None:
         return judge
     # the block's rubric and order checks ran first
-    return Judge(
+    return JudgeNode(
         judge.model,
         returns=judge.returns,
         rubric=judge.rubric if rubric is None else cast("str", rubric),
@@ -286,7 +287,7 @@ def _parts(prompt: str, form: JudgeInput) -> tuple[_JudgeShape, str]:
 
 def judge_from_signals(
     signals: tuple[_ModelSignal, ...], returns: JudgeReturns, order: JudgeOrder = "max"
-) -> Judge:
+) -> JudgeNode:
     """Rebuild a Judge from the one judge call a url4 holds (also used by later reducers).
 
     The url4 recovery hands the prompt over in its outputs form (``outputs_form_prompt``).
@@ -298,7 +299,7 @@ def judge_from_signals(
     if len(signals) != 1 or signals[0].key != "judge" or not signals[0].prompt.startswith(prefix):
         raise ValueError("URL4 Candidate has an unsupported judge call")
     signal = signals[0]
-    return Judge(
+    return JudgeNode(
         signal.model,
         returns=returns,
         rubric=signal.prompt[len(prefix) :],
@@ -316,12 +317,16 @@ def _shape_of(spec: Mapping[str, object]) -> _JudgeShape:
     raise _cannot_rebuild("judge")
 
 
-_REDUCER_CLASSES["judge"] = Judge
+_REDUCER_CLASSES["judge"] = JudgeNode
 _BLOCK_FORMS["judge"] = _BlockForm(
     build=lambda options: _with_overrides(
-        cast("Judge", options["judge"]), options.get("rubric"), options.get("order")
+        cast("JudgeNode", options["judge"]), options.get("rubric"), options.get("order")
     ),
     options=lambda named: {"judge": named},
 )
 
 __all__ = ["Judge"]
+
+
+# The public name until the swap (unit 7e) exports the new surface.
+Judge = JudgeNode

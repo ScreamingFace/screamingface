@@ -107,7 +107,7 @@ def _recipe_kind(
     """
 
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
-    from screamingface.fusion import Fusion
+    from screamingface.fusion import FusionNode
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
 
@@ -116,7 +116,7 @@ def _recipe_kind(
         ...,
     ] = (
         (Model, "model"),
-        (Fusion, "fusion"),
+        (FusionNode, "fusion"),
         (Pipeline, "pipeline"),
         (CorrectiveLoop, "corrective_loop"),
         (SelfCorrective, "self_corrective"),
@@ -129,13 +129,13 @@ def _recipe_kind(
 
 def _is_supported_recipe(value: object) -> bool:
     from screamingface._surface.chain import Pipeline as Chain
-    from screamingface.fusion import Fusion
+    from screamingface.fusion import FusionNode
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
 
     # A closed chain of the new surface is a recipe; lower() turns it into today's values before
     # the compile reads it (E4b surface lowering §2.4).
-    return isinstance(value, Model | Fusion | Pipeline | Chain)
+    return isinstance(value, Model | FusionNode | Pipeline | Chain)
 
 
 def _text(value: object, label: str) -> str:

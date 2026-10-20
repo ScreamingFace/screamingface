@@ -45,22 +45,24 @@ from screamingface._surface.steps import (
     Vote,
 )
 from screamingface._surface.synthesize import Synthesize
-from screamingface.blocks import _REVERSE_RULES, Extract, Reduce
+from screamingface.blocks import _REVERSE_RULES, Extract, ReduceNode
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
-from screamingface.fields import Merge as MergeNode
-from screamingface.fields import Pick as PickNode
-from screamingface.fusion import Fusion
-from screamingface.judge import Judge as JudgeNode
+from screamingface.fields import MergeNode, PickNode
+from screamingface.fusion import FusionNode
+from screamingface.judge import JudgeNode
 from screamingface.model import Model
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
-from screamingface.reducer import BENCHMARK_EXTRACT, Reducer, _cannot_rebuild, _narrow_steps
-from screamingface.reducer import Mean as MeanNode
-from screamingface.reducer import Median as MedianNode
-from screamingface.reducer import Vote as VoteNode
-from screamingface.selection import Concat as ConcatNode
-from screamingface.selection import Filter as FilterNode
-from screamingface.selection import Rank as RankNode
+from screamingface.reducer import (
+    BENCHMARK_EXTRACT,
+    MeanNode,
+    MedianNode,
+    Reducer,
+    VoteNode,
+    _cannot_rebuild,
+    _narrow_steps,
+)
+from screamingface.selection import ConcatNode, FilterNode, RankNode
 
 _CANNOT_REBUILD = "URL4 Candidate has a recipe this SDK version cannot rebuild"
 _FIELD_PREFIX = "field:"
@@ -116,7 +118,7 @@ def _model(model: Model) -> Model:
     return model
 
 
-def _fusion(fusion: Fusion) -> Chain:
+def _fusion(fusion: FusionNode) -> Chain:
     return Chain(_block(fusion), optional=fusion.optional)
 
 
@@ -145,7 +147,7 @@ def _chain(pipeline: Pipeline) -> Chain:
     stages = list(pipeline.stages)
     while stages:
         stage = stages.pop(0)
-        if not isinstance(stage, Fusion):
+        if not isinstance(stage, FusionNode):
             items.append(surface_value(stage))
         elif _is_selection(stage) and stages:
             items.extend(_block(stage, writer=stages.pop(0)))
@@ -158,19 +160,19 @@ def _chain(pipeline: Pipeline) -> Chain:
 # The recipe kinds of today and their new-surface form.
 _RECIPES: tuple[tuple[type, Callable[[Any], Recipe]], ...] = (
     (Model, _model),
-    (Fusion, _fusion),
+    (FusionNode, _fusion),
     (Pipeline, _chain),
     (CorrectiveLoop, _loop),
     (SelfCorrective, _solo),
 )
 
 
-def _is_selection(fusion: Fusion) -> bool:
+def _is_selection(fusion: FusionNode) -> bool:
     synthesizer = fusion.synthesizer
     return isinstance(synthesizer, Reducer) and synthesizer._combine_plan().kind == "selection"
 
 
-def _block(fusion: Fusion, writer: Recipe | None = None) -> list[Recipe | Step]:
+def _block(fusion: FusionNode, writer: Recipe | None = None) -> list[Recipe | Step]:
     """One Fusion as the steps of one block: the Fanout, then the steps of its synthesizer; a
     ``writer`` (the Pipeline stage after a selection) closes it with ``Synthesize``."""
 
@@ -331,7 +333,7 @@ def _statistic(node: MedianNode | MeanNode, _judges: list[JudgeNode]) -> Median 
     return _built(step, over=_rule(node.extract), select=select, weights=node.weights)
 
 
-def _block_form(block: Reduce, judges: list[JudgeNode]) -> Step:
+def _block_form(block: ReduceNode, judges: list[JudgeNode]) -> Step:
     """A ``ReduceNode`` (an extract with arguments) as its step with ``over=`` that extract."""
 
     options = block.options
@@ -401,7 +403,7 @@ _CONVERSIONS: tuple[tuple[type, Callable[[Any, list[JudgeNode]], Step]], ...] = 
     (VoteNode, _gated),
     (MedianNode, _statistic),
     (MeanNode, _statistic),
-    (Reduce, _block_form),
+    (ReduceNode, _block_form),
     (PickNode, _pick),
     (JudgeNode, _judge_pick),
     (RankNode, _rank),

@@ -45,7 +45,7 @@ from screamingface._evaluation.candidate import _children
 from screamingface._evaluation.topology import _RecipeTopology
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
-from screamingface.fusion import Fusion
+from screamingface.fusion import FusionNode
 from screamingface.reducer import Reducer
 from screamingface.signal_sources import consistency_source
 
@@ -159,7 +159,7 @@ def _refuse_consistency(recipe: CorrectiveLoop | SelfCorrective) -> None:
         value = pending.pop()
         if isinstance(value, Reducer):
             continue
-        if isinstance(value, Fusion) and consistency_source(value.signals) is not None:
+        if isinstance(value, FusionNode) and consistency_source(value.signals) is not None:
             raise ValueError(_CONSISTENCY_IN_LOOP)
         pending.extend(_children(value))
 

@@ -19,7 +19,10 @@ from typing import Any, ClassVar, Literal, cast
 from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
 from screamingface._signals import _finite_number, is_signal_key
 from screamingface.combine_evidence import _GATE_CMPS, _GATE_SOURCES, GateCmp, _is_gate_observe
-from screamingface.judge import Judge
+from screamingface.judge import (  # Judge: the public name in the sf.Gate signature until 7e
+    Judge,
+    JudgeNode,
+)
 from screamingface.model import Model
 from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY, _ModelSignal
 
@@ -37,7 +40,7 @@ _BAND_FINITE = "Gate abstain_band must be finite"
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Gate:
+class GateNode:
     """Keep the majority when ``observe cmp threshold`` holds; else run ``otherwise``.
 
     ``observe``: "agreement", "chosen:<name>" or "mean:<name>" (a name the Fusion declares).
@@ -52,7 +55,7 @@ class Gate:
     observe: str
     cmp: GateCmp
     threshold: float
-    otherwise: Literal["abstain"] | Judge | Model
+    otherwise: Literal["abstain"] | JudgeNode | Model
     abstain_band: tuple[float, float] | None
 
     def __init__(
@@ -93,7 +96,7 @@ class Gate:
         """None for abstain; else the one model call whose reply the vote reads (P5, C2)."""
 
         otherwise = self.otherwise
-        if isinstance(otherwise, Judge):
+        if isinstance(otherwise, JudgeNode):
             # WHY replace: Judge._signal_call builds the label template and the rubric; this
             # never builds the judge prompt a second time (C7).
             return replace(otherwise._signal_call(), key=_FALLBACK_JUDGE_KEY)
@@ -119,7 +122,7 @@ class Gate:
     def _python(self) -> str:
         return self._render("sf.Gate", _python_form)
 
-    def _render(self, head: str, show: Callable[[Judge | Model], str]) -> str:
+    def _render(self, head: str, show: Callable[[JudgeNode | Model], str]) -> str:
         # WHY no otherwise for abstain: the default keeps the repr short (GA-D8).
         otherwise = "" if isinstance(self.otherwise, str) else f", otherwise={show(self.otherwise)}"
         # WHY no band when None: a gate without a band keeps its part 5 repr (BA-D1).
@@ -192,13 +195,13 @@ def _band_pair(value: object) -> tuple[float, float]:
     return (lo, hi)
 
 
-def _otherwise(value: object) -> Literal["abstain"] | Judge | Model:
+def _otherwise(value: object) -> Literal["abstain"] | JudgeNode | Model:
     """The checked fallback. The messages never echo a rubric or a prompt."""
     if isinstance(value, str):
         if value != _ABSTAIN:
             raise ValueError(_OTHERWISE_RULE)
         return _ABSTAIN
-    if isinstance(value, Judge):
+    if isinstance(value, JudgeNode):
         if value.returns != "label":
             raise ValueError(
                 "a gate fallback judge needs sf.Judge(..., returns='label'): it names one member"
@@ -212,18 +215,22 @@ def _otherwise(value: object) -> Literal["abstain"] | Judge | Model:
     raise TypeError(_OTHERWISE_RULE)
 
 
-def _otherwise_word(value: Literal["abstain"] | Judge | Model) -> str:
+def _otherwise_word(value: Literal["abstain"] | JudgeNode | Model) -> str:
     """The spec word (erd §1). The model, prompt and params live in the url4 fallback call."""
-    if isinstance(value, Judge):
+    if isinstance(value, JudgeNode):
         return "judge"
     if isinstance(value, Model):
         return "writer"
     return "abstain"
 
 
-def _python_form(value: Judge | Model) -> str:
+def _python_form(value: JudgeNode | Model) -> str:
     """``sf.Judge(...)`` or ``sf.Model(...)``: the text ``Url4.to_python`` writes."""
     return f"sf.{value!r}"
 
 
 __all__ = ["Gate"]
+
+
+# The public name until the swap (unit 7e) exports the new surface.
+Gate = GateNode

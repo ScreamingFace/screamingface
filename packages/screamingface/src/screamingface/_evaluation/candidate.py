@@ -42,10 +42,10 @@ from screamingface._evaluation.topology import (
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.lowering import lower
-from screamingface.blocks import Reduce
+from screamingface.blocks import ReduceNode
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
-from screamingface.fusion import Fusion, _consistency_member
+from screamingface.fusion import FusionNode, _consistency_member
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
@@ -189,7 +189,7 @@ def _needs_operators(value: Recipe | Reducer) -> bool:
 
 
 def _children(value: Recipe) -> tuple[Recipe | Reducer, ...]:
-    if isinstance(value, Fusion):
+    if isinstance(value, FusionNode):
         children: tuple[Recipe | Reducer, ...] = (*value.members, value.synthesizer)
     elif isinstance(value, Pipeline):
         children = value.stages
@@ -277,7 +277,7 @@ class _CandidateCompiler:
                 )
                 for member, resolved in zip(recipe.members, root.members, strict=True)
             )
-            if isinstance(recipe, Fusion | CorrectiveLoop)
+            if isinstance(recipe, FusionNode | CorrectiveLoop)
             else ()
         )
         sources = [*self._sources, _topology_source(root.topology)]
@@ -345,7 +345,7 @@ class _CandidateCompiler:
                     synthesis=synthesis,
                     member_params=member_params,
                 )
-            if isinstance(recipe, Fusion):
+            if isinstance(recipe, FusionNode):
                 return self._compile_fusion(recipe, input_context, input_dependencies)
             if isinstance(recipe, Pipeline):
                 return self._pipeline(
@@ -359,7 +359,7 @@ class _CandidateCompiler:
             self._active.remove(identity)
 
     def _compile_fusion(
-        self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
+        self, fusion: FusionNode, input_context: str, input_dependencies: tuple[str, ...]
     ) -> _ResolvedRecipe:
         member_params = injected_member_params(fusion.signals)
         if fusion.quorum == "all" and not any(member.optional for member in fusion.members):
@@ -505,7 +505,7 @@ class _CandidateCompiler:
 
     def _fusion(
         self,
-        fusion: Fusion,
+        fusion: FusionNode,
         members: tuple[_ResolvedRecipe, ...],
         *,
         input_context: str,
@@ -546,7 +546,7 @@ class _CandidateCompiler:
 
     def _model_synthesizer(
         self,
-        fusion: Fusion,
+        fusion: FusionNode,
         model: Model,
         members: tuple[_ResolvedRecipe, ...],
         *,
@@ -606,7 +606,7 @@ class _CandidateCompiler:
 
     def _recipe_synthesizer(
         self,
-        fusion: Fusion,
+        fusion: FusionNode,
         synthesizer: Recipe,
         members: tuple[_ResolvedRecipe, ...],
         *,
@@ -644,7 +644,7 @@ class _CandidateCompiler:
 
     def _reducer_synthesizer(
         self,
-        fusion: Fusion,
+        fusion: FusionNode,
         reducer: Reducer,
         members: tuple[_ResolvedRecipe, ...],
         *,
@@ -748,7 +748,7 @@ class _CandidateCompiler:
         )
 
     def _claim_accounting_sources(
-        self, fusion: Fusion, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
+        self, fusion: FusionNode, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
     ) -> dict[str, dict[str, dict[str, str]]] | None:
         """The context `sources`: only when the reducer reads an accounting signal (SG#5, SG#6),
         or when the Fusion declares sf.Logprob or sf.Entropy (erd §4: the Engine finds each
@@ -760,7 +760,7 @@ class _CandidateCompiler:
         return member_sources([member.calls for member in members], self._claims or {})
 
     def _sample_panels(
-        self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
+        self, fusion: FusionNode, input_context: str, input_dependencies: tuple[str, ...]
     ) -> _CompiledSamples:
         """The consistency sample calls of each member, one broadcast panel per member (E4b part
         7, erd §2–§3).
@@ -1011,7 +1011,7 @@ def _fusion_context(
     return render(struct(value))
 
 
-def _warn_duplicate_members(fusion: Fusion) -> None:
+def _warn_duplicate_members(fusion: FusionNode) -> None:
     """Warn for each group of direct Model members that send one identical request.
 
     Any reducer synthesizer triggers it, a named reducer or an sf.Reduce block alike (BK-D7): the
@@ -1114,7 +1114,7 @@ def _judge_routes(stage: Recipe) -> frozenset[str]:
     judge, score:judge).
     """
 
-    reducer = stage.synthesizer if isinstance(stage, Fusion) else None
+    reducer = stage.synthesizer if isinstance(stage, FusionNode) else None
     # sf.Reduce("context") has no combine call and no plan to read (the Fusion rewrite owns it).
     if not isinstance(reducer, Reducer) or not reducer._compiles_to_combine():
         return frozenset()
@@ -1147,9 +1147,9 @@ def _reject_selection_members(members: tuple[_ResolvedRecipe, ...]) -> None:
 def _selection_label(reducer: Reducer) -> str:
     """What a selection compile check calls this reducer: the class, or the block and its op."""
 
-    if isinstance(reducer, Reduce):
+    if isinstance(reducer, ReduceNode):
         return f"Reduce({reducer.op!r})"
-    return type(reducer).__name__
+    return reducer._public_name
 
 
 def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:
