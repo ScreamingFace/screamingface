@@ -221,4 +221,5 @@ no other existing test; unit 7 regenerates the public surface snapshot. Unit 1 r
 3. [prd/narrow.md](prd/narrow.md) (P0)
 4. [prd/rebuild-display.md](prd/rebuild-display.md) (P1)
 5. [prd/migration.md](prd/migration.md) (P1)
-6. [test-plan.md](test-plan.md)
+6. [prd/swap.md](prd/swap.md) (P0, the unit 7 unit spec)
+7. [test-plan.md](test-plan.md)
