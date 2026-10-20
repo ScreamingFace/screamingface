@@ -18,6 +18,10 @@ Two optional capability protocols widen the port without breaking old adapters:
   (body + media type) out, so collection parsing can be Content-Type-driven
   (spec §5.3.7) instead of sniffed. :func:`fetch_result` bridges: adapters
   without ``fetch_ex`` are wrapped body-only.
+- :class:`SupportsFetchBytes` — :class:`FetchRequest` in, :class:`FetchedBytes`
+  (raw bytes + media type) out, so a PNG or PDF source keeps its exact bytes
+  (``OME-1534`` point 4: an internal port, not a spec change).
+  :func:`fetch_bytes` bridges: adapters without it give UTF-8 of their text.
 - :class:`SupportsHoldings` — resolves ``@`` / ``@identity`` self- and
   identity-references (spec §5.6) against the node's own data.
 
@@ -83,6 +87,25 @@ class FetchResult:
 
     body: str
     media_type: str | None = None
+
+
+@dataclass(frozen=True)
+class FetchedBytes:
+    """A resolved body as raw bytes plus the media type the adapter observed (or ``None``)."""
+
+    body: bytes
+    media_type: str | None = None
+
+
+@runtime_checkable
+class SupportsFetchBytes(Protocol):
+    """Optional adapter capability: binary-safe fetching.
+
+    INVARIANT: ``body`` is the source's bytes exactly as received, never decoded and
+    re-encoded, so a PNG or PDF hashes the same here as at its origin.
+    """
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes: ...
 
 
 @runtime_checkable
@@ -156,6 +179,65 @@ async def fetch_result(io: IOLayer, request: FetchRequest) -> FetchResult:
     return FetchResult(await io.fetch(request.target, relative=request.relative))
 
 
+async def fetch_bytes(io: IOLayer, request: FetchRequest) -> FetchedBytes:
+    """Resolve ``request`` to bytes via ``fetch_bytes`` when the adapter provides it.
+
+    WHY: an adapter without the capability can only ever produce text, so its body is
+    UTF-8 encoded and its reported media type kept; nothing is lost that it had.
+    """
+    if isinstance(io, SupportsFetchBytes):
+        return await io.fetch_bytes(request)
+    result = await fetch_result(io, request)
+    return FetchedBytes(result.body.encode("utf-8"), result.media_type)
+
+
+# Application types whose body is text even without a charset parameter.
+_TEXT_APPLICATION_TYPES = frozenset(
+    {
+        "application/json",
+        "application/xml",
+        "application/javascript",
+        "application/ecmascript",
+        "application/x-ndjson",
+        "application/ndjson",
+        "application/jsonl",
+        "application/yaml",
+        "application/x-yaml",
+        "application/toml",
+        "application/sql",
+        "application/graphql",
+        "application/x-www-form-urlencoded",
+    }
+)
+_TEXT_SUFFIXES = ("+json", "+xml", "+yaml")
+
+
+def is_text_media_type(content_type: str | None) -> bool:
+    """Whether a ``Content-Type`` (parameters allowed) denotes text the text path may decode.
+
+    Text: no type at all (today's untyped behaviour), ``text/*``, any type declaring a
+    ``charset``, the JSON/XML/YAML/JS/ndjson/form family, and ``+json``/``+xml``/``+yaml``
+    suffixes. Everything else (``image/*``, ``application/pdf``,
+    ``application/octet-stream``, …) is binary.
+
+    WHY: a binary body must never reach ``response.text`` (``OME-1538``); decoding it
+    produces mojibake that a model then reads silently. A text-only consumer refuses it
+    with ``unsupported_content_type`` (spec C8) and a file-aware one uses ``fetch_bytes``.
+    """
+    head, _, params = (content_type or "").partition(";")
+    media_type = head.strip().lower()
+    declares_charset = any(
+        p.split("=", 1)[0].strip().lower() == "charset" for p in params.split(";")
+    )
+    return (
+        not media_type
+        or declares_charset
+        or media_type.startswith("text/")
+        or media_type in _TEXT_APPLICATION_TYPES
+        or media_type.endswith(_TEXT_SUFFIXES)
+    )
+
+
 # --- holdings shelf resolution (spec §5.6) ------------------------------------
 
 
@@ -183,12 +265,16 @@ def resolve_shelf[T](mapping: Mapping[str | None, T], collection: str | None) ->
 __all__ = [
     "FetchRequest",
     "FetchResult",
+    "FetchedBytes",
     "IOLayer",
     "SupportsClose",
     "SupportsDefaultRoute",
+    "SupportsFetchBytes",
     "SupportsFetchEx",
     "SupportsHoldings",
     "SupportsProcessorRoutes",
+    "fetch_bytes",
     "fetch_result",
+    "is_text_media_type",
     "resolve_shelf",
 ]

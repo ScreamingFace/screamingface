@@ -22,10 +22,12 @@ from typing import TYPE_CHECKING, Literal
 from url4.core.code import CodeCall, SupportsCode
 from url4.core.context import Context
 from url4.io.layer import (
+    FetchedBytes,
     FetchRequest,
     FetchResult,
     IOLayer,
     SupportsDefaultRoute,
+    SupportsFetchBytes,
     SupportsFetchEx,
     SupportsHoldings,
     SupportsProcessorRoutes,
@@ -119,7 +121,7 @@ class BoundedIOLayer:
     the bound — layered *underneath* any node-local cap such as MapNode's
     ``;iteration.concurrency``, never replacing it.
 
-    The optional capability ports (``fetch_ex``, ``fetch_holdings``) are
+    The optional capability ports (``fetch_ex``, ``fetch_bytes``, ``fetch_holdings``) are
     forwarded — bounded by the same semaphore — but only when the *inner*
     adapter provides them: they are bound as instance attributes so a
     ``runtime_checkable`` isinstance test against the wrapper reports exactly
@@ -129,6 +131,7 @@ class BoundedIOLayer:
     # WHY: conditionally bound in __init__ (annotation only — no class attribute, so
     # hasattr/isinstance stay false when the inner adapter lacks the port).
     fetch_ex: Callable[[FetchRequest], Awaitable[FetchResult]]
+    fetch_bytes: Callable[[FetchRequest], Awaitable[FetchedBytes]]
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
     processor_routes: Callable[[], Sequence[str]]
     has_code: Callable[[str], bool]
@@ -139,6 +142,8 @@ class BoundedIOLayer:
         self._sem = asyncio.Semaphore(limit)
         if isinstance(inner, SupportsFetchEx):
             self.fetch_ex = self._bounded_fetch_ex
+        if isinstance(inner, SupportsFetchBytes):
+            self.fetch_bytes = self._bounded(inner.fetch_bytes)
         if isinstance(inner, SupportsHoldings):
             self.fetch_holdings = self._bounded_fetch_holdings
         if isinstance(inner, SupportsProcessorRoutes):
@@ -156,6 +161,17 @@ class BoundedIOLayer:
     async def _bounded_fetch_ex(self, request: FetchRequest) -> FetchResult:
         async with self._admitted():
             return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
+
+    def _bounded(
+        self, call: Callable[[FetchRequest], Awaitable[FetchedBytes]]
+    ) -> Callable[[FetchRequest], Awaitable[FetchedBytes]]:
+        """``call`` admitted through the run-wide semaphore, like every other fetch."""
+
+        async def bounded(request: FetchRequest) -> FetchedBytes:
+            async with self._admitted():
+                return await call(request)
+
+        return bounded
 
     async def _bounded_fetch_holdings(self, identity: str | None, collection: str | None) -> str:
         async with self._admitted():
