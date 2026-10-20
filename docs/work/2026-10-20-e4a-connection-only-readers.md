@@ -1,9 +1,9 @@
 ---
 ticket: OME-1685
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-20
-finished:
+finished: 2026-10-20
 ---
 
 # e4a-connection-only-readers — resolve, availability and D18 classification read no Profile document
@@ -97,7 +97,8 @@ New tests first (prior tests are append-only until the owner approves the test m
   sibling-serving mutant), stale comments in `main.py`, `types.py` and the DELETE docstring, the
   seed's docstring, and `test_an_unreadable_index_refuses_the_whole_inventory` renamed to
   `test_an_unreadable_store_refuses_the_whole_inventory`.
-- **Commits:** `f929a4d5b` (E4a), then the review fixes.
+- **Commits:** squash-merged as `b66f94f08` (#1491) from `f929a4d5b` (E4a) and `c5ec4a7d0` (the
+  review fixes).
 - **Gates:** `run_gates.py aigateway --base origin/main` green including the append-only check
   (ruff, format, pyright, no-enterprise, pytest with coverage). PostgreSQL lane
   (`AIGW_TEST_PG=1 pytest -m needs_postgres`): 58 passed; the 5
