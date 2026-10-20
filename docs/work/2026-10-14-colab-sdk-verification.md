@@ -78,8 +78,9 @@ The rebased tree matches the separately validated conflict-resolution snapshot.
 
 Validation completed: Pyright; Ruff lint/format; deterministic notebook check; build
 and distribution validation; 69 focused analytics tests; five Node browser-script tests.
-Full SDK regression/coverage and refreshed remote CI are tracked separately from these
-completed checks; do not infer their result from the focused pass.
+Full SDK regression: 4,265 passed, 33 skipped, 75 paid-lane tests deselected;
+97.00% coverage (95% gate passed). Refreshed remote CI remains separate from
+these completed local checks.
 
 Read-only review using `.claude/agents/sf-code-review.md` found a Colab opt-out race:
 when a pending state/accept response resolves after `analytics.disable()`, JavaScript
