@@ -34,7 +34,9 @@ or a `Fanout` is refused with today's message.
 
 - `a >> b` returns `sf.Pipeline([a, b])`. Every step class and every recipe class has `__rshift__`.
   A route string on the left works through `__rrshift__`: `"openai/gpt-4o" >> sf.Model(...)` is
-  `sf.Pipeline([sf.Model("openai/gpt-4o"), sf.Model(...)])`.
+  `sf.Pipeline([sf.Model("openai/gpt-4o"), sf.Model(...)])`. **Erratum E1:** before the swap only
+  `_surface` values chain; `__rshift__` on `sf.Model` and today's `sf.Pipeline` (and so the route
+  string on the left of a `Model`) comes at the swap (unit 7).
 - `sf.Pipeline(steps, *, name=None, optional=False)` is the explicit form. `steps` is a sequence of
   route strings and step values. An unnamed nested `Pipeline` is flattened (the rule of today,
   `S/pipeline.py:65-78`). A named `Pipeline` keeps its grouping.
@@ -252,6 +254,9 @@ sf.Synthesize(model, *, prompt=None)
   field text), or a `sf.Extract(rule, normalize=None, **args)` value (for `regex` and the others
   with arguments). `EX-1` any other string is refused with the list of rule names.
   `"field:<path>"` in `over=` is an extractor, not a signal: it reads the field text as the answer.
+- **Erratum E3:** `Median` and `Mean` have no `normalize=`; their normalizer is always numeric, and
+  an `over=sf.Extract(...)` with a non-numeric normalizer is refused. EX-2 below applies to `Vote`
+  only.
 - `normalize=` on a step takes a name or a pinned name (`"text"`, `"text@1"`). `EX-2` a step whose
   caller **passes** `normalize=` (a sentinel default tells it apart, as `_DEFAULT_NORMALIZE` does
   today, `S/reducer.py:280-291`) together with `over=sf.Extract(..., normalize=...)` is refused: "set

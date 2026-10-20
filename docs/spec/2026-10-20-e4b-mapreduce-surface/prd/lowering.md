@@ -77,7 +77,7 @@ The terminal and narrow mapping (`'` = the internal value; `s` = `sf.signal(key)
 
 | Public step | Internal value (today's plan) |
 |---|---|
-| `Vote(over=e, normalize=n, weights=w)`, `e` a rule name (pinned or not) | `VoteNode(extract=e, normalize=n, weights=w')` |
+| `Vote(over=e, normalize=n, weights=w)`, `e` a rule name (pinned or not) | `VoteNode(extract=op(e), normalize=n, weights=w')`; `op(e)` is the rule's operator name (`json` → `json_object`, erratum E2) |
 | `Vote(over=e, ...)`, `e` = `"field:<path>"` or `sf.Extract(...)` | `ReduceNode("plurality" / "weighted", extract=Extract(...), ...)` (`S/blocks.py:643-665`) |
 | `Vote(weights="score:judge")` + `Judge(J)` | `VoteNode(..., judge=JudgeNode(J, returns="scores"), weights=s)` |
 | `Median`/`Mean(over=e, ...)`, `e` a rule name | `MedianNode`/`MeanNode(extract=e, ...)` |
