@@ -98,7 +98,8 @@ const optOut = `sf.evaluate(candidates, benchmark="draco", use_cache=False)`
       </li>
       <li>
         <strong>Sign-in.</strong> The first page opens the hosted engine's sign-in in a browser,
-        unless the process is already signed in. Only signed-in accounts can pull.
+        unless the process is already signed in to that engine. One sign-in serves every later pull
+        in the same process. Only signed-in accounts can pull.
       </li>
       <li>
         <strong>Into where.</strong> The local gateway's database in your data directory
@@ -122,10 +123,11 @@ const optOut = `sf.evaluate(candidates, benchmark="draco", use_cache=False)`
     <p>
       A pull shows its progress: rows read against the total, rows added, data received, and an
       estimated time left. It retries a dropped connection or a busy engine on its own. If it still
-      stops, <code>CachePullError</code> says why and how far it got. Pages already loaded stay
-      loaded, and calling the pull again in the same Python process continues from the last
-      completed page. A new process starts over. That costs time but never a duplicate: rows you
-      already have are read again and skipped. A row your local gateway could not serve is not
+      stops, <code>CachePullError</code> says why and how far it got; if you interrupt it, the
+      <code>KeyboardInterrupt</code> carries the same counts as <code>result</code>. Pages already
+      loaded stay loaded, and calling the pull again in the same Python process continues from the
+      last completed page. A new process starts over. That costs time but never a duplicate: rows
+      you already have are read again and skipped. A row your local gateway could not serve is not
       loaded; the pull skips it, counts it in <code>rows_skipped</code> and carries on. A pull also
       refuses a shared cache whose entries were stored under different cache-key rules than your
       local gateway uses, because those entries could never be hit. Upgrading

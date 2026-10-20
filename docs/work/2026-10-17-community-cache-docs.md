@@ -76,3 +76,5 @@ in `docs/plan/2026-10-15-community-cache.md`.
 
 The fixed #1446 branch is merged in. `ModulesPage` lists `PullResult.rows_skipped`, and
 `CachingPage` says a row the local gateway could not serve is skipped, counted and not loaded.
+- After the second #1446 review round (merged in): `CachingPage` says one sign-in serves every
+  later pull in the process, and that an interrupted pull's `KeyboardInterrupt` carries its counts.
