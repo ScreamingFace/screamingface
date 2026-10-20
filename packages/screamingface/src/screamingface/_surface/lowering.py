@@ -39,6 +39,7 @@ from screamingface._surface.steps import (
     Merge,
     Rank,
     Vote,
+    _ArgBest,
 )
 from screamingface._surface.synthesize import Synthesize
 from screamingface.blocks import Extract, Reduce
@@ -60,6 +61,8 @@ from screamingface.selection import Rank as RankNode
 
 _FA2 = "sf.Fanout signals= needs a reducer: sf.Synthesize reads no signal"
 # The judge a step is checked with when it is built: the block's own sf.Judge comes at block close.
+# INVARIANT: the probe has the shape of every real Judge node (returns="scores", order="max"), so a
+# step that passes the check with it also passes at block close.
 _PROBE_JUDGE = JudgeNode("probe/judge", returns="scores", rubric="probe")
 
 type _Active = tuple[int, ...]
@@ -183,7 +186,7 @@ def _vote_extract(step: Vote) -> Extract:
     return with_normalizer(step.over, step.normalize)
 
 
-def _statistic_node(step: Median | Mean, judge: JudgeNode | None) -> Reducer:
+def _statistic_node(step: Median | Mean, _judge: JudgeNode | None) -> Reducer:
     if is_rule_name(step.over):
         named = MedianNode if isinstance(step, Median) else MeanNode
         over = cast("str", step.over)
@@ -206,11 +209,11 @@ def _filter_node(step: Filter, judge: JudgeNode | None) -> Reducer:
     return FilterNode(where=step.where, extract=step.over, judge=judge)
 
 
-def _concat_node(step: Concat, judge: JudgeNode | None) -> Reducer:
+def _concat_node(step: Concat, _judge: JudgeNode | None) -> Reducer:
     return ConcatNode(step.separator, label=step.label)
 
 
-def _pick_node(step: ArgMax, judge: JudgeNode | None) -> Reducer:
+def _pick_node(step: _ArgBest, judge: JudgeNode | None) -> Reducer:
     """ArgMax/ArgMin by a signal is today's Pick by signal; by ``score:judge`` it is today's scores
     judge as the synthesizer, with ArgMin's ``order="min"`` (select ``best_holder{order:min}``)."""
 
@@ -223,7 +226,7 @@ def _pick_node(step: ArgMax, judge: JudgeNode | None) -> Reducer:
     )
 
 
-def _first_node(step: First, judge: JudgeNode | None) -> Reducer:
+def _first_node(step: First, _judge: JudgeNode | None) -> Reducer:
     where = step.where
     return PickNode(
         where.path,
@@ -233,11 +236,11 @@ def _first_node(step: First, judge: JudgeNode | None) -> Reducer:
     )
 
 
-def _merge_node(step: Merge, judge: JudgeNode | None) -> Reducer:
+def _merge_node(step: Merge, _judge: JudgeNode | None) -> Reducer:
     return MergeNode(step.fields)
 
 
-def _judge_pick_node(step: JudgePick, judge: JudgeNode | None) -> Reducer:
+def _judge_pick_node(step: JudgePick, _judge: JudgeNode | None) -> Reducer:
     return step._node
 
 
@@ -287,9 +290,8 @@ def _chain(chain: Chain, active: _Active) -> Recipe:
 
 def _optional_node(node: Recipe) -> Recipe:
     if isinstance(node, Pipeline):
-        return Pipeline(
-            node.stages, optional=True
-        )  # a block's Pipeline([Fusion, writer]) is unnamed
+        # a block's Pipeline([Fusion, writer]) is unnamed (lowering §2.2)
+        return Pipeline(node.stages, optional=True)
     assert isinstance(node, Fusion)
     return _rebuilt_fusion(node, node.members, node.synthesizer, optional=True)
 
@@ -364,4 +366,4 @@ _LOWERINGS: tuple[tuple[type, Callable[[Any, _Active], Recipe]], ...] = (
 )
 
 
-__all__ = ["block_node", "check_step", "lower", "step_node"]
+__all__ = ["block_node", "check_step", "lower"]
