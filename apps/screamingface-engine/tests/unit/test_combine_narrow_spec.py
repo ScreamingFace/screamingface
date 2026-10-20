@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 from combine_narrow_support import (
+    base_spec,
     context,
     json_text,
     keep_matching,
@@ -289,14 +290,14 @@ def test_a_narrow_rank_by_score_judge_without_the_judge_reply_is_refused() -> No
 
 
 def test_a_narrow_step_before_a_judge_label_pick_is_refused() -> None:
-    spec = vote_spec(
+    spec = base_spec(
         3,
-        [keep_where("field:confidence", "gt", 0.5)],
         reducer="judge",
         extract=None,
         normalize=None,
         reduce=step("label@1"),
         select=step("by_label@1"),
+        narrow=[keep_where("field:confidence", "gt", 0.5)],
     )
 
     _run_refused(spec, _WHOLE_CONTEXT)

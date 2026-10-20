@@ -140,6 +140,8 @@ MAX_SPEC_BYTES = 64 * 1024
 MAX_CONTEXT_BYTES = 64 * 1024 * 1024
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 _BINDING = re.compile(r"synthesis_\d+")  # same \d+ as benchmarks/operation_outputs.py
+# NR-C1: the main reduce ops that parse a model reply over the whole context (narrow.md §3.6).
+_WHOLE_CONTEXT_REDUCES = frozenset({"label@1", "field_rules@1"})
 
 logger = logging.getLogger(__name__)
 
@@ -672,7 +674,8 @@ def _narrowed(plan: _Plan, whole: CombineInput, recorded: _Recorded) -> _Narrowe
 
     The live set starts as the members the main step reads as answered (a failed member is never
     live). Each step reads the live members with its own stages and the one signal it reads, runs
-    its reduce and select (``_decide``'s code), and keeps the members its select chose. A member it
+    its own reduce and select (``_run_narrow``; no tally check and no gate, unlike ``_decide``),
+    and keeps the members its select chose. A member it
     does not keep is left out with ``no_signal`` (no value for the step's signal, X2) or
     ``not_selected``. A step that chooses no member (``NoVotes``) stops the call there.
     """
@@ -766,6 +769,7 @@ def _narrow_record(
     )
     members = step_input.members
     return NarrowRecord(
+        reduce=step.reduce.op_id,
         select=step.select.op_id,
         signal=None if step.signal is None else step.signal.key,
         kept=list(kept),
@@ -1087,6 +1091,8 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     _check_pairing(reduce.id, None if select is None else select.id)
     for ops in narrow:
         _check_narrow_pair(ops)
+    if narrow:
+        _check_after_narrow(spec, reduce.id)
     # WHY this order: the arg checks run reduce, extract, normalize, select (a bad reduce arg wins).
     bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
     bound_extract = cast("_Step[Extractor] | None", _bind(extract, spec.extract))
@@ -1128,12 +1134,27 @@ def _check_narrow_pair(ops: _NarrowOps) -> None:
         raise SpecInvalid(f"a narrow step pairs {pairs}")
 
 
+def _check_after_narrow(spec: CombineSpec, reduce_id: str) -> None:
+    """NR-C1 (narrow.md §3.6, O11): no narrow step before a step that reads the whole context.
+
+    ``label@1`` and ``field_rules@1`` parse a model reply over every member, and a gate fallback
+    to a judge or a writer is a model call over the whole context: each would see the members the
+    narrow steps left out. The SDK refuses these chains too; the Engine refuses a hand-written one.
+    """
+    if reduce_id in _WHOLE_CONTEXT_REDUCES:
+        raise SpecInvalid("a narrow step cannot come before a label@1 or field_rules@1 reduce")
+    if spec.gate is not None and spec.gate.otherwise != "abstain":
+        raise SpecInvalid("a narrow step cannot come before a gate with a judge or writer fallback")
+
+
 def _narrow_plan(spec: CombineSpec, ops: _NarrowOps) -> _NarrowPlan:
     """One narrow item, bound and checked as the main step is (the arg checks run reduce,
     extract, normalize, select).
 
     NR-S3: a narrow item has no ``weights`` key, so it reads at most one signal, the reduce args'
     read. Each narrow step and the main step count apart.
+    NR-S2b: a step that reads a signal (its ``signal_read``) or the judge reads no extracted value,
+    so it has no extract (a normalize needs an extract, checked at parse).
     """
     item = ops.item
     reduce = cast("_Step[ReduceOp]", _bind(ops.reduce, item.reduce))
@@ -1141,6 +1162,8 @@ def _narrow_plan(spec: CombineSpec, ops: _NarrowOps) -> _NarrowPlan:
     normalize = cast("_Step[Normalizer] | None", _bind(ops.normalize, item.normalize))
     select = cast("_Step[SelectOp]", _bind(ops.select, item.select))
     read = _reduce_read(spec, ops.reduce, reduce)
+    if (read is not None or reduce.op_id == NARROW_JUDGE_REDUCE) and extract is not None:
+        raise SpecInvalid("a narrow step that reads a signal or the judge has no extract")
     return _NarrowPlan(
         extract=extract,
         normalize=normalize,

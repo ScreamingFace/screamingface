@@ -1632,10 +1632,11 @@
       "CombineNarrow": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, select: 'str', signal: 'str | None' = None, kept: 'tuple[str, ...]', cut: 'CombineCut | None' = None, scores: 'Mapping[str, float] | None' = None, ranks: 'Mapping[str, int] | None' = None) -> None",
+          "__init__": "method (self, *, reduce: 'str | None' = None, select: 'str', signal: 'str | None' = None, kept: 'tuple[str, ...]', cut: 'CombineCut | None' = None, scores: 'Mapping[str, float] | None' = None, ranks: 'Mapping[str, int] | None' = None) -> None",
           "cut": "field",
           "kept": "field",
           "ranks": "field",
+          "reduce": "field",
           "scores": "field",
           "select": "field",
           "signal": "field",

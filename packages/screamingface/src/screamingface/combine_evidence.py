@@ -52,7 +52,8 @@ _GATE_OTHERWISE = frozenset(get_args(GateOtherwise.__value__))
 _GATE_SOURCES = ("chosen", "mean")
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
 _MAX_CUT_K = _MAX_REDUCER_MEMBERS  # the bound of sf.Rank k (blocks.py _MAX_K)
-_MAX_NARROW_STEPS = 4  # the Engine MAX_NARROW_STEPS (the narrow PRD, O10)
+# The Engine ports MAX_NARROW_STEPS (the narrow PRD, O10): the most narrow records of one evidence.
+MAX_NARROW_STEPS = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,13 +201,15 @@ class CombineCut:
 class CombineNarrow:
     """What one narrow step (``sf.Filter`` or ``sf.Rank`` before the reducer) kept.
 
-    ``select`` is the pinned select op id (``kept@1`` or ``top_k@1``); ``signal`` the key the step
-    read (None for a pattern filter); ``kept`` the members it chose, in author order (empty: the
+    ``reduce`` and ``select`` are the pinned op ids of the step (``filter@1`` + ``kept@1``,
+    ``by_signal@1`` or ``scores@1`` + ``top_k@1``); ``signal`` the key the step read (None for a
+    pattern filter); ``kept`` the members it chose, in author order (empty: the
     step chose none, so the Case abstained there); ``scores`` the step's score of each member it
     read that had one; ``cut`` and ``ranks`` a top-k step only, with the rules of ``CombineCut``
     and the row ``rank``.
     """
 
+    reduce: str | None = None
     select: str
     signal: str | None = None
     kept: tuple[str, ...]
@@ -215,7 +218,7 @@ class CombineNarrow:
     ranks: Mapping[str, int] | None = None
 
     def __post_init__(self) -> None:
-        _operator_ids((self.select,))
+        _operator_ids((self.select,) if self.reduce is None else (self.reduce, self.select))
         if self.signal is not None and not (
             is_signal_key(self.signal) or is_signal_name(self.signal)
         ):
@@ -227,7 +230,8 @@ class CombineNarrow:
 
     def to_dict(self) -> dict[str, object]:
         # Keys that are not set are absent on the wire (the Engine NarrowRecord).
-        data: dict[str, object] = {"select": self.select}
+        data: dict[str, object] = {} if self.reduce is None else {"reduce": self.reduce}
+        data["select"] = self.select
         if self.signal is not None:
             data["signal"] = self.signal
         data["kept"] = list(self.kept)
@@ -641,8 +645,8 @@ def _narrow(
             )
         return None
     records = _typed_tuple(value, CombineNarrow, "Combine evidence narrow")
-    if not 1 <= len(records) <= _MAX_NARROW_STEPS:
-        raise ValueError(f"Combine evidence narrow holds 1 to {_MAX_NARROW_STEPS} steps")
+    if not 1 <= len(records) <= MAX_NARROW_STEPS:
+        raise ValueError(f"Combine evidence narrow holds 1 to {MAX_NARROW_STEPS} steps")
     _narrow_kept(records, members)
     _narrow_rows(records, members)
     if not records[-1].kept and (

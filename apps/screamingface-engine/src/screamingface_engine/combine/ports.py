@@ -250,15 +250,19 @@ class CombineInput:
     ``None`` means a test built the value without a context.
     ``judged`` (narrow.md §3.2): the members a judge reply scores, the ``present`` set of the call
     BEFORE any narrow step, the same for every step. A narrow step makes ``answers`` smaller, but
-    the judge saw every answered member, so ``scores@1`` parses the reply over ``judged``. ``None``
-    (a test built the value): the judged set is ``present``.
+    the judge saw every answered member, so ``scores@1`` parses the reply over ``judged``. When it
+    is not given (empty), it is filled from ``present``: with no narrow step the two are the same.
     """
 
     answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
     input: str | None = None
-    judged: tuple[str, ...] | None = None
+    judged: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.judged:
+            object.__setattr__(self, "judged", self.present)
 
     @property
     def members(self) -> tuple[str, ...]:
@@ -276,11 +280,6 @@ class CombineInput:
         member is present otherwise, so this equals ``members`` for a context with ``outputs``.
         """
         return tuple(member for member in self.members if member in self.outputs)
-
-    @property
-    def judged_members(self) -> tuple[str, ...]:
-        """The members a judge reply must score: ``judged``, or ``present`` when it is not set."""
-        return self.present if self.judged is None else self.judged
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,6 +514,9 @@ JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU confor
 DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
 MAX_DECLARED_SIGNALS = 8
+# E4b map-reduce surface (narrow.md §2 NR-S1, O10): the most narrow steps of one spec, and so the
+# most narrow records of one evidence. The spec and the evidence both read it from here.
+MAX_NARROW_STEPS = 4
 # E4b part 5: what a gate reads: the agreement, or a declared name of the chosen member or of the
 # mean over the members. The name part is DECLARED_NAME; the spec checks the name is declared.
 GATE_OBSERVE = re.compile(r"agreement|(chosen|mean):[a-z][a-z0-9_]{0,31}")
@@ -841,6 +843,7 @@ __all__ = [
     "MAX_DECLARED_SIGNALS",
     "MAX_JSON_DEPTH",
     "MAX_JUDGE_REPLY_BYTES",
+    "MAX_NARROW_STEPS",
     "MAX_OUTPUT_READ_BYTES",
     "OUTPUT_FIELD",
     "READING_TO_ANSWER",

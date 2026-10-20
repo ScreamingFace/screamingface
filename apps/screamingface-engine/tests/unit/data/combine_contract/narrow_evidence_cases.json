@@ -73,6 +73,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:confidence",
         "kept": [
@@ -192,6 +193,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "by_signal@1",
         "select": "top_k@1",
         "signal": "field:confidence",
         "kept": [
@@ -315,6 +317,7 @@
     },
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:confidence",
         "kept": [
@@ -424,6 +427,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:confidence",
         "kept": [],
@@ -539,6 +543,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:confidence",
         "kept": [
@@ -554,6 +559,7 @@
         }
       },
       {
+        "reduce": "by_signal@1",
         "select": "top_k@1",
         "signal": "field:confidence",
         "kept": [],
@@ -681,6 +687,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:score",
         "kept": [
@@ -698,6 +705,7 @@
         }
       },
       {
+        "reduce": "by_signal@1",
         "select": "top_k@1",
         "signal": "field:confidence",
         "kept": [
@@ -822,6 +830,7 @@
     },
     "narrow": [
       {
+        "reduce": "scores@1",
         "select": "top_k@1",
         "signal": "score:judge",
         "kept": [
@@ -942,6 +951,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:confidence",
         "kept": [
@@ -957,6 +967,7 @@
         }
       },
       {
+        "reduce": "scores@1",
         "select": "top_k@1",
         "signal": "score:judge",
         "kept": [
@@ -1069,6 +1080,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "field:confidence",
         "kept": [
@@ -1177,6 +1189,7 @@
     "signal": null,
     "narrow": [
       {
+        "reduce": "filter@1",
         "select": "kept@1",
         "signal": "conf",
         "kept": [
