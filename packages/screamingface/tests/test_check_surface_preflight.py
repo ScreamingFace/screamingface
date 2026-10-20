@@ -13,6 +13,7 @@ from __future__ import annotations
 import pytest
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import (
     _BenchmarkResource,
     _CheckSurface,
@@ -112,7 +113,7 @@ def test_self_corrective_is_held_to_the_same_gate() -> None:
 
 
 def test_non_loop_recipes_never_need_a_check_surface() -> None:
-    fusion = sf.Fusion(["prov/a", "prov/b"], synthesizer="prov/s")
+    fusion = sx.Fanout(["prov/a", "prov/b"]) >> sx.Synthesize("prov/s")
     _validate_check_surface((fusion, sf.Model("prov/a")), "quizbench", _bare_resource(None))
 
 

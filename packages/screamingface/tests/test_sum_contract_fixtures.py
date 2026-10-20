@@ -23,6 +23,7 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -31,16 +32,15 @@ _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 def sum_pick_url4() -> str:
     """SA-5: recipe R; each member gets risk = 0.5 x sev_a + 0.3 x sev_b, the Pick keeps the
     lowest."""
-    recipe = sf.Fusion(
+    recipe = sx.Fanout(
         _MEMBERS,
-        name="pick",
         signals={
             "risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}),
             "sev_a": sf.Verbalized("A: ([0-9]+)"),
             "sev_b": sf.Verbalized("B: ([0-9]+)"),
         },
-        synthesizer=sf.Pick(by_signal=sf.signal("risk"), order="min"),
-    )
+        name="pick",
+    ) >> sx.ArgMin("risk")
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
@@ -74,15 +74,18 @@ def test_sum_pick_fixture_matches_the_sdk_compile(name: str) -> None:
 def gate_band_vote_url4() -> str:
     """BA-2: recipe G, a vote gated on the mean of a declared sum, with an abstain band."""
 
-    recipe = sf.Fusion(
+    recipe = sx.Fanout(
         ["prov/alpha", "prov/beta", "prov/gamma"],
-        name="vote",
         signals={
             "risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}),
             "sev_a": sf.Verbalized("A: ([0-9]+)"),
             "sev_b": sf.Verbalized("B: ([0-9]+)"),
         },
-        synthesizer=sf.Vote(gate=sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5))),
+        name="vote",
+    ) >> sx.Gate(
+        when=sx.signal("risk").mean() <= 3.0,
+        then=sx.Vote(),
+        abstain_if=sx.signal("risk").mean().between(2.5, 3.5),
     )
     return compile_candidate(recipe, operators=engine_operators()).url4
 

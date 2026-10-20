@@ -10,6 +10,7 @@ from _model_parameter_fixtures import SUMMARY as _SUMMARY
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 
 _BENCHMARK_URL4 = render(
     expr(
@@ -152,13 +153,12 @@ def test_parameter_free_evaluation_fetches_details_for_access_preflight() -> Non
 def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
-    candidate = sf.Fusion(
+    candidate = sx.Fanout(
         [
             sf.Model("provider/opus", name="first", params={"temperature": 0.2}),
             sf.Model("provider/opus", name="second", params={"temperature": 0.7}),
-        ],
-        synthesizer="provider/synth",
-    )
+        ]
+    ) >> sx.Synthesize("provider/synth")
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=_engine(detail_models),
@@ -175,19 +175,16 @@ def test_valid_explicit_params_fetch_each_distinct_model_once() -> None:
 def test_repeated_model_route_retains_an_explicit_parameter_assignment() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
-    inner = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/other")],
-        name="inner",
-        synthesizer="provider/inner-synth",
-    )
-    candidate = sf.Fusion(
+    inner = sx.Fanout(
+        [sf.Model("provider/opus"), sf.Model("provider/other")], name="inner"
+    ) >> sx.Synthesize("provider/inner-synth")
+    candidate = sx.Fanout(
         [
             inner,
             sf.Model("provider/opus", name="explicit-opus", params={"max_tokens": 4096}),
         ],
         name="outer",
-        synthesizer="provider/outer-synth",
-    )
+    ) >> sx.Synthesize("provider/outer-synth")
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=_engine(
@@ -217,10 +214,9 @@ def test_repeated_model_route_retains_an_explicit_parameter_assignment() -> None
 def test_synthesizer_params_are_preflighted_against_its_model() -> None:
     detail_models: list[str] = []
     transport = _ReachedTransport()
-    candidate = sf.Fusion(
-        [sf.Model("provider/opus", name="first"), sf.Model("provider/opus", name="second")],
-        synthesizer=sf.Model("provider/synth", params={"temperature": 0.4}),
-    )
+    candidate = sx.Fanout(
+        [sf.Model("provider/opus", name="first"), sf.Model("provider/opus", name="second")]
+    ) >> sx.Synthesize(sf.Model("provider/synth", params={"temperature": 0.4}))
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=_engine(detail_models),

@@ -10,6 +10,7 @@ from _model_parameter_fixtures import DETAILS
 from test_model_parameter_preflight import _BENCHMARK, _summary
 
 import screamingface as sf
+from screamingface import _surface as sx
 
 _MODEL = "provider/first"
 _OTHER = "other/second"
@@ -140,7 +141,9 @@ async def test_missing_access_stops_before_any_dispatch_or_events(mode: str, sha
         access = {_MODEL: "configured", _OTHER: "missing"}
         recipe = [sf.Model(_MODEL), sf.Model(_OTHER)]
     if shape == "fusion":
-        recipe = sf.Fusion([sf.Model(_MODEL), sf.Model(_MODEL, name="repeat")], synthesizer=_OTHER)
+        recipe = sx.Fanout([sf.Model(_MODEL), sf.Model(_MODEL, name="repeat")]) >> sx.Synthesize(
+            _OTHER
+        )
     engine = _Engine(access)
     runs = _Run() if mode == "sync" else _AsyncRun()
     events: list[Any] = []
