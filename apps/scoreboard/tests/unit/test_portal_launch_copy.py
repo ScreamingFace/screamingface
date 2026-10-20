@@ -154,16 +154,16 @@ def test_landing_get_started_goes_to_first_fusion() -> None:
     assert cta.attrs.get("href") == _FIRST_FUSION
 
 
-def test_about_lead_has_no_dash() -> None:
+def test_about_lead_copy() -> None:
     lead = _page("about.html").one("p", "hero-lead")
 
     assert lead.text() == (
-        "For a given cost, what's the best accuracy anyone can reach, and which combination "
-        "of models gets there?"
+        "What's the best accuracy anyone can reach at a price point they can afford, and "
+        "which combination of models gets them there?"
     )
 
 
-@pytest.mark.parametrize("section", ["how-it-works", "contribute"])
+@pytest.mark.parametrize("section", ["how-a-result", "contribute"])
 def test_about_url4_is_a_plain_docs_link(section: str) -> None:
     block = _page("about.html").one("section", **{"data-section": section})
     url4 = [a for a in block.find("a") if a.text() == "url4"]
@@ -181,9 +181,31 @@ def test_about_contribute_links() -> None:
     )
     by_text = {a.text(): a.attrs.get("href") for a in links.find("a")}
 
-    assert by_text["Get started →"] == _FIRST_FUSION
+    assert by_text["Start fusing →"] == _FIRST_FUSION
     assert by_text["Browse leaderboards →"] == "index.html"
-    assert "Browse the board →" not in by_text
+    assert by_text["Get paid to try →"] == _GRANT_HREF
+
+
+_ARXIV = "https://arxiv.org/abs/"
+
+
+def test_about_papers_carousel_cites_arxiv() -> None:
+    strip = _page("about.html").one("div", "papers")
+    # Keyboard-scrollable and named for assistive tech, like the portal's other scroll strips.
+    assert strip.attrs.get("tabindex") == "0"
+    assert strip.attrs.get("aria-label")
+
+    cards = strip.find("div", "paper-card")
+    assert len(cards) == 11, f"expected 11 paper cards, got {len(cards)}"
+    for card in cards:
+        # Each card is just the paper's first-page image, linking to the paper on arXiv.
+        link = card.one("a", "paper-card__link")
+        href = link.attrs.get("href", "")
+        assert href.startswith(_ARXIV), f"paper image must link to arXiv, got {href!r}"
+        _assert_new_tab(link)
+        # The image carries the paper's identity in its alt text (no visible title/abstract).
+        thumb = link.one("img", "paper-card__thumb")
+        assert thumb.attrs.get("alt")
 
 
 def test_about_openmined_links_to_openmined() -> None:
@@ -284,16 +306,19 @@ def test_history_note_points_to_the_client_not_the_desktop_app() -> None:
     )
 
 
-def test_about_how_it_works_recipe_sentence_has_no_dash() -> None:
-    block = _page("about.html").one("section", **{"data-section": "how-it-works"})
+def test_about_how_a_result_recipe_sentences() -> None:
+    block = _page("about.html").one("section", **{"data-section": "how-a-result"})
     paragraphs = [p.text() for p in block.find("p")]
 
+    assert paragraphs[0] == (
+        "Every fusion entry comes with its code, in a single url4 line that contains all the "
+        "details of the run. Each call in the recipe is pinned to an exact model version, prompt, "
+        "and seed."
+    )
     assert paragraphs[1] == (
-        "Every row on the board is a recipe, one url4 line that holds the whole run: the models "
-        "and their versions, the prompts, the seeds, the benchmark and its revision, the full "
-        "cost. Calls are pinned and runs feed a shared cache, so replaying a published row is "
-        "free and building on one costs only the calls that are new, reducing the cost of "
-        "exploring new compositions."
+        "A result appears only after it can be independently rerun on the hosted engine and "
+        "registered on the shared cache. Replaying a published row costs nothing, and starting "
+        "from someone else's recipe means you pay only for what you change."
     )
 
 
@@ -302,8 +327,9 @@ def test_about_contribute_sentence_has_no_dash() -> None:
     paragraphs = [p.text() for p in block.find("p")]
 
     assert paragraphs[0] == (
-        "Anyone can submit. Compose a method using screamingface, compile it to a url4 recipe, "
-        "and publish it. Code and recipes are open under Apache-2.0, and you keep authorship."
+        "Anyone can compose a fusion using the Client, compile it to a url4 recipe, score it "
+        "against a benchmark of your choice, and publish it on its corresponding leaderboard. "
+        "Code and recipes are open under Apache-2.0."
     )
 
 
