@@ -20,7 +20,7 @@ from screamingface.recipe import Recipe, _inferred_name, _name
 from screamingface.signal_sources import SignalSource
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Fanout(Step):
     """Send the input to every member, in parallel: the map step that opens a block.
 

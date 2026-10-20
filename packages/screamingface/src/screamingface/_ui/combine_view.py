@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         CombineAnswerRow,
         CombineEvidence,
         CombineGate,
+        CombineNarrow,
         CombineResult,
         CombineSampleCount,
         CombineSignal,
@@ -174,7 +175,8 @@ def _section(
         + "".join(_signal_head(evidence, key) for key in keys)
         + "<th scope='col'>chosen</th>"
     )
-    rows = "".join(_member_row(row, evidence, columns, keys) for row in evidence.members)
+    left_out = _left_out(evidence)
+    rows = "".join(_member_row(row, evidence, columns, keys, left_out) for row in evidence.members)
     return (
         f"<div class='sf-cmb'>{_heading(graph, operation_id)}"
         f"<div class='sf-chips'>{_chips(evidence, link)}</div>"
@@ -187,6 +189,7 @@ def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
     chips = [
         escape(f"reducer · {evidence.reducer}"),
         escape("rule · " + " → ".join(evidence.operators)),
+        *_narrow_chips(evidence),
         _result_chip(evidence.result),
         ""
         if evidence.cut is None
@@ -202,6 +205,51 @@ def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
         _samples_chip(evidence),
     ]
     return "".join(f"<span class='sf-chip'>{chip}</span>" for chip in chips if chip)
+
+
+# --- the narrow steps (E4b map-reduce surface, rebuild-display §4) ------------------------------
+
+
+def _narrow_steps(evidence: CombineEvidence) -> list[tuple[CombineNarrow, tuple[str, ...]]]:
+    """Each narrow record with the members live before it: the answered members (a failed
+    member is never live), then the members the step before kept (NR-I1). None: no step."""
+
+    steps: list[tuple[CombineNarrow, tuple[str, ...]]] = []
+    live = tuple(row.member_id for row in evidence.members if row.status != "fail")
+    for record in evidence.narrow or ():
+        steps.append((record, live))
+        live = record.kept
+    return steps
+
+
+def _narrow_word(record: CombineNarrow) -> str:
+    """``rank`` for a top-k step (``sf.Rank``), ``filter`` for a kept step (``sf.Filter``)."""
+
+    return "rank" if record.select.partition("@")[0] == "top_k" else "filter"
+
+
+def _narrow_chips(evidence: CombineEvidence) -> list[str]:
+    """One chip per narrow step: ``filter · kept 2 of 4`` or ``rank top 2 · max``."""
+
+    chips: list[str] = []
+    for record, live in _narrow_steps(evidence):
+        if _narrow_word(record) == "rank" and record.cut is not None:
+            chips.append(escape(f"rank top {record.cut.k} · {record.cut.order}"))
+        else:
+            word = _narrow_word(record)
+            chips.append(escape(f"{word} · kept {len(record.kept)} of {len(live)}"))
+    return chips
+
+
+def _left_out(evidence: CombineEvidence) -> dict[str, int]:
+    """member id -> the 1-based narrow step that left it out (NR-I3: the first step only)."""
+
+    steps: dict[str, int] = {}
+    for index, (record, live) in enumerate(_narrow_steps(evidence), start=1):
+        for member_id in live:
+            if member_id not in record.kept:
+                steps.setdefault(member_id, index)
+    return steps
 
 
 def _result_chip(result: CombineResult) -> str:
@@ -340,10 +388,15 @@ def _member_row(
     evidence: CombineEvidence,
     columns: tuple[str, ...],
     keys: tuple[str, ...],
+    left_out: Mapping[str, int],
 ) -> str:
-    """C1-C8: one member row; a failed or excluded member gets the ``sf-cmb__out`` class."""
+    """C1-C8: one member row; a failed or excluded member gets the ``sf-cmb__out`` class. A member
+    that a narrow step left out says at which step and why (rebuild-display §4)."""
     opening = "<tr>" if row.status == "answered" else "<tr class='sf-cmb__out'>"
     status = "answered" if row.status == "answered" else f"{row.status} · {row.reason}"
+    if row.member_id in left_out:
+        reason = str(row.reason).replace("_", " ")
+        status = f"left out at step {left_out[row.member_id]}: {reason}"
     numbers = "".join(f"<td>{_number_cell(row, column)}</td>" for column in columns)
     signals = "".join(f"<td>{_signal_cell(row, evidence, key)}</td>" for key in keys)
     chosen = "&check;" if row.member_id in evidence.chosen else ""
@@ -463,11 +516,14 @@ class _StepSummary:
     fallback: int = 0
     band: int = 0  # E4b part 6: the Cases that abstained inside the gate band
     not_run: int = 0
+    narrow: list[_NarrowCount] = field(default_factory=list)  # one per narrow step, in order
 
     def add(self, evidence: CombineEvidence) -> None:
-        """Count one Case: chosen, excluded, the declared names, values, gate and samples."""
+        """Count one Case: chosen, excluded, the declared names, values, gate, samples and the
+        members each narrow step left out."""
         self.cases += 1
         self._add_gate(evidence.gate)
+        self._add_narrow(evidence)
         self._add_samples(evidence)
         for name, entry in (evidence.declared or {}).items():
             if name not in self.declared:  # WHY: the first Case wins; build its text once
@@ -492,6 +548,15 @@ class _StepSummary:
         """The Cases with a gate record: each one counts in exactly one branch."""
         return self.majority + self.fallback + self.band + self.not_run
 
+    def _add_narrow(self, evidence: CombineEvidence) -> None:
+        """Add, per narrow step, the members it read and the members it left out."""
+        for index, (record, live) in enumerate(_narrow_steps(evidence)):
+            if index == len(self.narrow):
+                self.narrow.append(_NarrowCount(_narrow_word(record)))
+            count = self.narrow[index]
+            count.seen += len(live)
+            count.left_out += len(live) - len(record.kept)
+
     def _add_samples(self, evidence: CombineEvidence) -> None:
         """Add the samples of one Case of a step that declares consistency (E4b part 7, P15)."""
         facts = _sample_facts(evidence)
@@ -515,6 +580,27 @@ class _StepSummary:
             self.fallback += 1
 
 
+@dataclass(slots=True)
+class _NarrowCount:
+    """One narrow step over the Cases: the members it read and the members it left out."""
+
+    word: str  # "filter" or "rank"
+    left_out: int = 0
+    seen: int = 0
+
+
+def _narrow_line(step: _StepSummary) -> str:
+    """Per narrow step, the members it left out over the Cases; a step with none: no line."""
+    if not step.narrow:
+        return ""
+    texts = (
+        f"narrow · step {index} · {count.word} · left out {count.left_out} of {count.seen}"
+        for index, count in enumerate(step.narrow, start=1)
+    )
+    chips = "".join(f"<span class='sf-chip'>{escape(text)}</span>" for text in texts)
+    return f"<div class='sf-chips'>{chips}</div>"
+
+
 def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, OperationInfo]) -> str:
     """One step of the run summary: heading, gate line, samples line, member rows (P13, P15)."""
     total = step.cases
@@ -529,7 +615,9 @@ def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, Ope
         for name, source in step.declared.items()
     )
     rows = "".join(_summary_row(member_id, step) for member_id in step.chosen)
-    return heading + _gate_line(step) + _samples_line(step) + _table(head, rows)
+    return (
+        heading + _gate_line(step) + _samples_line(step) + _narrow_line(step) + _table(head, rows)
+    )
 
 
 def _gate_line(step: _StepSummary) -> str:

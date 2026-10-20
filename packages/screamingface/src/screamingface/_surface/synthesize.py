@@ -16,7 +16,7 @@ from screamingface.model import Model
 from screamingface.recipe import Recipe, _recipe
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Synthesize(Step):
     """Write the answer with one model or recipe: the write step that closes a block.
 

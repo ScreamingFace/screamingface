@@ -80,6 +80,12 @@ class Step(_Chainable):
 
         return False
 
+    def __repr__(self) -> str:
+        # WHY lazy: render.py imports every step module (rebuild-display §2)
+        from screamingface._surface.render import render
+
+        return render(self)
+
 
 def refuse_step(value: object) -> None:
     """Refuse a step or an open chain in a place that takes a recipe (CH-8, CH-11).
@@ -160,7 +166,7 @@ def _check_block(judge: Step | None, narrow: tuple[Step, ...], terminal: Step) -
         raise ValueError("score:judge needs sf.Judge(...) after sf.Fanout")  # CH-10
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Pipeline(Recipe, _Chainable):
     """Pass one input through an ordered chain of stages and blocks; ``a >> b`` builds one.
 
@@ -204,6 +210,22 @@ class Pipeline(Recipe, _Chainable):
     @property
     def _recipe_marker(self) -> None:
         return None
+
+    def __repr__(self) -> str:
+        # WHY lazy: render.py imports this module
+        from screamingface._surface.render import render
+
+        return render(self)
+
+    def _repr_html_(self) -> str:
+        """The block card for a chain of one closed block, else the chain card (DS-1)."""
+
+        from screamingface._ui.cards import block_card_html, chain_card_html
+
+        (first, *rest) = self._stages or (None,)
+        if not rest and isinstance(first, _Block) and not self._is_named and not self._open:
+            return block_card_html(first)
+        return chain_card_html(self)
 
     def _stage_values(self) -> tuple[Recipe, ...]:
         """The stages as the user wrote them, a closed block as its node: one value per stage.

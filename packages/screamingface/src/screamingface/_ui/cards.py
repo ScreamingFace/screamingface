@@ -19,6 +19,8 @@ from screamingface.reducer import Reducer
 if TYPE_CHECKING:
     from typing import Protocol
 
+    from screamingface._surface.chain import Pipeline as Chain
+    from screamingface._surface.chain import Step, _Block
     from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
     from screamingface.fusion import Fusion
     from screamingface.model import Model
@@ -86,6 +88,84 @@ def pipeline_card_html(pipeline: Pipeline) -> str:
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(pipeline.name)}</span>"
         "<span class='sf-card__kicker sf-card__kicker--pipeline'>pipeline</span></div>"
         f"{_section('stages', stages)}</div>"
+    )
+
+
+# The section label of each step category of a block (rebuild-display §3): a Judge is "judge".
+_STEP_LABELS: Mapping[str, str] = {
+    "score": "judge",
+    "narrow": "narrow",
+    "reduce": "reduce",
+    "write": "write",
+}
+
+
+def block_card_html(block: _Block) -> str:
+    """Render one closed block of the new surface: its members, signals and steps (DS-1).
+
+    WHY no ``synthesis`` section: the terminal is a step like the others, labelled ``reduce`` or
+    ``write`` (rebuild-display §3).
+    """
+
+    fanout = block.fanout
+    members = "".join(_member_detail(member) for member in fanout.members)
+    signals = ""
+    if fanout.signals is not None:
+        fields = "".join(
+            _field(name, _mono(repr(source))) for name, source in fanout.signals.items()
+        )
+        signals = _section("signals", f"<div class='sf-card__grid'>{fields}</div>")
+    steps = (
+        *(() if block.judge is None else (block.judge,)),
+        *block.narrow,
+        block.terminal,
+    )
+    return (
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace fanout block'>"
+        "<div class='sf-card__accent'></div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(block.name)}</span>"
+        "<span class='sf-card__kicker'>fanout</span></div>"
+        f"{_section('members', members)}{signals}"
+        f"{_section('steps', ''.join(_step_detail(step) for step in steps))}</div>"
+    )
+
+
+def chain_card_html(chain: Chain) -> str:
+    """Render one chain of the new surface: its stages in order; a block shows as one stage."""
+
+    # WHY lazy: the surface package imports the recipe tree, which imports this module's users
+    from screamingface._surface.chain import _Block
+
+    stages = "".join(
+        _block_stage(stage, index)
+        if isinstance(stage, _Block)
+        else _recipe_detail(stage, index=index)
+        for index, stage in enumerate(chain._stages, start=1)
+    )
+    return (
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace chain'>"
+        "<div class='sf-card__accent sf-card__accent--pipeline'></div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(chain.name)}</span>"
+        "<span class='sf-card__kicker sf-card__kicker--pipeline'>chain</span></div>"
+        f"{_section('stages', stages)}</div>"
+    )
+
+
+def _block_stage(block: _Block, index: int) -> str:
+    return (
+        f"<div class='sf-detail__item'><div class='sf-detail__index'>stage {index}</div>"
+        f"<div class='sf-detail__name'>{escape(block.name)}</div>"
+        "<div class='sf-card__hint'>fanout block</div></div>"
+    )
+
+
+def _step_detail(step: Step) -> str:
+    """One step of a block: its category, then its repr (only the options that differ)."""
+
+    return (
+        "<div class='sf-detail__item'>"
+        f"<div class='sf-detail__index'>{_STEP_LABELS[step._category]}</div>"
+        f"<div class='sf-detail__route'>{escape(repr(step))}</div></div>"
     )
 
 
@@ -430,7 +510,7 @@ def _member_detail(member: Recipe) -> str:
 
 def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
     route = getattr(recipe, "model", None)
-    kind = _recipe_kind(recipe)
+    kind = _kind_word(recipe)
     if route is None:
         detail = f"<div class='sf-card__hint'>nested {escape(kind)}</div>"
     else:
@@ -440,6 +520,16 @@ def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
         "<div class='sf-detail__item'>"
         f"{order}<div class='sf-detail__name'>{escape(recipe.name)}</div>{detail}</div>"
     )
+
+
+def _kind_word(recipe: Recipe) -> str:
+    """The kind a card names: a chain of the new surface is a ``chain`` (erratum E5), every
+    other value its recipe kind, as today."""
+
+    # WHY lazy: the surface package imports the recipe tree, which imports this module's users
+    from screamingface._surface.chain import Pipeline as Chain
+
+    return "chain" if isinstance(recipe, Chain) else _recipe_kind(recipe)
 
 
 def _synthesizer_fields(synthesizer: Recipe | Reducer) -> str:
@@ -454,7 +544,7 @@ def _synthesizer_fields(synthesizer: Recipe | Reducer) -> str:
     if route is None:
         value = (
             f"<span class='sf-mono'>{escape(synthesizer.name)}</span>"
-            f"<div class='sf-card__hint'>nested {escape(_recipe_kind(synthesizer))}</div>"
+            f"<div class='sf-card__hint'>nested {escape(_kind_word(synthesizer))}</div>"
         )
         return _field("synthesizer", value, wide=True)
 

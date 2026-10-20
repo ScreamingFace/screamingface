@@ -35,7 +35,7 @@ from screamingface.reducer import _Step as _OperatorStep
 from screamingface.selection import _DEFAULT_SEPARATOR
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Vote(Step):
     """Plurality vote: the first member (author order) that holds the most common answer, verbatim.
 
@@ -82,7 +82,7 @@ class Vote(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Median(Step):
     """Median of the members' numeric answers: the nearest member's text, or the number itself.
 
@@ -112,7 +112,7 @@ class Median(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Mean(Step):
     """Mean of the members' numeric answers: the number itself, or the nearest member's text.
 
@@ -140,7 +140,7 @@ class Mean(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Rank(Step):
     """Keep the ``k`` members with the highest (``order="max"``) or lowest value of one signal.
 
@@ -166,7 +166,7 @@ class Rank(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Filter(Step):
     """Keep the members that pass a test, in author order.
 
@@ -200,7 +200,7 @@ class Filter(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Concat(Step):
     """Join the members' texts for a ``sf.Synthesize`` writer, which must follow it.
 
@@ -221,7 +221,7 @@ class Concat(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class _ArgBest(Step):
     """The member with the best value of one signal: ``ArgMax`` and ``ArgMin`` set ``_order``."""
 
@@ -246,7 +246,7 @@ class _ArgBest(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class ArgMax(_ArgBest):
     """Copy the member with the highest value of one signal, unchanged.
 
@@ -258,14 +258,14 @@ class ArgMax(_ArgBest):
     _order: ClassVar[Literal["max", "min"]] = "max"
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class ArgMin(_ArgBest):
     """Copy the member with the lowest value of one signal, unchanged (see ``sf.ArgMax``)."""
 
     _order: ClassVar[Literal["max", "min"]] = "min"
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class First(Step):
     """Copy the first member, in author order, whose JSON field equals a value.
 
@@ -288,7 +288,7 @@ class First(Step):
     __hash__: ClassVar[Any] = None
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Merge(Step):
     """One JSON object with exactly the declared fields, each built by its ``sf.FieldRule``.
 

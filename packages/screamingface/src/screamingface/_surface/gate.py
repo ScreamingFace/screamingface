@@ -25,7 +25,7 @@ _ABSTAIN: Literal["abstain"] = "abstain"
 _OTHERWISE_RULE = "sf.Gate otherwise= takes 'abstain', sf.JudgePick(...) or sf.Synthesize(...)"
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class Gate(Step):
     """Keep the vote's answer when ``when`` holds; else ``otherwise`` gives the answer.
 

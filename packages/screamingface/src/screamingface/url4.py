@@ -134,7 +134,21 @@ class _Call:
     raw_intent: str
 
 
-def _to_python(value: str) -> str:
+@dataclass(frozen=True, slots=True)
+class _DecodedCandidate:
+    """A checked url4: its root, its Candidate expression, its calls and its Recipe topology."""
+
+    root: Node
+    candidate: Expression
+    linked: bool
+    calls: dict[str, _Call]
+    topology: _RecipeTopology
+
+
+def _decode_candidate(value: str) -> _DecodedCandidate:
+    """Decode and check a url4: the ONE decode path of ``to_python`` and the new-surface rebuild
+    (``S/_surface/rebuild.py``)."""
+
     try:
         root = build(value)
     except Url4Error as exc:
@@ -144,10 +158,16 @@ def _to_python(value: str) -> str:
     topology = _topology_from_expression(candidate)
     final = _final_binding(candidate, calls, topology)
     _validate_topology(candidate, topology, calls, final)
+    return _DecodedCandidate(root, candidate, linked, calls, topology)
+
+
+def _to_python(value: str) -> str:
+    decoded = _decode_candidate(value)
+    root, calls, topology = decoded.root, decoded.calls, decoded.topology
     lines = _render_topology(topology, calls, indent=0)
     lines[0] = f"candidate = {lines[0]}"
     source = ["import screamingface as sf", "", *lines]
-    if linked:
+    if decoded.linked:
         benchmark = _benchmark_id(root)
         if benchmark is not None:
             source.extend(["", *_evaluation_call(benchmark, _limit(root))])
@@ -716,16 +736,24 @@ def _validate_compiled_corrective(
     require byte-identical canonical URL4 before showing editable Python.
     """
 
+    recipe = _recipe_from_topology(topology, calls)
+    check_surface = _replay_check_surface(topology)
+    assert check_surface is not None
+    _require_recompiles(candidate, recipe, calls, check_surface=check_surface)
+
+
+def _replay_check_surface(topology: _RecipeTopology) -> _CheckSurface | None:
+    """The check surface a corrective Candidate recompiles with; None for any other Candidate."""
+
     from screamingface._evaluation.benchmark import _CheckSurface
 
-    recipe = _recipe_from_topology(topology, calls)
-    assert topology.check_route is not None
-    check_surface = _CheckSurface(
+    if topology.check_route is None:
+        return None
+    return _CheckSurface(
         check_route=topology.check_route,
         feedback_intent="replay-validation",
         expected_check_cost="free",
     )
-    _require_recompiles(candidate, recipe, calls, check_surface=check_surface)
 
 
 def _recipe_from_topology(

@@ -25,6 +25,7 @@ import pytest
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.cards import block_card_html, chain_card_html
 
 _GOLDENS = Path(__file__).parent / "data" / "surface_cards"
@@ -59,10 +60,18 @@ _CARDS: dict[str, Callable[[], str]] = {
 }
 
 
+def _body(name: str) -> str:
+    """The card without the shared style sheet: the golden pins the card, not the house CSS."""
+
+    card = _CARDS[name]()
+    assert card.startswith(CARD_STYLE)
+    return card.removeprefix(CARD_STYLE)
+
+
 def write_goldens() -> None:
     _GOLDENS.mkdir(parents=True, exist_ok=True)
-    for name, card in _CARDS.items():
-        (_GOLDENS / f"{name}.html").write_text(card() + "\n", encoding="utf-8")
+    for name in _CARDS:
+        (_GOLDENS / f"{name}.html").write_text(_body(name) + "\n", encoding="utf-8")
 
 
 @pytest.mark.parametrize("name", sorted(_CARDS))
@@ -70,7 +79,7 @@ def test_ds1_the_card_matches_its_golden(name: str) -> None:
     golden = _GOLDENS / f"{name}.html"
     assert golden.exists(), f"surface_cards/{name}.html is missing - run write_goldens()"
 
-    assert _CARDS[name]() == golden.read_text(encoding="utf-8").removesuffix("\n")
+    assert _body(name) == golden.read_text(encoding="utf-8").removesuffix("\n")
 
 
 def test_ds1_a_block_card_names_each_step_with_its_category() -> None:
