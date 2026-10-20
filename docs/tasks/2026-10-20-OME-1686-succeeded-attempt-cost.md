@@ -1,13 +1,13 @@
 ---
 id: OME-1686
 linear_url: https://linear.app/openmined/issue/OME-1686/report-the-cost-of-the-successful-attempt-in-request-economics
-status: in_review
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1287
 created: 2026-10-20
-closed:
+closed: 2026-10-20
 ---
 
 # Report the cost of the successful attempt in request economics
