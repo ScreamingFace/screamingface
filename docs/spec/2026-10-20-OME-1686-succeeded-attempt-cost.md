@@ -129,10 +129,12 @@ The streaming path has no accounting session and no `_aigw` (`docs/usage-account
 
 `_degrade_to_bound` (`render.py:102-122`) removes provider extensions, then attempts, then sets
 `direct_cost_status = "partial"` and `known_direct_cost_subtotals = []`. It does **not** clear the
-new key. The new key is calculated from `records`, so it stays correct when attempts are removed.
-The key adds at most about 300 bytes (the `direct_cost` bounds are amount ≤ 64, unit ≤ 64,
-source ≤ 128 ASCII bytes; schema `$defs.direct_cost`), which is far below `MAX_METADATA_BYTES`
-(64 KiB, `render.py:23`). A unit test on the `bounds_overflow` shape locks this.
+new keys. The new keys are calculated from `records`, so they stay correct when attempts are
+removed. The cost key adds at most about 300 bytes (the `direct_cost` bounds are amount ≤ 64,
+unit ≤ 64, source ≤ 128 ASCII bytes; schema `$defs.direct_cost`). The usage key is bounded by the
+`usage` schema (for example, `cache_write_by_ttl` holds at most 8 rows). Both keys together stay
+far below `MAX_METADATA_BYTES` (64 KiB, `render.py:23`). A unit test on the `bounds_overflow`
+shape locks this.
 
 ### D7 — JSON Schema
 
