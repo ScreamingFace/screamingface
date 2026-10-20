@@ -80,7 +80,20 @@ def _enable(*, persist: bool = True) -> dict:
     return status()
 
 
-def disable(*, process_only: bool = False) -> dict:
+def disable(*, process_only: bool = False) -> None:
+    """Stop tracking and print confirmation; use status() for persistence details."""
+    result = _disable(process_only=process_only)
+    message = "Analytics disabled."
+    if process_only:
+        message = "Analytics disabled for this process."
+    elif result.get("pending"):
+        message += " Saving your choice in the browser."
+    elif result.get("scope") == "browser" and result["choice"] != "declined":
+        message += " Couldn't save your choice in the browser."
+    print(message)
+
+
+def _disable(*, process_only: bool = False) -> dict:
     """Stop analytics; by default also save decline and discard the installation ID."""
     global _process_disabled, _session_only
     _process_disabled, _session_only = True, False

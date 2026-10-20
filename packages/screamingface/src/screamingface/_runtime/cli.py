@@ -159,7 +159,7 @@ def _analytics_control(action: str) -> None:
     controls = {
         "status": analytics.status,
         "enable": analytics._enable,
-        "disable": analytics.disable,
+        "disable": analytics._disable,
         "reset-id": analytics.reset_identifier,
     }
     print(json.dumps(controls[action]()))

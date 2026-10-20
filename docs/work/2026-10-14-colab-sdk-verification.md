@@ -250,3 +250,23 @@ The full SDK gate runner passed lint/format, Pyright, complete parallel tests wi
 --skip-append-only specifically for the owner-approved return-contract test
 migration; no test was removed or behavior assertion relaxed. No live browser
 persistence or PostHog revalidation was claimed for this output-only change.
+
+### Confirmation-only disable output — 20 October 2026
+
+Owner reported the remaining status dump from disable(). Apply the same command/
+status split: public disable returns None and confirms local tracking has stopped;
+if browser persistence is pending, say the choice is still being saved, not that
+it has been persisted. Keep immediate opt-out, detailed status(), and CLI JSON.
+Migrate existing disable return-value assertions without weakening opt-out checks.
+
+Outcome: public disable() now returns None. Its message confirms immediate local
+opt-out and separately describes pending or failed browser persistence. CLI JSON
+uses the shared private operation. Two new display tests failed before the fix;
+all 60 focused tests passed afterward. Local IPython run_cell with a stubbed
+consent result confirms one message and no rich-display dictionary.
+
+The full SDK lint/format, type, parallel test/95% coverage, notebook, build and
+distribution gates passed. The append-only check was skipped only for migrating
+the existing, owner-approved disable return-contract assertions to status(); all
+underlying consent and crash-recovery assertions remain. No live browser rerun or
+new PostHog-delivery claim is made for this presentation change.

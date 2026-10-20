@@ -1319,8 +1319,9 @@ can be tracked without a separate polling cell. A timed-out acceptance is cancel
 locally so a late response cannot silently enable tracking.
 
 Automatic setup and event delivery remain nonblocking. `sf.analytics.disable()`
-stops local tracking immediately; browser persistence remains asynchronous and
-reports `pending=True` until acknowledged. Operations begun before consent is
+stops local tracking immediately and returns `None`. It prints `Analytics disabled.`
+and, while browser persistence is pending, `Saving your choice in the browser.`
+Use `sf.analytics.status()` to inspect `pending` until acknowledged. Operations begun before consent is
 confirmed are skipped, never replayed retroactively.
 
 Colab uses the selected service's `/bridge/consent` iframe and cookie-checked

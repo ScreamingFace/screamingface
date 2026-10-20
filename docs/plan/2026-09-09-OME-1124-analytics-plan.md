@@ -105,3 +105,7 @@ acceptance so late replies cannot enable local tracking. Automatic setup, event
 delivery, and local opt-out remain nonblocking; browser decline persistence is
 still asynchronous. Verification must cover immediate evaluation readiness,
 unavailable storage, timeout/late replies and concurrent opt-out.
+
+Public `disable()` also returns None and prints confirmation that local tracking
+has stopped. A pending browser save is explicitly labelled as pending; details
+remain in status(). CLI disable retains its JSON status output.

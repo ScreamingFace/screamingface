@@ -32,7 +32,8 @@ def test_enable_reuses_id_reset_rotates_and_disable_removes_it(config):
     assert analytics.status()["installation_id"] == first
     assert analytics.reset_identifier()["installation_id"] != first
     assert config.stat().st_mode & 0o777 == 0o600
-    assert analytics.disable()["choice"] == "declined"
+    assert analytics.disable() is None
+    assert analytics.status()["choice"] == "declined"
     assert "installation_id" not in json.loads(config.read_text())
     assert analytics.reset_identifier()["choice"] == "declined"
 
@@ -175,7 +176,8 @@ with LocalConsentStore(config_path())._lock():
         assert writer.stdout.readline().strip() == "locked"
         writer.kill()
         writer.wait(timeout=5)
-        assert analytics.disable()["choice"] == "declined"
+        assert analytics.disable() is None
+        assert analytics.status()["choice"] == "declined"
         check = subprocess.run(
             [
                 sys.executable,

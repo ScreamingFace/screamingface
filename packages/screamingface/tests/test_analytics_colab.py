@@ -498,3 +498,40 @@ def test_enable_has_no_notebook_display_value(browser, monkeypatch, capsys, avai
         else "Couldn't enable analytics; tracking remains off.\n"
     )
     assert capsys.readouterr().out == expected
+
+
+def test_disable_has_no_display_value_and_does_not_claim_persisted_choice(
+    browser, monkeypatch, capsys
+):
+    entered, release = threading.Event(), threading.Event()
+
+    def exchange(command, event, **kwargs):
+        entered.set()
+        release.wait(2)
+        return {"choice": "declined", "consent_version": "1"}
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    try:
+        result = analytics.disable()
+        assert entered.wait(1)
+        assert result is None
+        state = analytics.status()
+        assert state["enabled"] is False
+        assert state["pending"] is True
+        assert capsys.readouterr().out == (
+            "Analytics disabled. Saving your choice in the browser.\n"
+        )
+    finally:
+        release.set()
+        wait_until(lambda: not browser.pending)
+    assert analytics.status()["choice"] == "declined"
+
+
+def test_process_only_disable_has_no_display_value_or_browser_request(browser, monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(colab, "exchange", lambda *args, **kwargs: calls.append(args))
+    assert analytics.disable(process_only=True) is None
+    assert analytics.status()["enabled"] is False
+    assert analytics.status()["pending"] is False
+    assert calls == []
+    assert capsys.readouterr().out == "Analytics disabled for this process.\n"
