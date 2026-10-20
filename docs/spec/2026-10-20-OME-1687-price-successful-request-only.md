@@ -1,6 +1,6 @@
 ---
 ticket: OME-1687
-status: proposed (waiting for owner approval of D1–D5 and the prior-test changes in §8)
+status: approved 2026-10-20 (D1–D5 as recommended; Q1–Q4 resolved in §11)
 date: 2026-10-20
 related: OME-1686 (gateway field, blocks Phase B), OME-1220 (the rule this spec reverses), OME-849 (run cost), OME-1287 (parent epic), OME-1519 (canceled)
 ---
@@ -129,11 +129,12 @@ infrastructure event.
   `runner/summary.py:7-8` ("never a false zero"). The prior test
   `tests/unit/test_cache_hit_retry_pricing.py::test_a_retried_hit_makes_the_whole_run_total_unpriced`
   pins this zero. Only `pricing_version = "unpriced"` shows the truth. Not changed here.
-- **Tokens of failed attempts.** `read_aigw` adds the tokens of every attempt, failures included
-  (`world/accounting.py:354-379`). A failed gateway attempt with no usage makes the sum `None`
-  (`accumulate`, `:106-115`). The live Usage then falls back to the response body's `usage`
-  (`world/connector.py:768-773`), but the retained operation reports `None` tokens
-  (`world/accounting.py:488-505`). The ticket says not to change tokens. See Q2.
+- **Known limitation: tokens of failed attempts (owner decision 2026-10-20: no change, no
+  follow-up).** Token counts do NOT come only from the successful response. `read_aigw` adds the
+  tokens of every attempt, failures included (`world/accounting.py:354-379`). A failed gateway
+  attempt with no usage makes the sum `None` (`accumulate`, `:106-115`). The live Usage then falls
+  back to the response body's `usage` (`world/connector.py:768-773`), but the retained operation
+  reports `None` tokens (`world/accounting.py:488-505`). This unit does not change tokens.
 - The engine retry rules (when to retry). Only the price changes.
 - Gateway changes. They are in OME-1686.
 
@@ -199,7 +200,7 @@ Phase B (`tests/unit/test_succeeded_attempt_pricing.py`, new):
 - Connector level: a gateway response with attempts 503 + 200 and the field → the Usage price is
   0.00042, the retained operation is `"0.00042"`, and the run is priced.
 
-## 10. Owner decisions
+## 10. Owner decisions (approved 2026-10-20)
 
 - **D1.** When the key is absent or `null`, use today's rule (§5 step 4). Recommended.
 - **D2.** A retried cache hit claims its saving (`avoided_usd_for_outcome` stops the withdrawal).
@@ -215,15 +216,14 @@ Phase B (`tests/unit/test_succeeded_attempt_pricing.py`, new):
   those tests' flag assertions in a follow-up.
 - **D5.** Approve the prior-test changes in §8.
 
-## 11. Open questions (< 95% sure)
+## 11. Resolved questions (owner, 2026-10-20)
 
-- **Q1 (cross-ticket, OME-1686).** When the gateway stores a response in its cache after a gateway
-  retry, which `direct_cost` does it write into `cache.reference.direct_cost`? If it writes the
-  failed attempt's `unavailable`, a later hit of that row stays an unpriced saving. The engine
-  cannot fix this. Confirm the gateway writes the successful attempt's cost.
-- **Q2.** Tokens of failed attempts (§7). The ticket says "do not change token counts". Is a
-  follow-up wanted so that tokens also follow R1? A gateway-retried call reports `None` tokens in
-  the retained operation today.
-- **Q3.** D4: keep the flag (recommended) or remove it now?
-- **Q4.** Deployment order. Phase B is safe with an older gateway (D1). Can Phase A merge before
-  OME-1686, as one PR, or must both phases ship in one PR?
+- **Q1.** Already true. The gateway cache row stores the cost of the last succeeded send
+  (`apps/aigateway/src/aigateway/plugins/taxonomy/entry_metadata.py:184-213`). It is certified
+  when the collector status is `complete`, which is the case after a 503 → 200 retry. No
+  dependency on OME-1686.
+- **Q2.** Tokens: no change and no follow-up ticket. See the known limitation in §7.
+- **Q3.** Keep the flag (D4).
+- **Q4.** One PR with both phases. It opens after the OME-1686 PR merges. Phase B codes against
+  the fixed contract (§4), with test fixtures that hold the key, and with the fallback (D1) when
+  the key is absent.

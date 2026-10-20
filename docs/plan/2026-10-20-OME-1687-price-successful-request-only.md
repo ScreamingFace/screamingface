@@ -1,7 +1,7 @@
 ---
 ticket: OME-1687
 spec: ../spec/2026-10-20-OME-1687-price-successful-request-only.md
-status: proposed (code starts only after the owner approves the spec decisions D1–D5)
+status: approved 2026-10-20; in progress
 date: 2026-10-20
 stack: python (apps/screamingface-engine)
 branch: OME-1687-price-successful-request-only
@@ -15,8 +15,9 @@ the owner-approved manifest `.claude/test-change-approvals/OME-1687.json` (spec 
 `uv run .claude/scripts/run_gates.py screamingface-engine --base origin/main` (from the repo
 root).
 
-Phase A does not need the gateway. Phase B needs the OME-1686 field, but it is safe with an older
-gateway (spec D1), so it can merge before OME-1686 is deployed.
+Phase A does not need the gateway. Phase B codes against the fixed OME-1686 field, and it is safe
+with an older gateway (spec D1). Owner decision (2026-10-20): both phases go on this branch and ship
+in ONE PR, opened after the OME-1686 PR merges.
 
 ## Phase A — retries no longer unprice a call (engine only)
 
@@ -58,7 +59,7 @@ pass already (they lock behaviour that must not change). Record this in the ledg
 Run the new file and every prior test. Expect exactly the 6 prior test functions of spec §8 to
 fail. Nothing else may fail.
 
-### A3 — the approved prior-test flips (only after D5)
+### A3 — the approved prior-test flips (D5 approved 2026-10-20)
 
 - Apply the edits of spec §8 to `tests/unit/test_ambiguous_retry_pricing.py`,
   `tests/unit/test_cache_hit_retry_pricing.py`, `tests/unit/test_cache_saved_cost.py`, and the

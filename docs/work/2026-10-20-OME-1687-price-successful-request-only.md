@@ -1,7 +1,7 @@
 ---
 ticket: OME-1687
 stack: screamingface-engine
-status: planned
+status: in_progress
 started: 2026-10-20
 finished:
 ---
@@ -52,6 +52,10 @@ Plan: `docs/plan/2026-10-20-OME-1687-price-successful-request-only.md`.
 
 - 2026-10-20: spec and plan written. Waiting for the owner to approve D1–D5 (spec §10) and the
   prior-test changes (spec §8). No code yet.
+- 2026-10-20: owner approved D1–D5 and the 6 prior-test flips plus the comment-only edit in
+  `test_signal_accounting.py`. D4: keep the flag. Q1 resolved (gateway already stores the
+  succeeded send's cost). Q2: no token change, known limitation. Q4: one PR with both phases,
+  after OME-1686 merges. Coding starts.
 
 ## Outcome (fill at the end — required before COMMIT)
 
