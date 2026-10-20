@@ -1,12 +1,12 @@
 ---
 id: OME-1435
 linear_url: https://linear.app/openmined/issue/OME-1435/add-e14-capture-and-replay-modes-to-the-engine
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-09-30
-closed:
+closed: 2026-10-20
 ---
 
 # Add E14 capture and replay modes to the Engine
