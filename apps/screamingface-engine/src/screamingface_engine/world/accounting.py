@@ -304,20 +304,17 @@ def avoided_usd_from_aigw(aigw: object) -> AvoidedCost:
 
 
 def avoided_usd_for_outcome(aigw: object, cache: CacheOutcome) -> AvoidedCost:
-    """What one round trip's outcome PROVES the cache avoided.
+    """What one round trip's cache hit avoided — the one seam the connector calls.
 
-    A retried round trip proves nothing was avoided. `_post_completion` retries a lost response,
-    and the attempt whose reply was lost may have been processed and billed upstream — in which
-    case the row this attempt hit is the very one the lost attempt wrote and paid for. Pricing
-    that hit would report money saved that was in fact spent: the one direction of error this
-    whole feature exists to remove.
+    FEATURE: cost of intelligence (OME-1687). A retried round trip claims its saving like any
+    other: in a perfect world, where every model answers on the first attempt, the hit replaces
+    the original call, whose cost the reference holds, and the leaderboard's reproduction cost is
+    spend plus saving.
 
-    This WITHDRAWS a claim; it does not assert the spend was zero. The hit is still a hit and
-    still counted — as an unpriced one, which is the honest answer when the evidence is
-    ambiguous rather than absent.
+    AIDEV-NOTE: this reverses OME-1220, which withdrew the saving when `cache.retried` was set.
+    `cache` stays in the signature so the call site keeps one seam for outcome-aware rules; no
+    rule reads `cache.retried` today.
     """
-    if cache.retried:
-        return AvoidedCost()
     return avoided_usd_from_aigw(aigw)
 
 
@@ -467,9 +464,9 @@ def retained_operation_accounting(
                 cache_read_tokens=0,
                 cache_creation_tokens=0,
                 reasoning_tokens=0,
-                # INVARIANT (OME-1220): the same rule as the live Usage — after a possibly billed
-                # retry the row hit may be the one the lost attempt paid for and wrote.
-                cost_usd=None if cache.retried else "0",
+                # INVARIANT: the same rule as the live Usage — a hit costs exactly zero, retried or
+                # not (FEATURE: cost of intelligence, OME-1687).
+                cost_usd="0",
             ),
             provider_latency_ms=0,
             # A hit performs no current provider dispatch, so zero attempts is the exact
@@ -504,11 +501,11 @@ def retained_operation_accounting(
                 call.cache_creation_tokens if complete and call is not None else None
             ),
             reasoning_tokens=call.reasoning_tokens if complete and call is not None else None,
-            # INVARIANT (OME-1220): a possibly billed retry leaves spend nobody reported; the
-            # gateway's figure covers only the attempt that answered. Tokens stay a lower bound.
+            # FEATURE: cost of intelligence (OME-1687). The price is the successful request's,
+            # so a transport retry before it changes nothing.
             cost_usd=(
                 format(call.cost_usd, "f")
-                if complete and call is not None and call.cost_usd is not None and not cache.retried
+                if complete and call is not None and call.cost_usd is not None
                 else None
             ),
         ),
@@ -575,9 +572,9 @@ def signal_accounting_from_aigw(aigw: object, cache: CacheOutcome) -> SignalAcco
     same numbers as the first run. Anything else reads the last attempt that succeeded, and only
     when the capture is complete, nothing was omitted and every attempt is a mapping (F8).
 
-    WHY this ignores ``cache.retried``: ``avoided_usd_for_outcome`` withdraws a money-saved claim
-    after a retry, but a signal wants the original call's numbers, and the reference holds exactly
-    those. WHY separate from ``retained_operation_accounting``: that keeps the cache-hit zeros.
+    WHY this ignores ``cache.retried``: a signal wants the original call's numbers, and the
+    reference holds exactly those. No price reads the flag either (OME-1687). WHY separate from
+    ``retained_operation_accounting``: that keeps the cache-hit zeros.
     """
     if cache.status == "hit":
         return _reference_signal_accounting(aigw)

@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1687",
+  "branch": "OME-1687-price-successful-request-only",
+  "approver": "Ionesio Junior (user)",
+  "date": "2026-10-20",
+  "scope": "Six prior test functions flipped from the OME-1220 rule to the OME-1687 rule (a retry never makes a call, an operation or a saving unpriced): test_a_miss_retried_after_a_possibly_billed_failure_is_unpriced, test_a_possibly_billed_retry_is_unpriced_in_the_retained_operation, test_a_hit_after_a_retry_reports_an_unknown_price_not_a_zero_one, test_a_retried_miss_is_unpriced_too, test_a_hit_after_a_transport_retry_is_not_priced, test_a_withdrawn_price_lands_in_the_unpriced_bucket_and_no_total (each renamed to state the new rule), the test_ambiguous_retry_pricing module docstring, and one comment-only edit in test_signal_accounting.py::test_a_retried_hit_still_gives_the_reference_numbers. No other prior test changes.",
+  "reason": "User decision 2026-10-20 (OME-1687, cost of intelligence): the leaderboard shows the price of a model's successful requests in a perfect world where every model answers on the first attempt, so a retry is an infrastructure event and must not make a price unknown. This reverses OME-1220 D1. The retry flag stays as a recorded fact (D4) and its prior tests stay unchanged.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_ambiguous_retry_pricing.py": {
+      "base_blob": "23595894424e4d7b1be6be3c7da4c1f41078332d",
+      "approved_blob": "c4c6e76de870143aa5d70c634c5d8d2a06a8689c"
+    },
+    "apps/screamingface-engine/tests/unit/test_cache_hit_retry_pricing.py": {
+      "base_blob": "457d53aefad91e8f76666d965a259412a1f1786c",
+      "approved_blob": "c4c8b9cc10dcde64b13772d7d671b2a48bce4ced"
+    },
+    "apps/screamingface-engine/tests/unit/test_cache_saved_cost.py": {
+      "base_blob": "dfdb06f5106174a66ea3f98dde9adba437fb7c17",
+      "approved_blob": "5a058667cda4578add01587f94540b6f942aff9b"
+    },
+    "apps/screamingface-engine/tests/unit/test_signal_accounting.py": {
+      "base_blob": "66601948086cc544e5dec268150cde8f150afcf0",
+      "approved_blob": "2bcda56209b7648bbd4a4606152a7fdc9894454c"
+    }
+  }
+}

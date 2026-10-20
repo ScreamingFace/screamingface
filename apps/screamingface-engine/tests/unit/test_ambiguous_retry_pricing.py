@@ -1,24 +1,17 @@
-"""A round trip retried after a reply that may have been billed reports an unknown cost (OME-1220).
+"""A round trip retried after a possibly billed failure keeps its successful request's price.
 
-FEATURE: per-run cost reporting (OME-849) under the connector's one-shot transport retry.
-STORY: as an operator reading a run's cost, I never see a figure lower than what was spent; when
-a lost reply makes the spend unknowable, the run says "unknown" instead of a confident undercount.
+FEATURE: cost of intelligence (OME-1687), under the connector's one-shot transport retry.
+STORY: as a reader of the leaderboard, I see what a model's successful answers cost; a transport
+blip on one call does not turn the run's cost into "unknown".
 
-WHY a retry can hide spend: `_post_completion` retries once after a transport failure. If the
-failure came after the request left the Engine, the gateway may already have dispatched it, and a
-non-streaming provider call is billed in full even when the caller goes away (the gateway cancels
-its provider call on disconnect, so it never learns that price either). The retry's own figure is
-then only part of the spend; a hit that follows may be the very row the lost attempt paid for.
+WHY the retry flag still exists: `_post_completion` still records whether a retry followed a
+failure that MAY have reached the gateway (`ConnectError`, `ConnectTimeout` and `PoolTimeout` are
+raised before httpcore writes a byte, so they do not set it). OME-1220 once made such a round trip
+unpriced; OME-1687 reversed that rule (owner decision, 2026-10-20). The flag is now a recorded
+fact only, and no price reads it.
 
-INVARIANT under test: the price is withdrawn only on evidence the request MAY have been sent.
-`ConnectError`, `ConnectTimeout` and `PoolTimeout` are raised before httpcore writes a byte
-(connection setup or the wait for a pooled connection), so a retry after one keeps the exact
-price. Every other transport failure is ambiguous: httpcore swallows a mid-request `WriteError`
-and surfaces the outcome as a read-side error, so "write vs read" cannot separate the cases;
-only "connect phase vs everything else" can.
-
-INVARIANT: only the PRICE becomes unknown. Token counts keep their meaning (a lower bound for a
-miss, definite zeros for a hit); the wire has no "unknown" token count.
+INVARIANT: token counts keep their meaning (the retry's own counts for a miss, definite zeros for
+a hit); the wire has no "unknown" token count.
 """
 
 from __future__ import annotations
@@ -162,12 +155,13 @@ async def _run(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", _AMBIGUOUS, ids=lambda e: type(e).__name__)
-async def test_a_miss_retried_after_a_possibly_billed_failure_is_unpriced(
+async def test_a_miss_retried_after_a_possibly_billed_failure_keeps_its_exact_price(
     failure: Exception,
 ) -> None:
+    # OME-1687 (owner-approved flip of the OME-1220 rule): the price is the successful request's.
     usage = await _run(_body(_billed_aigw()), _MISS_HEADERS, failure)
 
-    assert usage.cost_usd is None
+    assert usage.cost_usd == Decimal("0.001")
 
 
 @pytest.mark.asyncio
@@ -294,11 +288,14 @@ def _outcome(status: CacheStatus, *, retried: bool) -> CacheOutcome:
 
 
 @pytest.mark.parametrize(
-    ("aigw", "status"), [(_billed_aigw(), "miss"), (_served_aigw(), "hit")], ids=["miss", "hit"]
+    ("aigw", "status", "cost"),
+    [(_billed_aigw(), "miss", "0.001"), (_served_aigw(), "hit", "0")],
+    ids=["miss", "hit"],
 )
-def test_a_possibly_billed_retry_is_unpriced_in_the_retained_operation(
-    aigw: dict[str, Any], status: CacheStatus
+def test_a_possibly_billed_retry_keeps_its_price_in_the_retained_operation(
+    aigw: dict[str, Any], status: CacheStatus, cost: str
 ) -> None:
+    # OME-1687 (owner-approved flip of the OME-1220 rule): a retry changes no price.
     retained = retained_operation_accounting(
         request_model=_MODEL,
         usage={"prompt_tokens": 11, "completion_tokens": 7},
@@ -306,7 +303,7 @@ def test_a_possibly_billed_retry_is_unpriced_in_the_retained_operation(
         cache=_outcome(status, retried=True),
     )
 
-    assert retained.usage.cost_usd is None
+    assert retained.usage.cost_usd == cost
 
 
 @pytest.mark.parametrize(

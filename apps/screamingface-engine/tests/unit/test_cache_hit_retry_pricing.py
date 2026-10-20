@@ -160,12 +160,14 @@ def _usage(*, cost_usd: Decimal | None, span: str) -> Usage:
 
 
 @pytest.mark.asyncio
-async def test_a_hit_after_a_retry_reports_an_unknown_price_not_a_zero_one() -> None:
+async def test_a_hit_after_a_retry_is_priced_at_zero() -> None:
+    # OME-1687 (owner-approved flip of the OME-1220 rule): the price is the successful request's,
+    # and a hit's successful request cost nothing.
     rec = _Recorder()
 
     assert await _run(_body(_served_aigw()), _HIT_HEADERS, rec, fail_first=True) == "an answer"
 
-    assert rec.usages[0].cost_usd is None
+    assert rec.usages[0].cost_usd == Decimal("0")
 
 
 @pytest.mark.asyncio
@@ -195,16 +197,14 @@ async def test_a_retried_hit_still_reports_no_tokens_consumed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_retried_miss_is_unpriced_too() -> None:
-    # OME-1220 (owner-approved contract change): a lost reply may have been billed in full
-    # upstream, so the miss's own figure covers only the attempt that answered. "Unknown" beats
-    # a confident undercount; connect-phase failures keep the exact price
-    # (`test_ambiguous_retry_pricing.py`).
+async def test_a_retried_miss_keeps_its_price() -> None:
+    # OME-1687 (owner-approved flip of the OME-1220 rule): a retry is an infrastructure event, so
+    # the miss keeps its provider-authored price (cost of intelligence).
     rec = _Recorder()
 
     await _run(_body(_billed_aigw()), _MISS_HEADERS, rec, fail_first=True)
 
-    assert rec.usages[0].cost_usd is None
+    assert rec.usages[0].cost_usd == Decimal("0.001")
 
 
 def test_a_retried_hit_makes_the_whole_run_total_unpriced() -> None:
