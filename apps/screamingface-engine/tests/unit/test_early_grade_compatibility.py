@@ -1,4 +1,9 @@
-"""Old production protocols and early grades describe the same scoring exam."""
+"""Old production protocols and early grades describe the same scoring exam.
+
+WHY recorded runs (spec 2026-10-20-url4-benchmark-expression, D5): the retired protocol's
+routes are gone, so its expressions can no longer run. The fixture keeps what they produced on
+origin/main — every model call and the final result — and the rebuilt protocol must match both.
+"""
 
 import json
 from pathlib import Path
@@ -42,18 +47,12 @@ async def test_old_and_early_protocol_requests_and_results_match(
             "(a:0.0:/writer($input)!answer,b:0.0:/writer-b($input)!answer,"
             "c:0.0:/synth($a,$b)!combine)!'$c'"
         )
+    recorded = BASELINE[registration.benchmark.id]["runs"][
+        f"{'fusion' if fusion else 'solo'}-{limit}"
+    ]
     try:
-        old = json.loads(
-            (
-                await node.evaluate(
-                    link_candidate(
-                        candidate, BASELINE[registration.benchmark.id]["protocols"][str(limit)]
-                    )
-                )
-            ).text
-        )
-        old_calls = list(calls)
-        calls.clear()
+        old = recorded["result"]
+        old_calls = [tuple(call[:3]) + (call[3],) for call in recorded["calls"]]
         new = json.loads(
             (
                 await node.evaluate(
@@ -62,7 +61,9 @@ async def test_old_and_early_protocol_requests_and_results_match(
             ).text
         )
         assert new == old
-        assert calls == old_calls
+        assert [
+            (path, context, intent, dict(params)) for path, context, intent, params in calls
+        ] == (old_calls)
     finally:
         await node.aclose()
 

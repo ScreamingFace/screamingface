@@ -48,6 +48,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
+from url4.core.code import SupportsCode
 from url4.io.layer import (
     FetchRequest,
     FetchResult,
@@ -290,6 +291,8 @@ class FairShareIOLayer:
     fetch_holdings: Any
     processor_routes: Any
     default_route: Any
+    has_code: Any
+    invoke_code: Any
 
     def __init__(self, inner: IOLayer, gate: FairShareGate, run: str) -> None:
         self._inner = inner
@@ -310,6 +313,11 @@ class FairShareIOLayer:
         # declaration: not I/O, never bounded, forwarded unconditionally when present.
         if isinstance(inner, SupportsDefaultRoute):
             self.default_route = inner.default_route
+        # WHY ungated, as `BoundedIOLayer` forwards it: in-process code is not I/O, and a
+        # Benchmark's per-Case and per-run steps are code mounts (spec 2026-10-20 R1) — a
+        # wrapper that hid the port would fail every Benchmark run with `unsupported_mode`.
+        if isinstance(inner, SupportsCode):
+            self.has_code, self.invoke_code = inner.has_code, inner.invoke_code
 
     @property
     def run(self) -> str:

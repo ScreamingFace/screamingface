@@ -383,3 +383,20 @@ def test_builder_outputs_always_render():
     for node in nodes:
         rendered = render(node)  # check=True certifies build(rendered) == node
         assert build(rendered) is not None
+
+
+def test_literal_text_resolves_to_its_content_in_an_rds_scope() -> None:
+    # STORY: a Benchmark carries a Recipe holding `$input` as data beside code steps; in the
+    # RDS scope quoted text is interpolated strictly, so it must travel as a literal.
+    import asyncio
+
+    from url4 import RelUrl, literal, literal_value
+    from url4.peer.server import Url4Node
+
+    node = Url4Node("literal")
+    node.code("/echo")(lambda call: str(call.input("recipe").value))
+    recipe = "/m?q=($input)!'cost $$5 and $item'"
+    expression = expr(src(literal(recipe), name="recipe", weight=0.0), intent=RelUrl("/echo"))
+
+    assert asyncio.run(node.evaluate(render(expression))).text == recipe
+    assert literal_value(literal(recipe)) == recipe

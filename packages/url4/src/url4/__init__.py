@@ -67,6 +67,8 @@ from url4.core.builders import (
     expr,
     identity,
     iterate,
+    literal,
+    literal_value,
     reduce,
     ref,
     self_,
@@ -197,5 +199,7 @@ __all__ = [
     "src",
     "struct",
     "text",
+    "literal",
+    "literal_value",
     "walk",
 ]

@@ -7,27 +7,24 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
 
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_DEPLOYMENT
+from screamingface_engine.benchmarks.case_evaluation import case_evaluation_code
 from screamingface_engine.benchmarks.case_selection import install_cases
+from screamingface_engine.benchmarks.code_calls import run_case_evaluation
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.definition import Benchmark
-from screamingface_engine.benchmarks.graded_answer import (
-    GRADED_ANSWER_SCHEMA,
-    install_graded_answer_endpoint,
-)
+from screamingface_engine.benchmarks.graded_answer import GRADED_ANSWER_SCHEMA
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
-from screamingface_engine.benchmarks.protocol import (
-    build_evaluation_protocol,
-    preserve_candidate_outcome,
-)
+from screamingface_engine.benchmarks.protocol import evaluation_protocol
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
-from url4 import RelExpr, Text, expr, render, src, struct
+from url4 import CodeCall, Node, RelExpr, Text, render, src
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -72,6 +69,24 @@ async def test_the_public_catalogue_publishes_exactly_the_registered_benchmarks(
     assert sorted(published) == registered
 
 
+def _collected(call: CodeCall, name: str) -> object:
+    """A code input as Python data: url4 hands rows over parsed, scalars as text."""
+
+    value = call.input(name).value
+    return json.loads(value) if isinstance(value, str) and value[:1] in "[{" else value
+
+
+def _install_run_terminal(node: Url4Node) -> None:
+    @node.code("/example/aggregate")
+    def aggregate(call: CodeCall) -> str:
+        return json.dumps(
+            {
+                "selected": call.input("selected").value,
+                "case_evaluations": _collected(call, "evaluations"),
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -> None:
     node = _protocol_node("benchmark-protocol")
@@ -89,35 +104,38 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
 
     @node.endpoint("/example/evaluate-case")
     def evaluate_case(request: Request) -> str:
-        if request.intent == "22":
+        if request.context == "second":
             raise ResolutionError("candidate failed", code="candidate_failed", permanent=True)
-        return json.dumps({"case_id": int(request.intent), "output": request.context})
+        return request.context
 
-    @node.endpoint("/example/aggregate")
-    def aggregate(request: Request) -> str:
-        return json.dumps(
-            {
-                "intent": request.intent,
-                "case_evaluations": json.loads(request.context),
-            }
-        )
+    # WHY a code terminal (spec R1/R4): the per-Case terminal is the body's code intent; it
+    # reads the Case and the step result by name.
+    @node.code("/example/case")
+    def case(call: CodeCall) -> str:
+        row = _collected(call, "case")
+        assert isinstance(row, dict)
+        return json.dumps({"case_id": row["id"], "output": call.input("evaluated").value})
 
-    protocol = build_evaluation_protocol(
+    _install_run_terminal(node)
+    protocol = evaluation_protocol(
         cases_route="/example/cases",
-        case_evaluation=RelExpr(
-            path="/example/evaluate-case",
-            context="$item.input",
-            intent=Text("$item.id"),
+        steps=(
+            src(
+                RelExpr(path="/example/evaluate-case", context="$item.input", intent=Text("x")),
+                name="evaluated",
+                weight=0.0,
+            ),
         ),
+        case_terminal="/example/case",
+        run_terminal="/example/aggregate",
         selected_case_count=2,
         available_case_count=3,
-        aggregate_route="/example/aggregate",
     )
 
     result = json.loads((await node.evaluate(render(protocol))).text)
 
     assert result == {
-        "intent": "aggregate:2",
+        "selected": "2",
         "case_evaluations": [
             {"case_id": 11, "output": "first"},
             {
@@ -130,6 +148,14 @@ async def test_protocol_preserves_selected_order_and_collects_a_case_failure() -
             },
         ],
     }
+
+
+def _branch(name: str) -> Node:
+    return src(
+        RelExpr(path="/example/case-branch", context="$item.id", intent=Text(name)),
+        name=name,
+        weight=0.0,
+    )
 
 
 @pytest.mark.asyncio
@@ -156,44 +182,21 @@ async def test_protocol_evaluates_only_one_complete_case_at_a_time() -> None:
         finally:
             active_branches -= 1
 
-    @node.endpoint("/example/complete-case")
-    def complete_case(request: Request) -> str:
-        payload = json.loads(request.context)
-        active_cases.remove(payload["case_id"])
-        return json.dumps({"case_id": payload["case_id"]})
+    @node.code("/example/complete-case")
+    def complete_case(call: CodeCall) -> str:
+        row = _collected(call, "case")
+        assert isinstance(row, dict)
+        active_cases.remove(row["id"])
+        return json.dumps({"case_id": row["id"]})
 
-    @node.endpoint("/example/aggregate")
-    def aggregate(request: Request) -> str:
-        return request.context
-
-    case_evaluation = expr(
-        src(
-            RelExpr(path="/example/case-branch", context="$item.id", intent=Text("left")),
-            name="left",
-            weight=0.0,
-        ),
-        src(
-            RelExpr(path="/example/case-branch", context="$item.id", intent=Text("right")),
-            name="right",
-            weight=0.0,
-        ),
-        src(
-            RelExpr(
-                path="/example/complete-case",
-                context=render(struct({"case_id": "$item.id", "left": "$left", "right": "$right"})),
-                intent=Text(""),
-            ),
-            name="completed",
-            weight=0.0,
-        ),
-        intent=Text("$completed"),
-    )
-    protocol = build_evaluation_protocol(
+    _install_run_terminal(node)
+    protocol = evaluation_protocol(
         cases_route="/example/cases",
-        case_evaluation=case_evaluation,
+        steps=(_branch("left"), _branch("right")),
+        case_terminal="/example/complete-case",
+        run_terminal="/example/aggregate",
         selected_case_count=3,
         available_case_count=3,
-        aggregate_route="/example/aggregate",
     )
     rendered = render(protocol)
 
@@ -207,34 +210,33 @@ async def test_protocol_evaluates_only_one_complete_case_at_a_time() -> None:
 
 @pytest.mark.asyncio
 async def test_case_execution_preserves_candidate_invocation_when_grading_fails() -> None:
+    # WHY the code mount (spec §3.3): the retired protective iterate is now the
+    # case-evaluation code's own per-Attempt catch; the row it writes is unchanged.
     node = Url4Node("benchmark-case-execution")
+    invocation = encode_candidate_invocation("", "content_filter", "exact refusal")
 
-    @node.endpoint("/candidate")
-    def candidate(_request: Request) -> str:
-        return encode_candidate_invocation("", "content_filter", "exact refusal")
-
-    @node.endpoint("/grade")
-    def grade(_request: Request) -> str:
+    def check(_case_id: int, _invocation: str, _others: object) -> dict[str, object]:
         raise ResolutionError("checker unavailable", code="checker_failed", permanent=True)
 
-    install_graded_answer_endpoint(node)
-
-    protected = preserve_candidate_outcome(
-        candidate_invocation=RelExpr(path="/candidate", context="question", intent=Text("")),
-        grading=RelExpr(
-            path="/grade",
-            context="$candidate_invocation",
-            intent=Text(""),
-        ),
-        case_id="case-1",
+    node.code("/case-evaluation")(
+        case_evaluation_code(
+            label="Example",
+            check=check,
+            build_case_grade=lambda case_id, records: {"case_id": case_id},
+            observe_grading=False,
+        )
     )
 
-    result = json.loads((await node.evaluate(render(protected))).text)
+    result = json.loads(
+        await run_case_evaluation(
+            node, "/case-evaluation", case={"id": 7, "case_id": "7"}, attempts=[invocation]
+        )
+    )
 
     assert result == {
         "schema": GRADED_ANSWER_SCHEMA,
-        "case_id": "case-1",
-        "candidate_invocation": encode_candidate_invocation("", "content_filter", "exact refusal"),
+        "case_id": "7",
+        "candidate_invocation": invocation,
         "grading": [
             {
                 "error": {
@@ -248,14 +250,46 @@ async def test_case_execution_preserves_candidate_invocation_when_grading_fails(
     }
 
 
+@pytest.mark.asyncio
+async def test_a_grader_bug_keeps_the_candidate_answer_in_the_row() -> None:
+    """INVARIANT (spec §3.3): any grading failure, even a plain bug, never drops the answer."""
+
+    node = Url4Node("benchmark-grader-bug")
+    invocation = encode_candidate_invocation("B", "stop", None)
+
+    def bundle(_case_id: int, _records: object) -> dict[str, object]:
+        raise ZeroDivisionError("division by zero")
+
+    node.code("/case-evaluation")(
+        case_evaluation_code(
+            label="Example",
+            check=lambda case_id, _invocation, _others: {"case_id": case_id},
+            build_case_grade=bundle,
+            observe_grading=False,
+        )
+    )
+
+    row = json.loads(
+        await run_case_evaluation(
+            node, "/case-evaluation", case={"id": 3, "case_id": "3"}, attempts=[invocation]
+        )
+    )
+
+    assert row["candidate_invocation"] == invocation
+    assert row["grading"] == [
+        {"error": {"kind": "ZeroDivisionError", "message": "division by zero"}}
+    ]
+
+
 def test_protocol_rejects_an_impossible_case_selection() -> None:
     with pytest.raises(ValueError, match="selected_case_count"):
-        build_evaluation_protocol(
+        evaluation_protocol(
             cases_route="/example/cases",
-            case_evaluation=RelExpr(path="/example/evaluate-case"),
+            steps=(),
+            case_terminal="/example/case",
+            run_terminal="/example/aggregate",
             selected_case_count=4,
             available_case_count=3,
-            aggregate_route="/example/aggregate",
         )
 
 
@@ -268,7 +302,9 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # (an empty parametrize would skip this test silently).
         # Moved once (OME-1642): medxpert declares withhold, so its revision — in every route —
         # moved with it.
-        (MEDXPERT, "25fc7f56169d3a10670e8d3bc73c66d51e9ac1d586f447b9e035d6d4de441952"),
+        # Moved again (spec 2026-10-20-url4-benchmark-expression, owner-approved): the
+        # expression was rebuilt to URL4 Parts A–C; the revision did NOT move (pinned below).
+        (MEDXPERT, "5fa018ad8dde9a251c94c93918acf60eed214d6f2832770a111900b0f59d443e"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(
@@ -279,13 +315,24 @@ def test_canonical_benchmark_url4_is_pinned_byte_for_byte(
     assert hashlib.sha256(url4.encode()).hexdigest() == expected_sha256
 
 
+def test_the_rebuilt_expression_keeps_the_medxpert_revision() -> None:
+    # INVARIANT (D5): the leaderboard keys on the revision; the rebuild must not move it.
+    assert MEDXPERT.revision == "1e5a3b8a461a52f7"
+
+
 def test_canonical_medxpert_binds_the_exact_selected_count_for_aggregation() -> None:
     # MedXpertQA stands in since IFEval, the original subject, became a local Task (OME-1527).
-    assert "!'aggregate:2'" in render(MEDXPERT.build(2))
+    # WHY a source, not an intent (spec R7): the count is an argument of the run terminal.
+    rendered = render(MEDXPERT.build(2))
+
+    assert "selected:0.0:'2'" in rendered
+    assert "iteration.slice=0:2" in rendered
 
 
 @pytest.mark.asyncio
-async def test_protocol_resolves_shared_bindings_before_case_iteration() -> None:
+async def test_a_top_level_source_resolves_inside_every_case_body() -> None:
+    """A source added to the run's top-level group reaches every Case (how `$candidate` does)."""
+
     node = _protocol_node("benchmark-bindings")
     install_cases(node, "/example/cases", lambda: json.dumps([{"id": 1, "input": "case"}]))
 
@@ -293,19 +340,31 @@ async def test_protocol_resolves_shared_bindings_before_case_iteration() -> None
     def evaluate_case(request: Request) -> str:
         return request.context
 
-    @node.endpoint("/example/aggregate")
-    def aggregate(request: Request) -> str:
-        return request.context
+    @node.code("/example/case")
+    def case(call: CodeCall) -> str:
+        value = call.input("evaluated").value
+        assert isinstance(value, str)
+        return value
 
-    protocol = build_evaluation_protocol(
+    @node.code("/example/aggregate")
+    def aggregate(call: CodeCall) -> str:
+        return json.dumps(_collected(call, "evaluations"))
+
+    protocol = evaluation_protocol(
         cases_route="/example/cases",
-        case_evaluation=RelExpr(
-            path="/example/evaluate-case", context="$shared", intent=Text("$item.id")
+        steps=(
+            src(
+                RelExpr(path="/example/evaluate-case", context="$shared", intent=Text("x")),
+                name="evaluated",
+                weight=0.0,
+            ),
         ),
+        case_terminal="/example/case",
+        run_terminal="/example/aggregate",
         selected_case_count=1,
         available_case_count=1,
-        aggregate_route="/example/aggregate",
-        bindings=(src(Text("resolved-once"), name="shared", weight=0.0),),
     )
+    shared = src(Text("resolved-once"), name="shared", weight=0.0)
+    bound = replace(protocol, sources=(shared, *protocol.sources))
 
-    assert json.loads((await node.evaluate(render(protocol))).text) == ["resolved-once"]
+    assert json.loads((await node.evaluate(render(bound))).text) == ["resolved-once"]

@@ -23,9 +23,9 @@ pytest.importorskip("inspect_evals")
 
 from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
-from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (
     benchmark_registrations,  # noqa: E402
     imported_benchmark,  # noqa: E402

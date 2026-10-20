@@ -27,10 +27,10 @@ from replayed_cases_helpers import (  # noqa: E402
 )
 from test_inspect_imported_benchmarks import _EXPECTED_FAMILIES  # noqa: E402
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR  # noqa: E402
-from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     BENCHMARKS,
     ImportedBenchmark,

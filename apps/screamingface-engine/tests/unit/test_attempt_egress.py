@@ -24,6 +24,7 @@ import pytest
 from test_answer_seed_threading import MODEL, _MockAigateway
 
 from screamingface_engine.benchmarks.case_context import case_attempt_scope, current_case_attempt
+from screamingface_engine.benchmarks.definition import inert_text
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world.cache import (
     attempt_body_field,
@@ -50,10 +51,12 @@ def _candidate(attempt: str | None = None, *, inner_params: str = "") -> str:
     return render(
         expr(
             src(
+                # WHY: the Candidate contract (spec 2026-10-20 R2) — the model input is the
+                # intent, the Recipe a source.
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context="case-ctx",
-                    intent=text(inner),
+                    context=render(src(text(inert_text(inner)), name="recipe")),
+                    intent=text("case-ctx"),
                     params=params,
                 ),
                 name="answer",

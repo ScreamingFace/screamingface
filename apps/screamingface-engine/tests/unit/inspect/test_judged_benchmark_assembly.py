@@ -27,11 +27,11 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
-from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402

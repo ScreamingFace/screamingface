@@ -4,6 +4,7 @@
 finishes; ``(evaluations, selected)!/…/aggregate/graded`` reduces the run.
 """
 
+import json
 from collections.abc import Callable
 from functools import lru_cache
 
@@ -13,6 +14,7 @@ from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 from url4 import CodeCall, CodeHandler
 from url4.core.errors import ResolutionError
+from url4.dag import collected_error
 
 EXECUTION_SOURCE = "execution"
 CASE_INDEX_SOURCE = "case_index"
@@ -41,9 +43,15 @@ def case_result_code(load: Callable[[int], Scoring], *, available_case_count: in
         # Grader crashes must abort just as they do in batch aggregation.
         # Cancellation remains outside this boundary (BaseException).
         except Exception as exc:
-            raise CaseFinalizationError(
+            failure = CaseFinalizationError(
                 "could not finalize Case grade", code="benchmark_contract_error", permanent=True
-            ) from exc
+            )
+            failure.__cause__ = exc
+            # WHY return the collected row, not raise: url4 reports any failing code call as
+            # `intent_error` (Spec C §13.6), which hides the `CaseFinalizationError` kind that
+            # `Scoring.finish` keys on to abort the run. This is byte for byte the row the
+            # retired endpoint's raise left in the iteration.
+            return json.dumps(collected_error(failure))
 
     return handler
 

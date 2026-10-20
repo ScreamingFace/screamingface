@@ -4,7 +4,7 @@ import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.case_context import case_scope, current_case_id
-from screamingface_engine.benchmarks.definition import candidate_call
+from screamingface_engine.benchmarks.definition import candidate_invocation
 from screamingface_engine.observations import ModelCall, RunObservations
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from url4 import Text, iterate, render, src, struct
@@ -25,12 +25,13 @@ async def test_case_envelope_preserves_actual_candidate_input(monkeypatch, struc
     monkeypatch.setattr(candidate_adapter, "evaluate_candidate_recipe", evaluate)
     node = Url4Node()
     install_candidate_invocation(node)
-    value = {"question": "$item.input", "reasoning": "$reasoning"} if structured else "$item.input"
-    original = render(struct(value)) if isinstance(value, dict) else value
+    # WHY (spec 2026-10-20 R2): the model input is the quoted intent; the Case facts are
+    # sources beside the Recipe and never reach it.
+    prompt = "$item.input / $reasoning" if structured else "$item.input"
     row = struct({"id": "007", "input": 'Quotes " here\nkeep $literal'})
     for call in (
-        candidate_call(original, web_search=False),
-        candidate_call(value, web_search=False, case_id="$item.id"),
+        candidate_invocation(prompt, web_search=False),
+        candidate_invocation(prompt, web_search=False, case_count=1),
     ):
         expression = iterate(
             [row],
@@ -42,6 +43,8 @@ async def test_case_envelope_preserves_actual_candidate_input(monkeypatch, struc
         )
         await node.evaluate(render(expression), env={"candidate": "recipe"})
     assert inputs[0][0] == inputs[1][0]
+    expected = 'Quotes " here\nkeep $literal'
+    assert inputs[0][0] == (f"{expected} / prior answer" if structured else expected)
     assert inputs[0][1] is None
     assert inputs[1][1] == "007"
     assert current_case_id() is None
@@ -92,38 +95,51 @@ def test_case_scope_resets_after_failure(error):
 
 
 @pytest.mark.parametrize(
-    "payload",
+    "context",
     [
-        "{}",
-        "not-json",
-        '{"input": 3, "case_id": 42}',
-        '{"input": "question", "case_id": true}',
-        '{"input": "question", "case_id": ""}',
-        '{"input": "question", "case_id": 42, "extra": "private"}',
+        "",
+        "case_id: 42",
+        "recipe: ",
+        "case_index: 0\nrecipe: r",
+        "case_id: \nrecipe: r",
+        "case_id: 42\nextra: private\nrecipe: r",
+        "case_id: 42\ncase_count: 1\ncase_index: 0\nrecipe: r",
     ],
 )
-def test_invalid_case_envelopes_fail_without_echoing_payload(payload):
-    from screamingface_engine.benchmarks.case_request import candidate_input
+def test_invalid_candidate_sources_fail_without_echoing_payload(context):
+    # WHY (spec 2026-10-20 R2): the facts and the Recipe arrive as packed source lines —
+    # none, the identity, or identity and position, in that order, then the Recipe last.
+    from screamingface_engine.benchmarks.case_request import candidate_request
     from url4.core.errors import ResolutionError
     from url4.peer.server import Request
 
-    with pytest.raises(ResolutionError, match="Invalid candidate case context"):
-        candidate_input(
-            Request("/benchmarks/candidate", payload, "recipe", {"context_format": "case-v1"})
-        )
+    with pytest.raises(ResolutionError, match="Invalid Candidate Invocation sources") as caught:
+        candidate_request(Request("/benchmarks/candidate", context, "question", {}))
+    assert "private" not in str(caught.value)
 
 
-def test_format_is_explicit_and_plain_json_input_is_not_mistaken_for_metadata():
-    from screamingface_engine.benchmarks.case_request import candidate_input
-    from url4.core.errors import ResolutionError
+def test_the_intent_is_the_input_and_the_recipe_is_everything_after_its_name():
+    from screamingface_engine.benchmarks.case_request import candidate_request
     from url4.peer.server import Request
 
     text = '{"input": "question", "case_id": 42}'
-    assert candidate_input(Request("/benchmarks/candidate", text, "recipe", {})) == (text, None)
-    with pytest.raises(ResolutionError):
-        candidate_input(
-            Request("/benchmarks/candidate", text, "recipe", {"context_format": "other"})
+    plain = candidate_request(Request("/benchmarks/candidate", "recipe: r", text, {}))
+    assert (plain.input_text, plain.recipe, plain.case_id, plain.position) == (
+        text,
+        "r",
+        None,
+        None,
+    )
+    recipe = "(a:0.0:/m($input)!'x')!'$a'\ncase_id: 9\nrecipe: nested"
+    numbered = candidate_request(
+        Request(
+            "/benchmarks/candidate",
+            f"case_id: 42\ncase_index: 0\ncase_count: 3\nrecipe: {recipe}",
+            "question",
+            {},
         )
+    )
+    assert (numbered.recipe, numbered.case_id, numbered.position) == (recipe, "42", (1, 3))
 
 
 @pytest.mark.asyncio
@@ -167,7 +183,7 @@ async def test_real_candidate_execution_emits_case_metadata_without_prompt_metad
             return "answer"
 
     run = RunObservations((ActivityObserver,))
-    call = candidate_call("$item.input", case_id="$item.id", web_search=False)
+    call = candidate_invocation("$item.input", web_search=False, case_count=1)
     expression = iterate(
         [struct({"id": "case-42", "input": "original question"})],
         body=(src(call, name="result", weight=0.0),),
@@ -202,7 +218,10 @@ async def test_transport_case_identity_joins_results_by_string_without_numeric_c
     expression = iterate(
         [struct({"id": case_id, "input": "question"})],
         body=(
-            src(candidate_call("$item.input", case_id="$item.id", web_search=False), name="result"),
+            src(
+                candidate_invocation("$item.input", web_search=False, case_count=1),
+                name="result",
+            ),
         ),
         intent=Text("$result"),
     )

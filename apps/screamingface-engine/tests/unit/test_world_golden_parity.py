@@ -36,9 +36,11 @@ MODEL = "anthropic/claude-haiku-4-5"
 
 # A rendered Candidate expression, frozen as a literal so the golden cannot drift if a test
 # helper changes. Produced once by url4's own renderer; `<MODEL>` below is the model id above.
+# WHY re-rendered (spec 2026-10-20 R2): the Candidate contract carries the model input as the
+# intent and the Recipe as a source; the golden REQUEST and RESULT below are unchanged.
 _GOLDEN_EXPRESSION = (
-    "(answer:0.0:/benchmarks/candidate?web_search=false&q=(case-ctx)!'"
-    "/anthropic/claude-haiku-4-5(\\'case-ctx\\')!\\'answer\\'')!'$answer'"
+    "(answer:0.0:/benchmarks/candidate?web_search=false&q=(recipe='"
+    "/anthropic/claude-haiku-4-5(\\'case-ctx\\')!\\'answer\\'')!'case-ctx')!'$answer'"
 )
 
 _GOLDEN_ANSWER = "golden answer"

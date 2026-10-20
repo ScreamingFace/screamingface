@@ -18,7 +18,7 @@ from screamingface_engine.benchmarks.provenance import (
     validate_provenance,
 )
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
-from url4 import Expression, Node, RelExpr, Text, VarRef, build, render, src, text
+from url4 import Expression, Node, RelExpr, Text, VarRef, build, literal, render, src
 from url4.peer.server import Url4Node
 
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
@@ -521,21 +521,18 @@ def link_candidate(candidate_expression: Node | str, protocol: Node | str) -> st
     selected = protocol if isinstance(protocol, Node) else build(protocol)
     if not isinstance(selected, Expression):
         raise ValueError("a Benchmark protocol must be one top-level URL4 expression")
-    binding = src(
-        text(inert_text(_as_text(candidate_expression))), name=CANDIDATE_BINDING, weight=0.0
-    )
+    binding = src(literal(_as_text(candidate_expression)), name=CANDIDATE_BINDING, weight=0.0)
     return render(replace(selected, sources=(binding, *selected.sources)))
 
 
 def inert_text(value: str) -> str:
-    """Quoted URL4 text that resolves to ``value`` exactly, never interpolated.
+    """The quoted-text content that resolves to ``value`` exactly (``url4.literal``).
 
     WHY: the protocol's terminal is code, so its group is an RDS scope, where quoted text is
     interpolated strictly (Spec B §6.3) — a Recipe's own ``$input`` would fail as unbound.
-    ``$$`` is the grammar's literal dollar (Spec B §6.2).
     """
 
-    return value.replace("$", "$$")
+    return literal(value).value
 
 
 def _as_text(value: Node | str) -> str:

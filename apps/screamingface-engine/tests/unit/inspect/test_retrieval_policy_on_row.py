@@ -79,9 +79,9 @@ def _candidate_params(imported: ImportedBenchmark) -> tuple[tuple[str, str], ...
     rendered: str = render(imported.benchmark.protocol(2))
     found: re.Match[str] | None = re.search(r"/benchmarks/candidate\?([^(]*?)&q=", rendered)
     assert found is not None, rendered
-    # WHY drop context_format: it names the Case envelope the iteration fills in, which this
-    # test replaces with plain text; only the retrieval params are under test.
-    return tuple(pair for pair in parse_qsl(found.group(1)) if pair[0] != "context_format")
+    # WHY no filter: the Case facts ride as sources now (spec 2026-10-20 R2), so every
+    # param on the call is a retrieval param.
+    return tuple(parse_qsl(found.group(1)))
 
 
 async def _bodies(params: tuple[tuple[str, str], ...], inner_params: str = "") -> list[dict]:
@@ -95,10 +95,13 @@ async def _bodies(params: tuple[tuple[str, str], ...], inner_params: str = "") -
         captured.append(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}], "usage": {}})
 
+    # WHY this shape: the prompt is the call's intent and the Recipe its source (spec
+    # 2026-10-20 R2).
+    recipe: str = f"/{_NATIVE}('What is 6 times 7?')!'answer'{inner_params}"
     call: RelExpr = RelExpr(
         path=CANDIDATE_ROUTE,
-        context="What is 6 times 7?",
-        intent=text(f"/{_NATIVE}('What is 6 times 7?')!'answer'{inner_params}"),
+        context=render(src(text(recipe), name="recipe")),
+        intent=text("What is 6 times 7?"),
         params=params,
     )
     expression: str = render(expr(src(call, name="answer", weight=0.0), intent=text("$answer")))

@@ -60,10 +60,10 @@ def test_unknown_or_unsafe_case_does_not_suppress_stage(monkeypatch, case):
 
 @pytest.mark.asyncio
 async def test_candidate_answering_stage_starts_inside_decoded_case_scope(monkeypatch):
-    from screamingface_engine.benchmarks.definition import candidate
+    from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
     from screamingface_engine.world import candidate_adapter
     from screamingface_engine.world.candidate_adapter import install_candidate_invocation
-    from url4 import render
+    from url4 import RelExpr, Text, render
     from url4.peer.server import Url4Node
 
     events = []
@@ -84,7 +84,16 @@ async def test_candidate_answering_stage_starts_inside_decoded_case_scope(monkey
     try:
         with run.bind():
             await node.evaluate(
-                render(candidate("question", case_id="007", web_search=False)),
+                # WHY: the Candidate contract (spec 2026-10-20 R2) — the identity and the
+                # Recipe are sources, the model input is the intent.
+                render(
+                    RelExpr(
+                        path=CANDIDATE_ROUTE,
+                        context="case_id='007', recipe=$candidate",
+                        intent=Text("question"),
+                        params=(("web_search", "false"),),
+                    )
+                ),
                 env={"candidate": "recipe"},
             )
         assert inputs == ["question"]

@@ -20,15 +20,12 @@ pytest.importorskip("inspect_evals")
 
 from test_inspect_gsm8k_benchmark import GSM8K_BENCHMARK, _prepare  # noqa: E402
 
-from screamingface_engine.benchmarks.case_request import candidate_input  # noqa: E402
+from screamingface_engine.benchmarks.case_request import candidate_request  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     CANDIDATE_ROUTE,
     encode_candidate_invocation,
 )
-from screamingface_engine.benchmarks.graded_answer import (  # noqa: E402
-    install_graded_answer_endpoint,
-)
-from url4 import Text, expr, render, src  # noqa: E402
+from screamingface_engine.benchmarks.definition import link_candidate  # noqa: E402
 from url4.peer.server import Request, Url4Node  # noqa: E402
 
 _ABST = encode_candidate_invocation("", "stop", None, abstained=True)
@@ -38,21 +35,18 @@ _ABST = encode_candidate_invocation("", "stop", None, abstained=True)
 async def test_abstained_case_score_replaced_inspect(tmp_path: Path) -> None:
     node = Url4Node("test")
     GSM8K_BENCHMARK.benchmark.install(node, _prepare(tmp_path))
-    install_graded_answer_endpoint(node)
 
     @node.endpoint(CANDIDATE_ROUTE)
     def candidate(request: Request) -> str:
-        _, case_id = candidate_input(request)
+        case_id = candidate_request(request).case_id
         if str(case_id) == "2":
             return _ABST
         return encode_candidate_invocation("ANSWER: 42", "stop", None)
 
-    expression = expr(
-        src(Text("unused-candidate-recipe"), name="candidate", weight=0.0),
-        src(GSM8K_BENCHMARK.benchmark.protocol(2), name="exam", weight=0.0),
-        intent=Text("$exam"),
-    )
-    result = json.loads((await node.evaluate(render(expression))).text)
+    # WHY link_candidate: the Candidate is the first source of the protocol's own group (spec
+    # 2026-10-20 §3.1), not a wrapper with an identity intent.
+    expression = link_candidate("unused-candidate-recipe", GSM8K_BENCHMARK.benchmark.protocol(2))
+    result = json.loads((await node.evaluate(expression)).text)
 
     assert result["score"] == 0.5
     answered, abstained = result["cases"]

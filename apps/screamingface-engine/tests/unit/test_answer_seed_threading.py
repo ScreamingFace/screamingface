@@ -36,6 +36,7 @@ from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
+from screamingface_engine.benchmarks.definition import inert_text
 from screamingface_engine.config import Settings
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.request_scope import RequestScope, request_scope
@@ -320,10 +321,12 @@ def _candidate_wrapped(inner_ctx: str = "case-ctx", *, inner_params: str = "") -
     return render(
         expr(
             src(
+                # WHY: the Candidate contract (spec 2026-10-20 R2) — the model input is the
+                # intent, the Recipe a source.
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context=inner_ctx,
-                    intent=text(inner),
+                    context=render(src(text(inert_text(inner)), name="recipe")),
+                    intent=text(inner_ctx),
                     params=(("web_search", "false"),),
                 ),
                 name="answer",
@@ -476,8 +479,8 @@ async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
             src(
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context="case-ctx",
-                    intent=text(inner_candidate),
+                    context=render(src(text(inert_text(inner_candidate)), name="recipe")),
+                    intent=text("case-ctx"),
                     params=(("web_search", "false"),),
                 ),
                 name="answer",

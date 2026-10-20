@@ -80,6 +80,21 @@ def text(content: str) -> Text:
     return Text(content)
 
 
+def literal(content: str) -> Text:
+    """Text that resolves to ``content`` exactly: no ``$`` in it is ever interpolated.
+
+    Each ``$`` becomes the grammar's literal dollar ``$$`` (§6.2). WHY: in an RDS scope quoted
+    text is interpolated strictly (§6.3), so inert text that holds ``$name`` — e.g. a Recipe
+    carried as data — would fail as an unbound reference. :func:`literal_value` inverts it.
+    """
+    return Text(content.replace("$", "$$"))
+
+
+def literal_value(node: Text) -> str:
+    """The content a :func:`literal` node resolves to (``$$`` read back as ``$``)."""
+    return node.value.replace("$$", "$")
+
+
 def ref(name: str | int, *path: str | int) -> VarRef:
     """A ``$name`` / ``$N`` variable reference with an optional field path (§6.2)."""
     return VarRef(str(name), tuple(path))
@@ -472,4 +487,6 @@ __all__ = [
     "src",
     "struct",
     "text",
+    "literal",
+    "literal_value",
 ]

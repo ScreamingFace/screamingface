@@ -3,16 +3,28 @@
 import json
 
 import pytest
-from test_builtin_early_score_timing import _call
 from test_shared_grading_aggregation import _envelope, _grading, _Hook, _path, _selected
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.code_calls import run_code
 from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
-from screamingface_engine.benchmarks.shared_grading.incremental_routes import case_result_endpoint
+from screamingface_engine.benchmarks.shared_grading.incremental_routes import case_result_code
 from screamingface_engine.observations import RunObservations
-from url4.core.errors import ResolutionError
 from url4.peer.server import Url4Node
+
+
+async def _grade(node: Url4Node, execution: str, position: str) -> str:
+    """Drive the case-result code with one row and its ``index:count`` position.
+
+    WHY sources (spec R1): the position is the code's ``case_index`` and ``case_count``
+    arguments, no longer an ``index:count`` intent.
+    """
+
+    index, count = position.split(":")
+    return await run_code(
+        node, "/grade", {"execution": execution, "case_index": index, "case_count": count}
+    )
 
 
 @pytest.mark.asyncio
@@ -25,9 +37,12 @@ async def test_invalid_selection_never_reaches_loader(intent):
         pytest.fail("invalid selection reached asset loader")
 
     node = Url4Node("test")
-    node.endpoint("/grade")(case_result_endpoint(load, available_case_count=2))
-    with pytest.raises(ResolutionError):
-        await _call(node, "/grade", "{}", intent)
+    node.code("/grade")(case_result_code(load, available_case_count=2))
+    # WHY a returned row (spec §3.3): the code hands back the finalization failure as the
+    # collected row the run aborts on, never reaching the asset loader.
+    row = json.loads(await _grade(node, "{}", intent))
+    assert row["error"]["kind"] == "CaseFinalizationError"
+    assert row["error"]["code"] == "benchmark_contract_error"
     assert loads == []
 
 
@@ -85,7 +100,7 @@ async def test_selection_at_available_count_is_accepted():
         )
 
     node = Url4Node("test")
-    node.endpoint("/grade")(case_result_endpoint(load, available_case_count=2))
-    result = json.loads(await _call(node, "/grade", json.dumps(_envelope(2, _grading(2))), "1:2"))
+    node.code("/grade")(case_result_code(load, available_case_count=2))
+    result = json.loads(await _grade(node, json.dumps(_envelope(2, _grading(2))), "1:2"))
     assert loads == [2]
     assert result["result"]["case_id"] == 2

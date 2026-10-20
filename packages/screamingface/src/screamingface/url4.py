@@ -21,6 +21,7 @@ from url4 import (
     Text,
     Url4Error,
     build,
+    literal_value,
     render,
     walk,
 )
@@ -137,7 +138,8 @@ def _candidate_expression(root: Node) -> tuple[Expression, bool]:
     for node in root.sources:
         if isinstance(node, Source) and node.name == "candidate" and isinstance(node.value, Text):
             try:
-                candidate = build(node.value.value)
+                # The linker carries the Recipe as a url4 literal (`$` as `$$`).
+                candidate = build(literal_value(node.value))
             except Url4Error as exc:
                 raise ValueError("URL4 contains an invalid embedded Candidate") from exc
             if not isinstance(candidate, Expression):

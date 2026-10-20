@@ -28,8 +28,8 @@ def test_the_benchmark_is_registered() -> None:
 def test_every_route_carries_the_revision() -> None:
     for route in (
         benchmark.CASES_ROUTE,
-        benchmark.CHECK_ROUTE,
         benchmark.CASE_GRADE_ROUTE,
+        benchmark.COMMIT_PROMPT_ROUTE,
         benchmark.AGGREGATE_ROUTE,
     ):
         assert route.startswith(f"/benchmarks/{benchmark.BENCHMARK_ID}/{benchmark.REVISION}/")
@@ -49,9 +49,12 @@ def test_the_expression_invokes_the_candidate_twice() -> None:
 def test_the_check_route_receives_both_turns() -> None:
     # D8: the shared candidate envelope has no field for reasoning, so the benchmark's own check
     # envelope carries it. A letter with no reasoning is unauditable.
+    # WHY the case-evaluation code (spec §3.2): the check now runs inside it, and both turns
+    # are its named arguments.
     rendered = render(benchmark.MEDXPERT.build(5))
-    assert "reasoning" in rendered
-    assert benchmark.CHECK_ROUTE in rendered
+    assert (
+        "(case:0.0:$item, reasoning=$reasoning, attempt_1=$attempt_1)!" + benchmark.CASE_GRADE_ROUTE
+    ) in rendered
 
 
 def test_changing_the_prompt_bytes_changes_the_revision() -> None:

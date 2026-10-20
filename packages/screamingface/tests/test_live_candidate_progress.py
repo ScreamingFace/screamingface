@@ -135,8 +135,9 @@ def span(
     sequence: int,
     *,
     run_id: str,
-    operation: str = "RelUrlNode",
-    name: str = "/benchmarks/case-execution",
+    # WHY: each Case ends in its Benchmark's `case-evaluation` code call (spec 2026-10-20 R1).
+    operation: str = "CodeCallNode",
+    name: str = "/benchmarks/contracteval/890889e5b2863be4/case-evaluation",
     status: str = "ok",
     request_model: str | None = None,
     cache_status: str | None = None,

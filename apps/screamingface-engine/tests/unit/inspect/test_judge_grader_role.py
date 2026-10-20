@@ -29,6 +29,7 @@ pytest.importorskip("inspect_ai")
 from inspect_ai.model import model_roles  # noqa: E402
 from inspect_ai.scorer import model_graded_qa  # noqa: E402
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
@@ -48,7 +49,6 @@ from screamingface_engine.operation_calls import (  # noqa: E402
     operation_call_identity,
     record_operation_call,
 )
-from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402

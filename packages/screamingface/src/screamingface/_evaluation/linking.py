@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 
-from url4 import Expression, Text, VarRef, build, render, src, text
+from url4 import Expression, Text, VarRef, build, literal, render, src
 
 from screamingface.errors import PlanningError
 
@@ -39,10 +39,10 @@ class _PreparedBenchmark:
         puts an empty prompt in intent position, which URL4 reads as an LLM prompt.
         """
 
-        # WHY `$$`: the Benchmark's terminal is code, so its group is an RDS scope where quoted
-        # text is interpolated strictly (Spec B §6.3); the Recipe's own `$input` must stay
-        # literal, and `$$` is the grammar's literal dollar (Spec B §6.2).
-        binding = src(text(candidate_url4.replace("$", "$$")), name="candidate", weight=0.0)
+        # WHY `literal`: the Benchmark's terminal is code, so its group is an RDS scope where
+        # quoted text is interpolated strictly (Spec B §6.3); the Recipe's own `$input` must
+        # stay literal (`_evaluation/url4._candidate_text` reads it back).
+        binding = src(literal(candidate_url4), name="candidate", weight=0.0)
         rendered = render(replace(self.node, sources=(binding, *self.node.sources)))
         _require_candidate_references_bound(rendered)
         return _LinkedCandidate(url4=rendered)
