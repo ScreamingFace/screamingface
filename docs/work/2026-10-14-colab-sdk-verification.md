@@ -146,3 +146,29 @@ Regression coverage includes explicit :443, uppercase hosts, nondefault ports an
 IPv6. All 95 focused analytics tests and 12 Node tests passed; no real Colab or
 live PostHog check was performed for these corrections. Existing release gates
 remain unchanged; PR stays draft.
+
+### Pending opt-out verification and current SDK dev read-back
+
+The notebook now asserts `pending is False` after the browser decline deadline,
+then checks the declined choice. A regression executes the actual notebook opt-out
+tail with the real adapter and a blocked decline exchange. The former notebook
+falsely passes; the corrected notebook raises AssertionError. All 96 focused
+analytics tests, Pyright, Ruff and notebook checks pass.
+
+Ran the current checkout's local Python SDK against the explicit dev endpoint:
+unknown consent emitted zero events; `sf.analytics.enable()` followed by fixture
+evaluation/submission produced four HTTP 202 acknowledgements; persisted disable
+followed by the same operations emitted zero additional events. Product work was
+stubbed (no paid evaluation or real scoreboard submission), analytics delivery was
+real. PostHog MCP project 601604 returned all four exact event IDs with matching
+session and expected outcomes after an ingestion/read-back delay:
+
+- evaluation_started: a8473f04-566f-4c88-85bf-9b2399146464
+- evaluation_finished: f7f4c2f2-43ec-4e3f-80ea-dbb5aa44e3c0
+- submission_started: 5d7b1f4e-daf7-4c93-a352-a5ffa79f31d3
+- submission_finished: 3c8dccab-d73e-4c22-9585-b04ac3ad3896
+
+Session: 50f6407f-3458-41f4-acb5-f83801e79987. Both finishes succeeded with
+under_1s duration; origin python, mode byok, scope installation. The current
+Chrome/Safari notebook run remains outstanding; no staging/production test events
+were sent. This verifies local dev analytics delivery, not production readiness.

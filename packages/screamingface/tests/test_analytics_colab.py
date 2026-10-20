@@ -328,3 +328,65 @@ def test_notebook_observer_forwards_adapter_deadline(browser, monkeypatch):
     assert namespace["acknowledgements"] == [{"status": "upstream_accepted"}] * 4
     assert len(calls) == 4
     assert all(0 < timeout <= 2 for _, timeout in calls)
+
+
+def notebook_opt_out_tail():
+    import ast
+    import json
+    from pathlib import Path
+
+    notebook = json.loads(
+        (
+            Path(__file__).resolve().parents[3] / "docs/verification/analytics-colab-sdk.ipynb"
+        ).read_text()
+    )
+    cell = next(cell for cell in notebook["cells"] if "def observed(" in "".join(cell["source"]))
+    tree = ast.parse("".join(cell["source"]))
+    setup = next(node for node in tree.body if isinstance(node, ast.With))
+    client = setup.body[0]
+    assert isinstance(client, ast.With)
+    start = next(
+        i
+        for i, node in enumerate(client.body)
+        if isinstance(node, ast.Expr) and ast.unparse(node) == "sf.analytics.disable()"
+    )
+    # Execute the actual verification tail, including its deadline and assertions.
+    return compile(
+        ast.Module(body=client.body[start:], type_ignores=[]), "notebook-opt-out", "exec"
+    )
+
+
+def test_notebook_rejects_unacknowledged_opt_out(browser, monkeypatch):
+    import screamingface as sf
+
+    entered, release = threading.Event(), threading.Event()
+
+    def exchange(command, event, **kwargs):
+        assert command == "decline"
+        entered.set()
+        assert release.wait(2)
+        return {"choice": "declined", "consent_version": "1"}
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    clock = iter([0, 11])
+    fake_time = types.SimpleNamespace(monotonic=lambda: next(clock), sleep=lambda _: None)
+    # Without the pending assertion, the remaining verification would falsely pass.
+    fake_client = types.SimpleNamespace(
+        evaluate=lambda _: None, leaderboards=types.SimpleNamespace(submit=lambda _: None)
+    )
+    namespace = {
+        "sf": sf,
+        "time": fake_time,
+        "client": fake_client,
+        "Candidate": object,
+        "acknowledgements": [1, 2, 3, 4],
+    }
+    try:
+        with pytest.raises(AssertionError):
+            exec(notebook_opt_out_tail(), namespace)
+        assert entered.wait(1)
+        assert analytics.status()["pending"] is True
+        assert analytics.status()["choice"] == "declined"
+    finally:
+        release.set()
+        wait_until(lambda: not browser.pending)
