@@ -1,13 +1,13 @@
 ---
 id: OME-1596
 linear_url: https://linear.app/openmined/issue/OME-1596/add-author-and-paper-metadata-and-a-reproduce-button-to-the
-status: in_progress
+status: done
 type: task
 priority: medium
 labels: [scoreboard, agentic, autonomous]
 parent: OME-1307
 created: 2026-10-13
-closed:
+closed: 2026-10-20
 ---
 
 # Add author and paper metadata and a Reproduce button to the leaderboard

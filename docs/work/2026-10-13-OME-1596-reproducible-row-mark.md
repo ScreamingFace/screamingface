@@ -1,9 +1,9 @@
 ---
 ticket: OME-1596
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-13
-finished:
+finished: 2026-10-20
 ---
 
 # OME-1596 — author and paper metadata, and a Reproduce button, on the leaderboard
@@ -472,3 +472,18 @@ decisions for OME-1596`):
   `run_gates.py` append-only check flags 4 prior tests the PR already changed (reproduced-count
   deleted, the guard exemption, `test_score_metadata_events.py`, `test_score_reproductions.py`) —
   all from the approved PR, not from the rebase; owner decision pending.
+
+## Merge and close (2026-10-20)
+
+- PR #1440 squash-merged as `c33df414f` on owner instruction. CI was green. Its single commit
+  was pushed at 21:03 on 2026-10-19, after the last approval at 14:15; the owner chose to merge
+  without asking for re-approval.
+- **Deviation: rollout step 1 (the read-only duplicate `frozen_copy_id` query on dev and
+  production) was not run before the merge.** Dev evidence afterwards: dev rolled the new build,
+  serves `GET /v1/public/scores/by-pinned-cache/{frozen_copy_id}` and answers 404 for an unknown
+  id, so migration 0021 ran there; 0021 refuses on any duplicate, so dev had none. Production has
+  not been checked; the query stays a required step before the production deploy.
+- Dev has no public rows, so the lookup could not be exercised against a real captured score
+  there. Production (old build) has 40 public rows, none with `pinned_cache` yet, as expected.
+- Ticket closed on owner instruction: the code is merged and the Reproduce button ships off.
+  The production deploy gates the SDK release (`OME-1613`), not this ticket.
