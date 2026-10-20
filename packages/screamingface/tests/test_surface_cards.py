@@ -25,6 +25,7 @@ import pytest
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._surface.chain import _Block
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.cards import block_card_html, chain_card_html
 
@@ -49,13 +50,14 @@ def _chain() -> sx.Pipeline:
     )
 
 
-def _block_of(chain: sx.Pipeline) -> object:
+def _block_of(chain: sx.Pipeline) -> _Block:
     (block,) = chain._stages
+    assert isinstance(block, _Block)
     return block
 
 
 _CARDS: dict[str, Callable[[], str]] = {
-    "block_judge_narrow_vote": lambda: block_card_html(_block_of(_judged_block())),  # type: ignore[arg-type]
+    "block_judge_narrow_vote": lambda: block_card_html(_block_of(_judged_block())),
     "chain_model_then_block": lambda: chain_card_html(_chain()),
 }
 
@@ -83,7 +85,7 @@ def test_ds1_the_card_matches_its_golden(name: str) -> None:
 
 
 def test_ds1_a_block_card_names_each_step_with_its_category() -> None:
-    html = block_card_html(_block_of(_judged_block()))  # type: ignore[arg-type]
+    html = block_card_html(_block_of(_judged_block()))
 
     assert "<span class='sf-card__kicker'>fanout</span>" in html
     for title in ("members", "signals", "steps"):
@@ -105,7 +107,7 @@ def test_ds1_a_chain_card_shows_a_block_stage_as_a_fanout_block() -> None:
 
 
 def test_ds1_a_writer_step_has_the_write_category() -> None:
-    html = block_card_html(_block_of(sx.Fanout(["prov/a", "prov/b"]) >> sx.Synthesize("prov/w")))  # type: ignore[arg-type]
+    html = block_card_html(_block_of(sx.Fanout(["prov/a", "prov/b"]) >> sx.Synthesize("prov/w")))
 
     assert "<div class='sf-detail__index'>write</div>" in html
 
@@ -113,13 +115,33 @@ def test_ds1_a_writer_step_has_the_write_category() -> None:
 def test_ds1_a_one_block_chain_shows_its_block_card() -> None:
     chain = sx.Fanout(["prov/a", "prov/b"]) >> sx.Vote()
 
-    assert chain._repr_html_() == block_card_html(_block_of(chain))  # type: ignore[arg-type]
+    assert chain._repr_html_() == block_card_html(_block_of(chain))
 
 
 def test_ds1_a_longer_chain_shows_its_chain_card() -> None:
     chain = _chain()
 
     assert chain._repr_html_() == chain_card_html(chain)
+
+
+@pytest.mark.parametrize(
+    ("chain", "steps"),
+    [
+        (lambda: sx.Pipeline([sx.Fanout(["prov/a", "prov/b"])]), []),
+        (
+            lambda: sf.Model("prov/q") >> sx.Fanout(["prov/a", "prov/b"]) >> sx.Rank(1, by="p"),
+            ["narrow"],
+        ),
+    ],
+    ids=["fanout-only", "ends-in-narrow"],
+)
+def test_ds1_an_open_chain_card_shows_its_open_block(
+    chain: Callable[[], sx.Pipeline], steps: list[str]
+) -> None:
+    html = chain_card_html(chain())
+
+    assert "<div class='sf-card__hint'>open fanout block</div>" in html
+    assert html.count("<div class='sf-detail__index'>narrow</div>") == len(steps)
 
 
 def test_e5_a_chain_member_of_todays_fusion_shows_as_a_nested_chain() -> None:

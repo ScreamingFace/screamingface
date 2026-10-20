@@ -12,6 +12,7 @@ narrow line); the expected texts are hand-computed from ``narrow_evidence_cases.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from screamingface._ui import combine_view
 from screamingface.combine_evidence import CombineEvidence
 
 _NO_LINK: dict[str, str | None] = {"judge_operation_id": None, "judge_model": None}
+_GOLDEN = Path(__file__).parent / "data" / "narrow_display" / "combine_narrow_no_signal.html"
 
 
 def _case(name: str) -> CombineEvidence:
@@ -120,6 +122,21 @@ def test_ds2_the_run_summary_counts_the_left_out_members_per_step() -> None:
         "<div class='sf-chips'><span class='sf-chip'>narrow · step 1 · filter · left out 4 of 10"
         "</span><span class='sf-chip'>narrow · step 2 · rank · left out 4 of 6</span></div>"
     ) in html
+
+
+def write_golden() -> None:
+    """Regenerate the golden: ``uv run python -c "import sys; sys.path.insert(0,'tests'); \
+import test_narrow_display as m; m.write_golden()"``."""
+
+    _GOLDEN.parent.mkdir(parents=True, exist_ok=True)
+    _GOLDEN.write_text(_section("narrow_no_signal") + "\n", encoding="utf-8")
+
+
+@requires_engine_app
+def test_ds2_the_combine_section_with_two_narrow_steps_matches_its_golden() -> None:
+    assert _GOLDEN.exists(), "narrow_display golden is missing - run write_golden()"
+
+    assert _section("narrow_no_signal") == _GOLDEN.read_text(encoding="utf-8").removesuffix("\n")
 
 
 @requires_engine_app

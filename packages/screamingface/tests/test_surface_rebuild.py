@@ -25,7 +25,9 @@ from test_surface_parity import _NEW_FORM, _NOTEBOOK, _STEPS
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
+from screamingface._surface import rebuild as rebuild_module
 from screamingface._surface.rebuild import rebuild
 
 _EXAMPLES = {example.slug: example for example in EXAMPLES}
@@ -210,6 +212,90 @@ def test_rb1_a_url4_the_new_surface_cannot_express_is_refused(
         rebuild(_url4(today()))
 
 
+def test_rb1_a_hand_edited_unknown_extract_op_cannot_rebuild() -> None:
+    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+    edited = url4.replace('"op":"last_line@1"', '"op":"zzz@1"')
+    assert edited != url4
+
+    with pytest.raises(
+        ValueError, match=r"^URL4 Candidate has a vote spec this SDK version cannot rebuild$"
+    ):
+        rebuild(edited)
+
+
+def test_rb1_a_byte_mismatch_of_the_converted_chain_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+    other = sx.Fanout(_ROUTES) >> sx.Median()
+    monkeypatch.setattr(rebuild_module, "surface_value", lambda _value: other)
+
+    with pytest.raises(
+        ValueError, match=r"^URL4 Candidate has a recipe this SDK version cannot rebuild$"
+    ):
+        rebuild(url4)
+
+
+def test_rb1_a_statistic_select_rebuilds_with_no_pin() -> None:
+    # the step's select= takes "nearest" or "value"; the spec pins value@1
+    chain = sx.Fanout(_ROUTES) >> sx.Median(select="value")
+
+    assert rebuild(_url4(chain)).python.endswith(
+        " >> sf.Median(over='last_number@1', select='value')"
+    )
+
+
+# ---------------------------------------------------------------- the corrective loops
+
+_CHECK = _CheckSurface(
+    check_route="/benchmarks/ifeval/revision-1/check-surface",
+    feedback_intent="feedback",
+    expected_check_cost="free",
+)
+
+
+def _models(value: object) -> list[sf.Model]:
+    """Every Model of a value, in order: a member, a stage, a judge or a writer."""
+
+    if isinstance(value, sf.Model):
+        return [value]
+    children: list[object] = []
+    for name in ("members", "stages", "steps"):
+        children.extend(getattr(value, name, ()))
+    for name in ("judge", "member", "synthesizer", "model"):
+        child = getattr(value, name, None)
+        if isinstance(child, sf.Recipe):
+            children.append(child)
+    return [model for child in children for model in _models(child)]
+
+
+@pytest.mark.parametrize(
+    "loop",
+    [
+        lambda: sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j"),
+        lambda: sf.CorrectiveLoop(
+            [sf.Fusion(["prov/a", "prov/b"], synthesizer="prov/w"), "prov/c"],
+            judge=sf.Pipeline(["prov/j", "prov/k"]),
+            max_rounds=2,
+        ),
+        lambda: sf.SelfCorrective(sf.Model("prov/a", prompt="Draft carefully."), max_rounds=4),
+    ],
+    ids=["models", "nested", "self"],
+)
+def test_rb1_a_corrective_loop_rebuilds_its_models_as_to_python_does(
+    loop: Callable[[], sf.Recipe],
+) -> None:
+    url4 = compile_candidate(loop(), check_surface=_CHECK).url4
+    namespace: dict[str, object] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # today's editable Python, with the real sf
+
+    rebuilt = rebuild(url4)
+
+    assert _models(rebuilt.value) == _models(namespace["candidate"])
+    assert "Answer the request" not in rebuilt.python  # no default prompt is written out
+    assert compile_candidate(_executed(rebuilt.python), check_surface=_CHECK).url4 == url4
+
+
 def test_rb1_a_url4_that_is_not_url4_is_refused() -> None:
     with pytest.raises(ValueError, match=r"^URL4 must be valid URL4"):
         rebuild("((")
@@ -279,7 +365,7 @@ def test_rb3_a_chain_repr_uses_the_chain_operator(value: Callable[[], object], t
         ),
         (
             lambda: sx.Filter(where=sx.matches("^A"), over="last_line"),
-            "Filter(where=matches('^A'), over=Extract('last_line'))",
+            "Filter(where=matches('^A'), over='last_line')",
         ),
         (lambda: sx.Concat(), "Concat()"),
         (lambda: sx.Concat(" | ", label=False), "Concat(' | ', label=False)"),
