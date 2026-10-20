@@ -71,7 +71,14 @@ lowered stages for the compile.
 tuple[_NarrowPlan, ...] = ()` (`init=False`) on the internal reducer classes, set only by
 `_surface/lowering.py` through `object.__setattr__`. It is not a constructor parameter and not a
 public field, so the public surface snapshot does not move (the snapshot pins public names only).
-`_ReducerPlan.narrow` (narrow §6) reads it.
+`_ReducerPlan.narrow` (narrow §6) reads it. **Erratum U5a:** the carrier is set by
+`_surface/lowering.py` **and** by the url4 rebuild (`_rebuilt_reducer`), both through one helper,
+`reducer._narrowed`, which copies the value and checks NR-S1 and NR-C1. It holds
+`tuple[Reducer, ...]` (the narrow steps' internal reducers), not `_NarrowPlan`. A spec with
+`narrow` always takes the url4 recompile check. Erratum U5c: `Judge >> <narrow step that reads
+score:judge> >> ArgMin("score:judge")` is refused until the neutral template of unit 7, which lifts
+it. Erratum U5e: one carrier on the Fusion node would be simpler than one per reducer class;
+reconsider at the `Node` rename (unit 7).
 
 The terminal and narrow mapping (`'` = the internal value; `s` = `sf.signal(key)` for a string key):
 
