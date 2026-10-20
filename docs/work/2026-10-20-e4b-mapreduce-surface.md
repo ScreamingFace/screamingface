@@ -240,4 +240,27 @@ GA-1..GA-6, NR-C1 (gate), GA-P, SI-1, CH-10 (a gated judge-weighted vote reads t
 
 ### Outcome
 
-- (filled at the end of the unit)
+- **Actual files:** new `S/_surface/gate.py`; edited `S/_surface/refs.py` (`SignalRef` with
+  `.chosen()`/`.mean()`, `GateRef`, `GateCondition`, `GateBand`, `agreement()`), `chain.py`
+  (`_sees_every_member()` is now a method, so a gate answers per instance), `judge.py`,
+  `steps.py`, `lowering.py` (`_gate_node`, `_fallback_node`), `__init__.py`. New test
+  `ST/test_gate_surface.py` (44 tests).
+- **Commits:** `999c92fce` test (RED), `f29a80b6e` feat (GREEN), this ledger commit.
+- **Tests:** 423 in the 12 surface test files; full SDK suite 5363 passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check lists only the
+  owner-approved unit-1 files; with `--skip-append-only` ALL GATES GREEN.
+  `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+- **Deviations:**
+  - `sx.signal(key)` returns `SignalRef`, a subclass of today's `Signal` with `.chosen()` and
+    `.mean()`; today's `sf.signal` does not change. Every step stores a plain `Signal`, so a
+    lowered value keeps today's typed equality (the block form keys on the option type).
+  - GA-1 and GA-2 keep today's messages: the agreement rules come from today's `sf.Gate`, and an
+    undeclared name raises the Fusion message at block close ("the gate reads 'chosen:conf', but
+    this Fusion does not declare 'conf' ..."), which the O13 rewording at the swap covers.
+  - `.between(lo, hi)` checks its band with new messages (two numbers, finite, `lo <= hi`, and a
+    share in [0, 1] for `sf.agreement()`), so no message names `abstain_band`.
+  - A comparison of a gate reference with a bool, a non-number or a non-finite number raises at
+    the comparison.
+  - No doc example needed the gate, so no exclusion set was left to clear; GA-P compares the
+    README part 5 and 6 recipes (g1–g4, s2) and two more (a writer fallback with a band and
+    weights, a judge-weighted gated vote with a JudgePick fallback) in-process.
