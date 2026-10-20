@@ -40,6 +40,8 @@ from screamingface._evaluation.topology import (
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
+from screamingface._surface.chain import Pipeline as Chain
+from screamingface._surface.lowering import lower
 from screamingface.blocks import Reduce
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
@@ -107,12 +109,25 @@ class _CompiledSamples:
 _NO_SAMPLES = _CompiledSamples(MappingProxyType({}), (), ())
 
 
+def entry_recipe(recipe: Recipe) -> Recipe:
+    """The first compile entry of a user's Recipe: warn about a judge writer, then lower it once.
+
+    WHY in this order (review P2 #3, E4b surface lowering §2.4): the lowering and the Fusion
+    rewrite both change the stages, so only the user's own value carries the stage numbers the
+    user wrote. Every later place reads the lowered value.
+    """
+
+    _warn_judge_writers(recipe)
+    return lower(recipe)
+
+
 def compile_candidate(
     recipe: Recipe,
     *,
     check_surface: _CheckSurface | None = None,
     operators: _OperatorCatalog | None = None,
     benchmark_rule: _BenchmarkAnswerRule | None = None,
+    lowered: bool = False,
 ) -> _CompiledCandidate:
     """Compile one complete, benchmark-independent Recipe into Candidate URL4.
 
@@ -124,11 +139,13 @@ def compile_candidate(
     pins its operator names against it, and a Recipe without a reducer ignores it.
 
     ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
+
+    ``lowered=True`` says the caller already passed ``recipe`` through ``entry_recipe`` (the
+    Evaluation entry does), so the compile neither warns nor lowers a second time.
     """
 
-    # WHY before the rewrite (review P2 #3): the rewrite merges a context Fusion into the stage
-    # after it, so only the user's own Pipelines carry the stage numbers the user wrote.
-    _warn_judge_writers(recipe)
+    if not lowered:
+        recipe = entry_recipe(recipe)
     recipe = rewrite_fusion_recipe(recipe)
     try:
         first = _CandidateCompiler(
@@ -1048,11 +1065,16 @@ def _warn_judge_writers(recipe: Recipe) -> None:
             continue
         seen.add(id(value))
         if isinstance(value, Pipeline):
-            _warn_judge_writer(value)
-        pending.extend(reversed(_children(value)))
+            _warn_judge_writer(value.name, value.stages)
+        if isinstance(value, Chain):
+            # WJ-1: a chain of the new surface, before the lowering: a closed block is one stage.
+            _warn_judge_writer(value.name, value._stage_values())
+            pending.extend(reversed(value._held_recipes()))
+        else:
+            pending.extend(reversed(_children(value)))
 
 
-def _warn_judge_writer(pipeline: Pipeline) -> None:
+def _warn_judge_writer(name: str, stages: tuple[Recipe, ...]) -> None:
     """Warn when a stage writes with the model that judged the stage just before it (JW-1).
 
     WHY a warning and not an error (ans:Q1): one strong model in two roles is a legal recipe,
@@ -1063,14 +1085,14 @@ def _warn_judge_writer(pipeline: Pipeline) -> None:
     rubric or a member.
     """
 
-    for position, (stage, following) in enumerate(itertools.pairwise(pipeline.stages), start=1):
+    for position, (stage, following) in enumerate(itertools.pairwise(stages), start=1):
         if not isinstance(following, Model):
             continue
         route = _canonical_model(following.model)
         if route not in _judge_routes(stage):
             continue
         warnings.warn(
-            f"Pipeline {pipeline.name!r}: stages {position} and {position + 1} use the same "
+            f"Pipeline {name!r}: stages {position} and {position + 1} use the same "
             f"model {route!r}: stage {position} scores the members as the judge, and stage "
             f"{position + 1} writes the answer, so the writer is also the scorer. Give one of "
             "the two stages another model, or keep both and ignore this warning.",

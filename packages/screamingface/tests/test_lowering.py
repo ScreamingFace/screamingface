@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 from _combine_flow_fixtures import flow_operators
 from _fusion_doc_examples import EXAMPLES, DocExample, compile_example
-from screamingface._surface.lowering import lower
 from test_pipeline_compilation import _whole_candidate_benchmark
 from test_reducer_characterization import _GOLDEN
 
@@ -26,6 +25,7 @@ from screamingface._evaluation import candidate as candidate_module
 from screamingface._evaluation.candidate import compile_candidate, recipes_need_operators
 from screamingface._evaluation.compilation import compile_evaluation
 from screamingface._evaluation.model import _candidate_values
+from screamingface._surface.lowering import lower
 
 _DATA = Path(__file__).parent / "data"
 _PAIR = ["provider/a", "provider/b"]
@@ -70,6 +70,13 @@ def test_lo0_lower_is_the_identity_on_every_characterized_golden(golden: str) ->
 )
 def test_lo0_lower_is_the_identity_on_other_values(value: object) -> None:
     assert lower(value) is value  # type: ignore[arg-type]
+
+
+def test_lo0_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:
+    pipeline = sf.Pipeline(["provider/a", "provider/b"])
+    object.__setattr__(pipeline, "stages", (sf.Model("provider/a"), pipeline))
+
+    assert lower(pipeline) is pipeline
 
 
 def test_lo0_the_evaluation_entry_keeps_old_values_as_they_are() -> None:

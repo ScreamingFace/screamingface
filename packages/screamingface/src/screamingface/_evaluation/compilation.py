@@ -9,6 +9,7 @@ from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import (
     _CompiledCandidate,
     compile_candidate,
+    entry_recipe,
 )
 from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.linking import _prepare_benchmark
@@ -27,25 +28,34 @@ def compile_evaluation(
     limit: int | None,
     *,
     operators: _OperatorCatalog | None = None,
+    lowered: bool = False,
 ) -> _Evaluation:
-    """Compile all Candidates locally against one selected Benchmark."""
+    """Compile all Candidates locally against one selected Benchmark.
+
+    ``lowered=True`` says the Evaluation entry (``_candidate_values``) already warned about the
+    judge writers and lowered ``recipes`` (E4b surface lowering §2.4); else this is the first
+    entry, and it does both here.
+    """
 
     # FEATURE (GP-1): extract="benchmark" resolves here, at the plan seam, from the resource
     # already fetched; the compiled url4 then pins the rule's concrete operator ids.
     benchmark_rule = _BenchmarkAnswerRule(resource.info.id, resource.answer_rule)
+    if not lowered:
+        recipes = tuple(entry_recipe(recipe) for recipe in recipes)
     # WHY rewritten first: the Fusion recipe rewrite changes the name of a block form (the Fusion it
     # becomes is "a+b", not "a+b->s"), so a candidate is named from the rewritten value.
     rewritten = tuple(rewrite_fusion_recipe(recipe) for recipe in recipes)
     _check_rewritten_names(recipes, rewritten)
-    # WHY the user's own Recipe and not the rewritten one: compile_candidate rewrites it the same
-    # way (the rewrite is pure and idempotent), and its judge-writer warning must see the stages
-    # as the user wrote them (review P2 #3).
+    # WHY the lowered Recipe and not the rewritten one: compile_candidate rewrites it the same
+    # way (the rewrite is pure and idempotent). The judge-writer warning already read the stages
+    # as the user wrote them (review P2 #3), so the compile does not warn again.
     compiled = tuple(
         compile_candidate(
             recipe,
             check_surface=resource.check_surface,
             operators=operators,
             benchmark_rule=benchmark_rule,
+            lowered=True,
         )
         for recipe in recipes
     )

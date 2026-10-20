@@ -11,10 +11,10 @@ STORY: as a researcher, I say which part of each answer the reducer reads, in on
 from __future__ import annotations
 
 import pytest
-from screamingface._surface.lowering import lower
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._surface.lowering import lower
 
 _TRIO = ["provider/a", "provider/b", "provider/c"]
 _RULES = "boxed, last_number, last_line, whole, json, benchmark, inspect_number, inspect_aime"

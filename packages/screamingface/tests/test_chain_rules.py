@@ -10,13 +10,13 @@ with a message that says what to do.
 from __future__ import annotations
 
 import pytest
-from screamingface._surface.chain import _Block
-from screamingface._surface.lowering import lower
 
 import screamingface as sf
 from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import _candidate_values
+from screamingface._surface.chain import Step, _Block
+from screamingface._surface.lowering import lower
 
 _PAIR = ["provider/a", "provider/b"]
 _TRIO = ["provider/a", "provider/b", "provider/c"]
@@ -95,6 +95,18 @@ def test_an_empty_pipeline_is_refused() -> None:
         sx.Pipeline([])
 
 
+def test_the_steps_must_be_a_sequence() -> None:
+    with pytest.raises(TypeError, match="Pipeline stages must be an ordered sequence"):
+        sx.Pipeline("provider/x")  # type: ignore[arg-type]
+
+
+def test_an_optional_unnamed_chain_is_not_a_stage() -> None:
+    optional = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], optional=True)
+
+    with pytest.raises(ValueError, match="optional=True is only supported on Fusion members"):
+        _ = optional >> sf.Model("provider/after")
+
+
 # ---------------------------------------------------------------- CH-1
 
 
@@ -103,19 +115,19 @@ def test_an_empty_pipeline_is_refused() -> None:
     [sx.Vote(), sx.Median(), sx.Mean(), sx.Synthesize("provider/w")],
     ids=["vote", "median", "mean", "synthesize"],
 )
-def test_ch1_a_step_needs_a_fanout_before_it(step: object) -> None:
+def test_ch1_a_step_needs_a_fanout_before_it(step: Step) -> None:
     name = type(step).__name__
     with pytest.raises(ValueError, match=rf"^sf\.{name} needs a sf\.Fanout before it$"):
         sx.Pipeline([step])
     with pytest.raises(ValueError, match=rf"^sf\.{name} needs a sf\.Fanout before it$"):
-        sf.Model("provider/x") >> step
+        _ = sf.Model("provider/x") >> step
     with pytest.raises(ValueError, match=rf"^sf\.{name} needs a sf\.Fanout before it$"):
-        _block() >> step
+        _ = _block() >> step
 
 
 def test_ch1_a_right_group_that_is_not_a_chain_alone_raises_when_it_is_built() -> None:
     with pytest.raises(ValueError, match=r"^sf\.Vote needs a sf\.Fanout before it$"):
-        sx.Fanout(_PAIR) >> (sx.Vote() >> sx.Vote())
+        _ = sx.Fanout(_PAIR) >> (sx.Vote() >> sx.Vote())
 
 
 # ---------------------------------------------------------------- CH-2
@@ -133,9 +145,11 @@ def test_ch1_a_right_group_that_is_not_a_chain_alone_raises_when_it_is_built() -
     ],
     ids=["model", "route", "fanout", "closed-block", "old-fusion", "named-pipeline"],
 )
-def test_ch2_an_open_block_needs_a_terminal_before_the_next_stage(following: object) -> None:
+def test_ch2_an_open_block_needs_a_terminal_before_the_next_stage(
+    following: str | sf.Recipe | Step,
+) -> None:
     with pytest.raises(ValueError, match=f"^{_CH2}$"):
-        sx.Fanout(_PAIR) >> following  # type: ignore[operator]
+        _ = sx.Fanout(_PAIR) >> following
 
 
 def test_ch2_in_the_explicit_form() -> None:
@@ -172,7 +186,7 @@ def test_ch8_a_bare_fanout_is_not_a_recipe() -> None:
     with pytest.raises(ValueError, match=f"^{_OPEN}$"):
         _candidate_values(sx.Fanout(_PAIR))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=f"^{_OPEN}$"):
-        sx.Fanout([sx.Fanout(_PAIR), "provider/c"])
+        sx.Fanout([sx.Fanout(_PAIR), "provider/c"])  # type: ignore[list-item]
 
 
 def test_ch8_an_open_chain_is_not_a_member() -> None:
@@ -188,21 +202,21 @@ def test_ch9_the_fusion_rules_run_at_the_rshift_that_closes_the_block() -> None:
     vote = sx.Vote(weights=(1, 2, 3))
 
     with pytest.raises(ValueError, match="vote has 3 weights for 2 members"):
-        fanout >> vote
+        _ = fanout >> vote
 
 
 def test_ch9_an_undeclared_signal_raises_at_block_close() -> None:
     fanout = sx.Fanout(_PAIR, signals={"conf": sf.Verbalized("C: ([0-9]+)")})
 
     with pytest.raises(ValueError, match=r"reads sf\.signal\('other'\)"):
-        fanout >> sx.Vote(weights="other")
+        _ = fanout >> sx.Vote(weights="other")
 
 
 def test_ch9_a_logprob_member_rule_raises_at_block_close() -> None:
     fanout = sx.Fanout(_PAIR, signals={"p": sf.Logprob("prob")})
 
     with pytest.raises(ValueError, match="supports OpenRouter models in v1"):
-        fanout >> sx.Vote(weights="p")
+        _ = fanout >> sx.Vote(weights="p")
 
 
 def test_ch9_a_declared_signal_compiles_when_it_is_read() -> None:
@@ -224,7 +238,7 @@ def test_ch10_a_score_judge_read_with_no_judge_is_refused_at_block_close() -> No
     with pytest.raises(
         ValueError, match=r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     ):
-        sx.Fanout(_PAIR) >> vote
+        _ = sx.Fanout(_PAIR) >> vote
 
 
 # ---------------------------------------------------------------- CH-11
@@ -234,18 +248,18 @@ _STEPS = [sx.Vote(), sx.Median(), sx.Mean(), sx.Synthesize("provider/w")]
 _STEP_IDS = ["vote", "median", "mean", "synthesize"]
 
 
-def _step_message(step: object) -> str:
+def _step_message(step: Step) -> str:
     return rf"^sf\.{type(step).__name__} is a step, not a recipe: put it after a sf\.Fanout$"
 
 
 @pytest.mark.parametrize("step", _STEPS, ids=_STEP_IDS)
-def test_ch11_a_step_is_not_a_fanout_member(step: object) -> None:
+def test_ch11_a_step_is_not_a_fanout_member(step: Step) -> None:
     with pytest.raises(TypeError, match=_step_message(step)):
-        sx.Fanout(["provider/a", step])
+        sx.Fanout(["provider/a", step])  # type: ignore[list-item]
 
 
 @pytest.mark.parametrize("step", _STEPS, ids=_STEP_IDS)
-def test_ch11_a_step_is_not_a_corrective_loop_member_or_judge(step: object) -> None:
+def test_ch11_a_step_is_not_a_corrective_loop_member_or_judge(step: Step) -> None:
     with pytest.raises(TypeError, match=_step_message(step)):
         sf.CorrectiveLoop(["provider/a", step], judge="provider/j")  # type: ignore[list-item]
     with pytest.raises(TypeError, match=_step_message(step)):
@@ -253,13 +267,13 @@ def test_ch11_a_step_is_not_a_corrective_loop_member_or_judge(step: object) -> N
 
 
 @pytest.mark.parametrize("step", _STEPS, ids=_STEP_IDS)
-def test_ch11_a_step_is_not_a_synthesize_model(step: object) -> None:
+def test_ch11_a_step_is_not_a_synthesize_model(step: Step) -> None:
     with pytest.raises(TypeError, match=_step_message(step)):
         sx.Synthesize(step)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("step", _STEPS, ids=_STEP_IDS)
-def test_ch11_a_step_is_not_a_candidate(step: object) -> None:
+def test_ch11_a_step_is_not_a_candidate(step: Step) -> None:
     with pytest.raises(TypeError, match=_step_message(step)):
         _candidate_values(step)  # type: ignore[arg-type]
 
@@ -284,7 +298,7 @@ def test_ch13_a_corrective_root_is_not_a_chain_stage(root: sf.Recipe) -> None:
     with pytest.raises(TypeError, match=message):
         sx.Pipeline(["provider/x", root])
     with pytest.raises(TypeError, match=message):
-        _block() >> root
+        _ = _block() >> root
 
 
 @pytest.mark.parametrize("root", [_LOOP, _SOLO], ids=["corrective-loop", "self-corrective"])
