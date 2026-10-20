@@ -32,9 +32,9 @@ from url4.io._source_policy import (
     source_timeout,
     too_large,
 )
-from url4.io._text_guard import require_text
 from url4.io.idempotency import idempotency_key, mark_answered
-from url4.io.layer import FetchedBytes, FetchRequest, FetchResult
+from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, require_text
 
 # Headers that describe the wire encoding of a body this adapter has already decoded.
 _DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})

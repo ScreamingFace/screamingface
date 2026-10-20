@@ -44,8 +44,12 @@ is a later unit; `Payload` stays `str`.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus `packages/url4/src/url4/io/_text_guard.py` (the shared
-  `require_text` rule, kept out of `io/layer.py` so the port stays standard-library only).
+- **Actual files:** the port types, the bridge, the classifier and `require_text` live in a new
+  `packages/url4/src/url4/io/media.py` instead of `io/layer.py`: `layer.py` is at its CI size cap
+  (`scripts/check_module_size.py`) and must stay standard-library only. `dag/_context.py` may import
+  only `io.layer` / `io.idempotency` (`tests/unit/test_layering.py`), so `BoundedIOLayer` forwards
+  `fetch_bytes` duck-typed. Its two existing bounded forwarders were folded into one generic
+  `_admit`, which removed two `# type: ignore` (suppression baseline lowered 5 → 3).
 - **Commits:** see the PR (`OME-1538-url4-bytes-fetch`).
 - **Gates:** `run_gates.py url4` ALL GATES GREEN (1154 unit tests in `tests/unit`, coverage floor 95%
   met; `io/layer.py` and `io/_text_guard.py` 100%). Regression: `run_gates.py screamingface-engine`
@@ -57,6 +61,7 @@ is a later unit; `Payload` stays `str`.
   `text/plain` from the request's accept, and `*/*` when unset; `fetch_ex` on the PNG refused with
   `unsupported_content_type` (permanent). An expression `https://x/d;accept=text/plain` sends
   `Accept: text/plain` (unit test through `run`).
-- **Deviations:** behaviour change by design: the text paths (`fetch`, `fetch_ex`) now refuse a
+- **Deviations:** the module split above (CI-only ratchets the card's url4 `gates:` do not list:
+  `check_module_size.py`, `check_suppressions.py`). Behaviour change by design: the text paths (`fetch`, `fetch_ex`) now refuse a
   binary media type (incl. `application/octet-stream`) instead of returning mojibake. `;accept=`
   is sent verbatim (no shorthand such as `csv` is expanded).

@@ -15,8 +15,8 @@ from inspect import isawaitable
 
 from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
-from url4.io._text_guard import require_text
-from url4.io.layer import FetchedBytes, FetchRequest, FetchResult
+from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]

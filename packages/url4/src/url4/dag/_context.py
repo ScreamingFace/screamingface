@@ -17,17 +17,16 @@ import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextvars import ContextVar
 from decimal import Decimal
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 
 from url4.core.code import CodeCall, SupportsCode
 from url4.core.context import Context
 from url4.io.layer import (
-    FetchedBytes,
     FetchRequest,
     FetchResult,
     IOLayer,
     SupportsDefaultRoute,
-    SupportsFetchBytes,
     SupportsFetchEx,
     SupportsHoldings,
     SupportsProcessorRoutes,
@@ -131,7 +130,6 @@ class BoundedIOLayer:
     # WHY: conditionally bound in __init__ (annotation only — no class attribute, so
     # hasattr/isinstance stay false when the inner adapter lacks the port).
     fetch_ex: Callable[[FetchRequest], Awaitable[FetchResult]]
-    fetch_bytes: Callable[[FetchRequest], Awaitable[FetchedBytes]]
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
     processor_routes: Callable[[], Sequence[str]]
     has_code: Callable[[str], bool]
@@ -141,11 +139,13 @@ class BoundedIOLayer:
         self._inner = inner
         self._sem = asyncio.Semaphore(limit)
         if isinstance(inner, SupportsFetchEx):
-            self.fetch_ex = self._bounded_fetch_ex
-        if isinstance(inner, SupportsFetchBytes):
-            self.fetch_bytes = self._bounded(inner.fetch_bytes)
+            self.fetch_ex = partial(self._admit, inner.fetch_ex)
         if isinstance(inner, SupportsHoldings):
-            self.fetch_holdings = self._bounded_fetch_holdings
+            self.fetch_holdings = partial(self._admit, inner.fetch_holdings)
+        # WHY getattr, not isinstance(SupportsFetchBytes): the engine may name only io.layer
+        # (test_layering); a runtime_checkable isinstance checks exactly this attribute anyway.
+        if (fetch_bytes := getattr(inner, "fetch_bytes", None)) is not None:
+            self.fetch_bytes = partial(self._admit, fetch_bytes)
         if isinstance(inner, SupportsProcessorRoutes):
             # Not bounded: declaring routes is not I/O. Forwarded so a
             # `processor=` id still resolves through the wrapper (§27.3).
@@ -158,24 +158,10 @@ class BoundedIOLayer:
         async with self._admitted():
             return await self._inner.fetch(target, relative=relative)
 
-    async def _bounded_fetch_ex(self, request: FetchRequest) -> FetchResult:
+    async def _admit[R](self, call: Callable[..., Awaitable[R]], *args: object) -> R:
+        """``call(*args)`` admitted through the run-wide semaphore, like ``fetch``."""
         async with self._admitted():
-            return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
-
-    def _bounded(
-        self, call: Callable[[FetchRequest], Awaitable[FetchedBytes]]
-    ) -> Callable[[FetchRequest], Awaitable[FetchedBytes]]:
-        """``call`` admitted through the run-wide semaphore, like every other fetch."""
-
-        async def bounded(request: FetchRequest) -> FetchedBytes:
-            async with self._admitted():
-                return await call(request)
-
-        return bounded
-
-    async def _bounded_fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        async with self._admitted():
-            return await self._inner.fetch_holdings(identity, collection)  # type: ignore[attr-defined]
+            return await call(*args)
 
     @contextlib.asynccontextmanager
     async def _admitted(self) -> AsyncIterator[None]:

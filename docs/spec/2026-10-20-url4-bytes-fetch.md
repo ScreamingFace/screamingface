@@ -13,7 +13,7 @@ Epic `OME-1529`. Decision basis: `OME-1534` point 4 ("the IOLayer gains a bytes 
 
 ## Contract
 
-1. **Port.** `url4.io.layer` gains `FetchedBytes(body: bytes, media_type: str | None)`, the
+1. **Port.** `url4.io.media` (beside the `url4.io.layer` port, which is at its size cap) gains `FetchedBytes(body: bytes, media_type: str | None)`, the
    optional capability `SupportsFetchBytes.fetch_bytes(request) -> FetchedBytes`, and the bridge
    `fetch_bytes(io, request)`: it calls `fetch_bytes` when the adapter has it, otherwise
    `fetch_result` and UTF-8-encodes the text body (an old adapter could only ever give text).
