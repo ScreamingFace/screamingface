@@ -24,6 +24,7 @@ from _combine_contract import COMBINE_CONTRACT
 from _combine_flow_fixtures import flow_operators
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 RecipeBuilder = Callable[[], sf.Recipe]
@@ -85,88 +86,70 @@ def _writer() -> sf.Model:
     return sf.Model("provider/writer", prompt=WRITER_PROMPT)
 
 
-def _judge() -> sf.Judge:
-    return sf.Judge("provider/judge", returns="scores", rubric=RUBRIC)
+def _judge() -> sx.Judge:
+    return sx.Judge("provider/judge", rubric=RUBRIC)
 
 
 @recipe("S1", "recipe_s1.url4", "s1_median_number")
 def recipe_s1() -> sf.Recipe:
-    return sf.Fusion(ROUTES, synthesizer=sf.Median(extract="last_number", select="value"))
+    return sx.Fanout(ROUTES) >> sx.Median(over="last_number", select="value")
 
 
 @recipe("S2", "recipe_s2.url4", "s2_median_member")
 def recipe_s2() -> sf.Recipe:
-    return sf.Fusion(ROUTES, synthesizer=sf.Median(extract="last_number"))
+    return sx.Fanout(ROUTES) >> sx.Median(over="last_number")
 
 
 @recipe("S5", "recipe_s5.url4", "s5_max_confidence")
 def recipe_s5() -> sf.Recipe:
-    return sf.Fusion(_json_members(), synthesizer=sf.Pick("confidence", order="max"))
+    return sx.Fanout(_json_members()) >> sx.ArgMax("field:confidence")
 
 
 @recipe("S7", "recipe_s7.url4", "s7_top_confidence")
 def recipe_s7() -> sf.Recipe:
-    return sf.Pipeline(
-        [sf.Fusion(_json_members(), synthesizer=sf.Rank(k=2, by_field="confidence")), _writer()]
+    return (
+        sx.Fanout(_json_members()) >> sx.Rank(2, by="field:confidence") >> sx.Synthesize(_writer())
     )
 
 
 @recipe("S8", "recipe_s8.url4", "s8_argmax_confidence")
 def recipe_s8() -> sf.Recipe:
-    return sf.Fusion(
-        _json_members(),
-        synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max"),
-    )
+    return sx.Fanout(_json_members()) >> sx.ArgMax("field:confidence")
 
 
 @recipe("S9", "recipe_s9.url4", "s9_confident_only")
 def recipe_s9() -> sf.Recipe:
-    return sf.Pipeline(
-        [
-            sf.Fusion(
-                _json_members(),
-                synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7),
-            ),
-            _writer(),
-        ]
+    return (
+        sx.Fanout(_json_members())
+        >> sx.Filter(where=sf.signal("field:confidence") > 0.7)
+        >> sx.Synthesize(_writer())
     )
 
 
 @recipe("S10", "recipe_s10.url4", "s10_judge_top")
 def recipe_s10() -> sf.Recipe:
-    return sf.Pipeline([sf.Fusion(ROUTES, synthesizer=sf.Rank(k=2, by=_judge())), _writer()])
+    return sx.Fanout(ROUTES) >> _judge() >> sx.Rank(2, by="score:judge") >> sx.Synthesize(_writer())
 
 
 @recipe("S11", "recipe_s11_max.url4", "s11_judge_best")
 def recipe_s11_max() -> sf.Recipe:
-    return sf.Fusion(ROUTES, synthesizer=_judge())
+    return sx.Fanout(ROUTES) >> _judge() >> sx.ArgMax("score:judge")
 
 
 @recipe("S3", "recipe_s3.url4", "s3_mean_static")
 def recipe_s3() -> sf.Recipe:
-    return sf.Fusion(ROUTES, synthesizer=sf.Mean(weights=(1, 1, 2)))
+    return sx.Fanout(ROUTES) >> sx.Mean(weights=(1, 1, 2))
 
 
 @recipe("S4", "recipe_s4.url4", "s4_mean_by_confidence")
 def recipe_s4() -> sf.Recipe:
-    return sf.Fusion(
-        _json_members(),
-        synthesizer=sf.Reduce(
-            "mean",
-            extract=sf.Extract("field", path="answer"),
-            weights=sf.signal("field:confidence"),
-        ),
+    return sx.Fanout(_json_members()) >> sx.Mean(
+        over="field:answer", weights=sf.signal("field:confidence")
     )
 
 
 @recipe("S4, median form", "recipe_s4_median.url4", "s4_median_by_confidence")
 def recipe_s4_median() -> sf.Recipe:
-    return sf.Fusion(
-        _json_members(),
-        synthesizer=sf.Reduce(
-            "median",
-            extract=sf.Extract("field", path="answer"),
-            weights=sf.signal("field:confidence"),
-            select="value",
-        ),
+    return sx.Fanout(_json_members()) >> sx.Median(
+        over="field:answer", weights=sf.signal("field:confidence"), select="value"
     )

@@ -1362,9 +1362,11 @@ def _report_header(board: str, report_sha: str) -> list[str]:
 
 
 def _fusion_candidate(tape: Any) -> Any:
-    import screamingface as sf
+    from screamingface import _surface as sx
 
-    return sf.Fusion(list(tape.member_routes), name=tape.recipe, synthesizer=tape.synthesizer_route)
+    return sx.Fanout(list(tape.member_routes), name=tape.recipe) >> sx.Synthesize(
+        tape.synthesizer_route
+    )
 
 
 def _splice_rows(gateway_url: str, lines: list[str], name: str) -> dict[str, Any]:

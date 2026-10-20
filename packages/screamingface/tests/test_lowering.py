@@ -42,10 +42,12 @@ def _golden(path: Path) -> str:
 
 @pytest.mark.parametrize("example", EXAMPLES, ids=[example.slug for example in EXAMPLES])
 def test_lo0_lower_is_the_identity_on_every_doc_golden(example: DocExample) -> None:
-    recipe = example.build()
+    # WHY lower first: the doc examples are written in the new surface since 7d-1, so their
+    # lowered value is the internal value of today, on which lower is the identity.
+    recipe = lower(example.build())
 
     assert lower(recipe) is recipe
-    assert compile_example(example, lower(recipe)) == _golden(
+    assert compile_example(example, recipe) == _golden(
         _DATA / "fusion_docs" / f"{example.slug}.url4"
     )
 

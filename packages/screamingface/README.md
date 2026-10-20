@@ -903,9 +903,14 @@ s4_median_by_confidence = sf.Fusion(
         select="value",
     ),
 )
-s5_max_confidence = sf.Fusion(json_members, synthesizer=sf.Pick("confidence", order="max"))
+s5_max_confidence = sf.Fusion(
+    json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")
+)
 s7_top_confidence = sf.Pipeline(
-    [sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_field="confidence")), writer]
+    [
+        sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_signal=sf.signal("field:confidence"))),
+        writer,
+    ]
 )
 s8_argmax_confidence = sf.Fusion(
     json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")

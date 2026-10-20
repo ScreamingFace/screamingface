@@ -81,18 +81,17 @@ class FusionLaneSpec(BaseModel):
             name=_SYNTHESIZER_NAME,
         )
 
-    def build(self, recipe: FusionRecipe):  # -> sf.Fusion
+    def build(self, recipe: FusionRecipe):  # -> sf.Pipeline (a chain)
         """The named form, which ``record`` runs."""
-        import screamingface as sf
+        from screamingface import _surface as sx
 
-        return sf.Fusion(self.members(), synthesizer=self.synthesizer(recipe))
+        return sx.Fanout(self.members()) >> sx.Synthesize(self.synthesizer(recipe))
 
-    def build_block(self, recipe: FusionRecipe):  # -> sf.Pipeline
-        """The block form: Fan-out, ``Reduce("context")``, then the synthesizer (FR-2)."""
-        import screamingface as sf
+    def build_block(self, recipe: FusionRecipe):  # -> sf.Pipeline (a chain)
+        """The block form of today was Fan-out, ``Reduce("context")``, then the synthesizer
+        (FR-2); the map/select/reduce surface has one form for both (R11), so it is ``build``."""
 
-        context = sf.Fusion(self.members(), synthesizer=sf.Reduce("context", mode="compute"))
-        return sf.Pipeline([context, self.synthesizer(recipe)])
+        return self.build(recipe)
 
 
 class FusionRecipeLock(BaseModel):
