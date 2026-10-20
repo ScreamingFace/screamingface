@@ -139,7 +139,9 @@ The terminal and narrow mapping (`'` = the internal value; `s` = `sf.signal(key)
   stage positions that the user wrote (`:129-131`). It keeps that rule and today's message text;
   the position it prints is the 1-based index of the stage in the user's chain, where a closed block
   counts as one stage. WJ-1 pins the full message for a chain with a judge block and a writer
-  stage.
+  stage. Erratum U3b: a judge → writer pair **inside** one block (a block that lowers to
+  `Pipeline([FusionNode, W])`) warns with today's message, which names the block's lowered Pipeline
+  (`'a+b->b'`) and its stages 1 and 2.
 
 ## 3. Parity table (the notebook cases)
 
