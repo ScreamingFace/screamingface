@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, judge_fusion, members3
+from _nodes import JudgeNode, fusion_node
 from test_client_run import _engine
 from url4 import Expression, RelExpr, Source, Text, build, expr, render, src, struct
 
@@ -68,7 +70,7 @@ def _spec(reduce_op: str, reduce_args: str, select_op: str) -> str:
 
 def test_judge_validates_its_arguments() -> None:
     with pytest.raises(ValueError, match="Judge returns must be 'label' or 'scores', not 'best'"):
-        sf.Judge("provider/j", returns="best", rubric=RUBRIC)  # type: ignore[arg-type]
+        JudgeNode("provider/j", returns="best", rubric=RUBRIC)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge rubric must be a string"):
         sx.JudgePick("provider/j", rubric=None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge rubric must be a string"):
@@ -86,15 +88,17 @@ def test_judge_validates_its_arguments() -> None:
     with pytest.raises(ValueError, match="'binding' is reserved"):
         sf.Model("provider/a", params={"binding": "x"})
 
-    judge = sx.JudgePick("provider/j", rubric=RUBRIC)
+    judge = JudgeNode("provider/j", returns="label", rubric=RUBRIC)
     assert judge.name == "judge"
     assert judge.model == "provider/j"
     assert dict(judge.params) == {}
 
 
 def test_judge_repr_round_trips_and_judges_compare_by_field() -> None:
-    plain = sx.JudgePick("provider/j", rubric="Pick \"the\" 'best'\nanswer.")
-    scored = sx.Judge("provider/j", rubric=RUBRIC, params={"temperature": 0, "seed": 7})
+    plain = JudgeNode("provider/j", returns="label", rubric="Pick \"the\" 'best'\nanswer.")
+    scored = JudgeNode(
+        "provider/j", returns="scores", rubric=RUBRIC, params={"temperature": 0, "seed": 7}
+    )
 
     assert (
         repr(plain)
@@ -105,14 +109,14 @@ def test_judge_repr_round_trips_and_judges_compare_by_field() -> None:
         "params={'temperature': 0, 'seed': 7})"
     )
     for judge in (plain, scored):
-        rebuilt = eval(repr(judge), {"Judge": sf.Judge})  # noqa: S307 - the repr is the contract
+        rebuilt = eval(repr(judge), {"Judge": JudgeNode})  # noqa: S307 - the repr is the contract
         assert rebuilt == judge
     assert plain != scored
-    assert plain != sx.Judge("provider/j", rubric=plain.rubric)
-    twin = sx.JudgePick("provider/j", rubric=plain.rubric)
+    assert plain != JudgeNode("provider/j", returns="scores", rubric=plain.rubric)
+    twin = JudgeNode("provider/j", returns="label", rubric=plain.rubric)
     assert hash(plain) == hash(twin)
     assert hash(plain) != hash(scored)
-    fusion = sx.Fanout(members3()) >> plain
+    fusion = fusion_node(members3(), plain)
     assert repr(fusion).endswith(f"synthesizer={plain!r})")
 
 
@@ -247,19 +251,23 @@ def _judge() -> Any:
     return sx.JudgePick("provider/j", rubric=RUBRIC)
 
 
+_NOT_A_RECIPE = "sf.JudgePick is a step, not a recipe: put it after a sf.Fanout"
+_NO_FANOUT = "sf.JudgePick needs a sf.Fanout before it"
+
+
 def test_a_judge_is_only_a_fusion_synthesizer() -> None:
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
     )
-    misplaced: list[Any] = [
-        lambda: sf.CorrectiveLoop(["p/a", "p/b"], judge=_judge()),
-        lambda: sf.Pipeline([_judge()]),
-        lambda: sx.Fanout([_judge(), "p/a"]) >> sx.Synthesize("p/s"),
-        lambda: sf.Model("p/a") >> _judge(),
-        lambda: client.evaluate(_judge(), benchmark="draco"),
+    misplaced: list[tuple[Any, type[Exception], str]] = [
+        (lambda: sf.CorrectiveLoop(["p/a", "p/b"], judge=_judge()), TypeError, _NOT_A_RECIPE),
+        (lambda: sf.Pipeline([_judge()]), TypeError, _NOT_A_RECIPE),
+        (lambda: sx.Fanout([_judge(), "p/a"]) >> sx.Synthesize("p/s"), TypeError, _NOT_A_RECIPE),
+        (lambda: sf.Model("p/a") >> _judge(), ValueError, _NO_FANOUT),
+        (lambda: client.evaluate(_judge(), benchmark="draco"), TypeError, _NOT_A_RECIPE),
     ]
     with client:
-        for build_it in misplaced:
-            with pytest.raises(TypeError, match="reducer must be a Fusion synthesizer"):
+        for build_it, error, message in misplaced:
+            with pytest.raises(error, match=f"^{re.escape(message)}$"):
                 build_it()

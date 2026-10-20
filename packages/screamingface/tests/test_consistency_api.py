@@ -57,13 +57,10 @@ _F1_MATCH: dict[str, object] = {
     "normalize": {"args": {}, "op": "text@1"},
 }
 _SNAPSHOT = Path(__file__).resolve().parent / "public_surface_snapshot.json"
-_DS_I3 = (
-    "Fusion signals= needs a reducer synthesizer such as sf.Vote, sf.Median, sf.Mean, "
-    "sf.Pick, sf.Rank or sf.Filter: a model synthesizer has no combine step to record them"
-)
+_DS_I3 = "sf.Fanout signals= needs a reducer: sf.Synthesize reads no signal"
 
 
-def _pick() -> sf.Pick:
+def _pick() -> sx.ArgMax:
     return sx.ArgMax("cons")
 
 
@@ -223,7 +220,7 @@ _THIRTY_THREE = [f"prov/m{index}" for index in range(1, 34)]
         pytest.param(
             _MEMBERS,
             {"cons": sf.Consistency(n=2)},
-            "prov/judge",
+            sx.Synthesize("prov/judge"),
             _DS_I3,
             id="model-synthesizer",
         ),
@@ -233,29 +230,36 @@ def test_fusion_refuses_a_bad_consistency_declaration_before_any_call(
     members: list[Any], signals: dict[str, Any], synthesizer: Any, message: str
 ) -> None:
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(members, signals=signals, synthesizer=synthesizer)
+        _ = sx.Fanout(members, signals=signals) >> synthesizer
     assert str(caught.value) == message
 
 
 def test_fusion_accepts_a_consistency_declaration_at_the_limits() -> None:
-    at_cap = sf.Fusion(
-        [f"prov/m{index}" for index in range(1, 33)],
-        signals={"cons": sf.Consistency(n=32)},
-        synthesizer=_pick(),
+    at_cap = (
+        sx.Fanout(
+            [f"prov/m{index}" for index in range(1, 33)], signals={"cons": sf.Consistency(n=32)}
+        )
+        >> _pick()
     )
-    assert at_cap.signals == {"cons": sf.Consistency(n=32)}
+    fanout = at_cap.steps[0]
+    assert isinstance(fanout, sx.Fanout)
+    assert fanout.signals == {"cons": sf.Consistency(n=32)}
     assert "signals={'cons': Consistency(n=32, temperature=1.0)}" in repr(at_cap)
-    seeded = sf.Fusion(
-        [
-            *sf.samples("prov/alpha", 3),  # seeds 0, 1, 2 are never sample seeds
-            sf.Model("prov/beta", params={"seed": 107840383}),  # s(2, 2), but n=1
-            sf.Model("prov/gamma", params={"seed": True}),  # a bool is never a seed
-            sf.Model("prov/delta", params={"seed": 2063835758.0}),  # the url4 text differs
-        ],
-        signals={"cons": sf.Consistency(n=1), "conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
-        synthesizer=_pick(),
+    seeded = (
+        sx.Fanout(
+            [
+                *sf.samples("prov/alpha", 3),  # seeds 0, 1, 2 are never sample seeds
+                sf.Model("prov/beta", params={"seed": 107840383}),  # s(2, 2), but n=1
+                sf.Model("prov/gamma", params={"seed": True}),  # a bool is never a seed
+                sf.Model("prov/delta", params={"seed": 2063835758.0}),  # the url4 text differs
+            ],
+            signals={"cons": sf.Consistency(n=1), "conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
+        )
+        >> _pick()
     )
-    assert list(seeded.signals or {}) == ["conf", "cons"]
+    seeded_fanout = seeded.steps[0]
+    assert isinstance(seeded_fanout, sx.Fanout)
+    assert list(seeded_fanout.signals or {}) == ["conf", "cons"]
 
 
 # --- CA#14: the public surface has sf.Consistency (PIN) ----------------------------------------

@@ -18,6 +18,7 @@ import httpx
 import pytest
 from _combine_flow_fixtures import flow_operators
 from _fusion_doc_examples import EXAMPLES, DocExample, compile_example
+from _nodes import ConcatNode, FusionNode, JudgeNode, ReduceNode, VoteNode
 from test_client_run import _engine, _ForbiddenTransport, _ReplayTransport
 from test_reducer_characterization import _GOLDEN as _CHARACTERIZED
 from url4 import expr, render, src, text
@@ -43,7 +44,7 @@ _SURFACE = _CheckSurface(
     feedback_intent="feedback",
     expected_check_cost="free",
 )
-_CONTEXT = sf.Reduce("context")
+_CONTEXT = ReduceNode("context")
 _AB = ["provider/a", "provider/b"]
 
 
@@ -53,8 +54,8 @@ def _golden(slug: str) -> str:
     return path.read_text(encoding="utf-8").removesuffix("\n")
 
 
-def _fusions(recipe: Recipe) -> Iterator[sf.Fusion]:
-    if isinstance(recipe, sf.Fusion):
+def _fusions(recipe: Recipe) -> Iterator[FusionNode]:
+    if isinstance(recipe, FusionNode):
         yield recipe
         for member in recipe.members:
             yield from _fusions(member)
@@ -65,7 +66,7 @@ def _fusions(recipe: Recipe) -> Iterator[sf.Fusion]:
             yield from _fusions(stage)
 
 
-def _unnamed_pipeline_synthesizer(fusion: sf.Fusion) -> bool:
+def _unnamed_pipeline_synthesizer(fusion: FusionNode) -> bool:
     synthesizer = fusion.synthesizer
     return isinstance(synthesizer, sf.Pipeline) and not synthesizer._is_named
 
@@ -77,17 +78,17 @@ def _block(recipe: Recipe) -> Recipe:
     if isinstance(recipe, sf.Pipeline):
         stages = [_block(stage) for stage in recipe.stages]
         return sf.Pipeline(stages, name=recipe.name if recipe._is_named else None)
-    return _block_fusion(recipe) if isinstance(recipe, sf.Fusion) else recipe
+    return _block_fusion(recipe) if isinstance(recipe, FusionNode) else recipe
 
 
-def _block_fusion(fusion: sf.Fusion) -> Recipe:
+def _block_fusion(fusion: FusionNode) -> Recipe:
     members = [_block(member) for member in fusion.members]
     inferred = "+".join(member.name for member in fusion.members)
     name = None if fusion.name == inferred else fusion.name
     synthesizer = fusion.synthesizer
     if isinstance(synthesizer, Reducer):
-        return sf.Fusion(members, name=name, synthesizer=synthesizer)
-    context = sf.Fusion(members, name=name, synthesizer=_CONTEXT)
+        return FusionNode(members, name=name, synthesizer=synthesizer)
+    context = FusionNode(members, name=name, synthesizer=_CONTEXT)
     return sf.Pipeline([context, _block(synthesizer)])
 
 
@@ -132,27 +133,27 @@ def test_block_form_rewrites_to_fusion_and_compiles_byte_identical(example: DocE
 
 
 def test_rewrite_keeps_the_rest_of_the_pipeline() -> None:
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s", "provider/after"])
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s", "provider/after"])
 
     assert compile_candidate(block).url4 == _golden("extra-fusion-then-model")
     assert rewrite_fusion_recipe(
         sf.Pipeline(
-            [sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s", "provider/x", "provider/y"]
+            [FusionNode(_AB, synthesizer=_CONTEXT), "provider/s", "provider/x", "provider/y"]
         )
-    ) == sf.Pipeline([sf.Fusion(_AB, synthesizer="provider/s"), "provider/x", "provider/y"])
+    ) == sf.Pipeline([FusionNode(_AB, synthesizer="provider/s"), "provider/x", "provider/y"])
     # a context Fusion that is not the first stage keeps the stages before it
     assert rewrite_fusion_recipe(
-        sf.Pipeline(["provider/first", sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"])
-    ) == sf.Pipeline(["provider/first", sf.Fusion(_AB, synthesizer="provider/s")])
+        sf.Pipeline(["provider/first", FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"])
+    ) == sf.Pipeline(["provider/first", FusionNode(_AB, synthesizer="provider/s")])
 
 
 def test_an_unnamed_pipeline_of_one_stage_is_that_stage_and_a_named_one_keeps_its_name() -> None:
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"])
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"])
 
-    assert rewrite_fusion_recipe(block) == sf.Fusion(_AB, synthesizer="provider/s")
-    named = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"], name="x")
+    assert rewrite_fusion_recipe(block) == FusionNode(_AB, synthesizer="provider/s")
+    named = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"], name="x")
     assert rewrite_fusion_recipe(named) == sf.Pipeline(
-        [sf.Fusion(_AB, synthesizer="provider/s")], name="x"
+        [FusionNode(_AB, synthesizer="provider/s")], name="x"
     )
 
 
@@ -161,7 +162,7 @@ def test_an_unnamed_pipeline_of_one_stage_is_that_stage_and_a_named_one_keeps_it
 
 def test_recipe_synthesizer_keeps_the_synthesis_flag_on_its_first_stage_only() -> None:
     synthesizer = sf.Pipeline(["provider/j", "provider/w"], name="judge-write")
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), synthesizer])
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), synthesizer])
     compiled = compile_candidate(block)
 
     assert compiled.url4 == _golden("extra-named-pipeline-synthesizer")
@@ -172,10 +173,10 @@ def test_recipe_synthesizer_keeps_the_synthesis_flag_on_its_first_stage_only() -
         "model",
     ]
     # a Fusion as the synthesizer is a Recipe synthesizer too
-    inner = sf.Fusion(["provider/c", "provider/d"], synthesizer="provider/e")
+    inner = FusionNode(["provider/c", "provider/d"], synthesizer="provider/e")
     assert (
-        compile_candidate(sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), inner])).url4
-        == compile_candidate(sf.Fusion(_AB, synthesizer=inner)).url4
+        compile_candidate(sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), inner])).url4
+        == compile_candidate(FusionNode(_AB, synthesizer=inner)).url4
     )
 
 
@@ -183,13 +184,13 @@ def test_recipe_synthesizer_keeps_the_synthesis_flag_on_its_first_stage_only() -
 
 
 def test_named_pipeline_keeps_its_name_after_the_rewrite() -> None:
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"], name="x")
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"], name="x")
 
     assert compile_candidate(block).url4 == _golden("extra-named-pipeline-of-one-fusion")
     assert "x" in compile_candidate(block).url4
     assert (
         compile_candidate(block).url4
-        != compile_candidate(sf.Fusion(_AB, synthesizer="provider/s")).url4
+        != compile_candidate(FusionNode(_AB, synthesizer="provider/s")).url4
     )
 
 
@@ -198,22 +199,22 @@ def test_named_pipeline_keeps_its_name_after_the_rewrite() -> None:
 
 def test_nested_fusion_keeps_its_bindings_in_both_block_forms() -> None:
     golden = _golden("extra-nested-fusion")
-    inner_ctx = sf.Fusion(["provider/a", "provider/b"], synthesizer=_CONTEXT)
+    inner_ctx = FusionNode(["provider/a", "provider/b"], synthesizer=_CONTEXT)
     outer = sf.Pipeline(
         [
-            sf.Fusion(
-                [sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s1"), "provider/c"],
+            FusionNode(
+                [FusionNode(["provider/a", "provider/b"], synthesizer="provider/s1"), "provider/c"],
                 synthesizer=_CONTEXT,
             ),
             "provider/s2",
         ]
     )
-    as_member = sf.Fusion(
+    as_member = FusionNode(
         [sf.Pipeline([inner_ctx, "provider/s1"]), "provider/c"], synthesizer="provider/s2"
     )
     both = sf.Pipeline(
         [
-            sf.Fusion(
+            FusionNode(
                 [sf.Pipeline([inner_ctx, "provider/s1"]), "provider/c"], synthesizer=_CONTEXT
             ),
             "provider/s2",
@@ -247,28 +248,28 @@ def test_every_recipe_without_a_context_block_is_returned_as_it_is() -> None:
 
 
 def test_the_rewrite_is_idempotent() -> None:
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s", "provider/after"])
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s", "provider/after"])
     once = rewrite_fusion_recipe(block)
 
-    assert once == sf.Pipeline([sf.Fusion(_AB, synthesizer="provider/s"), "provider/after"])
+    assert once == sf.Pipeline([FusionNode(_AB, synthesizer="provider/s"), "provider/after"])
     assert rewrite_fusion_recipe(once) is once
 
 
 def test_the_name_rule_infers_again_or_keeps_the_given_name() -> None:
     # a name equal to the one inferred from the original children is inferred again
-    nested = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s1"])
-    inferred = sf.Fusion([nested, "provider/c"], synthesizer="provider/s2")
+    nested = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s1"])
+    inferred = FusionNode([nested, "provider/c"], synthesizer="provider/s2")
     assert inferred.name == "a+b->s1+c"
     assert rewrite_fusion_recipe(inferred).name == "a+b+c"
-    same_as_inferred = sf.Fusion(
+    same_as_inferred = FusionNode(
         [nested, "provider/c"], name="a+b->s1+c", synthesizer="provider/s2"
     )
     assert rewrite_fusion_recipe(same_as_inferred).name == "a+b+c"
     # any other name is kept
-    kept = sf.Fusion([nested, "provider/c"], name="mine", synthesizer="provider/s2")
+    kept = FusionNode([nested, "provider/c"], name="mine", synthesizer="provider/s2")
     assert rewrite_fusion_recipe(kept).name == "mine"
     # the context Fusion's own name is kept, or inferred from its members
-    named = sf.Pipeline([sf.Fusion(_AB, name="pair", synthesizer=_CONTEXT), "provider/s"])
+    named = sf.Pipeline([FusionNode(_AB, name="pair", synthesizer=_CONTEXT), "provider/s"])
     assert rewrite_fusion_recipe(named).name == "pair"
     assert rewrite_fusion_recipe(nested).name == "a+b"
     # a Pipeline uses _is_named: an unnamed one is inferred again, a named one keeps its name
@@ -280,8 +281,8 @@ def test_the_name_rule_infers_again_or_keeps_the_given_name() -> None:
 
 
 def test_the_rewrite_reaches_loops_members_and_judges() -> None:
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"])
-    fusion = sf.Fusion(_AB, synthesizer="provider/s")
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"])
+    fusion = FusionNode(_AB, synthesizer="provider/s")
 
     loop = sf.CorrectiveLoop([block, "provider/c"], judge=block, max_rounds=2)
     assert rewrite_fusion_recipe(loop) == sf.CorrectiveLoop(
@@ -300,32 +301,32 @@ def test_the_rewrite_reaches_loops_members_and_judges() -> None:
 
 
 def test_the_rewrite_reaches_a_fusion_synthesizer_and_a_fusion_member() -> None:
-    block = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"])
-    fusion = sf.Fusion(_AB, synthesizer="provider/s")
+    block = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"])
+    fusion = FusionNode(_AB, synthesizer="provider/s")
 
-    as_synthesizer = sf.Fusion(["provider/c", "provider/d"], synthesizer=block)
-    assert rewrite_fusion_recipe(as_synthesizer) == sf.Fusion(
+    as_synthesizer = FusionNode(["provider/c", "provider/d"], synthesizer=block)
+    assert rewrite_fusion_recipe(as_synthesizer) == FusionNode(
         ["provider/c", "provider/d"], synthesizer=fusion
     )
     # a context Fusion inside a rewritten stage's members is lowered first
-    deep = sf.Pipeline([sf.Fusion([block, "provider/c"], synthesizer=_CONTEXT), "provider/t"])
-    assert rewrite_fusion_recipe(deep) == sf.Fusion(
+    deep = sf.Pipeline([FusionNode([block, "provider/c"], synthesizer=_CONTEXT), "provider/t"])
+    assert rewrite_fusion_recipe(deep) == FusionNode(
         [fusion, "provider/c"], synthesizer="provider/t"
     )
     # a context Fusion whose synthesizer stage itself holds a block form
     chained = sf.Pipeline(
         [
-            sf.Fusion(_AB, synthesizer=_CONTEXT),
+            FusionNode(_AB, synthesizer=_CONTEXT),
             sf.Pipeline(
-                [sf.Fusion(["provider/c", "provider/d"], synthesizer=_CONTEXT), "provider/t"],
+                [FusionNode(["provider/c", "provider/d"], synthesizer=_CONTEXT), "provider/t"],
                 name="inner",
             ),
         ]
     )
-    assert rewrite_fusion_recipe(chained) == sf.Fusion(
+    assert rewrite_fusion_recipe(chained) == FusionNode(
         _AB,
         synthesizer=sf.Pipeline(
-            [sf.Fusion(["provider/c", "provider/d"], synthesizer="provider/t")], name="inner"
+            [FusionNode(["provider/c", "provider/d"], synthesizer="provider/t")], name="inner"
         ),
     )
 
@@ -351,58 +352,58 @@ def _client(paths: list[str], transport: Any) -> sf.Client:
 
 def _block_pair() -> sf.Recipe:
     return sf.Pipeline(
-        [sf.Fusion(["provider/opus", "provider/judge"], synthesizer=_CONTEXT), "provider/opus"]
+        [FusionNode(["provider/opus", "provider/judge"], synthesizer=_CONTEXT), "provider/opus"]
     )
 
 
 def test_a_300_member_block_form_constructs_and_compiles_to_its_golden() -> None:
     members = [f"provider/m{index}" for index in range(300)]
-    block = sf.Pipeline([sf.Fusion(members, synthesizer=_CONTEXT), "provider/s"])
+    block = sf.Pipeline([FusionNode(members, synthesizer=_CONTEXT), "provider/s"])
 
     assert compile_candidate(block).url4 == _golden("extra-300-members")
     # the member cap still holds for every reducer that compiles to a combine call
     with pytest.raises(ValueError, match="at most 256 members"):
-        sf.Fusion(members, synthesizer=sf.Vote())
+        FusionNode(members, synthesizer=VoteNode())
     assert recipes_need_operators([block]) is False
-    assert recipes_need_operators([sf.Fusion(_AB, synthesizer=sf.Vote())]) is True
+    assert recipes_need_operators([FusionNode(_AB, synthesizer=VoteNode())]) is True
     mixed = sf.Pipeline(
-        [sf.Fusion(_AB, synthesizer=_CONTEXT), sf.Fusion(_AB, synthesizer=sf.Vote())]
+        [FusionNode(_AB, synthesizer=_CONTEXT), FusionNode(_AB, synthesizer=VoteNode())]
     )
     assert recipes_need_operators([mixed]) is True
 
 
 def test_only_the_context_block_skips_the_combine_exclusions() -> None:
     assert _CONTEXT._compiles_to_combine() is False
-    for reducer in (sf.Vote(), sf.Reduce("plurality", extract=sf.Extract("last_number"))):
+    for reducer in (VoteNode(), ReduceNode("plurality", extract=sf.Extract("last_number"))):
         assert reducer._compiles_to_combine() is True
-    for judge in (sf.Judge("provider/j", returns="label", rubric="r"), sf.Concat()):
+    for judge in (JudgeNode("provider/j", returns="label", rubric="r"), ConcatNode()):
         assert judge._compiles_to_combine() is True
 
 
 # --- FR#10 ------------------------------------------------------------------------------------
 
 _MISUSES: dict[str, Callable[[], Recipe]] = {
-    "root": lambda: sf.Fusion(_AB, synthesizer=_CONTEXT),
-    "last stage": lambda: sf.Pipeline(["provider/x", sf.Fusion(_AB, synthesizer=_CONTEXT)]),
-    "only stage": lambda: sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT)]),
-    "fusion member": lambda: sf.Fusion(
-        [sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/c"], synthesizer="provider/s"
+    "root": lambda: FusionNode(_AB, synthesizer=_CONTEXT),
+    "last stage": lambda: sf.Pipeline(["provider/x", FusionNode(_AB, synthesizer=_CONTEXT)]),
+    "only stage": lambda: sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT)]),
+    "fusion member": lambda: FusionNode(
+        [FusionNode(_AB, synthesizer=_CONTEXT), "provider/c"], synthesizer="provider/s"
     ),
-    "fusion synthesizer": lambda: sf.Fusion(
-        ["provider/c", "provider/d"], synthesizer=sf.Fusion(_AB, synthesizer=_CONTEXT)
+    "fusion synthesizer": lambda: FusionNode(
+        ["provider/c", "provider/d"], synthesizer=FusionNode(_AB, synthesizer=_CONTEXT)
     ),
     "before another context fusion": lambda: sf.Pipeline(
         [
-            sf.Fusion(_AB, synthesizer=_CONTEXT),
-            sf.Fusion(["provider/c", "provider/d"], synthesizer=_CONTEXT),
+            FusionNode(_AB, synthesizer=_CONTEXT),
+            FusionNode(["provider/c", "provider/d"], synthesizer=_CONTEXT),
             "provider/s",
         ]
     ),
     "loop member": lambda: sf.CorrectiveLoop(
-        [sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/c"], judge="provider/j"
+        [FusionNode(_AB, synthesizer=_CONTEXT), "provider/c"], judge="provider/j"
     ),
-    "loop judge": lambda: sf.CorrectiveLoop(_AB, judge=sf.Fusion(_AB, synthesizer=_CONTEXT)),
-    "self corrective": lambda: sf.SelfCorrective(sf.Fusion(_AB, synthesizer=_CONTEXT)),
+    "loop judge": lambda: sf.CorrectiveLoop(_AB, judge=FusionNode(_AB, synthesizer=_CONTEXT)),
+    "self corrective": lambda: sf.SelfCorrective(FusionNode(_AB, synthesizer=_CONTEXT)),
 }
 
 
@@ -420,7 +421,7 @@ def test_context_misuse_through_a_client_never_spends_or_fetches_operators(case:
     transport = _ForbiddenTransport()
     members = ["provider/opus", "provider/judge"]
     recipes: dict[str, Recipe] = {
-        "root": sf.Fusion(members, synthesizer=_CONTEXT),
+        "root": FusionNode(members, synthesizer=_CONTEXT),
     }
 
     with _client(paths, transport) as client, pytest.raises(ValueError, match=_MISUSE):
@@ -436,7 +437,7 @@ def test_a_context_block_compiled_directly_is_the_misuse() -> None:
     with pytest.raises(ValueError, match=_MISUSE):
         combine_spec_text(_CONTEXT, member_count=2, operators=flow_operators())
     with pytest.raises(ValueError, match="'context' is a compute op, not select"):
-        sf.Reduce("context", mode="select")
+        ReduceNode("context", mode="select")
 
 
 # --- FR#11 ------------------------------------------------------------------------------------
@@ -470,12 +471,12 @@ def _linked(candidate: str) -> str:
 def test_recovered_fusion_prints_as_fusion(case: str) -> None:
     named = sf.Pipeline(["provider/j", "provider/w"], name="judge-write")
     blocks: dict[str, Recipe] = {
-        "named synthesizer": sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), named]),
-        "model synthesizer": sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s"]),
+        "named synthesizer": sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), named]),
+        "model synthesizer": sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s"]),
         "nested": sf.Pipeline(
             [
-                sf.Fusion(
-                    [sf.Fusion(_AB, synthesizer="provider/s1"), "provider/c"], synthesizer=_CONTEXT
+                FusionNode(
+                    [FusionNode(_AB, synthesizer="provider/s1"), "provider/c"], synthesizer=_CONTEXT
                 ),
                 "provider/s2",
             ]
@@ -493,7 +494,7 @@ def test_both_forms_report_the_same_candidate_name_in_a_scripted_run() -> None:
     names: list[str] = []
     for is_block, recipe in (
         (True, _block_pair()),
-        (False, sf.Fusion(["provider/opus", "provider/judge"], synthesizer="provider/opus")),
+        (False, FusionNode(["provider/opus", "provider/judge"], synthesizer="provider/opus")),
     ):
         paths: list[str] = []
         transport = _ReplayTransport()
@@ -522,14 +523,14 @@ def test_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:
 
 
 def test_the_inferred_name_rule_lives_once_in_recipe_py() -> None:
-    fusion = sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s")
+    fusion = FusionNode(["provider/a", "provider/b"], synthesizer="provider/s")
     loop = sf.CorrectiveLoop(["provider/a", "provider/b"], judge="provider/j")
 
     # the reprs show name= exactly when the name is not the inferred one
     assert "name=" not in repr(fusion)
     assert "name=" not in repr(loop)
     assert "name='mine'" in repr(
-        sf.Fusion(["provider/a", "provider/b"], name="mine", synthesizer="s")
+        FusionNode(["provider/a", "provider/b"], name="mine", synthesizer="s")
     )
     assert "name='mine'" in repr(sf.CorrectiveLoop(["p/a", "p/b"], judge="p/j", name="mine"))
 
@@ -543,8 +544,8 @@ def _benchmark() -> Any:
 def test_a_duplicate_name_made_by_the_rewrite_says_so_and_asks_for_a_name() -> None:
     from screamingface._evaluation.compilation import compile_evaluation
 
-    first = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s1"])
-    second = sf.Pipeline([sf.Fusion(_AB, synthesizer=_CONTEXT), "provider/s2"])
+    first = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s1"])
+    second = sf.Pipeline([FusionNode(_AB, synthesizer=_CONTEXT), "provider/s2"])
 
     with pytest.raises(ValueError, match="duplicate Candidate name 'a\\+b'") as caught:
         compile_evaluation((first, second), _benchmark(), 1)
@@ -552,10 +553,10 @@ def test_a_duplicate_name_made_by_the_rewrite_says_so_and_asks_for_a_name() -> N
     assert "Fusion recipe rewrite" in message
     assert "name=" in message
     # a name the user wrote is not blamed on the rewrite
-    plain = sf.Fusion(_AB, synthesizer="provider/s1")
+    plain = FusionNode(_AB, synthesizer="provider/s1")
     with pytest.raises(ValueError, match="duplicate Candidate name 'a\\+b'") as again:
-        compile_evaluation((plain, sf.Fusion(_AB, synthesizer="provider/s2")), _benchmark(), 1)
+        compile_evaluation((plain, FusionNode(_AB, synthesizer="provider/s2")), _benchmark(), 1)
     assert "rewrite" not in str(again.value)
     # one name= each resolves it
-    named = sf.Pipeline([sf.Fusion(_AB, name="x", synthesizer=_CONTEXT), "provider/s2"])
+    named = sf.Pipeline([FusionNode(_AB, name="x", synthesizer=_CONTEXT), "provider/s2"])
     assert compile_evaluation((first, named), _benchmark(), 1).candidates
