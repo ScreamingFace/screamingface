@@ -155,7 +155,7 @@ def _media_type_of(payload: Payload) -> str | None:
     return getattr(payload, "media_type", None)
 
 
-def _error_payload(exc: BaseException) -> dict:
+def collected_error(exc: BaseException) -> dict:
     """One collected row's wire error object (spec §5.3.6 ``collect``).
 
     Preserves the exception's URL4 diagnostics — ``code`` and ``permanent`` — beside the
@@ -164,6 +164,9 @@ def _error_payload(exc: BaseException) -> dict:
     default code. ``permanent`` travels as ``retryable`` (its inverse): permanent errors
     must not be retried, and every reader of this payload already keys on retryability
     (``screamingface_engine.benchmarks.aggregation.public_error``).
+
+    Public (``url4.dag.collected_error``): a code handler that runs several steps in process
+    records a failed step in this same shape, so a reader of collected rows has one decoder.
     """
     payload: dict[str, object] = {
         "kind": type(exc).__name__,
