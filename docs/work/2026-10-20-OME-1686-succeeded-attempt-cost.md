@@ -1,9 +1,9 @@
 ---
 ticket: OME-1686
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-20
-finished:
+finished: 2026-10-20
 ---
 
 # OME-1686-succeeded-attempt-cost — report the cost of the successful attempt in request economics
@@ -56,7 +56,25 @@ key. The fields for the actual spend do not change. Spec:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned — `render.py`, `usage_accounting.schema.json`, `docs/usage-accounting.md`,
+  two new test modules, the three approved prior-test files, and
+  `.claude/test-change-approvals/OME-1686.json`. Also `entry_metadata.py` (deviation 1).
+- **Commits:** `07bb328ea` — feat(aigateway): report the successful attempt's direct cost and usage.
+  Docs: `f50f5eeea`, `356c81bd4`, `36b6338f7`, `fec26a103`.
+- **Gates:** `uv run .claude/scripts/run_gates.py aigateway --base origin/main` → ALL GATES GREEN on
+  the first attempt (append-only with 3 approved OME-1686 transitions, ruff check, ruff format,
+  pyright, no-enterprise, pytest with coverage). Separate full run: 6059 passed, 103 skipped,
+  coverage 93.68%. One earlier full run had 1 intermittent failure that did not repeat (full
+  rerun green; `test_chat_global_cache_route.py` 5/5 green). Engine cross-check:
+  `apps/screamingface-engine/tests/unit/test_cache_hit_contract.py` 4 passed against the
+  regenerated fixture, with no Engine change.
 - **Deviations:**
+  1. `entry_metadata.py` now calls the shared `last_succeeded_record` helper, so the selection rule
+     is defined once. Its behaviour did not change.
+  2. The usage-key tests were written after the implementation, because the contract extension
+     arrived during GREEN. Proof that they test the right thing: with the key removed, 21 tests
+     fail; with it restored, all pass.
+  3. The approval manifest was written last, because its blob hashes depend on the final test
+     edits. The owner also approved a 19th hash literal in
+     `test_release_fixture_exercises_private_input_without_publishing_it`, outside the 18-value
+     dict; it is in the manifest.
