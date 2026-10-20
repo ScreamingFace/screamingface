@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import pytest
 from _combine_contract import engine_operators
+from _nodes import FusionNode
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
+from screamingface._surface.lowering import lower
 
 _CN_I2 = (
     "sf.Consistency needs each Fusion member to be one sf.Model call; member 2 ('inner') is a "
@@ -24,16 +27,15 @@ _CN_I2 = (
 
 
 def test_compile_refuses_a_non_model_member_with_the_fusion_error() -> None:
-    inner = sf.Fusion(["prov/gamma", "prov/delta"], name="inner", synthesizer=sf.Vote())
-    fusion = sf.Fusion(
-        ["prov/alpha", "prov/beta"],
-        name="cons",
-        signals={"cons": sf.Consistency(n=2)},
-        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+    inner = sx.Fanout(["prov/gamma", "prov/delta"], name="inner") >> sx.Vote()
+    fusion = lower(
+        sx.Fanout(["prov/alpha", "prov/beta"], signals={"cons": sf.Consistency(n=2)}, name="cons")
+        >> sx.ArgMax("cons")
     )
+    assert isinstance(fusion, FusionNode)
     # WHY bypass __init__: the Fusion check refuses this shape, so only a changed value reaches
-    # the compiler with it.
-    object.__setattr__(fusion, "members", (fusion.members[0], inner))
+    # the compiler with it. The lowered node is the value the compiler reads.
+    object.__setattr__(fusion, "members", (fusion.members[0], lower(inner)))
 
     with pytest.raises(ValueError) as caught:
         compile_candidate(fusion, operators=engine_operators())
@@ -43,13 +45,10 @@ def test_compile_refuses_a_non_model_member_with_the_fusion_error() -> None:
 
 def test_fusion_init_raises_the_same_cn_i2_error() -> None:
     # control: the message above is the one of Fusion.__init__
-    inner = sf.Fusion(["prov/gamma", "prov/delta"], name="inner", synthesizer=sf.Vote())
+    inner = sx.Fanout(["prov/gamma", "prov/delta"], name="inner") >> sx.Vote()
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(
-            ["prov/alpha", inner],
-            name="cons",
-            signals={"cons": sf.Consistency(n=2)},
-            synthesizer=sf.Pick(by_signal=sf.signal("cons")),
-        )
+        _ = sx.Fanout(
+            ["prov/alpha", inner], signals={"cons": sf.Consistency(n=2)}, name="cons"
+        ) >> sx.ArgMax("cons")
 
     assert str(caught.value) == _CN_I2
