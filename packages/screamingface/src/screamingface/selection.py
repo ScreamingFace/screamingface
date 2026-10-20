@@ -43,7 +43,6 @@ from screamingface.reducer import (
     _op_name,
     _ReducerPlan,
     _refuse_judge_signal,
-    _refuse_min_order_judge,
     _require_steps,
     _spec_steps,
     _Step,
@@ -63,8 +62,6 @@ def _check_rank_source(by: object, by_field: object, by_signal: object) -> None:
         raise TypeError("Rank by must be an sf.Judge")
     if by is not None and by.returns != "scores":
         raise ValueError("Rank(by=...) needs sf.Judge(..., returns='scores')")
-    if by is not None:
-        _refuse_min_order_judge(by, "Rank")
     if by_field is not None:
         _field_path(by_field, "Rank by_field")
     if by_signal is not None and not isinstance(by_signal, Signal):
