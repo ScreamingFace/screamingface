@@ -199,10 +199,12 @@ has the full table. In short:
 8. Docs: README, CHANGELOG, notebooks, public docs, the PO notebook as an example.
 
 Units 2–6 build the new surface in a **private package** that only new tests import, and compare
-it with today's bytes. Snapshots: unit 1 changes the two v1 schema snapshots and the public surface
-snapshot (`CombineEvidence.__init__` gets `narrow`, and `CombineNarrow` is new and public); units
-2–6 change no snapshot; unit 7 regenerates the public surface snapshot. No existing test changes
-before unit 7. Unit 1 runs in parallel with units 2–4.
+it with today's bytes. Snapshots: unit 1 changes the two v1 schema snapshots, the public surface
+snapshot (`CombineEvidence.__init__` gets `narrow`, and `CombineNarrow` is new and public) and
+`ST/data/schemas/screamingface.answer.v1.json` (additive, same v1 id), plus 6 pinned test files
+whose literals list the reasons (14 → 15) or the key order (`cut`, `narrow`, `consistency`) —
+erratum U1h; the owner approved all of them on 2026-10-20. Units 2–6 change no other snapshot and
+no other existing test; unit 7 regenerates the public surface snapshot. Unit 1 runs in parallel with units 2–4.
 
 ## 7. Out of scope
 
