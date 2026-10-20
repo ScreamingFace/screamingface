@@ -12,6 +12,7 @@ from test_client_run import _engine
 from url4 import Expression, RelExpr, Source, Text, build, expr, render, src, struct
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import _url4_text, compile_candidate
 from screamingface.judge import (
     JUDGE_TEMPLATES,
@@ -69,33 +70,31 @@ def test_judge_validates_its_arguments() -> None:
     with pytest.raises(ValueError, match="Judge returns must be 'label' or 'scores', not 'best'"):
         sf.Judge("provider/j", returns="best", rubric=RUBRIC)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge rubric must be a string"):
-        sf.Judge("provider/j", returns="label", rubric=None)  # type: ignore[arg-type]
+        sx.JudgePick("provider/j", rubric=None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge rubric must be a string"):
-        sf.Judge("provider/j", returns="label", rubric=3)  # type: ignore[arg-type]
+        sx.JudgePick("provider/j", rubric=3)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="judge rubric must not be empty"):
-        sf.Judge("provider/j", returns="label", rubric=" ")
+        sx.JudgePick("provider/j", rubric=" ")
     with pytest.raises(ValueError, match="model route must not be empty"):
-        sf.Judge("", returns="label", rubric=RUBRIC)
+        sx.JudgePick("", rubric=RUBRIC)
     with pytest.raises(TypeError, match="model route must be a string"):
-        sf.Judge(3, returns="label", rubric=RUBRIC)  # type: ignore[arg-type]
+        sx.JudgePick(3, rubric=RUBRIC)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge params must be a mapping or None"):
-        sf.Judge("provider/j", returns="label", rubric=RUBRIC, params=[1])  # type: ignore[arg-type]
+        sx.JudgePick("provider/j", rubric=RUBRIC, params=[1])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="'binding' is reserved"):
-        sf.Judge("provider/j", returns="label", rubric=RUBRIC, params={"binding": "x"})
+        sx.JudgePick("provider/j", rubric=RUBRIC, params={"binding": "x"})
     with pytest.raises(ValueError, match="'binding' is reserved"):
         sf.Model("provider/a", params={"binding": "x"})
 
-    judge = sf.Judge("provider/j", returns="label", rubric=RUBRIC)
+    judge = sx.JudgePick("provider/j", rubric=RUBRIC)
     assert judge.name == "judge"
     assert judge.model == "provider/j"
     assert dict(judge.params) == {}
 
 
 def test_judge_repr_round_trips_and_judges_compare_by_field() -> None:
-    plain = sf.Judge("provider/j", returns="label", rubric="Pick \"the\" 'best'\nanswer.")
-    scored = sf.Judge(
-        "provider/j", returns="scores", rubric=RUBRIC, params={"temperature": 0, "seed": 7}
-    )
+    plain = sx.JudgePick("provider/j", rubric="Pick \"the\" 'best'\nanswer.")
+    scored = sx.Judge("provider/j", rubric=RUBRIC, params={"temperature": 0, "seed": 7})
 
     assert (
         repr(plain)
@@ -109,11 +108,11 @@ def test_judge_repr_round_trips_and_judges_compare_by_field() -> None:
         rebuilt = eval(repr(judge), {"Judge": sf.Judge})  # noqa: S307 - the repr is the contract
         assert rebuilt == judge
     assert plain != scored
-    assert plain != sf.Judge("provider/j", returns="scores", rubric=plain.rubric)
-    twin = sf.Judge("provider/j", returns="label", rubric=plain.rubric)
+    assert plain != sx.Judge("provider/j", rubric=plain.rubric)
+    twin = sx.JudgePick("provider/j", rubric=plain.rubric)
     assert hash(plain) == hash(twin)
     assert hash(plain) != hash(scored)
-    fusion = sf.Fusion(members3(), synthesizer=plain)
+    fusion = sx.Fanout(members3()) >> plain
     assert repr(fusion).endswith(f"synthesizer={plain!r})")
 
 
@@ -206,10 +205,7 @@ def test_judge_compiles_to_judge_and_combine_sources() -> None:
 
 
 def test_judge_fingerprint_differs_from_a_same_model_member() -> None:
-    fusion = sf.Fusion(
-        ["provider/j", "provider/b"],
-        synthesizer=sf.Judge("provider/j", returns="label", rubric=RUBRIC),
-    )
+    fusion = sx.Fanout(["provider/j", "provider/b"]) >> sx.JudgePick("provider/j", rubric=RUBRIC)
     calls = _calls_by_name(_compile(fusion).url4)
 
     member, judge = calls["model_1"], calls["judge_1"]
@@ -222,10 +218,9 @@ def test_two_judge_fusions_number_bindings_per_prefix() -> None:
     pipeline = sf.Pipeline(
         [
             judge_fusion(),
-            sf.Fusion(
-                ["provider/d", "provider/e"],
-                synthesizer=sf.Judge("provider/k", returns="scores", rubric=RUBRIC),
-            ),
+            sx.Fanout(["provider/d", "provider/e"])
+            >> sx.Judge("provider/k", rubric=RUBRIC)
+            >> sx.ArgMax("score:judge"),
         ]
     )
     compiled = _compile(pipeline)
@@ -249,7 +244,7 @@ def test_two_judge_fusions_number_bindings_per_prefix() -> None:
 
 
 def _judge() -> Any:
-    return sf.Judge("provider/j", returns="label", rubric=RUBRIC)
+    return sx.JudgePick("provider/j", rubric=RUBRIC)
 
 
 def test_a_judge_is_only_a_fusion_synthesizer() -> None:
@@ -260,8 +255,8 @@ def test_a_judge_is_only_a_fusion_synthesizer() -> None:
     misplaced: list[Any] = [
         lambda: sf.CorrectiveLoop(["p/a", "p/b"], judge=_judge()),
         lambda: sf.Pipeline([_judge()]),
-        lambda: sf.Fusion([_judge(), "p/a"], synthesizer="p/s"),
-        lambda: sf.Model("p/a").then(_judge()),
+        lambda: sx.Fanout([_judge(), "p/a"]) >> sx.Synthesize("p/s"),
+        lambda: sf.Model("p/a") >> _judge(),
         lambda: client.evaluate(_judge(), benchmark="draco"),
     ]
     with client:

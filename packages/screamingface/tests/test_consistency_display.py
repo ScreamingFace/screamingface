@@ -26,6 +26,7 @@ from _combine_contract import COMBINE_CONTRACT, engine_operators, requires_engin
 from test_combine_run_summary import _candidate
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._ui.combine_view import combine_sections_html, combine_summary_html
@@ -325,14 +326,11 @@ def test_the_trace_field_sets_do_not_change() -> None:
 def test_nested_fusion_sample_calls_have_no_member_in_the_trace() -> None:
     # N8: a sample call is a step row with no member. The outer combine reads the inner combine
     # that owns the samples; it must not give them its member label (review P7 #1).
-    inner = sf.Fusion(
-        ["prov/alpha", "prov/beta", "prov/eps"],
-        name="ia",
-        signals={"cons": sf.Consistency(n=2)},
-        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
-    )
-    plain = sf.Fusion(["prov/gamma", "prov/delta", "prov/eta"], name="ib", synthesizer=sf.Vote())
-    outer = sf.Fusion([inner, plain, "prov/zeta"], name="outer", synthesizer=sf.Vote())
+    inner = sx.Fanout(
+        ["prov/alpha", "prov/beta", "prov/eps"], signals={"cons": sf.Consistency(n=2)}, name="ia"
+    ) >> sx.ArgMax("cons")
+    plain = sx.Fanout(["prov/gamma", "prov/delta", "prov/eta"], name="ib") >> sx.Vote()
+    outer = sx.Fanout([inner, plain, "prov/zeta"], name="outer") >> sx.Vote()
     graph = compile_candidate(outer, operators=engine_operators()).operations
     evidence = {
         "op_synthesis_1": _evidence(_wire("consistency_vote")),

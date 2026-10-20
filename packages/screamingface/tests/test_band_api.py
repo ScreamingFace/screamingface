@@ -20,6 +20,7 @@ from _vote_run_fixtures import spec_of
 from test_gate_contract_fixtures import assert_fixture_matches
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -49,7 +50,7 @@ _PART5_GATE_FIXTURES: tuple[str, ...] = (
 
 
 def _judge() -> sf.Judge:
-    return sf.Judge("prov/judge", returns="label", rubric=_RUBRIC)
+    return sx.JudgePick("prov/judge", rubric=_RUBRIC)
 
 
 def _recipe_g(otherwise: Any = "abstain") -> sf.Fusion:
@@ -240,13 +241,17 @@ def test_rebuild_refuses_a_hand_edited_band(edited: str) -> None:
 
 
 def test_a_band_keeps_the_declared_name_rule() -> None:
-    vote = sf.Vote(gate=sf.Gate("mean:zzz", "<=", 3.0, abstain_band=(2.5, 3.5)))
+    vote = sx.Gate(
+        when=sx.signal("zzz").mean() <= 3.0,
+        then=sx.Vote(),
+        abstain_if=sx.signal("zzz").mean().between(2.5, 3.5),
+    )
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(
-            _MEMBERS,
-            name="vote",
-            signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")},
-            synthesizer=vote,
+        (
+            sx.Fanout(
+                _MEMBERS, signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")}, name="vote"
+            )
+            >> vote
         )
     assert str(caught.value) == (
         "the gate reads 'mean:zzz', but this Fusion does not declare 'zzz' (declared: conf)"

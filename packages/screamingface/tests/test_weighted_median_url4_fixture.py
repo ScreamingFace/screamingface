@@ -13,19 +13,15 @@ from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, requires_engine_app
 from _combine_flow_fixtures import flow_operators
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _FIXTURE = COMBINE_CONTRACT / "weighted_median_confidence_candidate.url4"
 
 
 def weighted_median_confidence_url4() -> str:
-    fusion = sf.Fusion(
-        ["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"],
-        synthesizer=sf.Reduce(
-            "median",
-            extract=sf.Extract("field", path="answer"),
-            weights=sf.signal("field:confidence"),
-        ),
+    fusion = sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"]) >> sx.Median(
+        over="field:answer", weights=sf.signal("field:confidence")
     )
     return compile_candidate(fusion, operators=flow_operators()).url4
 

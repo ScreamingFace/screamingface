@@ -4,6 +4,7 @@ import pytest
 from url4 import Expression, RelExpr, Source, build
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _decode_benchmark_resource
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.compilation import compile_evaluation
@@ -63,10 +64,8 @@ def test_pipeline_compiles_a_parallel_fusion_as_one_serial_stage() -> None:
     pipeline = sf.Pipeline(
         [
             sf.Model("provider/draft"),
-            sf.Fusion(
-                [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
-                synthesizer="provider/reconciler",
-            ),
+            sx.Fanout([sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")])
+            >> sx.Synthesize("provider/reconciler"),
             sf.Model("provider/final"),
         ]
     )
@@ -121,10 +120,7 @@ def test_fusion_compiles_pipeline_members_and_a_pipeline_synthesizer() -> None:
         ],
         name="judge-and-write",
     )
-    fusion = sf.Fusion(
-        [member, sf.Model("provider/alternative")],
-        synthesizer=synthesizer,
-    )
+    fusion = sx.Fanout([member, sf.Model("provider/alternative")]) >> sx.Synthesize(synthesizer)
 
     compiled = compile_candidate(fusion)
 
@@ -171,16 +167,13 @@ def test_fusion_compiles_pipeline_members_and_a_pipeline_synthesizer() -> None:
 
 
 def test_fusion_compiles_a_complete_fusion_as_its_synthesizer() -> None:
-    synthesizer = sf.Fusion(
-        [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")],
-        synthesizer="provider/final-editor",
-    )
+    synthesizer = sx.Fanout(
+        [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")]
+    ) >> sx.Synthesize("provider/final-editor")
 
     compiled = compile_candidate(
-        sf.Fusion(
-            [sf.Model("provider/proposer-a"), sf.Model("provider/proposer-b")],
-            synthesizer=synthesizer,
-        )
+        sx.Fanout([sf.Model("provider/proposer-a"), sf.Model("provider/proposer-b")])
+        >> sx.Synthesize(synthesizer)
     )
 
     assert compiled.kind == "fusion"

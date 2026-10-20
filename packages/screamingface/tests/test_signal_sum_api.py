@@ -23,6 +23,7 @@ from test_gate_contract_fixtures import gate_verbalized_vote_url4
 from test_verbalized_contract_fixture import verbalized_vote_url4
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 from screamingface.signal_sources import SignalSource, declared_from_spec, injected_member_params
@@ -72,7 +73,7 @@ def _compiled(recipe: sf.Recipe) -> str:
 
 
 def _pick(name: str) -> sf.Pick:
-    return sf.Pick(by_signal=sf.signal(name), order="min")
+    return sx.ArgMin(sf.signal(name))
 
 
 # --- SA#1 (CHAR, SA-D1): a Fusion without an sf.Sum compiles to the same url4 bytes ------------
@@ -216,9 +217,9 @@ def test_fusion_refuses_a_sum_of_a_sum_and_a_sum_of_itself() -> None:
 # --- SA#6 (SA-E4, P13): a sum with a raw logprob or an entropy is not a vote weight --------------
 
 _WEIGHTED: list[Any] = [
-    pytest.param(lambda s: sf.Vote(weights=s), id="vote"),
-    pytest.param(lambda s: sf.Median(weights=s), id="median"),
-    pytest.param(lambda s: sf.Mean(weights=s), id="mean"),
+    pytest.param(lambda s: sx.Vote(weights=s), id="vote"),
+    pytest.param(lambda s: sx.Median(weights=s), id="median"),
+    pytest.param(lambda s: sx.Mean(weights=s), id="mean"),
 ]
 _RAW: list[Any] = [
     pytest.param(lambda: sf.Logprob("mean"), "Logprob('mean')", id="logprob-mean"),
@@ -245,19 +246,13 @@ def test_fusion_refuses_a_vote_weight_sum_with_a_raw_logprob_or_entropy(
 
 
 def test_a_sum_weight_may_add_a_logprob_prob_and_a_pick_may_read_any_sum() -> None:
-    weighted = sf.Fusion(
-        _OPENROUTER,
-        signals=_weight_signals(sf.Logprob("prob")),
-        synthesizer=sf.Vote(weights=sf.signal("w")),
+    weighted = sx.Fanout(_OPENROUTER, signals=_weight_signals(sf.Logprob("prob"))) >> sx.Vote(
+        weights=sf.signal("w")
     )
     assert weighted.signals is not None
     assert weighted.signals["w"] == sf.Sum({"conf": 0.01, "lp": 1.0})
     for raw in (sf.Logprob("mean"), sf.Logprob("sum"), sf.Entropy()):
-        picked = sf.Fusion(
-            _OPENROUTER,
-            signals=_weight_signals(raw),
-            synthesizer=sf.Pick(by_signal=sf.signal("w"), order="max"),
-        )
+        picked = sx.Fanout(_OPENROUTER, signals=_weight_signals(raw)) >> sx.ArgMax("w")
         assert picked.signals is not None
         assert picked.signals["lp"] == raw
 
@@ -265,12 +260,16 @@ def test_a_sum_weight_may_add_a_logprob_prob_and_a_pick_may_read_any_sum() -> No
 # --- SA#7 (SA-3, SA-D4): every rule and gate reads a sum by name --------------------------------
 
 _READERS: list[Any] = [
-    pytest.param(lambda: sf.Pick(by_signal=sf.signal("risk"), order="min"), id="pick"),
-    pytest.param(lambda: sf.Rank(1, by_signal=sf.signal("risk"), order="min"), id="rank"),
-    pytest.param(lambda: sf.Filter(where=sf.signal("risk") <= 3.0), id="filter"),
-    pytest.param(lambda: sf.Vote(weights=sf.signal("risk")), id="vote-weight"),
-    pytest.param(lambda: sf.Vote(gate=sf.Gate("chosen:risk", "<=", 3.0)), id="gate-chosen"),
-    pytest.param(lambda: sf.Vote(gate=sf.Gate("mean:risk", "<=", 3.0)), id="gate-mean"),
+    pytest.param(lambda: sx.ArgMin("risk"), id="pick"),
+    pytest.param(lambda: sx.Rank(1, by="risk", order="min"), id="rank"),
+    pytest.param(lambda: sx.Filter(where=sf.signal("risk") <= 3.0), id="filter"),
+    pytest.param(lambda: sx.Vote(weights=sf.signal("risk")), id="vote-weight"),
+    pytest.param(
+        lambda: sx.Gate(when=sx.signal("risk").chosen() <= 3.0, then=sx.Vote()), id="gate-chosen"
+    ),
+    pytest.param(
+        lambda: sx.Gate(when=sx.signal("risk").mean() <= 3.0, then=sx.Vote()), id="gate-mean"
+    ),
 ]
 
 

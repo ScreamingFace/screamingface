@@ -11,32 +11,34 @@ from pathlib import Path
 import pytest
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _DATA = Path(__file__).parent / "data"
 
 _GOLDEN: dict[str, sf.Recipe] = {
-    "fusion_model_synthesizer.url4": sf.Fusion(
+    "fusion_model_synthesizer.url4": sx.Fanout(
         [
             sf.Model("provider/a", prompt="Answer A."),
             sf.Model("provider/b", params={"temperature": 0.2}),
         ],
         name="panel",
-        synthesizer=sf.Model(
+    )
+    >> sx.Synthesize(
+        sf.Model(
             "provider/s",
             prompt="Blend $1 answers.\nKeep it short.",
             params={"seed": 7},
-        ),
+        )
     ),
     "pipeline_fusion_synthesizer.url4": sf.Pipeline(
         [
             sf.Model("provider/draft"),
-            sf.Fusion(["provider/x", "provider/y"], synthesizer="provider/s"),
+            sx.Fanout(["provider/x", "provider/y"]) >> sx.Synthesize("provider/s"),
         ]
     ),
-    "fusion_recipe_synthesizer.url4": sf.Fusion(
-        ["provider/a", "provider/b"], synthesizer=sf.Pipeline(["provider/j", "provider/w"])
-    ),
+    "fusion_recipe_synthesizer.url4": sx.Fanout(["provider/a", "provider/b"])
+    >> sx.Synthesize(sf.Pipeline(["provider/j", "provider/w"])),
 }
 
 
