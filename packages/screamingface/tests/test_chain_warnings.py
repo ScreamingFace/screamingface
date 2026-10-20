@@ -86,7 +86,11 @@ def test_wj1_the_evaluation_entry_warns_once_with_the_users_positions() -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         values = _candidate_values(_chain())
         compile_evaluation(
-            values, _whole_candidate_benchmark(), 1, operators=flow_operators(), lowered=True
+            values,
+            _whole_candidate_benchmark(),
+            1,
+            operators=flow_operators(),
+            warn_judge_writers=False,
         )
 
     assert _messages(recorded) == [_message("judged", 2)]
