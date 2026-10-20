@@ -1,9 +1,9 @@
 ---
 ticket: OME-1546
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-20
-finished:
+finished: 2026-10-20
 ---
 
 # image-token-accounting — account image and file input tokens (gateway half)
@@ -47,7 +47,21 @@ follow-up for the engine owner.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** `core/usage_modalities.py` (new, parser + key); Gemini, Antigravity and Codex
+  adapters; tests `tests/unit/test_usage_modalities.py`,
+  `tests/unit/test_gemini_family_image_file_usage.py`, `tests/unit/codex/test_codex_image_file_usage.py`;
+  spec, plan, ledger, `docs/tasks/2026-10-20-OME-1546-image-token-accounting.md`.
+- **Commits:** `a1cf59d3b` feat(aigateway): report image and file input tokens in chat usage.
+- **Gates:** `run_gates.py aigateway` ALL GATES GREEN (append-only check, ruff, format, pyright,
+  no-enterprise, pytest 6090 passed / 105 skipped, coverage 93%).
+- **Live e2e (port 9132, 2026-10-20):** antigravity/gemini-3-flash text/image/PDF `prompt_tokens`
+  8 / 1106 / 535 = 2026-10-16, field `null`. openrouter/google/gemini-2.5-flash 7 / 1045 / 1304
+  = 2026-10-16, key absent (raw details carry only audio/video/cache). ollama/qwen2.5vl:3b
+  26 / 94 / 33 = 2026-10-16, key absent. anthropic: NOT RUN — the Claude refresh token in both
+  local DB copies is rejected (HTTP 400, re-auth required); its path is pass-through and unchanged.
+- **Deviations:** (1) Planned central chat-route stamp (explicit `null` for every provider)
+  reverted: it broke three prior tests that pin the pass-through body and the hit-shape contract
+  fixture. Pass-through providers leave the key absent; explicit `null` there is an owner question
+  on OME-1546. (2) `_aigw` taxonomy left unchanged (prior exact-dict tests). (3) Codex gets an
+  explicit `null`. (4) Live non-zero acceptance unreachable: no live provider reports a breakdown.
+  (5) Codex cached-tokens drop verified live and filed as OME-1683 (bug, Triage), not fixed.
