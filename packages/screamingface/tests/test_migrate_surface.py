@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -22,6 +23,7 @@ def _load() -> ModuleType:
     spec = importlib.util.spec_from_file_location("migrate_surface", _SCRIPT)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # WHY: dataclasses look their module up there
     spec.loader.exec_module(module)
     return module
 
@@ -30,12 +32,13 @@ migrate = _load()
 
 
 def _sx(body: str) -> str:
-    """The rewritten body of a module that imports ``sf`` (the codemod adds the ``sx`` import)."""
+    """The rewritten body of a module that imports ``sf``; the ``sx`` import comes with a ``sx.``
+    name (R12 alone needs none)."""
 
     result = migrate.migrate_source(_SF + body, to="sx")
     assert result.report == []
-    assert result.text.startswith(_SF + _SX)
-    return result.text.removeprefix(_SF + _SX)
+    assert result.text.startswith(_SF + _SX if "sx." in result.text else _SF)
+    return result.text.removeprefix(_SF).removeprefix(_SX)
 
 
 _J = 'sf.Judge("j", returns="scores", rubric=R)'
