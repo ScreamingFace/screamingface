@@ -48,6 +48,7 @@ from screamingface_engine_inspect.capture import (
     refuse_model_reads,
 )
 from screamingface_engine_inspect.case_set import case_set_digest
+from screamingface_engine_inspect.case_source_prefetch import prefetch_case_sources
 from screamingface_engine_inspect.case_sources import RENDER_PHASE, CaseSource, CaseSourceRecorder
 from screamingface_engine_inspect.fetch_pins import (
     FetchPinError,
@@ -77,6 +78,7 @@ from screamingface_engine_inspect.task_replay import (
     TASK_REPLAY_TIMEOUT_SECONDS,
     TaskReplayError,
     _failure_reason,
+    _inspect_evals_cache,
     _log_child_stderr,
     replay_environment,
     replayed_cases,
@@ -372,6 +374,11 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
     task_ref: str = request["task"]
     task_args: dict[str, Any] | None = request["task_args"]
     module_name, _, attribute = task_ref.partition(":")
+    # WHY first, as on the image side: an eval that fetches through a host that refuses
+    # builds (cyse4_threat_intelligence: web.archive.org, OME-1602) has its cache stocked from
+    # a host that serves the same checksummed files, or run 1 could never read its Cases.
+    # Before the recorder installs, so run 1 records the fetches the eval itself makes.
+    prefetch_case_sources(task_ref, _inspect_evals_cache(Path(request["cache_root"])))
     # WHY before the import: a scorer built at import or by the task function keeps its
     # arguments as passed, so the scorer readers can refuse one inspect logs as a name or a
     # dict (OME-1602, F1). The record stays on each scorer after the block closes.

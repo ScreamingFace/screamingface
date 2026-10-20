@@ -262,6 +262,7 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-chembench": ("withhold", "single_shot", "medium"),
         "inspect-stereoset": ("withhold", "single_shot", "easy"),
         "inspect-cyse4_malware_analysis": ("withhold", "single_shot", "hard"),
+        "inspect-cyse4_threat_intelligence": ("withhold", "single_shot", "medium"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.
         "musique": ("withhold", "single_shot", "hard"),
         # OME-1476: the second local Task, and the first published Benchmark with Attempts.

@@ -6118,6 +6118,86 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         notebook="12_inspect_evals_benchmarks",
         upstream_case_count=9535,
     ),
+    BenchmarkSpec(
+        key="cyse4_threat_intelligence",
+        title="CyberSecEval 4: threat intelligence reasoning",
+        description=(
+            "587 multiple-choice questions on 45 public threat-intelligence reports from "
+            "CrowdStrike's CyberSOCEval (part of CyberSecEval 4), imported from inspect_evals. "
+            "Each Case pastes one report's full text, extracted from its PDF (about 41,000 "
+            "characters on average and up to 164,000), then asks about the campaign, its "
+            "techniques, indicators or actors; several options may be correct and the model "
+            "lists every letter it thinks is right. Grading is the eval's own scorer, so no "
+            "judge tokens are spent: a Case scores 1 only when the letters match the key "
+            "exactly, and its Jaccard overlap with the key is published beside it as partial "
+            "credit. Benchmark score = exact-match accuracy over the cases run; the eval's "
+            "per-source breakdown is not reproduced. One question whose key names an option "
+            "the question does not have is left out. Upstream runs the model at temperature 0; "
+            "this benchmark imposes no generation settings. Text only, as the eval's default; "
+            "the paper's image modality is not offered. Use a model with a long context "
+            "window. No mid-run check surface."
+        ),
+        focus="Threat-intelligence report reading (multiple answers)",
+        dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
+        # The paper's best text-input model gets about 0.59 exactly right: headroom (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.cyberseceval_4.threat_intelligence:cyse4_threat_intelligence.
+        # License: per report source, owner decision 2026-10-14 (OME-1602); see license_note.
+        # Case Sources: the 26 non-CrowdStrike report PDFs are served from the owner's mirror,
+        #   not web.archive.org, by the Case Source prefetch (case_source_prefetch.py).
+        paper_url="https://arxiv.org/abs/2509.20166",
+        authors="Deason et al., 2025",
+        citation=(
+            "@misc{deason2025cybersocevalbenchmarkingllmscapabilities,\n"
+            "      title={CyberSOCEval: Benchmarking LLMs Capabilities for Malware Analysis "
+            "and Threat Intelligence Reasoning}, \n"
+            "      author={Lauren Deason and Adam Bali and Ciprian Bejean and Diana Bolocan "
+            "and James Crnkovich and Ioana Croitoru and Krishna Durai and Chase Midler and "
+            "Calin Miron and David Molnar and Brad Moon and Bruno Ostarcevic and Alberto "
+            "Peltea and Matt Rosenberg and Catalin Sandu and Arthur Saputkin and Sagar Shah "
+            "and Daniel Stan and Ernest Szocs and Shengye Wan and Spencer Whitman and Sven "
+            "Krasser and Joshua Saxe},\n"
+            "      year={2025},\n"
+            "      eprint={2509.20166},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CR},\n"
+            "      url={https://arxiv.org/abs/2509.20166}, \n"
+            "}"
+        ),
+        inspect_contributors=("ckane",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/cyberseceval_4",
+        # WHY ND as the headline: the 19 CrowdStrike reports carry 281 of the 588 questions and
+        # their licence is the strictest; their text is served verbatim, never trimmed.
+        license="CC-BY-ND-4.0",
+        license_note=(
+            "per report: the 19 CrowdStrike reports, CC BY-ND 4.0, verbatim; CISA, FBI and "
+            "NSA reports, US government works, TLP:CLEAR; one UK NCSC report, OGL v3.0; joint "
+            "advisories with foreign co-authors accepted as low risk (owner decision "
+            "2026-10-14)"
+        ),
+        human_baseline=NotPublished(reason="the paper reports only random-guess baselines"),
+        # Frontier score: exact-match accuracy with text input, read off the paper's Figure 10
+        # line chart (about 0.59; o3 is about 0.58).
+        frontier_score=FrontierScore(
+            score=0.59,
+            model="Claude 3.7 Sonnet",
+            source_url="https://arxiv.org/abs/2509.20166",
+            as_of="2025-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        # 588 upstream Samples less the one whose key names a missing option
+        # (excluded_sample_ids).
+        upstream_case_count=588,
+        scorer="inspect_evals.cyberseceval_4.threat_intelligence:choice_with_jaccard",
+        # The scorer's dict value: "score" (exact match, the headline) and Jaccard overlap.
+        named_scores=("score", "jaccard_similarity"),
+        # NAMED DEVIATION: the eval scores the whole run with accuracy, the mean of "score",
+        # plus a per-source breakdown and a mean Jaccard; this Benchmark reports the mean
+        # per-Case score (chosen at import, OME-1527), which is that accuracy.
+        multiple_correct=True,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
