@@ -71,7 +71,7 @@ section "Signal sources"; a CHANGELOG entry; one paid test with the pinned model
 ## 5. Out of scope
 
 - Replay lanes (as part 1, ans:Q8 of part 1). [proposed]
-- UniTE and the span ensemble (part 8). [stated ans:Q3]
+- UniTE and the span ensemble. They are not in E4b (owner, 2026-10-20; ans:Q3 first placed them in part 8).
 
 ## 6. Open questions
 
