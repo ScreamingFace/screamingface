@@ -6,12 +6,16 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
+from _nodes import FusionNode, RankNode, fusion_node
 from url4 import expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.reducer import Reducer
 
 _SURFACE = _CheckSurface(
@@ -44,49 +48,53 @@ def _recovered(url4: str) -> sf.Recipe:
     return candidate
 
 
-def _after(synthesizer: Reducer, *, members: int = 3) -> sf.Pipeline:
+def _after(*steps: Step, members: int = 3) -> sf.Recipe:
+    """A block of ``steps`` after a Fanout, closed by the writer that reads the selection."""
+
     routes = [f"provider/{name}" for name in "abcdef"[:members]]
-    return sf.Pipeline(
-        [sf.Fusion(routes, synthesizer=synthesizer), sf.Model("provider/w", prompt="Write.")]
-    )
+    writer = sx.Synthesize(sf.Model("provider/w", prompt="Write."))
+    return sx.Pipeline([sx.Fanout(routes), *steps, writer])
 
 
-def _scores_judge() -> sf.Judge:
-    return sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
+def _after_node(synthesizer: Reducer, *, members: int = 3) -> sf.Pipeline:
+    # group F (7f): the rank by_field form has no step; only its node builds it (D7-8)
+    routes = [f"provider/{name}" for name in "abcdef"[:members]]
+    return sf.Pipeline([fusion_node(routes, synthesizer), sf.Model("provider/w", prompt="Write.")])
+
+
+def _scores_judge() -> sx.Judge:
+    return sx.Judge("provider/j", rubric=RUBRIC)
+
+
+def _by_judge(k: int) -> sx.Rank:
+    return sx.Rank(k, by="score:judge")
 
 
 def _shapes() -> dict[str, sf.Recipe]:
     return {
-        "rank by judge": _after(sf.Rank(k=2, by=_scores_judge())),
+        "rank by judge": _after(_scores_judge(), _by_judge(2)),
         "rank by judge with params": _after(
-            sf.Rank(
-                k=1,
-                by=sf.Judge(
-                    "provider/j", returns="scores", rubric="Score.\nCosts $5.", params={"seed": 7}
-                ),
-            )
+            sx.Judge("provider/j", rubric="Score.\nCosts $5.", params={"seed": 7}), _by_judge(1)
         ),
-        "rank by field": _after(sf.Rank(k=2, by_field="result.score[0]")),
-        "rank by field min": _after(sf.Rank(k=2, by_field="score", order="min")),
-        "rank by signal": _after(sf.Rank(k=2, by_signal=sf.signal("field:score"))),
-        "rank by signal min": _after(sf.Rank(k=2, by_signal=sf.signal("field:score"), order="min")),
-        "rank by accounting signal": _after(
-            sf.Rank(k=2, by_signal=sf.signal("cost_usd"), order="min")
+        # group F (7f): the two by_field rows
+        "rank by field": _after_node(RankNode(k=2, by_field="result.score[0]")),
+        "rank by field min": _after_node(RankNode(k=2, by_field="score", order="min")),
+        "rank by signal": _after(sx.Rank(2, by="field:score")),
+        "rank by signal min": _after(sx.Rank(2, by="field:score", order="min")),
+        "rank by accounting signal": _after(sx.Rank(2, by="cost_usd", order="min")),
+        "concat": _after(sx.Concat()),
+        "concat without labels": _after(sx.Concat("<<$|>>", label=False)),
+        "concat with an odd separator": _after(sx.Concat(" \x7f\t\"'\\é💥")),
+        # WHY a recipe writer: the second selection reads the first one's envelope, and its own
+        # writer closes it
+        "two selections in a row": sx.Fanout(members3())
+        >> _scores_judge()
+        >> _by_judge(2)
+        >> sx.Synthesize(
+            sx.Fanout(["provider/d", "provider/e"]) >> sx.Concat() >> sx.Synthesize("provider/w")
         ),
-        "concat": _after(sf.Concat()),
-        "concat without labels": _after(sf.Concat("<<$|>>", label=False)),
-        "concat with an odd separator": _after(sf.Concat(" \x7f\t\"'\\é💥")),
-        "two selections in a row": sf.Pipeline(
-            [
-                sf.Fusion(members3(), synthesizer=sf.Rank(k=2, by=_scores_judge())),
-                sf.Fusion(["provider/d", "provider/e"], synthesizer=sf.Concat()),
-                "provider/w",
-            ]
-        ),
-        "selection as a recipe synthesizer": sf.Fusion(
-            members3(),
-            synthesizer=sf.Pipeline([sf.Fusion(members3(), synthesizer=sf.Concat()), "provider/s"]),
-        ),
+        "selection as a recipe synthesizer": sx.Fanout(members3())
+        >> sx.Synthesize(sx.Fanout(members3()) >> sx.Concat() >> sx.Synthesize("provider/s")),
     }
 
 
@@ -142,13 +150,14 @@ def test_the_recovered_reducers_equal_the_originals() -> None:
         "rank by accounting signal",
         "concat without labels",
     ):
-        original = _shapes()[shape]
+        # WHY lower: until the swap (7e) the rebuild gives back the lowered value of a chain
+        original = lower(_shapes()[shape])
         rebuilt = _recovered(_compiled(original).url4)
         assert isinstance(original, sf.Pipeline)
         assert isinstance(rebuilt, sf.Pipeline)
         before, after = original.stages[0], rebuilt.stages[0]
-        assert isinstance(before, sf.Fusion)
-        assert isinstance(after, sf.Fusion)
+        assert isinstance(before, FusionNode)
+        assert isinstance(after, FusionNode)
         assert after.synthesizer == before.synthesizer
 
 
@@ -204,11 +213,12 @@ def test_rank_and_concat_tampering_is_refused(case: str) -> None:
 
 def test_a_followed_selection_inside_a_corrective_loop_round_trips() -> None:
     loop = sf.CorrectiveLoop(
-        [_after(sf.Concat()), _after(sf.Rank(k=1, by=_scores_judge()))],
+        [_after(sx.Concat()), _after(_scores_judge(), _by_judge(1))],
         judge="provider/x",
         max_rounds=2,
     )
-    solo = sf.SelfCorrective(_after(sf.Rank(k=1, by_field="s")), max_rounds=2)
+    # group F (7f): the by_field Rank of the solo loop (D7-8)
+    solo = sf.SelfCorrective(_after_node(RankNode(k=1, by_field="s")), max_rounds=2)
 
     for recipe, kind in ((loop, "corrective_loop"), (solo, "self_corrective")):
         compiled = _compiled(recipe)
