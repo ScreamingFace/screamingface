@@ -20,6 +20,7 @@ import {
   recipeToUrl4,
   RecipeError,
   recipeIssues,
+  recipeName,
   renderRecipe,
   resolveModels,
 } from "./recipe";
@@ -512,6 +513,32 @@ describe("recipe issues the SDK would refuse", () => {
 
   it("takes a blank name as no name", () => {
     expect(recipeToUrl4(named(solo(GPT), "   "))).toBe(linked.solo.candidate);
+  });
+});
+
+describe("duplicate parameters", () => {
+  it("reports a parameter set twice on one model instead of emitting both", () => {
+    const root = solo(GPT, "", [
+      { key: "seed", value: "1" },
+      { key: "seed", value: "2" },
+    ]);
+    expect(recipeIssues(root)).toEqual([
+      { nodeId: root.id, key: "seed", message: expect.stringContaining("seed") },
+    ]);
+    expect(() => recipeToUrl4(root)).toThrow(RecipeError);
+  });
+
+  it("allows the same parameter on different models", () => {
+    const root = fusion([solo(GPT, "", T07_SEED3), solo(LLAMA, "", T07_SEED3)], solo(QWEN));
+    expect(recipeIssues(root)).toEqual([]);
+  });
+});
+
+describe("recipeName", () => {
+  it("is the SDK's name: given, or inferred from the members", () => {
+    expect(recipeName(SDK_EQUIVALENTS.fusion_named())).toBe("panel");
+    expect(recipeName(SDK_EQUIVALENTS.fusion_defaults())).toBe("claude-opus-4-5+gpt-4o");
+    expect(recipeName(SDK_EQUIVALENTS.pipeline_nested_named())).toBe("draft->qwen");
   });
 });
 

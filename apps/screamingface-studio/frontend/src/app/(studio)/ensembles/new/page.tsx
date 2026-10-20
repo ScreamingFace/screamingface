@@ -78,6 +78,7 @@ import {
   fusionFromSlots,
   memberSolos,
   parseRecipe,
+  recipeName,
   renderRecipe,
   resolveModels,
   rootSynthesizerSolo,
@@ -2311,7 +2312,7 @@ function EnsembleComposer() {
         );
       } else if (parsed) {
         const nextRoot = parsed.root;
-        setName("fusion-1");
+        setName(recipeName(nextRoot));
         setRoot(nextRoot);
         addLibraryModels(
           collectSolos(nextRoot)
@@ -2680,8 +2681,8 @@ function EnsembleComposer() {
                   </code>
                 ) : (
                   <ul role="alert" className="space-y-1 text-[11px] text-destructive">
-                    {rendered.issues.map((issue) => (
-                      <li key={`${issue.nodeId}-${issue.key}`}>{issue.message}</li>
+                    {rendered.issues.map((issue, index) => (
+                      <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
                     ))}
                   </ul>
                 )}

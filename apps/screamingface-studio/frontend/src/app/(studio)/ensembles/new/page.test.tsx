@@ -78,6 +78,8 @@ describe("EnsembleComposerPage recipe import", () => {
 
     expect(await screen.findByText("2 models · 0 runs")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // The recipe's own name, as the SDK infers it from the members.
+    expect(screen.getByText("llama3+qwen")).toBeInTheDocument();
   });
 
   it("names the models it left out because the catalog doesn't have them", async () => {
@@ -127,6 +129,47 @@ describe("EnsembleComposerPage recipe parameters", () => {
     expect(await screen.findByText("with-stop")).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("stop");
     expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
+  });
+
+  it("lists two issues of the same kind on one model without a duplicate key", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
+    const root = fusionOf([llama, qwen]);
+    root.members[0] = {
+      ...(root.members[0] as SoloNode),
+      params: [
+        { key: "a b", value: "1" },
+        { key: "a b", value: "2" },
+      ],
+    };
+    useEnsembleStore.setState({
+      ensembles: [
+        {
+          id: "e2",
+          name: "twice",
+          root,
+          slots: [],
+          strategy: "majority_vote",
+          customReduce: false,
+          loopMode: "parallel",
+          judge: null,
+          judgeId: null,
+          runs: 0,
+          runHistory: [],
+          createdAt: 1,
+          updatedAt: 1,
+        } as SavedEnsemble,
+      ],
+    });
+    search.params = new URLSearchParams({ id: "e2" });
+    render(<EnsembleComposerPage />);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(within(screen.getByRole("alert")).getAllByRole("listitem").length).toBeGreaterThan(1);
+    expect(
+      consoleError.mock.calls.some((call) => String(call[0]).includes("same key")),
+    ).toBe(false);
+    consoleError.mockRestore();
   });
 });
 

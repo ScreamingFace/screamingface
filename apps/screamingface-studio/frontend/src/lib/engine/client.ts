@@ -16,14 +16,18 @@ export type EngineClient = {
   health(): Promise<void>;
 };
 
-type RequestOptions = {
+export type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: unknown;
   // A value that must never reach an error message, even if the server echoes it.
   secret?: string;
+  signal?: AbortSignal;
 };
 
-function redact(text: string | undefined, secret: string | undefined) {
+// The one secret scrubber for Engine errors: API keys here, capability tokens in `run.ts`.
+export function redact(text: string, secret: string | undefined): string;
+export function redact(text: string | undefined, secret: string | undefined): string | undefined;
+export function redact(text: string | undefined, secret: string | undefined) {
   if (!text || !secret) return text;
   return text.split(secret).join("[redacted]");
 }
@@ -55,6 +59,43 @@ function listData<T>(body: unknown): T[] {
   throw new EngineError("unknown");
 }
 
+// One JSON request to the Engine, with the problem+json and secret handling every Engine call
+// shares: a fetch failure is `unreachable`, a refusal carries the Engine's (redacted) detail and
+// status, and an unreadable body is `unknown`.
+export async function engineRequest(
+  fetchImpl: typeof fetch,
+  origin: string,
+  path: string,
+  options: RequestOptions = {},
+): Promise<unknown> {
+  const { method = "GET", body, secret, signal } = options;
+  const headers: Record<string, string> = { accept: "application/json" };
+  if (body !== undefined) headers["content-type"] = "application/json";
+
+  let response: Response;
+  try {
+    response = await fetchImpl(`${origin}${path}`, {
+      method,
+      headers,
+      cache: "no-store",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    });
+  } catch {
+    throw new EngineError("unreachable");
+  }
+
+  if (!response.ok) {
+    const detail = redact(await problemDetail(response), secret);
+    throw new EngineError(kindForStatus(response.status), detail, response.status);
+  }
+  try {
+    return (await response.json()) as unknown;
+  } catch {
+    throw new EngineError("unknown", undefined, response.status);
+  }
+}
+
 // A thin typed client for the Engine routes Studio uses. It never sends `X-Profile` (the Engine
 // answers 400) and never puts an API key in an error.
 export function createEngineClient(
@@ -63,33 +104,8 @@ export function createEngineClient(
 ): EngineClient {
   const origin = baseUrl.replace(/\/+$/, "");
 
-  async function request(path: string, options: RequestOptions = {}) {
-    const { method = "GET", body, secret } = options;
-    const headers: Record<string, string> = { accept: "application/json" };
-    if (body !== undefined) headers["content-type"] = "application/json";
-
-    let response: Response;
-    try {
-      response = await fetchImpl(`${origin}${path}`, {
-        method,
-        headers,
-        cache: "no-store",
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch {
-      throw new EngineError("unreachable");
-    }
-
-    if (!response.ok) {
-      const detail = redact(await problemDetail(response), secret);
-      throw new EngineError(kindForStatus(response.status), detail, response.status);
-    }
-    try {
-      return (await response.json()) as unknown;
-    } catch {
-      throw new EngineError("unknown", undefined, response.status);
-    }
-  }
+  const request = (path: string, options: RequestOptions = {}) =>
+    engineRequest(fetchImpl, origin, path, options);
 
   const connectionPath = (provider: string) =>
     `/v1/connections/${encodeURIComponent(provider)}`;

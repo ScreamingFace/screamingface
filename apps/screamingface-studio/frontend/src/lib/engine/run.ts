@@ -12,7 +12,8 @@
 
 import { getEngineUrl } from "../runtime";
 import { createUuid } from "../uuid";
-import { problemDetail } from "./client";
+import { type RequestOptions, engineRequest, problemDetail, redact } from "./client";
+import { isEngineError } from "./errors";
 import { checkCandidateResult } from "./run-result";
 import type { CandidateResult, LogAttributes, RunEvent } from "./run-types";
 import { linkCandidate } from "./url4";
@@ -45,14 +46,25 @@ export class RunError extends Error {
   // for a refused request), when it gave one.
   readonly code?: string;
   readonly detail: string;
+  // Set when the run failed on Studio's side (the socket broke, the stream went silent or
+  // skipped a frame, the Engine sent an error frame) after the Engine had accepted it: Studio
+  // then stopped the Engine's run with `DELETE /`, and this says whether the Engine confirmed
+  // it ("stopped") or not ("unconfirmed"). Unset when no cleanup was needed.
+  readonly cleanup?: "stopped" | "unconfirmed";
 
-  constructor(kind: RunErrorKind, detail?: string, code?: string) {
+  constructor(
+    kind: RunErrorKind,
+    detail?: string,
+    code?: string,
+    cleanup?: "stopped" | "unconfirmed",
+  ) {
     const text = detail?.trim() || GENERIC_DETAIL[kind];
     super(text);
     this.name = "RunError";
     this.kind = kind;
     this.code = code;
     this.detail = text;
+    this.cleanup = cleanup;
   }
 }
 
@@ -212,7 +224,7 @@ function parseResult(body: string): CandidateResult {
   try {
     value = JSON.parse(body);
   } catch {
-    throw new RunError("stream_failed", "The Engine sent a result Studio could not read.");
+    throw new RunError("invalid_result", "The Engine's result is not JSON.", "invalid_result");
   }
   const checked = checkCandidateResult(value);
   if (!checked.ok) {
@@ -264,10 +276,17 @@ function concat(chunks: Uint8Array[], length: number): Uint8Array {
 }
 
 // Read a response body without ever holding more than `limit` bytes: the stream is cancelled
-// as soon as it passes the limit.
-async function readAtMost(response: Response, limit: number): Promise<Uint8Array> {
+// as soon as it passes the limit. `read` bounds each wait for the next chunk (the inactivity
+// deadline); `TIMED_OUT` means the body stalled.
+async function readAtMost(
+  response: Response,
+  limit: number,
+  read: <T>(next: () => Promise<T>) => Promise<T | typeof TIMED_OUT>,
+): Promise<Uint8Array | typeof TIMED_OUT> {
   if (!response.body) {
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const buffer = await read(() => response.arrayBuffer());
+    if (buffer === TIMED_OUT) return TIMED_OUT;
+    const bytes = new Uint8Array(buffer);
     if (bytes.length > limit) throw new RunError("stream_failed", OVERSIZE);
     return bytes;
   }
@@ -275,14 +294,18 @@ async function readAtMost(response: Response, limit: number): Promise<Uint8Array
   const chunks: Uint8Array[] = [];
   let length = 0;
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return concat(chunks, length);
-    length += value.length;
+    const chunk = await read(() => reader.read());
+    if (chunk === TIMED_OUT) {
+      void reader.cancel().catch(() => undefined);
+      return TIMED_OUT;
+    }
+    if (chunk.done) return concat(chunks, length);
+    length += chunk.value.length;
     if (length > limit) {
-      await reader.cancel().catch(() => undefined);
+      void reader.cancel().catch(() => undefined);
       throw new RunError("stream_failed", OVERSIZE);
     }
-    chunks.push(value);
+    chunks.push(chunk.value);
   }
 }
 
@@ -307,25 +330,20 @@ export async function startRun(options: StartRunOptions): Promise<CandidateResul
     throw new RunError("unreachable");
   }
 
-  async function call(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
-    let response: Response;
+  // Through the client's one request path (problem+json detail, redaction); its EngineError
+  // becomes a RunError here.
+  async function call(path: string, options: RequestOptions = {}): Promise<Record<string, unknown>> {
     try {
-      response = await deps.fetch(`${origin}${path}`, {
-        ...init,
-        headers: { accept: "application/json", ...init.headers },
-        cache: "no-store",
-        signal,
-      });
-    } catch {
-      throw new RunError(signal?.aborted ? "stopped" : "unreachable");
-    }
-    if (!response.ok) {
-      throw new RunError("failed", await problemDetail(response), `http_${response.status}`);
-    }
-    try {
-      return record(await response.json());
-    } catch {
-      throw new RunError("failed", "The Engine returned an unexpected response.");
+      return record(await engineRequest(deps.fetch, origin, path, { ...options, signal }));
+    } catch (error) {
+      if (!isEngineError(error)) throw error;
+      if (error.kind === "unreachable") throw new RunError(signal?.aborted ? "stopped" : "unreachable");
+      const refused = error.status !== undefined && error.status >= 400;
+      throw new RunError(
+        "failed",
+        refused ? error.engineDetail : "The Engine returned an unexpected response.",
+        refused ? `http_${error.status}` : undefined,
+      );
     }
   }
 
@@ -372,6 +390,10 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     let abortRequested = false;
     let stopping = false;
     let terminated = false;
+    // A local failure after the start: the DELETE cleanup is in flight, nothing else counts.
+    let closing = false;
+    // Aborts an artifact download when the caller aborts after the root has terminated.
+    const download = new AbortController();
     let lastSequence = 0;
     const pending = new Map<number, Frame>();
     let result: Promise<CandidateResult> | null = null;
@@ -381,12 +403,6 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     function clear(name: keyof typeof timers) {
       if (timers[name] !== undefined) deps.clearTimeout(timers[name]);
       timers[name] = undefined;
-    }
-
-    function scrub(error: RunError): RunError {
-      return error.detail.includes(token)
-        ? new RunError(error.kind, error.detail.split(token).join("[redacted]"), error.code)
-        : error;
     }
 
     function settle(outcome: { value: CandidateResult } | { error: RunError }) {
@@ -405,11 +421,28 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
         }
       }
       if ("value" in outcome) resolve(outcome.value);
-      else reject(scrub(outcome.error));
+      else {
+        const { kind, detail, code, cleanup } = outcome.error;
+        reject(new RunError(kind, redact(detail, token), code, cleanup));
+      }
     }
 
     function fail(kind: RunErrorKind, detail?: string, code?: string) {
-      settle({ error: new RunError(kind, detail, code) });
+      if (settled || closing) return;
+      const error = new RunError(kind, detail, code);
+      // Studio gave up on a run the Engine accepted and is still running (no root `terminated`
+      // yet, and no stop of its own under way): stop the Engine's paid work too, with the same
+      // bounded DELETE as a user stop, and report the original failure with the outcome.
+      if (started && !terminated && !stopping) void cleanUp(error);
+      else settle({ error });
+    }
+
+    async function cleanUp(error: RunError) {
+      closing = true;
+      clear("silence");
+      clear("gap");
+      const cleanup = await deleteRun();
+      settle({ error: new RunError(error.kind, error.detail, error.code, cleanup) });
     }
 
     function armSilence() {
@@ -443,11 +476,14 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     }
 
     async function stopOverHttp() {
-      fail((await deleteRun()) === "stopped" ? "stopped" : "stop_unconfirmed");
+      const outcome = await deleteRun();
+      // The root's `terminated` won the race: its outcome stands.
+      if (terminated) return;
+      fail(outcome === "stopped" ? "stopped" : "stop_unconfirmed");
     }
 
     function requestStop() {
-      if (stopping || settled) return;
+      if (stopping || settled || closing || terminated) return;
       stopping = true;
       try {
         socket?.send(command("ai.url4.stop", { reason: "cancelled by user" }, deps.now()));
@@ -459,7 +495,12 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
 
     function onAbort() {
       abortRequested = true;
-      if (started) requestStop();
+      if (terminated) {
+        // The run already ended on the Engine: nothing to stop and no DELETE. Studio only stops
+        // waiting for the result's download.
+        download.abort();
+        fail("stopped");
+      } else if (started) requestStop();
       else if (!starting) fail("stopped");
       // A start in flight: `begin` settles it once the Engine answers or the deadline passes.
     }
@@ -482,7 +523,11 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
         } catch {
           return fail(abortRequested ? "stopped" : "unreachable");
         }
-        if (settled) return;
+        if (settled || closing) {
+          // Accepted after Studio already gave up on this run: stop it rather than orphan it.
+          if (response !== TIMED_OUT && response.status === 202) void deleteRun();
+          return;
+        }
         if (response === TIMED_OUT) {
           // The Engine may have accepted the run without answering: stop it over HTTP, so no
           // run is left going with nobody watching it.
@@ -511,46 +556,72 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     }
 
     // One artifact fetch. `UNREACHABLE` is a failure worth retrying (the SDK retries any
-    // transport failure); a `RunError` is final.
+    // transport failure); a `RunError` is final. The deadline is for inactivity, as the SDK's
+    // httpx timeout is per connect/read: 30 s for the headers, then 30 s between chunks.
     async function fetchArtifactOnce(
       id: string,
       size: number,
       sha256: string,
-      deadline: AbortSignal,
     ): Promise<string | typeof UNREACHABLE> {
-      let response: Response;
-      try {
-        response = await deps.fetch(`${origin}/artifacts/${id}`, {
-          headers: capability,
-          cache: "no-store",
-          signal: deadline,
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      download.signal.addEventListener("abort", cancel);
+      const read = <T,>(next: () => Promise<T>) =>
+        withDeadline(deps, REQUEST_DEADLINE_MS, () => next()).then((value) => {
+          if (value === TIMED_OUT) cancel();
+          return value;
         });
-      } catch {
-        return UNREACHABLE;
-      }
-      if (!response.ok) {
-        throw new RunError(
-          "stream_failed",
-          (await problemDetail(response)) ?? "The Engine would not hand over the run's result.",
-          `http_${response.status}`,
-        );
-      }
-      // A declared length that disagrees with the ticket is refused before any byte is read.
-      // (An encoded body's Content-Length counts the encoded bytes, so it is not compared.)
-      const declared = response.headers.get("content-length");
-      if (declared !== null && !response.headers.get("content-encoding") && Number(declared) !== size) {
-        throw new RunError("stream_failed", OVERSIZE);
-      }
-      // INVARIANT (as the SDK's `_verified_artifact_text`): byte count and sha256 both match
-      // the claim ticket, or nothing is decoded.
-      const bytes = await readAtMost(response, size);
-      if (bytes.length !== size || (await sha256Hex(bytes)) !== sha256) {
-        throw new RunError("stream_failed", "The run's result failed its integrity check.");
-      }
       try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      } catch {
-        throw new RunError("stream_failed", "The run's result is not UTF-8 text.");
+        let response: Response | typeof TIMED_OUT;
+        try {
+          response = await read(() =>
+            deps.fetch(`${origin}/artifacts/${id}`, {
+              headers: capability,
+              cache: "no-store",
+              signal: controller.signal,
+            }),
+          );
+        } catch {
+          return UNREACHABLE;
+        }
+        if (response === TIMED_OUT) return UNREACHABLE;
+        if (!response.ok) {
+          throw new RunError(
+            "stream_failed",
+            (await problemDetail(response)) ?? "The Engine would not hand over the run's result.",
+            `http_${response.status}`,
+          );
+        }
+        // A declared length that disagrees with the ticket is refused before any byte is read.
+        // (An encoded body's Content-Length counts the encoded bytes, so it is not compared.)
+        const declared = response.headers.get("content-length");
+        if (
+          declared !== null &&
+          !response.headers.get("content-encoding") &&
+          Number(declared) !== size
+        ) {
+          throw new RunError("stream_failed", OVERSIZE);
+        }
+        let bytes: Uint8Array | typeof TIMED_OUT;
+        try {
+          bytes = await readAtMost(response, size, read);
+        } catch (error) {
+          if (isRunError(error)) throw error;
+          return UNREACHABLE;
+        }
+        if (bytes === TIMED_OUT) return UNREACHABLE;
+        // INVARIANT (as the SDK's `_verified_artifact_text`): byte count and sha256 both match
+        // the claim ticket, or nothing is decoded.
+        if (bytes.length !== size || (await sha256Hex(bytes)) !== sha256) {
+          throw new RunError("stream_failed", "The run's result failed its integrity check.");
+        }
+        try {
+          return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        } catch {
+          throw new RunError("stream_failed", "The run's result is not UTF-8 text.");
+        }
+      } finally {
+        download.signal.removeEventListener("abort", cancel);
       }
     }
 
@@ -576,10 +647,8 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
       for (const delay of ARTIFACT_RETRY_DELAYS_MS) {
         if (delay) await new Promise<void>((wake) => deps.setTimeout(wake, delay));
         if (settled) break;
-        const fetched = await withDeadline(deps, REQUEST_DEADLINE_MS, (deadline) =>
-          fetchArtifactOnce(id, size, sha256, deadline),
-        );
-        if (fetched !== TIMED_OUT && fetched !== UNREACHABLE) return parseResult(fetched);
+        const fetched = await fetchArtifactOnce(id, size, sha256);
+        if (fetched !== UNREACHABLE) return parseResult(fetched);
       }
       throw new RunError("unreachable", "The run's result could not be fetched from the Engine.");
     }
@@ -588,6 +657,8 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
       terminated = true;
       clear("silence");
       clear("gap");
+      // A stop requested before the root ended is moot now; it must not replace the outcome.
+      clear("stop");
       const status = data.status;
       const error = record(data.error);
       const message = text(error.message);
@@ -679,7 +750,7 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     }
 
     function onFrame(raw: unknown) {
-      if (settled || terminated) return;
+      if (settled || terminated || closing) return;
       armSilence();
       let frame: Frame;
       try {

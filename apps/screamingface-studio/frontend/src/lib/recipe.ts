@@ -316,9 +316,17 @@ export function recipeIssues(root: RecipeNode): RecipeIssue[] {
       if (PROMPT_CONTROL.test(node.prompt)) {
         add(node, "prompt", "A prompt can't contain control characters.");
       }
+      const seen = new Set<string>();
+      const repeated = new Set<string>();
       for (const param of filledParams(node.params)) {
         const message = paramIssue(param);
         if (message) add(node, param.key, message);
+        // A Recipe's params are a mapping (`_candidate_policy.params`): one value per name.
+        if (seen.has(param.key) && !repeated.has(param.key)) {
+          repeated.add(param.key);
+          add(node, param.key, `"${param.key}" is set more than once on this model.`);
+        }
+        seen.add(param.key);
       }
     } else if (node.kind === "fusion") {
       if (node.members.length === 0) add(node, "members", "A fusion needs at least one member.");
@@ -352,6 +360,10 @@ function flatStages(node: PipelineNode): RecipeNode[] {
 
 // The SDK's Recipe name: the given name, or the inferred one — a Model's last route segment
 // (`model.py`), members joined by `+` (`fusion.py`), stages joined by `->` (`pipeline.py`).
+export function recipeName(node: RecipeNode): string {
+  return sdkName(node);
+}
+
 function sdkName(node: RecipeNode): string {
   const name = givenName(node);
   if (name) return name;
@@ -708,7 +720,7 @@ export function parseRecipe(url4: string): ParsedRecipe {
     const rendered = renderRecipe(root);
     if (!rendered.ok) return { ok: false, error: `${NOT_A_RECIPE} ${new RecipeError(rendered.issues).message}` };
     if (rendered.url4 !== text) {
-      fail(compile(root).endsWith(`)!'$${rootRef}'`) ? METADATA_MISMATCH : NOT_A_RECIPE);
+      fail(rendered.url4.endsWith(`)!'$${rootRef}'`) ? METADATA_MISMATCH : NOT_A_RECIPE);
     }
     return { ok: true, root };
   } catch (error) {

@@ -308,3 +308,66 @@ default prompts, so the owner decision changes their expected text:
 **Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 359 tests; statements 94.49%,
 branches 89.5%, functions 96.6%, lines 96.66%; `recipe.ts` 95.96%) and `npm run build` all
 pass. The goldens regenerate byte for byte, and no lockfile was touched.
+
+## Code review follow-up (PR #1327, owner-approved items 1, 2, 3, 5, 6, 7, 9, 10)
+
+I checked every finding against the code first, and all eight held. Items 4 and 8 (accepting
+only a 202 start, and a guard for `crypto.subtle`) were skipped by owner decision. TDD: 16 tests
+went RED, then GREEN: 12 run-client tests, 2 recipe tests and 2 page tests. Three more tests
+were added as guards and passed already.
+
+1. **Orphaned runs after a local failure.** Before, `fail()` only settled the promise.
+   - Now, if the Engine has accepted the run (`started`) and the root has not terminated, any
+     failure Studio detects first issues the bounded `DELETE /?topic=` before rejecting. That
+     covers the socket closing, 120 s of silence, a gap that never fills, an `ai.url4.error`
+     frame, and a duplicate root `started` or `result`. The `DELETE` has the same 5 s deadline
+     and the same 2xx/404/409/410 rule as a user stop. While it runs, frames and stop requests
+     are ignored.
+   - **Design:** the rejection keeps its original `kind`, `code` and `detail`, and gains
+     `RunError.cleanup: "stopped" | "unconfirmed"`. The field is unset when no cleanup was
+     needed: before the start was accepted, after the root terminated, or when a user stop
+     already ran the `DELETE`. A start the Engine accepts after Studio has already given up
+     also gets a `DELETE`.
+   - RED→GREEN: "stops the Engine's run when the socket closes / the Engine sends an error frame
+     / the root sends a second result / the root starts twice / a frame never arrives / the
+     stream goes silent after the start", "says when the Engine would not confirm the cleanup",
+     "stops a run the Engine accepts after the stream already failed".
+   - Guards that already passed: "does not clean up a run the Engine never accepted", "does not
+     clean up after the root has terminated".
+2. **A stop overwriting success.** The root `terminated` frame now clears the stop timer, and
+   `stopOverHttp` does nothing once the root has terminated. After that, `requestStop` is a
+   no-op, so no stop frame and no `DELETE` are sent.
+   - **Decision:** if the caller aborts after the root has terminated, the artifact download is
+     cancelled and the run rejects as `stopped`. No `DELETE` is sent, because the run already
+     ended on the Engine.
+   - RED→GREEN: "keeps a successful result when a stop was pending", "cancels the download and
+     rejects stopped, without a DELETE, on an abort after it ended".
+3. **Artifact deadline.** It is now an inactivity deadline, matching the SDK's httpx
+   `timeout=30.0`, which applies per connect and per read: 30 s to receive the headers, then
+   30 s between chunks, reset on every chunk. A stall counts as a transport failure, so the
+   SDK's retry delays (0 / 200 / 800 ms) apply.
+   - RED→GREEN: "accepts a slow but steady download that takes longer than 30 seconds".
+   - Guard that already passed: "gives up on a download that stalls for 30 seconds mid-read".
+5. **Duplicate parameter names.** A name set twice on one model is now a `RecipeIssue`, because
+   SDK params are a mapping. The issue list is keyed `nodeId-key-index`.
+   - RED→GREEN: "reports a parameter set twice on one model instead of emitting both", page "lists
+     two issues of the same kind on one model without a duplicate key".
+   - Guard that already passed: "allows the same parameter on different models".
+6. **Imported name.** `?recipe=` now names the ensemble `recipeName(root)`. That is the SDK's
+   name: the given one, or the one inferred from members and stages.
+   - RED→GREEN: "recipeName is the SDK's name…", plus the import test now asserts `llama3+qwen`.
+7. **Non-JSON inline body.** Now rejects as `invalid_result` (code `invalid_result`, "The
+   Engine's result is not JSON.").
+   - RED→GREEN: "reports a result with an unreadable body". This test's expected kind changed
+     from `stream_failed` to `invalid_result`, as the finding asked.
+9. **One request and redaction path.** `client.ts` now exports `engineRequest` (problem+json
+   detail, secret redaction, fetch failure → `unreachable`) and `redact`. `createEngineClient`
+   and `startRun`'s `call()` both use them. `EngineError.engineDetail` keeps the Engine's own
+   detail. `run.ts`'s `scrub` is gone; rejections redact the token through `redact`. This is a
+   refactor with no behaviour change, and the "token never appears" tests stay green.
+10. **Mismatch path.** `parseRecipe` uses `rendered.url4` instead of compiling a second time.
+    This is a refactor.
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 377 tests; statements 94.43%,
+branches 89.82%, functions 95.98%, lines 96.81%) and `npm run build` all pass. Both SDK fixture
+scripts regenerate byte for byte, and no lockfile was touched.
