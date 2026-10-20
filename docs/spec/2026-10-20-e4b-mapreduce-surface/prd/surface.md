@@ -38,6 +38,8 @@ or a `Fanout` is refused with today's message.
 - `sf.Pipeline(steps, *, name=None, optional=False)` is the explicit form. `steps` is a sequence of
   route strings and step values. An unnamed nested `Pipeline` is flattened (the rule of today,
   `S/pipeline.py:65-78`). A named `Pipeline` keeps its grouping.
+- `CH-14` A named `sf.Pipeline` must not end in an open block: "a named sf.Pipeline groups its
+  stages, so close the sf.Fanout block inside it". (A later `>>` cannot reach into a named group.)
 - `>>` is read left to right: `a >> b >> c` is `(a >> b) >> c`. A right-hand group that is not a
   valid chain alone raises when it is built: `a >> (sf.Rank(...) >> sf.Vote())` raises `CH-1` at
   `sf.Rank(...) >> sf.Vote()`. There is no associativity claim.
@@ -87,7 +89,8 @@ The chain is read left to right with these states. `CH-n` is the rule id that th
   "narrow before a reducer is not built yet". Unit 5 removes this refusal.
 - `NR-C1` (O11) A narrow step before `sf.Merge`, before `sf.JudgePick`, or before a `sf.Gate` whose
   `otherwise` is not `"abstain"` is refused: "sf.{X} makes its own call over every member, so it
-  cannot follow a narrow step". These steps read the whole Fusion context
+  cannot follow a narrow step". The `Merge` and `JudgePick` parts are tested in unit 3, the `Gate`
+  part in unit 4. These steps read the whole Fusion context
   (`S/fields.py:387`, `E/combine/endpoint.py:740-772`).
 
 ## 3. Map: `sf.Fanout`
@@ -209,6 +212,8 @@ sf.Gate(*, when, then, otherwise="abstain", abstain_if=None)
 - `abstain_if`: `ref.between(lo, hi)`, a closed band with `lo <= hi`, both finite. `GA-5` `ref`
   must be the same reference as in `when` (O5): "abstain_if must read the same number as when".
   Inside the band the step abstains with `in_band` (part 6).
+- `GA-6` (O14) `then=sf.Vote(over=...)` with an extractor that has arguments (`"field:<path>"` or
+  `sf.Extract(...)`) is refused: "a gated vote reads a rule name in over= until E4c".
 - The docstring and the README say: in E4b the `otherwise` call runs on every Case, and E4c will
   skip it when the gate passes (D5).
 
@@ -247,9 +252,12 @@ sf.Synthesize(model, *, prompt=None)
   field text), or a `sf.Extract(rule, normalize=None, **args)` value (for `regex` and the others
   with arguments). `EX-1` any other string is refused with the list of rule names.
   `"field:<path>"` in `over=` is an extractor, not a signal: it reads the field text as the answer.
-- `normalize=` on a step takes a name or a pinned name (`"text"`, `"text@1"`). `EX-2` a step with
-  `normalize=` set and an `over=sf.Extract(..., normalize=...)` is refused: "set normalize on
-  sf.Extract or on the step, not on both".
+- `normalize=` on a step takes a name or a pinned name (`"text"`, `"text@1"`). `EX-2` a step whose
+  caller **passes** `normalize=` (a sentinel default tells it apart, as `_DEFAULT_NORMALIZE` does
+  today, `S/reducer.py:280-291`) together with `over=sf.Extract(..., normalize=...)` is refused: "set
+  normalize on sf.Extract or on the step, not on both". With `over="field:<path>"` the step's
+  normalizer applies: its default (`text` for `Vote`, `numeric` for `Median` and `Mean`) or the
+  passed value.
 - **Judge direction for weights (O12):** `Vote(weights="score:judge")` uses each score as it is. A
   rubric where a lower number is better gives the wrong members more weight; the `sf.Vote` docstring
   and the README say so.
@@ -270,6 +278,8 @@ signature. Each old class stays an internal compile node with a `Node` name (O7)
   that checks its message.
 - The refusals raise at construction or at the `>>` that closes the block, never after a model
   call.
-- `MSG-1` (O13): a test builds every refusal of the new surface and of the internal nodes that a
-  new-surface value can reach, and checks that no message names `sf.Fusion`, `sf.Pick`,
-  `sf.Reduce`, `synthesizer`, `returns=`, `by_field`, `by_signal`, `judge=` or `.then`.
+- `MSG-1` (O13): a test scans (with `ast`) every string literal in a `raise` under `S/` and every
+  public docstring of `sf.*`, and checks that none names `sf.Fusion`, `sf.Pick`, `sf.Reduce`,
+  `returns=`, `by_field`, `by_signal`, `.then(` or `synthesizer=`. The allow list is explicit and
+  short: internal-only messages that name `FusionNode` or its `synthesizer` field, and
+  `CorrectiveLoop(judge=)`, which stays.

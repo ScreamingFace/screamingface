@@ -27,14 +27,16 @@ use a mocked gateway (`httpx.MockTransport`).
 | NR-13 | the SDK decodes every case of `narrow_evidence_cases.json`; no key → `narrow is None` | `ST/test_narrow_evidence_words.py` |
 | NR-14 | `sf.Answer(status="excluded", reason="not_selected")` is valid; other reasons stay | same |
 
-Pinned: the spec and evidence v1 schema snapshots, `ST/public_surface_snapshot.json` (the
-`sf.Answer.reason` values and `CombineNarrow`). The owner approves these three after unit 1.
+Pinned: the spec and evidence v1 schema snapshots, `ST/public_surface_snapshot.json`
+(`CombineEvidence.__init__` gets `narrow`; `CombineNarrow` is new). The owner approves these three
+after unit 1.
 
 ## Unit 2: chain core (surface.md §2, §3, §8; lowering.md §2)
 
 | # | Row | Test file |
 |---|---|---|
-| CH-1..CH-13 | each chain rule refuses with its message; `>>` is left to right | `ST/test_chain_rules.py` |
+| CH-1, CH-2, CH-8, CH-9, CH-11, CH-13, CH-14 | each chain rule refuses with its message; `>>` is left to right | `ST/test_chain_rules.py` |
+| LO-0 | the existing golden set compiles through the new entry to the same bytes | `ST/test_lowering.py` |
 | NM-1 | `.name` of a closed block is the name of its lowered value (surface §2.1) | same |
 | WJ-1 | the judge-writer warning reports the user's chain positions (lowering §2.4) | `ST/test_chain_warnings.py` |
 | FA-1, FA-2 | `Fanout(prompt=)` rules; `signals=` with a bare `Synthesize` | `ST/test_fanout.py` |
@@ -47,18 +49,20 @@ Pinned: the spec and evidence v1 schema snapshots, `ST/public_surface_snapshot.j
 
 | # | Row | Test file |
 |---|---|---|
+| CH-3..CH-7, CH-10, CH-12 | the chain rules that need `Judge`, `JudgePick` or narrow steps | `ST/test_chain_rules_steps.py` |
 | JU-1, JU-2 | judge readers and refusals | `ST/test_judge_step.py` |
 | RA-1, FI-1, RE-1 | `Rank(by=, order=)`, `Filter(over=)`, field keys as number signals | `ST/test_narrow_steps.py` |
 | AR-1 | `ArgMax`/`ArgMin`/`First`/`JudgePick` compile to the plans of lowering §2.2 | `ST/test_reduce_steps.py` |
 | SI-2 | `sf.field` has only `==`; `First` keeps today's `equals` rules (JSON text with no normalize) | same |
-| NR-C1 | a narrow step before `Merge`, `JudgePick` or a model-fallback `Gate` is refused | `ST/test_narrow_steps.py` |
+| NR-C1 (part) | a narrow step before `Merge` or `JudgePick` is refused | `ST/test_narrow_steps.py` |
 | LO-P2 | parity before the swap: S9 same; S10, S10′, S11, S11′ equal today's `@1` judge forms; S5 and S7 equal today's `by_signal` forms | `ST/test_surface_parity.py` (append) |
 
 ## Unit 4: gate (surface.md §7)
 
 | # | Row | Test file |
 |---|---|---|
-| GA-1..GA-5 | each gate rule and message | `ST/test_gate_surface.py` |
+| GA-1..GA-6 | each gate rule and message | `ST/test_gate_surface.py` |
+| NR-C1 (gate) | a narrow step before a model-fallback `Gate` is refused | same |
 | GA-P | the part 5 and 6 gate recipes in the new form compile to today's bytes | same |
 | SI-1 | `.chosen()`/`.mean()` on an E4a key raise | same |
 
@@ -76,14 +80,14 @@ Pinned: the spec and evidence v1 schema snapshots, `ST/public_surface_snapshot.j
 
 | # | Row | Test file |
 |---|---|---|
-| RB-1 | every parity row round-trips: compile → url4 → `to_python()` → `exec` → same bytes | `ST/test_surface_rebuild.py` |
-| RB-2 | `@1` scores url4 refused | same |
+| RB-1 | every parity row with no scoring judge round-trips: compile → url4 → `_surface.rebuild` → `exec` in `{"sf": screamingface._surface}` → same bytes | `ST/test_surface_rebuild.py` |
 | RB-3 | `repr` uses `>>`; named/optional Pipeline uses the explicit form | same |
 | DS-1 | block card and chain card goldens | `ST/test_surface_cards.py` |
 | DS-2 | Combine section: narrow chips, left-out cell text, summary counts | `ST/test_narrow_display.py` |
 
 ## Unit 7: migration (migration.md §2, §3)
 
+- RB-1b the judge rows round-trip through `to_python()`; RB-2 a `@1` scores url4 is refused.
 - TM-1 `judge-template@2` full bytes (outputs and panel forms); label stays `@1`; `@1` scores and
   `@3` refused on recovery (`ST/test_judge_template_v2.py`).
 - LO-P3 after the swap: S5, S7, S10, S10′, S11, S11′ equal their new goldens; every other parity row

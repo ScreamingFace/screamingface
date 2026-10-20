@@ -15,7 +15,8 @@ Ledger: [docs/work/2026-10-20-e4b-mapreduce-surface.md](../work/2026-10-20-e4b-m
   it, so no existing test and no public surface snapshot changes. Unit 1 changes three pinned
   files (the spec and evidence v1 schema snapshots and the public surface snapshot); the owner
   approves them after unit 1. Unit 7 is the swap; the owner approves its pinned edits in one list
-  (migration MG-3). No agent writes `.claude/test-change-approvals/`.
+  (migration MG-3). Only the main session writes `.claude/test-change-approvals/`, after the owner
+  approves; no subagent does.
 - No live provider call, no paid test, no eval run. Engine gates run one at a time with
   `timeout 1200` (the 10-17 gate hang). Commit messages end with `Refs: OME-1653`, with no
   `Co-Authored-By` trailer.
@@ -37,7 +38,7 @@ Ledger: [docs/work/2026-10-20-e4b-mapreduce-surface.md](../work/2026-10-20-e4b-m
 | 8 | docs | DC | README, CHANGELOG, 10 notebooks + `18_map_select_reduce.ipynb`, the public-docs pages | screamingface, repo | README-test files if edited |
 
 Unit 1 runs in parallel with units 2–4 (other files). Units 2 → 3 → 4 → 5 → 6 → 7 → 8 are
-sequential (shared files: `S/chain.py`, `S/_evaluation/lowering.py`, the surface snapshot).
+sequential (shared files: `S/_surface/chain.py`, `S/_surface/lowering.py`, the surface snapshot).
 
 ## 3. Models and review
 
@@ -60,7 +61,7 @@ sequential (shared files: `S/chain.py`, `S/_evaluation/lowering.py`, the surface
 | Risk | Answer |
 |---|---|
 | The parity claim is wrong for a recipe | The parity test covers every golden and README recipe; a byte change outside §4 of the overview stops the unit. |
-| The internal rename (`Judge` → `_JudgeReducer`) breaks the url4 rebuild | Unit 3 keeps `_from_spec` on the internal classes; the round-trip test in unit 6. |
+| The internal rename to `Node` classes (unit 7) breaks the url4 rebuild | The `Node` classes keep `_from_spec`; the round-trip tests of units 6 and 7. |
 | Unit 7 hides a lost assertion | Design review of the test diff; the codemod keeps every `assert` line. |
 | The narrow step breaks part 2 invariants | NR-11 tests each invariant; the existing evidence cases run with no edit (NR-12). |
 | The stack PR #1461 becomes too large to review | The new range is its own commit group with its own ledger; the PR body gets a section for it. |
