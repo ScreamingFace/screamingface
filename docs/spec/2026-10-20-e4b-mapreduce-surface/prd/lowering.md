@@ -29,6 +29,10 @@ and the narrow steps in [narrow.md](narrow.md).
 - **LO-3** The compile sees only lowered values. No new-surface value reaches
   `S/_evaluation/candidate.py:_recipe` (`:308`) without the lowering.
 
+- **LO-0** Until the swap, `lower()` is the identity on every value that is not a `_surface` value
+  and holds no `_surface` value. So the unit 2 edit of the compile entry changes no existing
+  behavior; a test compiles the existing golden set through the new entry and compares the bytes.
+
 ## 2. Mechanism
 
 ### 2.1 Block close
@@ -62,6 +66,12 @@ lowered stages for the compile.
 | `Fanout(m) >> [Judge] >> N1 >> ... >> Nk >> Synthesize(W)` (k ≥ 2) | `Pipeline([FusionNode(m', synthesizer=Nk' with narrow=(N1'...Nk-1')), W'])` |
 
 `m'`: the members, with `Fanout(prompt=)` applied (O6) and each closed block lowered.
+
+**The narrow carrier.** "`R'` with `narrow=(...)`" means a private dataclass field `_narrow:
+tuple[_NarrowPlan, ...] = ()` (`init=False`) on the internal reducer classes, set only by
+`_surface/lowering.py` through `object.__setattr__`. It is not a constructor parameter and not a
+public field, so the public surface snapshot does not move (the snapshot pins public names only).
+`_ReducerPlan.narrow` (narrow §6) reads it.
 
 The terminal and narrow mapping (`'` = the internal value; `s` = `sf.signal(key)` for a string key):
 
@@ -103,23 +113,33 @@ The terminal and narrow mapping (`'` = the internal value; `s` = `sf.signal(key)
 - **LO-4** A chain lowers stage by stage: a `Model` lowers to itself, a nested `Pipeline` to its
   lowered stages, a closed block to its `node`, and a `Fanout` member to its lowered value. Unnamed
   nested Pipelines flatten (today).
-- **LO-5** An unnamed chain with one lowered stage lowers to that stage, and its `optional` flag
-  moves to the stage. So `Fanout(m) >> Vote()` lowers to the same `FusionNode` as today's
-  `sf.Fusion(m, synthesizer=sf.Vote())`, and its url4 bytes are the same.
+- **LO-5** An unnamed chain whose only stage is a **closed block** lowers to that block's node,
+  and its `optional` flag moves to the node. So `Fanout(m) >> Vote()` lowers to the same
+  `FusionNode` as today's `sf.Fusion(m, synthesizer=sf.Vote())`, and its url4 bytes are the same.
+  An unnamed chain with one `Model` stage stays a one-stage `Pipeline`, as today
+  (`ST/test_pipeline_recipes.py:27`, `ST/test_fusion_quorum.py:154`).
 - **LO-6** A named chain keeps its grouping (today: `_is_named`):
   `sf.Pipeline([sf.Fanout(m), sf.Vote()], name="x")` lowers to `Pipeline([FusionNode(...)],
   name="x")`.
 
 ### 2.4 Compile entry
 
-- `compile_candidate` (`S/_evaluation/candidate.py:110`) calls `lower(recipe)` in the place of
-  `rewrite_fusion_recipe` (`:132`). `S/_evaluation/fusion_recipe.py` and the `context` op are
-  deleted with the public `sf.Reduce` at the swap (O1). `recipes_need_operators` (`:159`) reads the
-  lowered value.
+- The recipe values enter the SDK at more than one place. `lower()` runs **once**, at the first of
+  them, and every later place reads the lowered value:
+  - `S/_evaluation/model.py:318-335` (`_candidate_values`: the `isinstance(Recipe)` check and the
+    names) — the lowering runs here;
+  - `S/_evaluation/compilation.py:38` (`rewrite_fusion_recipe`, `_check_rewritten_names`);
+  - `S/_evaluation/runner.py:218`, `:228` (`recipes_need_operators`);
+  - `S/_evaluation/candidate.py:110`, `:132` (`compile_candidate`, `rewrite_fusion_recipe`);
+  - the url4 render entry (`S/url4.py`, the `Url4` build from a recipe).
+  The unit spec lists every call site that it finds with `rg "rewrite_fusion_recipe|_candidate_values|recipes_need_operators"`.
+- `S/_evaluation/fusion_recipe.py` and the `context` op are deleted with the public `sf.Reduce` at
+  the swap (O1).
 - `_warn_judge_writers` (`:131`) runs **before** the lowering today on purpose, so it reports the
-  stage positions that the user wrote (`:129-131`). It keeps that rule: it walks the user's chain
-  and reports the chain step positions (block `i`, stage `j`). A unit test pins the message for a
-  chain with a judge block and a writer stage.
+  stage positions that the user wrote (`:129-131`). It keeps that rule and today's message text;
+  the position it prints is the 1-based index of the stage in the user's chain, where a closed block
+  counts as one stage. WJ-1 pins the full message for a chain with a judge block and a writer
+  stage.
 
 ## 3. Parity table (the notebook cases)
 

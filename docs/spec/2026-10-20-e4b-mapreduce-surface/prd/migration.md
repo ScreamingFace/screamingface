@@ -11,7 +11,9 @@ about 30 test files and the goldens. So:
 
 - Units 2–6 build the new surface in the private package `screamingface._surface`. Only new test
   files import it, and they compare its url4 with today's surface in the same process. No existing
-  test and no public surface snapshot changes. Unit 1 changes only the evidence and spec schemas.
+  test changes. Snapshots: unit 1 changes the two v1 schema snapshots and the public surface
+  snapshot (`CombineEvidence.__init__` gets `narrow`, `CombineNarrow` is new); units 2–6 change no
+  snapshot; unit 7 regenerates the public surface snapshot.
 - Unit 7 is **the swap**, in one commit group: export `_surface` as `sf.*`; rename today's classes
   to their `Node` names (O7); switch the judge template to `@2` and the field picks to `by_signal`;
   reword the messages (O13); move the tests and goldens; delete the old names and the tests that
@@ -42,8 +44,9 @@ about 30 test files and the goldens. So:
   `@1` scores template are rewritten for D2 and D3.
 - **MG-3** The append-only gate (`.claude/scripts/run_gates.py:382-500`) treats every edit inside a
   test body and every deleted file as a violation. The owner approves the full list once, at the end
-  of unit 7. The orchestrator writes the approvals into `.claude/test-change-approvals/OME-1653.json`
-  after that approval, with the byte-exact blob ids. No agent writes that directory.
+  of unit 7. After that approval the orchestrator (the main session, not a subagent) writes the
+  approvals into `.claude/test-change-approvals/OME-1653.json`, with the byte-exact blob ids. No
+  subagent writes that directory.
 
 ## 3. Goldens and fixtures
 
@@ -53,10 +56,12 @@ about 30 test files and the goldens. So:
 - Engine fixtures with the `@1` scores template or a field pick
   (`ET/data/combine_contract/judge_vote_candidate.url4`, `judge_order_min_candidate.url4`,
   `filter_judge_candidate.url4`, `quorum_judge_vote_candidate.url4`, `recipe_s10.url4`,
-  `recipe_s11_max.url4`, `recipe_s5_pick_output.url4`, and the S7 recipe fixture) are compiled
-  again by the SDK and replaced (pinned files, owner approval).
-- `ST/public_surface_snapshot.json` is regenerated in units 2–6 (new names) and in unit 7 (the
-  removed names).
+  `recipe_s11_max.url4`, `gate_judge_vote_candidate.url4`, `recipe_s5.url4`,
+  `recipe_s5_pick_output.url4`, `recipe_s7.url4`) are compiled again by the SDK and replaced
+  (pinned files, owner approval). The unit spec checks the full list with a scan for
+  `judge-template@1 returns=scores`, `by_field` and `scores{source:values}` in the fixtures.
+- `ST/public_surface_snapshot.json` is regenerated in unit 1 (`CombineNarrow`) and in unit 7 (the
+  swap).
 
 ## 4. Docs (unit 8)
 

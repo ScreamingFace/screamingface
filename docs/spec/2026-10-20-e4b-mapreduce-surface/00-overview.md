@@ -128,7 +128,8 @@ sf.Fanout(json_members()) >> sf.Filter(where=sf.signal("field:confidence") > 0.7
 
 No other byte changes. The url4 grammar, the topology kinds (`fusion`, `pipeline`, ...), the report
 v1 kind values and the Engine operator ids stay the same. No new failure code. Changes 3 and 4
-happen at the swap (unit 7); changes 1 and 2 come with unit 1.
+come with unit 1. Change 3 happens at the swap (unit 7). For change 4, the new-surface steps
+lower to `by_signal` from unit 3; the old field form goes away at the swap.
 
 ## 5. Decisions
 
@@ -174,7 +175,8 @@ happen at the swap (unit 7); changes 1 and 2 come with unit 1.
 | O10 | A block holds at most 4 narrow steps. | A bound for the spec and the evidence. |
 | O11 | A narrow step before `Merge`, `JudgePick`, or a `Gate` whose `otherwise` is not `"abstain"` is refused (rule `NR-C1`). | These steps make their own model call over the whole Fusion context (`S/fields.py:387`, `E/combine/endpoint.py:740-772`), so they would see the members that the narrow step left out. Giving them only the live set is a wire change. |
 | O12 | The README and the `sf.Vote` docstring say: `weights="score:judge"` uses the score as it is, so a rubric where a lower number is better gives the wrong members more weight. | With D2 the template no longer says which direction is better, and the SDK cannot read the rubric. |
-| O13 | Every user-facing message names the new surface only. The messages of the internal nodes that reach the user (for example `S/fusion.py:126-127`, `:284`, `:296`, `S/reducer.py:382`) get new text at the swap, and a test checks that no raised message names a deleted API (`MSG-1`). | A message that says "use sf.Pick" after `sf.Pick` is gone is a bug. |
+| O13 | Every user-facing message and public docstring names the new surface only. The messages that reach the user get new text at the swap: among others `S/fusion.py:126-127`, `:284`, `:296`, `S/reducer.py:382`, `S/recipe.py:81`, `:124`, `S/_evaluation/model.py:315`, `:326`, and the messages in `S/_evaluation/topology.py`, `linking.py` and `compilation.py`. `MSG-1` finds them by a scan, not by a list (surface §11). | A message that says "use sf.Pick" after `sf.Pick` is gone is a bug. |
+| O14 | `sf.Gate(then=sf.Vote(over=...))` with `over=` an extractor with arguments (`"field:<path>"`, `sf.Extract(...)`) is refused (`GA-6`): "a gated vote reads a rule name in over= until E4c". **Owner choice:** the other option is to give `ReduceNode` a gate. | `VoteNode` holds an op name only and `ReduceNode` has no gate (`S/url4.py:564-566`). E4c reworks the gate. |
 
 ## 6. Units
 
@@ -189,16 +191,18 @@ has the full table. In short:
 4. SDK gate in `S/_surface/`: `Gate(when, then, otherwise, abstain_if)`, `.chosen()`, `.mean()`,
    `agreement()`.
 5. SDK narrow compile: chains with narrow steps → spec `narrow`.
-6. SDK rebuild and display: url4 → chain, `repr`, `to_python()`, cards, labels, the Combine section
-   (behind a private switch until the swap).
+6. SDK rebuild and display: url4 → chain (`_surface.rebuild`), `repr`, new card builders and the
+   narrow chips. The new code is used by `_surface` values only; the old cards stay until the swap.
 7. The swap: export `S/_surface/` as `sf.*`, rename the old classes to their `Node` names (O7), the
    `@2` template and the field-pick bytes (§4), the message rewording (O13), the move of the tests and
    goldens, the removal of the old names. One owner approval for all pinned edits.
 8. Docs: README, CHANGELOG, notebooks, public docs, the PO notebook as an example.
 
 Units 2–6 build the new surface in a **private package** that only new tests import, and compare
-it with today's bytes. So no existing test changes and the public surface snapshot does not move
-until unit 7. Unit 1 runs in parallel with units 2–4.
+it with today's bytes. Snapshots: unit 1 changes the two v1 schema snapshots and the public surface
+snapshot (`CombineEvidence.__init__` gets `narrow`, and `CombineNarrow` is new and public); units
+2–6 change no snapshot; unit 7 regenerates the public surface snapshot. No existing test changes
+before unit 7. Unit 1 runs in parallel with units 2–4.
 
 ## 7. Out of scope
 

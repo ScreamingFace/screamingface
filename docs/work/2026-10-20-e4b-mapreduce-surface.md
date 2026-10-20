@@ -42,6 +42,13 @@ step so a narrow step can come before a reducer.
   associativity claim (7); corrective loops stay root (8); `First` keeps today's equals rule (9);
   `Node` names for every internal class (11); 4 Engine `test_sdk_*` files in the migration (13);
   O13 message rewording + MSG-1 (14); rg check scope (15); minors 16–22.
+- 2026-10-20: second Opus review → PASS WITH FIXES. Applied: `judged` = `present` before any
+  narrow step; LO-0 (`lower()` is the identity on old values until the swap) and LO-5 only for a
+  closed block; private `_narrow` carrier; one lowering point for every recipe entry; unit 6
+  rebuild through `_surface.rebuild` with an exec namespace, judge round trips + RB-2 in unit 7;
+  one snapshot statement; fixture list; CH rows moved to the units that add the steps; narrow
+  record `signal` + `scores`; EX-2 sentinel; MSG-1 by an `ast` scan with an allow list; CH-14;
+  O14/GA-6 (gated vote with an extractor `over=` refused; owner choice open).
 
 ## Outcome (fill at the end — required before COMMIT)
 

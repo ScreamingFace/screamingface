@@ -64,10 +64,11 @@ so the key has no free position. A spec without the key keeps its bytes.
      reduce → select on it (the code of `_decide`, `:588`).
    - **The judged set.** The judge saw every answered member, and `parse_scores` needs the reply
      keys to equal its member set exactly (`E/combine/ports.py:688-693`). So `CombineInput` gets a
-     new field `judged: tuple[str, ...]`: the answered members, the same for every step. The
-     `scores@1` op (`E/combine/operators/judge.py:61-66`) parses the reply over `judged`, then keeps
-     the scores of the live members only. With no narrow step, `judged == present`, so the main
-     step of today does not change.
+     new field `judged: tuple[str, ...]`: the `present` set of the input **before any narrow
+     step** (it also holds members that failed after they sent an output, as `present` does
+     today), the same for every step. The `scores@1` op (`E/combine/operators/judge.py:61-66`)
+     parses the reply over `judged`, then keeps the scores of the live members only. With no narrow
+     step, `judged == present` by this definition, so the main step of today does not change.
    - A live member that the step's exclusion rule leaves out (X2: no value for the signal) is
      excluded with reason `no_signal`.
    - A live member that the select does not choose is excluded with the new reason `not_selected`.
@@ -110,16 +111,18 @@ spec has `narrow`:
 
 ```json
 "narrow": [
-  {"select": "kept@1", "kept": ["member_1", "member_3"]},
-  {"select": "top_k@1", "kept": ["member_3"], "cut": {"k": 1, "order": "max"},
+  {"select": "kept@1", "signal": "field:confidence", "kept": ["member_1", "member_3"]},
+  {"select": "top_k@1", "signal": "score:judge", "kept": ["member_3"], "cut": {"k": 1, "order": "max"},
    "scores": {"member_1": 0.4, "member_3": 0.9}, "ranks": {"member_1": 2, "member_3": 1}}
 ]
 ```
 
 - One record per narrow item, in spec order, up to the step that abstained (that step is recorded
   with `kept: []`).
-- `select`: the pinned select op id. `kept`: member ids in author order. `scores`: the step's score
-  for each live member that had one. `cut` and `ranks`: only for `top_k@1` (the part 2 rules of
+- `select`: the pinned select op id. `signal`: the key that the step read (`field:confidence`,
+  `score:judge`, a declared name), absent for a pattern filter. The evidence `signal` key of today
+  stays the main step's key (`E/combine/endpoint.py:1210`). `kept`: member ids in author order.
+  `scores`: the step's score for each live member that had one. `cut` and `ranks`: only for `top_k@1` (the part 2 rules of
   `top_k_ranks` and `CutRecord`, `E/combine/evidence.py:106-111`). Keys that are not set are absent.
 
 ### 4.3 Invariants
@@ -160,7 +163,7 @@ Each place below reads only the main step today. With `narrow`, each one follows
   judge signal call is planned once when the judge has more than one reader.
   `combine_spec_text` writes `narrow` (§2).
 - **Evidence** (`S/combine_evidence.py`, `S/_evaluation/combine_evidence.py`): a new frozen record
-  `CombineNarrow(select, kept, cut, ranks)` and `CombineEvidence.narrow`, decoded as an optional
+  `CombineNarrow(select, signal, kept, cut, scores, ranks)` and `CombineEvidence.narrow`, decoded as an optional
   key. `sf.Answer.reason` gets `"not_selected"` (`S/answer.py:27-30`). `case.answers()` gives the
   excluded member with its reason (part 2 rule).
 - **Display** ([rebuild-display.md](rebuild-display.md) §4): one chip per narrow step, and the member

@@ -6,8 +6,10 @@ Spec: [00-overview.md](../00-overview.md).
 
 `Url4.to_python()` (`S/url4.py:92-137`) and `_recipe_from_topology` (`:648-700`) return values of
 the new surface. The url4 decode (`S/_evaluation/topology.py`) does not change. In unit 6 the new
-rebuild is a private function (`screamingface._surface.rebuild`) that new tests call; at the swap
-`to_python()` uses it.
+rebuild is a private function (`screamingface._surface.rebuild`) that new tests call. It returns
+the values and a code string that names the steps through a module alias `sf`; unit 6 tests `exec`
+that string in the namespace `{"sf": screamingface._surface}`. At the swap `to_python()` uses it
+and the alias is the real `screamingface`.
 
 | Topology | Rebuilt value |
 |---|---|
@@ -77,7 +79,9 @@ rebuild is a private function (`screamingface._surface.rebuild`) that new tests 
 
 ## 5. Acceptance
 
-- Every row of the parity set ([lowering.md](lowering.md) §3) round-trips: compile → url4 →
-  `to_python()` → `exec` → compile gives the same bytes.
+- Unit 6: every parity row with no scoring judge round-trips: compile → url4 →
+  `_surface.rebuild` → `exec` (namespace above) → compile gives the same bytes.
+- Unit 7 (after the `@2` switch): the judge rows round-trip through `to_python()`, and RB-2 (`@1`
+  scores refused) holds.
 - The cards and the Combine section have golden HTML tests for a block with a judge, a narrow step
   and a reducer.
