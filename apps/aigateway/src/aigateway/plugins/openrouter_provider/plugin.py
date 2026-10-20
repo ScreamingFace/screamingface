@@ -316,6 +316,14 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 ("logprobs", "top_logprobs"),
                 reason="top_logprobs_requires_logprobs_true",
             )
+        reasoning = body.get("reasoning")
+        if "reasoning_effort" in body and isinstance(reasoning, Mapping) and "effort" in reasoning:
+            # INVARIANT: OpenRouter accepts two effort spellings, but one request never sends both;
+            # provider precedence is not a stable substitute for an explicit caller choice.
+            raise IncompatibleParametersError(
+                ("reasoning_effort", "reasoning.effort"),
+                reason="reasoning_effort_spellings_conflict",
+            )
         if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
             raise IncompatibleParametersError(
                 (WEB_SEARCH_PARAM, WEB_SEARCH_EXCLUDED_DOMAINS_PARAM),
@@ -362,6 +370,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                     "n",
                     "logprobs",
                     "top_logprobs",
+                    "reasoning.effort",
                     "web_search",
                     "web_search_excluded_domains",
                 ),

@@ -263,3 +263,18 @@ def test_logprobs_and_top_logprobs_are_enabled_with_evidence() -> None:
         assert entry["gateway"]["status"] == "enabled", path
         assert entry["provider"]["support"] == "supported", path
         assert entry["provider"]["source"] == "openrouter:static", path
+
+
+def test_object_reasoning_effort_is_enabled_in_the_detailed_contract() -> None:
+    entry = _parameters()["reasoning.effort"]
+    assert entry["gateway"]["status"] == "enabled"
+    assert entry["schema"] == {
+        "type": "string",
+        "enum": ["max", "xhigh", "high", "medium", "low", "minimal", "none"],
+    }
+    assert entry["provider"] == {
+        "support": "supported",
+        "source": "openrouter:static",
+        "stale": False,
+        "deprecated": None,
+    }

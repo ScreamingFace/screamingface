@@ -156,13 +156,15 @@ def test_no_non_bypass_rule_names_a_field_the_key_builder_structurally_excludes(
 
 
 def test_every_non_bypass_rule_uses_an_addressing_form_the_key_builder_can_see() -> None:
-    # A dotted path that is NOT wrapper-prefixed is unreachable: a top-level key
-    # containing a dot is refused as malformed addressing, and only the wrapper
-    # object yields nested paths. Such a rule could never contribute to a key.
+    # Direct dotted paths are addressable top-level; only provider-native paths require the
+    # wrapper object. A direct `provider_params.*` rule would claim the wrapper-only namespace
+    # while bypassing its reconstruction contract, so it is the one unreachable combination.
     examined = 0
     for plugin, model, rule in _non_bypass_instances():
         examined += 1
-        reachable = "." not in rule.request_path or rule.request_path.startswith(_WRAPPER_PREFIX)
+        reachable = not rule.request_path.startswith(_WRAPPER_PREFIX) or (
+            rule.projection_kind == "provider_native"
+        )
         assert reachable, (plugin.custom_llm_provider, model, rule.request_path)
     assert examined, "examined no non-bypass rule; this sweep proved nothing"
 

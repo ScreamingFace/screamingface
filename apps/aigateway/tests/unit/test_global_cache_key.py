@@ -494,6 +494,13 @@ def test_a_dotted_top_level_key_bypasses() -> None:
     assert _reason(_body(**{"provider_params.top_k": 3})) == "unknown_parameter"
 
 
+@pytest.mark.parametrize("path", ["reasoning.max_tokens", "unknown.path", "x.y"])
+def test_an_unknown_direct_dotted_parameter_bypasses(path: str) -> None:
+    # INVARIANT: cache eligibility runs before dispatch classification. A dotted path without a
+    # rule must bypass, or a hit could answer 200 for a request whose miss path returns 400.
+    assert _reason(_body(**{path: "value"})) == "unknown_parameter"
+
+
 def test_a_provider_rule_set_that_cannot_be_normalized_bypasses() -> None:
     # Two rules claiming one request path is a provider misconfiguration. It must
     # degrade to bypass on the request path, never raise into the route.

@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1656",
+  "branch": "OME-1656-openrouter-reasoning-object",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-19",
+  "scope": "Two deliberate prior-test contract updates: add reasoning.effort to the exact OpenRouter keyed-path set, and narrow registry conformance from rejecting every direct dotted path to rejecting only direct use of the wrapper-reserved provider_params.* namespace. New append-only tests separately prove keyed-value separation, unknown dotted-key bypass, and provider_params wrapper isolation.",
+  "reason": "OME-1656 adds one output-affecting direct dotted rule. The exact-set tripwire must name it. The old conformance assertion encoded a broader restriction than dispatch: direct dotted paths were declared unreachable even though only provider_params.* is structurally wrapper-only. Owner explicitly approved both changes on 2026-10-19; the narrowed assertion is acknowledged here rather than described as unchanged.",
+  "files": {
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_global_cache_keys.py": {
+      "base_blob": "6f16cb8a78b12c9708622fd5f72264496ac89f08",
+      "approved_blob": "a71f09c9fa716c6bbc72924feeb93bb805cafb70"
+    },
+    "apps/aigateway/tests/unit/test_global_cache_registry_conformance.py": {
+      "base_blob": "cb43d131c3898e1861d801218009d818ebaf9e11",
+      "approved_blob": "a3adf2b290ecfbb938d728390bd96e18d3cd1b38"
+    }
+  }
+}
