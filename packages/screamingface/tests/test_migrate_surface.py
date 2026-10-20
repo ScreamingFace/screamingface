@@ -148,7 +148,7 @@ _ROWS = [
         'weights=sf.signal("p"))\n'
         'r = sf.Reduce("top_k", k=2, by_field="c")\n'
         'p = sf.Reduce("pick_field", field="a", equals=1)\n',
-        'v = sx.Vote(over="field:answer", weights=sf.signal("p"))\n'
+        'v = sx.Vote(over="field:answer", normalize=None, weights=sf.signal("p"))\n'
         'r = sx.Rank(2, by="field:c")\n'
         'p = sx.First(where=sx.field("a") == 1)\n',
     ),
@@ -158,6 +158,36 @@ _ROWS = [
         'x = sx.Fanout(M) >> sx.Synthesize("prov/w") >> W\n',
     ),
     ("R12", "x = a.then(b)\n", "x = a >> b\n"),
+    # R12 keeps the precedence of the receiver and the argument
+    ("R12-parens", "x = (a or b).then(c | d)\n", "x = (a or b) >> (c | d)\n"),
+    # R10 with a mode: the Median/Mean select= of that mode; a mode that is the op's only one goes
+    (
+        "R10-mode",
+        'm = sf.Reduce("median", "compute", extract=sf.Extract("field", path="a"))\n'
+        'n = sf.Reduce("mean", "select", extract=sf.Extract("last_number"))\n'
+        'v = sf.Reduce("plurality", "select", extract=E)\n',
+        'm = sx.Median(over="field:a", select="value")\n'
+        'n = sx.Mean(over=sf.Extract("last_number"), select="nearest")\n'
+        "v = sx.Vote(over=E)\n",
+    ),
+    # R10 judge: a judge held in a name keeps the name
+    (
+        "R10-judge-name",
+        f'j = {_J}\nx = sf.Fusion(M, synthesizer=sf.Reduce("judge", judge=j, order="min"))\n',
+        'j = sx.Judge("j", rubric=R)\nx = sx.Fanout(M) >> j >> sx.ArgMin("score:judge")\n',
+    ),
+    # a name resolves in its own scope: a local with one assignment
+    (
+        "scope-local",
+        "def f():\n    s = sf.Vote()\n    return sf.Fusion(M, synthesizer=s)\n",
+        "def f():\n    s = sx.Vote()\n    return sx.Fanout(M) >> s\n",
+    ),
+    # an annotation that names an old class is no hand case
+    (
+        "annotation",
+        "def g(x: sf.Fusion) -> sf.Fusion:\n    return x\n",
+        "def g(x: sf.Fusion) -> sf.Fusion:\n    return x\n",
+    ),
     (
         "prefix",
         "c = sf.Concat(label=False)\nm = sf.Merge({'a': rule})\n",
@@ -219,6 +249,125 @@ def test_mg1_a_site_it_cannot_rewrite_is_left_and_reported() -> None:
     ]
 
 
+_HAND = [
+    # a parameter that shares its name with an unrelated module value is not that value
+    (
+        "scope-parameter",
+        "def _fusion(synthesizer):\n    return sf.Fusion(M, synthesizer=synthesizer)\n"
+        "synthesizer = sf.Vote()\n",
+        ["2: R1: cannot resolve the kind of the synthesizer"],
+        "def _fusion(synthesizer):\n    return sf.Fusion(M, synthesizer=synthesizer)\n"
+        "synthesizer = sx.Vote()\n",
+    ),
+    # a min-order scores judge alone would lose its order
+    (
+        "judge-min",
+        'j = sf.Judge("j", returns="scores", rubric=R, order="min")\n',
+        ["1: R7: a scores judge with order='min' is only a synthesizer: write sx.ArgMin by hand"],
+        None,
+    ),
+    (
+        "reduce-judge-option",
+        f'x = sf.Fusion(M, synthesizer=sf.Reduce("judge", judge={_J}, rubric=R2))\n',
+        ["1: R10: a Reduce('judge') option with no new form: ['rubric']"],
+        None,
+    ),
+    (
+        "pick-option",
+        'p = sf.Pick(by_signal=sf.signal("c"), normalize="text")\n',
+        ["1: R4: a signal pick takes no other option: ['normalize']"],
+        None,
+    ),
+    # a comment between the arguments would be lost
+    (
+        "comment",
+        "v = sf.Vote(\n    extract=E,  # why\n    normalize=N,\n)\n",
+        ["1: comment: a comment inside the call would be lost: rewrite it by hand"],
+        None,
+    ),
+    # a field of a rewritten value is read
+    (
+        "attribute",
+        "f = sf.Fusion(M, synthesizer=sf.Vote())\nm = f.members\n",
+        ["2: attr: f.members reads a field of a rewritten value"],
+        "f = sx.Fanout(M) >> sx.Vote()\nm = f.members\n",
+    ),
+    (
+        "attribute-call",
+        "n = sf.Fusion(M, synthesizer=sf.Vote()).synthesizer\n",
+        ["1: attr: .synthesizer reads a field of a rewritten value"],
+        "n = (sx.Fanout(M) >> sx.Vote()).synthesizer\n",
+    ),
+    # a file that builds internal nodes (tests/_nodes.py) keeps its reducer values as nodes
+    (
+        "nodes",
+        "from _nodes import fusion_node\nr = sf.Vote()\nx = sf.Fusion(M, synthesizer=sf.Vote())\n",
+        ["2: nodes: a reducer value in a file that builds internal nodes: keep it a node"],
+        "from _nodes import fusion_node\nr = sf.Vote()\nx = sx.Fanout(M) >> sx.Vote()\n",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("body", "lines", "new"), [row[1:] for row in _HAND], ids=[row[0] for row in _HAND]
+)
+def test_mg1_a_hand_case_is_reported(body: str, lines: list[str], new: str | None) -> None:
+    result = migrate.migrate_source(_SF + body, to="sx", path="t.py")
+
+    assert result.report == [
+        f"t.py:{int(line.split(':')[0]) + 1}:{line.split(':', 1)[1]}" for line in lines
+    ]
+    expected = body if new is None else new
+    assert result.text.removeprefix(_SF).removeprefix(_SX) == expected
+
+
+# ---------------------------------------------------------------------- bytes of the rewrite
+
+
+@pytest.mark.parametrize(
+    "old",
+    [
+        'sf.Reduce("plurality", extract=sf.Extract("field", path="answer"))',
+        'sf.Reduce("weighted", extract=sf.Extract("field", path="answer"), '
+        'weights=sf.signal("cost_usd"))',
+        'sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric"))',
+        'sf.Reduce("median", "compute", extract=sf.Extract("field", path="answer"))',
+        'sf.Vote(extract="last_number", normalize="numeric")',
+    ],
+    ids=["plurality", "weighted", "plurality-extract", "median-mode", "vote"],
+)
+def test_mg1_the_rewritten_vote_compiles_to_the_same_bytes(old: str) -> None:
+    from _combine_flow_fixtures import flow_operators
+
+    import screamingface as sf
+    from screamingface import _surface as sx
+    from screamingface._evaluation.candidate import compile_candidate
+
+    source = f"{_SF}x = sf.Fusion(['p/a', 'p/b', 'p/c'], synthesizer={old})\n"
+    new = migrate.migrate_source(source, to="sx")
+    assert new.report == []
+    values = []
+    for text in (source, new.text):
+        namespace: dict[str, object] = {"sf": sf, "sx": sx}
+        exec(text, namespace)  # noqa: S102 - the codemod's own rows
+        values.append(compile_candidate(namespace["x"], operators=flow_operators()).url4)  # type: ignore[arg-type]
+    assert values[0] == values[1]
+
+
+def test_mg1_check_prints_the_diff_and_writes_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "test_x.py"
+    path.write_text(_SF + "v = sf.Vote()\n")
+
+    assert migrate.main(["--to", "sx", "--check", str(path)]) == 0
+
+    out = capsys.readouterr().out
+    assert "+v = sx.Vote()" in out
+    assert "1 would change, 0 hand cases" in out
+    assert path.read_text() == _SF + "v = sf.Vote()\n"
+
+
 # ---------------------------------------------------------------------------------- the audit
 
 _OLD = """
@@ -227,7 +376,7 @@ import pytest
 def test_a():
     assert 1
     assert 2
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="x"):
         f()
 
 @pytest.mark.parametrize("x", [1, 2])
@@ -237,15 +386,46 @@ def test_b(x):
 class TestC:
     def test_d(self):
         assert 3
+
+def _check(value):
+    assert value
 """
 
 
-def test_mg1_the_audit_counts_asserts_raises_and_assert_helpers_per_test() -> None:
+def _counts(**found: int) -> dict[str, int]:
+    return {kind: found.get(kind, 0) for kind in ("assert", "raises", "match", "params", "helper")}
+
+
+def test_mg1_the_audit_counts_asserts_raises_matches_params_and_helpers() -> None:
+    # every function counts, so a helper (``_check``, or one in a ``tests/_*.py`` module) is
+    # audited too; ``params`` is the length of each parametrize list
     assert migrate.assertion_counts(_OLD) == {
-        "test_a": {"assert": 2, "raises": 1, "helper": 0},
-        "test_b": {"assert": 0, "raises": 0, "helper": 1},
-        "TestC::test_d": {"assert": 1, "raises": 0, "helper": 0},
+        "test_a": _counts(**{"assert": 2, "raises": 1, "match": 1}),
+        "test_b": _counts(params=2, helper=1),
+        "TestC::test_d": _counts(**{"assert": 1}),
+        "_check": _counts(**{"assert": 1}),
     }
+
+
+@pytest.mark.parametrize(
+    ("edit", "problem"),
+    [
+        (
+            (
+                '    with pytest.raises(ValueError, match="x"):',
+                "    with pytest.raises(ValueError):",
+            ),
+            "t.py::test_a: match 1 -> 0",
+        ),
+        (('"x", [1, 2]', '"x", [1]'), "t.py::test_b: params 2 -> 1"),
+        (("    assert value\n", "    pass\n"), "t.py::_check: assert 1 -> 0"),
+    ],
+    ids=["match", "params", "helper"],
+)
+def test_mg1_the_audit_flags_a_lost_match_param_or_helper_assert(
+    edit: tuple[str, str], problem: str
+) -> None:
+    assert migrate.audit_source("t.py", _OLD, _OLD.replace(*edit), frozenset()) == [problem]
 
 
 def test_mg1_the_audit_flags_a_lost_assertion_or_test_unless_allowed() -> None:
