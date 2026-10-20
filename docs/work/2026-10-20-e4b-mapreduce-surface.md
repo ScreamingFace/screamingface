@@ -265,6 +265,27 @@ GA-1..GA-6, NR-C1 (gate), GA-P, SI-1, CH-10 (a gated judge-weighted vote reads t
     README part 5 and 6 recipes (g1–g4, s2) and two more (a writer fallback with a band and
     weights, a judge-weighted gated vote with a JudgePick fallback) in-process.
 
+### Fix round (unit 4 review: ACCEPT WITH FIXES)
+
+- **Fixed:** (1) the gate threshold and the band go through `_signals._finite_number`, so a huge
+  int (`10**400`) is "not finite" and no `OverflowError` escapes. (2) `Filter` rebuilds a signal
+  comparison around today's `Signal` (`refs.plain_comparison`), so no step and no lowered node
+  holds a `SignalRef`. (3) `+ 0.0` on the threshold and the band: `-0.0` and `0.0` are one value
+  with one url4. (4) source-like reprs: `agreement() >= 0.5`,
+  `signal('risk').mean().between(2.5, 3.5)`. (5) an agreement condition is checked as a share
+  when it is built, with the band's message ("sf.agreement() is a share: compare it with numbers
+  between 0 and 1"); the GA-1 test now pins that message for a threshold above 1. (7) the GA-P
+  comment names the README anchors. (8) the Merge docstring says it reads the whole Fusion
+  context. (9) `signal_key` names `by=` and `weights=`.
+- **Swap notes (unit 7):** `.chosen()` and `.mean()` move onto today's `Signal`, and `SignalRef`
+  and `refs._plain` are deleted. `ST/test_gate_surface.py::test_ga2_a_gate_reads_a_declared_name_of_its_block`
+  pins "this Fusion does not declare 'conf'": it is an O13 rewording site at the swap.
+- **Commits:** `589d257e6` test (RED), `6dc0f8adf` fix (GREEN), this ledger commit.
+- **Tests:** 430 in the 12 surface test files; full SDK suite 5399 passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check lists only the
+  owner-approved unit-1 files; with `--skip-append-only` ALL GATES GREEN.
+  `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+
 ## Unit 5: narrow-compile
 
 ### Intent
