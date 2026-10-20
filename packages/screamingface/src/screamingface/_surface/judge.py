@@ -76,7 +76,9 @@ class JudgePick(_JudgeStep):
 
     _category: ClassVar[_Category] = "reduce"
     _returns: ClassVar[Literal["scores", "label"]] = "label"
-    _sees_every_member: ClassVar[bool] = True
+
+    def _sees_every_member(self) -> bool:
+        return True
 
 
 __all__ = ["Judge", "JudgePick"]

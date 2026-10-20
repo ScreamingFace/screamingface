@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.chain import Step, _Block, refuse_step
 from screamingface._surface.fanout import Fanout
+from screamingface._surface.gate import Fallback, Gate
 from screamingface._surface.judge import Judge, JudgePick
 from screamingface._surface.refs import (
     engine_op,
@@ -47,6 +48,7 @@ from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fields import Merge as MergeNode
 from screamingface.fields import Pick as PickNode
 from screamingface.fusion import Fusion
+from screamingface.gate import Gate as GateNode
 from screamingface.judge import Judge as JudgeNode
 from screamingface.model import Model
 from screamingface.pipeline import Pipeline
@@ -155,7 +157,7 @@ def _writer(step: Synthesize) -> Recipe:
     return with_prompt(cast("Model", step.model), step.prompt)
 
 
-def _vote_node(step: Vote, judge: JudgeNode | None) -> Reducer:
+def _vote_node(step: Vote, judge: JudgeNode | None, gate: GateNode | None = None) -> Reducer:
     """A rule name lowers to today's named Vote, a field or an extract to the block form.
 
     WHY the block form for ``"field:<path>"`` and ``sf.Extract``: the named reducers store an
@@ -169,8 +171,14 @@ def _vote_node(step: Vote, judge: JudgeNode | None) -> Reducer:
         # when no normalize= was passed (GP-E2); the step holds None for it.
         normalize = _DEFAULT_NORMALIZE if over == BENCHMARK_EXTRACT else step.normalize
         return VoteNode(
-            extract=engine_op(over), normalize=normalize, weights=step.weights, judge=judge
+            extract=engine_op(over),
+            normalize=normalize,
+            weights=step.weights,
+            judge=judge,
+            gate=gate,
         )
+    # INVARIANT (GA-6): a gated vote reads a rule name, so it never reaches the block form.
+    assert gate is None
     extract = _vote_extract(step)
     if step.weights is None:
         return Reduce("plurality", extract=extract)
@@ -196,6 +204,31 @@ def _statistic_node(step: Median | Mean, _judge: JudgeNode | None) -> Reducer:
     options: dict[str, Any] = {} if step.weights is None else {"weights": step.weights}
     op = "median" if isinstance(step, Median) else "mean"
     return Reduce(op, select=step.select, extract=extract, **options)
+
+
+def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
+    """Today's gated vote: ``sf.Vote(..., gate=sf.Gate(observe, cmp, threshold, otherwise=,
+    abstain_band=))``; a judge-weighted ``then`` keeps its judge."""
+
+    when, band = step.when, step.abstain_if
+    gate = GateNode(
+        when.ref.observe,
+        when.cmp,
+        when.threshold,
+        otherwise=_fallback_node(step.otherwise),
+        abstain_band=None if band is None else (band.lo, band.hi),
+    )
+    return _vote_node(step.then, judge, gate)
+
+
+def _fallback_node(otherwise: Fallback) -> Literal["abstain"] | JudgeNode | Model:
+    """The part 5 fallback: today's label judge, or the writer Model (GA-4: one model call)."""
+
+    if isinstance(otherwise, JudgePick):
+        return otherwise._node
+    if isinstance(otherwise, Synthesize):
+        return cast("Model", _writer(otherwise))
+    return otherwise
 
 
 def _rank_node(step: Rank, judge: JudgeNode | None) -> Reducer:
@@ -258,6 +291,7 @@ _NODES: Mapping[type, Callable[[Any, JudgeNode | None], Reducer]] = MappingProxy
         First: _first_node,
         Merge: _merge_node,
         JudgePick: _judge_pick_node,
+        Gate: _gate_node,
     }
 )
 

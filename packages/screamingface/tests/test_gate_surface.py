@@ -12,7 +12,7 @@ compiles to its bytes (GA-P).
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import pytest
 from _combine_flow_fixtures import flow_operators
@@ -21,6 +21,7 @@ import screamingface as sf
 from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
+from screamingface.signal_sources import SignalSource
 
 _PANEL = ["prov/alpha", "prov/beta", "prov/gamma"]
 _CONF = {"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
@@ -36,7 +37,7 @@ def _url4(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
-def _gated(gate: sx.Gate, *, signals: dict[str, sf.SignalSource] | None = None) -> sf.Recipe:
+def _gated(gate: sx.Gate, *, signals: Mapping[str, SignalSource] | None = None) -> sf.Recipe:
     return sx.Fanout(_PANEL, name="vote", signals=signals) >> gate
 
 

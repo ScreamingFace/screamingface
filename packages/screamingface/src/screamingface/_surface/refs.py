@@ -16,8 +16,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
-from screamingface._signals import FIELD_PATH, FIELD_SIGNAL_PREFIX, Signal, signal
+from screamingface._signals import FIELD_PATH, FIELD_SIGNAL_PREFIX, Signal, is_signal_key
 from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule
+from screamingface.combine_evidence import GateCmp
 from screamingface.fields import _FIELD_NAME, FieldNormalizer, _normalizer, _target_text
 from screamingface.reducer import BENCHMARK_EXTRACT, _weights_option
 from screamingface.reducer import _field_path as _checked_field_path
@@ -27,6 +28,7 @@ from screamingface.reducer import _field_path as _checked_field_path
 RULE_NAMES: tuple[str, ...] = tuple(
     rule for rule, (_, required, _) in _RULES.items() if not required
 )
+_AGREEMENT = "agreement"
 _PINNED = re.compile(r"([a-z][a-z0-9_]*)@([1-9][0-9]*)")
 _EX1 = (
     f"over= must be a rule name ({', '.join(RULE_NAMES)}), a rule name with a version such as "
@@ -35,6 +37,108 @@ _EX1 = (
 
 type Extractor = str | Extract
 type Weights = tuple[float, ...] | Signal
+
+
+@dataclass(frozen=True, slots=True, eq=False, repr=False)
+class SignalRef(Signal):
+    """``sf.signal(key)``: a signal key, with the gate references of a declared name (§7, §9).
+
+    INVARIANT: a step stores today's ``Signal`` (``_plain``), never this subclass, so the lowered
+    values are today's values with today's typed equality.
+    """
+
+    def chosen(self) -> GateRef:
+        """The declared signal of the member that the vote chose: a gate reference."""
+
+        return GateRef(f"chosen:{self._declared('chosen')}")
+
+    def mean(self) -> GateRef:
+        """The mean of the declared signal over the members: a gate reference."""
+
+        return GateRef(f"mean:{self._declared('mean')}")
+
+    def _declared(self, method: str) -> str:
+        if is_signal_key(self.key):
+            raise ValueError(  # SI-1
+                f"sf.signal({self.key!r}).{method}() reads a declared signal; an E4a key such as "
+                "cost_usd is not a gate input"
+            )
+        return self.key
+
+
+def signal(key: str) -> SignalRef:
+    """A named number on a member Answer (``sf.signal``), with ``.chosen()`` and ``.mean()``."""
+
+    return SignalRef(key)
+
+
+@dataclass(frozen=True, slots=True)
+class GateRef:
+    """A number a gate reads: ``sf.agreement()``, ``sf.signal(x).chosen()`` or ``.mean()``.
+
+    Compare it with a finite number (``>=``, ``>``, ``<=``, ``<``) for ``sf.Gate(when=...)``, and
+    give ``.between(lo, hi)`` to ``sf.Gate(abstain_if=...)``.
+    """
+
+    observe: str
+
+    def __ge__(self, other: object) -> GateCondition:
+        return _condition(self, ">=", other)
+
+    def __gt__(self, other: object) -> GateCondition:
+        return _condition(self, ">", other)
+
+    def __le__(self, other: object) -> GateCondition:
+        return _condition(self, "<=", other)
+
+    def __lt__(self, other: object) -> GateCondition:
+        return _condition(self, "<", other)
+
+    def between(self, lo: float, hi: float) -> GateBand:
+        """The closed band [lo, hi] of this number: inside it, the gate abstains (part 6)."""
+
+        if any(isinstance(item, bool) or not isinstance(item, int | float) for item in (lo, hi)):
+            raise TypeError("between(lo, hi) takes two numbers")
+        if not (math.isfinite(lo) and math.isfinite(hi)):
+            raise ValueError("between(lo, hi) needs finite numbers")
+        if lo > hi:
+            raise ValueError("between(lo, hi) needs lo <= hi")
+        if self.observe == _AGREEMENT and not 0 <= lo <= hi <= 1:
+            raise ValueError("sf.agreement().between(lo, hi) must be between 0 and 1")
+        return GateBand(self, float(lo), float(hi))
+
+
+@dataclass(frozen=True, slots=True)
+class GateCondition:
+    """``ref <cmp> threshold``: the condition that keeps the vote's answer (part 5, P4)."""
+
+    ref: GateRef
+    cmp: GateCmp
+    threshold: float
+
+
+@dataclass(frozen=True, slots=True)
+class GateBand:
+    """``ref.between(lo, hi)``: the closed band where the gate abstains (part 6)."""
+
+    ref: GateRef
+    lo: float
+    hi: float
+
+
+def agreement() -> GateRef:
+    """The share of the members that hold the vote's answer: a gate reference in [0, 1]."""
+
+    return GateRef(_AGREEMENT)
+
+
+def _condition(ref: GateRef, cmp: GateCmp, value: object) -> GateCondition:
+    # WHY a bool is refused: it is not a threshold, and True == 1 would hide the mistake.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"a gate condition compares with a number, not {value!r}")
+    if not math.isfinite(value):
+        raise ValueError("a gate condition compares with a finite number")
+    return GateCondition(ref, cmp, float(value))
 
 
 def extractor(value: object) -> Extractor:
@@ -95,7 +199,9 @@ def weights(value: object, label: str) -> Weights | None:
 
     if value is None:
         return None
-    return _weights_option(signal(value) if isinstance(value, str) else value, label)
+    if isinstance(value, str | Signal):
+        return signal_key(value, label)
+    return _weights_option(value, label)
 
 
 def output_field(value: object, label: str) -> str | None:
@@ -120,12 +226,16 @@ def signal_key(value: object, label: str) -> Signal:
     """
 
     if isinstance(value, str):
-        return signal(value)
+        return _plain(signal(value))
     if not isinstance(value, Signal):
         raise TypeError(
             f"{label} by= must be one signal: a key string such as 'cost_usd' or sf.signal(key)"
         )
-    return value
+    return _plain(value)
+
+
+def _plain(value: Signal) -> Signal:
+    return Signal(value.key)
 
 
 _SI2 = "sf.field compares with == only; use sf.signal('field:...') for numbers"
@@ -220,4 +330,4 @@ def _field_path(value: str) -> None:
         )
 
 
-__all__ = ["Extract", "field", "signal"]
+__all__ = ["Extract", "agreement", "field", "signal"]
