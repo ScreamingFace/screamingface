@@ -462,20 +462,6 @@ def _reads_judge(weights: object) -> bool:
     return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
 
 
-def _refuse_min_order_judge(judge: JudgeNode, label: str) -> None:
-    """JO-D1 (P6): a judge with order='min' is only a Fusion synthesizer.
-
-    Rank, Vote and Filter (unit 6) read the judge's scores with their own rule (Rank has its own
-    order=), so a second order would conflict. The message never echoes the rubric.
-    """
-
-    if judge.order == "min":
-        raise ValueError(
-            f"{label} cannot use sf.Judge(..., order='min'): a judge with order='min' works only "
-            "as the Fusion synthesizer; give this judge the default order='max'"
-        )
-
-
 def _check_judge_pair(
     judge: object, reads_judge: bool, label: str, *, reader: str, read_by: str, unpaired: str
 ) -> None:
@@ -504,7 +490,6 @@ def _check_judge_pair(
             f"{label} judge needs sf.Judge(..., returns='scores'): "
             f"the {reader} reads one score per member"
         )
-    _refuse_min_order_judge(judge, label)  # P6 / JO-D1: refuses order="min"
     if not reads_judge:
         raise ValueError(f"{label} judge is read only by {read_by}")
 
