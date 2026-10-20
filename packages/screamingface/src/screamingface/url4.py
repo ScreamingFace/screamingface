@@ -318,14 +318,19 @@ def _render_model(
     inferred_name = call.model.rsplit("/", 1)[-1]
     if explicit_name is not None and (force_name or explicit_name != inferred_name):
         lines.append(f"{prefix}    name={explicit_name!r},")
-    default_prompt = DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
-    if call.prompt != default_prompt:
+    if call.prompt != _role_default_prompt(role):
         lines.append(f"{prefix}    prompt={call.prompt!r},")
     params = _editable_params(call, drop_params)
     if params:
         lines.append(f"{prefix}    params={params!r},")
     lines.append(f"{prefix})")
     return lines
+
+
+def _role_default_prompt(role: str | None) -> str:
+    """The prompt the compiler gives a model call of this topology role when it has none."""
+
+    return DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
 
 
 def _render_topology(
@@ -504,6 +509,22 @@ def _require_recompiles(
     runs far from their code.
     """
 
+    if not _recompiles(candidate, recipe, calls, check_surface=check_surface):
+        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+
+def _recompiles(
+    candidate: Expression,
+    recipe: Recipe,
+    calls: Mapping[str, _Call],
+    *,
+    check_surface: _CheckSurface | None = None,
+) -> bool:
+    """Whether ``recipe`` compiles to ``candidate`` byte for byte (see ``_require_recompiles``).
+
+    A compile error is not a mismatch: it raises, so a programming error never reads as one.
+    """
+
     from screamingface._evaluation.candidate import compile_candidate
 
     operators = _OperatorCatalog.from_pinned(_combine_operator_pairs(calls))
@@ -511,8 +532,7 @@ def _require_recompiles(
         warnings.simplefilter("ignore", DuplicateMembersWarning)
         warnings.simplefilter("ignore", JudgeWriterWarning)
         expected = compile_candidate(recipe, check_surface=check_surface, operators=operators).url4
-    if render(candidate) != expected:
-        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+    return render(candidate) == expected
 
 
 def _has_executable_fusion_policy(candidate: Expression) -> bool:
@@ -761,10 +781,14 @@ def _recipe_from_topology(
     calls: dict[str, _Call],
     *,
     drop_params: frozenset[str] = frozenset(),
+    editable: bool = False,
 ) -> Recipe:
     """Reconstruct one inert public Recipe without evaluating generated Python.
 
     ``drop_params`` names the member params that the parent Fusion's declaration injected (P16).
+    ``editable=True`` (the new-surface rebuild, ``S/_surface/rebuild.py``) gives a model call whose
+    prompt is the default of its topology role no prompt, as ``to_python`` writes it; the url4
+    recompile check reads the default form (False), which compiles to the same bytes.
     """
 
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -775,24 +799,25 @@ def _recipe_from_topology(
         call = calls.get(value.binding)
         if call is None:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+        default = editable and call.prompt == _role_default_prompt(value.role)
         selected = Model(
             call.model,
             name=value.name if value.named else None,
-            prompt=call.prompt,
+            prompt=None if default else call.prompt,
             params=_editable_params(call, drop_params),
             optional=value.optional,
         )
     elif value.kind == "pipeline":
         selected = Pipeline(
-            [_recipe_from_topology(stage, calls) for stage in value.stages],
+            [_recipe_from_topology(stage, calls, editable=editable) for stage in value.stages],
             name=value.name if value.named else None,
             optional=value.optional,
         )
     elif value.kind == "fusion":
-        selected = _fusion_from_topology(value, calls)
+        selected = _fusion_from_topology(value, calls, editable=editable)
     elif value.kind == "self_corrective":
         assert value.max_rounds is not None
-        member = _recipe_from_topology(value.members[0], calls)
+        member = _recipe_from_topology(value.members[0], calls, editable=editable)
         selected = SelfCorrective(
             member,
             name=value.name if value.name != member.name else None,
@@ -803,15 +828,17 @@ def _recipe_from_topology(
         assert value.judge is not None
         inferred_name = "+".join(member.name for member in value.members)
         selected = CorrectiveLoop(
-            [_recipe_from_topology(member, calls) for member in value.members],
+            [_recipe_from_topology(member, calls, editable=editable) for member in value.members],
             name=value.name if value.name != inferred_name else None,
-            judge=_recipe_from_topology(value.judge, calls),
+            judge=_recipe_from_topology(value.judge, calls, editable=editable),
             max_rounds=value.max_rounds,
         )
     return selected
 
 
-def _fusion_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:
+def _fusion_from_topology(
+    value: _RecipeTopology, calls: dict[str, _Call], *, editable: bool = False
+) -> Recipe:
     """One Fusion; its members show only the params the author wrote (P16, DS-D10)."""
 
     from screamingface.fusion import Fusion
@@ -821,10 +848,13 @@ def _fusion_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Re
     declared = _fusion_signals(value, calls)
     drop = _injected_names(declared)
     return Fusion(
-        [_recipe_from_topology(member, calls, drop_params=drop) for member in value.members],
+        [
+            _recipe_from_topology(member, calls, drop_params=drop, editable=editable)
+            for member in value.members
+        ],
         name=value.name if value.name != inferred_name else None,
         signals=declared,
-        synthesizer=_synthesizer_from_topology(value.synthesizer, calls),
+        synthesizer=_synthesizer_from_topology(value.synthesizer, calls, editable=editable),
         quorum=value.quorum,
         optional=value.optional,
     )
@@ -848,9 +878,11 @@ def _injected_names(declared: Mapping[str, SignalSource] | None) -> frozenset[st
     return frozenset(injected_member_params(declared))
 
 
-def _synthesizer_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe | Reducer:
+def _synthesizer_from_topology(
+    value: _RecipeTopology, calls: dict[str, _Call], *, editable: bool = False
+) -> Recipe | Reducer:
     if value.kind != "reducer":
-        return _recipe_from_topology(value, calls)
+        return _recipe_from_topology(value, calls, editable=editable)
     return _reducer_from_topology(value, calls)
 
 

@@ -227,7 +227,8 @@ def test_rb1_a_byte_mismatch_of_the_converted_chain_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
-    other = sx.Fanout(_ROUTES) >> sx.Median()
+    # the same operators (the url4 pins only these), but another name: other bytes
+    other = sx.Fanout(_ROUTES, name="other") >> sx.Vote()
     monkeypatch.setattr(rebuild_module, "surface_value", lambda _value: other)
 
     with pytest.raises(

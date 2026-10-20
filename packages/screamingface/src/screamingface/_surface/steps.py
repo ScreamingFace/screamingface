@@ -177,7 +177,7 @@ class Filter(Step):
 
     _category: ClassVar[_Category] = "narrow"
     where: Matches | _Comparison
-    over: Extract | None
+    over: Extractor | None  # as the user wrote it; ``filter_extract`` gives its sf.Extract
 
     def __init__(self, *, where: Matches | _Comparison, over: str | Extract | None = None) -> None:
         if not isinstance(where, Matches | _Comparison):
@@ -191,7 +191,10 @@ class Filter(Step):
             )
         selected = plain_comparison(where) if isinstance(where, _Comparison) else where
         object.__setattr__(self, "where", selected)
-        object.__setattr__(self, "over", None if over is None else _filter_extract(over))
+        selected_over = None if over is None else extractor(over)
+        if selected_over is not None:
+            filter_extract(selected_over)  # refuse a pinned rule name here, when it is built
+        object.__setattr__(self, "over", selected_over)
         _check_by_lowering(self)
 
     def _reads_judge(self) -> bool:
@@ -367,7 +370,7 @@ def _numeric_over(over: Extractor, label: str) -> Extractor:
     return over
 
 
-def _filter_extract(over: str | Extract) -> Extract:
+def filter_extract(over: str | Extract) -> Extract:
     """The ``sf.Extract`` a Filter reads: a rule name with no version, a field, or an extract."""
 
     selected = extractor(over)

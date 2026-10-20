@@ -126,7 +126,10 @@ def test_filter_over_reads_the_text_that_matches_tests(over: object, extract: sf
     assert _narrowed(sx.Filter(where=where, over=over)) == _today(  # type: ignore[arg-type]
         sf.Filter(where=where, extract=extract)
     )
-    assert sx.Filter(where=where, over=over) == sx.Filter(where=where, over=extract)  # type: ignore[arg-type]
+    # unit 6: a Filter keeps over= as written (as Vote and Median do), and both forms lower alike
+    assert _narrowed(sx.Filter(where=where, over=extract)) == _today(
+        sf.Filter(where=where, extract=extract)
+    )
 
 
 def test_fi1_over_with_a_signal_comparison_is_refused() -> None:
