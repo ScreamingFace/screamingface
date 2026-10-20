@@ -289,3 +289,44 @@ gets the `narrow` list (narrow.md §2, §5, §6; lowering.md §2.2). `CH-12` goe
 ### Rows
 
 NC-1..NC-5.
+
+### Outcome
+
+- **Actual files:** `S/reducer.py` (`_ReducerPlan.narrow`, `Reducer._combine_plan`,
+  `_with_narrow`, `_step_plans`, `_narrow_steps`, `_narrowed`, the carrier on `Vote`/`Median`/
+  `Mean`), the carrier field on `Rank`/`Filter`/`Concat` (`S/selection.py`), `Judge`, `Pick`,
+  `Reduce` (its `__eq__` compares the carrier), `S/_evaluation/combine_spec.py` (the `narrow`
+  list, `accounting_signal` over every step, `_is_spec`/`_is_narrow`, `spec_operator_pairs`),
+  `S/_evaluation/candidate.py` and `S/_evaluation/reducer_signals.py` (the full plan, one call per
+  key), `S/fusion.py` (`_check_reads`, `_check_weight_source` and `_check_members` on every step),
+  `S/url4.py` (a narrow spec rebuilds and must recompile; `to_python` refuses it until unit 6),
+  `S/_surface/chain.py` (CH-12 removed), `S/_surface/lowering.py` (`block_node` lowers narrow).
+  New tests `ST/test_narrow_compile.py` (25), `ST/test_narrow_contract_fixtures.py` (4),
+  `ET/test_combine_narrow_run.py` (2); fixtures `narrow_filter_mean_candidate.url4`,
+  `narrow_rank_vote_candidate.url4`. Edited unit 3–4 tests: the CH-12 refusals in
+  `ST/test_chain_rules_steps.py` and `ST/test_gate_surface.py` now build.
+- **Commits:** `9bee85e51` test (RED), `21531b5a6` feat (GREEN), `f2999fdc6` refactor, this
+  ledger commit.
+- **Gates:** `run_gates.py screamingface-engine --base e4d44281c` and `screamingface`: the
+  append-only check lists only the owner-approved unit-1 files; with `--skip-append-only` ALL
+  GATES GREEN (engine pyright needed `uv sync --frozen`). `run_gates.py repo --base e4d44281c` ALL
+  GATES GREEN.
+- **Deviations:**
+  - The carrier is set by one helper, `reducer._narrowed`, which the lowering AND the url4 rebuild
+    call (the spec says "only by the lowering"): a url4 with `narrow` must rebuild with its narrow
+    steps, or the recompile byte check fails. `_narrowed` sets it on a copy, because the block's
+    judge node is shared (it is the synthesizer of `ArgMax("score:judge")`).
+  - `_ReducerPlan.narrow` holds the narrow steps' own `_ReducerPlan`s; `Reducer._combine_plan()`
+    merges them, and every compile place reads it (not `_plan()`). The one-judge-call rule lives
+    there (`_with_narrow`); `reducer_signals.py` asserts it.
+  - A spec with `narrow` now always takes the url4 recompile check (`_PROVED_SPEC_KEYS`).
+  - `Url4.to_python()` refuses a url4 with narrow steps ("their editable Python comes with the map,
+    select, reduce surface"): today's classes have no spelling for them. Unit 6 replaces this.
+  - The two RED NC-1 literals said `"cmp": ">"` (narrow.md §2 example); the SDK writes `"gt"` today,
+    so the tests follow the wire. The rank fixture is `Rank(2, by="score:judge") >>
+    Vote(weights="score:judge")`: it matches the `judge_rank_weighted_vote` contract case and runs
+    NC-3 (one judge call, two readers) in the Engine.
+- **Gap (spec silent):** before the swap, `Judge >> <narrow step that reads the judge> >>
+  ArgMin("score:judge")` is refused: ArgMin's judge writes the `order=min` template and the
+  narrow step's judge does not, so they are two different calls under one key. It works after the
+  neutral `@2` template (unit 7).
