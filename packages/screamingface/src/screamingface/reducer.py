@@ -160,8 +160,8 @@ def _with_narrow(plan: _ReducerPlan, narrow: tuple[Reducer, ...]) -> _ReducerPla
         known = calls.setdefault(call.key, call)
         if known != call:
             raise ValueError(
-                f"the steps of one combine call read the {call.key!r} call in two different "
-                "forms; give every step the same judge"
+                f"two steps of one combine call read the {call.key!r} call with a different "
+                "prompt or params, so it cannot be one call"
             )
     return replace(plan, narrow=plans, signal_calls=tuple(calls.values()))
 

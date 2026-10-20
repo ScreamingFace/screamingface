@@ -307,6 +307,22 @@ def test_nc3_a_judge_pick_after_a_filter_leaves_the_judge_step_as_it_is() -> Non
     assert len(_judge_calls(_url4(chain))) == 1
 
 
+def test_nc3_two_readers_that_ask_the_judge_in_different_words_are_refused() -> None:
+    # Until the neutral judge template (overview §4.1), ArgMin's judge is told that a lower number
+    # is better and a narrow Rank's judge that a higher one is, so they are two different calls.
+    with pytest.raises(
+        ValueError,
+        match=r"^two steps of one combine call read the 'judge' call with a different prompt or "
+        r"params, so it cannot be one call$",
+    ):
+        _ = (
+            sx.Fanout(_ROUTES)
+            >> _judge()
+            >> sx.Rank(2, by="score:judge")
+            >> sx.ArgMin("score:judge")
+        )
+
+
 # ---------------------------------------------------------------- the checks of every step
 
 
@@ -356,6 +372,24 @@ def test_to_python_of_a_narrow_url4_names_the_new_surface() -> None:
 
     with pytest.raises(ValueError, match=r"narrow steps"):
         sf.Url4(_url4(chain)).to_python()
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (('"op":"top_k@1"', '"op":"first_holder@1"'), "a vote spec"),
+        (('"op":"top_k@1"', '"op":"kept@1"'), "a filter spec"),
+    ],
+    ids=["unknown-select", "scores-then-kept"],
+)
+def test_a_hand_edited_narrow_item_cannot_rebuild(edit: tuple[str, str], message: str) -> None:
+    chain = sx.Fanout(_ROUTES) >> _judge() >> sx.Rank(2, by="score:judge") >> sx.Vote()
+    url4 = _url4(chain)
+    edited = url4.replace(*edit)
+    assert edited != url4
+
+    with pytest.raises(ValueError, match=rf"^URL4 Candidate has {message} this SDK version cannot"):
+        sf.Url4(edited).to_python()
 
 
 # ---------------------------------------------------------------- the carrier is private
