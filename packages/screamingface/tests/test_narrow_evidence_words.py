@@ -260,3 +260,114 @@ def test_the_case_view_keeps_the_not_selected_reason() -> None:
 
     combined = [answer for answer in case.answers() if answer.member_id == "member_3"]
     assert [(answer.status, answer.reason) for answer in combined] == [("excluded", "not_selected")]
+
+
+# --- the SDK twin of NR-I1..NR-I5 (each mutation of a pinned Engine case breaks one rule) --------
+
+
+def _mutated(name: str, change: Any) -> dict[str, Any]:
+    wire = copy.deepcopy(_cases()[name])
+    change(wire)
+    return wire
+
+
+def _set(path: tuple[Any, ...], value: Any) -> Any:
+    def change(wire: dict[str, Any]) -> None:
+        node: Any = wire
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+
+    return change
+
+
+def _five_records(wire: dict[str, Any]) -> None:
+    wire["narrow"] = [wire["narrow"][0]] * 5
+
+
+@requires_engine_app
+@pytest.mark.parametrize(
+    ("name", "change", "match"),
+    [
+        ("filter_mean", _five_records, "1 to 4 steps"),
+        ("filter_mean", _set(("narrow", 0, "kept"), ["member_3", "member_1"]), "author order"),
+        ("filter_mean", _set(("narrow", 0, "signal"), "Not A Key"), "signal key"),
+        ("filter_mean", _set(("narrow", 0, "scores"), ["member_1"]), "scores must be"),
+        ("rank_vote", _set(("narrow", 0, "ranks"), ["member_1"]), "ranks must be"),
+        ("rank_vote", _set(("narrow", 0, "ranks", "member_1"), 1.5), "ranks must be"),
+        (
+            "narrow_no_signal",
+            _set(
+                ("narrow", 1),
+                {
+                    "select": "kept@1",
+                    "signal": "field:confidence",
+                    "kept": ["member_1", "member_5"],
+                    "scores": {"member_1": 1.0, "member_2": 0.0, "member_5": 1.0},
+                },
+            ),
+            "live then",
+        ),
+        (
+            "narrow_cut_not_met",
+            _set(("narrow", 0, "kept"), []),
+            "only the last narrow step may keep no member",
+        ),
+        (
+            "filter_mean",
+            _set(("members", 1, "status"), "answered"),
+            "reason exactly when it did not answer",
+        ),
+        (
+            "narrow_no_signal",
+            _set(("members", 1, "signals", "field:score"), 1.0),
+            "no value for its step's signal",
+        ),
+        (
+            "narrow_no_votes",
+            _set(("result", "reason"), "output_missing"),
+            "narrow abstain ends with no_votes or cut_not_met",
+        ),
+    ],
+)
+def test_the_sdk_refuses_a_narrow_record_that_breaks_a_rule(
+    name: str, change: Any, match: str
+) -> None:
+    with pytest.raises(ExecutionError, match=match):
+        decode_combine_evidence(_mutated(name, change), "Engine evidence")
+
+
+@requires_engine_app
+def test_the_sdk_refuses_an_answered_row_that_a_narrow_step_left_out() -> None:
+    def change(wire: dict[str, Any]) -> None:
+        wire["members"][1].update(status="answered", reason=None)
+
+    with pytest.raises(ExecutionError, match="left out is excluded"):
+        decode_combine_evidence(_mutated("filter_mean", change), "Engine evidence")
+
+
+@requires_engine_app
+def test_the_sdk_refuses_a_not_selected_row_that_every_step_kept() -> None:
+    def change(wire: dict[str, Any]) -> None:
+        wire["members"][0].update(status="excluded", reason="not_selected")
+        wire["chosen"] = []
+        wire["result"] = {
+            "member_id": None,
+            "value": None,
+            "status": "abstain",
+            "reason": "no_votes",
+        }
+        wire["tally"] = None
+
+    with pytest.raises(ExecutionError, match="in no later narrow kept"):
+        decode_combine_evidence(_mutated("rank_vote", change), "Engine evidence")
+
+
+@requires_engine_app
+def test_the_sdk_refuses_a_failed_member_in_the_first_kept() -> None:
+    def change(wire: dict[str, Any]) -> None:
+        wire["members"][0].update(status="fail", reason="empty", value=None)
+        wire["dropped"] = 1
+
+    with pytest.raises(ExecutionError, match="names only members that answered"):
+        decode_combine_evidence(_mutated("filter_mean", change), "Engine evidence")
