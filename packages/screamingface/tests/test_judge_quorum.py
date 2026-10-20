@@ -16,6 +16,7 @@ from _combine_flow_fixtures import RUBRIC, flow_operators
 from url4 import Expression, build
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.judge import JUDGE_PANEL_TEMPLATES, JUDGE_TEMPLATES
 from screamingface.url4 import _calls
@@ -40,8 +41,8 @@ def _recovered(url4: str) -> sf.Recipe:
 
 
 def test_a_quorum_judge_reads_the_panel_and_round_trips() -> None:
-    judge = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
-    fusion = sf.Fusion(_MEMBERS, synthesizer=judge, quorum=2)
+    judge = sx.Judge("provider/j", rubric=RUBRIC)
+    fusion = sx.Fanout(_MEMBERS, quorum=2) >> judge >> sx.ArgMax("score:judge")
     url4 = _url4(fusion, flow_operators())
     root = build(url4)
     assert isinstance(root, Expression)
@@ -52,14 +53,17 @@ def test_a_quorum_judge_reads_the_panel_and_round_trips() -> None:
         "judge-template@2 returns=scores input=panel"
     )
     assert _url4(_recovered(url4), flow_operators()) == url4
-    plain = _url4(sf.Fusion(["provider/a", "provider/b"], synthesizer=judge), flow_operators())
+    plain = _url4(
+        sx.Fanout(["provider/a", "provider/b"]) >> judge >> sx.ArgMax("score:judge"),
+        flow_operators(),
+    )
     assert JUDGE_TEMPLATES["scores"].splitlines()[0] in plain
     assert "input=panel" not in plain
 
 
 def test_a_panel_template_on_a_judge_that_reads_every_member_is_refused() -> None:
-    judge = sf.Judge("provider/j", returns="label", rubric=RUBRIC)
-    url4 = _url4(sf.Fusion(["provider/a", "provider/b"], synthesizer=judge), flow_operators())
+    judge = sx.JudgePick("provider/j", rubric=RUBRIC)
+    url4 = _url4(sx.Fanout(["provider/a", "provider/b"]) >> judge, flow_operators())
     first, panel_first = (
         JUDGE_TEMPLATES["label"].split("\n", 1)[0],
         JUDGE_PANEL_TEMPLATES["label"].split("\n", 1)[0],
@@ -72,8 +76,8 @@ def test_a_panel_template_on_a_judge_that_reads_every_member_is_refused() -> Non
 
 
 def test_an_outputs_template_on_a_judge_that_reads_a_panel_is_refused() -> None:
-    judge = sf.Judge("provider/j", returns="label", rubric=RUBRIC)
-    url4 = _url4(sf.Fusion(_MEMBERS, synthesizer=judge, quorum=2), flow_operators())
+    judge = sx.JudgePick("provider/j", rubric=RUBRIC)
+    url4 = _url4(sx.Fanout(_MEMBERS, quorum=2) >> judge, flow_operators())
     panel_first = JUDGE_PANEL_TEMPLATES["label"].split("\n", 1)[0]
     assert panel_first in url4
     tampered = url4.replace(panel_first, JUDGE_TEMPLATES["label"].split("\n", 1)[0], 1)
@@ -83,9 +87,11 @@ def test_an_outputs_template_on_a_judge_that_reads_a_panel_is_refused() -> None:
 
 
 def test_a_quorum_judge_recovers_as_the_same_judge() -> None:
-    judge = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
+    judge = sx.Judge("provider/j", rubric=RUBRIC)
 
-    source = _recover(_url4(sf.Fusion(_MEMBERS, synthesizer=judge, quorum=2), flow_operators()))
+    source = _recover(
+        _url4(sx.Fanout(_MEMBERS, quorum=2) >> judge >> sx.ArgMax("score:judge"), flow_operators())
+    )
 
     assert f"sf.Judge('provider/j', returns='scores', rubric={RUBRIC!r})" in source
     assert "quorum=2" in source

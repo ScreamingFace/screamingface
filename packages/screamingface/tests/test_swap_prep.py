@@ -9,6 +9,7 @@ builds a chain, as a step does.
 from __future__ import annotations
 
 import pytest
+from _nodes import VoteNode, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -40,7 +41,8 @@ def test_si1_an_e4a_key_is_not_a_gate_input(method: str) -> None:
 
 def test_a_recipe_on_the_left_of_rshift_builds_a_chain() -> None:
     a, b = sf.Model("prov/a"), sf.Model("prov/b")
-    fusion = sf.Fusion(_ROUTES, synthesizer=sf.Vote())
+    # WHY the node: a recipe that is not a chain (the chain on the left is the next test's row)
+    fusion = fusion_node(_ROUTES, VoteNode())
     today = sf.Pipeline([a, b])
 
     assert a >> b == Chain([a, b])
