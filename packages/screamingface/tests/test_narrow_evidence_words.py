@@ -104,7 +104,9 @@ def test_sdk_reads_the_rank_vote_record() -> None:
 
 @requires_engine_app
 def test_sdk_reads_a_pattern_free_filter_record_with_no_cut_and_no_ranks() -> None:
-    (record,) = _decoded("filter_mean").narrow or ()
+    narrow = _decoded("filter_mean").narrow
+    assert narrow is not None
+    (record,) = narrow
 
     assert (record.select, record.signal, record.kept) == (
         "kept@1",
@@ -162,7 +164,7 @@ def test_an_unknown_narrow_record_key_is_refused() -> None:
 @requires_engine_app
 def test_a_later_kept_that_is_not_a_subset_is_refused() -> None:
     wire = copy.deepcopy(_cases()["narrow_no_signal"])
-    wire["narrow"][1]["kept"] = ["member_1", "member_2"]
+    wire["narrow"][1] = {"select": "kept@1", "kept": ["member_1", "member_2"]}
 
     with pytest.raises(ExecutionError, match="subset of the step before"):
         decode_combine_evidence(wire, "Engine evidence")

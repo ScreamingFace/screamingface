@@ -31,6 +31,7 @@ from screamingface.combine_evidence import (
     CombineGate,
     CombineJudgeReading,
     CombineKind,
+    CombineNarrow,
     CombineResult,
     CombineSampleCount,
     CombineSignal,
@@ -68,10 +69,15 @@ _EVIDENCE_KEYS = {
 # (written only by a Fusion that declares signals).
 # E4b part 5: gate (written only by a gated vote) and verifier (reserved, null only, never kept).
 # E4b part 7: consistency (written only by a Fusion that declares sf.Consistency).
-_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut", "consistency", "declared", "gate", "verifier"})
+# E4b map-reduce surface: narrow (written only by a block with narrow steps before the reducer).
+_OPTIONAL_EVIDENCE_KEYS = frozenset(
+    {"mean", "cut", "narrow", "consistency", "declared", "gate", "verifier"}
+)
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
 _CUT_KEYS = {"k", "order"}
+_NARROW_KEYS = {"select", "kept"}
+_OPTIONAL_NARROW_KEYS = frozenset({"signal", "cut", "scores", "ranks"})  # absent when not set
 _GATE_KEYS = {"observe", "observed", "cmp", "threshold", "passed", "branch", "otherwise"}
 _OPTIONAL_GATE_KEYS = frozenset({"abstain_band"})  # E4b part 6: written only with a spec band
 _SAMPLE_COUNT_KEYS = {"member_id", "matched", "succeeded", "failed"}
@@ -127,6 +133,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
             ),
             signal=_signal(raw["signal"], f"{label} signal", declared),
             cut=_cut(raw.get("cut"), f"{label} cut"),
+            narrow=_optional_list(raw.get("narrow"), f"{label} narrow", _narrow_record),
             declared=declared,
             gate=_gate(raw.get("gate"), f"{label} gate"),
             consistency=_consistency(raw.get("consistency"), f"{label} consistency"),
@@ -199,6 +206,32 @@ def _cut(value: object, label: str) -> CombineCut | None:
     return CombineCut(
         k=_integer(raw["k"], f"{label} k"),
         order=cast(SignalOrder, _word(raw["order"], SIGNAL_ORDERS, f"{label} order")),
+    )
+
+
+def _narrow_record(value: object, label: str) -> CombineNarrow:
+    """One narrow step record; ``CombineNarrow`` checks its ranks, ``CombineEvidence`` NR-I*."""
+    raw = _mapping(value, label)
+    _exact_keys(raw, _NARROW_KEYS | {key for key in _OPTIONAL_NARROW_KEYS if key in raw}, label)
+    scores = raw.get("scores")
+    ranks = raw.get("ranks")
+    return CombineNarrow(
+        select=_text(raw["select"], f"{label} select"),
+        signal=_optional_text(raw.get("signal"), f"{label} signal"),
+        kept=_texts(raw["kept"], f"{label} kept"),
+        cut=_cut(raw.get("cut"), f"{label} cut"),
+        scores=None
+        if scores is None
+        else {
+            key: _number(item, f"{label} scores")
+            for key, item in _mapping(scores, f"{label} scores").items()
+        },
+        ranks=None
+        if ranks is None
+        else {
+            key: _integer(item, f"{label} ranks")
+            for key, item in _mapping(ranks, f"{label} ranks").items()
+        },
     )
 
 

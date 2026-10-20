@@ -5,8 +5,9 @@ FEATURE: read the spec (``screamingface.combine-spec.v1``, the url4 ``intent``) 
 STORY: as the endpoint, I get a typed spec and context or a ``SpecInvalid`` -- never a half-read
 payload, and never an error message that repeats what a member or a judge wrote.
 
-INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3)
-and ``gate`` (E4b part 5); ``null`` is allowed only where the type says so. Unknown keys,
+INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3),
+``gate`` (E4b part 5) and ``narrow`` (E4b map-reduce surface, narrow.md §2); ``null`` is allowed
+only where the type says so. Unknown keys,
 duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected. The ``gate`` object
 has one optional key of its own, ``abstain_band`` (E4b part 6).
 INVARIANT: a failure message names locations and rules, never input values.
@@ -163,6 +164,21 @@ REDUCE_SELECT_RULES: Mapping[str, frozenset[str]] = MappingProxyType(
     }
 )
 
+# E4b map-reduce surface (narrow.md §2, NR-S2): the only (reduce, select) pairs of a narrow step.
+# A narrow step must give a member subset, so its select is kept@1 or top_k@1. scores@1 is
+# allowed only with the judge source (the endpoint checks the args, ``_check_narrow_pair``).
+# WHY exact ids, as REDUCE_SELECT_RULES: a new version of either op is a new pairing. The endpoint
+# checks the table after it resolves the steps (an unknown operator wins).
+NARROW_RULES: Mapping[str, str] = MappingProxyType(
+    {"filter@1": "kept@1", "by_signal@1": "top_k@1", "scores@1": "top_k@1"}
+)
+# The narrow reduce op that reads the judge reply (``score:judge``), with the judge source only.
+NARROW_JUDGE_REDUCE = "scores@1"
+# NR-S1 (O10): a bound for the spec and the evidence.
+MAX_NARROW_STEPS = 4
+# NR-S2b: the narrow reduce ops that read a signal or the judge, never the extracted value.
+_NARROW_NO_STAGES = frozenset({"by_signal@1", NARROW_JUDGE_REDUCE})
+
 
 class _SpecModel(BaseModel):
     """Closed consumer value: any unknown key or loose type is a spec error."""
@@ -281,6 +297,15 @@ class GateSpec(_SpecModel):
     abstain_band: list[float] | None = Field(default=None, min_length=2, max_length=2)
 
 
+class NarrowSpec(_SpecModel):
+    """One narrow step before the main step: every key required, ``null`` only where typed."""
+
+    extract: StepSpec | None
+    normalize: StepSpec | None
+    reduce: StepSpec
+    select: StepSpec
+
+
 class CombineSpec(_SpecModel):
     """``screamingface.combine-spec.v1``: every key required, ``null`` only where typed."""
 
@@ -294,6 +319,9 @@ class CombineSpec(_SpecModel):
     weights: dict[str, float] | SignalWeights | None
     signals: dict[str, DeclaredSource] | None = None
     gate: GateSpec | None = None
+    # E4b map-reduce surface (narrow.md §2): the narrow steps that run before the main step, in
+    # order. WHY a comment and not a docstring line: as for ``GateSpec.abstain_band``.
+    narrow: list[NarrowSpec] | None = None
 
     @field_validator("signals", mode="wrap")
     @classmethod
@@ -320,7 +348,37 @@ class CombineSpec(_SpecModel):
         _check_stages(self)
         _check_signals(self)
         _check_gate(self)
+        _check_narrow(self)
         return self
+
+
+def _check_narrow(spec: CombineSpec) -> None:
+    """NR-S1 and NR-S2b (narrow.md §2). The (reduce, select) pairs (NR-S2) are checked by the
+    endpoint after it resolves the steps. A message names the rule, never a value."""
+    if "narrow" not in spec.model_fields_set:
+        return
+    narrow = spec.narrow
+    # WHY an explicit null is refused although the schema types it: as for ``signals``.
+    if narrow is None or not 1 <= len(narrow) <= MAX_NARROW_STEPS:
+        raise ValueError(f"narrow must list 1 to {MAX_NARROW_STEPS} steps")
+    for item in narrow:
+        _check_narrow_stages(item)
+
+
+def _check_narrow_stages(item: NarrowSpec) -> None:
+    """NR-S2b: a narrow step that reads a signal or the judge has no extract and no normalize;
+    only a pattern filter may extract (the regex reads the original text, the extract decides
+    which members the step reads), and a normalize needs an extract."""
+    if item.normalize is not None and item.extract is None:
+        raise ValueError("a narrow normalize needs a narrow extract")
+    reads_signal = item.reduce.op in _NARROW_NO_STAGES or (
+        item.reduce.op == "filter@1" and "key" in item.reduce.args
+    )
+    if reads_signal and item.extract is not None:
+        raise ValueError("a narrow step that reads a signal or the judge has no extract")
+    # NR-S2 (the "source: judge" part): a values score reads the extracted value.
+    if item.reduce.op == NARROW_JUDGE_REDUCE and item.reduce.args != {"source": "judge"}:
+        raise ValueError("a narrow scores@1 step reads the judge")
 
 
 def _check_signals(spec: CombineSpec) -> None:
@@ -741,7 +799,10 @@ __all__ = [
     "FALLBACK_JUDGE",
     "FALLBACK_WRITER",
     "MAX_MEMBERS",
+    "MAX_NARROW_STEPS",
     "MAX_WEIGHT",
+    "NARROW_JUDGE_REDUCE",
+    "NARROW_RULES",
     "REDUCER_RULES",
     "REDUCE_SELECT_RULES",
     "CombineContext",
@@ -752,6 +813,7 @@ __all__ = [
     "EntropySource",
     "GateSpec",
     "LogprobSource",
+    "NarrowSpec",
     "Presence",
     "ReducerRule",
     "SignalWeights",

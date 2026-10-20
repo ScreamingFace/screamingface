@@ -53,7 +53,8 @@
             {
               "enum": [
                 "no_signal",
-                "no_weight"
+                "no_weight",
+                "not_selected"
               ],
               "type": "string"
             },
@@ -328,6 +329,82 @@
         "parsed"
       ],
       "title": "JudgeReadingRecord",
+      "type": "object"
+    },
+    "NarrowRecord": {
+      "additionalProperties": false,
+      "description": "What one narrow step did (E4b map-reduce surface, narrow.md \u00a74.2).\n\n``select`` is the pinned select op id; ``signal`` the key the step read (absent for a pattern\nfilter); ``kept`` the members it chose, in author order (empty: the step abstained, and it is\nthe last record); ``scores`` the step's score of each live member that had one; ``cut`` and\n``ranks`` only for a ``top_k@1`` step (the part 2 rules of ``top_k_ranks`` and ``CutRecord``).\nA key that is not set is absent.",
+      "properties": {
+        "cut": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CutRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kept": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Kept",
+          "type": "array"
+        },
+        "ranks": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ranks"
+        },
+        "scores": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scores"
+        },
+        "select": {
+          "title": "Select",
+          "type": "string"
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal"
+        }
+      },
+      "required": [
+        "select",
+        "kept"
+      ],
+      "title": "NarrowRecord",
       "type": "object"
     },
     "ResultRecord": {
@@ -646,6 +723,23 @@
       },
       "title": "Members",
       "type": "array"
+    },
+    "narrow": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/NarrowRecord"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrow"
     },
     "operators": {
       "items": {

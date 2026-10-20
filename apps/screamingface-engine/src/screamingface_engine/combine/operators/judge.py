@@ -59,13 +59,20 @@ def _value_scores(combine_input: CombineInput) -> Reduction:
 
 
 def scores(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
-    """One score per member: from a strict judge reply, or from the voters' numeric values."""
+    """One score per member: from a strict judge reply, or from the voters' numeric values.
+
+    The judge reply is parsed over the judged set (every member the judge saw), then only the
+    present members of this step keep a score (narrow.md §3.2). With no narrow step the two sets
+    are the same, so the scores are those of E4a. The reading keeps the whole parse.
+    """
     if args["source"] == "values":
         return _value_scores(combine_input)
     raw = judge_reply(combine_input.signals, "scores@1")
-    parsed = parse_scores(raw, combine_input.present)
+    parsed = parse_scores(raw, combine_input.judged_members)
     return Reduction(
-        scores=MappingProxyType({member: Decimal(repr(score)) for member, score in parsed.items()}),
+        scores=MappingProxyType(
+            {member: Decimal(repr(parsed[member])) for member in combine_input.present}
+        ),
         judge=JudgeReading(raw, "scores", MappingProxyType(parsed)),
     )
 

@@ -86,8 +86,9 @@ SignalOrder = Literal["max", "min"]
 # E4b part 2 (ans:Q3, P2): the status of an evidence record. "excluded" exists only in the
 # record: the core Answer keeps MemberStatus (I-A3), so no operator ever sees it.
 RecordStatus = Literal["answered", "fail", "excluded"]
-# Why a rule of the step left an answered member out (erd §6, X1 and X2).
-ExcludeReason = Literal["no_signal", "no_weight"]
+# Why a rule of the step left an answered member out (erd §6, X1 and X2). "not_selected" (E4b
+# map-reduce surface, narrow.md §4.1): a narrow step before the main step did not choose it.
+ExcludeReason = Literal["no_signal", "no_weight", "not_selected"]
 EXCLUDE_REASONS = cast("tuple[ExcludeReason, ...]", get_args(ExcludeReason))
 OpArgs = Mapping[str, object]
 
@@ -247,12 +248,17 @@ class CombineInput:
 
     ``input`` is the combine context ``input``, verbatim (E4b CI-I1). The endpoint always sets it;
     ``None`` means a test built the value without a context.
+    ``judged`` (narrow.md §3.2): the members a judge reply scores, the ``present`` set of the call
+    BEFORE any narrow step, the same for every step. A narrow step makes ``answers`` smaller, but
+    the judge saw every answered member, so ``scores@1`` parses the reply over ``judged``. ``None``
+    (a test built the value): the judged set is ``present``.
     """
 
     answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
     input: str | None = None
+    judged: tuple[str, ...] | None = None
 
     @property
     def members(self) -> tuple[str, ...]:
@@ -270,6 +276,11 @@ class CombineInput:
         member is present otherwise, so this equals ``members`` for a context with ``outputs``.
         """
         return tuple(member for member in self.members if member in self.outputs)
+
+    @property
+    def judged_members(self) -> tuple[str, ...]:
+        """The members a judge reply must score: ``judged``, or ``present`` when it is not set."""
+        return self.present if self.judged is None else self.judged
 
 
 @dataclass(frozen=True, slots=True)

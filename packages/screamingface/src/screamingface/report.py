@@ -47,6 +47,7 @@ from screamingface.combine_evidence import (
     CombineCut,
     CombineEvidence,
     CombineGate,
+    CombineNarrow,
     CombineSampleCount,
 )
 from screamingface.discovery import BenchmarkInfo
@@ -1135,6 +1136,7 @@ __all__ = [
     "CombineCut",
     "CombineEvidence",
     "CombineGate",
+    "CombineNarrow",
     "CombineSampleCount",
     "Evidence",
     "EvidenceProducer",
