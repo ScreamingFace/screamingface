@@ -31,11 +31,11 @@ def test_both_transports_use_selected_origin(environment, monkeypatch):
     output = types.SimpleNamespace(eval_js=lambda script, **kwargs: scripts.append(script))
     monkeypatch.setitem(sys.modules, "google.colab", types.SimpleNamespace(output=output))
     colab.exchange("state")
-    assert f'const origin = "{host}";' in scripts[0]
+    assert f'const origin = new URL("{host}").origin;' in scripts[0]
     assert "origin + '/bridge/consent" in scripts[0]
     monkeypatch.setenv("SCREAMINGFACE_ANALYTICS_ENDPOINT", "https://other.example")
     colab.exchange("state")
-    assert f'const origin = "{host}";' in scripts[1]
+    assert f'const origin = new URL("{host}").origin;' in scripts[1]
 
 
 @pytest.mark.parametrize(
@@ -56,3 +56,17 @@ def test_invalid_configuration_never_falls_back(value, monkeypatch):
     monkeypatch.setenv("SCREAMINGFACE_ANALYTICS_ENDPOINT", value)
     with pytest.raises(ValueError):
         endpoint.analytics_origin()
+
+
+@pytest.mark.parametrize(
+    "configured,expected",
+    [
+        ("https://analytics.dev.screamingface.ai:443", "https://analytics.dev.screamingface.ai"),
+        ("https://ANALYTICS.DEV.SCREAMINGFACE.AI", "https://analytics.dev.screamingface.ai"),
+        ("https://Example.com:8443", "https://example.com:8443"),
+        ("https://[::1]:443", "https://[::1]"),
+    ],
+)
+def test_origin_matches_browser_serialization(configured, expected, monkeypatch):
+    monkeypatch.setenv("SCREAMINGFACE_ANALYTICS_ENDPOINT", configured)
+    assert endpoint.analytics_origin() == expected

@@ -12,7 +12,7 @@ from screamingface._analytics.ports import Consent, Event
 
 _SCRIPT = r"""(async () => {
   const command = COMMAND, batch = BATCH;
-  const origin = ANALYTICS_ORIGIN;
+  const origin = new URL(ANALYTICS_ORIGIN).origin;
   const frame = document.createElement('iframe');
   frame.hidden = true;
   frame.referrerPolicy = 'no-referrer';

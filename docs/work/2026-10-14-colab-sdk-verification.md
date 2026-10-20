@@ -132,3 +132,17 @@ Full SDK regression: 4,286 passed, 33 skipped, 96.97% coverage (local HTTP fixtu
 permissions required outside the sandbox). Pyright, Ruff lint/format, notebook
 checks, wheel/sdist build and distribution checks passed. No live production or
 staging events were sent, and no new real-browser verification is claimed.
+
+
+### Review corrections: notebook observer and origin serialization
+
+The notebook observer now accepts and forwards the adapter's `timeout_sec`.
+A smoke test extracts the actual notebook function and runs four event dispatches
+through the real adapter/exchange with only Colab eval_js stubbed. The old observer
+fails this regression test; the fixed observer records all four acknowledgements.
+The endpoint resolver canonicalizes host case and default HTTPS ports, and the
+parent script uses URL.origin before its strict message-origin comparison.
+Regression coverage includes explicit :443, uppercase hosts, nondefault ports and
+IPv6. All 95 focused analytics tests and 12 Node tests passed; no real Colab or
+live PostHog check was performed for these corrections. Existing release gates
+remain unchanged; PR stays draft.

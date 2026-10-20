@@ -25,6 +25,10 @@ def analytics_origin() -> str:
         or any(character.isspace() for character in value)
     ):
         raise ValueError("SCREAMINGFACE_ANALYTICS_ENDPOINT must be an HTTPS origin")
-    # Validate malformed ports before any optional analytics network request.
-    _ = parsed.port
-    return value
+    # Match browser origin serialization: lowercase hosts and omit default ports.
+    port = parsed.port
+    host = parsed.hostname.encode("idna").decode("ascii")
+    if ":" in host:
+        host = f"[{host}]"
+    suffix = f":{port}" if port is not None and port != 443 else ""
+    return f"https://{host}{suffix}"

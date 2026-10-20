@@ -26,10 +26,10 @@ function run(command, choice='unknown', options={}) {
     if(!options.noLoad) queueMicrotask(()=>frame.onload());
   }}},location:{origin:'https://abc-0123456789abcdef-0-colab.googleusercontent.com'},
     window:{addEventListener:(_,fn)=>listeners.add(fn),removeEventListener:(_,fn)=>listeners.delete(fn)},
-    crypto,encodeURIComponent,clearTimeout,
+    crypto,URL,encodeURIComponent,clearTimeout,
     setTimeout:(fn)=>{timeout=setTimeout(fn,options.timeout??1000);return timeout}};
   const promise=vm.runInNewContext(source.replace('COMMAND',JSON.stringify(command))
-    .replace('ANALYTICS_ORIGIN',JSON.stringify(origin)).replace('BATCH',JSON.stringify({events:[]})).replace('TIMEOUT_MS','1800'),context);
+    .replace('ANALYTICS_ORIGIN',JSON.stringify(options.configuredOrigin??origin)).replace('BATCH',JSON.stringify({events:[]})).replace('TIMEOUT_MS','1800'),context);
   return {promise,calls,frame,listeners,get removed(){return removed},
     get reply(){return pending},
     send(message){for(const handler of [...listeners]) handler(message)}};
@@ -91,3 +91,15 @@ test('hung load and reply clean up and fail closed',async()=>{
     assert.ok(!h.calls.includes('id'));
   }
 });
+
+for(const configuredOrigin of [
+  'https://analytics.dev.screamingface.ai:443',
+  'https://ANALYTICS.DEV.SCREAMINGFACE.AI',
+]) {
+  test(`canonical browser reply accepted for ${configuredOrigin}`,async()=>{
+    const h=run('state','accepted',{configuredOrigin});
+    assert.equal((await h.promise).choice,'accepted');
+    assert.deepEqual(h.calls,['state']);
+    assert.ok(h.frame.src.startsWith(origin+'/bridge/consent?'));
+  });
+}

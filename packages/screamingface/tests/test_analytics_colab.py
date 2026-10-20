@@ -286,3 +286,45 @@ def test_expired_control_never_requests_id(browser, monkeypatch):
     wait_until(lambda: not browser.pending)
     assert calls == ["accept"]
     assert not analytics.status()["enabled"]
+
+
+def test_notebook_observer_forwards_adapter_deadline(browser, monkeypatch):
+    import ast
+    import json
+    from pathlib import Path
+
+    notebook = json.loads(
+        (
+            Path(__file__).resolve().parents[3] / "docs/verification/analytics-colab-sdk.ipynb"
+        ).read_text()
+    )
+    cell = next(cell for cell in notebook["cells"] if "def observed(" in "".join(cell["source"]))
+    function = next(
+        node
+        for node in ast.parse("".join(cell["source"])).body
+        if isinstance(node, ast.FunctionDef) and node.name == "observed"
+    )
+    calls = []
+
+    def eval_js(script, *, timeout_sec):
+        calls.append((script, timeout_sec))
+        return {"status": "upstream_accepted"}
+
+    monkeypatch.setattr(
+        sys.modules["google.colab"], "output", types.SimpleNamespace(eval_js=eval_js), raising=False
+    )
+    monkeypatch.setattr(
+        wiring, "coordinator", lambda: types.SimpleNamespace(accepts=lambda e: True)
+    )
+    namespace = {"original": colab.exchange, "acknowledgements": [], "event_ids": []}
+    exec(
+        compile(ast.Module(body=[function], type_ignores=[]), "notebook-observer", "exec"),
+        namespace,
+    )
+    monkeypatch.setattr(colab, "exchange", namespace["observed"])
+    for index in range(4):
+        browser._dispatch(browser._generation, "events", {"event_id": str(index)})
+    assert namespace["event_ids"] == ["0", "1", "2", "3"]
+    assert namespace["acknowledgements"] == [{"status": "upstream_accepted"}] * 4
+    assert len(calls) == 4
+    assert all(0 < timeout <= 2 for _, timeout in calls)
