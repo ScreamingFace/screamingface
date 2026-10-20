@@ -32,6 +32,8 @@ and the alias is the real `screamingface`.
   otherwise=..., abstain_if=...)`.
 - Signal keys rebuild as strings in `by=` and `weights=` (`by="field:confidence"`), and as
   `sf.signal(...)` in `where=` and `when=`.
+- **Erratum E2:** an operator id rebuilds as its rule name through `blocks._REVERSE_RULES`
+  (`json_object@1` → `over="json@1"`), because EX-1 accepts rule names only.
 - Extract and normalize ids rebuild with their pinned version, as today (`over="last_line@1"`,
   `normalize="text@1"`), which `over=` and `normalize=` accept (surface §9, EX-1). A `ReduceNode`
   spec rebuilds as the step with `over=sf.Extract(...)`.
@@ -52,6 +54,10 @@ and the alias is the real `screamingface`.
 - `to_python()` gives code with the `sf.` prefix that runs and compiles to the same url4 (RB-1).
 
 ## 3. Cards (`S/_ui/cards.py`)
+
+**Erratum E5:** today `Fusion([chain, ...])._repr_html_()` raises `TypeError` (`cards.py:433` →
+`_recipe_kind`), because a closed chain can now be a member. The new card builders handle a chain
+member.
 
 | Today | New |
 |---|---|
