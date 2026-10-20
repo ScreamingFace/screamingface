@@ -230,3 +230,52 @@ def test_row_encoding_and_gzip_run_off_the_event_loop(
     ]
     assert threads
     assert loop_thread not in threads
+
+
+# --- Accept-Encoding (PR #1433 review, finding 3) ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("accept", "gzip_ok"),
+    [
+        ("gzip", True),
+        ("GZip", True),
+        ("br, gzip;q=0.5", True),
+        ("gzip;q=0", False),
+        ("br, gzip;q=0", False),
+        ("gzip;q=0.000", False),
+        ("*", True),
+        ("*;q=0", False),
+        ("gzip;q=0, *", False),
+        ("identity", False),
+        ("", False),
+        # A weight outside RFC 9110's qvalue grammar refuses the coding.
+        ("gzip;q=2", False),
+        ("gzip;q=1.1", False),
+        ("gzip;q=+0.5", False),
+        ("gzip;q=1e-1", False),
+        ("gzip;q=0.0001", False),
+        ("gzip;q=1.000", True),
+    ],
+)
+def test_gzip_is_negotiated_by_rfc_9110_rules(accept: str, gzip_ok: bool) -> None:
+    request = types.SimpleNamespace(headers={"accept-encoding": accept})
+
+    assert cache_entries._accepts_gzip(request) is gzip_ok  # type: ignore[arg-type]
+
+
+# --- the last page (PR #1433 review, non-blocking) -----------------------------------------------
+
+
+def test_a_last_page_of_exactly_limit_rows_says_so(authenticated_client: TestClient) -> None:
+    # WHY: `next` must be null when no row follows, or the client asks for an empty page.
+    _seed(authenticated_client, ("a", "m1", 0), ("b", "m1", 1))
+
+    _, *rows, trailer = _lines(
+        authenticated_client.get(
+            _URL, params={"limit": "2"}, headers={"Accept-Encoding": "identity"}
+        )
+    )
+
+    assert len(rows) == 2
+    assert trailer == {"next": None}

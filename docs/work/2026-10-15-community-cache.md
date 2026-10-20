@@ -155,3 +155,30 @@ dropped as not real.
   gateway's writers wait 5 s. A time-bounded commit (page end or ~1 s) is the possible follow-up.
 - **Tests (append-only):** four `check_database` tests (ORM-created passes; not-a-gateway,
   pre-`metadata_json`, missing-and-not-created refused). Gates (`run_gates.py aigateway`) green.
+
+## Review round 2 (PR #1433 review by HupBaHa at `9c2369e`, fixed 2026-10-20)
+
+All seven findings were valid; the owner chose skip-and-count for invalid rows. One commit.
+
+- **Memory (blocking 1):** batches are bounded by bytes as well as rows: a size-only keyset query
+  reads the next ≤100 keys with their `response_size_bytes`, keeps up to `BATCH_BYTES` (8 MB; at
+  least one row), then reads those rows. A request holds ~24 MB at most (rows, encoded lines,
+  joined chunk). The cursor and the page count come from the keys, so a row deleted between the
+  two queries neither ends the page nor moves it back, and a byte cut on the table's last fetch
+  loses no row.
+- **Unservable rows (blocking 2):** `_parameters` admits only rows a local lookup can serve
+  (hex hashes, column lengths, `store.decode_cached_response` — the lookup's decoder, lifted out
+  of `store.get` so there is one — size bounds, aware in-range timestamps, not expired). A row
+  that fails is skipped and counted (`PageLoad.skipped`), never written, so it cannot hold its key
+  against a later valid row. Unreadable or oversized metadata is stored NULL, as a lookup reads it.
+- **`Accept-Encoding` (blocking 3):** RFC 9110 negotiation — case-insensitive codings, `q=0`
+  refuses, `*`, and the strict qvalue grammar (`q=2`, `1e-1`, `+0.5` refuse); table-tested.
+- **Non-blocking:** `check_database` also requires the unique index on `key_hash`; a timestamp
+  outside the UTC range (`OverflowError`) is an invalid row; spec decisions 6 and 11, the plan and
+  `DEPLOYMENT.md` describe per-batch transactions, the byte bound and the skip rule; `next` is
+  null exactly when no eligible row follows the page (`has_rows_after` look-ahead), so a last page
+  of exactly `limit` rows says so.
+- **Tests:** the loader's two malformed-row tests now pin skip-and-count (the contract changed
+  by the owner's decision); new tests for every validation, the same-key repair, NULL metadata,
+  the lookalike table, the byte bound, the end-of-table cut, the look-ahead and the negotiation
+  table. All are in files this PR added, so no approval manifest changes.

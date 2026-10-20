@@ -20,6 +20,7 @@ import pytest_asyncio
 from tortoise import Tortoise
 
 from aigateway.core.request_cache.community_pages import (
+    BATCH_BYTES,
     BATCH_ROWS,
     MAX_PAGE_ROWS,
     PAGE_FIELDS,
@@ -27,6 +28,7 @@ from aigateway.core.request_cache.community_pages import (
     PageCursor,
     count_rows,
     cursor_after,
+    has_rows_after,
     iter_page,
 )
 from aigateway.core.request_cache.models import RequestCacheEntry
@@ -292,3 +294,70 @@ def test_the_postgres_hit_statements_do_not_set_updated_at() -> None:
 
     for sql in (store._HIT_IF_FREE_SQL, store._HIT_UNLESS_MERGING_SQL):
         assert "updated_at" not in sql
+
+
+# --- memory: batches bounded by bytes (PR #1433 review, finding 1) --------------------------------
+
+
+async def _sized(key: str, size: int, *, seconds: int) -> None:
+    entry = await _row(key, updated_at=_T0 + timedelta(seconds=seconds))
+    # The stored size is what bounds a batch; the body itself stays small in a unit test.
+    await RequestCacheEntry.filter(id=entry.id).update(response_size_bytes=size)
+
+
+@pytest.mark.asyncio
+async def test_a_batch_of_large_responses_is_cut_at_the_byte_bound(db) -> None:
+    # INVARIANT: a batch holds at most BATCH_BYTES of responses, whatever the row count — 100
+    # rows of 1 MB responses would otherwise be ~100 MB before the route even encodes them.
+    for i in range(30):
+        await _sized(f"{i:02x}", 1_000_000, seconds=i)
+
+    batches = [b async for b in iter_page(after=None, limit=1000, models=(), now=_NOW)]
+
+    per_batch = BATCH_BYTES // 1_000_000
+    assert [len(b) for b in batches] == [per_batch, per_batch, per_batch, 30 - 3 * per_batch]
+    assert all(sum(r["response_size_bytes"] for r in b) <= BATCH_BYTES for b in batches)
+
+
+@pytest.mark.asyncio
+async def test_a_single_response_larger_than_the_bound_still_crosses_alone(db) -> None:
+    await _sized("a", BATCH_BYTES + 1, seconds=0)
+    await _sized("b", 10, seconds=1)
+
+    batches = [b async for b in iter_page(after=None, limit=10, models=(), now=_NOW)]
+
+    assert [[r["key_hash"][0] for r in b] for b in batches] == [["a"], ["b"]]
+
+
+@pytest.mark.asyncio
+async def test_a_byte_cut_at_the_end_of_the_table_loses_no_row(db) -> None:
+    # The last, short fetch can still be cut by bytes; the rows beyond the cut must follow.
+    await _sized("a", BATCH_BYTES - 1, seconds=0)
+    await _sized("b", 2, seconds=1)
+    await _sized("c", 2, seconds=2)
+
+    walked = [
+        r["key_hash"][0]
+        async for b in iter_page(after=None, limit=10, models=(), now=_NOW)
+        for r in b
+    ]
+
+    assert walked == ["a", "b", "c"]
+
+
+# --- the last page (PR #1433 review, non-blocking) -----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_has_rows_after_says_whether_a_full_page_was_the_last(db) -> None:
+    await _row("a", updated_at=_T0)
+    await _row("b", updated_at=_T0 + timedelta(seconds=1))
+
+    assert await has_rows_after(
+        after=PageCursor(updated_at=_T0, key_hash="a".ljust(64, "0")), models=(), now=_NOW
+    )
+    assert not await has_rows_after(
+        after=PageCursor(updated_at=_T0 + timedelta(seconds=1), key_hash="b".ljust(64, "0")),
+        models=(),
+        now=_NOW,
+    )

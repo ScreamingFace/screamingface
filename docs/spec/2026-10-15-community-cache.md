@@ -97,8 +97,12 @@ the same.
    10,000), while each request grows longer and an interrupted page costs more to repeat. A
    heavy page is large (~235 MB of rows for the heaviest model), so no hop may hold a whole
    page:
-   - the gateway writes each 100-row batch to the response as it is read, so its memory per
-     request is about 100 rows whatever the page size or filter;
+   - the gateway writes each batch to the response as it is read. A batch is at most 100 rows
+     and at most 8 MB of responses (one row, if a single response is larger), chosen by a cheap
+     size-only query on the stored `response_size_bytes` before the rows are read. A response can
+     be up to 1 MB, so a row count alone would let one batch reach ~100 MB, several times that
+     while it is encoded; bounded by bytes, a request holds ~24 MB at most whatever the page size
+     or filter (revised after the PR 1 review, 2026-10-20);
    - the Engine passes the gateway's bytes through as they arrive, still compressed, never
      reading the whole page (PR 2);
    - the client parses the page line by line (decision 12).
@@ -124,13 +128,20 @@ the same.
     `active_cache_revisions()`). The client compares them with its local gateway's and stops on
     any mismatch: rows keyed under another revision would load and then never hit. A change
     mid-pull (the hosted gateway was redeployed) also stops it; the next pull starts over.
-11. **Local load: a transaction per page, overlapped with the next download.** The loader
-    inserts a page's rows into the local SQLite `request_cache_entries` in one transaction,
-    skipping any row whose `key_hash` the local cache already has, while the client downloads
-    the next page. A per-page transaction holds SQLite's single write lock for under a second,
-    so a local run writing to the cache meanwhile only waits briefly. A malformed row rolls back
-    its page and stops the pull; pages already loaded stay, since every row is an independent,
-    valid cache entry and a partial pull leaves a correct, smaller cache.
+11. **Local load: a transaction per batch, as the page streams in** (revised after the PR 1 and
+    PR 3 reviews). The client loads a page's rows in batches as they arrive, each batch one
+    `load_page` call and one transaction into the local SQLite `request_cache_entries`, skipping
+    any row whose `key_hash` the local cache already has. So the download and the load overlap,
+    and no page is held whole. A transaction spanning a page would hold SQLite's single write
+    lock for the page's whole download, while the running gateway's own writes wait only 5 s for
+    it. The database is checked (`check_database`: it exists, has the current schema and the
+    unique key on `key_hash`) before any request. Only a row a local lookup can serve is written:
+    both hashes SHA-256 hex, text fields within their columns, `response_json` accepted by the
+    lookup's own decoder (`store.decode_cached_response`), a size and timestamps in range, not
+    expired; unreadable metadata is stored as NULL, as a lookup would read it. A row that fails is
+    skipped and counted (`PageLoad.skipped`), never written, so it can neither hold its key
+    against a later valid row nor stop the pull (owner decision, 2026-10-20). The cursor still
+    only advances past a page that ended with its trailer.
 12. **Newline-delimited JSON, gzip'd.** A page is NDJSON: a header line (`schema`,
     `revisions`, and `remaining` when asked), one line per row, and a trailer line carrying
     `next`. Each line parses on its own, so neither the gateway nor the client holds a whole

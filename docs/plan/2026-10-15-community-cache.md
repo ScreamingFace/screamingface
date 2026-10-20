@@ -19,8 +19,9 @@ OME-1311, merged in order.
    `Cache-Control: private, no-store`, gzip when accepted.
 3. `main.py` — include the router.
 4. `core/request_cache/sqlite_loader.py` (new) — `check_revisions(header, local)` and
-   `load_page(rows, database)`: one transaction per page, skip keys already present, new ids,
-   zero hits; refuse a malformed row with nothing written for that page.
+   `load_page(rows, database)`: one transaction per call (the SDK calls it per batch), skip
+   keys already present, new ids, zero hits; skip and count a row a local lookup could not
+   serve. `check_database(database)` before any request.
 5. A test pinning that a cache hit leaves `updated_at` unchanged (spec, Risks).
 6. `DEPLOYMENT.md` — the route, who can call it, what crosses, the cost of a pull.
 

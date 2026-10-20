@@ -13,8 +13,15 @@ uses, so the gateway reads them back as its own.
 INVARIANT: one transaction per ``load_page`` call, and a key the local cache already holds is
 kept, never replaced (``ON CONFLICT(key_hash) DO NOTHING``). Reloading rows therefore adds
 nothing, which is what makes resuming after a crash safe.
-WHY a malformed row rolls back only its call: rows are independent cache entries, so calls
-already committed leave a correct, smaller cache.
+INVARIANT: only a row a local lookup can serve is written (``_parameters``): both hashes are
+SHA-256 hex, the text fields fit their columns, ``response_json`` passes the lookup's own decoder
+(``store.decode_cached_response``), the size and timestamps are coherent, and the row has not
+expired. Because a kept key is never replaced, a row written that could not be served would hold
+its key unservable for good.
+WHY a row that fails is skipped and counted rather than refusing the call (owner decision,
+2026-10-20): rows are independent cache entries, and a pull resumes from the same cursor, so a
+refusal would stop every pull at that row until the hosted side was fixed. A skipped row is not
+written, so a later valid row for its key still loads.
 AIDEV-NOTE: the SDK calls ``load_page`` once per 500-row batch as a page streams in, not once per
 page. A transaction spanning a page would hold the write lock for the page's whole download, and
 the running gateway's own writes wait only 5 s for it (SQLite WAL, Tortoise's default).
@@ -22,6 +29,7 @@ the running gateway's own writes wait only 5 s for it (SQLite WAL, Tortoise's de
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from collections.abc import Mapping, Sequence
@@ -31,7 +39,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from .entry_metadata import CACHE_ENTRY_METADATA_MAX_BYTES, CacheEntryMetadata
 from .revisions import PARAMETER_CONTRACT_KEY
+from .store import decode_cached_response
 
 _TABLE: Final = "request_cache_entries"
 _COLUMNS: Final = (
@@ -54,7 +64,14 @@ _INSERT: Final = (
     " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?)"
     " ON CONFLICT(key_hash) DO NOTHING"
 )
-_TEXT_FIELDS: Final = ("key_hash", "prompt_hash", "provider", "model", "response_json")
+_HASH = re.compile(r"[0-9a-f]{64}")
+# The model's column lengths (``models/request_cache_entry.py``).
+_PROVIDER_MAX: Final = 64
+_MODEL_MAX: Final = 255
+# WHY a sanity bound, not the hosted cap: the cap (`AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES`, 1 MB
+# by default) is the hosted gateway's setting and this process cannot read it. 16 MiB refuses
+# nonsense without refusing any row a hosted gateway could have written.
+_RESPONSE_MAX_BYTES: Final = 16 * 1024 * 1024
 
 
 class PageRejected(ValueError):
@@ -69,6 +86,8 @@ class PageRejected(ValueError):
 class PageLoad:
     rows: int
     inserted: int
+    # Rows that failed validation and were not written (``_parameters``).
+    skipped: int = 0
 
 
 def check_revisions(remote: Mapping[str, str], local: Mapping[str, str]) -> None:
@@ -96,37 +115,76 @@ def check_revisions(remote: Mapping[str, str], local: Mapping[str, str]) -> None
         raise PageRejected("revision_mismatch", f"not reported upstream: {', '.join(unvouched)}")
 
 
-def _timestamp(value: Any, *, nullable: bool = False) -> str | None:
-    if value is None and nullable:
-        return None
+def _instant(value: Any) -> datetime:
     if not isinstance(value, str):
-        raise ValueError(f"not an ISO timestamp: {value!r}")
+        raise ValueError("a timestamp is not text")
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
-        raise ValueError(f"timestamp without a time zone: {value!r}")
+        raise ValueError("a timestamp has no time zone")
+    # WHY OverflowError here: a valid ISO date at the calendar's edge with a large offset (for
+    # example ``0001-01-01T00:00:00+14:00``) cannot be expressed in UTC.
+    try:
+        return parsed.astimezone(UTC)
+    except OverflowError as exc:
+        raise ValueError("a timestamp is outside the UTC range") from exc
+
+
+def _stored(instant: datetime) -> str:
     # The ORM's SQLite storage format: '2026-10-01 12:00:00.123456+00:00'.
-    return parsed.astimezone(UTC).isoformat(sep=" ", timespec="microseconds")
+    return instant.isoformat(sep=" ", timespec="microseconds")
 
 
-def _parameters(row: Mapping[str, Any]) -> tuple[Any, ...]:
-    for field in _TEXT_FIELDS:
-        if not isinstance(row[field], str):
-            raise ValueError(f"{field} is not text")
+def _text(row: Mapping[str, Any], field: str, max_length: int) -> str:
+    value = row[field]
+    if not isinstance(value, str) or not 0 < len(value) <= max_length:
+        raise ValueError(f"{field} is not text of 1 to {max_length} characters")
+    return value
+
+
+def _metadata(value: Any) -> str | None:
+    # WHY NULL rather than skipping the row: a lookup treats an unreadable block as absent and
+    # still serves the body (ERD §5.5), so storing NULL is what it would read anyway.
+    if not isinstance(value, str) or len(value.encode()) > CACHE_ENTRY_METADATA_MAX_BYTES:
+        return None
+    return value if CacheEntryMetadata.parse(value) is not None else None
+
+
+def _parameters(row: Mapping[str, Any], now: datetime) -> tuple[Any, ...]:
+    """The insert parameters of a row a local lookup can serve; ``ValueError`` otherwise."""
+    for field in ("key_hash", "prompt_hash"):
+        if not isinstance(row[field], str) or not _HASH.fullmatch(row[field]):
+            raise ValueError(f"{field} is not a SHA-256 hex digest")
+    response = row["response_json"]
+    if not isinstance(response, str) or len(response.encode()) > _RESPONSE_MAX_BYTES:
+        raise ValueError("response_json is not text within bounds")
+    decode_cached_response(response)
     size = row["response_size_bytes"]
-    if not isinstance(size, int) or isinstance(size, bool):
-        raise ValueError("response_size_bytes is not an integer")
-    metadata = row["metadata_json"]
-    if metadata is not None and not isinstance(metadata, str):
-        raise ValueError("metadata_json is not text")
+    if not isinstance(size, int) or isinstance(size, bool) or not 0 <= size <= _RESPONSE_MAX_BYTES:
+        raise ValueError("response_size_bytes is not a size within bounds")
+    created, updated = _instant(row["created_at"]), _instant(row["updated_at"])
+    expires = None if row["expires_at"] is None else _instant(row["expires_at"])
+    if expires is not None and expires <= now:
+        raise ValueError("the row has expired")
     return (
         str(uuid.uuid4()),
-        *(row[field] for field in _TEXT_FIELDS),
+        row["key_hash"],
+        row["prompt_hash"],
+        _text(row, "provider", _PROVIDER_MAX),
+        _text(row, "model", _MODEL_MAX),
+        response,
         size,
-        _timestamp(row["created_at"]),
-        _timestamp(row["updated_at"]),
-        _timestamp(row["expires_at"], nullable=True),
-        metadata,
+        _stored(created),
+        _stored(updated),
+        None if expires is None else _stored(expires),
+        _metadata(row["metadata_json"]),
     )
+
+
+def _valid(row: Mapping[str, Any], now: datetime) -> tuple[Any, ...] | None:
+    try:
+        return _parameters(row, now)
+    except (KeyError, TypeError, ValueError, RecursionError):
+        return None
 
 
 def _check_schema(conn: sqlite3.Connection, database: Path) -> None:
@@ -142,6 +200,19 @@ def _check_schema(conn: sqlite3.Connection, database: Path) -> None:
             "outdated_gateway_database",
             f"{database} lacks {', '.join(missing)}; apply the gateway's migrations to it first",
         )
+    # WHY: ``ON CONFLICT(key_hash)`` needs a unique index on exactly ``key_hash``; a table without
+    # one would pass the column check and then fail every insert with a raw OperationalError.
+    if not _has_unique_key_hash(conn):
+        raise PageRejected("not_a_gateway_database", f"{database} has no unique key on key_hash")
+
+
+def _has_unique_key_hash(conn: sqlite3.Connection) -> bool:
+    for index in conn.execute(f"PRAGMA index_list({_TABLE})"):
+        name, unique = index[1], index[2]
+        columns = [column[2] for column in conn.execute(f"PRAGMA index_info('{name}')")]
+        if unique and columns == ["key_hash"]:
+            return True
+    return False
 
 
 def check_database(database: Path) -> None:
@@ -159,16 +230,23 @@ def check_database(database: Path) -> None:
 
 
 def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
-    """Insert rows into the local gateway database, in one transaction."""
-    try:
-        parameters = [_parameters(row) for row in rows]
-    except (KeyError, ValueError) as exc:
-        raise PageRejected("malformed_row", str(exc)) from exc
+    """Insert the servable rows into the local gateway database, in one transaction.
+
+    A row that fails validation is skipped and counted in ``PageLoad.skipped``; it never stops
+    the load (see the module's WHY).
+    """
+    now = datetime.now(UTC)
+    checked = [_valid(row, now) for row in rows]
+    parameters = [values for values in checked if values is not None]
     with closing(sqlite3.connect(database, timeout=30.0)) as conn, conn:
         _check_schema(conn, database)
         before = conn.total_changes
         conn.executemany(_INSERT, parameters)
-        return PageLoad(rows=len(parameters), inserted=conn.total_changes - before)
+        return PageLoad(
+            rows=len(checked),
+            inserted=conn.total_changes - before,
+            skipped=len(checked) - len(parameters),
+        )
 
 
 __all__ = ["PageLoad", "PageRejected", "check_database", "check_revisions", "load_page"]
