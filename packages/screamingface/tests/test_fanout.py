@@ -9,6 +9,7 @@ STORY: as a researcher, I give one prompt to the whole panel in one place.
 from __future__ import annotations
 
 import pytest
+from _nodes import FusionNode, VoteNode, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -32,12 +33,12 @@ def test_name_quorum_and_signals_go_to_the_fusion_node() -> None:
     signals = {"conf": sf.Verbalized("C: ([0-9]+)")}
     chain = sx.Fanout(_PAIR, name="panel", quorum=1, signals=signals) >> sx.Vote(weights="conf")
 
-    assert lower(chain) == sf.Fusion(
+    assert lower(chain) == fusion_node(
         _PAIR,
         name="panel",
         quorum=1,
         signals=signals,
-        synthesizer=sf.Vote(weights=sf.signal("conf")),
+        reducer=VoteNode(weights=sf.signal("conf")),
     )
 
 
@@ -72,12 +73,12 @@ def test_prompt_sets_each_route_member_and_each_model_with_no_prompt() -> None:
         prompt=_PROMPT,
     ) >> sx.Synthesize("provider/w")
 
-    assert lower(chain) == sf.Fusion(
+    assert lower(chain) == fusion_node(
         [
             sf.Model("provider/a", prompt=_PROMPT),
             sf.Model("provider/b", name="bee", prompt=_PROMPT, params={"temperature": 0.2}),
         ],
-        synthesizer="provider/w",
+        "provider/w",
     )
 
 
@@ -88,7 +89,7 @@ def test_prompt_keeps_an_optional_member_optional() -> None:
     )
 
     node = lower(chain)
-    assert isinstance(node, sf.Fusion)
+    assert isinstance(node, FusionNode)
     assert node.members[1] == sf.Model("provider/b", prompt=_PROMPT, optional=True)
 
 
@@ -103,7 +104,7 @@ def test_fa1_a_member_with_its_own_prompt_is_refused() -> None:
     [
         sx.Fanout(_PAIR) >> sx.Vote(),
         sf.Pipeline(["provider/x", "provider/y"]),
-        sf.Fusion(_PAIR, synthesizer="provider/s"),
+        fusion_node(_PAIR, "provider/s"),
     ],
     ids=["chain", "pipeline", "fusion"],
 )
@@ -131,10 +132,10 @@ def test_a_closed_chain_member_lowers_to_its_node() -> None:
     inner = sx.Fanout(_PAIR) >> sx.Synthesize("provider/s")
     chain = sx.Fanout([inner, "provider/c"], name="nested") >> sx.Synthesize("provider/w")
 
-    assert lower(chain) == sf.Fusion(
-        [sf.Fusion(_PAIR, synthesizer="provider/s"), "provider/c"],
+    assert lower(chain) == fusion_node(
+        [fusion_node(_PAIR, "provider/s"), "provider/c"],
         name="nested",
-        synthesizer="provider/w",
+        reducer="provider/w",
     )
 
 
@@ -142,7 +143,7 @@ def test_an_optional_closed_chain_member_lowers_to_an_optional_node() -> None:
     inner = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], optional=True)
     chain = sx.Fanout([inner, "provider/c"]) >> sx.Synthesize("provider/w")
 
-    assert lower(chain) == sf.Fusion(
-        [sf.Fusion(_PAIR, synthesizer=sf.Vote(), optional=True), "provider/c"],
-        synthesizer="provider/w",
+    assert lower(chain) == fusion_node(
+        [fusion_node(_PAIR, VoteNode(), optional=True), "provider/c"],
+        "provider/w",
     )

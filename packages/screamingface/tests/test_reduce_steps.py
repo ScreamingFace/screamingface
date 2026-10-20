@@ -10,6 +10,7 @@ Each lowers to today's class (AR-1). ``sf.field`` compares with ``==`` only (SI-
 from __future__ import annotations
 
 import pytest
+from _nodes import FusionNode, JudgeNode, MergeNode, PickNode
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -20,7 +21,7 @@ _TRIO = ["provider/a", "provider/b", "provider/c"]
 
 def _synthesizer(step: object) -> object:
     node = lower(sx.Fanout(_TRIO) >> step)  # type: ignore[operator]
-    assert isinstance(node, sf.Fusion)
+    assert isinstance(node, FusionNode)
     return node.synthesizer
 
 
@@ -28,10 +29,10 @@ def _synthesizer(step: object) -> object:
 
 
 def test_ar1_argmax_and_argmin_lower_to_the_pick_by_signal() -> None:
-    assert _synthesizer(sx.ArgMax("cost_usd", output="answer")) == sf.Pick(
+    assert _synthesizer(sx.ArgMax("cost_usd", output="answer")) == PickNode(
         by_signal=sf.signal("cost_usd"), order="max", output="answer"
     )
-    assert _synthesizer(sx.ArgMin(sf.signal("cost_usd"))) == sf.Pick(
+    assert _synthesizer(sx.ArgMin(sf.signal("cost_usd"))) == PickNode(
         by_signal=sf.signal("cost_usd"), order="min"
     )
 
@@ -44,7 +45,7 @@ def test_ar1_argmax_and_argmin_are_different_steps() -> None:
 def test_ar1_first_lowers_to_the_pick_by_field_equals() -> None:
     where = sx.field("answer", normalize="text") == "yes"
 
-    assert _synthesizer(sx.First(where=where, output="answer")) == sf.Pick(
+    assert _synthesizer(sx.First(where=where, output="answer")) == PickNode(
         "answer", equals="yes", normalize="text", output="answer"
     )
 
@@ -52,8 +53,8 @@ def test_ar1_first_lowers_to_the_pick_by_field_equals() -> None:
 def test_ar1_judge_pick_and_merge_lower_to_today() -> None:
     fields = {"answer": sf.FieldRule.majority(normalize="text"), "score": sf.FieldRule.max()}
 
-    assert _synthesizer(sx.Merge(fields)) == sf.Merge(fields=fields)
-    assert _synthesizer(sx.JudgePick("provider/j", rubric="Pick one.")) == sf.Judge(
+    assert _synthesizer(sx.Merge(fields)) == MergeNode(fields=fields)
+    assert _synthesizer(sx.JudgePick("provider/j", rubric="Pick one.")) == JudgeNode(
         "provider/j", returns="label", rubric="Pick one."
     )
 
@@ -102,7 +103,7 @@ def test_si2_field_compares_with_equals_only(compare: object) -> None:
 def test_first_compares_a_number_as_its_json_text() -> None:
     assert (sx.field("score") == 7) == (sx.field("score") == "7")
     assert sx.First(where=sx.field("score") == 7) == sx.First(where=sx.field("score") == "7")
-    assert _synthesizer(sx.First(where=sx.field("score") == 7)) == sf.Pick("score", equals="7")
+    assert _synthesizer(sx.First(where=sx.field("score") == 7)) == PickNode("score", equals="7")
 
 
 def test_first_refuses_a_bool_with_the_numeric_normalizer() -> None:

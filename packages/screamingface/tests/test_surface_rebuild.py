@@ -20,6 +20,7 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT
 from _combine_flow_fixtures import flow_operators
 from _fusion_doc_examples import EXAMPLES, compile_example
+from _nodes import frozen_url4, fusion_node
 from test_narrow_contract_fixtures import FIXTURES
 from test_surface_parity import _NEW_FORM, _NOTEBOOK, _STEPS
 
@@ -57,10 +58,7 @@ def _round_trip(url4: str, compile_: Callable[[sf.Recipe], str]) -> None:
 # ---------------------------------------------------------------- RB-1: the parity rows
 
 
-_ROWS: dict[str, Callable[[], sf.Recipe]] = {
-    **{case: new for case, (new, _today) in _NOTEBOOK.items()},
-    **{case: new for case, (new, _today) in _STEPS.items()},
-}
+_ROWS: dict[str, Callable[[], sf.Recipe]] = {**_NOTEBOOK, **_STEPS}
 
 
 @pytest.mark.parametrize("case", sorted(_ROWS))
@@ -190,26 +188,21 @@ def test_rb1_a_pinned_rule_rebuilds_as_its_rule_name() -> None:
 
 
 @pytest.mark.parametrize(
-    ("today", "name"),
+    ("row", "name"),
     [
-        (lambda: sf.Fusion(_ROUTES, synthesizer=sf.Pick("confidence", order="max")), "pick"),
-        (
-            lambda: sf.Pipeline(
-                [sf.Fusion(_ROUTES, synthesizer=sf.Rank(2, by_field="score")), "prov/next"]
-            ),
-            "rank",
-        ),
+        # today's Fusion of _ROUTES with Pick("confidence", order="max")
+        ("surface_rebuild:field-pick", "pick"),
+        # today's Fusion of _ROUTES with Rank(2, by_field="score"), then "prov/next"
+        ("surface_rebuild:rank-by-field", "rank"),
     ],
     ids=["field-pick", "rank-by-field"],
 )
-def test_rb1_a_url4_the_new_surface_cannot_express_is_refused(
-    today: Callable[[], sf.Recipe], name: str
-) -> None:
+def test_rb1_a_url4_the_new_surface_cannot_express_is_refused(row: str, name: str) -> None:
     # D3: a field pick reads a signal in the new surface, so today's json_field pick has no form
     with pytest.raises(
         ValueError, match=rf"^URL4 Candidate has a {name} spec this SDK version cannot rebuild$"
     ):
-        rebuild(_url4(today()))
+        rebuild(frozen_url4(row))
 
 
 def test_rb1_a_hand_edited_unknown_extract_op_cannot_rebuild() -> None:
@@ -275,7 +268,7 @@ def _models(value: object) -> list[sf.Model]:
     [
         lambda: sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j"),
         lambda: sf.CorrectiveLoop(
-            [sf.Fusion(["prov/a", "prov/b"], synthesizer="prov/w"), "prov/c"],
+            [fusion_node(["prov/a", "prov/b"], "prov/w"), "prov/c"],
             judge=sf.Pipeline(["prov/j", "prov/k"]),
             max_rounds=2,
         ),
@@ -410,7 +403,7 @@ def test_rb3_a_member_with_options_shows_as_a_model() -> None:
 
 def test_rb3_today_to_python_keeps_its_output() -> None:
     # The swap (unit 7) switches Url4.to_python to the new rebuild; until then it is today's.
-    url4 = _url4(sf.Fusion(_ROUTES, synthesizer=sf.Vote()))
+    url4 = frozen_url4("surface_rebuild:vote")  # today's Fusion of _ROUTES with Vote()
 
     assert "sf.Fusion(" in sf.Url4(url4).to_python()
 

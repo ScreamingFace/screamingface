@@ -11,6 +11,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
+from _nodes import FusionNode, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -22,7 +23,7 @@ _PROMPT = "Write the final answer from the drafts."
 
 def _written(writer: sx.Synthesize) -> sf.Recipe:
     node = lower(sx.Fanout(_PAIR) >> writer)
-    assert isinstance(node, sf.Fusion)
+    assert isinstance(node, FusionNode)
     synthesizer = node.synthesizer
     assert isinstance(synthesizer, sf.Recipe)
     return synthesizer
@@ -63,9 +64,7 @@ def test_a_recipe_writer_lowers_to_its_lowered_value() -> None:
 def test_a_closed_chain_writer_lowers_to_its_node() -> None:
     inner = sx.Fanout(["provider/x", "provider/y"]) >> sx.Synthesize("provider/s")
 
-    assert _written(sx.Synthesize(inner)) == sf.Fusion(
-        ["provider/x", "provider/y"], synthesizer="provider/s"
-    )
+    assert _written(sx.Synthesize(inner)) == fusion_node(["provider/x", "provider/y"], "provider/s")
 
 
 def test_sy1_a_prompt_on_a_model_that_has_one_is_refused() -> None:
@@ -79,7 +78,7 @@ def test_sy1_a_prompt_on_a_model_that_has_one_is_refused() -> None:
     [
         sf.Pipeline(["provider/j", "provider/w"]),
         sx.Fanout(_PAIR) >> sx.Vote(),
-        sf.Fusion(_PAIR, synthesizer="provider/s"),
+        fusion_node(_PAIR, "provider/s"),
     ],
     ids=["pipeline", "chain", "fusion"],
 )

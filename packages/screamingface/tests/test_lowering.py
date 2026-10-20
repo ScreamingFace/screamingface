@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from _combine_flow_fixtures import flow_operators
 from _fusion_doc_examples import EXAMPLES, DocExample, compile_example
+from _nodes import FusionNode, MedianNode, VoteNode, frozen_url4, fusion_node
 from test_pipeline_compilation import _whole_candidate_benchmark
 from test_reducer_characterization import _GOLDEN
 
@@ -29,7 +30,7 @@ from screamingface._surface.lowering import lower
 
 _DATA = Path(__file__).parent / "data"
 _PAIR = ["provider/a", "provider/b"]
-_INTERNAL = (sf.Model, sf.Fusion, sf.Pipeline, sf.CorrectiveLoop, sf.SelfCorrective)
+_INTERNAL = (sf.Model, FusionNode, sf.Pipeline, sf.CorrectiveLoop, sf.SelfCorrective)
 
 
 def _golden(path: Path) -> str:
@@ -80,7 +81,7 @@ def test_lo0_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:
 
 
 def test_lo0_the_evaluation_entry_keeps_old_values_as_they_are() -> None:
-    recipe = sf.Fusion(_PAIR, synthesizer=sf.Vote())
+    recipe = fusion_node(_PAIR, VoteNode())
 
     (value,) = _candidate_values(recipe)
 
@@ -93,12 +94,9 @@ def test_lo0_the_evaluation_entry_keeps_old_values_as_they_are() -> None:
 def test_fanout_then_vote_lowers_to_the_fusion_of_today() -> None:
     chain = sx.Fanout(_PAIR) >> sx.Vote()
 
-    assert lower(chain) == sf.Fusion(_PAIR, synthesizer=sf.Vote())
-    assert (
-        compile_candidate(chain, operators=flow_operators()).url4
-        == compile_candidate(
-            sf.Fusion(_PAIR, synthesizer=sf.Vote()), operators=flow_operators()
-        ).url4
+    assert lower(chain) == fusion_node(_PAIR, VoteNode())
+    assert compile_candidate(chain, operators=flow_operators()).url4 == frozen_url4(
+        "lowering:pair-vote"
     )
 
 
@@ -206,9 +204,8 @@ def test_lo4_a_chain_lowers_stage_by_stage() -> None:
     assert lower(chain) == sf.Pipeline(
         [
             "provider/x",
-            sf.Fusion(
-                [sf.Pipeline(["provider/p", "provider/q"], name="group"), "provider/c"],
-                synthesizer=sf.Vote(),
+            fusion_node(
+                [sf.Pipeline(["provider/p", "provider/q"], name="group"), "provider/c"], VoteNode()
             ),
             sf.Pipeline(["provider/p", "provider/q"], name="group"),
             "provider/y",
@@ -218,14 +215,14 @@ def test_lo4_a_chain_lowers_stage_by_stage() -> None:
 
 def test_lo4_old_containers_lower_the_chains_they_hold() -> None:
     block = sx.Fanout(_PAIR) >> sx.Vote()
-    node = sf.Fusion(_PAIR, synthesizer=sf.Vote())
+    node = fusion_node(_PAIR, VoteNode())
 
     assert lower(sf.CorrectiveLoop([block, "provider/c"], judge=block)) == sf.CorrectiveLoop(
         [node, "provider/c"], judge=node
     )
     assert lower(sf.SelfCorrective(block, max_rounds=2)) == sf.SelfCorrective(node, max_rounds=2)
-    assert lower(sf.Fusion([block, "provider/c"], synthesizer=block)) == sf.Fusion(
-        [node, "provider/c"], synthesizer=node
+    assert lower(fusion_node([block, "provider/c"], block)) == fusion_node(
+        [node, "provider/c"], node
     )
     assert lower(sf.Pipeline([block, "provider/c"], name="p")) == sf.Pipeline(
         [node, "provider/c"], name="p"
@@ -238,14 +235,14 @@ def test_lo4_old_containers_lower_the_chains_they_hold() -> None:
 def test_lo5_an_unnamed_chain_of_one_block_lowers_to_the_node() -> None:
     chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Median()])
 
-    assert lower(chain) == sf.Fusion(_PAIR, synthesizer=sf.Median())
+    assert lower(chain) == fusion_node(_PAIR, MedianNode())
 
 
 def test_lo5_the_optional_flag_moves_to_the_node() -> None:
     chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], optional=True)
 
     assert chain.optional is True
-    assert lower(chain) == sf.Fusion(_PAIR, synthesizer=sf.Vote(), optional=True)
+    assert lower(chain) == fusion_node(_PAIR, VoteNode(), optional=True)
 
 
 def test_lo5_an_unnamed_chain_of_one_model_stays_a_one_stage_pipeline() -> None:
@@ -258,15 +255,13 @@ def test_lo5_an_unnamed_chain_of_one_model_stays_a_one_stage_pipeline() -> None:
 def test_lo6_a_named_chain_keeps_its_grouping() -> None:
     chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], name="x")
 
-    assert lower(chain) == sf.Pipeline([sf.Fusion(_PAIR, synthesizer=sf.Vote())], name="x")
+    assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, VoteNode())], name="x")
 
 
 def test_lo6_a_named_optional_chain_keeps_the_flag_on_the_pipeline() -> None:
     chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], name="x", optional=True)
 
-    assert lower(chain) == sf.Pipeline(
-        [sf.Fusion(_PAIR, synthesizer=sf.Vote())], name="x", optional=True
-    )
+    assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, VoteNode())], name="x", optional=True)
 
 
 # ---------------------------------------------------------------- the compile entry (§2.4)
@@ -277,7 +272,7 @@ def test_the_evaluation_entry_lowers_each_candidate_once() -> None:
 
     values = _candidate_values([chain, sf.Model("provider/solo")])
 
-    assert values == (sf.Fusion(_PAIR, synthesizer=sf.Vote()), sf.Model("provider/solo"))
+    assert values == (fusion_node(_PAIR, VoteNode()), sf.Model("provider/solo"))
     assert recipes_need_operators(values)
 
 
@@ -288,13 +283,12 @@ def test_the_evaluation_entry_names_a_duplicate_chain() -> None:
 
 def test_compile_evaluation_lowers_a_chain_it_is_given() -> None:
     chain = sx.Fanout(_PAIR) >> sx.Synthesize("provider/s")
-    fusion = sf.Fusion(_PAIR, synthesizer="provider/s")
     resource = _whole_candidate_benchmark()
 
     from_chain = compile_evaluation((chain,), resource, 1)
-    from_fusion = compile_evaluation((fusion,), resource, 1)
 
-    assert from_chain.candidates[0].url4 == from_fusion.candidates[0].url4
+    # today's Fusion of _PAIR with the writer "provider/s", through the same entry
+    assert from_chain.candidates[0].url4 == frozen_url4("lowering:pair-synthesize-evaluation")
     assert from_chain.candidates[0].name == "a+b"
 
 
@@ -309,9 +303,6 @@ def test_compile_evaluation_reads_values_the_entry_already_lowered() -> None:
 def test_compile_candidate_lowers_even_when_it_does_not_warn() -> None:
     chain = sx.Fanout(_PAIR) >> sx.Vote()
 
-    assert (
-        compile_candidate(chain, operators=flow_operators(), warn_judge_writers=False).url4
-        == compile_candidate(
-            sf.Fusion(_PAIR, synthesizer=sf.Vote()), operators=flow_operators()
-        ).url4
-    )
+    assert compile_candidate(
+        chain, operators=flow_operators(), warn_judge_writers=False
+    ).url4 == frozen_url4("lowering:pair-vote")

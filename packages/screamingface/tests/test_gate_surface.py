@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 
 import pytest
 from _combine_flow_fixtures import flow_operators
+from _nodes import FusionNode, GateNode, JudgeNode, RankNode, VoteNode, frozen_url4, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -51,8 +52,8 @@ def _gated(gate: sx.Gate, *, signals: Mapping[str, SignalSource] | None = None) 
 _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
     "g1-agreement-abstain": (
         lambda: _gated(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())),
-        lambda: sf.Fusion(
-            _PANEL, name="vote", synthesizer=sf.Vote(gate=sf.Gate("agreement", ">=", 0.7))
+        lambda: fusion_node(
+            _PANEL, name="vote", reducer=VoteNode(gate=GateNode("agreement", ">=", 0.7))
         ),
     ),
     "g2-agreement-judge": (
@@ -63,15 +64,15 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
                 otherwise=sx.JudgePick("prov/judge", rubric=_PICK),
             )
         ),
-        lambda: sf.Fusion(
+        lambda: fusion_node(
             _PANEL,
             name="vote",
-            synthesizer=sf.Vote(
-                gate=sf.Gate(
+            reducer=VoteNode(
+                gate=GateNode(
                     "agreement",
                     ">=",
                     0.7,
-                    otherwise=sf.Judge("prov/judge", returns="label", rubric=_PICK),
+                    otherwise=JudgeNode("prov/judge", returns="label", rubric=_PICK),
                 )
             ),
         ),
@@ -84,11 +85,11 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
                 otherwise=sx.Synthesize("prov/writer", prompt="Write one answer."),
             )
         ),
-        lambda: sf.Fusion(
+        lambda: fusion_node(
             _PANEL,
             name="vote",
-            synthesizer=sf.Vote(
-                gate=sf.Gate(
+            reducer=VoteNode(
+                gate=GateNode(
                     "agreement",
                     ">=",
                     0.7,
@@ -101,11 +102,11 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
         lambda: _gated(
             sx.Gate(when=sx.signal("conf").chosen() >= 80, then=sx.Vote()), signals=_CONF
         ),
-        lambda: sf.Fusion(
+        lambda: fusion_node(
             _PANEL,
             name="vote",
             signals=_CONF,
-            synthesizer=sf.Vote(gate=sf.Gate("chosen:conf", ">=", 80)),
+            reducer=VoteNode(gate=GateNode("chosen:conf", ">=", 80)),
         ),
     ),
     "s2-band-gate": (
@@ -117,11 +118,11 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
             ),
             signals=_SEVERITY,
         ),
-        lambda: sf.Fusion(
+        lambda: fusion_node(
             _PANEL,
             name="vote",
             signals=_SEVERITY,
-            synthesizer=sf.Vote(gate=sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5))),
+            reducer=VoteNode(gate=GateNode("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5))),
         ),
     ),
     "band-writer-weighted": (
@@ -134,15 +135,15 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
             ),
             signals=_SEVERITY,
         ),
-        lambda: sf.Fusion(
+        lambda: fusion_node(
             _PANEL,
             name="vote",
             signals=_SEVERITY,
-            synthesizer=sf.Vote(
+            reducer=VoteNode(
                 extract="last_number",
                 normalize="numeric",
                 weights=(1, 2, 1),
-                gate=sf.Gate(
+                gate=GateNode(
                     "mean:risk",
                     "<",
                     4,
@@ -162,17 +163,17 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
                 otherwise=sx.JudgePick("prov/judge", rubric=_PICK),
             )
         ),
-        lambda: sf.Fusion(
+        lambda: fusion_node(
             _PANEL,
             name="vote",
-            synthesizer=sf.Vote(
+            reducer=VoteNode(
                 weights=sf.signal("score:judge"),
-                judge=sf.Judge("prov/scorer", returns="scores", rubric="Score each answer."),
-                gate=sf.Gate(
+                judge=JudgeNode("prov/scorer", returns="scores", rubric="Score each answer."),
+                gate=GateNode(
                     "agreement",
                     ">",
                     0.5,
-                    otherwise=sf.Judge("prov/judge", returns="label", rubric=_PICK),
+                    otherwise=JudgeNode("prov/judge", returns="label", rubric=_PICK),
                 ),
             ),
         ),
@@ -185,7 +186,7 @@ def test_gap_a_gate_recipe_compiles_to_the_bytes_of_today(case: str) -> None:
     new, today = _RECIPES[case]
 
     assert lower(new()) == today()
-    assert _url4(new()) == _url4(today())
+    assert _url4(new()) == frozen_url4(f"gate_surface:{case}")
 
 
 def test_gate_equality_follows_the_bytes() -> None:
@@ -403,8 +404,8 @@ def test_an_abstain_gate_after_a_narrow_step_compiles_since_unit_5() -> None:
 
     lowered = lower(sx.Fanout(_PANEL) >> sx.Rank(2, by="cost_usd") >> gate)
 
-    assert isinstance(lowered, sf.Fusion)
-    assert lowered.synthesizer._narrow == (sf.Rank(2, by_signal=sf.signal("cost_usd")),)  # type: ignore[union-attr]
+    assert isinstance(lowered, FusionNode)
+    assert lowered.synthesizer._narrow == (RankNode(2, by_signal=sf.signal("cost_usd")),)  # type: ignore[union-attr]
 
 
 def test_ch10_a_gated_judge_weighted_vote_reads_the_judge() -> None:

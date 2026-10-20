@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 from _combine_flow_fixtures import flow_operators
+from _nodes import ConcatNode, FilterNode, FusionNode, JudgeNode, RankNode, frozen_url4, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -27,7 +28,7 @@ def _narrowed(step: object) -> sf.Recipe:
 
 
 def _today(synthesizer: sf.Recipe | object) -> sf.Recipe:
-    return sf.Pipeline([sf.Fusion(_TRIO, synthesizer=synthesizer), _WRITER])  # type: ignore[arg-type]
+    return sf.Pipeline([fusion_node(_TRIO, synthesizer), _WRITER])  # type: ignore[arg-type]
 
 
 def _url4(recipe: sf.Recipe) -> str:
@@ -39,14 +40,14 @@ def _url4(recipe: sf.Recipe) -> str:
 
 def test_rank_by_a_key_string_lowers_to_the_rank_by_signal() -> None:
     assert _narrowed(sx.Rank(2, by="cost_usd", order="min")) == _today(
-        sf.Rank(k=2, by_signal=sf.signal("cost_usd"), order="min")
+        RankNode(k=2, by_signal=sf.signal("cost_usd"), order="min")
     )
     assert sx.Rank(2, by="cost_usd") == sx.Rank(2, by=sf.signal("cost_usd"))
 
 
 @pytest.mark.parametrize(
     "by",
-    [sf.Judge("provider/j", returns="scores", rubric="r"), 3, None],
+    [JudgeNode("provider/j", returns="scores", rubric="r"), 3, None],
     ids=["judge", "number", "none"],
 )
 def test_ra1_by_must_be_one_signal(by: object) -> None:
@@ -94,11 +95,13 @@ def test_rank_k_above_the_member_count_raises_at_block_close() -> None:
 
 
 def test_re1_a_field_key_reads_the_field_as_a_number_signal() -> None:
+    # today's Rank(k=2, by_signal=sf.signal("field:confidence")) before the writer
     assert _url4(
         sx.Fanout(_TRIO) >> sx.Rank(2, by="field:confidence") >> sx.Synthesize(_WRITER)
-    ) == (_url4(_today(sf.Rank(k=2, by_signal=sf.signal("field:confidence")))))
-    assert _url4(sx.Fanout(_TRIO) >> sx.ArgMax("field:confidence")) == _url4(
-        sf.Fusion(_TRIO, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence")))
+    ) == frozen_url4("narrow_steps:rank-field-confidence")
+    # today's Pick(by_signal=sf.signal("field:confidence"))
+    assert _url4(sx.Fanout(_TRIO) >> sx.ArgMax("field:confidence")) == frozen_url4(
+        "narrow_steps:pick-field-confidence"
     )
 
 
@@ -108,7 +111,7 @@ def test_re1_a_field_key_reads_the_field_as_a_number_signal() -> None:
 def test_filter_by_a_signal_comparison() -> None:
     where = sf.signal("field:confidence") > 0.7
 
-    assert _narrowed(sx.Filter(where=where)) == _today(sf.Filter(where=where))
+    assert _narrowed(sx.Filter(where=where)) == _today(FilterNode(where=where))
 
 
 @pytest.mark.parametrize(
@@ -124,11 +127,11 @@ def test_filter_over_reads_the_text_that_matches_tests(over: object, extract: sf
     where = sf.matches("yes")
 
     assert _narrowed(sx.Filter(where=where, over=over)) == _today(  # type: ignore[arg-type]
-        sf.Filter(where=where, extract=extract)
+        FilterNode(where=where, extract=extract)
     )
     # unit 6: a Filter keeps over= as written (as Vote and Median do), and both forms lower alike
     assert _narrowed(sx.Filter(where=where, over=extract)) == _today(
-        sf.Filter(where=where, extract=extract)
+        FilterNode(where=where, extract=extract)
     )
 
 
@@ -164,7 +167,7 @@ def test_filter_where_takes_only_a_condition(where: object) -> None:
 
 
 def test_concat_lowers_to_the_concat_of_today() -> None:
-    assert _narrowed(sx.Concat(" | ", label=False)) == _today(sf.Concat(" | ", label=False))
+    assert _narrowed(sx.Concat(" | ", label=False)) == _today(ConcatNode(" | ", label=False))
     assert sx.Concat() == sx.Concat("\n\n---\n\n", label=True)
 
 
@@ -212,9 +215,7 @@ def test_e4_signals_with_a_narrow_step_before_synthesize_are_read() -> None:
 
     assert lower(chain) == sf.Pipeline(
         [
-            sf.Fusion(
-                _TRIO, signals=signals, synthesizer=sf.Rank(k=2, by_signal=sf.signal("conf"))
-            ),
+            fusion_node(_TRIO, signals=signals, reducer=RankNode(k=2, by_signal=sf.signal("conf"))),
             _WRITER,
         ]
     )
@@ -230,8 +231,8 @@ def test_a_filter_stores_a_plain_signal() -> None:
     assert type(step.where.signal) is Signal
     assert isinstance(node, sf.Pipeline)
     fusion = node.stages[0]
-    assert isinstance(fusion, sf.Fusion)
+    assert isinstance(fusion, FusionNode)
     synthesizer = fusion.synthesizer
-    assert isinstance(synthesizer, sf.Filter)
+    assert isinstance(synthesizer, FilterNode)
     assert isinstance(synthesizer.where, _Comparison)
     assert type(synthesizer.where.signal) is Signal

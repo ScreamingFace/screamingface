@@ -19,6 +19,21 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators
+from _nodes import (
+    ConcatNode,
+    FilterNode,
+    FusionNode,
+    GateNode,
+    JudgeNode,
+    MeanNode,
+    MedianNode,
+    MergeNode,
+    PickNode,
+    RankNode,
+    ReduceNode,
+    VoteNode,
+    frozen_url4,
+)
 from _vote_run_fixtures import spec_of
 from url4 import build
 
@@ -33,7 +48,6 @@ from screamingface._evaluation.combine_spec import (
 )
 from screamingface._surface.chain import _Block
 from screamingface._surface.lowering import lower
-from screamingface.fusion import Fusion
 from screamingface.pipeline import Pipeline
 from screamingface.reducer import Reducer, _narrowed
 from screamingface.url4 import _calls, _candidate_expression
@@ -97,11 +111,6 @@ def test_nc1_filter_then_mean_writes_one_narrow_item() -> None:
         >> sx.Filter(where=sx.signal("field:confidence") > 0.7)
         >> sx.Mean(over="field:answer")
     )
-    today = sf.Fusion(
-        _json_members(),
-        synthesizer=sf.Reduce("mean", extract=sf.Extract("field", path="answer")),
-    )
-
     spec = _spec(chain)
 
     assert spec["narrow"] == [
@@ -110,8 +119,9 @@ def test_nc1_filter_then_mean_writes_one_narrow_item() -> None:
             _step("kept@1"),
         )
     ]
-    # the main step is the spec of today's form, byte for byte
-    assert _without_narrow(spec) == _spec(today)
+    # the main step is the spec of today's form (the Fusion of the JSON members with
+    # Reduce("mean") over the field answer), byte for byte
+    assert _without_narrow(spec) == dict(spec_of(frozen_url4("narrow_compile:field-mean")))
 
 
 def test_nc1_the_spec_text_stays_canonical() -> None:
@@ -212,10 +222,10 @@ def test_nc2_the_last_of_two_narrow_steps_is_the_main_selection() -> None:
 
     assert isinstance(lowered, Pipeline)
     fusion, writer = lowered.stages
-    assert isinstance(fusion, Fusion)
+    assert isinstance(fusion, FusionNode)
     assert writer == sf.Model("prov/writer")
-    assert isinstance(fusion.synthesizer, sf.Filter)
-    assert fusion.synthesizer._narrow == (sf.Rank(2, by_signal=sf.signal("cost_usd")),)
+    assert isinstance(fusion.synthesizer, FilterNode)
+    assert fusion.synthesizer._narrow == (RankNode(2, by_signal=sf.signal("cost_usd")),)
     spec = _spec(chain)
     assert (spec["reduce"], spec["select"]) == (
         _step("filter@1", {"pattern": "x"}),
@@ -255,8 +265,8 @@ def test_nc2_a_narrow_accounting_read_puts_the_sources_in_the_context() -> None:
 
     lowered = lower(chain)
 
-    assert isinstance(lowered, Fusion)
-    assert isinstance(lowered.synthesizer, sf.Vote)
+    assert isinstance(lowered, FusionNode)
+    assert isinstance(lowered.synthesizer, VoteNode)
     assert accounting_signal(lowered.synthesizer) == "cost_usd"
     assert "sources" in _combine_call(_url4(chain)).context
 
@@ -300,8 +310,8 @@ def test_nc3_an_argmax_by_the_judge_after_a_filter_leaves_the_judge_step_as_it_i
 
     lowered = lower(chain)
 
-    assert isinstance(lowered, Fusion)
-    assert isinstance(lowered.synthesizer, sf.Judge)
+    assert isinstance(lowered, FusionNode)
+    assert isinstance(lowered.synthesizer, JudgeNode)
     assert lowered.synthesizer._narrow != ()
     # the block's judge node is shared by its readers: the carrier is set on a copy
     assert judge._node._narrow == ()
@@ -381,16 +391,25 @@ def test_a_hand_edited_narrow_item_cannot_rebuild(edit: tuple[str, str], message
 
 
 def test_the_carrier_moves_no_public_signature_or_repr() -> None:
-    for cls in (sf.Vote, sf.Median, sf.Mean, sf.Pick, sf.Judge, sf.Rank, sf.Filter, sf.Concat):
+    for cls in (
+        VoteNode,
+        MedianNode,
+        MeanNode,
+        PickNode,
+        JudgeNode,
+        RankNode,
+        FilterNode,
+        ConcatNode,
+    ):
         assert "_narrow" not in inspect.signature(cls).parameters
     chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> sx.Vote()
     lowered = lower(chain)
 
-    assert isinstance(lowered, Fusion)
+    assert isinstance(lowered, FusionNode)
     assert "_narrow" not in repr(lowered.synthesizer)
-    assert sf.Vote()._narrow == ()
+    assert VoteNode()._narrow == ()
     # a narrowed reducer is a different value from the same reducer with no narrow step
-    assert lowered.synthesizer != sf.Vote()
+    assert lowered.synthesizer != VoteNode()
 
 
 def test_the_block_record_keeps_its_narrow_steps() -> None:
@@ -404,29 +423,29 @@ def test_the_block_record_keeps_its_narrow_steps() -> None:
 
 # ---------------------------------------------------------------- equality follows the bytes
 
-_RANK = sf.Rank(2, by_signal=sf.signal("cost_usd"))
+_RANK = RankNode(2, by_signal=sf.signal("cost_usd"))
 
 
 def _carriers() -> list[Reducer]:
     """One value of each of the nine reducer classes that carry narrow steps."""
 
     return [
-        sf.Vote(),
-        sf.Median(),
-        sf.Mean(),
-        sf.Reduce("mean", extract=sf.Extract("field", path="answer")),
-        sf.Pick(by_signal=sf.signal("cost_usd"), order="max"),
-        sf.Judge(_JUDGE, returns="scores", rubric=_RUBRIC),
-        sf.Rank(1, by_signal=sf.signal("latency_ms")),
-        sf.Filter(where=sf.matches("x")),
-        sf.Concat(),
+        VoteNode(),
+        MedianNode(),
+        MeanNode(),
+        ReduceNode("mean", extract=sf.Extract("field", path="answer")),
+        PickNode(by_signal=sf.signal("cost_usd"), order="max"),
+        JudgeNode(_JUDGE, returns="scores", rubric=_RUBRIC),
+        RankNode(1, by_signal=sf.signal("latency_ms")),
+        FilterNode(where=sf.matches("x")),
+        ConcatNode(),
     ]
 
 
 @pytest.mark.parametrize("plain", _carriers(), ids=lambda value: type(value).__name__)
 def test_a_narrowed_value_differs_from_the_plain_one(plain: Reducer) -> None:
     narrowed = _narrowed(plain, (_RANK,))
-    again = _narrowed(plain, (sf.Rank(2, by_signal=sf.signal("cost_usd")),))
+    again = _narrowed(plain, (RankNode(2, by_signal=sf.signal("cost_usd")),))
 
     assert narrowed != plain
     assert plain != narrowed
@@ -442,8 +461,8 @@ def test_an_argmax_by_the_judge_after_a_narrow_step_is_not_the_plain_argmax() ->
         >> sx.ArgMax("score:judge")
     )
 
-    assert isinstance(plain, Fusion)
-    assert isinstance(narrowed, Fusion)
+    assert isinstance(plain, FusionNode)
+    assert isinstance(narrowed, FusionNode)
     assert narrowed.synthesizer != plain.synthesizer
     assert _url4(narrowed) != _url4(plain)
 
@@ -491,7 +510,7 @@ def test_the_rebuild_takes_four_narrow_items_as_far_as_to_python() -> None:
 
 
 def test_the_rebuild_refuses_a_label_judge_after_a_narrow_step() -> None:
-    url4 = _url4(sf.Fusion(_ROUTES, synthesizer=sf.Judge(_JUDGE, returns="label", rubric=_RUBRIC)))
+    url4 = frozen_url4("narrow_compile:label-judge")  # today's Fusion of _ROUTES with a label judge
 
     error = _rebuild_refusal(
         _with_narrow_items(url4, 1),
@@ -504,8 +523,8 @@ def test_the_rebuild_refuses_a_label_judge_after_a_narrow_step() -> None:
 
 
 def test_the_rebuild_refuses_a_model_fallback_gate_after_a_narrow_step() -> None:
-    gate = sf.Gate("agreement", ">=", 0.7, otherwise=sf.Model("prov/writer"))
-    url4 = _url4(sf.Fusion(_ROUTES, synthesizer=sf.Vote(gate=gate)))
+    # today's Fusion of _ROUTES with Vote(gate=Gate("agreement", ">=", 0.7, otherwise=writer))
+    url4 = frozen_url4("narrow_compile:writer-gate")
 
     error = _rebuild_refusal(
         _with_narrow_items(url4, 1),
@@ -519,13 +538,13 @@ def test_the_rebuild_refuses_a_model_fallback_gate_after_a_narrow_step() -> None
 
 
 def test_an_abstain_gate_carries_narrow_steps() -> None:
-    gate = sf.Gate("agreement", ">=", 0.7)
+    gate = GateNode("agreement", ">=", 0.7)
 
-    assert _narrowed(sf.Vote(gate=gate), (_RANK,))._narrow == (_RANK,)
+    assert _narrowed(VoteNode(gate=gate), (_RANK,))._narrow == (_RANK,)
 
 
 def test_merge_cannot_carry_narrow_steps() -> None:
-    merge = sf.Merge(fields={"answer": sf.FieldRule.from_member(1)})
+    merge = MergeNode(fields={"answer": sf.FieldRule.from_member(1)})
 
     with pytest.raises(ValueError, match=r"^sf\.Merge cannot follow a narrow step$"):
         _narrowed(merge, (_RANK,))
