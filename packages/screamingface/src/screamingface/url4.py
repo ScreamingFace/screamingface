@@ -8,7 +8,6 @@ import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from url4 import (
@@ -54,6 +53,8 @@ from screamingface._signals import JUDGE_SIGNAL
 from screamingface.blocks import Reduce
 from screamingface.reducer import (
     _JUDGE_CALL_KEYS,
+    _JUDGE_KEY,
+    _NARROW_SELECTS,
     Reducer,
     _ModelSignal,
     _narrow_steps,
@@ -89,8 +90,8 @@ _NESTED_RECIPE_ROUTES = frozenset(
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
-# E4b narrow (narrow.md §2): the reducer a narrow item rebuilds as, by its select op.
-_NARROW_SELECTS: Mapping[str, str] = MappingProxyType({"kept": "filter", "top_k": "rank"})
+# The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
+_PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
 # AIDEV-NOTE: the editable Python of a narrow block is the new surface's chain (rebuild-display
 # §1, unit 6); today's classes have no spelling for it, so to_python refuses it until then.
 _NARROW_PYTHON = (
@@ -452,7 +453,8 @@ def _validate_topology(
     # WHY not every combine call (review P7 #5): a replay with an unpinned or wrong-stage operator
     # must fail with its operator error, which the recompile would hide behind a metadata error.
     # WHY the narrow clause (E4b narrow): a narrow item changes which members the reduce reads, so
-    # a spec with ``narrow`` proves its bytes too.
+    # a spec with ``narrow`` proves its bytes too. The cost: an unpinned or wrong-stage operator
+    # in a narrow spec shows as this recompile's metadata error, not as its operator error.
     if (
         _has_fusion_policy(value)
         or _has_executable_fusion_policy(candidate)
@@ -464,10 +466,6 @@ def _validate_topology(
     ):
         # WHY the pinned catalog (OME-1289 unit 13): a quorum Fusion may end in a reducer.
         _require_recompiles(candidate, _recipe_from_topology(value, calls), calls)
-
-
-# The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
-_PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
 
 
 def _require_recompiles(
@@ -618,8 +616,8 @@ def _rebuilt_narrowed(spec: dict[str, object], signals: tuple[_ModelSignal, ...]
     call (a gate fallback) is the main step's. The url4 recompile then proves the bytes.
     """
 
-    judge = tuple(signal for signal in signals if signal.key == "judge")
-    others = tuple(signal for signal in signals if signal.key != "judge")
+    judge = tuple(signal for signal in signals if signal.key == _JUDGE_KEY)
+    others = tuple(signal for signal in signals if signal.key != _JUDGE_KEY)
     main = {key: value for key, value in spec.items() if key != "narrow"}
     steps = tuple(
         _rebuilt_narrow_step(cast("dict[str, object]", item), main, judge)

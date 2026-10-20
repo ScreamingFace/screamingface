@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from screamingface.pipeline import Pipeline as TodayPipeline
 from screamingface.recipe import OPTIONAL_MEMBERS_ONLY, Recipe, _name, _optional, _recipe
+from screamingface.reducer import MAX_NARROW_STEPS  # O10: a bound for the spec and evidence
 
 if TYPE_CHECKING:
     from screamingface._surface.fanout import Fanout
@@ -38,7 +39,6 @@ _ONE_JUDGE = (  # CH-3
 )
 # The step categories that close a block (surface §1).
 _TERMINALS: frozenset[str] = frozenset({"reduce", "write"})
-_MAX_NARROW = 4  # O10: a bound for the spec and the evidence
 
 
 class _Chainable:
@@ -310,8 +310,8 @@ def _check_next(open_block: list[Step], category: str) -> None:
     if category == "score" and len(open_block) > 1:
         # A judge comes once, right after the Fanout: CH-6 after a narrow step, else CH-3.
         raise ValueError("sf.Judge comes right after sf.Fanout" if narrowed else _ONE_JUDGE)
-    if category == "narrow" and narrowed == _MAX_NARROW:
-        raise ValueError(f"a block takes at most {_MAX_NARROW} narrow steps")  # CH-4
+    if category == "narrow" and narrowed == MAX_NARROW_STEPS:
+        raise ValueError(f"a block takes at most {MAX_NARROW_STEPS} narrow steps")  # CH-4
 
 
 def _closed(open_block: list[Step], terminal: Step) -> _Block:

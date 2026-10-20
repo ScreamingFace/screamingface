@@ -92,8 +92,7 @@ class Rank(Reducer):
     by_field: str | None
     by_signal: Signal | None
     order: Literal["max", "min"]
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
@@ -225,8 +224,7 @@ class Concat(Reducer):
     name: str
     separator: str
     label: bool
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(self, separator: str = _DEFAULT_SEPARATOR, *, label: bool = True) -> None:
@@ -337,8 +335,7 @@ class Filter(Reducer):
     where: Matches | _Comparison
     extract: Extract | None
     judge: Judge | None
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(

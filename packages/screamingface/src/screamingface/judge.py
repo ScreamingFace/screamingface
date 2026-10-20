@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import ClassVar, Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
@@ -157,8 +157,7 @@ class Judge(Reducer):
     rubric: str
     params: GenerationParams
     order: JudgeOrder
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
@@ -190,6 +189,9 @@ class Judge(Reducer):
         object.__setattr__(self, "rubric", selected_rubric)
         object.__setattr__(self, "params", _candidate_policy.params(params, "judge params"))
         object.__setattr__(self, "order", order)
+
+    def _whole_context_call(self) -> str | None:
+        return "a label judge" if self.returns == "label" else None
 
     def _signal_call(self) -> _ModelSignal:
         return _ModelSignal(
@@ -230,7 +232,13 @@ class Judge(Reducer):
         return (self.model, self.returns, self.rubric, params, self.order)
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Judge) and self._key() == other._key()
+        # WHY the carrier is not in ``_key``: a narrow step (Rank, Filter) has no hash. Equal
+        # values still have equal hashes.
+        return (
+            isinstance(other, Judge)
+            and self._key() == other._key()
+            and self._narrow == other._narrow
+        )
 
     def __hash__(self) -> int:
         return hash(self._key())

@@ -527,8 +527,7 @@ class Pick(Reducer):
     equals: str | None
     normalize: FieldNormalizer | None
     output: str | None
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = dataclass_field(default=(), init=False, repr=False)
 
     def __init__(
