@@ -87,15 +87,15 @@ EX-2, LO-P1 (test plan "Unit 2").
 - **Actual files:** as planned. New `S/_surface/` (`__init__.py`, `chain.py`, `fanout.py`,
   `synthesize.py`, `steps.py`, `refs.py`, `lowering.py`). Edited `S/recipe.py`,
   `S/_evaluation/candidate.py`, `model.py`, `compilation.py`, `runner.py`. Seven new test files
-  (232 tests).
+  (232 tests; 251 after the fix round).
 - **Commits:** `43579afa7` test (RED), `03ebdbaf2` feat (GREEN), this ledger commit.
 - **Compile entry call sites** (`rg "rewrite_fusion_recipe|_candidate_values|recipes_need_operators"`):
   `model.py` `_candidate_values` lowers (the Evaluation entry) and then runs the judge-writer
   walk on the user's values; `runner.py` (`_evaluation_inputs`, `_operators_sync`,
-  `_operators_async`, both `compile_evaluation` calls with `lowered=True`) reads the lowered
-  values; `compilation.py` `compile_evaluation` lowers through `entry_recipe` unless `lowered=True`,
-  then calls `compile_candidate(..., lowered=True)`; `candidate.py` `compile_candidate` runs
-  `entry_recipe` (warn, then `lower`) unless `lowered=True`, then `rewrite_fusion_recipe`;
+  `_operators_async`, both `compile_evaluation` calls with `warn_judge_writers=False`) reads the lowered
+  values; `compilation.py` `compile_evaluation` runs `entry_recipe` (the warning only when
+  `warn_judge_writers=True`), then `compile_candidate(..., warn_judge_writers=False)`;
+  `candidate.py` `compile_candidate` always runs `entry_recipe`, then `rewrite_fusion_recipe`;
   `recipes_need_operators` is unchanged (it reads lowered values). `url4.py` has no build from a
   user recipe: `_require_recompiles` compiles internal values, so `lower()` is the identity there.
 - **Gates:** `run_gates.py screamingface --base e4d44281c` ALL GATES GREEN;
@@ -109,8 +109,30 @@ EX-2, LO-P1 (test plan "Unit 2").
   - `S/recipe.py` `_recipe` refuses a step (CH-11) and an open chain (CH-8) and accepts a closed
     chain, so `CorrectiveLoop`/`SelfCorrective` take chains as members (surface §1) and today's
     containers can hold one; `lower()` walks them.
-  - `compile_candidate` and `compile_evaluation` have a new keyword `lowered=False`: the
+  - `compile_candidate` and `compile_evaluation` have a new keyword (`warn_judge_writers=True` after the fix round): the
     Evaluation entry lowers and warns once, and the compile does not warn a second time.
   - `Vote(weights="score:judge")` with no `sf.Judge` raises the CH-10 message at block close
     (unit 3 adds the judge).
   - WJ-1 uses today's judge Fusion as a chain stage: `sf.Judge` arrives in unit 3.
+
+### Fix round (design review: ACCEPT WITH FIXES)
+
+- **Fixed:** (1) a `Vote` holds the normalizer that applies and an `sf.Extract` in `over=` holds
+  none, so equal votes lower to equal bytes; the default marker stays only for
+  `over="benchmark"`; `Median`/`Mean` hold a bare extract and refuse a non-numeric one.
+  (3) `compile_candidate` always lowers; the keyword is now `warn_judge_writers=True` (it was
+  `lowered=`), and `_candidate_values` and `compile_evaluation` use the one `entry_recipe` helper
+  (warn on the user's values, lower, then the name checks). (9) `over="benchmark@1"` and a
+  normalizer with `over="benchmark"` are refused with `over=` messages. (10) a judge-weighted
+  `Vote` checks its other options at construction. (4) the lowering rebuilds with `_kept_name`;
+  unit 7 deletes `fusion_recipe.py`. (5) `Fanout` uses `fusion._members(values, kind)`; the Fusion
+  messages keep their bytes. (13) a chain flattens an unnamed `Pipeline` of today; one
+  `_Chainable` mixin gives `>>`; the repr hides `_is_named`. (14) test fixes: `match=`, an explicit
+  `_LATER_UNITS` set for the doc examples of units 3–4, `inspect_aime`, no `# ----` dividers in
+  `src`.
+- **Recorded for later units:** the FA-2 wording (unit 3), a recipe on the left of `>>` (unit 7),
+  the WJ-1 test with different numbering (unit 3), the card of a Fusion that holds a chain (unit 6).
+- **Commits:** `ee6a50afd` test (RED), `fdb7b5344` fix (GREEN), this ledger commit.
+- **Tests:** 251 tests in the 7 unit-2 files; full SDK suite 5145 passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface --base e4d44281c` ALL GATES GREEN;
+  `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
