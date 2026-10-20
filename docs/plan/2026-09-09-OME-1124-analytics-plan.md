@@ -88,3 +88,8 @@ For SDK implementation run the screamingface card gates from repository root: `u
 This documentation-only design receives path/reference checks and git diff --check; running the product suite would not validate an unimplemented design. Each implementation unit later needs its own work ledger, tests/gates, conventional commit with Refs, PR and green CI. Do not close OME-1124 when this design is complete; delivery acceptance remains unchecked.
 
 First end-to-end milestone: explicit opt-in -> evaluation start and classified finish -> schema-validated test PostHog event -> second session recognises the same permitted ID -> opt-out blocks further events. Roll out local SDK first if Colab's nonblocking integration remains unresolved; do not add identity linking to solve continuity gaps.
+
+
+## 20 October endpoint configuration amendment
+
+Add a shared, validated, process-cached analytics origin resolver. Route native /v1/events and browser /bridge/consent through it. Document explicit dev/staging overrides and verify destination consistency, invalid configuration, and no runtime destination changes.

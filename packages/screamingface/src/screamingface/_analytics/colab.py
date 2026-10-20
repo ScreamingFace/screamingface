@@ -7,11 +7,12 @@ import threading
 import time
 from uuid import UUID
 
+from screamingface._analytics.endpoint import analytics_origin
 from screamingface._analytics.ports import Consent, Event
 
 _SCRIPT = r"""(async () => {
   const command = COMMAND, batch = BATCH;
-  const origin = 'https://analytics.dev.screamingface.ai';
+  const origin = ANALYTICS_ORIGIN;
   const frame = document.createElement('iframe');
   frame.hidden = true;
   frame.referrerPolicy = 'no-referrer';
@@ -66,6 +67,7 @@ def exchange(command: str, event: Event | None = None, *, timeout_sec: float = 2
         else None
     )
     script = _SCRIPT.replace("COMMAND", json.dumps(command)).replace("BATCH", json.dumps(batch))
+    script = script.replace("ANALYTICS_ORIGIN", json.dumps(analytics_origin()))
     script = script.replace("TIMEOUT_MS", str(max(1, int(timeout_sec * 900))))
     return output.eval_js(script, timeout_sec=timeout_sec)
 

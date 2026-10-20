@@ -1289,9 +1289,21 @@ ID is created lazily per process/kernel. Opt-out or identifier reset also invali
 the active session so replacement identifiers cannot be joined through it. These
 identifiers measure consenting installations/sessions, not verified people.
 
-This initial SDK slice sends to **the dev analytics service** at
-`https://analytics.dev.screamingface.ai/v1/events`, without product credentials or
-cookies. Delivery has a memory-only queue capped at 100 pending events, at most two
+The SDK defaults to `https://analytics.screamingface.ai`. Set
+`SCREAMINGFACE_ANALYTICS_ENDPOINT` to an HTTPS origin **before first analytics use**
+to select another deployment, for example:
+
+```bash
+export SCREAMINGFACE_ANALYTICS_ENDPOINT=https://analytics.dev.screamingface.ai
+# For staging: https://analytics.staging.screamingface.ai
+```
+
+Restart the process/kernel to change destinations. This setting is independent of
+the engine URL; there is no automatic detection or fallback to another deployment.
+The selected service owns the PostHog project configuration; the SDK needs no
+PostHog token. Local consent remains installation-wide, so use a separate
+`SCREAMINGFACE_ANALYTICS_CONFIG` file for isolated test consent/identifiers.
+Native delivery posts to `/v1/events`, without product credentials or cookies. Delivery has a memory-only queue capped at 100 pending events, at most two
 attempts per event and a two-second total delivery budget. It never waits for HTTP
 in evaluation, never waits for delivery at shutdown, and may lose events. Consent
 is rechecked before dispatch and retry; already dispatched requests can complete
@@ -1304,7 +1316,7 @@ return immediately with `pending=True` until the browser acknowledges the choice
 Inspect `sf.analytics.status()` in a later cell. Operations begun before consent
 is confirmed are skipped, never replayed retroactively.
 
-Colab uses the dev service's `/bridge/consent` iframe and cookie-checked
+Colab uses the selected service's `/bridge/consent` iframe and cookie-checked
 `/bridge/id/events` route. The runtime never receives the cookie itself or sends
 events directly to `/v1/events`. The status has `scope="browser"` and an anonymous
 `persistent_id`; `installation_id` is absent in meaning (`None`). No local consent

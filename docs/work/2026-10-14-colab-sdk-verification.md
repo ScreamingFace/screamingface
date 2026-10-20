@@ -115,3 +115,20 @@ coverage (95% gate passed); ten Node browser-script tests passed. Type checking,
 lint, formatting, deterministic notebooks, build and distribution checks passed.
 Paid tests remained excluded by the suite's default collection guard. The six
 forged-message mutation failures were observed only in the disposable copy.
+
+
+## 20 October: explicit analytics destination
+
+Owner approved replacing engine-derived routing with one explicit HTTPS origin,
+`SCREAMINGFACE_ANALYTICS_ENDPOINT`, defaulting to production. Native delivery and
+Colab use the same process-cached origin; switching requires a restart. No engine
+hostname inference or cross-environment fallback. Local consent remains shared;
+use a separate config file for isolated test preferences. The verification notebook
+explicitly selects dev before any analytics use. Production retention/IP gates
+remain unresolved; this change does not verify remote staging/production services.
+
+Validation: 90 focused analytics tests and 10 Node browser-script tests passed.
+Full SDK regression: 4,286 passed, 33 skipped, 96.97% coverage (local HTTP fixture
+permissions required outside the sandbox). Pyright, Ruff lint/format, notebook
+checks, wheel/sdist build and distribution checks passed. No live production or
+staging events were sent, and no new real-browser verification is claimed.

@@ -6,6 +6,7 @@ import threading
 
 from screamingface._analytics.core import Coordinator
 from screamingface._analytics.delivery import BackgroundSink
+from screamingface._analytics.endpoint import analytics_origin
 from screamingface._analytics.ports import Consent
 from screamingface._environment import running_in_notebook
 from screamingface._version import resolve_version
@@ -35,7 +36,7 @@ def coordinator() -> Coordinator:
         _pid, _lock, _coordinator = os.getpid(), threading.Lock(), None
     with _lock:
         if _coordinator is None:
-            endpoint = "https://analytics.dev.screamingface.ai/v1/events"
+            endpoint = analytics_origin() + "/v1/events"
             if origin() == "colab":
                 from screamingface._analytics.colab import bridge
 

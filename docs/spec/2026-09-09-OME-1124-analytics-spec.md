@@ -145,3 +145,8 @@ See [bridge contract](2026-09-25-analytics-colab-bridge-spec.md) and the app REA
 for the service protocol. SDK integration and actual browser acceptance remain
 separate. Exact origin configuration keeps the bridge closed until the real Colab
 ancestry is validated; no manual per-notebook setup is an acceptable rollout.
+
+
+## 20 October endpoint configuration amendment
+
+One explicit SCREAMINGFACE_ANALYTICS_ENDPOINT HTTPS origin selects both event delivery and the Colab bridge. Default: https://analytics.screamingface.ai. No engine URL inference or fallback. Set before first analytics transport use; restart the process/kernel to change destinations. Local consent remains installation-wide; browser consent remains scoped to the selected service. Existing production retention/IP release gates still apply.

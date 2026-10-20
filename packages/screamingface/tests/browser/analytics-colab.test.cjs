@@ -29,7 +29,7 @@ function run(command, choice='unknown', options={}) {
     crypto,encodeURIComponent,clearTimeout,
     setTimeout:(fn)=>{timeout=setTimeout(fn,options.timeout??1000);return timeout}};
   const promise=vm.runInNewContext(source.replace('COMMAND',JSON.stringify(command))
-    .replace('BATCH',JSON.stringify({events:[]})).replace('TIMEOUT_MS','1800'),context);
+    .replace('ANALYTICS_ORIGIN',JSON.stringify(origin)).replace('BATCH',JSON.stringify({events:[]})).replace('TIMEOUT_MS','1800'),context);
   return {promise,calls,frame,listeners,get removed(){return removed},
     get reply(){return pending},
     send(message){for(const handler of [...listeners]) handler(message)}};
