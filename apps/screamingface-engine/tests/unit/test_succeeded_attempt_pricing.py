@@ -283,6 +283,46 @@ def test_a_malformed_usage_key_makes_the_retained_tokens_unknown() -> None:
     assert (usage.input_tokens, usage.output_tokens, usage.cache_read_tokens) == (None, None, None)
 
 
+def test_the_retained_operation_is_priced_from_the_key_after_degradation() -> None:
+    # Owner decision A (2026-10-20): the retained cost follows `succeeded_attempt_direct_cost` like
+    # the live Usage, also when truncation or degradation made the capture `partial`.
+    retained = retained_operation_accounting(
+        request_model=_MODEL,
+        usage=None,
+        aigw=_retried_aigw(
+            direct_cost=_reported(),
+            usage=_SUCCEEDED_USAGE,
+            capture_status="partial",
+            omitted_attempts=1,
+        ),
+        cache=_cache("miss"),
+    )
+
+    assert retained.usage.cost_usd == "0.00042"
+
+
+def test_without_the_key_a_degraded_retained_operation_keeps_todays_unpriced_rule() -> None:
+    retained = retained_operation_accounting(
+        request_model=_MODEL,
+        usage=None,
+        aigw=_retried_aigw(capture_status="partial", omitted_attempts=1),
+        cache=_cache("miss"),
+    )
+
+    assert retained.usage.cost_usd is None
+
+
+def test_a_cache_hit_is_never_priced_from_a_successful_attempt_cost() -> None:
+    # A hit dispatched nothing in this request; the hit rule wins even over a mapping in the key.
+    aigw = _hit_aigw(direct_cost=_reported("5"))
+
+    assert usd_from_aigw(aigw) == Decimal(0)
+    retained = retained_operation_accounting(
+        request_model=_MODEL, usage=None, aigw=aigw, cache=_cache("hit")
+    )
+    assert retained.usage.cost_usd == "0"
+
+
 # ── end to end through the connector ───────────────────────────────────────────────────────────
 
 
@@ -346,3 +386,28 @@ async def test_a_run_with_a_gateway_retried_call_is_priced() -> None:
 
     assert subtree.pricing_version == PRICING_VERSION
     assert subtree.cost.total_usd == Decimal("0.00042")
+
+
+@pytest.mark.asyncio
+async def test_a_live_cache_hit_with_a_cost_mapping_is_still_priced_at_zero() -> None:
+    body = {
+        "choices": [
+            {"message": {"role": "assistant", "content": "an answer"}, "finish_reason": "stop"}
+        ],
+        "usage": {"prompt_tokens": 12, "completion_tokens": 7},
+        "_aigw": _hit_aigw(direct_cost=_reported("5")),
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"X-AIGW-Cache": "hit"}, json=body)
+
+    rec = _Recorder()
+    cfg = AigatewayConfig(models=(ModelSpec(id=_MODEL, web_search=False),), default_model=_MODEL)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handle), base_url="http://aigateway.test"
+    ) as client:
+        world = await build_aigateway_world(cfg, client=client)
+        assert await url4_run(f"/{_MODEL}(ctx)!go", io=world.node, observer=rec) == "an answer"
+
+    (usage,) = rec.usages
+    assert usage.cost_usd == Decimal("0")

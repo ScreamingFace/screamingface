@@ -290,7 +290,7 @@ def test_every_saved_cost_provenance_literal_declares_the_same_members() -> None
     assert counter == wire
 
 
-# ── the retry withdrawal: a hit that followed a transport retry is never priced ─────────────────
+# ── a hit that followed a transport retry claims its saving like any hit (OME-1687) ────────────
 
 
 def test_a_hit_after_a_transport_retry_claims_its_saving() -> None:
@@ -317,7 +317,7 @@ def test_a_hit_after_a_transport_retry_claims_its_saving() -> None:
 
 
 def test_a_hit_with_no_retry_is_still_priced() -> None:
-    """The withdrawal is narrow: an ordinary hit keeps reporting what it avoided."""
+    """An ordinary hit keeps reporting what it avoided, the same as a retried one."""
     payload = _aigw(
         direct_cost={
             "status": "reported",

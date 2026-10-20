@@ -149,6 +149,12 @@ Because of rule 3, prior token tests (their fixtures have no key) do not change.
   `runner/summary.py:7-8` ("never a false zero"). The prior test
   `tests/unit/test_cache_hit_retry_pricing.py::test_a_retried_hit_makes_the_whole_run_total_unpriced`
   pins this zero. Only `pricing_version = "unpriced"` shows the truth. Not changed here.
+- **Retained cost after degradation (owner decision A, 2026-10-20).** When the gateway sent
+  `succeeded_attempt_direct_cost`, the retained operation's cost follows it like the live Usage,
+  also when the capture is `partial` or `omitted_attempts > 0`. Without the key, the retained cost
+  keeps today's rule (it needs a `complete` capture).
+- **Cache hit first.** A cache hit is never priced from `succeeded_attempt_direct_cost`, even when
+  a hit carries a mapping there: `usd_from_aigw` checks for a hit before it reads the key.
 - **Known item: latency.** `provider_latency_ms` continues to add the latency of every attempt,
   failures included (`world/accounting.py` `read_aigw`). User decision 2026-10-20: out of scope.
 - **Known item: older gateways.** With no `succeeded_attempt_usage` key, tokens are the sum over

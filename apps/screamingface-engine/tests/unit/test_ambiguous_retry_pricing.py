@@ -166,8 +166,8 @@ async def test_a_miss_retried_after_a_possibly_billed_failure_keeps_its_exact_pr
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", _AMBIGUOUS, ids=lambda e: type(e).__name__)
-async def test_an_unpriced_retried_miss_keeps_its_token_counts(failure: Exception) -> None:
-    # Only the price is unknown. The tokens are the retry's own — a lower bound, still reported.
+async def test_a_retried_miss_keeps_its_token_counts(failure: Exception) -> None:
+    # The tokens are the retry's own — the successful request's, still reported (OME-1687).
     usage = await _run(_body(_billed_aigw()), _MISS_HEADERS, failure)
 
     assert (usage.input_tokens, usage.output_tokens) == (11, 7)

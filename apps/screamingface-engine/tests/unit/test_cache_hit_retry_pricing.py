@@ -1,23 +1,19 @@
-"""A cache hit that followed a transport retry cannot prove it cost nothing.
+"""A cache hit that followed a transport retry is priced at zero, like any hit (OME-1687).
 
-FEATURE: per-run cost reporting (OME-849/OME-868) meeting the saved-cost feature (PRD ans:Q2).
-STORY: as an operator reading a run summary I can tell "this call was free" from "we cannot know
-what this call cost", because only one of them is safe to add into a total.
+FEATURE: per-run cost reporting (OME-849/OME-868) meeting the saved-cost feature (PRD ans:Q2),
+under the cost-of-intelligence rule (OME-1687).
+STORY: as a reader of the leaderboard I see the price of a model's successful requests; a
+transport retry before a call is an infrastructure event and changes no price.
 
-The defect this pins (PR #930 review round 3, finding 1): `avoided_usd_for_outcome` already
-WITHDRAWS the saved-cost claim when a round trip was retried — a lost reply may have been
-processed and billed upstream, so the row the next attempt hits may be the one the lost attempt
-paid for and wrote. But `_report_usage` still routed every hit through `_report_served_from_cache`,
-which publishes `cost_usd=Decimal(0)`. The run therefore reported no saving AND an affirmative
-zero spend for a round trip whose spend is precisely what nobody knows.
+History: PR #930 (review round 3) and OME-1220 made a retried hit and a retried miss unpriced,
+because a lost reply may have been billed upstream. OME-1687 (owner decision, 2026-10-20) reversed
+that rule: the price is the successful request's, so a retried hit costs exactly zero and a
+retried miss keeps its provider-authored price. `avoided_usd_for_outcome` no longer withdraws the
+saving either.
 
-INVARIANT under test: withdrawing the saving and asserting the spend are the SAME claim about the
-same ambiguous evidence, so they must move together. `None` ("not priced") is the honest answer;
-`Decimal("0")` ("was genuinely free") is a claim the evidence does not support.
-
-INVARIANT: the withdrawal is scoped to the RETRY, not to hits in general. An unretried hit is
-still priced at zero — that is a real saving and OME-851's P0 — and this file pins both halves so
-the fix cannot over-correct into blanking every cache hit's price.
+INVARIANT: a hit is priced at zero whether or not a retry preceded it, and an unretried hit's zero
+still sums into a priced run total — this file pins both, so no change can blank every cache hit's
+price (OME-851's P0).
 
 A separate module rather than an append to `test_cache_hit_tokens.py`: the repo's append-only gate
 compares file status, so growing an existing test file reads as a modified prior test even when

@@ -75,7 +75,8 @@ Plan: `docs/plan/2026-10-20-OME-1687-price-successful-request-only.md`.
   attempt.
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine --base origin/main` — ALL
   GATES GREEN (append-only with 4 approved transitions, ruff check, ruff format, pyright, layering,
-  pytest with coverage ≥ 80): 5591 passed, 135 skipped. Phase A gate also green (5563 passed).
+  pytest with coverage ≥ 80): 5595 passed, 135 skipped after the review-fix round. Phase A gate green (5563 passed),
+  Phase B gate green (5591 passed).
 - **Deviations:**
   - Scope change mid-unit (user, 2026-10-20): tokens follow the successful attempt through the
     gateway key `usage_accounting.succeeded_attempt_usage`. No prior token test changed (D1
@@ -84,13 +85,17 @@ Plan: `docs/plan/2026-10-20-OME-1687-price-successful-request-only.md`.
     old rule's body is unchanged.
   - `CallAccounting` gained the defaulted field `tokens_from_succeeded_attempt`, so the retained
     operation uses the key's tokens also when the capture is `partial` (key survives degradation).
-  - The retained operation's COST still needs a `complete` capture. In the rare degraded case
-    (`omitted_attempts > 0`) the live Usage is priced from the key and the retained operation cost
-    is `None`. Not changed: no rule covered it; reported to the owner.
+  - Owner decision A (2026-10-20): the retained operation's cost follows
+    `succeeded_attempt_direct_cost` also when the capture is degraded; without the key it still
+    needs a `complete` capture. A cache hit is never priced from that key (checked first).
   - With a malformed `succeeded_attempt_usage`, the live Usage input/output use the existing
     `_token_count` fallback to the top-level `usage` (the wire has no "unknown" count); cache and
     reasoning are `None`. Never the all-attempt sums.
   - `world/accounting.py` is now ~660 lines (was 593; the 450-line target was already exceeded).
-  - Not changed (stale comments in prior tests, outside the approved list): the section header
-    above `test_cache_saved_cost.py::test_a_hit_after_a_transport_retry_claims_its_saving` and the
-    module docstring of `test_cache_hit_retry_pricing.py` still describe the OME-1220 rule.
+  - Owner decision B (2026-10-20): stale OME-1220 prose in prior tests corrected (docstrings,
+    one section header, one rename of `test_an_unpriced_retried_miss_keeps_its_token_counts` to
+    `test_a_retried_miss_keeps_its_token_counts`); assertions unchanged; manifest updated.
+  - Review fixes: connector comments (`_NEVER_SENT`, the live `cost_usd` `None` cases);
+    `CallAccounting.tokens_from_succeeded_attempt` renamed to `succeeded_usage_sent`, plus the
+    new `succeeded_cost_sent`.
+  - Follow-up (not now): split `world/accounting.py` (673 lines; target 450).

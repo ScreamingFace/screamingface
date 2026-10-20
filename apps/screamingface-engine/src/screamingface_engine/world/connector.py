@@ -138,7 +138,8 @@ _TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if
 # INVARIANT (OME-1220): the transport failures that prove no request byte left the Engine.
 # httpcore raises these only while opening the connection (TCP connect, TLS handshake) or while
 # waiting for a pooled one; the request is written strictly after. A retry that follows one of
-# them is the only billed attempt, so its price is exact. Every other failure is ambiguous:
+# them does not set the `possibly_billed` fact. Since OME-1687 that fact changes no price — a call
+# is priced from its successful request whatever preceded it. Every other failure is ambiguous:
 # httpcore swallows a mid-request `WriteError` and surfaces the outcome as a read-side error,
 # so only "connect phase vs the rest" separates sent from unsent, never "write vs read".
 # AIDEV-NOTE: `_post_attempt`'s own `asyncio.timeout` raises `ReadTimeout` whatever the phase —
@@ -769,7 +770,9 @@ def _report_usage(
         cache_creation_tokens=call.cache_creation_tokens if call is not None else None,
         reasoning_tokens=call.reasoning_tokens if call is not None else None,
         # FEATURE: cost of intelligence (OME-1687). The price is the successful request's, so a
-        # transport retry before it changes nothing. `None` only when there is no `_aigw` to read.
+        # transport retry before it changes nothing. `None` when there is no `_aigw` to read, when
+        # the successful request's own cost is unknown (R3), and for an older gateway's non-complete
+        # status (`usd_from_aigw`).
         cost_usd=None if call is None else call.cost_usd,
     )
 

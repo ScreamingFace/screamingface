@@ -106,11 +106,13 @@ class CallAccounting:
     complete: bool
     provider_latency_ms: int | None
     attempts: int | None
-    # FEATURE: cost of intelligence (OME-1687). True when the gateway sent the key
-    # `succeeded_attempt_usage`, so the five token classes are that one attempt's (or all unknown,
-    # when it was malformed). The key survives the gateway's truncation and size degradation, so
-    # these tokens are exact even when `complete` is False.
-    tokens_from_succeeded_attempt: bool = False
+    # FEATURE: cost of intelligence (OME-1687). Whether the gateway sent the successful attempt's
+    # own evidence: `succeeded_attempt_usage` (the five token classes are that one attempt's, or all
+    # unknown when it was malformed) and, outside a cache hit, `succeeded_attempt_direct_cost`
+    # (`cost_usd` is that attempt's price, or unknown). Both keys survive the gateway's truncation
+    # and size degradation, so these figures are exact even when `complete` is False.
+    succeeded_usage_sent: bool = False
+    succeeded_cost_sent: bool = False
 
 
 def accumulate[T: (int, Decimal)](prior: T | None, new: T | None) -> T | None:
@@ -210,6 +212,19 @@ def _succeeded_attempt_evidence(
     return True, _mapping(value)
 
 
+def _succeeded_cost_evidence(envelope: Mapping[str, Any]) -> tuple[bool, Mapping[str, Any] | None]:
+    """The successful attempt's `direct_cost`, read only OUTSIDE a cache hit.
+
+    INVARIANT: a cache hit is never priced from `succeeded_attempt_direct_cost`, even when a hit
+    carries a mapping there. A hit dispatched nothing in this request; its price is the hit rule
+    (`_usd_from_direct_cost_status`, then the connector's `_hit_cost`), checked BEFORE the key.
+    """
+    if _is_cache_hit(_mapping(envelope.get("usage_accounting"))):
+        return False, None
+    economics = _mapping(envelope.get("request_economics"))
+    return _succeeded_attempt_evidence(economics, _SUCCEEDED_ATTEMPT_DIRECT_COST)
+
+
 def _succeeded_attempt_usd(direct_cost: Mapping[str, Any] | None) -> Decimal | None:
     """USD from the successful attempt's `direct_cost`: only a `reported` credit amount prices.
 
@@ -245,7 +260,7 @@ def usd_from_aigw(aigw: object) -> Decimal | None:
     economics = _mapping(envelope.get("request_economics")) if envelope is not None else None
     if envelope is None or economics is None:
         return None
-    sent, direct_cost = _succeeded_attempt_evidence(economics, _SUCCEEDED_ATTEMPT_DIRECT_COST)
+    sent, direct_cost = _succeeded_cost_evidence(envelope)
     if sent:
         return _succeeded_attempt_usd(direct_cost)
     return _usd_from_direct_cost_status(envelope, economics)
@@ -462,7 +477,8 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         # INVARIANT: a count only exists where every attempt was validated. Counting a list
         # the reader had to skip entries from would publish a retry story that never happened.
         attempts=len(attempts) if attempts_are_well_formed else None,
-        tokens_from_succeeded_attempt=sent,
+        succeeded_usage_sent=sent,
+        succeeded_cost_sent=_succeeded_cost_evidence(envelope)[0],
     )
 
 
@@ -509,9 +525,7 @@ def retained_operation_accounting(
     complete = call is not None and call.complete
     # FEATURE: cost of intelligence (OME-1687). The successful attempt's usage is exact on its own,
     # also when truncation or degradation made the capture incomplete.
-    token_call = (
-        call if call is not None and (complete or call.tokens_from_succeeded_attempt) else None
-    )
+    token_call = call if call is not None and (complete or call.succeeded_usage_sent) else None
     retained_provider, retained_response_model = (
         _retained_attempt_identities(aigw) if complete else (None, None)
     )
@@ -567,10 +581,14 @@ def retained_operation_accounting(
             ),
             reasoning_tokens=token_call.reasoning_tokens if token_call is not None else None,
             # FEATURE: cost of intelligence (OME-1687). The price is the successful request's,
-            # so a transport retry before it changes nothing.
+            # so a transport retry before it changes nothing. Owner decision A (2026-10-20): when
+            # the gateway sent `succeeded_attempt_direct_cost`, follow it like the live Usage,
+            # also after truncation or degradation; without the key, keep the `complete` rule.
             cost_usd=(
                 format(call.cost_usd, "f")
-                if complete and call is not None and call.cost_usd is not None
+                if call is not None
+                and call.cost_usd is not None
+                and (complete or call.succeeded_cost_sent)
                 else None
             ),
         ),
