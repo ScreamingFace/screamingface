@@ -3,6 +3,7 @@
 FEATURE: members that return JSON are joined by declared rules, not rewritten by a model.
 STORY: as a researcher, Pick returns the chosen member's own JSON byte for byte, and Merge returns
 one canonical JSON object that holds exactly the declared fields, each built by its own rule.
+With an "output" arg, Pick returns one top-level field of the chosen member's reply instead (E4b).
 
 Mental model: a clerk with a form. Pick reads one box on every member's form and hands back the
 whole form with the best box. Merge fills one new form box by box: each box has its own rule
@@ -45,7 +46,9 @@ from screamingface_engine.combine.ports import (
     Selection,
     SpecInvalid,
     canonical_json,
+    check_output_arg,
     loads_bounded,
+    with_output,
 )
 
 _FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
@@ -155,19 +158,22 @@ def project_field(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
 
 
 def _check_by_field_args(args: OpArgs) -> None:
-    order = args.get("order")
-    if order in ("max", "min") and set(args) == {"order"}:
+    check_output_arg(args, "by_field@1")
+    rest = {key: value for key, value in args.items() if key != "output"}
+    order = rest.get("order")
+    if order in ("max", "min") and set(rest) == {"order"}:
         return
     if (
         order == "equals"
-        and set(args) == {"order", "value", "normalize"}
-        and isinstance(args["value"], str)
-        and args["normalize"] in _NORMALIZE_CHOICES
+        and set(rest) == {"order", "value", "normalize"}
+        and isinstance(rest["value"], str)
+        and rest["normalize"] in _NORMALIZE_CHOICES
     ):
         return
     raise SpecInvalid(
         'by_field@1 takes {"order": "max" | "min"} or '
-        '{"order": "equals", "value": <text>, "normalize": null | "text" | "numeric"}'
+        '{"order": "equals", "value": <text>, "normalize": null | "text" | "numeric"}, '
+        'and an optional "output": <field name>'
     )
 
 
@@ -205,15 +211,19 @@ def _by_equals(voters: Sequence[Answer], args: OpArgs) -> Selection:
 def by_field(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
     """The member whose field is the largest, the smallest, or equal to the target.
 
-    The first member in author order wins a tie; ``agreement`` is always None.
+    The first member in author order wins a tie; ``agreement`` is always None. With an "output" arg,
+    the answer is that field of the winner's reply (ports.with_output); a missing field abstains
+    with output_missing.
 
     INVARIANT: the voters' values are already normalized by the spec's normalize step, so that step
     must be ``<normalize>@1`` matching the ``normalize`` arg (the SDK pairs them). The target is
     normalized here once; a voter value is never normalized again (``text@1`` is not idempotent).
     """
     if args["order"] == "equals":
-        return _by_equals(combine_input.voters, args)
-    return _by_extreme(combine_input.voters, args["order"])
+        selection = _by_equals(combine_input.voters, args)
+    else:
+        selection = _by_extreme(combine_input.voters, args["order"])
+    return with_output(selection, combine_input, args, "by_field@1")
 
 
 # --- field_rules@1 ----------------------------------------------------------------------------
@@ -392,6 +402,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
                     "order": {"enum": ("max", "min", "equals")},
                     "value": {"type": "string"},
                     "normalize": {"enum": _NORMALIZE_CHOICES},
+                    "output": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
                 },
                 "required": ("order",),
                 "additionalProperties": False,

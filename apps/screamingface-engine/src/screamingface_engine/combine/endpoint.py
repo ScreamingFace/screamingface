@@ -14,7 +14,8 @@ INVARIANT: pure CPU work -- no HTTP client, no clock, no cache, no module state.
 comes from ``spec.members``; nothing iterates a dict or set to decide an output.
 INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud. A step that
 finds no answer (no usable member, or a reduce or select step raising ``NoVotes``) is not a
-failure: it returns the empty text and evidence with ``result.status == "abstain"``.
+failure: it returns evidence with ``result.status == "abstain"`` and the empty text. A select
+operator with ``envelope`` (Rank, Filter) returns the empty envelope instead (E4b fix 2026-10-14).
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -46,6 +47,7 @@ from screamingface_engine.combine.ports import (
     ACCOUNTING_SIGNALS,
     FIELD_SIGNAL_PREFIX,
     JUDGE_SIGNAL,
+    MAX_OUTPUT_READ_BYTES,
     READING_TO_ANSWER,
     AbstainReason,
     AccountingReader,
@@ -75,6 +77,7 @@ from screamingface_engine.combine.ports import (
     is_signal_key,
     judge_reply,
     parse_scores,
+    selection_envelope,
     utf8_exceeds,
 )
 from screamingface_engine.combine.registry import OperatorRegistry
@@ -93,7 +96,6 @@ from screamingface_engine.combine.spec import (
 COMBINE_ROUTE = "/ensemble/combine/v1"
 MAX_SPEC_BYTES = 64 * 1024
 MAX_CONTEXT_BYTES = 64 * 1024 * 1024
-MAX_OUTPUT_READ_BYTES = 1024 * 1024
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 _BINDING = re.compile(r"synthesis_\d+")  # same \d+ as benchmarks/operation_outputs.py
 
@@ -118,6 +120,7 @@ class _Plan:
     reduce: _Step[ReduceOp]
     select: _Step[SelectOp]
     signal: SignalRead | None = None
+    envelope: bool = False
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -310,10 +313,19 @@ def _abstain(
     reduction: Reduction | None,
     reason: AbstainReason,
 ) -> CombineOutcome:
-    """The normal output of a step that finds no answer: the empty text and an abstain result."""
+    """The normal output of a step that finds no answer: an abstain result, and the text the next
+    stage gets.
+
+    That text is empty, except for a select step that hands on the selection envelope (Rank and
+    Filter): it hands on the empty envelope ``{"input":"...","selected":[]}``, so the next stage
+    still sees the input (E4b ans:Q7 with ans:Q4). The 8 MiB result cap applies to it too.
+    """
+    output = selection_envelope((), combine_input) if plan.envelope else ""
+    if utf8_exceeds(output, MAX_RESULT_BYTES):
+        raise InputTooLarge("the combine output exceeds 8 MiB")
     result = ResultRecord(member_id=None, value=None, status="abstain", reason=reason)
     evidence = _evidence(spec, plan, combine_input, reduction, None, result)
-    return CombineOutcome("", evidence)
+    return CombineOutcome(output, evidence)
 
 
 def _binding(params: Mapping[str, str]) -> str:
@@ -362,6 +374,7 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
         reduce=bound_reduce,
         select=cast("_Step[SelectOp]", _bind(select, spec.select)),
         signal=_signal_read(spec, reduce, bound_reduce),
+        envelope=select is not None and select.envelope,
     )
 
 
@@ -401,7 +414,9 @@ def _read_members(
         )
         for member in spec.members
     )
-    return CombineInput(answers=answers, outputs=context.outputs, signals=context.signals)
+    return CombineInput(
+        answers=answers, outputs=context.outputs, signals=context.signals, input=context.input
+    )
 
 
 def _weight(spec: CombineSpec, member: str, signals: Mapping[str, float | None]) -> Decimal | None:
@@ -530,6 +545,7 @@ def _evidence(
     reduction = Reduction() if reduction is None else reduction
     scores = reduction.scores or {}
     statistic = reduction.statistic
+    is_mean = spec.reducer == "mean"
     return CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
@@ -546,7 +562,8 @@ def _evidence(
             else _finite(selection.agreement)
         ),
         tie=selection is not None and selection.tie,
-        median=None if statistic is None else canonical_decimal(statistic),
+        median=None if statistic is None or is_mean else canonical_decimal(statistic),
+        mean=canonical_decimal(statistic) if is_mean and statistic is not None else None,
         presentation_order="author" if "judge" in combine_input.signals else None,
         separator_collision=reduction.separator_collision,
         signal=None

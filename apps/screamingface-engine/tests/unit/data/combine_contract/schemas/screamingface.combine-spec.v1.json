@@ -82,7 +82,8 @@
         "project",
         "rank",
         "concat",
-        "filter"
+        "filter",
+        "mean"
       ],
       "title": "Reducer",
       "type": "string"
