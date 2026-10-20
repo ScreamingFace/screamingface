@@ -48,6 +48,27 @@ def test_ch3_a_judge_pick_after_a_judge_is_refused() -> None:
         _ = sx.Fanout(_PAIR) >> _judge() >> sx.JudgePick(_JUDGE, rubric="Pick one.")
 
 
+def test_ch3_a_judge_pick_after_a_judge_and_a_narrow_step_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a block takes one judge: sf\.Judge and sf\.JudgePick use the same judge signal$",
+    ):
+        _ = (
+            sx.Fanout(_PAIR)
+            >> _judge()
+            >> sx.Rank(1, by="score:judge")
+            >> sx.JudgePick(_JUDGE, rubric="Pick one.")
+        )
+
+
+def test_ch2_a_recipe_after_a_judge_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a sf\.Fanout block needs a reducer or sf\.Synthesize before the next stage$",
+    ):
+        _ = sx.Fanout(_PAIR) >> _judge() >> sf.Model("provider/x")
+
+
 # ---------------------------------------------------------------- CH-4
 
 
