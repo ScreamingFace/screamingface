@@ -22,6 +22,7 @@ from aigateway.core.content_parts import (
     text_only,
 )
 from aigateway.core.provider_error_text import error_message_from_body
+from aigateway.core.usage_modalities import IMAGE_AND_FILE_KEY
 
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 
@@ -162,7 +163,7 @@ def _extract_text_from_response(response: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def _usage_from_response(response: dict[str, Any]) -> dict[str, int] | None:
+def _usage_from_response(response: dict[str, Any]) -> dict[str, Any] | None:
     usage = response.get("usage")
     if not isinstance(usage, dict):
         return None
@@ -177,6 +178,9 @@ def _usage_from_response(response: dict[str, Any]) -> dict[str, int] | None:
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
+        # FEATURE (OME-1546): the Responses usage has no per-modality breakdown, so image/file
+        # input tokens are an explicit unknown — never 0.
+        "prompt_tokens_details": {IMAGE_AND_FILE_KEY: None},
     }
 
 
