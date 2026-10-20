@@ -5,23 +5,30 @@ with ``--to sx`` (the private names ``sx.*``, which lower to today's bytes), ste
 ``--to sf`` (R13). A site it cannot rewrite keeps its text and gets one report line
 ``file:line: rule: reason``; that file goes to the hand group. Deleted in step 7f.
 
-    uv run python scripts/migrate_surface.py --to sx tests/test_a.py ...
-    uv run python scripts/migrate_surface.py --to sf tests/test_a.py ...
+    uv run python scripts/migrate_surface.py --to sx [--check] tests/test_a.py ...
+    uv run python scripts/migrate_surface.py --to sf [--check] tests/test_a.py ...
     uv run python scripts/migrate_surface.py --audit <base> [--allow FILE] tests/test_a.py ...
 
-``--audit`` compares each file with ``git show <base>:<path>``: per test function, the counts of
-``assert`` statements, ``pytest.raises``/``pytest.warns`` calls, and calls of names that start
-with ``assert``/``_assert``/``expect``. A lower count or a missing function fails, unless the
-allow file lists it (``path::function``, one per line: the group F deletions).
+``--check`` prints the diff and the report and writes nothing. A name resolves in its own scope
+(the innermost function that binds it, else the module); a parameter, or a name bound more than
+once there, is a hand case. ``--audit`` compares each file with ``git show <base>:<path>``: per
+function (tests and helpers, also in ``tests/_*.py``), the counts of ``assert`` statements,
+``pytest.raises``/``pytest.warns`` calls and their ``match=`` keywords, ``parametrize`` cases, and
+calls of names that start with ``assert``/``_assert``/``expect``. A lower count or a missing
+function fails, unless the allow file lists it (``path::function``, one per line: the group F
+deletions).
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import difflib
+import io
 import json
 import subprocess
 import sys
+import tokenize
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -51,6 +58,20 @@ _POSITIONAL = {
 _FANOUT_OPTIONS = ("members", "signals", "quorum", "name")
 _GATE_CMPS = frozenset({">=", ">", "<=", "<"})
 _PAREN_PARENTS = (ast.Attribute, ast.Subscript, ast.BinOp, ast.UnaryOp, ast.Await)
+# R12: a receiver or an argument of ``.then`` that binds looser than ``>>`` gets parentheses.
+_LOOSE = (ast.BoolOp, ast.BinOp, ast.IfExp, ast.Lambda, ast.Compare, ast.NamedExpr, ast.UnaryOp)
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+_BOUNDARIES = (*_SCOPES, ast.ClassDef)
+# R10: the Median/Mean select= of a Reduce mode (None: the default); every other op has one mode.
+_MODES = {
+    "median": {"select": None, "compute": '"value"'},
+    "mean": {"compute": None, "select": '"nearest"'},
+    "concat": {"compute": None},
+    "merge": {"compute": None},
+}
+_SELECT_ONLY = {"select": None}
+_NODES_HAND = "a reducer value in a file that builds internal nodes: keep it a node"
+_MIN_JUDGE = "a scores judge with order='min' is only a synthesizer: write sx.ArgMin by hand"
 
 
 class Hand(Exception):
@@ -101,6 +122,9 @@ class _Source:
         for line in self.data.splitlines(keepends=True):
             self._starts.append(self._starts[-1] + len(line))
 
+    def offset(self, line: int, column: int) -> int:
+        return self._starts[line - 1] + column
+
     def span(self, node: ast.AST) -> tuple[int, int]:
         start = self._starts[node.lineno - 1] + node.col_offset  # type: ignore[attr-defined]
         end = self._starts[node.end_lineno - 1] + node.end_col_offset  # type: ignore[attr-defined]
@@ -124,22 +148,41 @@ def _tops(node: ast.AST, wanted: Callable[[ast.AST], bool]) -> Iterator[ast.AST]
             yield from _tops(child, wanted)
 
 
-def _single_values(tree: ast.Module) -> dict[str, ast.expr]:
-    """Names with exactly one assignment in the module, and their values."""
+def _own_nodes(scope: ast.AST) -> Iterator[ast.AST]:
+    """The nodes of one scope: a nested function or class is yielded, not entered."""
 
-    counts = Counter(
-        node.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
+    for child in ast.iter_child_nodes(scope):
+        yield child
+        if not isinstance(child, _BOUNDARIES):
+            yield from _own_nodes(child)
+
+
+def _bound_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return None if isinstance(node.ctx, ast.Load) else node.id
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name).split(".")[0]
+    name = getattr(node, "arg", None) or getattr(node, "name", None)  # an arg, a def, a class
+    return (
+        name
+        if isinstance(node, ast.arg | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        else None
     )
-    return {
-        node.targets[0].id: node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and counts[node.targets[0].id] == 1
-    }
+
+
+def _bindings(scope: ast.AST) -> dict[str, ast.expr | None]:
+    """The names one scope binds: the value of a name with one plain assignment, else None (a
+    parameter, a loop target, a name assigned twice)."""
+
+    counts: Counter[str] = Counter()
+    values: dict[str, ast.expr] = {}
+    for node in _own_nodes(scope):
+        name = _bound_name(node)
+        counts.update([name] if name else [])
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            values.update({target.id: node.value} if isinstance(target, ast.Name) else {})
+    return {name: values.get(name) if count == 1 else None for name, count in counts.items()}
 
 
 def _single_returns(tree: ast.Module) -> dict[str, ast.expr]:
@@ -174,9 +217,18 @@ class _Rewriter:
             for parent in ast.walk(self.tree)
             for child in ast.iter_child_nodes(parent)
         }
-        self.values = _single_values(self.tree)
+        self.scopes = {
+            scope: _bindings(scope)
+            for scope in ast.walk(self.tree)
+            if isinstance(scope, (ast.Module, *_SCOPES))
+        }
         self.returns = _single_returns(self.tree)
         self.report: list[tuple[int, str]] = []
+        self.rewritten: set[ast.AST] = set()
+        self.comments = _comments(text, self.src)
+        self.nodes_file = any(
+            isinstance(node, ast.ImportFrom) and node.module == "_nodes" for node in self.tree.body
+        )
 
     # ------------------------------------------------------------------ the text of a node
 
@@ -191,12 +243,21 @@ class _Rewriter:
         if not self._target(node):
             return self._inner(node)
         assert isinstance(node, ast.Call)
+        raw = self.src.splice(*self.src.span(node), ())
         try:
             new = self._rewrite(node)
+            self._keeps_comments(node, new)
         except Hand as hand:
             self.report.append((node.lineno, f"{hand.rule}: {hand.reason}"))
-            return self.src.splice(*self.src.span(node), ())
+            return raw
+        if new != raw:
+            self.rewritten.add(node)
         return f"({new})" if " >> " in new and self._needs_parens(node) else new
+
+    def _keeps_comments(self, node: ast.AST, new: str) -> None:
+        start, end = self.src.span(node)
+        if any(start <= at < end and text not in new for at, text in self.comments):
+            raise Hand("comment", "a comment inside the call would be lost: rewrite it by hand")
 
     def _inner(self, node: ast.AST) -> str:
         edits = [(*self.src.span(child), self.text(child)) for child in _tops(node, self._target)]
@@ -227,10 +288,14 @@ class _Rewriter:
 
     def _report_values(self) -> None:
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.Attribute) and node.attr == "synthesizer":
-                self.report.append((node.lineno, "attr: .synthesizer reads an old Fusion field"))
+            if not isinstance(node, ast.Attribute):
+                continue
+            field = self._rewritten_field(node)
+            if field is not None:
+                self.report.append(
+                    (node.lineno, f"attr: {field} reads a field of a rewritten value")
+                )
             if self._read_as_value(node):
-                assert isinstance(node, ast.Attribute)
                 self.report.append(
                     (
                         node.lineno,
@@ -239,12 +304,36 @@ class _Rewriter:
                     )
                 )
 
-    def _read_as_value(self, node: ast.AST) -> bool:
-        if not (isinstance(node, ast.Attribute) and node.attr in _VALUES):
+    def _rewritten_field(self, node: ast.Attribute) -> str | None:
+        """``name.attr`` or ``.attr`` when ``node`` reads a field of a value this run rewrote."""
+
+        value = node.value
+        parent = self.parents.get(node)
+        if _is_then(parent) and parent.func is node:  # type: ignore[union-attr]
+            return None  # R12 rewrote it
+        if value in self.rewritten:
+            return f".{node.attr}"
+        held = self._lookup(value) if isinstance(value, ast.Name) else None
+        return f"{value.id}.{node.attr}" if held in self.rewritten else None  # type: ignore[union-attr]
+
+    def _read_as_value(self, node: ast.Attribute) -> bool:
+        if node.attr not in _VALUES or self._in_annotation(node):
             return False
         parent = self.parents.get(node)
         called = isinstance(parent, ast.Call) and parent.func is node
         return isinstance(node.value, ast.Name) and node.value.id == self.alias and not called
+
+    def _in_annotation(self, node: ast.AST) -> bool:
+        """``x: sf.Fusion``, ``-> sf.Fusion``: a type, not a value (no hand case)."""
+
+        child, parent = node, self.parents.get(node)
+        while parent is not None:
+            if getattr(parent, "annotation", None) is child or getattr(parent, "returns", None) is (
+                child
+            ):
+                return True
+            child, parent = parent, self.parents.get(parent)
+        return False
 
     # -------------------------------------------------------------------------- dispatch
 
@@ -261,10 +350,11 @@ class _Rewriter:
 
     def _then(self, call: ast.Call) -> str:  # R12
         assert isinstance(call.func, ast.Attribute)
-        right = self.text(call.args[0])
-        if isinstance(call.args[0], ast.BoolOp | ast.IfExp | ast.Lambda | ast.Compare):
-            right = f"({right})"
-        return f"{self.text(call.func.value)} >> {right}"
+        left, right = (
+            f"({self.text(node)})" if isinstance(node, _LOOSE) else self.text(node)
+            for node in (call.func.value, call.args[0])
+        )
+        return f"{left} >> {right}"
 
     def _standalone(self, call: ast.Call) -> str:
         """A value outside a synthesizer slot: one part, or a hand case (a judge to hoist).
@@ -272,9 +362,13 @@ class _Rewriter:
         A judge alone is its step: ``sx.Judge`` (scores) or ``sx.JudgePick`` (label). A reader
         that names it hoists the name (R7h); a synthesizer name reads its order here (R7)."""
 
+        if self.nodes_file:
+            raise Hand("nodes", _NODES_HAND)
         if self._sf_name(call) == "Judge":
             options = self._options(call)
             label = _constant(options.get("returns")) == "label"
+            if not label and _constant(options.get("order")) not in (None, "max"):
+                raise Hand("R7", _MIN_JUDGE)
             return self._judge_text("JudgePick" if label else "Judge", options)
         conv = self._convert(call)
         if len(conv.parts) != 1:
@@ -329,7 +423,14 @@ class _Rewriter:
     def _reader(self, name: str, options: dict[str, ast.expr]) -> _Conv:  # R3, R7h, R9
         judge = self._hoisted(options.pop("judge", None))
         gate = options.pop("gate", None)
-        main = _call(name, keywords=self._keywords(options, {"extract": "over"}))
+        keywords = self._keywords(options, {"extract": "over"})
+        extract = options.get("extract")
+        if name == "Vote" and "normalize" not in options and extract is not None:
+            if self._field_extract(extract) is not None:
+                # WHY: sx.Vote's default normalize="text" applies to a "field:" over, and the
+                # block of today had none (test_surface_extract.py pins the normalize=None form).
+                keywords.insert(list(options).index("extract") + 1, "normalize=None")
+        main = _call(name, keywords=keywords)
         if gate is not None:
             main = self._gate(gate, main)
         return _Conv((*judge, main))
@@ -379,7 +480,10 @@ class _Rewriter:
             raise Hand("R4", f"an order that is not 'max' or 'min': {order!r}")
         best = "ArgMin" if order == "min" else "ArgMax"
         if "by_signal" in options:
-            return _Conv((_call(best, [self._signal_key(options.pop("by_signal"))], output),))
+            key = self._signal_key(options.pop("by_signal"))
+            if options:
+                raise Hand("R4", f"a signal pick takes no other option: {sorted(options)}")
+            return _Conv((_call(best, [key], output),))
         path = _constant(options.pop("field", None))
         if not isinstance(path, str) or options:
             raise Hand("R5", "a field pick needs a literal field and no other option")
@@ -396,20 +500,37 @@ class _Rewriter:
         return _call("First", (), [f"where={_call('field', target)} == {equals}", *output])
 
     def _reduce(self, options: dict[str, ast.expr]) -> _Conv:  # R10
-        op = _constant(options.pop("op", None))
-        if op == "judge" and "mode" not in options:
+        op = str(_constant(options.pop("op", None)))
+        mode = _constant(options.pop("mode", None))
+        modes = _MODES.get(op, _SELECT_ONLY)
+        if op == "judge" and mode in (None, "select"):
             return self._reduce_judge(options)
-        if "mode" in options or op not in _REDUCE_FORMS:
-            raise Hand("R10", f"a Reduce op or mode with no new form: {op!r}")
-        name, form = _REDUCE_FORMS[str(op)]
-        return form(self, name, options)
+        if mode is not None and mode not in modes or op not in _REDUCE_FORMS:
+            raise Hand("R10", f"a Reduce op or mode with no new form: {op!r}, {mode!r}")
+        name, form = _REDUCE_FORMS[op]
+        conv = form(self, name, options)
+        select = None if mode is None else modes[str(mode)]
+        main = (
+            conv.parts[-1] if select is None else _with_keyword(conv.parts[-1], f"select={select}")
+        )
+        return _Conv((*conv.parts[:-1], main), conv.narrow)
 
     def _reduce_judge(self, options: dict[str, ast.expr]) -> _Conv:
-        if "rubric" in options:
-            raise Hand("R10", "a Reduce('judge') rubric override")
-        judge = self._judge_call(options.pop("judge"))
-        order = options.pop("order", None)
-        return self._judge_terminal({**self._options(judge), **({"order": order} if order else {})})
+        leftover = sorted(set(options) - {"judge", "order"})
+        if leftover:
+            raise Hand("R10", f"a Reduce('judge') option with no new form: {leftover}")
+        return _Conv(self._judge_parts(options["judge"], options.get("order")))
+
+    def _judge_parts(self, node: ast.expr, order: ast.expr | None = None) -> tuple[str, ...]:
+        """A judge as the synthesizer: its steps (R7, R7l); a judge held in a name keeps the
+        name, after its definition's rewrite. ``order`` is the block form's override."""
+
+        options = self._options(self._judge_call(node))
+        named = isinstance(node, ast.Name)
+        if named and _constant(options.get("order")) == "min":
+            raise Hand("R7", _MIN_JUDGE)  # its definition keeps sf.Judge (_standalone)
+        parts = self._judge_terminal({**options, **({"order": order} if order else {})}).parts
+        return (node.id, *parts[1:]) if named else parts  # type: ignore[union-attr]
 
     # ------------------------------------------------------------------------ the judge
 
@@ -434,10 +555,20 @@ class _Rewriter:
         """The value of a name with one assignment, or of a call of a one-return function."""
 
         if isinstance(node, ast.Name):
-            return self.values.get(node.id)
+            return self._lookup(node)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             return self.returns.get(node.func.id)
         return node
+
+    def _lookup(self, name: ast.Name) -> ast.expr | None:
+        """The value ``name`` holds where it is read: the innermost function that binds it, else
+        the module. A parameter, or a name bound more than once there, has none (a hand case)."""
+
+        node: ast.AST | None = name
+        while (node := self.parents.get(node)) is not None:  # type: ignore[arg-type]
+            if isinstance(node, _SCOPES) and name.id in self.scopes[node]:
+                return self.scopes[node][name.id]
+        return self.scopes[self.tree].get(name.id)
 
     def _judge_call(self, node: ast.expr) -> ast.Call:
         resolved = self._resolve(node) if isinstance(node, ast.Name) else node
@@ -543,8 +674,7 @@ class _Rewriter:
 
         resolved = self._resolve(node)
         if kind == "judge" and isinstance(node, ast.Name):
-            parts = self._judge_terminal(self._options(self._judge_call(node))).parts
-            return (node.id, *parts[1:])
+            return self._judge_parts(node)
         conv = self._convert(resolved) if isinstance(resolved, ast.Call) else None
         if conv is None or conv.narrow or len(conv.parts) != 1:
             raise Hand("R1", "a selection or a judge reader held in a name or a function")
@@ -600,6 +730,27 @@ def _is_then(node: ast.AST) -> bool:
         and len(node.args) == 1
         and not node.keywords
     )
+
+
+def _with_keyword(call: str, keyword: str) -> str:
+    """``sx.X(a)`` with one more keyword: ``sx.X(a, keyword)``."""
+
+    head = call.removesuffix(")")
+    return f"{head}{'' if head.endswith('(') else ', '}{keyword})"
+
+
+def _comments(text: str, source: _Source) -> list[tuple[int, str]]:
+    """Each comment of the module: its byte offset and its text."""
+
+    lines = text.splitlines(keepends=True)
+    found = []
+    for token in tokenize.generate_tokens(io.StringIO(text).readline):
+        if token.type == tokenize.COMMENT:
+            line, column = token.start
+            found.append(
+                (source.offset(line, len(lines[line - 1][:column].encode())), token.string)
+            )
+    return found
 
 
 def _no_gate(call: ast.Call) -> str:
@@ -710,7 +861,7 @@ def migrate_source(text: str, *, to: str = "sx", path: str = "<source>") -> Migr
 
 # -------------------------------------------------------------------------------- the audit
 
-_COUNTS = ("assert", "raises", "helper")
+_COUNTS = ("assert", "raises", "match", "params", "helper")
 
 
 def _assertion_kind(node: ast.AST) -> str | None:
@@ -724,24 +875,44 @@ def _assertion_kind(node: ast.AST) -> str | None:
     return "helper" if name.startswith(("assert", "_assert", "expect")) else None
 
 
-def _test_functions(tree: ast.Module) -> Iterator[tuple[str, ast.AST]]:
+def _functions(tree: ast.Module) -> Iterator[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+    """Every module function and method: a test, or a helper that asserts for tests (in a test
+    module or a ``tests/_*.py`` module)."""
+
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
-            "test"
-        ):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             yield node.name, node
-        if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+        if isinstance(node, ast.ClassDef):
             for item in node.body:
                 if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                     yield f"{node.name}::{item.name}", item
 
 
+def _params(decorator: ast.expr) -> int:
+    """The length of a ``pytest.mark.parametrize`` value list (0 when it is not a literal)."""
+
+    if not (
+        isinstance(decorator, ast.Call) and getattr(decorator.func, "attr", "") == "parametrize"
+    ):
+        return 0
+    values = decorator.args[1] if len(decorator.args) > 1 else None
+    values = next((k.value for k in decorator.keywords if k.arg == "argvalues"), values)
+    return len(values.elts) if isinstance(values, ast.List | ast.Tuple) else 0
+
+
 def assertion_counts(text: str) -> dict[str, dict[str, int]]:
-    """Per test function (a parametrized one counts once): its assert, raises, helper counts."""
+    """Per function (a parametrized one counts once): its asserts, pytest.raises/warns, their
+    match= keywords, its parametrize cases, and its assert-helper calls."""
 
     counts: dict[str, dict[str, int]] = {}
-    for name, function in _test_functions(ast.parse(text)):
-        found = Counter(_assertion_kind(node) for node in ast.walk(function))
+    for name, function in _functions(ast.parse(text)):
+        found: Counter[str] = Counter()
+        for node in ast.walk(function):
+            kind = _assertion_kind(node)
+            found.update([kind] if kind else [])
+            if kind == "raises" and isinstance(node, ast.Call):
+                found["match"] += any(keyword.arg == "match" for keyword in node.keywords)
+        found["params"] = sum(_params(decorator) for decorator in function.decorator_list)
         counts[name] = {kind: found[kind] for kind in _COUNTS}
     return counts
 
@@ -785,19 +956,31 @@ def _audit(base: str, paths: Sequence[Path], allow: Path | None) -> int:
     return 1 if problems else 0
 
 
-def _migrate(to: str, paths: Sequence[Path]) -> int:
+def _migrate(to: str, paths: Sequence[Path], *, check: bool) -> int:
+    """Rewrite ``paths`` (then ``ruff format`` them); ``check`` prints the diff and writes
+    nothing."""
+
     changed, report = [], []
     for path in paths:
         text = path.read_text()
         result = migrate_source(text, to=to, path=path.as_posix())
         report += result.report
-        if result.text != text:
+        if result.text == text:
+            continue
+        changed.append(str(path))
+        if check:
+            name = path.as_posix()
+            diff = difflib.unified_diff(
+                text.splitlines(True), result.text.splitlines(True), name, name, n=1
+            )
+            sys.stdout.writelines(diff)
+        else:
             path.write_text(result.text)
-            changed.append(str(path))
-    if changed:
+    if changed and not check:
         subprocess.run([sys.executable, "-m", "ruff", "format", "-q", *changed], check=True)
     sys.stdout.write("".join(f"{line}\n" for line in report))
-    sys.stdout.write(f"migrate_surface: {len(changed)} changed, {len(report)} hand cases\n")
+    verb = "would change" if check else "changed"
+    sys.stdout.write(f"migrate_surface: {len(changed)} {verb}, {len(report)} hand cases\n")
     return 0
 
 
@@ -808,10 +991,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     mode.add_argument("--to", choices=("sx", "sf"))
     mode.add_argument("--audit", metavar="BASE")
     parser.add_argument("--allow", type=Path, help="the allowed deletions, path::function")
+    parser.add_argument("--check", action="store_true", help="print the diff, write nothing")
     args = parser.parse_args(argv)
     if args.audit:
         return _audit(args.audit, args.paths, args.allow)
-    return _migrate(args.to, args.paths)
+    return _migrate(args.to, args.paths, check=args.check)
 
 
 if __name__ == "__main__":

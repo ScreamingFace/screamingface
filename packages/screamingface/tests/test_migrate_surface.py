@@ -200,8 +200,8 @@ _ROWS = [
     ),
     (
         "parens",
-        "n = sf.Fusion(M, synthesizer=sf.Vote()).name\n",
-        "n = (sx.Fanout(M) >> sx.Vote()).name\n",
+        'n = sf.Fusion(M, synthesizer=sf.Vote()).then("p/w")\n',
+        'n = (sx.Fanout(M) >> sx.Vote()) >> "p/w"\n',
     ),
 ]
 
