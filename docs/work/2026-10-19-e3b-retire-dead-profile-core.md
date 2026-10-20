@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1682
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-19
-finished:
+finished: 2026-10-20
 ---
 
 # e3b-retire-dead-profile-core — delete the Profile-era core left without a producer after E3
@@ -58,7 +58,7 @@ a plan amendment; optional tightenings (a) `auth_type`, (b) required `expected_l
 - `docs/plan/2026-10-14-OME-1209-retire-legacy-profiles.md`: an E3b section (plan amendment).
 - `docs/tasks/2026-10-18-OME-1651-retire-profile-routes.md`: status done.
 - Tests per the approved map (`stage_e3b_dead_core_test_map.md` in the team notes) and the
-  manifest `.claude/test-change-approvals/OME-<E3b>.json`.
+  manifest `.claude/test-change-approvals/OME-1682.json`.
 
 ## Test plan
 
@@ -96,15 +96,18 @@ a plan amendment; optional tightenings (a) `auth_type`, (b) required `expected_l
   Tests: one new file `tests/unit/core/provider_access/test_pair_admin_publication.py` (G1, G2,
   G4, G5 and the core half of G3), the HTTP half of G3 in
   `test_admin_connections_mutation_routes.py`, G6 in `test_profile_index.py`, G7 in
-  `test_auth_routes.py`; 33 prior test files edited per the map and listed in the manifest.
+  `test_auth_routes.py`; persisted-format coverage in
+  `tests/unit/test_profile_index_legacy_payload.py`; 33 prior test files edited per the map and
+  listed in the manifest.
   Docs: the plan amendment (E3b section), the `OME-1651` mirror flipped to done, this ledger.
-- **Commits:** <sha — message>
+- **Commits:** `bbac0130b` deletes the dead core; the closeout commit records OME-1682 and pins
+  legacy persisted-format compatibility.
 - **Gates:** full suite 5969 passed, 103 skipped; ruff, format and pyright clean on `src` and
   `tests`. PostgreSQL lane (`AIGW_TEST_PG=1 -m needs_postgres`): 58 passed; the 5 failures are all
   in `test_cache_snapshot_upload_postgres.py` (untouched): the local `pg_dump` is 15.13 and the
-  test container runs Postgres 16, which `pg_dump` refuses to dump. `run_gates.py aigateway
-  --base origin/main`: all green (append-only with 32 approved transitions, ruff, format,
-  pyright, no-enterprise, pytest with coverage ≥ 80).
+  test container runs Postgres 16, which `pg_dump` refuses to dump. The final AIGateway gate is
+  green (append-only with 32 approved transitions, ruff, format, pyright, no-enterprise, pytest
+  with coverage at or above 80%). The touched PostgreSQL suites pass 4/4.
 - **Deviations:**
   - `tests/unit/oauth_flow_seed.py` keeps a retirement docstring instead of being deleted: the
     append-only check refuses any deleted file under `tests/`, and a manifest can approve only an

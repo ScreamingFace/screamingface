@@ -1,6 +1,6 @@
 {
-  "issue": "OME-E3B",
-  "branch": "e3b-retire-dead-profile-core",
+  "issue": "OME-1682",
+  "branch": "OME-1682-retire-dead-profile-core",
   "approver": "Dmitry Stebukov (owner)",
   "date": "2026-10-19",
   "scope": "Stage E, E3b: the core left without a producer after E3 is deleted. Prior tests migrate per the owner-approved E3b test map (80 retire, 51 adapt, 8 keep). A test whose only subject or only actor is a deleted symbol is removed; a file whose every test retired keeps only its docstring naming the successors, including the helper module oauth_flow_seed.py. A test whose subject survives is adapted: setup through the retired Profile flow seeder or the deleted admin operations moves to the native OAuth start, a direct store seed, set_pair_api_key or delete_pair; PendingAuthEntry constructors drop profile_id and pass connection_id. Assertion edits per the map: credential reads move from the Profile address to the Connection locator; a failed callback is observed on its own Connection (status error) instead of the Profile; the index version document drops oauth_generations; the evicted and invalidated lists follow the single surviving publication path; summary projections of the deleted admin are dropped. Inventory and no-write loops drop the deleted symbols. One adapted race moves its intrusion point: the revoked-between test in test_connection_backed_admin.py revokes on the second Connection listing, outside the PUT transaction, instead of on index.get; its assertions are unchanged.",
