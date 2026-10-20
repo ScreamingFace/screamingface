@@ -11,17 +11,22 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
+from _nodes import JudgeNode, ReduceNode, VoteNode, fusion_node
 from url4 import Expression, RelExpr, Source, build, render, struct
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 
 RUBRIC = "Score each answer."
 SECRET = "SECRET-RUBRIC-TEXT"
 JUDGE_SIGNAL = sf.signal("score:judge")
-J = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
-V = sf.Vote(extract="last_number", normalize="numeric", weights=JUDGE_SIGNAL, judge=J)
+# WHY the internal nodes: the surface spells a judge-weighted vote as two steps
+# (``sx.Judge(...) >> sx.Vote(weights="score:judge")``); these rows check the vote node that holds
+# its judge, which the lowering builds and a url4 rebuilds.
+J = JudgeNode("provider/j", returns="scores", rubric=RUBRIC)
+V = VoteNode(extract="last_number", normalize="numeric", weights=JUDGE_SIGNAL, judge=J)
 _NUMBER = sf.Extract("last_number", normalize="numeric")
 
 
@@ -30,7 +35,7 @@ def _compiled(recipe: sf.Recipe) -> Any:
 
 
 def _url4(synthesizer: Reducer) -> str:
-    return _compiled(sf.Fusion(members3(), synthesizer=synthesizer)).url4
+    return _compiled(fusion_node(members3(), synthesizer)).url4
 
 
 def _sources(url4: str) -> list[Any]:
@@ -50,16 +55,12 @@ def _by_name(url4: str) -> dict[str, RelExpr]:
 
 
 def test_a_nested_vote_judge_call_is_never_a_claimant_of_the_outer_sources() -> None:
-    inner = sf.Fusion(
-        ["p/a", "p/b"],
-        synthesizer=sf.Vote(
-            extract="last_number",
-            normalize="numeric",
-            weights=JUDGE_SIGNAL,
-            judge=sf.Judge("p/a", returns="scores", rubric=RUBRIC),
-        ),
+    inner = (
+        sx.Fanout(["p/a", "p/b"])
+        >> sx.Judge("p/a", rubric=RUBRIC)
+        >> sx.Vote(over="last_number", normalize="numeric", weights=JUDGE_SIGNAL)
     )
-    outer = sf.Fusion([inner, "p/c"], synthesizer=sf.Vote(weights=sf.signal("cost_usd")))
+    outer = sx.Fanout([inner, "p/c"]) >> sx.Vote(weights=sf.signal("cost_usd"))
 
     url4 = _compiled(outer).url4
 
@@ -84,15 +85,15 @@ def test_a_nested_vote_judge_call_is_never_a_claimant_of_the_outer_sources() -> 
 
 @pytest.mark.parametrize("kind", ["vote"])
 def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
-    secret = sf.Judge("provider/j", returns="scores", rubric=SECRET)
-    label = sf.Judge("provider/j", returns="label", rubric=SECRET)
+    secret = JudgeNode("provider/j", returns="scores", rubric=SECRET)
+    label = JudgeNode("provider/j", returns="label", rubric=SECRET)
     prefix = "Vote" if kind == "vote" else r"sf\.Reduce\('weighted'\)"
     read_only = rf"{prefix} judge is read only by weights=sf\.signal\('score:judge'\)"
 
     def make(weights: Any, judge: Any) -> Reducer:
         options: dict[str, Any] = {} if judge is None else {"judge": judge}
         if kind == "vote":
-            return sf.Vote(weights=weights, **options)
+            return VoteNode(weights=weights, **options)
         return sf.Reduce("weighted", extract=_NUMBER, weights=weights, **options)
 
     assert make(JUDGE_SIGNAL, secret) is not None  # the one valid pairing
@@ -120,15 +121,19 @@ def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
 @pytest.mark.parametrize("normalize", ["numeric"])
 @pytest.mark.parametrize("rule", ["last_number"])
 def test_weighted_judge_block_matches_vote(rule: Any, normalize: Any) -> None:
-    vote = sf.Vote(extract=rule, normalize=normalize, weights=JUDGE_SIGNAL, judge=J)
-    block = sf.Reduce(
+    vote = (
+        sx.Fanout(members3())
+        >> sx.Judge("provider/j", rubric=RUBRIC)
+        >> sx.Vote(over=rule, normalize=normalize, weights=JUDGE_SIGNAL)
+    )
+    block = ReduceNode(
         "weighted",
         extract=sf.Extract(rule, normalize=normalize),
         weights=JUDGE_SIGNAL,
         judge=J,
     )
 
-    assert _url4(block) == _url4(vote)
+    assert _url4(block) == _compiled(vote).url4
 
 
 def _exec_candidate(url4: str) -> Any:
@@ -147,18 +152,18 @@ def test_judge_weighted_vote_round_trips() -> None:
         "judge=sf.Judge('provider/j', returns='scores', rubric='Score each answer.'))"
     ) in code
     candidate = _exec_candidate(url4)
-    assert type(candidate.synthesizer) is sf.Vote
+    assert type(candidate.synthesizer) is VoteNode
     assert _compiled(candidate).url4 == url4
 
 
 def test_the_regex_block_form_of_a_judge_weighted_vote_recovers_as_reduce() -> None:
     extract = sf.Extract("regex", normalize="text", pattern=r"Final: (\w+)", group=1)
-    block = sf.Reduce("weighted", extract=extract, weights=JUDGE_SIGNAL, judge=J)
+    block = ReduceNode("weighted", extract=extract, weights=JUDGE_SIGNAL, judge=J)
     url4 = _url4(block)
 
     candidate = _exec_candidate(url4)
 
-    assert type(candidate.synthesizer) is sf.Reduce
+    assert type(candidate.synthesizer) is ReduceNode
     assert candidate.synthesizer == block
     assert _compiled(candidate).url4 == url4
 
@@ -198,9 +203,9 @@ def test_a_score_judge_spec_without_signals_cannot_be_rebuilt() -> None:
     spec = decode_combine_spec(combine_spec_text(V, member_count=3, operators=flow_operators()))
 
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._from_spec(spec)
+        VoteNode._from_spec(spec)
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Reduce._from_spec(spec)
+        ReduceNode._from_spec(spec)
 
 
 def test_a_signals_spec_that_is_not_a_judge_weighted_vote_cannot_be_rebuilt() -> None:
@@ -208,14 +213,14 @@ def test_a_signals_spec_that_is_not_a_judge_weighted_vote_cannot_be_rebuilt() ->
     from screamingface.judge import judge_from_signals
 
     plain = decode_combine_spec(
-        combine_spec_text(sf.Vote(), member_count=3, operators=flow_operators())
+        combine_spec_text(VoteNode(), member_count=3, operators=flow_operators())
     )
     signals = V._plan().signal_calls
 
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Reduce._rebuild(plain, signals)
+        ReduceNode._rebuild(plain, signals)
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._rebuild(plain, signals)
+        VoteNode._rebuild(plain, signals)
     assert judge_from_signals(signals, "scores") == J
 
 
@@ -223,14 +228,14 @@ def test_vote_repr_python_and_equality_carry_the_judge() -> None:
     expected_judge = "Judge('provider/j', returns='scores', rubric='Score each answer.')"
 
     assert repr(V).endswith(f", judge={expected_judge})")
-    namespace = {"Vote": sf.Vote, "Judge": sf.Judge, "signal": sf.signal}
+    namespace = {"Vote": VoteNode, "Judge": JudgeNode, "signal": sf.signal}
     assert eval(repr(V), namespace) == V  # noqa: S307 - the repr is the contract
     assert V._python().endswith(f", judge=sf.{expected_judge})")
-    assert V != sf.Vote(
+    assert V != VoteNode(
         extract="last_number",
         normalize="numeric",
         weights=JUDGE_SIGNAL,
-        judge=sf.Judge("provider/j", returns="scores", rubric="Another rubric."),
+        judge=JudgeNode("provider/j", returns="scores", rubric="Another rubric."),
     )
     assert V.judge == J
-    assert sf.Vote().judge is None
+    assert VoteNode().judge is None

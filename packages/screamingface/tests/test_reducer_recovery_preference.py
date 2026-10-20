@@ -10,11 +10,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from _nodes import FusionNode, MedianNode, ReduceNode, VoteNode, fusion_node
 from _reducer_fixtures import engine_operators
 from url4 import Expression, build
 
 import screamingface as sf
 import screamingface.reducer as reducer_module
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import canonical_json, decode_combine_spec
 from screamingface.reducer import Reducer
@@ -25,8 +27,13 @@ _FIELD = sf.Extract("field", normalize="text", path="answer")
 _NUMERIC = sf.Extract("last_number", normalize="numeric")
 
 
-def _fusion(synthesizer: Reducer) -> sf.Fusion:
-    return sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=synthesizer)
+_MEMBERS = ["provider/a", "provider/b", "provider/c"]
+
+
+# WHY the internal nodes: these rows recover a reducer node from a url4 and compare it with the
+# node that wrote it (the block preference of BK#8).
+def _fusion(synthesizer: Reducer) -> FusionNode:
+    return fusion_node(_MEMBERS, synthesizer)
 
 
 def _url4(synthesizer: Reducer) -> str:
@@ -53,34 +60,34 @@ def _call_with(spec: dict[str, Any]) -> _Call:
 
 _ROWS: list[tuple[Reducer, type[Reducer], str | None]] = [
     (
-        sf.Vote(extract="last_number", normalize="numeric"),
-        sf.Vote,
+        VoteNode(extract="last_number", normalize="numeric"),
+        VoteNode,
         "sf.Vote(extract='last_number@1', normalize='numeric@1')",
     ),
     (
-        sf.Reduce("plurality", extract=_NUMERIC),
-        sf.Vote,
+        ReduceNode("plurality", extract=_NUMERIC),
+        VoteNode,
         "sf.Vote(extract='last_number@1', normalize='numeric@1')",
     ),
-    (sf.Vote(normalize=None), sf.Vote, "sf.Vote(extract='last_line@1', normalize=None)"),
+    (VoteNode(normalize=None), VoteNode, "sf.Vote(extract='last_line@1', normalize=None)"),
     (
-        sf.Median(select="value"),
-        sf.Median,
+        MedianNode(select="value"),
+        MedianNode,
         "sf.Median(extract='last_number@1', select='value@1')",
     ),
     (
-        sf.Reduce("median", extract=sf.Extract("boxed")),
-        sf.Median,
+        ReduceNode("median", extract=sf.Extract("boxed")),
+        MedianNode,
         "sf.Median(extract='boxed@1', select='nearest@1')",
     ),
-    (sf.Reduce("plurality", extract=_REGEX), sf.Reduce, None),
-    (sf.Reduce("plurality", extract=_FIELD), sf.Reduce, None),
+    (ReduceNode("plurality", extract=_REGEX), ReduceNode, None),
+    (ReduceNode("plurality", extract=_FIELD), ReduceNode, None),
     (
-        sf.Reduce("weighted", extract=_NUMERIC, weights=[1, 2.5, 3]),
-        sf.Vote,
+        ReduceNode("weighted", extract=_NUMERIC, weights=[1, 2.5, 3]),
+        VoteNode,
         "sf.Vote(extract='last_number@1', normalize='numeric@1', weights=(1.0, 2.5, 3.0))",
     ),
-    (sf.Reduce("weighted", extract=_REGEX, weights=[1, 2.5, 3]), sf.Reduce, None),
+    (ReduceNode("weighted", extract=_REGEX, weights=[1, 2.5, 3]), ReduceNode, None),
 ]
 
 
@@ -102,7 +109,7 @@ def test_recovered_spec_prefers_named_class_else_reduce(
 def test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    vote_url4 = _url4(sf.Vote(extract="last_number", normalize="numeric"))
+    vote_url4 = _url4(VoteNode(extract="last_number", normalize="numeric"))
     spec = decode_combine_spec(_synthesis_call(vote_url4).raw_intent)
 
     spec_median = {**spec, "reduce": {"op": "median@1", "args": {}}}
@@ -112,13 +119,14 @@ def test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses(
     # With no named class registered, the same url4 comes back as the block.
     monkeypatch.setattr(reducer_module, "_REDUCER_CLASSES", {})
     recovered = _reducer_from_call(_synthesis_call(vote_url4))
-    assert type(recovered) is sf.Reduce
+    assert type(recovered) is ReduceNode
 
 
 @pytest.mark.parametrize("op", ["benchmark", "benchmark@1"])
 def test_benchmark_extract_op_in_a_hand_edited_url4_is_refused(op: str) -> None:
     # A hand-edited url4 cannot name the benchmark's rule: Vote refuses it, so does sf.Reduce.
-    vote_url4 = _url4(sf.Vote(extract="last_number", normalize="numeric"))
+    vote = sx.Fanout(_MEMBERS) >> sx.Vote(over="last_number", normalize="numeric")
+    vote_url4 = compile_candidate(vote, operators=engine_operators()).url4
     spec = decode_combine_spec(_synthesis_call(vote_url4).raw_intent)
 
     with pytest.raises(ValueError, match="cannot rebuild"):

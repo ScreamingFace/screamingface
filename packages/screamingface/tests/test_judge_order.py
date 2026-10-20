@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
+from _nodes import FusionNode, JudgeNode, ReduceNode, fusion_node
 from url4 import Expression, build
 
 import screamingface as sf
@@ -41,14 +42,18 @@ _MIN_SPEC = (
 _OTHER_RUBRIC = "Prefer the shortest correct answer."
 
 
-def _judge(**kw: Any) -> sf.Judge:
-    """A scores judge on provider/j; ``kw`` goes to sf.Judge (order, params, returns...)."""
+def _judge(**kw: Any) -> JudgeNode:
+    """A scores judge node on provider/j; ``kw`` goes to JudgeNode (order, params, returns...).
+
+    WHY the internal node: the order is a field of the node that a url4 rebuilds; the surface
+    spells it as the select step (``sx.Judge(...) >> sx.ArgMin("score:judge")``).
+    """
     options: dict[str, Any] = {"returns": "scores", "rubric": RUBRIC, **kw}
-    return sf.Judge("provider/j", **options)
+    return JudgeNode("provider/j", **options)
 
 
 def _url4(synthesizer: Reducer, members: list[Any] | None = None, **fusion: Any) -> str:
-    recipe = sf.Fusion(members or members3(), synthesizer=synthesizer, **fusion)
+    recipe = fusion_node(members or members3(), synthesizer, **fusion)
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
@@ -68,7 +73,7 @@ def _recovered(url4: str) -> sf.Recipe:
 
 def test_sdk_judge_scores_without_order_compiles_max_score() -> None:
     # JO-3: a judge with no order compiles max_score and the neutral template (judge-template@2).
-    judge = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
+    judge = JudgeNode("provider/j", returns="scores", rubric=RUBRIC)
 
     assert combine_spec_text(judge, member_count=3, operators=flow_operators()) == _MAX_SPEC
     prompt = _judge_prompt(_url4(judge))
@@ -97,17 +102,17 @@ def test_sdk_judge_order_min_writes_the_neutral_template() -> None:
 def test_sdk_judge_label_refuses_an_order() -> None:
     # JO-E1: a label names one member, so it has no order.
     with pytest.raises(ValueError, match=r"Judge order='min' needs returns='scores'"):
-        sf.Judge("provider/j", returns="label", rubric=RUBRIC, order="min")
+        JudgeNode("provider/j", returns="label", rubric=RUBRIC, order="min")
     with pytest.raises(
         ValueError, match=r"sf\.Reduce\('judge'\): Judge order='min' needs returns='scores'"
     ):
-        sf.Reduce(
+        ReduceNode(
             "judge",
-            judge=sf.Judge("provider/j", returns="label", rubric=RUBRIC),
+            judge=JudgeNode("provider/j", returns="label", rubric=RUBRIC),
             order="min",
         )
     # control: order="max" on a label is the same judge as no order
-    assert sf.Judge("provider/j", returns="label", rubric=RUBRIC, order="max") == sf.Judge(
+    assert JudgeNode("provider/j", returns="label", rubric=RUBRIC, order="max") == JudgeNode(
         "provider/j", returns="label", rubric=RUBRIC
     )
 
@@ -120,7 +125,7 @@ def test_sdk_judge_label_refuses_an_order() -> None:
 def test_sdk_judge_refuses_an_unknown_order(order: object) -> None:
     # JO-E2: only "max" and "min" are orders. The block form checks the same way (blocks.py).
     with pytest.raises(ValueError, match="Judge order must be 'max' or 'min', not "):
-        sf.Judge(
+        JudgeNode(
             "provider/j",
             returns="scores",
             rubric=RUBRIC,
@@ -129,7 +134,7 @@ def test_sdk_judge_refuses_an_unknown_order(order: object) -> None:
     with pytest.raises(
         ValueError, match=r"sf\.Reduce\('judge'\) option 'order' must be 'max' or 'min'"
     ):
-        sf.Reduce("judge", judge=_judge(), order=order)
+        ReduceNode("judge", judge=_judge(), order=order)
 
 
 def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
@@ -144,19 +149,19 @@ def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
     )
 
     rebuilt = _recovered(url4)
-    assert isinstance(rebuilt, sf.Fusion)
+    assert isinstance(rebuilt, FusionNode)
     assert rebuilt.synthesizer == low
     assert rebuilt.synthesizer.order == "min"  # type: ignore[attr-defined]
-    assert isinstance(rebuilt.synthesizer, sf.Judge)
+    assert isinstance(rebuilt.synthesizer, JudgeNode)
     assert _url4(rebuilt.synthesizer) == url4
 
-    block = sf.Reduce("judge", judge=_judge(params={"temperature": 0}), order="min")
+    block = ReduceNode("judge", judge=_judge(params={"temperature": 0}), order="min")
     assert dict(block.options) == {"judge": low}
     assert _url4(block) == url4
 
     # the block's rubric override keeps the order; the block's order override replaces it
-    assert sf.Reduce("judge", judge=low, rubric=_OTHER_RUBRIC).options["judge"].order == "min"  # type: ignore[attr-defined]
-    assert sf.Reduce("judge", judge=low, order="max").options["judge"] == _judge(
+    assert ReduceNode("judge", judge=low, rubric=_OTHER_RUBRIC).options["judge"].order == "min"  # type: ignore[attr-defined]
+    assert ReduceNode("judge", judge=low, order="max").options["judge"] == _judge(
         params={"temperature": 0}
     )
 
@@ -198,7 +203,7 @@ def test_judge_key_and_repr_include_order() -> None:
         == "Judge('provider/j', returns='scores', rubric='Pick the most correct answer.', "
         "params={'temperature': 0}, order='min')"
     )
-    assert eval(repr(low), {"Judge": sf.Judge}) == low  # noqa: S307 - our own repr
+    assert eval(repr(low), {"Judge": JudgeNode}) == low  # noqa: S307 - our own repr
     assert low != plain
     assert explicit == plain
     assert hash(explicit) == hash(plain)

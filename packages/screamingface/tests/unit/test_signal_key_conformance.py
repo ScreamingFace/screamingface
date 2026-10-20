@@ -27,7 +27,8 @@ from screamingface._signals import (
     JUDGE_SIGNAL,
     is_signal_key,
 )
-from screamingface.fields import _FIELD_NAME, _MEMBER_ID, _RULE_KEYS
+from screamingface.fields import _FIELD_NAME, _MEMBER_ID, _RULE_KEYS, MergeNode
+from screamingface.judge import JudgeNode
 
 # parents[4] = the monorepo root (tests/unit -> tests -> screamingface -> packages -> root)
 _ENGINE_APP = Path(__file__).resolve().parents[4] / "apps" / "screamingface-engine"
@@ -128,7 +129,9 @@ def _engine_signal_pattern() -> re.Pattern[str]:
 
 
 def _sdk_keys() -> list[str]:
-    merge = sf.Merge(
+    # WHY the internal nodes: the signal calls are planned by the reducer nodes that the surface
+    # steps ``sx.Merge`` and ``sx.JudgePick`` lower to.
+    merge = MergeNode(
         fields={
             "summary": sf.FieldRule.model("provider/w", prompt="Write."),
             "a1": sf.FieldRule.model("provider/w", prompt="Write."),
@@ -136,7 +139,7 @@ def _sdk_keys() -> list[str]:
             "F" + "z" * 63: sf.FieldRule.model("provider/w", prompt="Write."),
         }
     )
-    judge = sf.Judge("provider/j", returns="label", rubric="Pick.")
+    judge = JudgeNode("provider/j", returns="label", rubric="Pick.")
     return [signal.key for reducer in (merge, judge) for signal in reducer._plan().signal_calls]
 
 
