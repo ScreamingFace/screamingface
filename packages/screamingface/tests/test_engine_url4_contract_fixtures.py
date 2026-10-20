@@ -20,6 +20,7 @@ from collections.abc import Callable, Mapping, Sequence
 import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 from _combine_flow_fixtures import flow_operators
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, _entry
 
 import screamingface as sf
@@ -73,12 +74,10 @@ def argmax_cost_url4() -> str:
 def two_reducers_url4() -> str:
     recipe = sf.Pipeline(
         [
-            sf.Fusion(
-                ["provider/alpha", "provider/beta", "provider/gamma"], synthesizer=FixtureVote()
-            ),
-            sf.Fusion(
+            fusion_node(["provider/alpha", "provider/beta", "provider/gamma"], FixtureVote()),
+            fusion_node(
                 ["provider/delta", "provider/epsilon"],
-                synthesizer=FixtureVote(extract="last_line", normalize="text"),
+                FixtureVote(extract="last_line", normalize="text"),
             ),
         ]
     )
@@ -135,7 +134,7 @@ def judge_vote_url4() -> str:
 
 
 def _samples_url4(synthesizer: Reducer) -> str:
-    recipe = sf.Fusion(sf.samples("prov/member-a", 5, temperature=0.7), synthesizer=synthesizer)
+    recipe = fusion_node(sf.samples("prov/member-a", 5, temperature=0.7), synthesizer)
     return compile_candidate(recipe, operators=_catalog(_SAMPLES_OPERATORS)).url4
 
 

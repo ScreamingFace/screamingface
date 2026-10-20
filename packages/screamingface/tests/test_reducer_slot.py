@@ -13,6 +13,7 @@ from typing import Any, NoReturn
 
 import httpx
 import pytest
+from _nodes import fusion_node
 from _reducer_fixtures import (
     FixtureJudgeish,
     FixtureVote,
@@ -113,7 +114,7 @@ def test_reducer_outside_a_fusion_slot_raises_type_error(position: str) -> None:
 
 def test_fusion_accepts_a_reducer_in_the_synthesizer_slot() -> None:
     reducer = FixtureVote()
-    fusion = sf.Fusion(["provider/a", "provider/b"], synthesizer=reducer)
+    fusion = fusion_node(["provider/a", "provider/b"], reducer)
 
     assert fusion.synthesizer is reducer
     assert repr(fusion).endswith(
@@ -123,11 +124,11 @@ def test_fusion_accepts_a_reducer_in_the_synthesizer_slot() -> None:
     assert "vote" in fusion._repr_html_()
 
     with pytest.raises(ValueError, match="1 weights for 2 members"):
-        sf.Fusion(["provider/a", "provider/b"], synthesizer=FixtureVote(weights=(1.0,)))
+        fusion_node(["provider/a", "provider/b"], FixtureVote(weights=(1.0,)))
     with pytest.raises(ValueError, match="at most 256"):
-        sf.Fusion([f"provider/m{index}" for index in range(257)], synthesizer=reducer)
+        fusion_node([f"provider/m{index}" for index in range(257)], reducer)
     # the base-class defaults accept any member count
-    sf.Fusion(["provider/a", "provider/b"], synthesizer=FixtureJudgeish())
+    fusion_node(["provider/a", "provider/b"], FixtureJudgeish())
     # a non-reducer synthesizer keeps its exact message
     with pytest.raises(TypeError, match="Fusion synthesizer must be a model route"):
         sf.Fusion(["provider/a"], synthesizer=3)  # type: ignore[arg-type]
@@ -206,7 +207,7 @@ def test_reducer_without_catalog_fails_and_bad_specs_are_refused() -> None:
 
     with pytest.raises(ValueError, match="'bogus' is not a known reducer"):
         compile_candidate(
-            sf.Fusion(["provider/a", "provider/b"], synthesizer=Bogus()),
+            fusion_node(["provider/a", "provider/b"], Bogus()),
             operators=fixture_operators(),
         )
     huge = {"pad": "x" * (64 * 1024)}
@@ -214,7 +215,7 @@ def test_reducer_without_catalog_fails_and_bad_specs_are_refused() -> None:
         compile_candidate(reducer_fusion(extract_args=huge), operators=fixture_operators())
 
     judge = compile_candidate(
-        sf.Fusion(["provider/a", "provider/b"], synthesizer=FixtureJudgeish()),
+        fusion_node(["provider/a", "provider/b"], FixtureJudgeish()),
         operators=fixture_operators(),
     )
     assert '"extract":null,"members":["member_1","member_2"],"normalize":null' in _combine_intent(
@@ -269,7 +270,7 @@ def test_reducer_fusion_compiles_inside_pipeline_fusion_and_corrective_loop() ->
 
     # (a) two reducer Fusions in one Pipeline
     pipeline = sf.Pipeline(
-        [reducer_fusion(), sf.Fusion(["provider/d", "provider/e"], synthesizer=FixtureVote())]
+        [reducer_fusion(), fusion_node(["provider/d", "provider/e"], FixtureVote())]
     )
     sources = _sources(compile_candidate(pipeline, operators=operators).url4)
     for name in ("synthesis_1", "synthesis_2"):
