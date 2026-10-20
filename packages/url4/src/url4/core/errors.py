@@ -76,6 +76,15 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_CONTENT_TYPE = "unsupported_content_type"
     """A resolved source has a media type this consumer cannot handle (Spec C §13.5.2,
     conformance case C8) — e.g. a PNG asked for as text. Permanent: the same bytes come back."""
+    SOURCE_NOT_FOUND = "source_not_found"
+    """The source names content its node does not hold (Spec C §13.2.5, conformance case
+    C5) — e.g. a ``blob:sha256/<hex>`` absent from the store. Permanent."""
+    BLOB_PEER_NOT_ALLOWED = "x.blob_peer_not_allowed"
+    """A ``url4://<node>/blob/…`` ref names a node the run's io does not allowlist: the
+    ``OME-1599`` interim rule, until blob refs carry trust checks. Permanent, no I/O."""
+    BLOB_DIGEST_MISMATCH = "x.blob_digest_mismatch"
+    """The bytes served for a content address do not hash to it. Permanent: a content
+    address that returns other content is refused, never passed on."""
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""

@@ -76,6 +76,7 @@ from url4.core._struct_values import (
     _parse_budget_value,
     _parse_weight_value,
 )
+from url4.core.blob_ref import bare_value
 from url4.core.descriptor_head import classify_head, first_colon, is_value_shaped
 from url4.core.errors import ErrorCode, ParseError
 from url4.core.nodes import (
@@ -584,8 +585,8 @@ def _varref_segment(token: str, i: int, path: list[str | int]) -> int | None:
     return result
 
 
-def _parse_bare(token: str) -> Text | Url:
-    """Bare-value consumption (§5.2 rules 5/10): any-scheme URI or plain text.
+def _parse_bare(token: str) -> Node:
+    """Bare-value consumption (§5.2 rules 5/10): any-scheme URI, ``blob:`` token, or text.
 
     Balanced ``(…)`` runs are tolerated inside URIs (``/wiki/Fish_(animal)``),
     preserving the pre-0.2 tolerance; in plain text a paren is structural and
@@ -606,7 +607,7 @@ def _parse_bare(token: str) -> Text | Url:
             raise ParseError(f"unexpected {ch!r} in bare value {token!r}", position=i)
         else:
             i += 1
-    return Url(token) if is_uri else Text(token)
+    return Url(token) if is_uri else bare_value(token)  # a blob: token is no text (C3/C4)
 
 
 # Dispatch by value-initial character (§5.2); populated after the handlers so
