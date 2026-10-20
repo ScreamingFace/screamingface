@@ -477,3 +477,79 @@ RB-1, RB-3, DS-1, DS-2.
 - **Unit 7 note:** when `to_python` switches to `rebuild`, the code string of a linked url4 must
   add the evaluation call (today's `_evaluation_call`) and the `import screamingface as sf` line,
   and a large candidate needs multi-line output (today's renderer writes one line).
+
+## Unit 7: swap — steps 7a–7c
+
+### Intent
+
+Steps 7a–7c of [prd/swap.md](../spec/2026-10-20-e4b-mapreduce-surface/prd/swap.md): the Node
+rename, `judge-template@2`, and the prep for the test migration (codemod, `>>` on `Recipe`, the gate
+references on `Signal`). 7d–7h are not in this round.
+
+### Outcome
+
+- **7a** (`8401ed7f3`): the 12 classes of swap §2 are `FusionNode` … `ReduceNode`, renamed by `ast`
+  spans (Name, ClassDef, ImportFrom alias, and the type text of `cast("X", ...)`), so no string or
+  docstring changed. Each defining module keeps `Fusion = FusionNode` (etc.) until 7e. A reducer
+  message reads `_public_name` (a ClassVar on the 10 Reducer nodes; `Reducer.__init_subclass__`
+  gives any other reducer, such as a test fixture, its class name). No byte, message or test
+  change: SDK suite 5540 passed, as before.
+  - **Deviation:** the annotations in the 4 `__init__` signatures that the public surface snapshot
+    records (`Rank`, `Filter`, `Gate`, `Vote`: `Judge | None`, `Gate | None`) keep the alias names,
+    with an alias import, so the snapshot does not move before 7e (7e regenerates it).
+  - **Spec gap:** `S/fusion.py:277` reads `type(needs[0]).__name__` of a `Logprob`/`Entropy`
+    signal source, not of a node, so it needs no `_public_name`; only 3 of the 4 listed sites read a
+    node class. `_public_name` is on the Reducer nodes only (no site reads it on `FusionNode` or
+    `GateNode`).
+- **7b** (`3a0b7d573` RED, `9a1486bb8` GREEN, `08957905f` pinned): `LABEL_TEMPLATE_ID` (`@1`),
+  `SCORES_TEMPLATE_ID` (`@2`, "Score each member as the rubric says."); `JudgeNode.order` only
+  selects the select step; `judge_intent` lost its `order` keyword; `_parts`/`judge_from_signals`
+  accept `@2` scores and `@1` label and refuse `@1` scores and `@3` ("URL4 Candidate has an
+  unsupported judge call"). `_refuse_min_order_judge` and the U5c `_check_judge_order` are gone.
+  New `ST/test_judge_template_v2.py` (TM-1, 8 tests, with the U5c row). Regenerated through the
+  writer functions, and `git diff --stat` on data showed exactly these: 4 goldens (345, 387, 397,
+  514) and 8 Engine fixtures (swap §3 list); word diff = only the first line and the last sentence.
+  - **Pinned test edits (owner list, MG-3):** as listed in swap §1 7b: `ST/test_filter_judge.py`
+    (:66, :68, :84 literals; FJ-D2 test renamed `test_sdk_filter_refuses_a_label_judge`, its 4
+    min-judge rows deleted), `ST/test_judge_order.py` (JO-3 literals; JO-2 rewritten as
+    `test_sdk_judge_order_min_writes_the_neutral_template`; `test_rank_vote_and_filter_refuse_a_min_order_judge`
+    deleted; the 2 tamper rows of `test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block`
+    deleted; JO-D4 literals; module docstring), `ST/test_judge_quorum.py:52`,
+    `ST/test_judge_reducer.py` (the id import, the prefix loop, :123), Engine
+    `test_sdk_judge_order_contracts.py`, `test_sdk_candidate_contracts.py`,
+    `test_sdk_filter_judge_contract.py`, `test_sdk_quorum_contracts.py` (the `@1` literals).
+  - **Spec gaps (forced by the template, not in the §1 7b list):** sha256/length pins of judge
+    url4s: `ST/test_judge_link_trace.py` (6 shas), `ST/test_judge_writer_warning.py` (sha, length
+    2558 → 2557), `ST/test_selection_input_bytes.py` (`_RANKED_SHA256`, the 514 golden),
+    `ST/test_signal_recipe_fixtures.py` (S10, S11 max; its "Never update" comment now names the
+    exception); and `ST/test_narrow_compile.py::test_nc3_an_argmin_by_the_judge_after_a_judge_narrow_step_is_refused`
+    deleted (it pinned the U5c refusal that 7b lifts).
+  - **Why the tamper rows go:** with `@2`, a min and a max judge make the same call, so a url4
+    whose select step is swapped from `best_holder{order:min}` to `max_score` is a valid max
+    judge, and there is no order tail to remove.
+- **7c** (`b65f0164c` RED, `047b0dbc8` GREEN, `ef22360ee` RED, `9d1b36599` GREEN): `.chosen()` /
+  `.mean()` on `_signals.Signal` (lazy `GateRef`; SI-1 kept); `SignalRef`, `refs._plain`,
+  `plain_comparison` deleted; `sx.signal is sf.signal`. `Recipe.__rshift__/__rrshift__` (lazy
+  chain import); `Step` keeps its own pair; `_Chainable` deleted; `.then` stays. New
+  `ST/test_swap_prep.py` (6). `packages/screamingface/scripts/migrate_surface.py`: R1–R13,
+  `--to sx|sf`, `--audit <base> [--allow FILE]` (per test function: assert / pytest.raises+warns /
+  assert-helper counts, each category compared), the `file:line: rule: reason` report (also for
+  an old class read as a value and `.synthesizer` reads). `ST/test_migrate_surface.py` (MG-1, 29).
+  Not applied to any test. A dry run over the 422 test files: 117 would change, 0 crashes, every
+  output parses, the audit finds no lost assertion; 87 files have at least one report line.
+  - **Codemod choices (spec silent):** a scores `sf.Judge` alone becomes `sx.Judge(...)` (its order
+    is read where a synthesizer names it), a label one `sx.JudgePick(...)`; a reader that names its
+    judge hoists the name (R7h); a site that fails keeps its whole text, inner calls included; R9
+    writes `sx.signal(...)` as the R9 row says; `sf.Reduce(op, mode)` is a hand case.
+- **Tests:** SDK 5613 collected; the full suite green in every gate run. Engine suite green.
+- **Gates (after 7b and at the end):** `run_gates.py screamingface-engine --base e4d44281c`: the
+  append-only check flags the owner-approved unit-1 files (2 schemas, `test_combine_consistency_words.py`,
+  `test_combine_evidence_words.py`) plus the 7b pinned edits (6 fixtures that existed at the base,
+  the 4 `test_sdk_*` files); with `--skip-append-only` ALL GATES GREEN (pyright needed
+  `uv sync --frozen` once: the inspect pitfall). `run_gates.py screamingface --base e4d44281c`:
+  flags the unit-1 files (`answer.v1.json`, `public_surface_snapshot.json`, `test_band_words.py`,
+  `test_evidence_words.py`, `test_gate_words.py`, `test_pick_output.py`) plus the 7b goldens (4)
+  and pinned tests (`test_filter_judge.py`, `test_judge_link_trace.py`, `test_judge_order.py`,
+  `test_judge_quorum.py`, `test_judge_reducer.py`, `test_judge_writer_warning.py`,
+  `test_selection_input_bytes.py`, `test_signal_recipe_fixtures.py`); with `--skip-append-only` ALL
+  GATES GREEN. `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
