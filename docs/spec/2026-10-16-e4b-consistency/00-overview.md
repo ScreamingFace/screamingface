@@ -210,7 +210,8 @@ snapshot is rewritten with `UPDATE_SURFACE_SNAPSHOT=1` (the run fails), then che
 
 - **E4b part 6** (built in parallel). It may extend the same shared files (contracts C8). A sum
   of signals can read `cons` like any declared name.
-- **E4b part 8** (token-level methods) does not touch the extra calls.
+- **Token-level methods** (UniTE, span ensemble) are not in E4b since 2026-10-20 (owner; comment on
+  OME-1290). They do not touch the extra calls.
 - **E4c** (OME-1291) can read `chosen:cons` in a cascade gate. Skipping the extra calls is not in
   E4c's scope today (D8).
 
