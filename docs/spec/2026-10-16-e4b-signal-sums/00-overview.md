@@ -217,7 +217,8 @@ ledger records it as a deviation.
 - **E4b part 7 (`consistency@N`).** Built in parallel. A `consistency` name can be a sum component
   with no change. The shared files are listed in C10; the second part to land regenerates the
   generated files.
-- **E4b part 8 (token-level methods).** No interaction.
+- **Token-level methods (UniTE, span ensemble).** Not in E4b since 2026-10-20 (owner; comment on
+  OME-1290). No interaction.
 - **E4e.** A non-linear formula or an uploaded function stays E4e (D7).
 
 ## 10. Spec review
