@@ -233,8 +233,29 @@ _NEW_FORM: dict[str, Callable[[], sf.Recipe]] = {
 _EXAMPLES = {example.slug: example for example in EXAMPLES}
 
 
-def test_every_example_in_the_new_form_is_a_doc_example() -> None:
-    assert set(_NEW_FORM) <= set(_EXAMPLES)
+# The doc examples with a judge, a pick, a merge, a rank or a concat: units 3 and 4 add their steps
+# and move them to _NEW_FORM.
+_LATER_UNITS = frozenset(
+    {
+        "readme-339-by-label",
+        "readme-345-by-scores",
+        "readme-387-judge-weighted",
+        "readme-397-judge-weighted-block",
+        "readme-418-pick-confidence",
+        "readme-419-pick-answer",
+        "readme-422-cheapest",
+        "readme-424-cheapest-block",
+        "readme-428-merged",
+        "readme-514-ranked",
+        "readme-528-rank-by-field",
+        "readme-529-joined",
+    }
+)
+
+
+def test_every_doc_example_is_in_the_new_form_or_pinned_for_a_later_unit() -> None:
+    assert set(_NEW_FORM) | _LATER_UNITS == set(_EXAMPLES)
+    assert not set(_NEW_FORM) & _LATER_UNITS
 
 
 @pytest.mark.parametrize("slug", sorted(_NEW_FORM))

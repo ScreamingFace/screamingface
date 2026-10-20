@@ -190,7 +190,7 @@ def test_lo3_the_compiler_sees_only_internal_values(monkeypatch: pytest.MonkeyPa
 def test_lo3_an_unlowered_chain_is_not_a_compile_kind() -> None:
     from screamingface.recipe import _recipe_kind
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="candidate must be an sf.Model, sf.Fusion, or sf.Pipeline"):
         _recipe_kind(sx.Fanout(_PAIR) >> sx.Vote())
 
 
@@ -301,6 +301,17 @@ def test_compile_evaluation_lowers_a_chain_it_is_given() -> None:
 def test_compile_evaluation_reads_values_the_entry_already_lowered() -> None:
     values = _candidate_values(sx.Fanout(_PAIR) >> sx.Synthesize("provider/s"))
 
-    lowered = compile_evaluation(values, _whole_candidate_benchmark(), 1, lowered=True)
+    lowered = compile_evaluation(values, _whole_candidate_benchmark(), 1, warn_judge_writers=False)
 
     assert lowered.candidates[0].name == "a+b"
+
+
+def test_compile_candidate_lowers_even_when_it_does_not_warn() -> None:
+    chain = sx.Fanout(_PAIR) >> sx.Vote()
+
+    assert (
+        compile_candidate(chain, operators=flow_operators(), warn_judge_writers=False).url4
+        == compile_candidate(
+            sf.Fusion(_PAIR, synthesizer=sf.Vote()), operators=flow_operators()
+        ).url4
+    )

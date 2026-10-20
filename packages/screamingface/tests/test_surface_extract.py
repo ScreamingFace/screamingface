@@ -11,9 +11,11 @@ STORY: as a researcher, I say which part of each answer the reducer reads, in on
 from __future__ import annotations
 
 import pytest
+from _combine_flow_fixtures import flow_operators
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
 
 _TRIO = ["provider/a", "provider/b", "provider/c"]
@@ -29,7 +31,9 @@ def _synthesizer(step: object) -> object:
 # ---------------------------------------------------------------- rule names
 
 
-@pytest.mark.parametrize("rule", ["last_line", "last_number", "boxed", "whole", "inspect_number"])
+@pytest.mark.parametrize(
+    "rule", ["last_line", "last_number", "boxed", "whole", "inspect_number", "inspect_aime"]
+)
 def test_a_rule_name_lowers_to_the_named_vote(rule: str) -> None:
     assert _synthesizer(sx.Vote(over=rule)) == sf.Vote(extract=rule)
 
@@ -170,7 +174,9 @@ def test_ex2_a_normalizer_on_both_the_step_and_the_extract_is_refused(
 def test_ex2_the_default_normalizer_is_not_a_conflict() -> None:
     extract = sf.Extract("regex", normalize="numeric", pattern="([0-9]+)")
 
-    assert sx.Vote(over=extract).over == extract
+    vote = sx.Vote(over=extract)
+    assert vote.over == sf.Extract("regex", pattern="([0-9]+)")
+    assert vote.normalize == "numeric"
 
 
 # ---------------------------------------------------------------- weights
@@ -203,3 +209,62 @@ def test_median_and_mean_refuse_a_judge_weight_with_the_rule_of_today() -> None:
 def test_vote_verify_takes_only_none() -> None:
     with pytest.raises(ValueError, match="verify= is reserved"):
         sx.Vote(verify=True)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------- equal values, equal bytes
+
+_LAST_LINE = sf.Extract("last_line")
+_LAST_LINE_TEXT = sf.Extract("last_line", normalize="text")
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "same"),
+    [
+        (sx.Vote(), sx.Vote(normalize="text"), True),
+        (sx.Vote(), sx.Vote(normalize=None), False),
+        (sx.Vote(over="field:a"), sx.Vote(over="field:a", normalize="text"), True),
+        (sx.Vote(over="field:a"), sx.Vote(over="field:a", normalize=None), False),
+        (sx.Vote(over=_LAST_LINE_TEXT), sx.Vote(over=_LAST_LINE, normalize="text"), True),
+        (sx.Vote(over=_LAST_LINE), sx.Vote(over=_LAST_LINE, normalize=None), True),
+        (sx.Vote(over=_LAST_LINE), sx.Vote(over=_LAST_LINE, normalize="text"), False),
+        (sx.Vote(over=_LAST_LINE), sx.Vote(over=_LAST_LINE_TEXT), False),
+    ],
+    ids=[
+        "rule-default-text",
+        "rule-none",
+        "field-default-text",
+        "field-none",
+        "extract-text-either-place",
+        "extract-none-either-way",
+        "extract-default-is-none",
+        "extract-text-vs-none",
+    ],
+)
+def test_equal_votes_compile_to_equal_bytes(first: sx.Vote, second: sx.Vote, same: bool) -> None:
+    def url4(vote: sx.Vote) -> str:
+        chain = sx.Fanout(_TRIO) >> vote
+        return compile_candidate(chain, operators=flow_operators()).url4
+
+    assert (first == second) is same
+    assert (url4(first) == url4(second)) is same
+
+
+def test_a_pinned_benchmark_rule_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^over='benchmark' names the benchmark's answer rule and takes no version$",
+    ):
+        sx.Vote(over="benchmark@1")
+
+
+def test_the_benchmark_rule_takes_no_normalizer() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^over='benchmark' takes the benchmark's own normalizer: leave out normalize=$",
+    ):
+        sx.Vote(over="benchmark", normalize="text")
+
+
+def test_a_judge_weighted_vote_checks_its_other_options_when_it_is_built() -> None:
+    with pytest.raises(TypeError):
+        sx.Vote(weights="score:judge", normalize=3)  # type: ignore[arg-type]

@@ -77,6 +77,39 @@ def test_a_named_nested_pipeline_keeps_its_grouping() -> None:
     )
 
 
+def test_an_unnamed_pipeline_of_today_is_flattened_as_an_unnamed_chain() -> None:
+    today = sf.Pipeline(["provider/x", "provider/y"])
+
+    assert sx.Pipeline([today, "provider/z"]) == sx.Pipeline(
+        [sx.Pipeline(["provider/x", "provider/y"]), "provider/z"]
+    )
+    assert sx.Pipeline([today, "provider/z"]).steps == (
+        sf.Model("provider/x"),
+        sf.Model("provider/y"),
+        sf.Model("provider/z"),
+    )
+
+
+def test_a_named_pipeline_of_today_keeps_its_grouping() -> None:
+    today = sf.Pipeline(["provider/x", "provider/y"], name="group")
+
+    assert sx.Pipeline([today, "provider/z"]).steps == (today, sf.Model("provider/z"))
+
+
+def test_an_optional_unnamed_pipeline_of_today_is_not_a_stage() -> None:
+    today = sf.Pipeline(["provider/x", "provider/y"], optional=True)
+
+    with pytest.raises(ValueError, match="optional=True is only supported on Fusion members"):
+        sx.Pipeline([today, "provider/z"])
+
+
+def test_the_chain_repr_does_not_show_private_fields() -> None:
+    text = repr(sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], name="group"))
+
+    assert "_is_named" not in text
+    assert "_stages" not in text
+
+
 def test_a_closed_block_is_recorded_as_a_block() -> None:
     chain = "provider/x" >> _block()
 
