@@ -61,7 +61,13 @@ streaming accounting later must not buffer the complete stream or delay its firs
           "redirect_hop_count": 0,
           "failure_code": null
         }
-      ]
+      ],
+      "succeeded_attempt_usage": {
+        "status": "complete",
+        "source": "provider_raw_response",
+        "input": {"total": 10, "uncached": 10, "cache_read": 0, "cache_write": 0, "cache_write_by_ttl": []},
+        "output": {"total": 5, "reasoning": null}
+      }
     },
     "request_economics": {
       "schema": "aigw.request_economics",
@@ -69,7 +75,8 @@ streaming accounting later must not buffer the complete stream or delay its firs
       "direct_cost_status": "complete",
       "known_direct_cost_subtotals": [
         {"amount": "0.001", "unit": "openrouter_credits", "source": "openrouter.usage.cost"}
-      ]
+      ],
+      "succeeded_attempt_direct_cost": {"status": "reported", "amount": "0.001", "unit": "openrouter_credits", "source": "openrouter.usage.cost"}
     }
   }
 }
@@ -133,6 +140,37 @@ time from the raw provider response, before any conversion. The block keeps its 
 status. One status is `archive_matched`: the amount comes from a real logged call of the same kind
 and model, not from this row's own call. `archive_matched` money is never added to `reported`
 money.
+
+## Cost of intelligence and actual spend
+
+The metadata answers two different questions. Use the correct fields for each one.
+
+**Cost of intelligence: what one answer of this model costs.** This view assumes that each model
+answers on the first attempt. A retry is an infrastructure event, so it does not change this
+value (OME-1686).
+
+- `request_economics.succeeded_attempt_direct_cost` is the `direct_cost` of the successful
+  attempt. It has the same shape as `attempts[].direct_cost`.
+- `usage_accounting.succeeded_attempt_usage` is the `usage` of the same attempt. It has the same
+  shape as `attempts[].usage`.
+
+**Actual spend: what this request cost.** Use `attempts[]`, `direct_cost_status` and
+`known_direct_cost_subtotals`, with the completeness rule in "Status rules". These fields include
+the failed attempts.
+
+Rules for the two successful-attempt keys:
+
+- One selection gives both keys: the attempt with `outcome == "succeeded"` and the highest
+  `sequence`. Two successful attempts are not expected; the rule makes the choice deterministic.
+- The gateway selects from all observed attempts, not only the rendered ones. Truncation at 64
+  attempts and the 64 KiB size bound never remove or change the two keys.
+- Both keys are `null` when no attempt succeeded: a cache hit, a frozen-copy replay, a failed
+  request, an unsupported provider, or no dispatch.
+- A non-`null` key can have an unknown status (for example `direct_cost.status = "unavailable"`).
+  This means that the successful attempt itself has no known cost or token count. It is not a
+  retry effect, and it is never zero.
+- The gateway does not force `null` on an error body. Consumers must not read `_aigw` from a
+  failed response to price a call.
 
 ## Money and precision
 

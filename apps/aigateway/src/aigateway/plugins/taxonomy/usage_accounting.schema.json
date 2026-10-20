@@ -294,7 +294,17 @@
     "usage_accounting": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "capture_status", "gateway_call_id", "cache", "observed_attempts", "rendered_attempts", "omitted_attempts", "attempts"],
+      "required": [
+        "schema",
+        "capture_status",
+        "gateway_call_id",
+        "cache",
+        "observed_attempts",
+        "rendered_attempts",
+        "omitted_attempts",
+        "attempts",
+        "succeeded_attempt_usage"
+      ],
       "properties": {
         "schema": {"const": "aigw.chat_usage_accounting"},
         "capture_status": {"enum": ["complete", "partial", "accounting_not_supported", "not_applicable"]},
@@ -311,7 +321,8 @@
         "observed_attempts": {"$ref": "#/$defs/count"},
         "rendered_attempts": {"type": "integer", "minimum": 0, "maximum": 64},
         "omitted_attempts": {"$ref": "#/$defs/count"},
-        "attempts": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/attempt"}}
+        "attempts": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/attempt"}},
+        "succeeded_attempt_usage": {"oneOf": [{"$ref": "#/$defs/usage"}, {"type": "null"}]}
       }
     },
     "cost_subtotal": {
@@ -327,12 +338,19 @@
     "request_economics": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema", "observed_new_attempts", "direct_cost_status", "known_direct_cost_subtotals"],
+      "required": [
+        "schema",
+        "observed_new_attempts",
+        "direct_cost_status",
+        "known_direct_cost_subtotals",
+        "succeeded_attempt_direct_cost"
+      ],
       "properties": {
         "schema": {"const": "aigw.request_economics"},
         "observed_new_attempts": {"$ref": "#/$defs/count"},
         "direct_cost_status": {"enum": ["complete", "partial", "unavailable", "not_applicable"]},
-        "known_direct_cost_subtotals": {"type": "array", "items": {"$ref": "#/$defs/cost_subtotal"}}
+        "known_direct_cost_subtotals": {"type": "array", "items": {"$ref": "#/$defs/cost_subtotal"}},
+        "succeeded_attempt_direct_cost": {"oneOf": [{"$ref": "#/$defs/direct_cost"}, {"type": "null"}]}
       }
     }
   }

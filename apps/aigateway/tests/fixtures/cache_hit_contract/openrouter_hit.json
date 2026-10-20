@@ -69,13 +69,15 @@
         "observed_attempts": 0,
         "rendered_attempts": 0,
         "omitted_attempts": 0,
-        "attempts": []
+        "attempts": [],
+        "succeeded_attempt_usage": null
       },
       "request_economics": {
         "schema": "aigw.request_economics",
         "observed_new_attempts": 0,
         "direct_cost_status": "not_applicable",
-        "known_direct_cost_subtotals": []
+        "known_direct_cost_subtotals": [],
+        "succeeded_attempt_direct_cost": null
       }
     }
   }
