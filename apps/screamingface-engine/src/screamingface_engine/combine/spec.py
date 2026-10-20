@@ -7,9 +7,9 @@ payload, and never an error message that repeats what a member or a judge wrote.
 
 INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3),
 ``gate`` (E4b part 5) and ``narrow`` (E4b map-reduce surface, narrow.md §2); ``null`` is allowed
-only where the type says so. Unknown keys,
-duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected. The ``gate`` object
-has one optional key of its own, ``abstain_band`` (E4b part 6).
+only where the type says so. Unknown keys, duplicate JSON keys, NaN/Infinity and nesting beyond 64
+levels are rejected. The ``gate`` object has one optional key of its own, ``abstain_band`` (E4b
+part 6).
 INVARIANT: a failure message names locations and rules, never input values.
 The spec text is the SDK's canonical JSON with ``$`` written as ``\\u0024``; ``json.loads`` gives
 the ``$`` back, so this parser needs no url4 escape handling.
@@ -166,7 +166,7 @@ REDUCE_SELECT_RULES: Mapping[str, frozenset[str]] = MappingProxyType(
 
 # E4b map-reduce surface (narrow.md §2, NR-S2): the only (reduce, select) pairs of a narrow step.
 # A narrow step must give a member subset, so its select is kept@1 or top_k@1. scores@1 is
-# allowed only with the judge source (the endpoint checks the args, ``_check_narrow_pair``).
+# allowed only with the judge source (``_check_narrow_stages``, at parse).
 # WHY exact ids, as REDUCE_SELECT_RULES: a new version of either op is a new pairing. The endpoint
 # checks the table after it resolves the steps (an unknown operator wins).
 NARROW_RULES: Mapping[str, str] = MappingProxyType(
