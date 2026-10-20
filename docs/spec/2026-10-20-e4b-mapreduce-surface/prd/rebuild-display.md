@@ -46,7 +46,7 @@ and the alias is the real `screamingface`.
 - The `_REDUCER_CLASSES` and `_BLOCK_FORMS` tables (`S/reducer.py:191`, `S/blocks.py:207`) lose the
   block form (O1). The internal classes keep `_from_spec`.
 
-Erratum U5d: until unit 6, `Url4.to_python()` refuses a url4 with `narrow`. Unit 6 lifts it.
+Erratum U5d/U6a: until the swap, `Url4.to_python()` refuses a url4 with `narrow`. The swap (unit 7, step 7e) switches `to_python()` to the new rebuild and lifts it.
 
 ## 2. `repr`
 
