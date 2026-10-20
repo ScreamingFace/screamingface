@@ -12,6 +12,7 @@ from __future__ import annotations
 from _reducer_fixtures import fixture_operators
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["provider/a", "provider/b", sf.Model("provider/c", optional=True)]
@@ -22,51 +23,41 @@ def _url4(recipe: sf.Recipe) -> str:
 
 
 def test_the_block_form_with_quorum_compiles_to_the_named_form() -> None:
-    block = sf.Pipeline(
-        [
-            sf.Fusion(_MEMBERS, synthesizer=sf.Reduce("context"), quorum=2),
-            sf.Model("provider/s"),
-        ]
-    )
-    named = sf.Fusion(_MEMBERS, synthesizer="provider/s", quorum=2)
+    block = sx.Fanout(_MEMBERS, quorum=2) >> sx.Synthesize(sf.Model("provider/s"))
+    named = sx.Fanout(_MEMBERS, quorum=2) >> sx.Synthesize("provider/s")
 
     assert _url4(block) == _url4(named)
 
 
 def test_a_rewritten_fusion_member_keeps_its_quorum() -> None:
-    inner = sf.Pipeline(
-        [sf.Fusion(["provider/a", "provider/b"], synthesizer=sf.Reduce("context")), "provider/s"]
+    inner = sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/s")
+    outer = sx.Fanout([inner, sf.Model("provider/c", optional=True)], quorum=1) >> sx.Synthesize(
+        "p/t"
     )
-    outer = sf.Fusion([inner, sf.Model("provider/c", optional=True)], synthesizer="p/t", quorum=1)
-    expected = sf.Fusion(
+    expected = sx.Fanout(
         [
-            sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s"),
+            sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/s"),
             sf.Model("provider/c", optional=True),
         ],
-        synthesizer="p/t",
         quorum=1,
-    )
+    ) >> sx.Synthesize("p/t")
 
     assert _url4(outer) == _url4(expected)
 
 
 def test_an_optional_block_form_member_stays_optional() -> None:
     pair = ["provider/a", "provider/b"]
-    block = sf.Fusion(
+    block = sx.Fanout(
         [
             "provider/x",
-            sf.Pipeline(
-                [sf.Fusion(pair, synthesizer=sf.Reduce("context")), "provider/s"], optional=True
-            ),
+            sx.Pipeline([sx.Fanout(pair), sx.Synthesize("provider/s")], optional=True),
         ],
-        synthesizer="provider/t",
         quorum=1,
-    )
-    named = sf.Fusion(
-        ["provider/x", sf.Fusion(pair, synthesizer="provider/s", optional=True)],
-        synthesizer="provider/t",
+    ) >> sx.Synthesize("provider/t")
+    named = sx.Fanout(
+        ["provider/x", sx.Pipeline([sx.Fanout(pair), sx.Synthesize("provider/s")], optional=True)],
         quorum=1,
-    )
+    ) >> sx.Synthesize("provider/t")
 
     assert _url4(block) == _url4(named)
     assert ";optional" in _url4(block)

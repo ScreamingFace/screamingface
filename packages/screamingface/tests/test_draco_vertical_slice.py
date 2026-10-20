@@ -13,6 +13,7 @@ from _model_parameter_fixtures import details as _model_details
 from url4 import RelExpr, Text, expr, iterate, render, src
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._core.ports import _RunOutcome
 from screamingface._engine.benchmark import BenchmarkResources, _success
 from screamingface._evaluation.benchmark import _decode_benchmark_resource
@@ -531,14 +532,13 @@ async def test_async_client_runs_candidates_concurrently_and_preserves_order() -
 
 def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
     client, _transport = _client()
-    fusion = sf.Fusion(
+    fusion = sx.Fanout(
         [
             sf.Model("provider/first", name="first"),
             sf.Model("provider/second", name="second"),
         ],
         name="research-pair",
-        synthesizer="anthropic/claude-haiku-4-5",
-    )
+    ) >> sx.Synthesize("anthropic/claude-haiku-4-5")
 
     with client:
         report = client.evaluate(fusion, benchmark="draco", limit=1)
@@ -564,14 +564,13 @@ def test_client_compiles_and_evaluates_a_fusion_as_one_candidate_url4() -> None:
 
 def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
     client, _transport = _client()
-    fusion = sf.Fusion(
+    fusion = sx.Fanout(
         [
             sf.Model("provider/first", name="gemini-pro"),
             sf.Model("provider/second", name="claude-opus-4.8"),
         ],
         name="named-pair",
-        synthesizer="anthropic/claude-haiku-4-5",
-    )
+    ) >> sx.Synthesize("anthropic/claude-haiku-4-5")
 
     with client:
         report = client.evaluate(fusion, benchmark="draco", limit=1)
@@ -593,25 +592,17 @@ def test_fusion_member_names_do_not_leak_into_url4_struct_keys() -> None:
 
 
 def test_compiler_preserves_equivalent_models_as_distinct_invocations() -> None:
-    left = sf.Fusion(
-        [sf.Model("provider/first"), sf.Model("provider/second")],
-        name="left",
-        synthesizer="anthropic/claude-haiku-4-5",
-    )
-    right = sf.Fusion(
-        [sf.Model("provider/first"), sf.Model("provider/judge")],
-        name="right",
-        synthesizer="anthropic/claude-haiku-4-5",
-    )
+    left = sx.Fanout(
+        [sf.Model("provider/first"), sf.Model("provider/second")], name="left"
+    ) >> sx.Synthesize("anthropic/claude-haiku-4-5")
+    right = sx.Fanout(
+        [sf.Model("provider/first"), sf.Model("provider/judge")], name="right"
+    ) >> sx.Synthesize("anthropic/claude-haiku-4-5")
     client, _transport = _client()
 
     with client:
         report = client.evaluate(
-            sf.Fusion(
-                [left, right],
-                name="outer",
-                synthesizer="anthropic/claude-haiku-4-5",
-            ),
+            sx.Fanout([left, right], name="outer") >> sx.Synthesize("anthropic/claude-haiku-4-5"),
             benchmark="draco",
             limit=1,
         )
@@ -622,31 +613,25 @@ def test_compiler_preserves_equivalent_models_as_distinct_invocations() -> None:
 
 
 def test_explicit_sample_names_prevent_model_content_deduplication() -> None:
-    left = sf.Fusion(
+    left = sx.Fanout(
         [
             sf.Model("provider/first", name="sample-1"),
             sf.Model("provider/second"),
         ],
         name="left",
-        synthesizer="anthropic/claude-haiku-4-5",
-    )
-    right = sf.Fusion(
+    ) >> sx.Synthesize("anthropic/claude-haiku-4-5")
+    right = sx.Fanout(
         [
             sf.Model("provider/first", name="sample-2"),
             sf.Model("provider/judge"),
         ],
         name="right",
-        synthesizer="anthropic/claude-haiku-4-5",
-    )
+    ) >> sx.Synthesize("anthropic/claude-haiku-4-5")
     client, _transport = _client()
 
     with client:
         report = client.evaluate(
-            sf.Fusion(
-                [left, right],
-                name="outer",
-                synthesizer="anthropic/claude-haiku-4-5",
-            ),
+            sx.Fanout([left, right], name="outer") >> sx.Synthesize("anthropic/claude-haiku-4-5"),
             benchmark="draco",
             limit=1,
         )

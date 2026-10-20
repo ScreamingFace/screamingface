@@ -17,6 +17,7 @@ import pytest
 from _combine_contract import engine_operators
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 MEMBERS = ["provider/a", "provider/b", "provider/c"]
@@ -67,11 +68,9 @@ def test_verbalized_ignore_case_compiles_into_the_spec() -> None:
 
 def test_verbalized_fusion_rebuilds_from_url4() -> None:
     pattern = r"Confidence:\s*([0-9]+)"
-    fusion = sf.Fusion(
-        MEMBERS,
-        signals={"conf": sf.Verbalized(pattern, ignore_case=True)},
-        synthesizer=sf.Pick(by_signal=sf.signal("conf"), order="max"),
-    )
+    fusion = sx.Fanout(
+        MEMBERS, signals={"conf": sf.Verbalized(pattern, ignore_case=True)}
+    ) >> sx.ArgMax("conf")
     url4 = compile_candidate(fusion, operators=engine_operators()).url4
     code = sf.Url4(url4).to_python()
     assert r"signals={'conf': sf.Verbalized('Confidence:\\s*([0-9]+)', ignore_case=True)}," in code
