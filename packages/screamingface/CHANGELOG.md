@@ -11,6 +11,8 @@
 
 ### Fixes
 
+* `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.
+
 * Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
 
 * Preserve upstream answers across composed quorum panels and reject executable quorum/member policy that disagrees with default-valued Recipe metadata during export and replay (`OME-1557`). Composed quorum Recipes require an Engine containing the patched URL4 runtime; deploy the Engine operation-reporting update as well to retain member outputs and accounting.
