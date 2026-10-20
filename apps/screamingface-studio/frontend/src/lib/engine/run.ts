@@ -116,7 +116,8 @@ const GAP_MS = 2_000;
 // U5: after a stop frame, wait this long for `terminated`, then fall back to `DELETE /`.
 const STOP_WAIT_MS = 5_000;
 // The SDK's HTTP timeout for every Engine request (`_engine/transport.py:141`, `timeout=30.0`),
-// used here as the whole deadline of one start request and of one artifact fetch.
+// used here as the whole deadline of each benchmark, token and start request and of one
+// artifact fetch.
 const REQUEST_DEADLINE_MS = 30_000;
 // The SDK's stop request timeout (`transport.py:62`, `_STOP_TIMEOUT_SECONDS = 5.0`).
 const DELETE_DEADLINE_MS = 5_000;
@@ -310,6 +311,7 @@ async function readAtMost(
 }
 
 const OVERSIZE = "The run's result is larger than its claim ticket said.";
+const MISSIZED = "The run's result is not the size its claim ticket said.";
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as BufferSource);
@@ -331,10 +333,20 @@ export async function startRun(options: StartRunOptions): Promise<CandidateResul
   }
 
   // Through the client's one request path (problem+json detail, redaction); its EngineError
-  // becomes a RunError here.
+  // becomes a RunError here. Bounded by the SDK's request timeout, like every Engine request.
   async function call(path: string, options: RequestOptions = {}): Promise<Record<string, unknown>> {
+    const request = new AbortController();
+    const abort = () => request.abort();
+    signal?.addEventListener("abort", abort);
     try {
-      return record(await engineRequest(deps.fetch, origin, path, { ...options, signal }));
+      const answer = await withDeadline(deps, REQUEST_DEADLINE_MS, (deadline) => {
+        deadline.addEventListener("abort", abort);
+        return engineRequest(deps.fetch, origin, path, { ...options, signal: request.signal });
+      });
+      if (answer === TIMED_OUT) {
+        throw new RunError("unreachable", "The Engine did not answer within 30 seconds.");
+      }
+      return record(answer);
     } catch (error) {
       if (!isEngineError(error)) throw error;
       if (error.kind === "unreachable") throw new RunError(signal?.aborted ? "stopped" : "unreachable");
@@ -344,7 +356,15 @@ export async function startRun(options: StartRunOptions): Promise<CandidateResul
         refused ? error.engineDetail : "The Engine returned an unexpected response.",
         refused ? `http_${error.status}` : undefined,
       );
+    } finally {
+      signal?.removeEventListener("abort", abort);
     }
+  }
+
+  async function mint(): Promise<string> {
+    const minted = text((await call("/token", { method: "POST" })).token);
+    if (!minted) throw new RunError("failed", "The Engine returned no capability token.");
+    return minted;
   }
 
   const benchmark = await call(
@@ -352,14 +372,14 @@ export async function startRun(options: StartRunOptions): Promise<CandidateResul
   );
   const benchmarkUrl4 = text(benchmark.url4);
   if (!benchmarkUrl4) throw new RunError("failed", "The Engine returned no url4 for this benchmark.");
-  const token = text((await call("/token", { method: "POST" })).token);
-  if (!token) throw new RunError("failed", "The Engine returned no capability token.");
+  const token = await mint();
   if (signal?.aborted) throw new RunError("stopped");
 
   return runOnSocket({
     deps,
     origin,
     token,
+    mint,
     linked: linkCandidate(candidateUrl4, benchmarkUrl4),
     useCache,
     onEvent,
@@ -371,6 +391,7 @@ type SocketRun = {
   deps: RunDeps;
   origin: string;
   token: string;
+  mint: () => Promise<string>;
   linked: string;
   useCache: boolean;
   onEvent?: (event: RunEvent) => void;
@@ -378,7 +399,7 @@ type SocketRun = {
 };
 
 function runOnSocket(run: SocketRun): Promise<CandidateResult> {
-  const { deps, origin, token, linked, useCache, onEvent, signal } = run;
+  const { deps, origin, token, mint, linked, useCache, onEvent, signal } = run;
   const capability = { "URL4-Capability": token };
 
   return new Promise<CandidateResult>((resolve, reject) => {
@@ -389,6 +410,8 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     let starting = false;
     let abortRequested = false;
     let stopping = false;
+    // The stop's `DELETE` fallback has gone out; it is sent once.
+    let stopDeleting = false;
     let terminated = false;
     // A local failure after the start: the DELETE cleanup is in flight, nothing else counts.
     let closing = false;
@@ -431,10 +454,12 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
       if (settled || closing) return;
       const error = new RunError(kind, detail, code);
       // Studio gave up on a run the Engine accepted and is still running (no root `terminated`
-      // yet, and no stop of its own under way): stop the Engine's paid work too, with the same
-      // bounded DELETE as a user stop, and report the original failure with the outcome.
-      if (started && !terminated && !stopping) void cleanUp(error);
-      else settle({ error });
+      // yet): stop the Engine's paid work too, with the same bounded DELETE as a user stop. With
+      // no stop under way the original failure is reported with the outcome; with one, the
+      // stop's DELETE fallback goes now and its outcome is the run's.
+      if (!started || terminated) settle({ error });
+      else if (stopping) void stopOverHttp();
+      else void cleanUp(error);
     }
 
     async function cleanUp(error: RunError) {
@@ -476,10 +501,13 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     }
 
     async function stopOverHttp() {
+      if (stopDeleting) return;
+      stopDeleting = true;
+      clear("stop");
       const outcome = await deleteRun();
       // The root's `terminated` won the race: its outcome stands.
       if (terminated) return;
-      fail(outcome === "stopped" ? "stopped" : "stop_unconfirmed");
+      settle({ error: new RunError(outcome === "stopped" ? "stopped" : "stop_unconfirmed") });
     }
 
     function requestStop() {
@@ -572,11 +600,20 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
           return value;
         });
       try {
+        // A token minted for this fetch, as the SDK's `_materialize_*`: the run's own token
+        // lives about 60 s, so by the end of a longer run the Engine refuses it.
+        let fresh: string;
+        try {
+          fresh = await mint();
+        } catch (error) {
+          if (isRunError(error) && error.kind === "unreachable") return UNREACHABLE;
+          throw error;
+        }
         let response: Response | typeof TIMED_OUT;
         try {
           response = await read(() =>
             deps.fetch(`${origin}/artifacts/${id}`, {
-              headers: capability,
+              headers: { "URL4-Capability": fresh },
               cache: "no-store",
               signal: controller.signal,
             }),
@@ -600,7 +637,7 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
           !response.headers.get("content-encoding") &&
           Number(declared) !== size
         ) {
-          throw new RunError("stream_failed", OVERSIZE);
+          throw new RunError("stream_failed", MISSIZED);
         }
         let bytes: Uint8Array | typeof TIMED_OUT;
         try {
@@ -732,7 +769,7 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
 
     function drain() {
       const before = lastSequence;
-      while (!settled && !terminated && pending.has(lastSequence + 1)) {
+      while (!settled && !terminated && !closing && pending.has(lastSequence + 1)) {
         const frame = pending.get(lastSequence + 1) as Frame;
         pending.delete(lastSequence + 1);
         lastSequence += 1;
@@ -805,7 +842,6 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     socket.onclose = () => {
       if (settled || terminated) return;
       if (stopping) {
-        clear("stop");
         void stopOverHttp();
       } else {
         fail(opened ? "stream_failed" : "unreachable");

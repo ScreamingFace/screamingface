@@ -371,3 +371,36 @@ were added as guards and passed already.
 **Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 377 tests; statements 94.43%,
 branches 89.82%, functions 95.98%, lines 96.81%) and `npm run build` all pass. Both SDK fixture
 scripts regenerate byte for byte, and no lockfile was touched.
+
+## Second code review follow-up (PR #1327, 2026-10-20)
+
+1. **A stream failure during a user stop.** An error frame, an unreadable frame or a missing
+   frame during a stop used to settle at once and cancel the stop's `DELETE` fallback, which
+   left the Engine's run going. It now sends that `DELETE` straight away (once) and reports
+   `stopped` / `stop_unconfirmed`. RED→GREEN: "deletes the run at once when … while stopping"
+   (3 cases).
+2. **Frames after a local failure.** `drain()` now stops dispatching once cleanup has begun, so
+   a queued root `terminated: succeeded` cannot resolve a run that already failed. RED→GREEN:
+   "ignores a queued success once a local failure has started the cleanup".
+3. **Benchmark and token deadlines.** Both requests now have the SDK's 30 s request timeout.
+   RED→GREEN: "gives up on a benchmark / token request the Engine never answers".
+4. **Artifact token.** Each artifact fetch attempt mints a fresh token, as the SDK's
+   `_materialize_*` does, because the run's own token expires after about 60 s. A mint that
+   cannot reach the Engine is retried like the fetch. RED→GREEN: "redeems an artifact with a
+   token minted after the run, not the run's own", "retries a mint that cannot reach the
+   Engine before fetching the artifact".
+5. **Size mismatch message.** A `Content-Length` that disagrees with the ticket now says the
+   result "is not the size its claim ticket said", not that it is larger. RED→GREEN: "names a
+   Content-Length below the ticket as a size mismatch, not an oversize".
+6. **Compose on the models page.** When the selection cannot compile (for example an Ollama id
+   such as `ollama/llama3:8b`, whose `:` is outside `MODEL_ROUTE`), the page now lists the
+   recipe issues instead of only disabling the button. RED→GREEN: "says why a fusion of the
+   checked models can't be composed".
+7. **Tidy-ups.** `sdkName` is folded into `recipeName`, and the builder reads `rendered.url4`
+   in place of an empty-string `recipe` fallback.
+
+Not changed: the artifact fetch still does not retry HTTP error answers, which matches the
+SDK (`transport.py`). `limit` is not validated either, because nothing calls `startRun` outside
+the tests yet.
+
+**Gates:** lint, typecheck and `npm test` (14 files / 387 tests) pass.

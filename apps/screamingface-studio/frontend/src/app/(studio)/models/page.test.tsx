@@ -329,4 +329,31 @@ describe("ModelsPage", () => {
       "openrouter/model-a",
     ]);
   });
+
+  it("says why a fusion of the checked models can't be composed", async () => {
+    connections = [connection("ollama", "Ollama", { status: "connected" })];
+    client.listModels.mockResolvedValue([{ id: "ollama/llama3:8b", owned_by: "ollama" }]);
+    useModelStore.setState({
+      library: [
+        {
+          id: "ollama/llama3:8b",
+          name: "ollama/llama3:8b",
+          providerId: "ollama",
+          providerName: "Ollama",
+        },
+      ],
+    });
+    const user = await openProvider("Ollama");
+    await user.click(screen.getByRole("button", { name: /^Starred/ }));
+    await user.click(
+      within(screen.getByRole("main")).getByRole("checkbox", {
+        name: "Select ollama/llama3:8b for composing",
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: "Compose a Fusion" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      'The Engine can\'t address the model id "ollama/llama3:8b" in url4.',
+    );
+  });
 });

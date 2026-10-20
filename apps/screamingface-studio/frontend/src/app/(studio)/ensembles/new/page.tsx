@@ -2349,7 +2349,6 @@ function EnsembleComposer() {
   const slots = useMemo(() => deriveSlots(root), [root]);
   const judge = useMemo(() => deriveJudge(root), [root]);
   const rendered = useMemo(() => renderRecipe(root), [root]);
-  const recipe = rendered.ok ? rendered.url4 : "";
   const draft = useMemo<SavedEnsemble>(
     () => buildDraft(ensembleId, name, root, runHistory),
     [ensembleId, name, root, runHistory],
@@ -2427,7 +2426,7 @@ function EnsembleComposer() {
 
   async function copyRecipe() {
     if (!rendered.ok) return;
-    await navigator.clipboard.writeText(recipe);
+    await navigator.clipboard.writeText(rendered.url4);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   }
@@ -2677,7 +2676,7 @@ function EnsembleComposer() {
               <div className="rounded-lg border bg-card p-2">
                 {rendered.ok ? (
                   <code className="block break-all font-mono text-[11px] text-primary/90">
-                    {recipe}
+                    {rendered.url4}
                   </code>
                 ) : (
                   <ul role="alert" className="space-y-1 text-[11px] text-destructive">

@@ -361,15 +361,11 @@ function flatStages(node: PipelineNode): RecipeNode[] {
 // The SDK's Recipe name: the given name, or the inferred one — a Model's last route segment
 // (`model.py`), members joined by `+` (`fusion.py`), stages joined by `->` (`pipeline.py`).
 export function recipeName(node: RecipeNode): string {
-  return sdkName(node);
-}
-
-function sdkName(node: RecipeNode): string {
   const name = givenName(node);
   if (name) return name;
   if (node.kind === "solo") return (node.model?.name ?? UNSET_MODEL).split("/").at(-1) as string;
-  if (node.kind === "fusion") return node.members.map(sdkName).join("+");
-  return flatStages(node).map(sdkName).join("->");
+  if (node.kind === "fusion") return node.members.map(recipeName).join("+");
+  return flatStages(node).map(recipeName).join("->");
 }
 
 // `_RecipeTopology` as `topology.py` `_encode_*` writes it, keys already in sorted order so
@@ -404,7 +400,7 @@ function compile(root: RecipeNode): string {
     sources.push(
       `${binding}:0.0:/${route}${paramQuery(node.params)}(${context})!${quoteText(encodePrompt(prompt))}`,
     );
-    return { binding, kind: "model", name: sdkName(node), named: Boolean(givenName(node)), role };
+    return { binding, kind: "model", name: recipeName(node), named: Boolean(givenName(node)), role };
   }
 
   // `_recipe`: a Model compiles as `model_N`, in the synthesis role when it is (or starts) a
@@ -427,7 +423,7 @@ function compile(root: RecipeNode): string {
         binding: synthesizer.binding,
         kind: "fusion",
         members,
-        name: sdkName(node),
+        name: recipeName(node),
         synthesizer,
       };
     }
@@ -440,7 +436,7 @@ function compile(root: RecipeNode): string {
     return {
       binding: stages.at(-1)?.binding ?? "",
       kind: "pipeline",
-      name: sdkName(node),
+      name: recipeName(node),
       named: Boolean(givenName(node)),
       stages,
     };
@@ -698,7 +694,7 @@ function buildTree(sources: ParsedSource[], metadata: string): RecipeNode {
         members: topology.members.map(node),
         synthesizer: node(topology.synthesizer),
       };
-      return name === sdkName(fusion) ? fusion : { ...fusion, name };
+      return name === recipeName(fusion) ? fusion : { ...fusion, name };
     }
     return fail(METADATA_MALFORMED);
   }

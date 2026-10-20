@@ -83,7 +83,9 @@ const ATTACHING = () =>
 type Call = { url: string; method: string; headers: Record<string, string> };
 
 type EngineRoutes = {
-  benchmark?: () => Reply;
+  benchmark?: Route;
+  // The answers to each `POST /token` in turn; any further mint returns TOKEN.
+  tokens?: Route[];
   start?: (Route | (() => Promise<Reply>))[];
   artifact?: Route | (() => Promise<Reply>);
   remove?: Route;
@@ -92,18 +94,21 @@ type EngineRoutes = {
 function fakeEngine(routes: EngineRoutes = {}) {
   const calls: Call[] = [];
   const start = [...(routes.start ?? [])];
+  const tokens = [...(routes.tokens ?? [])];
   const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = String(input);
     const method = init.method ?? "GET";
     calls.push({ url, method, headers: (init.headers ?? {}) as Record<string, string> });
-    if (url.startsWith(`${BASE}/v1/benchmarks/`)) {
-      return (routes.benchmark ?? (() => reply(200, { id: "ifeval", url4: BENCHMARK })))();
-    }
-    if (url === `${BASE}/token` && method === "POST") return reply(200, { token: TOKEN });
     const answer = (route: Route | (() => Promise<Reply>)) => {
       const result = route();
       return result === HANG ? hang(init.signal) : result;
     };
+    if (url.startsWith(`${BASE}/v1/benchmarks/`)) {
+      return answer(routes.benchmark ?? (() => reply(200, { id: "ifeval", url4: BENCHMARK })));
+    }
+    if (url === `${BASE}/token` && method === "POST") {
+      return answer(tokens.shift() ?? (() => reply(200, { token: TOKEN })));
+    }
     if (url.startsWith(`${BASE}/?q=`)) return answer(start.shift() ?? (() => reply(202, "")));
     if (url.startsWith(`${BASE}/artifacts/`) && routes.artifact) return answer(routes.artifact);
     if (method === "DELETE") return answer(routes.remove ?? (() => reply(204, "")));
@@ -328,6 +333,42 @@ describe("startRun", () => {
     expect(artifactCall?.headers["URL4-Capability"]).toBe(TOKEN);
   });
 
+  it("redeems an artifact with a token minted after the run, not the run's own", async () => {
+    const { outcome, engine, socket } = await started({
+      routes: {
+        tokens: [() => reply(200, { token: TOKEN }), () => reply(200, { token: "fresh-token" })],
+        artifact: () => reply(200, frames.artifactBody),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    const artifactCall = engine.calls.find((call) => call.url.includes("/artifacts/"));
+    expect(artifactCall?.headers["URL4-Capability"]).toBe("fresh-token");
+  });
+
+  it("retries a mint that cannot reach the Engine before fetching the artifact", async () => {
+    vi.useFakeTimers();
+    const { outcome, engine, socket } = await started({
+      routes: {
+        tokens: [
+          () => reply(200, { token: TOKEN }),
+          () => {
+            throw new TypeError("connection reset");
+          },
+        ],
+        artifact: () => reply(200, frames.artifactBody),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(engine.calls.filter((call) => call.url === `${BASE}/token`)).toHaveLength(3);
+  });
+
   it("refuses an artifact that fails its integrity check", async () => {
     const tampered = frames.artifactBody.replace('"score":1.0', '"score":0.9');
     const { outcome, socket } = await started({
@@ -467,6 +508,32 @@ describe("startRun", () => {
     expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
     expect(engine.calls.at(-1)?.method).toBe("DELETE");
   });
+
+  it.each([
+    ["the Engine sends an error frame", (socket: FakeSocket) => socket.receive(frames.errorInvalidFrame)],
+    ["the Engine sends an unreadable frame", (socket: FakeSocket) => socket.onmessage?.({ data: "{" })],
+    [
+      "a frame never arrives",
+      async (socket: FakeSocket) => {
+        socket.receive(HAPPY[0], HAPPY[2]);
+        await vi.advanceTimersByTimeAsync(2_000);
+      },
+    ],
+  ] as [string, (socket: FakeSocket) => unknown][])(
+    "deletes the run at once when %s while stopping",
+    async (_name, breakIt) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const { outcome, engine, socket } = await started({ signal: controller.signal });
+
+      controller.abort();
+      await breakIt(socket());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+      expect(engine.calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+    },
+  );
 
   it("stops a run whose start was in flight when aborted", async () => {
     const controller = new AbortController();
@@ -752,6 +819,25 @@ describe("startRun deadlines", () => {
     expect(engine.calls.at(-1)).toMatchObject({ method: "DELETE", url: `${BASE}/?topic=${TOPIC}` });
   });
 
+  it.each([
+    ["benchmark", { benchmark: () => HANG }],
+    ["token", { tokens: [() => HANG] }],
+  ] as [string, EngineRoutes][])(
+    "gives up on a %s request the Engine never answers",
+    async (_name, routes) => {
+      vi.useFakeTimers();
+      const { outcome } = await launch({ routes });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(await rejection(outcome)).toMatchObject({
+        kind: "unreachable",
+        message: "The Engine did not answer within 30 seconds.",
+      });
+      expect(FakeSocket.instances).toHaveLength(0);
+    },
+  );
+
   it("stops a run the Engine accepts after the user aborted", async () => {
     let accept: (value: Reply) => void = () => undefined;
     const accepted = new Promise<Reply>((resolve) => {
@@ -870,6 +956,24 @@ describe("startRun artifact limits", () => {
 
     expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
     expect(pulls).not.toHaveBeenCalled();
+  });
+
+  it("names a Content-Length below the ticket as a size mismatch, not an oversize", async () => {
+    const { outcome, socket } = await started({
+      routes: {
+        artifact: () =>
+          reply(200, frames.artifactBody, "application/json", {
+            "content-length": String(frames.artifactBody.length - 10),
+          }),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The run's result is not the size its claim ticket said.",
+    });
   });
 
   it("stops reading once the body passes the ticket's size", async () => {
@@ -1006,6 +1110,22 @@ describe("startRun cleanup after a local failure", () => {
       ]);
     },
   );
+
+  it("ignores a queued success once a local failure has started the cleanup", async () => {
+    vi.useFakeTimers();
+    const launched = await started();
+
+    const [root, result, again, terminated] = sequenced(HAPPY[0], HAPPY[10], HAPPY[10], HAPPY[11]);
+    // Queued behind a gap, so one drain dispatches all three.
+    launched.socket().receive(root, again, terminated, result);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await rejection(launched.outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The Engine sent this run's result twice.",
+      cleanup: "stopped",
+    });
+  });
 
   it("says when the Engine would not confirm the cleanup", async () => {
     vi.useFakeTimers();
