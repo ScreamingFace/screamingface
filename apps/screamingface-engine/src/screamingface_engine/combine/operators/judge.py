@@ -68,7 +68,7 @@ def scores(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
     if args["source"] == "values":
         return _value_scores(combine_input)
     raw = judge_reply(combine_input.signals, "scores@1")
-    parsed = parse_scores(raw, combine_input.judged_members)
+    parsed = parse_scores(raw, combine_input.judged)
     return Reduction(
         scores=MappingProxyType(
             {member: Decimal(repr(parsed[member])) for member in combine_input.present}

@@ -77,7 +77,8 @@ _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "wei
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
 _CUT_KEYS = {"k", "order"}
 _NARROW_KEYS = {"select", "kept"}
-_OPTIONAL_NARROW_KEYS = frozenset({"signal", "cut", "scores", "ranks"})  # absent when not set
+# Absent when not set; the Engine always writes reduce.
+_OPTIONAL_NARROW_KEYS = frozenset({"reduce", "signal", "cut", "scores", "ranks"})
 _GATE_KEYS = {"observe", "observed", "cmp", "threshold", "passed", "branch", "otherwise"}
 _OPTIONAL_GATE_KEYS = frozenset({"abstain_band"})  # E4b part 6: written only with a spec band
 _SAMPLE_COUNT_KEYS = {"member_id", "matched", "succeeded", "failed"}
@@ -216,6 +217,7 @@ def _narrow_record(value: object, label: str) -> CombineNarrow:
     scores = raw.get("scores")
     ranks = raw.get("ranks")
     return CombineNarrow(
+        reduce=_optional_text(raw.get("reduce"), f"{label} reduce"),
         select=_text(raw["select"], f"{label} select"),
         signal=_optional_text(raw.get("signal"), f"{label} signal"),
         kept=_texts(raw["kept"], f"{label} kept"),

@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from screamingface_engine.combine.ports import (
     EXCLUDE_REASONS,
     GATE_OBSERVE,
+    MAX_NARROW_STEPS,
     AbstainReason,
     AnswerReason,
     EvidenceKind,
@@ -115,13 +116,14 @@ class CutRecord(_EvidenceModel):
 class NarrowRecord(_EvidenceModel):
     """What one narrow step did (E4b map-reduce surface, narrow.md §4.2).
 
-    ``select`` is the pinned select op id; ``signal`` the key the step read (absent for a pattern
-    filter); ``kept`` the members it chose, in author order (empty: the step abstained, and it is
-    the last record); ``scores`` the step's score of each live member that had one; ``cut`` and
-    ``ranks`` only for a ``top_k@1`` step (the part 2 rules of ``top_k_ranks`` and ``CutRecord``).
-    A key that is not set is absent.
+    ``reduce`` and ``select`` are the pinned op ids of the step (a later ``filter@2`` is visible);
+    ``signal`` the key the step read (absent for a pattern filter); ``kept`` the members it chose,
+    in author order (empty: the step abstained, and it is the last record); ``scores`` the step's
+    score of each live member that had one; ``cut`` and ``ranks`` only for a ``top_k@1`` step (the
+    part 2 rules of ``top_k_ranks`` and ``CutRecord``). A key that is not set is absent.
     """
 
+    reduce: str | None = Field(default=None, exclude_if=lambda value: value is None)
     select: str
     signal: str | None = Field(default=None, exclude_if=lambda value: value is None)
     kept: list[str]
@@ -317,7 +319,10 @@ class CombineEvidence(_EvidenceModel):
     # keeps its v1 bytes. WHY after `cut`: the order of narrow.md §4.2 (after cut, before
     # consistency).
     narrow: list[NarrowRecord] | None = Field(
-        default=None, min_length=1, max_length=4, exclude_if=lambda value: value is None
+        default=None,
+        min_length=1,
+        max_length=MAX_NARROW_STEPS,
+        exclude_if=lambda value: value is None,
     )
     # E4b part 7 (P13, ans:Q4): each member's sample counts of the one declared consistency source.
     # Optional on the wire: written only when the spec declares consistency, so every other

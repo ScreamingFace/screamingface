@@ -333,7 +333,7 @@
     },
     "NarrowRecord": {
       "additionalProperties": false,
-      "description": "What one narrow step did (E4b map-reduce surface, narrow.md \u00a74.2).\n\n``select`` is the pinned select op id; ``signal`` the key the step read (absent for a pattern\nfilter); ``kept`` the members it chose, in author order (empty: the step abstained, and it is\nthe last record); ``scores`` the step's score of each live member that had one; ``cut`` and\n``ranks`` only for a ``top_k@1`` step (the part 2 rules of ``top_k_ranks`` and ``CutRecord``).\nA key that is not set is absent.",
+      "description": "What one narrow step did (E4b map-reduce surface, narrow.md \u00a74.2).\n\n``reduce`` and ``select`` are the pinned op ids of the step (a later ``filter@2`` is visible);\n``signal`` the key the step read (absent for a pattern filter); ``kept`` the members it chose,\nin author order (empty: the step abstained, and it is the last record); ``scores`` the step's\nscore of each live member that had one; ``cut`` and ``ranks`` only for a ``top_k@1`` step (the\npart 2 rules of ``top_k_ranks`` and ``CutRecord``). A key that is not set is absent.",
       "properties": {
         "cut": {
           "anyOf": [
@@ -367,6 +367,18 @@
           ],
           "default": null,
           "title": "Ranks"
+        },
+        "reduce": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reduce"
         },
         "scores": {
           "anyOf": [

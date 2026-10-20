@@ -38,6 +38,7 @@ from pydantic import (
 from screamingface_engine.combine.ports import (
     GATE_OBSERVE,
     MAX_DECLARED_SIGNALS,
+    MAX_NARROW_STEPS,
     CallFingerprint,
     EvidenceKind,
     GateCmp,
@@ -174,10 +175,6 @@ NARROW_RULES: Mapping[str, str] = MappingProxyType(
 )
 # The narrow reduce op that reads the judge reply (``score:judge``), with the judge source only.
 NARROW_JUDGE_REDUCE = "scores@1"
-# NR-S1 (O10): a bound for the spec and the evidence.
-MAX_NARROW_STEPS = 4
-# NR-S2b: the narrow reduce ops that read a signal or the judge, never the extracted value.
-_NARROW_NO_STAGES = frozenset({"by_signal@1", NARROW_JUDGE_REDUCE})
 
 
 class _SpecModel(BaseModel):
@@ -353,8 +350,9 @@ class CombineSpec(_SpecModel):
 
 
 def _check_narrow(spec: CombineSpec) -> None:
-    """NR-S1 and NR-S2b (narrow.md §2). The (reduce, select) pairs (NR-S2) are checked by the
-    endpoint after it resolves the steps. A message names the rule, never a value."""
+    """NR-S1 and the parse part of NR-S2b (narrow.md §2). The (reduce, select) pairs (NR-S2), the
+    signal and judge stage rule (NR-S2b) and NR-C1 are checked by the endpoint after it resolves
+    the steps. A message names the rule, never a value."""
     if "narrow" not in spec.model_fields_set:
         return
     narrow = spec.narrow
@@ -366,16 +364,10 @@ def _check_narrow(spec: CombineSpec) -> None:
 
 
 def _check_narrow_stages(item: NarrowSpec) -> None:
-    """NR-S2b: a narrow step that reads a signal or the judge has no extract and no normalize;
-    only a pattern filter may extract (the regex reads the original text, the extract decides
-    which members the step reads), and a normalize needs an extract."""
+    """NR-S2b, parse part: a narrow normalize needs an extract. The rule that a step which reads a
+    signal or the judge has no extract reads the resolved step (``_narrow_plan``)."""
     if item.normalize is not None and item.extract is None:
         raise ValueError("a narrow normalize needs a narrow extract")
-    reads_signal = item.reduce.op in _NARROW_NO_STAGES or (
-        item.reduce.op == "filter@1" and "key" in item.reduce.args
-    )
-    if reads_signal and item.extract is not None:
-        raise ValueError("a narrow step that reads a signal or the judge has no extract")
     # NR-S2 (the "source: judge" part): a values score reads the extracted value.
     if item.reduce.op == NARROW_JUDGE_REDUCE and item.reduce.args != {"source": "judge"}:
         raise ValueError("a narrow scores@1 step reads the judge")
@@ -799,7 +791,6 @@ __all__ = [
     "FALLBACK_JUDGE",
     "FALLBACK_WRITER",
     "MAX_MEMBERS",
-    "MAX_NARROW_STEPS",
     "MAX_WEIGHT",
     "NARROW_JUDGE_REDUCE",
     "NARROW_RULES",
