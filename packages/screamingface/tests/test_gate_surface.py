@@ -31,6 +31,7 @@ _SEVERITY = {
     "sev_b": sf.Verbalized(r"B: ([0-9]+)"),
 }
 _PICK = "Pick the best answer."
+_SHARE = r"^sf\.agreement\(\) is a share: compare it with numbers between 0 and 1$"
 
 
 def _url4(recipe: sf.Recipe) -> str:
@@ -42,6 +43,10 @@ def _gated(gate: sx.Gate, *, signals: Mapping[str, SignalSource] | None = None) 
 
 
 # ---------------------------------------------------------------- GA-P (README part 5 and 6)
+
+# The README recipes this copies: "Gate the vote" g1-g4 (S/README.md, about lines 1091-1128) and
+# the band gate s2 (about lines 1236-1242); the last two cases add a writer fallback with a band
+# and weights, and a judge-weighted gated vote.
 
 _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
     "g1-agreement-abstain": (
@@ -241,10 +246,44 @@ def test_between_checks_its_band(
 
 
 def test_an_agreement_band_is_a_share() -> None:
-    with pytest.raises(
-        ValueError, match=r"^sf\.agreement\(\)\.between\(lo, hi\) must be between 0 and 1$"
-    ):
+    with pytest.raises(ValueError, match=_SHARE):
         sx.agreement().between(0.5, 2)
+
+
+@pytest.mark.parametrize("threshold", [1.5, -0.1])
+def test_an_agreement_condition_is_a_share(threshold: float) -> None:
+    with pytest.raises(ValueError, match=_SHARE):
+        _ = sx.agreement() > threshold
+
+
+def test_a_huge_int_is_not_finite() -> None:
+    with pytest.raises(ValueError, match=r"^a gate condition compares with a finite number$"):
+        _ = sx.signal("risk").mean() <= 10**400
+    with pytest.raises(ValueError, match=r"^between\(lo, hi\) needs finite numbers$"):
+        sx.signal("risk").mean().between(0, 10**400)
+
+
+def test_minus_zero_is_zero_in_values_and_bytes() -> None:
+    def gate(zero: float, band: float) -> sx.Gate:
+        return sx.Gate(
+            when=sx.signal("risk").mean() <= zero,
+            then=sx.Vote(),
+            abstain_if=sx.signal("risk").mean().between(band, 1),
+        )
+
+    assert gate(-0.0, -0.0) == gate(0.0, 0.0)
+    assert _url4(_gated(gate(-0.0, -0.0), signals=_SEVERITY)) == _url4(
+        _gated(gate(0.0, 0.0), signals=_SEVERITY)
+    )
+
+
+def test_the_gate_references_have_source_like_reprs() -> None:
+    assert repr(sx.agreement()) == "agreement()"
+    assert repr(sx.agreement() >= 0.5) == "agreement() >= 0.5"
+    assert repr(sx.signal("conf").chosen() < 80) == "signal('conf').chosen() < 80.0"
+    assert repr(sx.signal("risk").mean().between(2.5, 3.5)) == (
+        "signal('risk').mean().between(2.5, 3.5)"
+    )
 
 
 # ---------------------------------------------------------------- GA-1 .. GA-6
@@ -257,7 +296,7 @@ def test_ga1_an_agreement_gate_keeps_a_high_agreement() -> None:
         r"'>'$",
     ):
         sx.Gate(when=sx.agreement() <= 0.7, then=sx.Vote())
-    with pytest.raises(ValueError, match=r"^an agreement gate threshold must be between 0 and 1$"):
+    with pytest.raises(ValueError, match=_SHARE):
         sx.Gate(when=sx.agreement() >= 1.5, then=sx.Vote())
 
 

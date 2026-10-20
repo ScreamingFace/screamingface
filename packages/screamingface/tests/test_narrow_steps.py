@@ -215,3 +215,20 @@ def test_e4_signals_with_a_narrow_step_before_synthesize_are_read() -> None:
             _WRITER,
         ]
     )
+
+
+def test_a_filter_stores_a_plain_signal() -> None:
+    from screamingface._signals import Signal, _Comparison
+
+    step = sx.Filter(where=sx.signal("field:confidence") > 0.7)
+    node = _narrowed(step)
+
+    assert isinstance(step.where, _Comparison)
+    assert type(step.where.signal) is Signal
+    assert isinstance(node, sf.Pipeline)
+    fusion = node.stages[0]
+    assert isinstance(fusion, sf.Fusion)
+    synthesizer = fusion.synthesizer
+    assert isinstance(synthesizer, sf.Filter)
+    assert isinstance(synthesizer.where, _Comparison)
+    assert type(synthesizer.where.signal) is Signal
