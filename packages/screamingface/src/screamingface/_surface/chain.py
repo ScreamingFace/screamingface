@@ -61,8 +61,6 @@ class Step(_Chainable):
     _category: ClassVar[_Category]
     # Concat: only sf.Synthesize can follow it (CH-7).
     _needs_writer: ClassVar[bool] = False
-    # Merge, JudgePick: the step makes its own model call over every member (NR-C1, O11).
-    _sees_every_member: ClassVar[bool] = False
     # Judge, JudgePick: the step writes the block's one judge signal (CH-3, O9).
     _writes_judge_signal: ClassVar[bool] = False
 
@@ -73,6 +71,12 @@ class Step(_Chainable):
 
     def _reads_judge(self) -> bool:
         """Whether this step reads ``score:judge``, which only a ``sf.Judge`` step writes."""
+
+        return False
+
+    def _sees_every_member(self) -> bool:
+        """Whether this step makes its own model call over every member (NR-C1, O11): Merge,
+        JudgePick, and a Gate whose fallback is a model."""
 
         return False
 
@@ -144,7 +148,7 @@ def _check_block(judge: Step | None, narrow: tuple[Step, ...], terminal: Step) -
 
     if judge is not None and terminal._writes_judge_signal:
         raise ValueError(_ONE_JUDGE)  # CH-3
-    if narrow and terminal._sees_every_member:
+    if narrow and terminal._sees_every_member():
         raise ValueError(  # NR-C1 (O11): the step would see the members the narrow step left out
             f"sf.{type(terminal).__name__} makes its own call over every member, so it cannot "
             "follow a narrow step"

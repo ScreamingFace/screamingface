@@ -295,7 +295,6 @@ class Merge(Step):
     """
 
     _category: ClassVar[_Category] = "reduce"
-    _sees_every_member: ClassVar[bool] = True
     fields: Mapping[str, FieldRule] = field(compare=False)
     # WHY a tuple: the fields compile in their order, so two Merges are equal only in one order.
     _items: tuple[tuple[str, FieldRule], ...] = field(repr=False)
@@ -305,6 +304,9 @@ class Merge(Step):
         checked = MergeNode(fields).fields
         object.__setattr__(self, "fields", checked)
         object.__setattr__(self, "_items", tuple(checked.items()))
+
+    def _sees_every_member(self) -> bool:
+        return True
 
     __hash__: ClassVar[Any] = None
 
