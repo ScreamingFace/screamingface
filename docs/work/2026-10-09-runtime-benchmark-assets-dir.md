@@ -64,3 +64,11 @@ Approved inputs (landing with the slice A PR, `studio-compose-fusion-run` branch
     line only when the override is in effect, keeping default output byte-for-byte unchanged.
   - Open: `up` adopting an already-running healthy stack does not compare that stack's recorded
     folder with a new `--benchmark-assets-dir` (ports are not compared either).
+
+## Rebase onto main (2026-10-20, PR #1328 merge conflicts)
+
+- **Conflicts:**
+  - `CHANGELOG.md`: kept main's new entries and put this entry back in its original place.
+  - `_runtime/cli.py` status JSON: #1217 merged with `artifacts_*` keys. Kept both those keys and this PR's `benchmarks` (from the effective folder) and `benchmark_assets_dir`. #1217 also records its folder in `runtime.json` state, the same pattern this PR uses, so nothing else changed.
+- **Main changed what `prepare` covers.** Five benchmarks are now local inspect Tasks (`5dff3a366`…`2d04f7810`), and `cli._BENCHMARKS` is `("medxpert",)`. This PR's tests hardcoded the old six-bundle list, so they now use `cli._BENCHMARKS`. No assertion was weakened.
+- **Gates:** ruff, format and pyright are clean. 4217 passed and 33 skipped, with 97.02% coverage. Notebooks pass.

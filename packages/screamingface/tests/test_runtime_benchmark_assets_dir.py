@@ -18,7 +18,7 @@ import pytest
 from screamingface._runtime import cli, server
 from screamingface._runtime.config import RuntimeConfig
 
-_BENCHMARKS = ("draco", "ifeval", "healthbench", "gdpval", "medxpert", "contracteval")
+_BENCHMARKS = cli._BENCHMARKS
 _REQUIRED = {
     "draco": ("criteria", "rubrics"),
     "ifeval": ("instructions", "nltk_data"),
@@ -30,7 +30,7 @@ _REQUIRED = {
 
 
 def _prepared_folder(root: Path) -> Path:
-    """A fixture folder holding all six bundles, as `prepare --all` leaves them."""
+    """A fixture folder holding every bundle, as `prepare --all` leaves them."""
     for name in _BENCHMARKS:
         destination = root / name
         destination.mkdir(parents=True)
@@ -313,7 +313,7 @@ def test_doctor_without_a_recorded_folder_reads_the_data_directory(
 
     output = capsys.readouterr().out
     assert "benchmark assets dir" not in output
-    assert f"WARN  {'draco assets':22} missing" in output
+    assert f"WARN  {_BENCHMARKS[0] + ' assets':22} missing" in output
 
 
 def test_doctor_ignores_the_folder_of_a_stack_it_does_not_own(
@@ -328,7 +328,7 @@ def test_doctor_ignores_the_folder_of_a_stack_it_does_not_own(
 
     cli._doctor(config)
 
-    assert f"WARN  {'draco assets':22} missing" in capsys.readouterr().out
+    assert f"WARN  {_BENCHMARKS[0] + ' assets':22} missing" in capsys.readouterr().out
 
 
 def test_status_json_reports_the_recorded_folder(
@@ -382,7 +382,7 @@ def test_prepare_refuses_the_option(tmp_path: Path) -> None:
     message = str(raised.value.code)
     assert "prepare" in message
     assert "--benchmark-assets-dir" in message
-    assert not (bundled / "draco").exists()
+    assert not (bundled / _BENCHMARKS[0]).exists()
 
 
 def test_prepare_refuses_the_option_from_a_real_process(tmp_path: Path) -> None:
