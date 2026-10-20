@@ -1183,7 +1183,11 @@ class Url4Executor(Executor):
         vocabulary.
         """
 
-        code = getattr(error, "code", None) if error is not None else None
+        # The handler's own code behind an `intent_error` names the failure (Spec C §13.6).
+        cause = getattr(error, "cause", None) if error is not None else None
+        code = getattr(cause, "code", None) or (
+            getattr(error, "code", None) if error is not None else None
+        )
         self._last_summary = RunSummary(
             outcome=outcome,
             trace_id=trace.trace_id if trace is not None else None,

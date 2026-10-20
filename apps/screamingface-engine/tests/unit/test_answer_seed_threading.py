@@ -36,7 +36,6 @@ from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
-from screamingface_engine.benchmarks.definition import inert_text
 from screamingface_engine.config import Settings
 from screamingface_engine.job_env import RunShape
 from screamingface_engine.request_scope import RequestScope, request_scope
@@ -46,6 +45,7 @@ from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.request_parameters import apply_answer_seed
+from url4 import literal
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.streaming.protocol import CachePolicy
@@ -325,7 +325,7 @@ def _candidate_wrapped(inner_ctx: str = "case-ctx", *, inner_params: str = "") -
                 # intent, the Recipe a source.
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context=render(src(text(inert_text(inner)), name="recipe")),
+                    context=render(src(literal(inner), name="recipe")),
                     intent=text(inner_ctx),
                     params=(("web_search", "false"),),
                 ),
@@ -479,7 +479,7 @@ async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
             src(
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context=render(src(text(inert_text(inner_candidate)), name="recipe")),
+                    context=render(src(literal(inner_candidate), name="recipe")),
                     intent=text("case-ctx"),
                     params=(("web_search", "false"),),
                 ),

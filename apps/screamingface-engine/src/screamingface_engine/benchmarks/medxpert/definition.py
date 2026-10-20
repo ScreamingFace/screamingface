@@ -47,17 +47,15 @@ from screamingface_engine.benchmarks.medxpert.revision_inputs import (
     PROTOCOL_REVISION,
 )
 from screamingface_engine.benchmarks.protocol import (
+    CASE_COUNT_SOURCE,
+    CASE_INDEX_SOURCE,
     CASE_SOURCE,
     EVALUATION_PROTOCOL_REVISION,
+    EXECUTION_SOURCE,
     attempt_source,
     evaluation_protocol,
 )
 from screamingface_engine.benchmarks.provenance import FrontierScore, HumanBaseline
-from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
-    CASE_COUNT_SOURCE,
-    CASE_INDEX_SOURCE,
-    EXECUTION_SOURCE,
-)
 from screamingface_engine.benchmarks.shared_grading.serving import (
     CASE_RESULT_SUFFIX,
     GRADED_SUFFIX,

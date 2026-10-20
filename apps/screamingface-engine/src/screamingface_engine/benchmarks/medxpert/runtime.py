@@ -22,6 +22,9 @@ from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_evaluation import CaseCheck
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error,
+)
+from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
 from screamingface_engine.benchmarks.grading_endpoints import JsonObject, candidate_answer
@@ -178,7 +181,7 @@ def commit_prompt(call: CodeCall) -> str:
         if any(not isinstance(value, str) for value in fields.values()):
             raise TypeError("MedXpertQA commit prompt fields must be text")
     except (KeyError, TypeError) as exc:
-        raise _definition_error(str(exc)) from exc
+        raise benchmark_contract_error(str(exc)) from exc
     return json.dumps(fields)
 
 

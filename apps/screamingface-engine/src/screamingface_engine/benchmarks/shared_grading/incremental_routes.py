@@ -11,14 +11,15 @@ from functools import lru_cache
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_evaluation import aggregate_code, text_input
 from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.protocol import (
+    CASE_COUNT_SOURCE,
+    CASE_INDEX_SOURCE,
+    EXECUTION_SOURCE,
+)
 from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 from url4 import CodeCall, CodeHandler
 from url4.core.errors import ResolutionError
 from url4.dag import collected_error
-
-EXECUTION_SOURCE = "execution"
-CASE_INDEX_SOURCE = "case_index"
-CASE_COUNT_SOURCE = "case_count"
 
 
 class CaseFinalizationError(ResolutionError):

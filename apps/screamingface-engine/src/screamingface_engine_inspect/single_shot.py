@@ -266,7 +266,6 @@ class ImportedBenchmark:
     scorer_factory: Callable[[], Any]
     multiple_correct: bool
     cases_route: str
-    check_route: str
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
@@ -583,7 +582,6 @@ def single_shot_benchmark(
     prefix: str = f"/benchmarks/{benchmark_id}/{revision}"
     routes: dict[str, str] = {
         "cases": f"{prefix}/cases",
-        "check": f"{prefix}/check",
         "check_surface": f"{prefix}/check-surface",
         "case_evaluation": f"{prefix}/case-evaluation",
         "aggregate": f"{prefix}/aggregate",
@@ -645,7 +643,6 @@ def single_shot_benchmark(
         scorer_factory=scorer_factory,
         multiple_correct=multiple_correct,
         cases_route=routes["cases"],
-        check_route=routes["check"],
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
@@ -692,7 +689,6 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
     root: Path = assets / benchmark_id
     routes: dict[str, str] = {
         "cases": benchmark.cases_route,
-        "check": benchmark.check_route,
         "check_surface": benchmark.check_surface_route,
         "case_evaluation": benchmark.case_evaluation_route,
         "aggregate": benchmark.aggregate_route,

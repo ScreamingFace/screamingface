@@ -72,9 +72,20 @@ class CostBreakdown(BaseModel):
         return self
 
 
+class ErrorCauseInfo(BaseModel):
+    """The handler's own failure behind an ``intent_error`` (Spec C §13.6)."""
+
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
+    code: str
+    permanent: bool = False
+
+
 class ErrorInfo(BaseModel):
     model_config = ConfigDict(use_attribute_docstrings=True)
 
     code: str
     message: str
     permanent: bool = False
+    cause: ErrorCauseInfo | None = None
+    """Present only when ``code`` is ``intent_error`` and its handler named its own code."""

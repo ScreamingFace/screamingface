@@ -15,7 +15,7 @@ from typing import ClassVar
 
 from url4.core.code import CodeCall, CodeInput, SupportsCode
 from url4.core.context import Context
-from url4.core.errors import ErrorCode, ResolutionError, Url4Error
+from url4.core.errors import ErrorCause, ErrorCode, ResolutionError, Url4Error
 from url4.core.intent import CodePointer
 from url4.dag.semantics.code_binding import (
     CodeSlot,
@@ -158,13 +158,14 @@ class CodeCallNode:
             result = await port.invoke_code(call)
         except Url4Error as exc:
             # WHY no pass-through, even for intent_error: C §13.6 makes it PERMANENT, and a
-            # handler's own error may say otherwise. Its code stays in the message.
-            raise _intent_error(path, f"{exc.code}: {exc}") from exc
+            # handler's own error may say otherwise. Its code stays in the message, and in
+            # the error's `cause` for a caller that acts on it.
+            raise _intent_error(path, f"{exc.code}: {exc}", _cause(exc)) from exc
         except Exception as exc:
             # WHY every exception: Spec C §13.6 — "when intent execution fails, the error
             # code is intent_error (permanent)". A handler bug is an execution failure,
             # and a caller must never retry it. Cancellation (BaseException) propagates.
-            raise _intent_error(path, f"{type(exc).__name__}: {exc}") from exc
+            raise _intent_error(path, f"{type(exc).__name__}: {exc}", _cause(exc)) from exc
         if not isinstance(result, str):
             raise _intent_error(path, f"returned {type(result).__name__}, not str")
         return result
@@ -201,8 +202,30 @@ def _gate_closed(settled: list[Settled], quorum: Quorum) -> ResolutionError:
     )
 
 
-def _intent_error(path: str, detail: str) -> Url4Error:
-    return Url4Error(f"code {path!r} failed: {detail}", code=ErrorCode.INTENT_ERROR, permanent=True)
+def _intent_error(path: str, detail: str, cause: ErrorCause | None = None) -> Url4Error:
+    return Url4Error(
+        f"code {path!r} failed: {detail}",
+        code=ErrorCode.INTENT_ERROR,
+        permanent=True,
+        cause=cause,
+    )
+
+
+def _cause(exc: BaseException) -> ErrorCause | None:
+    """The handler's own code and permanence, if it named a code; a nested cause wins.
+
+    INVARIANT: the innermost handler's failure is the cause, however many code calls it
+    crossed on the way up.
+    """
+
+    nested = getattr(exc, "cause", None)
+    if isinstance(nested, ErrorCause):
+        return nested
+    code = getattr(exc, "code", None)
+    if not isinstance(code, str) or not code:
+        return None
+    permanent = getattr(exc, "permanent", None)
+    return ErrorCause(code, permanent if isinstance(permanent, bool) else True)
 
 
 __all__ = ["CodeCallNode", "CodeSourcesNode"]

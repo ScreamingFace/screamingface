@@ -153,3 +153,32 @@ def test_numbering_is_all_or_nothing():
 
     assert numbered == "case_id=$item.id, case_index=$index, case_count='2', recipe=$candidate"
     assert plain == "recipe=$candidate"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", ["[1]", '[{"id": 1}, "private text"]', '[{"id": 1}, null]'])
+async def test_a_non_object_row_fails_before_any_candidate_call(rows):
+    # INVARIANT (restores the retired cases handler's row check): validation finishes before
+    # inference — a row that is not an object fails the run with `benchmark_contract_error`
+    # and no paid call.
+    from url4.core.errors import Url4Error
+
+    node = Url4Node()
+    called = []
+    install_cases(node, "/cases", lambda: rows)
+    node.code("/case")(lambda call: called.append(call) or "")
+    node.code("/aggregate")(_rows)
+    protocol = evaluation_protocol(
+        cases_route="/cases",
+        steps=(),
+        case_terminal="/case",
+        run_terminal="/aggregate",
+        selected_case_count=1,
+        available_case_count=1,
+    )
+    with pytest.raises(Url4Error) as caught:
+        await node.evaluate(render(protocol))
+    await node.aclose()
+    assert called == []
+    assert caught.value.code == "benchmark_contract_error"
+    assert "private" not in str(caught.value)

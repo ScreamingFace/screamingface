@@ -84,6 +84,7 @@ With `attempts=N` (OME-1458), the body has `attempt_1` … `attempt_N`. Attempt 
     commit_prompt:0.0:(question:src=$item.input, reasoning:src=$reasoning, trigger:src=$item.trigger)!/benchmarks/medxpert/<rev>/commit-prompt,
     attempt_1:0.0:/benchmarks/candidate?web_search=false&q=(<case facts>, recipe:src=$candidate)!'$commit_prompt',
     execution:0.0:(case:0.0:src=$item, reasoning:src=$reasoning, attempt_1:src=$attempt_1)!/benchmarks/medxpert/<rev>/case-evaluation,
+    case_index:0.0:src=$index,
     case_count:0.0:src=3
   )!/benchmarks/medxpert/<rev>/aggregate/case-result;iteration.slice=0:3;iteration.concurrency=1;iteration.on_error=collect,
   selected:0.0:src=3
@@ -112,6 +113,16 @@ today (`json.dumps({"question", "reasoning", "trigger"})`, see `case_request.can
   `case-attempts.v1`) row as today. `aggregate` reads the same rows, so grading and the report do
   not change.
 
+- **Rendered form.** url4's canonical renderer writes `name=value` / `name:0.0:value` for
+  `src=` bindings, quotes bare tokens (`'3'`), and omits `iteration.on_error=collect`
+  because it is the default. The AST is the one shown above.
+- **`$index`.** Parts A–C define only `$item`; url4 also binds the row index as `$index`. The
+  Engine uses it as a Case fact (activity position, early grading), never as model input.
+  This is an accepted url4 extension.
+- **The Recipe is a literal.** The top-level group ends in code, so it is an RDS scope where
+  quoted text is interpolated strictly (B §6.3). The linker carries the Recipe with `$` as
+  `$$` (`url4.literal`, B §6.2), and readers use `url4.literal_value`.
+
 ### 3.4 Grading stays in `aggregate`
 
 Grading waits for the aggregate on purpose:
@@ -138,11 +149,39 @@ lines, and collected error rows.
 | F6 — Engine activity reads the case position from the Candidate request. | `case_request.py`, `activity/observer.py` | The Candidate endpoint decodes the facts from the packed context. |
 | F7 — The url4 collected-error shape is private. | `url4/dag/nodes/_shared.py` `_error_payload` | `url4` exports it, so `case-evaluation` writes the same shape. |
 
+### 4.1 Failure codes across code steps (owner decision, 2026-10-20)
+
+A failed code step is `intent_error`, permanent (C §13.6). url4 keeps the handler's own code
+and permanence as the error's `cause` (`url4.core.errors.ErrorCause`), in the raised error, in
+a collected row (`"cause": {code, retryable}`) and in the terminal frame (`ErrorInfo.cause`).
+The Engine's report projection (`aggregation.public_error`), its run summary, and the
+Client's termination error read the cause first. So the public failure code and retry advice
+stay what the Benchmark declared (`benchmark_unavailable`, a retryable judge failure, …).
+`aggregate/case-result` returns its `CaseFinalizationError` row instead of raising, because
+`Scoring.finish` keys on that row's `kind`.
+
+### 4.2 Other behavior notes
+
+- **Cases validation.** The cases data route still refuses a booklet that is not an array of
+  objects before inference (`benchmark_contract_error`). A data route cannot see the run's
+  selection, so the retired "at least N rows" check now lives in the aggregate; a prepared
+  bundle holds exactly its declared Cases (Case Digest at image build).
+- **Client progress.** A Case counts as finished when its `case-evaluation` code call ends.
+  A Case whose Candidate fails now counts as finished and failed; before, it was not counted.
+- **Fair share.** Code calls are in process, so they take no fair-share I/O slot
+  (`FairShareIOLayer` forwards the code port ungated, like url4's `BoundedIOLayer`).
+- **Retired expressions.** A Candidate call that still carries `context_format` fails with a
+  named "retired Candidate protocol" error.
+- **Version skew.** New Client + old Engine and old Client + new Engine both run; only the
+  live progress count reads 0 across the skew.
+
 ## 5. Changes
 
 ### 5.1 `url4-sdk` (`packages/url4`)
 
-1. Export the collected-error payload builder (F7) as public API. No behavior change.
+1. Export the collected-error payload builder (F7) as public API (`url4.dag.collected_error`).
+2. `ErrorCause` on `Url4Error`, set by code calls; carried in collected rows and `ErrorInfo`.
+3. `url4.literal` / `literal_value`; `Url4Node.has_data`.
 
 ### 5.2 `screamingface-engine`
 
@@ -183,7 +222,7 @@ lines, and collected error rows.
 2. On the local kind cluster, with the seeded prod request cache, a 3-case ContractEval run
    gives the same per-case answers, per-case scores and headline F1 as `origin/main`.
 3. The same run makes zero new model calls (all cache hits).
-4. The Client progress bar and the Engine activity log show the same case counts as before.
+4. The Client progress bar and the Engine activity log count every finished Case (§4.2).
 5. Revision ids of every imported board and MedXpertQA do not change.
 6. Gates pass for `screamingface-engine`, `client-sf` and `url4-sdk`.
 

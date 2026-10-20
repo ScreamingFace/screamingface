@@ -24,7 +24,6 @@ import pytest
 from test_answer_seed_threading import MODEL, _MockAigateway
 
 from screamingface_engine.benchmarks.case_context import case_attempt_scope, current_case_attempt
-from screamingface_engine.benchmarks.definition import inert_text
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world.cache import (
     attempt_body_field,
@@ -35,7 +34,7 @@ from screamingface_engine.world.candidate_adapter import install_candidate_invoc
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.request_parameters import attempt_egress, derive_attempt_seed
-from url4 import RelExpr, expr, render, src, text
+from url4 import RelExpr, expr, literal, render, src, text
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.streaming.protocol import CachePolicy
@@ -55,7 +54,7 @@ def _candidate(attempt: str | None = None, *, inner_params: str = "") -> str:
                 # intent, the Recipe a source.
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context=render(src(text(inert_text(inner)), name="recipe")),
+                    context=render(src(literal(inner), name="recipe")),
                     intent=text("case-ctx"),
                     params=params,
                 ),

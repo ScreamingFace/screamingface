@@ -7,7 +7,7 @@ import pytest
 from screamingface_engine.benchmarks.case_context import current_case_position
 from screamingface_engine.benchmarks.protocol import attempt_steps, evaluation_protocol
 from url4 import CodeCall, render
-from url4.core.errors import CollectionError
+from url4.core.errors import Url4Error
 from url4.peer.server import Url4Node
 
 
@@ -56,10 +56,10 @@ async def test_native_index_supplies_one_based_position_without_selector(monkeyp
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw", ["{}", "42", "invalid"])
 async def test_cases_validate_selected_collection_before_any_model_calls(raw):
-    # WHY narrower (spec R3): the cases are a data reference now, so url4 parses the
-    # collection (§5.3.7) and refuses a non-array before any row runs. The retired cases
-    # endpoint also refused short or non-object arrays; that check is gone (see the
-    # spec's runtime facts).
+    # WHY (spec R3): the cases are a data reference now; the data route still refuses a body
+    # that is not an array of objects before any row runs, with the declared contract code.
+    # The retired "at least N rows" check moved to the aggregate (a route cannot see the
+    # run's selection).
     from screamingface_engine.benchmarks.case_selection import install_cases
 
     node = Url4Node()
@@ -68,11 +68,12 @@ async def test_cases_validate_selected_collection_before_any_model_calls(raw):
     node.endpoint("/answer")(lambda request: seen.append(request.context) or "answer")
     node.code("/case")(lambda call: "case")
     try:
-        with pytest.raises(CollectionError, match="malformed|not valid JSON"):
+        with pytest.raises(Url4Error) as caught:
             await node.evaluate(
                 "(e:0.0:/cases*(c:0.0:$item, r:0.0:/answer?q=($item)!'a')"
                 "!/case;iteration.slice=0:2)!/case"
             )
+        assert caught.value.code == "benchmark_contract_error"
         assert seen == []
     finally:
         await node.aclose()

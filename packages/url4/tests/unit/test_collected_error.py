@@ -50,3 +50,56 @@ def test_it_is_the_row_iteration_collects() -> None:
     result = asyncio.run(node.evaluate("('a')*(x:0.0:/fail?q=('y')!'z')!'$x'"))
 
     assert json.loads(result.text) == [collected_error(failure)]
+
+
+def test_a_failed_code_call_is_intent_error_with_its_handlers_cause() -> None:
+    # INVARIANT: Spec C §13.6 — a failed intent is intent_error, permanent; the handler's own
+    # code and retryability ride beside it as the `cause`, in the raised error and in the row.
+    from url4 import RelUrl, expr, render, src, text
+    from url4.core.errors import ErrorCause, Url4Error
+
+    node = Url4Node("cause")
+
+    @node.code("/judge")
+    def judge(call: object) -> str:
+        raise ResolutionError("judge ran dry", code="judge_reply_invalid", permanent=False)
+
+    expression = render(expr(src(text("x"), name="a", weight=0.0), intent=RelUrl("/judge")))
+    try:
+        asyncio.run(node.evaluate(expression))
+    except Url4Error as exc:
+        failure = exc
+    else:  # pragma: no cover - the call must fail
+        raise AssertionError("the code call did not fail")
+
+    assert failure.code == "intent_error"
+    assert failure.permanent is True
+    assert failure.cause == ErrorCause("judge_reply_invalid", permanent=False)
+    assert collected_error(failure)["error"]["cause"] == {
+        "code": "judge_reply_invalid",
+        "retryable": True,
+    }
+
+
+def test_a_code_call_inside_a_code_call_keeps_the_innermost_cause() -> None:
+    from url4.core.errors import ErrorCause, Url4Error
+    from url4.dag.nodes.code import _cause
+
+    inner = Url4Error("outer", code="intent_error", cause=ErrorCause("benchmark_unavailable", True))
+
+    assert _cause(inner) == ErrorCause("benchmark_unavailable", True)
+    assert _cause(ValueError("no code")) is None
+
+
+def test_the_terminal_frame_carries_the_cause() -> None:
+    from url4.core.errors import ErrorCause, Url4Error
+    from url4.streaming.lifecycle import _error_info
+
+    info = _error_info(
+        Url4Error("failed", code="intent_error", cause=ErrorCause("benchmark_unavailable", True))
+    )
+
+    assert info.code == "intent_error"
+    assert info.cause is not None
+    assert (info.cause.code, info.cause.permanent) == ("benchmark_unavailable", True)
+    assert _error_info(ValueError("plain")).cause is None

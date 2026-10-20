@@ -78,11 +78,10 @@ _PREFLIGHT_PROBLEM_CAP = 8
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkRoutes:
-    """The four addresses a benchmark's expression references, derived from benchmark identity."""
+    """The addresses a benchmark's expression references, derived from benchmark identity."""
 
     prefix: str
     cases: str
-    check: str
     case_evaluation: str
     aggregate: str
 
@@ -96,7 +95,6 @@ def benchmark_routes(benchmark_id: str, revision: str) -> BenchmarkRoutes:
     return BenchmarkRoutes(
         prefix=prefix,
         cases=f"{prefix}/cases",
-        check=f"{prefix}/check",
         case_evaluation=f"{prefix}/case-evaluation",
         aggregate=f"{prefix}/aggregate",
     )
@@ -162,8 +160,8 @@ def install_benchmark(node: Url4Node, root: Path, benchmark: ServedBenchmark) ->
     """
 
     routes = benchmark.routes
-    install_cases(node, routes.cases, serve_cases(root, benchmark))
     available = benchmark_case_count(root, declared=benchmark.declared_case_count)
+    install_cases(node, routes.cases, serve_cases(root, benchmark))
     code: list[tuple[str, CodeHandler]] = [
         (
             routes.case_evaluation,

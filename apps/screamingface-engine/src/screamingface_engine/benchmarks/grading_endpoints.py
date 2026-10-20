@@ -23,9 +23,8 @@ from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
 CaseGradeBuilder = Callable[[int, list[JsonObject]], JsonObject]
-AggregateAdapter = Callable[[str, int], JsonObject]
 #: The async face (OME-1240): a judged benchmark's adapter awaits model calls, so its
-#: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
+#: code must be awaited by the node on the RUN's own loop — see case_evaluation.aggregate_code.
 AsyncAggregateAdapter = Callable[[str, int], Awaitable[JsonObject]]
 
 

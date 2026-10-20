@@ -35,15 +35,29 @@ from url4.core.nodes import Expression
 # grading and the model-call bytes did not move, so no Benchmark revision id may move.
 EVALUATION_PROTOCOL_REVISION = "outcome-preserving-case-evaluation-v1"
 
+# The named sources the per-Case and per-run code reads (spec R1: the names ARE the contract).
 CASE_SOURCE = "case"
 EVALUATIONS_SOURCE = "evaluations"
 SELECTED_SOURCE = "selected"
+EXECUTION_SOURCE = "execution"
+CASE_INDEX_SOURCE = "case_index"
+CASE_COUNT_SOURCE = "case_count"
+_ATTEMPT_PREFIX = "attempt_"
 
 
 def attempt_source(number: int) -> str:
     """The body source name of Attempt ``number`` (``attempt_1`` … ``attempt_N``)."""
 
-    return f"attempt_{positive_count(number, 'attempt')}"
+    return f"{_ATTEMPT_PREFIX}{positive_count(number, 'attempt')}"
+
+
+def attempt_number(name: str) -> int | None:
+    """The Attempt a body source name holds, or ``None`` for any other source."""
+
+    digits = name.removeprefix(_ATTEMPT_PREFIX)
+    if digits == name or not digits.isascii() or not digits.isdigit() or digits.startswith("0"):
+        return None
+    return int(digits)
 
 
 def evaluation_protocol(
@@ -124,17 +138,20 @@ def attempt_steps(
     )
 
 
-def _route(value: object, label: str) -> str:
+def _route(value: object, label: str) -> None:
     if not isinstance(value, str) or not value.startswith("/"):
         raise ValueError(f"{label} must be an absolute URL4 path")
-    return value
 
 
 __all__ = [
+    "CASE_COUNT_SOURCE",
+    "CASE_INDEX_SOURCE",
     "CASE_SOURCE",
     "EVALUATIONS_SOURCE",
     "EVALUATION_PROTOCOL_REVISION",
+    "EXECUTION_SOURCE",
     "SELECTED_SOURCE",
+    "attempt_number",
     "attempt_source",
     "attempt_steps",
     "evaluation_protocol",

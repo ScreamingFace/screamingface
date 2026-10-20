@@ -12,8 +12,6 @@ outcome-preserving envelope compose inside those two calls.
 
 from __future__ import annotations
 
-import json
-import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -34,6 +32,7 @@ from screamingface_engine.benchmarks.grading_endpoints import (
     benchmark_unavailable,
     compact_json,
     json_object,
+    positive_case_id,
     positive_count,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
@@ -41,6 +40,7 @@ from screamingface_engine.benchmarks.protocol import (
     CASE_SOURCE,
     EVALUATIONS_SOURCE,
     SELECTED_SOURCE,
+    attempt_number,
 )
 from url4 import CodeCall, CodeHandler
 from url4.dag import collected_error
@@ -48,8 +48,6 @@ from url4.dag import collected_error
 #: One Benchmark's check: the Case id, one Candidate Invocation, and the Case's other named
 #: sources (e.g. MedXpertQA's turn-1 ``reasoning``) → the Benchmark's own check record.
 CaseCheck = Callable[[int, str, Mapping[str, object]], JsonObject]
-
-_ATTEMPT = re.compile(r"attempt_([1-9][0-9]*)")
 
 
 def case_evaluation_code(
@@ -73,7 +71,11 @@ class _CaseEvaluation:
     __slots__ = ("_check", "_grade", "_label")
 
     def __init__(
-        self, label: str, check: CaseCheck, build_case_grade: CaseGradeBuilder, observe: bool
+        self,
+        label: str,
+        check: CaseCheck,
+        build_case_grade: CaseGradeBuilder,
+        observe_grading: bool,
     ) -> None:
         def grade(case_id: int, record: JsonObject) -> JsonObject:
             try:
@@ -83,7 +85,7 @@ class _CaseEvaluation:
 
         self._label = label
         self._check = check
-        self._grade = observe_phase(ActivityKind.GRADING)(grade) if observe else grade
+        self._grade = observe_phase(ActivityKind.GRADING)(grade) if observe_grading else grade
 
     def __call__(self, call: CodeCall) -> str:
         try:
@@ -114,7 +116,10 @@ class _CaseEvaluation:
             # WHY every exception: the retired `iterate(on_error=collect)` caught them all,
             # and a scorer bug must never poison the collected row.
             grading = collected_error(exc)
-        payload = graded_answer_payload(case_id, invocation, [grading])
+        try:
+            payload = graded_answer_payload(case_id, invocation, [grading])
+        except (TypeError, ValueError) as exc:
+            raise benchmark_contract_error(f"{self._label}: {exc}") from exc
         failed = isinstance(grading, Mapping) and "error" in grading
         report_case_grading(case_id, "failed" if failed else "completed")
         return payload
@@ -134,9 +139,9 @@ def aggregate_code(
 
     @observe_phase(ActivityKind.AGGREGATION)
     async def handler(call: CodeCall) -> str:
-        selected = selected_case_count(call, available_case_count)
+        selected = _selected(call, available_case_count)
         try:
-            result = await aggregate(_json_text(call.input(EVALUATIONS_SOURCE).value), selected)
+            result = await aggregate(text_input(call, EVALUATIONS_SOURCE), selected)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
         return compact_json(result)
@@ -144,7 +149,7 @@ def aggregate_code(
     return handler
 
 
-def selected_case_count(call: CodeCall, available_case_count: int) -> int:
+def _selected(call: CodeCall, available_case_count: int) -> int:
     """The run's selected Case count, from its ``selected`` source."""
 
     raw = call.input(SELECTED_SOURCE).value
@@ -163,7 +168,8 @@ def selected_case_count(call: CodeCall, available_case_count: int) -> int:
 def text_input(call: CodeCall, name: str) -> str:
     """One named source as text; a structured value is re-encoded as compact JSON."""
 
-    return _json_text(call.input(name).value)
+    value = call.input(name).value
+    return value if isinstance(value, str) else compact_json(value)
 
 
 def _split_inputs(call: CodeCall) -> tuple[list[str], dict[str, object]]:
@@ -174,13 +180,13 @@ def _split_inputs(call: CodeCall) -> tuple[list[str], dict[str, object]]:
     for item in call.inputs:
         if item.name is None or item.name == CASE_SOURCE:
             continue
-        match = _ATTEMPT.fullmatch(item.name)
-        if match is None:
+        number = attempt_number(item.name)
+        if number is None:
             others[item.name] = item.value
             continue
         if not isinstance(item.value, str):
             raise TypeError(f"{item.name} must be a Candidate Invocation record")
-        attempts[int(match.group(1))] = item.value
+        attempts[number] = item.value
     if not attempts or sorted(attempts) != list(range(1, len(attempts) + 1)):
         raise ValueError("Attempts must be consecutive attempt_1..attempt_N")
     return [attempts[number] for number in sorted(attempts)], others
@@ -202,23 +208,12 @@ def _envelope_case_id(case: JsonObject) -> str:
 def _check_case_id(case: JsonObject) -> int:
     """The positive integer identity a check reads (the row's ``case_id``, else its ``id``)."""
 
-    raw: Any = case.get("case_id", case.get("id"))
-    if isinstance(raw, bool) or not isinstance(raw, int | str):
-        raise ValueError("case_id must be a positive integer")
-    selected = int(raw)
-    if selected < 1:
-        raise ValueError("case_id must be a positive integer")
-    return selected
-
-
-def _json_text(value: object) -> str:
-    return value if isinstance(value, str) else json.dumps(value)
+    return positive_case_id(case.get("case_id", case.get("id")))
 
 
 __all__ = [
     "CaseCheck",
     "aggregate_code",
     "case_evaluation_code",
-    "selected_case_count",
     "text_input",
 ]

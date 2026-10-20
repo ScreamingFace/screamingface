@@ -9,9 +9,15 @@ pytest.importorskip("inspect_ai.scorer")
 from test_inspect_gsm8k_benchmark import GSM8K_BENCHMARK, _node, _row  # noqa: E402
 
 from screamingface_engine.activity.observer import ActivityObserver  # noqa: E402
-from screamingface_engine.benchmarks.definition import inert_text  # noqa: E402
 from screamingface_engine.observations import RunObservations  # noqa: E402
-from url4 import RelUrl, expr, render, src, text  # noqa: E402
+from url4 import (  # noqa: E402
+    RelUrl,
+    expr,
+    literal,  # noqa: E402
+    render,
+    src,
+    text,
+)
 from url4.dag import run as execute  # noqa: E402
 from url4.observe import Log  # noqa: E402
 
@@ -31,7 +37,7 @@ async def test_imported_aggregate_publishes_prefix_score_and_preserves_final(tmp
     expression = render(
         expr(
             src(
-                text(inert_text(json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 59")]))),
+                literal(json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 59")])),
                 name="evaluations",
                 weight=0.0,
             ),

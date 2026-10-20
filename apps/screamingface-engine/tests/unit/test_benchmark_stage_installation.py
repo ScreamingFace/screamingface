@@ -132,8 +132,7 @@ async def test_real_url4_candidate_stage_is_node_attached_and_output_unchanged()
     async def answer(request):
         return "a private answer"
 
-    from screamingface_engine.benchmarks.definition import inert_text
-    from url4 import RelExpr, Text, expr, render, src
+    from url4 import RelExpr, Text, expr, literal, render, src
 
     recipe = "(model:0.0:/fake()!'Answer')!'$model'"
     expression = render(
@@ -144,7 +143,7 @@ async def test_real_url4_candidate_stage_is_node_attached_and_output_unchanged()
                 RelExpr(
                     path="/benchmarks/candidate",
                     params=(("web_search", "false"),),
-                    context=render(src(Text(inert_text(recipe)), name="recipe")),
+                    context=render(src(literal(recipe), name="recipe")),
                     intent=Text("question"),
                 ),
                 name="result",
@@ -215,8 +214,9 @@ async def test_imported_benchmark_stages_use_the_same_optional_port(monkeypatch,
         # WHY: the check runs in process inside the case-evaluation code (spec 2026-10-20 R1);
         # its answering stage is still the only stage that Case record emits.
         records.clear()
-        # A private non-record attempt fails the Case after its check stage ran and failed.
-        with pytest.raises(ValueError):
+        # A private non-record attempt fails the Case after its check stage ran and failed,
+        # with the declared contract code (not a bare ValueError).
+        with pytest.raises(ResolutionError, match="Candidate Invocation result is not JSON"):
             node._code[benchmark.case_evaluation_route](_code_call(benchmark.case_evaluation_route))
         assert [r["sf.activity.kind"] for r in records] == ["answering", "answering"]
         records.clear()

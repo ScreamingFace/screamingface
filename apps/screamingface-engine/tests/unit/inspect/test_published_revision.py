@@ -50,7 +50,6 @@ def _routes(benchmark: ImportedBenchmark) -> list[str]:
 
     return [
         benchmark.cases_route,
-        benchmark.check_route,
         benchmark.check_surface_route,
         benchmark.case_evaluation_route,
         benchmark.aggregate_route,

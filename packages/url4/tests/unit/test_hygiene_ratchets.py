@@ -41,7 +41,7 @@ EXPORTS = {
     "url4.dag.nodes": 27,
     "url4.peer": 5,
     "url4.streaming.interfaces": 17,
-    "url4.streaming.protocol": 34,
+    "url4.streaming.protocol": 35,
     "url4.streaming.testing": 3,
 }
 

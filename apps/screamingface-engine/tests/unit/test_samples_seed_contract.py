@@ -24,14 +24,14 @@ import pytest
 from test_answer_seed_threading import _bodies, _candidate_wrapped
 
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
-from screamingface_engine.benchmarks.definition import candidate_invocation, inert_text
+from screamingface_engine.benchmarks.definition import candidate_invocation
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
-from url4 import expr, render, src, text
+from url4 import expr, literal, render, src, text
 from url4.dag import run as url4_run
 
 _CANDIDATE = (
@@ -73,7 +73,7 @@ def _wrapped_candidate(candidate: str) -> str:
     # Recipe is bound as `candidate` (its `$` kept literal), exactly as a linked run binds it.
     return render(
         expr(
-            src(text(inert_text(candidate)), name="candidate", weight=0.0),
+            src(literal(candidate), name="candidate", weight=0.0),
             src(
                 candidate_invocation("what is 2 + 2?", web_search=False),
                 name="answer",

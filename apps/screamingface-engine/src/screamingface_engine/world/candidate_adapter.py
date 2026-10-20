@@ -29,6 +29,8 @@ from url4.peer.server import Request, Url4Node
 _POLICY_PARAMS = frozenset({"web_search", "web_search_exclude"})
 # Engine call metadata, decoded by the adapter and never part of the retrieval policy.
 _METADATA_PARAMS = frozenset({CASE_ATTEMPT_PARAM})
+# The pre-2026-10-20 Candidate call's marker (spec D5: old expressions fail with a clear error).
+_RETIRED_CONTEXT_PARAM = "context_format"
 
 
 class _CandidateInvocation:
@@ -44,6 +46,15 @@ class _CandidateInvocation:
         self._node = node
 
     async def __call__(self, request: Request) -> str:
+        if _RETIRED_CONTEXT_PARAM in request.params:
+            # WHY: a run queued before the deploy still carries the retired Candidate call
+            # (`context_format=case-v1`); name it instead of a bare contract error.
+            raise ResolutionError(
+                "this Benchmark expression uses a retired Candidate protocol; "
+                "fetch the Benchmark again and resubmit the run",
+                code="candidate_contract_error",
+                permanent=True,
+            )
         decoded = candidate_request(request)
         attempt: int | None = candidate_attempt(request)
         policy = _candidate_policy(

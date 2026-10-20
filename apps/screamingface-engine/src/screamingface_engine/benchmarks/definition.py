@@ -8,8 +8,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
-from screamingface_engine.benchmarks.case_request import CASE_ATTEMPT_PARAM, RECIPE_SOURCE
+from screamingface_engine.benchmarks.case_request import (
+    CASE_ATTEMPT_PARAM,
+    CASE_FACTS,
+    RECIPE_SOURCE,
+)
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
+from screamingface_engine.benchmarks.grading_endpoints import positive_count
 from screamingface_engine.benchmarks.provenance import (
     FrontierScore,
     HumanBaseline,
@@ -459,7 +464,7 @@ def candidate_invocation(
         raise ValueError("Candidate Invocation prompt must be non-empty URL4 text")
     if not isinstance(binding, str) or not binding.startswith("$"):
         raise ValueError("Candidate binding must be a URL4 structural reference")
-    _positive(attempt, "attempt")
+    positive_count(attempt, "attempt")
     params = _candidate_params(web_search, web_search_exclude)
     if attempt > 1:
         params.append((CASE_ATTEMPT_PARAM, str(attempt)))
@@ -494,17 +499,13 @@ def _case_facts(case_count: int | None) -> tuple[Node, ...]:
 
     if case_count is None:
         return ()
-    _positive(case_count, "case_count")
+    positive_count(case_count, "case_count")
+    case_id, case_index, count = CASE_FACTS
     return (
-        src(VarRef("item", ("id",)), name="case_id"),
-        src(VarRef("index", ()), name="case_index"),
-        src(Text(str(case_count)), name="case_count"),
+        src(VarRef("item", ("id",)), name=case_id),
+        src(VarRef("index", ()), name=case_index),
+        src(Text(str(case_count)), name=count),
     )
-
-
-def _positive(value: object, label: str) -> None:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError(f"{label} must be a positive integer")
 
 
 def link_candidate(candidate_expression: Node | str, protocol: Node | str) -> str:
@@ -523,16 +524,6 @@ def link_candidate(candidate_expression: Node | str, protocol: Node | str) -> st
         raise ValueError("a Benchmark protocol must be one top-level URL4 expression")
     binding = src(literal(_as_text(candidate_expression)), name=CANDIDATE_BINDING, weight=0.0)
     return render(replace(selected, sources=(binding, *selected.sources)))
-
-
-def inert_text(value: str) -> str:
-    """The quoted-text content that resolves to ``value`` exactly (``url4.literal``).
-
-    WHY: the protocol's terminal is code, so its group is an RDS scope, where quoted text is
-    interpolated strictly (Spec B §6.3) — a Recipe's own ``$input`` would fail as unbound.
-    """
-
-    return literal(value).value
 
 
 def _as_text(value: Node | str) -> str:

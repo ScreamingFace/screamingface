@@ -11,14 +11,13 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from screamingface_engine.benchmarks.definition import inert_text
 from screamingface_engine.benchmarks.protocol import (
     CASE_SOURCE,
     EVALUATIONS_SOURCE,
     SELECTED_SOURCE,
     attempt_source,
 )
-from url4 import RelUrl, expr, render, src, text
+from url4 import RelUrl, expr, literal, render, src
 from url4.peer.server import Url4Node
 
 
@@ -29,7 +28,7 @@ async def run_code(node: Url4Node, path: str, sources: Mapping[str, str]) -> str
     """
 
     expression = expr(
-        *(src(text(inert_text(value)), name=name, weight=0.0) for name, value in sources.items()),
+        *(src(literal(value), name=name, weight=0.0) for name, value in sources.items()),
         intent=RelUrl(path),
     )
     result = await node.evaluate(render(expression))

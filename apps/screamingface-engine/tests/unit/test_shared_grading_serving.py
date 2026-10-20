@@ -144,7 +144,7 @@ class TestBenchmarkRoutes:
 
         assert routes.prefix == f"/benchmarks/toy/{_REVISION}"
         assert routes.cases == f"/benchmarks/toy/{_REVISION}/cases"
-        assert routes.check == f"/benchmarks/toy/{_REVISION}/check"
+        # WHY no `check`: the per-Case check runs inside `case-evaluation` (spec 2026-10-20 D5).
         assert routes.case_evaluation == f"/benchmarks/toy/{_REVISION}/case-evaluation"
         assert routes.aggregate == f"/benchmarks/toy/{_REVISION}/aggregate"
 

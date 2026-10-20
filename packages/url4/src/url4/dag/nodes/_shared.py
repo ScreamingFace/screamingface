@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from url4.core.context import Context
-from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.errors import ErrorCause, ErrorCode, ResolutionError
 from url4.core.nodes import Params
 from url4.dag.semantics.ensemble import interpolate
 from url4.io.layer import FetchRequest, fetch_result
@@ -178,6 +178,10 @@ def collected_error(exc: BaseException) -> dict:
     permanent = getattr(exc, "permanent", None)
     if isinstance(permanent, bool):
         payload["retryable"] = not permanent
+    cause = getattr(exc, "cause", None)
+    if isinstance(cause, ErrorCause):
+        # The handler's own failure behind an intent_error (Spec C §13.6), kept for the reader.
+        payload["cause"] = {"code": cause.code, "retryable": not cause.permanent}
     return {"error": payload}
 
 
