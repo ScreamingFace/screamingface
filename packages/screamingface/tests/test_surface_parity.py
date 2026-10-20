@@ -1,9 +1,9 @@
 """Parity: the new surface compiles to today's url4, byte for byte (E4b surface unit 2, LO-P1).
 
 FEATURE: the map → select → reduce surface is a new spelling of the recipes of today, not a new
-protocol. Each case below is compiled twice in the same process, in the new form and in today's
-form, and the two url4 strings must be equal (lowering §3, rows S1–S4′, and every README and
-public-docs Fusion example that has no judge).
+protocol. Each case below compiles in the new form, and the url4 must equal the bytes of today's
+form, frozen in step 7d-0 in ``data/surface_parity.json`` (lowering §3, rows S1–S4′, and every
+README and public-docs Fusion example).
 INVARIANT: a byte change here outside the planned changes of the overview §4 stops the unit.
 """
 
@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from _combine_flow_fixtures import flow_operators
 from _fusion_doc_examples import EXAMPLES, DocExample, compile_example
+from _nodes import frozen_url4
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -42,55 +43,23 @@ def _url4(recipe: sf.Recipe) -> str:
 
 # ---------------------------------------------------------------- S1–S4′ (lowering §3)
 
-_NOTEBOOK: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
-    "S1": (
-        lambda: sx.Fanout(_ROUTES) >> sx.Median(over="last_number", select="value"),
-        lambda: sf.Fusion(_ROUTES, synthesizer=sf.Median(extract="last_number", select="value")),
+_NOTEBOOK: dict[str, Callable[[], sf.Recipe]] = {
+    "S1": lambda: sx.Fanout(_ROUTES) >> sx.Median(over="last_number", select="value"),
+    "S2": lambda: sx.Fanout(_ROUTES) >> sx.Median(over="last_number"),
+    "S3": lambda: sx.Fanout(_ROUTES) >> sx.Mean(weights=(1, 1, 2)),
+    "S4": lambda: (
+        sx.Fanout(_json_members()) >> sx.Mean(over="field:answer", weights="field:confidence")
     ),
-    "S2": (
-        lambda: sx.Fanout(_ROUTES) >> sx.Median(over="last_number"),
-        lambda: sf.Fusion(_ROUTES, synthesizer=sf.Median(extract="last_number")),
-    ),
-    "S3": (
-        lambda: sx.Fanout(_ROUTES) >> sx.Mean(weights=(1, 1, 2)),
-        lambda: sf.Fusion(_ROUTES, synthesizer=sf.Mean(weights=(1, 1, 2))),
-    ),
-    "S4": (
-        lambda: (
-            sx.Fanout(_json_members()) >> sx.Mean(over="field:answer", weights="field:confidence")
-        ),
-        lambda: sf.Fusion(
-            _json_members(),
-            synthesizer=sf.Reduce(
-                "mean",
-                extract=sf.Extract("field", path="answer"),
-                weights=sf.signal("field:confidence"),
-            ),
-        ),
-    ),
-    "S4'": (
-        lambda: (
-            sx.Fanout(_json_members())
-            >> sx.Median(over="field:answer", weights="field:confidence", select="value")
-        ),
-        lambda: sf.Fusion(
-            _json_members(),
-            synthesizer=sf.Reduce(
-                "median",
-                mode="compute",
-                extract=sf.Extract("field", path="answer"),
-                weights=sf.signal("field:confidence"),
-            ),
-        ),
+    "S4'": lambda: (
+        sx.Fanout(_json_members())
+        >> sx.Median(over="field:answer", weights="field:confidence", select="value")
     ),
 }
 
 
 @pytest.mark.parametrize("case", sorted(_NOTEBOOK))
 def test_lop1_notebook_case_compiles_to_the_bytes_of_today(case: str) -> None:
-    new, today = _NOTEBOOK[case]
-
-    assert _url4(new()) == _url4(today())
+    assert _url4(_NOTEBOOK[case]()) == frozen_url4(f"surface_parity:{case}")
 
 
 # ---------------------------------------------------------------- the README and docs examples
@@ -291,19 +260,8 @@ _EXAMPLES = {example.slug: example for example in EXAMPLES}
 
 # The doc examples whose bytes change at the swap (overview §4.2): a field pick or a field rank
 # reads a signal in the new surface. Before the swap their new form compiles to the bytes of
-# today's by_signal rewrite, in the same process (lowering §3), not to the golden.
-_TODAY_REWRITE: dict[str, Callable[[], sf.Recipe]] = {
-    "readme-418-pick-confidence": lambda: sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max"),
-    ),
-    "readme-528-rank-by-field": lambda: sf.Pipeline(
-        [
-            sf.Fusion(_ROUTES, synthesizer=sf.Rank(k=2, by_signal=sf.signal("field:score"))),
-            "provider/next",
-        ]
-    ),
-}
+# today's by_signal rewrite (frozen in 7d-0), not to the golden.
+_TODAY_REWRITE = ("readme-418-pick-confidence", "readme-528-rank-by-field")
 
 
 def test_every_doc_example_is_in_the_new_form() -> None:
@@ -315,9 +273,7 @@ def test_every_doc_example_is_in_the_new_form() -> None:
 def test_lop2_a_field_pick_example_compiles_to_todays_by_signal_bytes(slug: str) -> None:
     example: DocExample = _EXAMPLES[slug]
 
-    assert compile_example(example, _NEW_FORM[slug]()) == compile_example(
-        example, _TODAY_REWRITE[slug]()
-    )
+    assert compile_example(example, _NEW_FORM[slug]()) == frozen_url4(f"surface_parity:{slug}")
 
 
 @pytest.mark.parametrize("slug", sorted(set(_NEW_FORM) - set(_TODAY_REWRITE)))
@@ -327,7 +283,7 @@ def test_lop1_doc_example_compiles_to_the_bytes_of_today(slug: str) -> None:
 
     new = compile_example(example, _NEW_FORM[slug]())
 
-    assert new == compile_example(example)
+    assert new == frozen_url4(f"surface_parity:{slug}")
     assert new == golden
 
 
@@ -344,110 +300,35 @@ def _writer() -> sx.Synthesize:
     return sx.Synthesize(_W, prompt=_P)
 
 
-def _today_writer() -> sf.Model:
-    return sf.Model(_W, prompt=_P)
-
-
-def _today_scores(rubric: str, **options: object) -> sf.Judge:
-    return sf.Judge(_JR, returns="scores", rubric=rubric, **options)  # type: ignore[arg-type]
-
-
-# S5 and S7 compare with today's by_signal form, S10, S10', S11 and S11' with today's @1 judge form.
-_STEPS: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
-    "S5": (
-        lambda: sx.Fanout(_json_members()) >> sx.ArgMax("field:confidence", output="answer"),
-        lambda: sf.Fusion(
-            _json_members(),
-            synthesizer=sf.Pick(
-                by_signal=sf.signal("field:confidence"), order="max", output="answer"
-            ),
-        ),
+# S5 and S7 compared with today's by_signal form, S10, S10', S11 and S11' with today's judge form.
+_STEPS: dict[str, Callable[[], sf.Recipe]] = {
+    "S5": lambda: sx.Fanout(_json_members()) >> sx.ArgMax("field:confidence", output="answer"),
+    "S7": lambda: sx.Fanout(_json_members()) >> sx.Rank(2, by="field:confidence") >> _writer(),
+    "S8": lambda: (
+        sx.Fanout(_json_members()) >> sx.ArgMax(sf.signal("field:confidence"), output="answer")
     ),
-    "S7": (
-        lambda: sx.Fanout(_json_members()) >> sx.Rank(2, by="field:confidence") >> _writer(),
-        lambda: sf.Pipeline(
-            [
-                sf.Fusion(
-                    _json_members(),
-                    synthesizer=sf.Rank(k=2, by_signal=sf.signal("field:confidence")),
-                ),
-                _today_writer(),
-            ]
-        ),
+    "S9": lambda: (
+        sx.Fanout(_json_members())
+        >> sx.Filter(where=sf.signal("field:confidence") > 0.7)
+        >> _writer()
     ),
-    "S8": (
-        lambda: (
-            sx.Fanout(_json_members()) >> sx.ArgMax(sf.signal("field:confidence"), output="answer")
-        ),
-        lambda: sf.Fusion(
-            _json_members(),
-            synthesizer=sf.Pick(
-                by_signal=sf.signal("field:confidence"), order="max", output="answer"
-            ),
-        ),
+    "S10": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge(_JR, rubric=_R_MAX)
+        >> sx.Rank(2, by="score:judge")
+        >> _writer()
     ),
-    "S9": (
-        lambda: (
-            sx.Fanout(_json_members())
-            >> sx.Filter(where=sf.signal("field:confidence") > 0.7)
-            >> _writer()
-        ),
-        lambda: sf.Pipeline(
-            [
-                sf.Fusion(
-                    _json_members(),
-                    synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7),
-                ),
-                _today_writer(),
-            ]
-        ),
+    "S10'": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge(_JR, rubric=_R_MAX)
+        >> sx.Filter(where=sf.signal("score:judge") >= 7)
+        >> _writer()
     ),
-    "S10": (
-        lambda: (
-            sx.Fanout(_ROUTES)
-            >> sx.Judge(_JR, rubric=_R_MAX)
-            >> sx.Rank(2, by="score:judge")
-            >> _writer()
-        ),
-        lambda: sf.Pipeline(
-            [
-                sf.Fusion(_ROUTES, synthesizer=sf.Rank(k=2, by=_today_scores(_R_MAX))),
-                _today_writer(),
-            ]
-        ),
-    ),
-    "S10'": (
-        lambda: (
-            sx.Fanout(_ROUTES)
-            >> sx.Judge(_JR, rubric=_R_MAX)
-            >> sx.Filter(where=sf.signal("score:judge") >= 7)
-            >> _writer()
-        ),
-        lambda: sf.Pipeline(
-            [
-                sf.Fusion(
-                    _ROUTES,
-                    synthesizer=sf.Filter(
-                        where=sf.signal("score:judge") >= 7, judge=_today_scores(_R_MAX)
-                    ),
-                ),
-                _today_writer(),
-            ]
-        ),
-    ),
-    "S11": (
-        lambda: sx.Fanout(_ROUTES) >> sx.Judge(_JR, rubric=_R_MAX) >> sx.ArgMax("score:judge"),
-        lambda: sf.Fusion(_ROUTES, synthesizer=_today_scores(_R_MAX)),
-    ),
-    "S11'": (
-        lambda: sx.Fanout(_ROUTES) >> sx.Judge(_JR, rubric=_R_MIN) >> sx.ArgMin("score:judge"),
-        lambda: sf.Fusion(_ROUTES, synthesizer=_today_scores(_R_MIN, order="min")),
-    ),
+    "S11": lambda: sx.Fanout(_ROUTES) >> sx.Judge(_JR, rubric=_R_MAX) >> sx.ArgMax("score:judge"),
+    "S11'": lambda: sx.Fanout(_ROUTES) >> sx.Judge(_JR, rubric=_R_MIN) >> sx.ArgMin("score:judge"),
 }
 
 
 @pytest.mark.parametrize("case", sorted(_STEPS))
 def test_lop2_notebook_case_compiles_to_the_bytes_of_today(case: str) -> None:
-    new, today = _STEPS[case]
-
-    assert _url4(new()) == _url4(today())
+    assert _url4(_STEPS[case]()) == frozen_url4(f"surface_parity:{case}")

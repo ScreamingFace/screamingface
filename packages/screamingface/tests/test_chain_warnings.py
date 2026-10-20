@@ -12,6 +12,7 @@ import warnings
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators
+from _nodes import FusionNode, JudgeNode, fusion_node
 from test_pipeline_compilation import _whole_candidate_benchmark
 
 import screamingface as sf
@@ -35,10 +36,10 @@ def _message(name: str, first: int) -> str:
     )
 
 
-def _judge_block() -> sf.Fusion:
+def _judge_block() -> FusionNode:
     """A judge stage of today: unit 3 brings sf.Judge to the chain."""
 
-    return sf.Fusion(_MEMBERS, synthesizer=sf.Judge(_JUDGE_ROUTE, returns="label", rubric=RUBRIC))
+    return fusion_node(_MEMBERS, JudgeNode(_JUDGE_ROUTE, returns="label", rubric=RUBRIC))
 
 
 def _chain() -> sx.Pipeline:

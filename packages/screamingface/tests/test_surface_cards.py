@@ -22,6 +22,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from _nodes import fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -145,9 +146,7 @@ def test_ds1_an_open_chain_card_shows_its_open_block(
 
 
 def test_e5_a_chain_member_of_todays_fusion_shows_as_a_nested_chain() -> None:
-    fusion = sf.Fusion(
-        [sx.Fanout(["prov/a", "prov/b"]) >> sx.Vote(), "prov/c"], synthesizer="prov/w"
-    )
+    fusion = fusion_node([sx.Fanout(["prov/a", "prov/b"]) >> sx.Vote(), "prov/c"], "prov/w")
 
     html = fusion._repr_html_()
 

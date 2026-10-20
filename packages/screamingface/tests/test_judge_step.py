@@ -12,6 +12,16 @@ from __future__ import annotations
 
 import pytest
 from _combine_flow_fixtures import flow_operators
+from _nodes import (
+    FilterNode,
+    FusionNode,
+    JudgeNode,
+    RankNode,
+    ReduceNode,
+    VoteNode,
+    frozen_url4,
+    fusion_node,
+)
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -27,13 +37,13 @@ def _judge(**options: object) -> sx.Judge:
     return sx.Judge(_JUDGE, rubric=_RUBRIC, **options)  # type: ignore[arg-type]
 
 
-def _scores(**options: object) -> sf.Judge:
-    return sf.Judge(_JUDGE, returns="scores", rubric=_RUBRIC, **options)  # type: ignore[arg-type]
+def _scores(**options: object) -> JudgeNode:
+    return JudgeNode(_JUDGE, returns="scores", rubric=_RUBRIC, **options)  # type: ignore[arg-type]
 
 
 def _synthesizer(chain: sf.Recipe) -> object:
     node = lower(chain)
-    assert isinstance(node, sf.Fusion)
+    assert isinstance(node, FusionNode)
     return node.synthesizer
 
 
@@ -89,7 +99,7 @@ def test_argmin_by_judge_lowers_to_the_min_order_judge_of_today() -> None:
 def test_a_judge_weighted_vote_lowers_to_the_paired_vote_of_today() -> None:
     chain = sx.Fanout(_TRIO) >> _judge() >> sx.Vote(over="last_number", weights="score:judge")
 
-    assert _synthesizer(chain) == sf.Vote(
+    assert _synthesizer(chain) == VoteNode(
         extract="last_number", weights=sf.signal("score:judge"), judge=_scores()
     )
 
@@ -98,7 +108,7 @@ def test_a_judge_weighted_extract_vote_lowers_to_the_weighted_block() -> None:
     extract = sf.Extract("last_number", normalize="numeric")
     chain = sx.Fanout(_TRIO) >> _judge() >> sx.Vote(over=extract, weights="score:judge")
 
-    assert _synthesizer(chain) == sf.Reduce(
+    assert _synthesizer(chain) == ReduceNode(
         "weighted", extract=extract, weights=sf.signal("score:judge"), judge=_scores()
     )
 
@@ -112,7 +122,7 @@ def test_a_judge_rank_lowers_to_the_rank_by_judge_of_today() -> None:
     )
 
     assert lower(chain) == sf.Pipeline(
-        [sf.Fusion(_TRIO, synthesizer=sf.Rank(k=2, by=_scores(), order="min")), "provider/w"]
+        [fusion_node(_TRIO, RankNode(k=2, by=_scores(), order="min")), "provider/w"]
     )
 
 
@@ -121,14 +131,14 @@ def test_a_judge_filter_lowers_to_the_filter_with_a_judge_of_today() -> None:
     chain = sx.Fanout(_TRIO) >> _judge() >> sx.Filter(where=where) >> sx.Synthesize("provider/w")
 
     assert lower(chain) == sf.Pipeline(
-        [sf.Fusion(_TRIO, synthesizer=sf.Filter(where=where, judge=_scores())), "provider/w"]
+        [fusion_node(_TRIO, FilterNode(where=where, judge=_scores())), "provider/w"]
     )
 
 
 def test_judge_pick_lowers_to_the_label_judge_of_today() -> None:
     chain = sx.Fanout(_TRIO) >> sx.JudgePick(_JUDGE, rubric="Pick one.", params={"seed": 1})
 
-    assert _synthesizer(chain) == sf.Judge(
+    assert _synthesizer(chain) == JudgeNode(
         _JUDGE, returns="label", rubric="Pick one.", params={"seed": 1}
     )
 
@@ -161,11 +171,10 @@ def test_ju2_a_judge_pick_takes_no_output(step: type[sx.ArgMax]) -> None:
 
 def test_a_judge_block_compiles_to_the_bytes_of_today() -> None:
     chain = sx.Fanout(_TRIO) >> _judge() >> sx.ArgMax("score:judge")
-    today = sf.Fusion(_TRIO, synthesizer=_scores())
 
-    assert (
-        compile_candidate(chain, operators=flow_operators()).url4
-        == compile_candidate(today, operators=flow_operators()).url4
+    # today's Fusion of _TRIO with _scores()
+    assert compile_candidate(chain, operators=flow_operators()).url4 == frozen_url4(
+        "judge_step:scores-judge"
     )
 
 

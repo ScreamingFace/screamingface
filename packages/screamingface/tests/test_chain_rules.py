@@ -10,6 +10,7 @@ with a message that says what to do.
 from __future__ import annotations
 
 import pytest
+from _nodes import VoteNode, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -69,7 +70,7 @@ def test_a_named_nested_pipeline_keeps_its_grouping() -> None:
     assert lower(chain) == sf.Pipeline(
         [
             sf.Pipeline(
-                ["provider/x", sf.Fusion(_PAIR, synthesizer=sf.Vote())],
+                ["provider/x", fusion_node(_PAIR, VoteNode())],
                 name="group",
             ),
             "provider/after",
@@ -120,7 +121,7 @@ def test_a_closed_block_is_recorded_as_a_block() -> None:
     assert block.judge is None
     assert block.narrow == ()
     assert block.terminal == sx.Vote()
-    assert block.node == sf.Fusion(_PAIR, synthesizer=sf.Vote())
+    assert block.node == fusion_node(_PAIR, VoteNode())
 
 
 def test_an_empty_pipeline_is_refused() -> None:
@@ -173,7 +174,7 @@ def test_ch1_a_right_group_that_is_not_a_chain_alone_raises_when_it_is_built() -
         "provider/x",
         sx.Fanout(_TRIO),
         _block(),
-        sf.Fusion(_PAIR, synthesizer="provider/s"),
+        fusion_node(_PAIR, "provider/s"),
         sx.Pipeline(["provider/x", "provider/y"], name="named"),
     ],
     ids=["model", "route", "fanout", "closed-block", "old-fusion", "named-pipeline"],
@@ -255,10 +256,10 @@ def test_ch9_a_logprob_member_rule_raises_at_block_close() -> None:
 def test_ch9_a_declared_signal_compiles_when_it_is_read() -> None:
     fanout = sx.Fanout(_PAIR, signals={"conf": sf.Verbalized("C: ([0-9]+)")})
 
-    assert lower(fanout >> sx.Vote(weights="conf")) == sf.Fusion(
+    assert lower(fanout >> sx.Vote(weights="conf")) == fusion_node(
         _PAIR,
         signals={"conf": sf.Verbalized("C: ([0-9]+)")},
-        synthesizer=sf.Vote(weights=sf.signal("conf")),
+        reducer=VoteNode(weights=sf.signal("conf")),
     )
 
 
@@ -315,7 +316,7 @@ def test_a_closed_chain_is_a_corrective_loop_member() -> None:
     loop = sf.CorrectiveLoop([_block(), "provider/c"], judge="provider/j")
 
     assert lower(loop) == sf.CorrectiveLoop(
-        [sf.Fusion(_PAIR, synthesizer=sf.Vote()), "provider/c"], judge="provider/j"
+        [fusion_node(_PAIR, VoteNode()), "provider/c"], judge="provider/j"
     )
 
 
@@ -354,4 +355,4 @@ def test_ch14_a_named_closed_pipeline_is_valid() -> None:
     chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], name="group")
 
     assert chain.name == "group"
-    assert lower(chain) == sf.Pipeline([sf.Fusion(_PAIR, synthesizer=sf.Vote())], name="group")
+    assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, VoteNode())], name="group")

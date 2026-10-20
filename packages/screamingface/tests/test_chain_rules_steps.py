@@ -10,6 +10,7 @@ a message that says what to do.
 from __future__ import annotations
 
 import pytest
+from _nodes import ConcatNode, FusionNode, JudgeNode, RankNode, fusion_node
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -25,8 +26,8 @@ def _judge() -> sx.Judge:
     return sx.Judge(_JUDGE, rubric=_RUBRIC)
 
 
-def _today_judge(**options: object) -> sf.Judge:
-    return sf.Judge(_JUDGE, returns="scores", rubric=_RUBRIC, **options)  # type: ignore[arg-type]
+def _today_judge(**options: object) -> JudgeNode:
+    return JudgeNode(_JUDGE, returns="scores", rubric=_RUBRIC, **options)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------- CH-3
@@ -123,7 +124,7 @@ def test_ch7_concat_must_be_followed_by_synthesize(following: object) -> None:
 def test_concat_then_synthesize_is_a_block() -> None:
     chain = sx.Fanout(_PAIR) >> sx.Concat() >> sx.Synthesize("provider/w")
 
-    assert lower(chain) == sf.Pipeline([sf.Fusion(_PAIR, synthesizer=sf.Concat()), "provider/w"])
+    assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, ConcatNode()), "provider/w"])
 
 
 # ---------------------------------------------------------------- CH-10
@@ -145,7 +146,7 @@ def test_ch10_a_judge_read_only_by_a_narrow_step_is_read() -> None:
     chain = sx.Fanout(_PAIR) >> _judge() >> sx.Rank(1, by="score:judge") >> sx.Synthesize("p/w")
 
     assert lower(chain) == sf.Pipeline(
-        [sf.Fusion(_PAIR, synthesizer=sf.Rank(k=1, by=_today_judge())), "p/w"]
+        [fusion_node(_PAIR, RankNode(k=1, by=_today_judge())), "p/w"]
     )
 
 
@@ -187,7 +188,7 @@ def test_a_block_that_needs_the_narrow_key_builds(steps: list[sx.Vote], carried:
     # lowering §2.2: before a writer the last narrow step is the main selection, so the reducer
     # carries every narrow step before it; before a reducer it carries them all
     fusion = lowered.stages[0] if isinstance(lowered, sf.Pipeline) else lowered
-    assert isinstance(fusion, sf.Fusion)
+    assert isinstance(fusion, FusionNode)
     assert len(fusion.synthesizer._narrow) == carried  # type: ignore[union-attr]
 
 
@@ -214,7 +215,7 @@ def test_a_block_with_a_writer_after_a_narrow_step_is_one_stage() -> None:
     assert lower(chain) == sf.Pipeline(
         [
             "provider/x",
-            sf.Fusion(_PAIR, synthesizer=sf.Rank(k=1, by_signal=sf.signal("cost_usd"))),
+            fusion_node(_PAIR, RankNode(k=1, by_signal=sf.signal("cost_usd"))),
             "provider/w",
             "provider/y",
         ]
@@ -227,6 +228,6 @@ def test_an_optional_narrowed_block_moves_the_flag_to_its_pipeline() -> None:
     )
 
     assert lower(chain) == sf.Pipeline(
-        [sf.Fusion(_PAIR, synthesizer=sf.Rank(k=1, by_signal=sf.signal("cost_usd"))), "provider/w"],
+        [fusion_node(_PAIR, RankNode(k=1, by_signal=sf.signal("cost_usd"))), "provider/w"],
         optional=True,
     )

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 from _combine_flow_fixtures import flow_operators
+from _nodes import FusionNode, MeanNode, MedianNode, ReduceNode, VoteNode
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -24,7 +25,7 @@ _RULES = "boxed, last_number, last_line, whole, json, benchmark, inspect_number,
 
 def _synthesizer(step: object) -> object:
     node = lower(sx.Fanout(_TRIO) >> step)  # type: ignore[operator]
-    assert isinstance(node, sf.Fusion)
+    assert isinstance(node, FusionNode)
     return node.synthesizer
 
 
@@ -35,30 +36,30 @@ def _synthesizer(step: object) -> object:
     "rule", ["last_line", "last_number", "boxed", "whole", "inspect_number", "inspect_aime"]
 )
 def test_a_rule_name_lowers_to_the_named_vote(rule: str) -> None:
-    assert _synthesizer(sx.Vote(over=rule)) == sf.Vote(extract=rule)
+    assert _synthesizer(sx.Vote(over=rule)) == VoteNode(extract=rule)
 
 
 @pytest.mark.parametrize("rule", ["last_line@1", "last_number@1", "boxed@2"])
 def test_a_pinned_rule_name_lowers_to_the_named_vote(rule: str) -> None:
-    assert _synthesizer(sx.Vote(over=rule, normalize="text@1")) == sf.Vote(
+    assert _synthesizer(sx.Vote(over=rule, normalize="text@1")) == VoteNode(
         extract=rule, normalize="text@1"
     )
 
 
 def test_the_json_rule_lowers_to_its_engine_operator() -> None:
-    assert _synthesizer(sx.Vote(over="json")) == sf.Vote(extract="json_object")
-    assert _synthesizer(sx.Vote(over="json@1")) == sf.Vote(extract="json_object@1")
+    assert _synthesizer(sx.Vote(over="json")) == VoteNode(extract="json_object")
+    assert _synthesizer(sx.Vote(over="json@1")) == VoteNode(extract="json_object@1")
 
 
 def test_the_benchmark_rule_lowers_to_the_benchmark_vote() -> None:
-    assert _synthesizer(sx.Vote(over="benchmark")) == sf.Vote(extract="benchmark")
+    assert _synthesizer(sx.Vote(over="benchmark")) == VoteNode(extract="benchmark")
 
 
 def test_median_and_mean_take_a_rule_name() -> None:
-    assert _synthesizer(sx.Median(over="boxed", select="value")) == sf.Median(
+    assert _synthesizer(sx.Median(over="boxed", select="value")) == MedianNode(
         extract="boxed", select="value"
     )
-    assert _synthesizer(sx.Mean(over="last_number@1")) == sf.Mean(extract="last_number@1")
+    assert _synthesizer(sx.Mean(over="last_number@1")) == MeanNode(extract="last_number@1")
 
 
 @pytest.mark.parametrize(
@@ -84,27 +85,27 @@ def test_ex1_a_value_that_is_not_text_or_an_extract_is_refused() -> None:
 
 
 def test_a_field_vote_lowers_to_the_plurality_block_with_the_text_normalizer() -> None:
-    assert _synthesizer(sx.Vote(over="field:answer")) == sf.Reduce(
+    assert _synthesizer(sx.Vote(over="field:answer")) == ReduceNode(
         "plurality", extract=sf.Extract("field", normalize="text", path="answer")
     )
 
 
 def test_a_field_vote_takes_the_passed_normalizer() -> None:
-    assert _synthesizer(sx.Vote(over="field:a.b[0]", normalize="numeric")) == sf.Reduce(
+    assert _synthesizer(sx.Vote(over="field:a.b[0]", normalize="numeric")) == ReduceNode(
         "plurality", extract=sf.Extract("field", normalize="numeric", path="a.b[0]")
     )
-    assert _synthesizer(sx.Vote(over="field:answer", normalize=None)) == sf.Reduce(
+    assert _synthesizer(sx.Vote(over="field:answer", normalize=None)) == ReduceNode(
         "plurality", extract=sf.Extract("field", path="answer")
     )
 
 
 def test_a_weighted_field_vote_lowers_to_the_weighted_block() -> None:
-    assert _synthesizer(sx.Vote(over="field:answer", weights="field:confidence")) == sf.Reduce(
+    assert _synthesizer(sx.Vote(over="field:answer", weights="field:confidence")) == ReduceNode(
         "weighted",
         extract=sf.Extract("field", normalize="text", path="answer"),
         weights=sf.signal("field:confidence"),
     )
-    assert _synthesizer(sx.Vote(over="field:answer", weights=(1, 2, 3))) == sf.Reduce(
+    assert _synthesizer(sx.Vote(over="field:answer", weights=(1, 2, 3))) == ReduceNode(
         "weighted",
         extract=sf.Extract("field", normalize="text", path="answer"),
         weights=(1, 2, 3),
@@ -112,13 +113,13 @@ def test_a_weighted_field_vote_lowers_to_the_weighted_block() -> None:
 
 
 def test_a_field_median_and_mean_lower_to_the_numeric_block() -> None:
-    assert _synthesizer(sx.Median(over="field:answer")) == sf.Reduce(
+    assert _synthesizer(sx.Median(over="field:answer")) == ReduceNode(
         "median", extract=sf.Extract("field", path="answer")
     )
-    assert _synthesizer(sx.Mean(over="field:answer", weights="field:confidence")) == sf.Reduce(
+    assert _synthesizer(sx.Mean(over="field:answer", weights="field:confidence")) == ReduceNode(
         "mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence")
     )
-    assert _synthesizer(sx.Median(over="field:answer", select="value")) == sf.Reduce(
+    assert _synthesizer(sx.Median(over="field:answer", select="value")) == ReduceNode(
         "median", mode="compute", extract=sf.Extract("field", path="answer")
     )
 
@@ -139,14 +140,14 @@ def test_a_field_with_a_bad_path_is_refused(over: str) -> None:
 def test_an_extract_vote_lowers_to_the_block_with_the_extract_normalizer() -> None:
     extract = sf.Extract("regex", normalize="text", pattern="Answer: (.*)")
 
-    assert _synthesizer(sx.Vote(over=extract)) == sf.Reduce("plurality", extract=extract)
+    assert _synthesizer(sx.Vote(over=extract)) == ReduceNode("plurality", extract=extract)
 
 
 def test_an_extract_with_no_normalizer_has_none_unless_the_step_passes_one() -> None:
     extract = sf.Extract("regex", pattern="Answer: (.*)")
 
-    assert _synthesizer(sx.Vote(over=extract)) == sf.Reduce("plurality", extract=extract)
-    assert _synthesizer(sx.Vote(over=extract, normalize="set")) == sf.Reduce(
+    assert _synthesizer(sx.Vote(over=extract)) == ReduceNode("plurality", extract=extract)
+    assert _synthesizer(sx.Vote(over=extract, normalize="set")) == ReduceNode(
         "plurality", extract=sf.Extract("regex", normalize="set", pattern="Answer: (.*)")
     )
 
@@ -154,7 +155,7 @@ def test_an_extract_with_no_normalizer_has_none_unless_the_step_passes_one() -> 
 def test_an_extract_mean_lowers_to_the_numeric_block() -> None:
     extract = sf.Extract("regex", pattern="([0-9]+)")
 
-    assert _synthesizer(sx.Mean(over=extract, select="nearest")) == sf.Reduce(
+    assert _synthesizer(sx.Mean(over=extract, select="nearest")) == ReduceNode(
         "mean", mode="select", extract=extract
     )
 
@@ -183,8 +184,8 @@ def test_ex2_the_default_normalizer_is_not_a_conflict() -> None:
 
 
 def test_a_weights_key_string_is_a_signal() -> None:
-    assert _synthesizer(sx.Vote(weights="cost_usd")) == sf.Vote(weights=sf.signal("cost_usd"))
-    assert _synthesizer(sx.Median(weights="field:confidence")) == sf.Median(
+    assert _synthesizer(sx.Vote(weights="cost_usd")) == VoteNode(weights=sf.signal("cost_usd"))
+    assert _synthesizer(sx.Median(weights="field:confidence")) == MedianNode(
         weights=sf.signal("field:confidence")
     )
     assert sx.Vote(weights=sf.signal("cost_usd")) == sx.Vote(weights="cost_usd")
