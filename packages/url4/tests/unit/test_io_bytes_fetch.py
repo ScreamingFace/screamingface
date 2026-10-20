@@ -15,10 +15,9 @@ import pytest
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag._context import BoundedIOLayer
 from url4.io.http import HttpIOLayer
-from url4.io.layer import (
+from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import (
     FetchedBytes,
-    FetchRequest,
-    FetchResult,
     SupportsFetchBytes,
     fetch_bytes,
     is_text_media_type,
