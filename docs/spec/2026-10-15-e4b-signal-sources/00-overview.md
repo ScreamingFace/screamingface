@@ -86,7 +86,7 @@ Q12–Q13 came after the design review of the spec, the same day.
 |---|---|---|---|
 | Q1 | DB-1: how does a recipe name the new sources? | "Declare, additive" | recommended |
 | Q2 | DB-7: which provider path for the first logprob version? | "OpenRouter only" | recommended |
-| Q3 | DB-3: where do the token-level methods (UniTE, span ensemble) go? | "Keep in E4b, later part" | against the recommendation ("Move to OME-1566") |
+| Q3 | DB-3: where do the token-level methods (UniTE, span ensemble) go? | "Keep in E4b, later part" | against the recommendation ("Move to OME-1566"). Superseded 2026-10-20: the owner took part 8 out of E4b (comment on OME-1290). |
 | Q4 | DB-2: `cost` or `cost_usd`? | "Keep cost_usd" | recommended |
 | Q5 | A model that cannot return logprobs makes the member call fail. What happens? | "Member fails, clear code" | recommended |
 | Q6 | Which tokens does `sf.Logprob` average or sum over? | "All reply tokens" | recommended |
@@ -127,7 +127,7 @@ Q12–Q13 came after the design review of the spec, the same day.
 | D2 | Display of signals in the report | part 4 |
 | D3 | Several signals in one step, coefficients, abstain band | part 6 |
 | D4 | `consistency@N` | part 7 |
-| D5 | UniTE and the span ensemble | part 8 (ans:Q3) |
+| D5 | UniTE and the span ensemble | not in E4b (owner, 2026-10-20); first placed in part 8 by ans:Q3 |
 
 Scope notes:
 

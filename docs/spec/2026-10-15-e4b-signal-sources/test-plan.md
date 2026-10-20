@@ -29,7 +29,7 @@ Test ids are `<PREFIX>#<n>`, with the row number from each PRD's §7. Prefixes: 
   Floats that come from a division compare with `pytest.approx(rel=1e-12)`; sums use `math.fsum`.
 - A timing test uses a generous bound and runs in the serial lane if one exists (OME-1619).
 - Each user decision has a test that fails if the decision breaks, except where noted:
-  Q1 DS#4, DS#9, DS#10 · Q2 LP#5, EN#8, RC#8 · Q3 no test (it places work in part 8) ·
+  Q1 DS#4, DS#9, DS#10 · Q2 LP#5, EN#8, RC#8 · Q3 no test (it placed work in part 8, which is not in E4b since 2026-10-20) ·
   Q4 DS#5 (`cost_usd` cannot be a declared name) · Q5 LC#9, LC#10, RC#9 · Q6 LC#3, LP#11 ·
   Q7 DS#11, DS#12 · Q8 EN#6, EN#8 · Q9 VB#1–4 · Q10 no test (it shapes the plan) · Q11 LP#1, LP#4,
   LP#12–13 · Q12 LC#11 · Q13 LC#20 (only on the conditional branch).

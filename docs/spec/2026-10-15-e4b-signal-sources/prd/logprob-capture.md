@@ -178,7 +178,8 @@ combine step, the cache and frozen-copy rules, and the `logprobs_unsupported` fa
 
 - Providers other than OpenRouter. [stated ans:Q2]
 - Retry without logprobs. [stated ans:Q5]
-- Keeping per-token vectors (UniTE and the span ensemble are part 8). [stated ans:Q3]
+- Keeping per-token vectors. UniTE and the span ensemble, which need them, are not in E4b (owner,
+  2026-10-20; ans:Q3 first placed them in part 8).
 - An aigateway change other than the refusal code of LC-E5. [stated ans:Q13]
 
 ## 6. Open questions
