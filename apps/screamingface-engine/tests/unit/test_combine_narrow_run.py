@@ -1,15 +1,17 @@
 """SDK-compiled narrow recipes run in the Engine (E4b map-reduce surface unit 5, NC-5).
 
 FEATURE: the url4 files ``narrow_filter_mean_candidate.url4`` and
-``narrow_rank_vote_candidate.url4`` under ``data/combine_contract/`` are what the SDK compiles from
-``Fanout >> Filter >> Mean`` and ``Fanout >> Judge >> Rank >> Vote(weights="score:judge")`` (the
-SDK drift guard ``ST/test_narrow_contract_fixtures.py`` keeps them byte-equal). This test runs each
-one through the mocked gateway of ``_signal_world.run_candidate``.
+``narrow_rank_vote_candidate.url4`` and ``narrow_judge_rank_vote_candidate.url4`` under
+``data/combine_contract/`` are what the SDK compiles from ``Fanout >> Filter >> Mean``,
+``Fanout >> Judge >> Rank >> Vote(weights="score:judge")`` and ``Fanout >> Judge >> Rank >>
+Vote()`` (the SDK drift guard ``ST/test_narrow_contract_fixtures.py`` keeps them byte-equal). This
+test runs each one through the mocked gateway of ``_signal_world.run_candidate``.
 STORY: as a researcher, the narrow step and the reduce run in ONE combine call, and the evidence
 says which members the narrow step left out.
-INVARIANT defended: the evidence of a real run equals the contract cases of
-``narrow_evidence_cases.json`` (``filter_mean``, ``judge_rank_weighted_vote``) on the narrow
-record, the member rows and the result; the judge is called once for its two readers.
+INVARIANT defended: the whole combine record of a real run equals the contract case of
+``narrow_evidence_cases.json`` (``filter_mean``, ``judge_rank_weighted_vote``), except a short
+named list of keys where the SDK recipe differs from the case's hand-written spec; the judge is
+called once, also when only a narrow step reads it.
 """
 
 from __future__ import annotations
@@ -35,8 +37,14 @@ def _case(name: str) -> dict[str, Any]:
     return cases[name]
 
 
-def _rows(combine: dict[str, Any]) -> list[tuple[str, str | None]]:
-    return [(row["status"], row["reason"]) for row in combine["members"]]
+# The texts and judge scores of the judge_rank_weighted_vote contract case.
+_JUDGED_PANEL = {
+    "prov/alpha": ("A", "0.001"),
+    "prov/beta": ("B", "0.001"),
+    "prov/gamma": ("C", "0.001"),
+    "prov/delta": ("C", "0.001"),
+    "prov/judge": ('{"member_1": 2, "member_2": 9, "member_3": 8, "member_4": 7}', "0.001"),
+}
 
 
 @pytest.mark.asyncio
@@ -54,42 +62,21 @@ async def test_engine_runs_the_sdk_filter_then_mean() -> None:
         _fixture("narrow_filter_mean_candidate.url4"), models, "miss", on_request=seen.append
     )
 
-    case = _case("filter_mean")
     assert record["status"] == "completed"
     # Oracle: (10 + 20) / 2 = 15; with every member the mean would be (10 + 100 + 20 + 7) / 4.
     assert record["output"] == "15"
     assert len(seen) == 4  # the members only: the narrow step is in the combine call
-    combine = operation(record, "op_synthesis_1")["combine"]
-    assert (combine["kind"], combine["reducer"]) == ("answer", "mean")
-    assert combine["operators"] == case["operators"]
-    assert combine["narrow"] == case["narrow"]
-    assert _rows(combine) == _rows(case)
-    assert [row["value"] for row in combine["members"]] == ["10", "100", "20", "7"]
-    assert [row["signals"] for row in combine["members"]] == [
-        row["signals"] for row in case["members"]
-    ]
-    assert combine["mean"] == case["mean"]
-    assert combine["result"] == case["result"]
-    assert combine["dropped"] == 0
+    assert operation(record, "op_synthesis_1")["combine"] == _case("filter_mean")
 
 
 @pytest.mark.asyncio
 async def test_engine_runs_the_sdk_judge_rank_then_weighted_vote() -> None:
-    # The texts and judge scores of the judge_rank_weighted_vote contract case.
-    models = {
-        "prov/alpha": ("A", "0.001"),
-        "prov/beta": ("B", "0.001"),
-        "prov/gamma": ("C", "0.001"),
-        "prov/delta": ("C", "0.001"),
-        "prov/judge": ('{"member_1": 2, "member_2": 9, "member_3": 8, "member_4": 7}', "0.001"),
-    }
     seen: list[dict[str, Any]] = []
 
     record = await run_candidate(
-        _fixture("narrow_rank_vote_candidate.url4"), models, "miss", on_request=seen.append
+        _fixture("narrow_rank_vote_candidate.url4"), _JUDGED_PANEL, "miss", on_request=seen.append
     )
 
-    case = _case("judge_rank_weighted_vote")
     assert record["status"] == "completed"
     # Oracle: the top two by the judge are beta (b, 9) and gamma (c, 8): b wins 9 to 8. Over all
     # four members, c would win 8 + 7 = 15.
@@ -97,16 +84,42 @@ async def test_engine_runs_the_sdk_judge_rank_then_weighted_vote() -> None:
     # four members and ONE judge call for its two readers (the narrow rank and the weights)
     assert len(seen) == 5
     assert sum(call["model"] == "prov/judge" for call in seen) == 1
-    combine = operation(record, "op_synthesis_1")["combine"]
-    assert (combine["kind"], combine["reducer"]) == ("answer", "vote")
-    assert combine["narrow"] == case["narrow"]
-    assert _rows(combine) == _rows(case)
-    assert [row["weight"] for row in combine["members"]] == [2.0, 9.0, 8.0, 7.0]
-    assert [row["signals"] for row in combine["members"]] == [
-        row["signals"] for row in case["members"]
-    ]
-    assert combine["tally"] == case["tally"]
-    assert combine["chosen"] == case["chosen"]
-    assert combine["agreement"] == case["agreement"]
-    assert combine["signal"] == case["signal"]
-    assert combine["result"] == case["result"]
+    case = _case("judge_rank_weighted_vote")
+    # WHY the one override: the case's hand-written spec selects with first_holder@1, and the SDK's
+    # weighted vote with max_weight_holder@1; both choose member_2 here.
+    expected = {**case, "operators": [*case["operators"][:3], "max_weight_holder@1"]}
+    assert operation(record, "op_synthesis_1")["combine"] == expected
+
+
+@pytest.mark.asyncio
+async def test_engine_runs_the_sdk_judge_rank_then_plain_vote() -> None:
+    seen: list[dict[str, Any]] = []
+
+    record = await run_candidate(
+        _fixture("narrow_judge_rank_vote_candidate.url4"),
+        _JUDGED_PANEL,
+        "miss",
+        on_request=seen.append,
+    )
+
+    assert record["status"] == "completed"
+    # Oracle: the judge keeps beta (b) and gamma (c); the plain vote ties 1 to 1, and the first
+    # holder in author order is beta. Over all four members, c would win 2 to 1.
+    assert record["output"] == "B"
+    # only the narrow rank reads the judge, and it is still ONE call
+    assert len(seen) == 5
+    assert sum(call["model"] == "prov/judge" for call in seen) == 1
+    case = _case("judge_rank_weighted_vote")
+    # WHY these overrides: the main vote has no weights, so it is mode@1 with no weight per row,
+    # each holder counts 1, the tie is 1 to 1 (agreement 1/2), and the evidence ``signal`` (the
+    # main step's key) is absent. The narrow record, the rows and the result are the case's.
+    expected = {
+        **case,
+        "operators": ["last_line@1", "text@1", "mode@1", "first_holder@1"],
+        "members": [{**row, "weight": None} for row in case["members"]],
+        "tally": [{**entry, "score": 1.0} for entry in case["tally"]],
+        "agreement": 0.5,
+        "tie": True,
+        "signal": None,
+    }
+    assert operation(record, "op_synthesis_1")["combine"] == expected

@@ -35,6 +35,7 @@ from screamingface._surface.chain import _Block
 from screamingface._surface.lowering import lower
 from screamingface.fusion import Fusion
 from screamingface.pipeline import Pipeline
+from screamingface.reducer import Reducer, _narrowed
 from screamingface.url4 import _calls, _candidate_expression
 
 _JSON = "Reply with JSON: {'answer': <number>, 'confidence': <0..1>}."
@@ -288,7 +289,7 @@ def test_nc3_a_judge_read_only_by_a_narrow_step_is_one_call() -> None:
     assert "judge" in _combine_call(url4).context
 
 
-def test_nc3_a_judge_pick_after_a_filter_leaves_the_judge_step_as_it_is() -> None:
+def test_nc3_an_argmax_by_the_judge_after_a_filter_leaves_the_judge_step_as_it_is() -> None:
     judge = _judge()
     chain = (
         sx.Fanout(_ROUTES)
@@ -307,13 +308,13 @@ def test_nc3_a_judge_pick_after_a_filter_leaves_the_judge_step_as_it_is() -> Non
     assert len(_judge_calls(_url4(chain))) == 1
 
 
-def test_nc3_two_readers_that_ask_the_judge_in_different_words_are_refused() -> None:
-    # Until the neutral judge template (overview §4.1), ArgMin's judge is told that a lower number
-    # is better and a narrow Rank's judge that a higher one is, so they are two different calls.
+def test_nc3_an_argmin_by_the_judge_after_a_judge_narrow_step_is_refused() -> None:
+    # Until the neutral judge template (overview §4.1, unit 7), ArgMin's judge is told that a lower
+    # number is better and a narrow Rank's judge that a higher one is: two different judge calls.
     with pytest.raises(
         ValueError,
-        match=r"^two steps of one combine call read the 'judge' call with a different prompt or "
-        r"params, so it cannot be one call$",
+        match=r'^sf\.ArgMin\("score:judge"\) cannot follow a narrow step that reads score:judge '
+        r"until the neutral judge template$",
     ):
         _ = (
             sx.Fanout(_ROUTES)
@@ -415,3 +416,132 @@ def test_the_block_record_keeps_its_narrow_steps() -> None:
 
     assert isinstance(block, _Block)
     assert block.narrow == (sx.Rank(2, by="cost_usd"),)
+
+
+# ---------------------------------------------------------------- equality follows the bytes
+
+_RANK = sf.Rank(2, by_signal=sf.signal("cost_usd"))
+
+
+def _carriers() -> list[Reducer]:
+    """One value of each of the nine reducer classes that carry narrow steps."""
+
+    return [
+        sf.Vote(),
+        sf.Median(),
+        sf.Mean(),
+        sf.Reduce("mean", extract=sf.Extract("field", path="answer")),
+        sf.Pick(by_signal=sf.signal("cost_usd"), order="max"),
+        sf.Judge(_JUDGE, returns="scores", rubric=_RUBRIC),
+        sf.Rank(1, by_signal=sf.signal("latency_ms")),
+        sf.Filter(where=sf.matches("x")),
+        sf.Concat(),
+    ]
+
+
+@pytest.mark.parametrize("plain", _carriers(), ids=lambda value: type(value).__name__)
+def test_a_narrowed_value_differs_from_the_plain_one(plain: Reducer) -> None:
+    narrowed = _narrowed(plain, (_RANK,))
+    again = _narrowed(plain, (sf.Rank(2, by_signal=sf.signal("cost_usd")),))
+
+    assert narrowed != plain
+    assert plain != narrowed
+    assert narrowed == again
+
+
+def test_an_argmax_by_the_judge_after_a_narrow_step_is_not_the_plain_argmax() -> None:
+    plain = lower(sx.Fanout(_ROUTES) >> _judge() >> sx.ArgMax("score:judge"))
+    narrowed = lower(
+        sx.Fanout(_ROUTES)
+        >> _judge()
+        >> sx.Filter(where=sx.signal("field:confidence") > 0.5)
+        >> sx.ArgMax("score:judge")
+    )
+
+    assert isinstance(plain, Fusion)
+    assert isinstance(narrowed, Fusion)
+    assert narrowed.synthesizer != plain.synthesizer
+    assert _url4(narrowed) != _url4(plain)
+
+
+# ---------------------------------------------------------------- the carrier gate (NR-S1, NR-C1)
+
+# A pattern filter: it reads no signal, so the context of the hand-edited url4 stays right.
+_NARROW_ITEM = (
+    '{"extract":null,"normalize":null,"reduce":{"args":{"pattern":"x"},"op":"filter@1"},'
+    '"select":{"args":{},"op":"kept@1"}}'
+)
+
+
+def _with_narrow_items(url4: str, count: int) -> str:
+    """``url4`` with ``count`` narrow items put into its one combine spec, by hand."""
+
+    head, members, tail = url4.partition('"members":["member_1","member_2","member_3"],')
+    assert members, "the url4 has no three-member combine spec"
+    items = ",".join([_NARROW_ITEM] * count)
+    return f'{head}{members}"narrow":[{items}],{tail}'
+
+
+def _rebuild_refusal(url4: str, message: str) -> ValueError:
+    with pytest.raises(ValueError, match=message) as caught:
+        sf.Url4(url4).to_python()
+    return caught.value
+
+
+def test_the_rebuild_refuses_five_narrow_items() -> None:
+    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+
+    error = _rebuild_refusal(
+        _with_narrow_items(url4, 5),
+        r"^URL4 Candidate has a vote spec this SDK version cannot rebuild$",
+    )
+
+    assert str(error.__cause__) == "a combine call takes 1 to 4 narrow steps"
+
+
+def test_the_rebuild_takes_four_narrow_items_as_far_as_to_python() -> None:
+    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+
+    # the url4 rebuilds and recompiles, then to_python names the surface that can spell it
+    _rebuild_refusal(_with_narrow_items(url4, 4), r"narrow steps before its reducer")
+
+
+def test_the_rebuild_refuses_a_label_judge_after_a_narrow_step() -> None:
+    url4 = _url4(sf.Fusion(_ROUTES, synthesizer=sf.Judge(_JUDGE, returns="label", rubric=_RUBRIC)))
+
+    error = _rebuild_refusal(
+        _with_narrow_items(url4, 1),
+        r"^URL4 Candidate has a judge spec this SDK version cannot rebuild$",
+    )
+
+    assert str(error.__cause__) == (
+        "a label judge makes its own call over every member, so it cannot follow a narrow step"
+    )
+
+
+def test_the_rebuild_refuses_a_model_fallback_gate_after_a_narrow_step() -> None:
+    gate = sf.Gate("agreement", ">=", 0.7, otherwise=sf.Model("prov/writer"))
+    url4 = _url4(sf.Fusion(_ROUTES, synthesizer=sf.Vote(gate=gate)))
+
+    error = _rebuild_refusal(
+        _with_narrow_items(url4, 1),
+        r"^URL4 Candidate has a vote spec this SDK version cannot rebuild$",
+    )
+
+    assert str(error.__cause__) == (
+        "a gate with a model fallback makes its own call over every member, so it cannot follow "
+        "a narrow step"
+    )
+
+
+def test_an_abstain_gate_carries_narrow_steps() -> None:
+    gate = sf.Gate("agreement", ">=", 0.7)
+
+    assert _narrowed(sf.Vote(gate=gate), (_RANK,))._narrow == (_RANK,)
+
+
+def test_merge_cannot_carry_narrow_steps() -> None:
+    merge = sf.Merge(fields={"answer": sf.FieldRule.from_member(1)})
+
+    with pytest.raises(ValueError, match=r"^sf\.Merge cannot follow a narrow step$"):
+        _narrowed(merge, (_RANK,))
