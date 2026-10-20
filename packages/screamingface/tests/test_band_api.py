@@ -1,6 +1,6 @@
 """The abstain band on sf.Gate: keyword, compile and rebuild (E4b part 6, unit 5; BA#1-6).
 
-FEATURE: sf.Gate(..., abstain_band=(lo, hi)) names the numbers that are too close to call. The band
+FEATURE: GateNode(..., abstain_band=(lo, hi)) names the numbers that are too close to call. The band
 is data in the spec gate ("abstain_band": [lo, hi]), and Url4.to_python() writes it back.
 STORY: as a benchmark author, I write sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5)); a
 bad band fails at construction, and the url4 rebuilds the same gate.
@@ -16,12 +16,14 @@ from typing import Any
 
 import pytest
 from _combine_contract import engine_operators, requires_engine_app
+from _nodes import FusionNode, GateNode, JudgeNode, VoteNode
 from _vote_run_fixtures import spec_of
 from test_gate_contract_fixtures import assert_fixture_matches
 
 import screamingface as sf
 from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
+from screamingface._surface.lowering import lower
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 _RUBRIC = "Pick the best answer."
@@ -49,14 +51,19 @@ _PART5_GATE_FIXTURES: tuple[str, ...] = (
 )
 
 
-def _judge() -> sf.Judge:
+def _judge() -> sx.JudgePick:
     return sx.JudgePick("prov/judge", rubric=_RUBRIC)
 
 
-def _recipe_g(otherwise: Any = "abstain") -> sf.Fusion:
+def _judge_node() -> JudgeNode:
+    return JudgeNode("prov/judge", returns="label", rubric=_RUBRIC)
+
+
+def _recipe_g(otherwise: Any = "abstain") -> sf.Recipe:
     """Recipe G of band-api §3; ``otherwise`` is the gate fallback (BA-3)."""
 
-    return sf.Fusion(
+    risk = sx.signal("risk").mean()
+    return sx.Fanout(
         _MEMBERS,
         name="vote",
         signals={
@@ -64,9 +71,8 @@ def _recipe_g(otherwise: Any = "abstain") -> sf.Fusion:
             "sev_a": sf.Verbalized("A: ([0-9]+)"),
             "sev_b": sf.Verbalized("B: ([0-9]+)"),
         },
-        synthesizer=sf.Vote(
-            gate=sf.Gate("mean:risk", "<=", 3.0, otherwise=otherwise, abstain_band=(2.5, 3.5))
-        ),
+    ) >> sx.Gate(
+        when=risk <= 3.0, then=sx.Vote(), otherwise=otherwise, abstain_if=risk.between(2.5, 3.5)
     )
 
 
@@ -74,11 +80,11 @@ def _compiled(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
-def _rebuilt(url4: str) -> sf.Fusion:
+def _rebuilt(url4: str) -> FusionNode:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
     candidate = namespace["candidate"]
-    assert isinstance(candidate, sf.Fusion)
+    assert isinstance(candidate, FusionNode)
     return candidate
 
 
@@ -87,7 +93,7 @@ def _rebuilt(url4: str) -> sf.Fusion:
 
 @requires_engine_app
 def test_a_gate_without_a_band_keeps_its_part_5_form() -> None:
-    gate = sf.Gate("agreement", ">=", 0.7)
+    gate = GateNode("agreement", ">=", 0.7)
     spec = gate._spec()
     assert spec == {"cmp": ">=", "observe": "agreement", "otherwise": "abstain", "threshold": 0.7}
     assert list(spec) == ["cmp", "observe", "otherwise", "threshold"]
@@ -102,7 +108,7 @@ def test_a_gate_without_a_band_keeps_its_part_5_form() -> None:
 
 def test_gate_takes_a_closed_band() -> None:
     listed: Any = [0.6, 0.7]
-    gate = sf.Gate("agreement", ">=", 0.7, abstain_band=listed)
+    gate = GateNode("agreement", ">=", 0.7, abstain_band=listed)
     assert gate.abstain_band == (0.6, 0.7)
     assert isinstance(gate.abstain_band, tuple)
     assert repr(gate) == "Gate('agreement', '>=', 0.7, abstain_band=(0.6, 0.7))"
@@ -114,18 +120,18 @@ def test_gate_takes_a_closed_band() -> None:
         "threshold": 0.7,
         "abstain_band": [0.6, 0.7],
     }
-    ints = sf.Gate("chosen:x", "<", 1, abstain_band=(0, 2))
+    ints = GateNode("chosen:x", "<", 1, abstain_band=(0, 2))
     band = ints.abstain_band
     assert band == (0.0, 2.0)
     assert band is not None
     assert [type(end) for end in band] == [float, float]
     assert repr(ints) == "Gate('chosen:x', '<', 1.0, abstain_band=(0.0, 2.0))"
-    assert sf.Gate("agreement", ">=", 0.7, abstain_band=(0.7, 0.7)).abstain_band == (0.7, 0.7)
-    assert sf.Gate("chosen:x", "<=", 1.0, abstain_band=(-5.0, 1.5)).abstain_band == (-5.0, 1.5)
-    assert sf.Gate("agreement", ">=", 0.7, abstain_band=(0.6, 0.7)) == gate
-    assert gate != sf.Gate("agreement", ">=", 0.7)
-    assert sf.Gate("agreement", ">=", 0.7, abstain_band=None) == sf.Gate("agreement", ">=", 0.7)
-    parameter = inspect.signature(sf.Gate).parameters["abstain_band"]
+    assert GateNode("agreement", ">=", 0.7, abstain_band=(0.7, 0.7)).abstain_band == (0.7, 0.7)
+    assert GateNode("chosen:x", "<=", 1.0, abstain_band=(-5.0, 1.5)).abstain_band == (-5.0, 1.5)
+    assert GateNode("agreement", ">=", 0.7, abstain_band=(0.6, 0.7)) == gate
+    assert gate != GateNode("agreement", ">=", 0.7)
+    assert GateNode("agreement", ">=", 0.7, abstain_band=None) == GateNode("agreement", ">=", 0.7)
+    parameter = inspect.signature(GateNode).parameters["abstain_band"]
     assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
     assert parameter.default is None
 
@@ -168,7 +174,7 @@ def test_gate_refuses_bad_bands(
     observe: str, band: Any, error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error) as caught:
-        sf.Gate(observe, ">=", 0.7, abstain_band=band)
+        GateNode(observe, ">=", 0.7, abstain_band=band)
     assert type(caught.value) is error
     assert str(caught.value) == message
 
@@ -187,7 +193,7 @@ def test_compile_writes_the_band() -> None:
         "threshold": 3.0,
     }
     assert url4.count(_G_GATE_SPEC) == 1
-    judged = sf.Gate("mean:risk", "<=", 3.0, otherwise=_judge(), abstain_band=(2.5, 3.5))
+    judged = GateNode("mean:risk", "<=", 3.0, otherwise=_judge_node(), abstain_band=(2.5, 3.5))
     assert judged._spec() == {
         "cmp": "<=",
         "observe": "mean:risk",
@@ -207,9 +213,11 @@ def test_url4_rebuilds_a_band_with_and_without_a_fallback_judge(fallback: str) -
     url4 = _compiled(recipe)
     text = _G_TEXT if fallback == "abstain" else _G_JUDGE_TEXT
     assert text in sf.Url4(url4).to_python()
-    original, rebuilt = recipe.synthesizer, _rebuilt(url4).synthesizer
-    assert isinstance(original, sf.Vote)
-    assert isinstance(rebuilt, sf.Vote)
+    lowered = lower(recipe)
+    assert isinstance(lowered, FusionNode)
+    original, rebuilt = lowered.synthesizer, _rebuilt(url4).synthesizer
+    assert isinstance(original, VoteNode)
+    assert isinstance(rebuilt, VoteNode)
     assert rebuilt.gate is not None
     assert rebuilt.gate.abstain_band == (2.5, 3.5)
     assert rebuilt.gate == original.gate
@@ -247,7 +255,7 @@ def test_a_band_keeps_the_declared_name_rule() -> None:
         abstain_if=sx.signal("zzz").mean().between(2.5, 3.5),
     )
     with pytest.raises(ValueError) as caught:
-        (
+        _ = (
             sx.Fanout(
                 _MEMBERS, signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")}, name="vote"
             )

@@ -113,7 +113,7 @@ def test_the_goldens_without_a_block_form_are_exactly_the_unnamed_pipeline_synth
     }
 
     assert found == _NO_BLOCK_FORM
-    assert _unnamed_pipeline_synthesizer(_CHARACTERIZED["fusion_recipe_synthesizer.url4"])  # type: ignore[arg-type]
+    assert _unnamed_pipeline_synthesizer(lower(_CHARACTERIZED["fusion_recipe_synthesizer.url4"]))  # type: ignore[arg-type]
     assert len(_BLOCK_EXAMPLES) == 17
 
 
@@ -234,7 +234,8 @@ def test_every_recipe_without_a_context_block_is_returned_as_it_is() -> None:
     for example in EXAMPLES:
         recipe = lower(example.build())
         assert rewrite_fusion_recipe(recipe) is recipe
-    for recipe in _CHARACTERIZED.values():
+    for characterized in _CHARACTERIZED.values():
+        recipe = lower(characterized)
         assert rewrite_fusion_recipe(recipe) is recipe
     loop = sf.CorrectiveLoop(["provider/a", "provider/b"], judge="provider/j")
     solo = sf.SelfCorrective("provider/a")

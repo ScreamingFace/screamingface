@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
+from _nodes import MergeNode, fusion_node
 from test_judge_reducer import _calls_by_name, _context, _sources, _wrap
 from url4 import RelExpr, Source, Text, src
 
@@ -27,7 +28,7 @@ _COMBINE_PATH = "/ensemble/combine/v1"
 _WRITE = "Write one summary."
 
 
-def _merge(**extra: sf.FieldRule) -> sf.Merge:
+def _merge(**extra: sf.FieldRule) -> sx.Merge:
     return sx.Merge(
         {
             "answer": sf.FieldRule.majority(normalize="text"),
@@ -37,8 +38,8 @@ def _merge(**extra: sf.FieldRule) -> sf.Merge:
     )
 
 
-def _compile(merge: sf.Merge | None = None) -> Any:
-    fusion = sf.Fusion(members3(), synthesizer=merge or _merge())
+def _compile(merge: sx.Merge | None = None) -> Any:
+    fusion = sx.Fanout(members3()) >> (merge or _merge())
     return compile_candidate(fusion, operators=flow_operators())
 
 
@@ -234,7 +235,7 @@ def test_two_model_fields_are_numbered_in_declared_order() -> None:
     )
 
 
-class _MergeWithSignals(sf.Merge):
+class _MergeWithSignals(MergeNode):
     """A Merge whose signals are replaced, to hand the compiler a signal no Merge can make."""
 
     _replaced: tuple[_ModelSignal, ...] = ()
@@ -263,7 +264,7 @@ def test_a_signal_whose_key_and_field_disagree_is_refused(
     merge = Bad(fields={"summary": sf.FieldRule.model("provider/w", prompt=_WRITE)})
 
     with pytest.raises(ValueError, match=message):
-        compile_candidate(sf.Fusion(members3(), synthesizer=merge), operators=flow_operators())
+        compile_candidate(fusion_node(members3(), merge), operators=flow_operators())
 
 
 def test_the_writer_key_rule_is_one_pair_of_functions() -> None:

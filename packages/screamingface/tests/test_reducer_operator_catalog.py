@@ -310,7 +310,7 @@ def test_client_fetches_the_catalog_once_for_repeated_reducer_evaluations() -> N
     assert transport.candidate.models == ("provider/a", "provider/b", "provider/c")
 
 
-def _plain_fusion() -> sf.Fusion:
+def _plain_fusion() -> sf.Recipe:
     return sx.Fanout([sf.Model("provider/opus"), sf.Model("provider/judge")]) >> sx.Synthesize(
         "provider/opus"
     )

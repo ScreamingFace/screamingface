@@ -36,21 +36,20 @@ from screamingface import _surface as sx
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
-from screamingface.reducer import Reducer
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
 _GSM8K = "inspect-gsm8k"
 
 
-def _fusion(synthesizer: Reducer) -> sf.Fusion:
-    return sf.Fusion(_MEMBERS, synthesizer=synthesizer)
+def _fusion(synthesizer: sx.Vote) -> sf.Recipe:
+    return sx.Fanout(_MEMBERS) >> synthesizer
 
 
 def _bound(benchmark_id: str, wire: dict[str, Any]) -> _BenchmarkAnswerRule:
     return _BenchmarkAnswerRule(benchmark_id, rule(wire))
 
 
-def _url4(synthesizer: Reducer, benchmark_rule: _BenchmarkAnswerRule | None = None) -> str:
+def _url4(synthesizer: sx.Vote, benchmark_rule: _BenchmarkAnswerRule | None = None) -> str:
     return compile_candidate(
         _fusion(synthesizer), operators=engine_operators(), benchmark_rule=benchmark_rule
     ).url4

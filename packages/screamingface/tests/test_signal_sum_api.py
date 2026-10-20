@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
+from _nodes import FusionNode
 from _vote_run_fixtures import spec_of
 from test_gate_contract_fixtures import gate_verbalized_vote_url4
 from test_verbalized_contract_fixture import verbalized_vote_url4
@@ -25,7 +26,8 @@ from test_verbalized_contract_fixture import verbalized_vote_url4
 import screamingface as sf
 from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface.reducer import Reducer
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.signal_sources import SignalSource, declared_from_spec, injected_member_params
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -54,25 +56,26 @@ def _declaration(risk: sf.Sum | None = None) -> dict[str, SignalSource]:
     }
 
 
-def _recipe_r(risk: sf.Sum | None = None, synthesizer: Reducer | None = None) -> sf.Fusion:
+def _recipe_r(risk: sf.Sum | None = None, synthesizer: Step | None = None) -> sx.Pipeline:
     """Recipe R of the sum-api PRD §3, or R with another synthesizer."""
-    return sf.Fusion(
-        _MEMBERS,
-        name="pick",
-        signals=_declaration(risk),
-        synthesizer=(
-            sf.Pick(by_signal=sf.signal("risk"), order="min")
-            if synthesizer is None
-            else synthesizer
-        ),
+    return sx.Fanout(_MEMBERS, name="pick", signals=_declaration(risk)) >> (
+        sx.ArgMin("risk") if synthesizer is None else synthesizer
     )
+
+
+def _fanout(recipe: sf.Recipe) -> sx.Fanout:
+    """The ``sf.Fanout`` that opens ``recipe``, a chain of one block."""
+    assert isinstance(recipe, sx.Pipeline)
+    fanout = recipe.steps[0]
+    assert isinstance(fanout, sx.Fanout)
+    return fanout
 
 
 def _compiled(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
-def _pick(name: str) -> sf.Pick:
+def _pick(name: str) -> sx.ArgMin:
     return sx.ArgMin(sf.signal(name))
 
 
@@ -174,19 +177,17 @@ def test_sum_refuses_bad_terms(value: Any, error: type[Exception], message: str)
 def test_fusion_refuses_a_sum_of_an_undeclared_name() -> None:
     message = "sf.Sum 'risk' adds 'zzz', which this Fusion does not declare (declared: risk, sev_a)"
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(
+        _ = sx.Fanout(
             _MEMBERS,
             signals={"risk": sf.Sum({"sev_a": 0.5, "zzz": 1.0}), "sev_a": sf.Verbalized(_A)},
-            synthesizer=_pick("risk"),
-        )
+        ) >> _pick("risk")
     assert str(caught.value) == message
     # the listed names are sorted, whatever the dict order of signals=
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(
+        _ = sx.Fanout(
             _MEMBERS,
             signals={"sev_a": sf.Verbalized(_A), "risk": sf.Sum({"zzz": 1.0, "sev_a": 0.5})},
-            synthesizer=_pick("risk"),
-        )
+        ) >> _pick("risk")
     assert str(caught.value) == message
 
 
@@ -195,20 +196,19 @@ def test_fusion_refuses_a_sum_of_an_undeclared_name() -> None:
 
 def test_fusion_refuses_a_sum_of_a_sum_and_a_sum_of_itself() -> None:
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(
+        _ = sx.Fanout(
             _MEMBERS,
             signals={
                 "a": sf.Verbalized(_A),
                 "r1": sf.Sum({"a": 1.0}),
                 "r2": sf.Sum({"r1": 1.0}),
             },
-            synthesizer=_pick("r2"),
-        )
+        ) >> _pick("r2")
     assert str(caught.value) == (
         "sf.Sum 'r2' adds 'r1', which is an sf.Sum; a sum adds only other sources, not sums"
     )
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(_MEMBERS, signals={"r": sf.Sum({"r": 1.0})}, synthesizer=_pick("r"))
+        _ = sx.Fanout(_MEMBERS, signals={"r": sf.Sum({"r": 1.0})}) >> _pick("r")
     assert str(caught.value) == (
         "sf.Sum 'r' adds 'r', which is an sf.Sum; a sum adds only other sources, not sums"
     )
@@ -235,10 +235,10 @@ def _weight_signals(lp: SignalSource) -> dict[str, SignalSource]:
 @pytest.mark.parametrize("weighted", _WEIGHTED)
 @pytest.mark.parametrize(("raw", "shown"), _RAW)
 def test_fusion_refuses_a_vote_weight_sum_with_a_raw_logprob_or_entropy(
-    weighted: Callable[[Any], Reducer], raw: Callable[[], SignalSource], shown: str
+    weighted: Callable[[Any], Step], raw: Callable[[], SignalSource], shown: str
 ) -> None:
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(_OPENROUTER, signals=_weight_signals(raw()), synthesizer=weighted(sf.signal("w")))
+        _ = sx.Fanout(_OPENROUTER, signals=_weight_signals(raw())) >> weighted(sf.signal("w"))
     assert str(caught.value) == (
         f"sf.Sum 'w' cannot be a vote weight: it adds 'lp' ({shown}), and a weight must be "
         "greater than 0; read sf.signal('w') with sf.Pick, sf.Rank or sf.Filter instead"
@@ -249,12 +249,14 @@ def test_a_sum_weight_may_add_a_logprob_prob_and_a_pick_may_read_any_sum() -> No
     weighted = sx.Fanout(_OPENROUTER, signals=_weight_signals(sf.Logprob("prob"))) >> sx.Vote(
         weights=sf.signal("w")
     )
-    assert weighted.signals is not None
-    assert weighted.signals["w"] == sf.Sum({"conf": 0.01, "lp": 1.0})
+    weights = _fanout(weighted).signals
+    assert weights is not None
+    assert weights["w"] == sf.Sum({"conf": 0.01, "lp": 1.0})
     for raw in (sf.Logprob("mean"), sf.Logprob("sum"), sf.Entropy()):
         picked = sx.Fanout(_OPENROUTER, signals=_weight_signals(raw)) >> sx.ArgMax("w")
-        assert picked.signals is not None
-        assert picked.signals["lp"] == raw
+        declared = _fanout(picked).signals
+        assert declared is not None
+        assert declared["lp"] == raw
 
 
 # --- SA#7 (SA-3, SA-D4): every rule and gate reads a sum by name --------------------------------
@@ -274,13 +276,18 @@ _READERS: list[Any] = [
 
 
 @pytest.mark.parametrize("reader", _READERS)
-def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Reducer]) -> None:
-    fusion = _recipe_r(synthesizer=reader())
-    assert fusion.signals is not None
-    assert list(fusion.signals) == ["risk", "sev_a", "sev_b"]
-    # WHY the Pipeline: a Rank or a Filter ends a candidate with a selection, and the compile
-    # refuses that unless another stage follows (test_rank_by_signal.py _wrapped precedent)
-    spec = spec_of(_compiled(sf.Pipeline([fusion, "provider/next"])))
+def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Step]) -> None:
+    step = reader()
+    fusion = _recipe_r(synthesizer=step)
+    signals = _fanout(fusion).signals
+    assert signals is not None
+    assert list(signals) == ["risk", "sev_a", "sev_b"]
+    # WHY the next stage: a Rank or a Filter ends a candidate with a selection, and the compile
+    # refuses that unless a writer follows (test_rank_by_signal.py _wrapped precedent)
+    narrow = isinstance(step, sx.Rank | sx.Filter)
+    spec = spec_of(
+        _compiled(fusion >> (sx.Synthesize("provider/next") if narrow else "provider/next"))
+    )
     assert spec["signals"] == _SPEC_SIGNALS
     # the rule or the gate names the sum outside the signals map
     assert "risk" in json.dumps({key: value for key, value in spec.items() if key != "signals"})
@@ -288,17 +295,14 @@ def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Reducer]) -> No
 
 def test_a_sum_counts_toward_the_eight_names() -> None:
     names: dict[str, SignalSource] = {f"a{index}": sf.Verbalized(_A) for index in range(1, 8)}
-    fusion = sf.Fusion(
-        _MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), **names}, synthesizer=_pick("s")
-    )
-    assert fusion.signals is not None
-    assert len(fusion.signals) == 8
+    fusion = sx.Fanout(_MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), **names}) >> _pick("s")
+    signals = _fanout(fusion).signals
+    assert signals is not None
+    assert len(signals) == 8
     with pytest.raises(ValueError) as caught:
-        sf.Fusion(
-            _MEMBERS,
-            signals={"s": sf.Sum({"a1": 1.0}), "a8": sf.Verbalized(_A), **names},
-            synthesizer=_pick("s"),
-        )
+        _ = sx.Fanout(
+            _MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), "a8": sf.Verbalized(_A), **names}
+        ) >> _pick("s")
     assert str(caught.value) == "a Fusion declares at most 8 signals, not 9"
 
 
@@ -336,9 +340,11 @@ def test_url4_rebuilds_a_sum() -> None:
     namespace: dict[str, Any] = {}
     exec(code, namespace)  # noqa: S102 - our own generated code
     recovered = namespace["candidate"]
-    assert isinstance(recovered, sf.Fusion)
-    assert recovered.signals == fusion.signals
-    assert repr(recovered) == repr(fusion)
+    assert isinstance(recovered, FusionNode)
+    lowered = lower(fusion)
+    assert isinstance(lowered, FusionNode)
+    assert recovered.signals == lowered.signals
+    assert repr(recovered) == repr(lowered)
     assert _compiled(recovered) == url4
 
 

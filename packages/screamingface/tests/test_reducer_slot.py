@@ -132,7 +132,7 @@ def test_fusion_accepts_a_reducer_in_the_synthesizer_slot() -> None:
     fusion_node(["provider/a", "provider/b"], FixtureJudgeish())
     # a non-reducer synthesizer keeps its exact message
     with pytest.raises(TypeError, match="Fusion synthesizer must be a model route"):
-        sf.Fusion(["provider/a"], synthesizer=3)  # type: ignore[arg-type]
+        fusion_node(["provider/a"], 3)  # type: ignore[arg-type]
 
 
 def test_short_operator_names_pin_to_newest_catalog_version() -> None:

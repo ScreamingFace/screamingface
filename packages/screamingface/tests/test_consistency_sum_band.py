@@ -20,8 +20,17 @@ from typing import Any
 
 import pytest
 from _combine_contract import COMBINE_CONTRACT, read_contract, requires_engine_app
+from _nodes import FusionNode
 from test_consistency_display import _N, _SAMPLES_CHIP, _chip, _section, _wire
-from test_consistency_rebuild import _MEMBERS, _linked, _rebuilt, _recompiled, _spec_of, _url4
+from test_consistency_rebuild import (
+    _MEMBERS,
+    _declared,
+    _linked,
+    _rebuilt,
+    _recompiled,
+    _spec_of,
+    _url4,
+)
 
 import screamingface as sf
 from screamingface import _surface as sx
@@ -33,13 +42,13 @@ from screamingface.combine_evidence import CombineEvidence
 _PART_6_URL4 = ("sum_pick_candidate.url4", "gate_band_vote_candidate.url4")
 
 
-def _sum_pick() -> sf.Fusion:
+def _sum_pick() -> sf.Recipe:
     return sx.Fanout(
         _MEMBERS, signals={"cons": sf.Consistency(n=2), "risk": sf.Sum({"cons": -1.0})}, name="pick"
     ) >> sx.ArgMin("risk")
 
 
-def _band_vote() -> sf.Fusion:
+def _band_vote() -> sf.Recipe:
     return sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=2)}, name="vote") >> sx.Gate(
         when=sx.signal("cons").mean() >= 0.9,
         then=sx.Vote(),
@@ -47,7 +56,7 @@ def _band_vote() -> sf.Fusion:
     )
 
 
-def _sum_band_vote() -> sf.Fusion:
+def _sum_band_vote() -> sf.Recipe:
     return sx.Fanout(
         _MEMBERS, signals={"cons": sf.Consistency(n=2), "risk": sf.Sum({"cons": 3.0})}, name="vote"
     ) >> sx.Gate(
@@ -57,7 +66,7 @@ def _sum_band_vote() -> sf.Fusion:
     )
 
 
-_RECIPES: dict[str, Callable[[], sf.Fusion]] = {
+_RECIPES: dict[str, Callable[[], sf.Recipe]] = {
     "sum-of-consistency-pick": _sum_pick,
     "band-on-mean-consistency": _band_vote,
     "band-on-mean-sum-of-consistency": _sum_band_vote,
@@ -74,8 +83,8 @@ def test_a_recipe_with_consistency_and_a_sum_or_a_band_round_trips(name: str) ->
 
     assert _recompiled(url4) == url4
     rebuilt = _rebuilt(url4)
-    assert isinstance(rebuilt, sf.Fusion)
-    assert dict(rebuilt.signals or {}) == dict(recipe.signals or {})
+    assert isinstance(rebuilt, FusionNode)
+    assert dict(rebuilt.signals or {}) == _declared(recipe)
     _candidate_from_url4(_linked(url4))  # the replay takes the byte-for-byte recompile too
 
 
@@ -103,7 +112,7 @@ def test_the_part_6_contract_url4s_recompile_byte_for_byte(name: str) -> None:
 
     assert '"signals":{' in url4  # so the part 7 trigger runs the recompile for it
     assert _recompiled(url4) == url4
-    assert isinstance(_rebuilt(url4), sf.Fusion)
+    assert isinstance(_rebuilt(url4), FusionNode)
     _candidate_from_url4(_linked(url4))
 
 
