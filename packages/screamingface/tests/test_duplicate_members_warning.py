@@ -10,6 +10,7 @@ from _reducer_fixtures import FixtureVote, fixture_operators
 from url4 import expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.policy import DEFAULT_ANSWER_PROMPT
@@ -68,12 +69,12 @@ def test_two_groups_of_duplicates_warn_once_each() -> None:
             FixtureVote(),
         ),
         # A Model synthesizer is not a reducer Fusion: the guard is for reducers only.
-        sf.Fusion(["provider/a", "provider/a"], synthesizer="provider/s"),
+        sx.Fanout(["provider/a", "provider/a"]) >> sx.Synthesize("provider/s"),
         # Recipe members are skipped, so two equal nested Fusions do not warn.
         fusion_node(
             [
-                sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s"),
-                sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s"),
+                sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/s"),
+                sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/s"),
             ],
             FixtureVote(),
         ),

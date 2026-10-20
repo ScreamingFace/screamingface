@@ -6,16 +6,14 @@ import pytest
 from url4 import build, render
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.linking import link_candidate
 
 
 def _candidate_url4() -> str:
     return compile_candidate(
-        sf.Fusion(
-            ["provider/a", "provider/b"],
-            synthesizer="provider/synth",
-        )
+        sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/synth")
     ).url4
 
 
