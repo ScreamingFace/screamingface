@@ -1,33 +1,22 @@
-"""Serve and validate public cases before native URL4 selection and execution."""
+"""Serve the public cases as a URL4 data reference (spec R3).
 
-import json
+The case set is data, not a computation: the expression reads it as ``/…/cases*(…)`` and
+selects with ``;iteration.slice``. URL4 parses the JSON array into rows (spec §5.3.7) and owns
+slicing and indexing.
+"""
+
 from collections.abc import Callable
 
-from url4.core.errors import ResolutionError
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import Url4Node
+
+CASES_MEDIA_TYPE = "application/json"
 
 
 def install_cases(node: Url4Node, route: str, provider: Callable[[], str]) -> None:
-    """Register the existing cases route as a validated collection producer."""
-    if route not in node.processor_routes():
-        node.endpoint(route)(cases_handler(provider))
+    """Register the cases route as a data route; a second install of the same route is a no-op.
 
+    WHY idempotent: local mode installs one node for many runs.
+    """
 
-def cases_handler(provider: Callable[[], str]) -> Callable[[Request], str]:
-    def cases(request: Request) -> str:
-        raw = provider()
-        try:
-            rows = json.loads(raw)
-            count = int(request.intent)
-            if not isinstance(rows, list) or not 1 <= count <= len(rows):
-                raise ValueError("invalid selection")
-            if any(not isinstance(row, dict) for row in rows[:count]):
-                raise ValueError("case rows must be objects")
-        except (TypeError, ValueError) as exc:
-            raise ResolutionError(
-                "Invalid benchmark case selection", code="benchmark_contract_error", permanent=True
-            ) from exc
-        # INVARIANT: validation finishes before inference; URL4 owns slicing and indexing.
-        return raw
-
-    return cases
+    if not node.has_data(route):
+        node.data(route, provider, media_type=CASES_MEDIA_TYPE)

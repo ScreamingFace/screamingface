@@ -193,6 +193,10 @@ class Url4Node(CodeMounts):
 
         return register
 
+    def has_data(self, path: str) -> bool:
+        """Whether a data route is registered at exactly ``path``."""
+        return path in self._data
+
     def processor_routes(self) -> list[str]:
         """The registered endpoint paths a `processor=` id may name (§27.3)."""
         return list(self._endpoints)

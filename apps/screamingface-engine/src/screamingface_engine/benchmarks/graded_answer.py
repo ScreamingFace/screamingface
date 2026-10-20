@@ -6,28 +6,20 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.contract import (
     CaseId,
     decode_candidate_invocation,
     validate_case_id,
 )
-from screamingface_engine.benchmarks.failure_classes import (
-    benchmark_contract_error as _contract_error,
-)
 from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
     candidate_answer,
-    compact_json,
 )
-from url4.peer.server import Request, Url4Node
 
-GRADED_ANSWER_ROUTE = "/benchmarks/case-execution"
 GRADED_ANSWER_SCHEMA = "screamingface.case-execution.v1"
 _FIELDS = frozenset({"case_id", "candidate_invocation", "grading"})
 # FEATURE (OME-1458): the N Attempts of one Case, each its own case-execution envelope, joined
 # into one row so the per-Case fan-out still yields exactly one row per Case.
-CASE_ATTEMPTS_ROUTE = "/benchmarks/case-attempts"
 CASE_ATTEMPTS_SCHEMA = "screamingface.case-attempts.v1"
 
 
@@ -39,13 +31,6 @@ class GradedAnswer:
     candidate: CandidateAnswer
     grading: object | None
     error: Mapping[str, object] | None
-
-
-def install_graded_answer_endpoint(node: Url4Node) -> None:
-    """Install the shared envelope route once in every Benchmark Runner world."""
-
-    node.endpoint(GRADED_ANSWER_ROUTE)(_graded_answer_route)
-    node.endpoint(CASE_ATTEMPTS_ROUTE)(_case_attempts_route)
 
 
 def _decode_graded_answer(value: object) -> tuple[CaseId, CandidateAnswer, object]:
@@ -124,37 +109,6 @@ def graded_answer_matches(outcome: GradedAnswer, expected_case_id: CaseId) -> bo
     )
 
 
-def _graded_answer_route(request: Request) -> str:
-    try:
-        payload = json.loads(request.context)
-        if not isinstance(payload, Mapping):
-            raise ValueError("Case execution context must be a JSON object")
-        if set(payload) != _FIELDS:
-            raise ValueError(
-                "Case execution context must carry case_id, candidate_invocation, and grading"
-            )
-        case_id = validate_case_id(payload["case_id"])
-        assert case_id is not None
-        invocation = payload["candidate_invocation"]
-        grading = payload["grading"]
-        if not isinstance(invocation, str):
-            raise ValueError("Case execution Candidate Invocation must be JSON text")
-        if isinstance(grading, str):
-            grading = json.loads(grading)
-        if (
-            isinstance(grading, str | bytes)
-            or not isinstance(grading, Sequence)
-            or len(grading) != 1
-        ):
-            raise ValueError("Case execution grading must contain exactly one outcome")
-    except (TypeError, ValueError) as exc:
-        raise _contract_error(str(exc)) from exc
-    result = compact_json(graded_answer_payload(case_id, invocation, grading))
-    failed = isinstance(grading[0], Mapping) and "error" in grading[0]
-    report_case_grading(case_id, "failed" if failed else "completed")
-    return result
-
-
 def case_attempts(value: object) -> tuple[CaseId, list[object]] | None:
     """Decode a Case's Attempts envelope into its id and per-Attempt rows; None if not one.
 
@@ -175,37 +129,12 @@ def case_attempts(value: object) -> tuple[CaseId, list[object]] | None:
     return case_id, list(attempts)
 
 
-def _case_attempts_route(request: Request) -> str:
-    """Join one Case's ``attempt_1..attempt_N`` envelopes into one Attempts row, in order."""
-
-    try:
-        payload = json.loads(request.context)
-        if not isinstance(payload, Mapping) or "case_id" not in payload:
-            raise ValueError("Case attempts context must be a JSON object carrying case_id")
-        case_id = validate_case_id(payload["case_id"])
-        assert case_id is not None
-        names: list[str] = [name for name in payload if name != "case_id"]
-        expected: list[str] = [f"attempt_{index}" for index in range(1, len(names) + 1)]
-        if len(names) < 2 or names != expected:
-            raise ValueError("Case attempts context must carry attempt_1..attempt_N, N >= 2")
-        attempts: list[object] = [
-            json.loads(value) if isinstance(value, str) else value
-            for value in (payload[name] for name in names)
-        ]
-    except (TypeError, ValueError) as exc:
-        raise _contract_error(str(exc)) from exc
-    return compact_json({"schema": CASE_ATTEMPTS_SCHEMA, "case_id": case_id, "attempts": attempts})
-
-
 __all__ = [
-    "CASE_ATTEMPTS_ROUTE",
     "CASE_ATTEMPTS_SCHEMA",
     "case_attempts",
-    "GRADED_ANSWER_ROUTE",
     "GRADED_ANSWER_SCHEMA",
     "GradedAnswer",
     "graded_answer_matches",
     "graded_answer_payload",
     "graded_answer",
-    "install_graded_answer_endpoint",
 ]

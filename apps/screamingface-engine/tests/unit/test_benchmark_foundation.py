@@ -17,7 +17,7 @@ from screamingface_engine.benchmarks import (
     BenchmarkDeclaration,
     BenchmarkInstaller,
     BenchmarkRegistry,
-    candidate,
+    candidate_invocation,
     link_candidate,
 )
 from screamingface_engine.benchmarks.contract import (
@@ -39,12 +39,50 @@ from screamingface_engine.world.candidate_adapter import install_candidate_invoc
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.web_tools import _is_blocked
-from url4 import Node, RelExpr, RelUrl, build, expr, iterate, render, src, text
+from url4 import CodeCall, Node, RelExpr, RelUrl, build, expr, iterate, render, src, text
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 from url4.streaming.interfaces import Completed
 
 pytestmark = pytest.mark.asyncio
+
+
+def _answer_route(benchmark_id: str) -> str:
+    return f"/benchmarks/{benchmark_id}/answer"
+
+
+def _answer(call: CodeCall) -> str:
+    """The probe's run terminal: the Candidate Invocation record, as the Candidate returned it."""
+
+    value = call.input("answer").value
+    assert isinstance(value, str)
+    return value
+
+
+def _with_answer(benchmark_id: str, install: BenchmarkInstaller | None) -> BenchmarkInstaller:
+    def installer(node: Url4Node, root: Path) -> None:
+        if not node.has_code(_answer_route(benchmark_id)):
+            node.code(_answer_route(benchmark_id))(_answer)
+        if install is not None:
+            install(node, root)
+
+    return installer
+
+
+def _probe(benchmark_id: str, selected: int) -> Node:
+    """One plain Candidate Invocation, returned by a code terminal (spec R1/R7)."""
+
+    return expr(
+        src(
+            candidate_invocation(
+                f"Explain why the sky looks blue. Selected cases: {selected}.",
+                web_search=False,
+            ),
+            name="answer",
+            weight=0.0,
+        ),
+        intent=RelUrl(_answer_route(benchmark_id)),
+    )
 
 
 def _benchmark(
@@ -64,15 +102,9 @@ def _benchmark(
             interaction="single_shot",
             difficulty="easy",
         ),
-        "build": build_protocol
-        or (
-            lambda selected: candidate(
-                f"Explain why the sky looks blue. Selected cases: {selected}.",
-                web_search=False,
-            )
-        ),
+        "build": build_protocol or (lambda selected: _probe(benchmark_id, selected)),
     }
-    return Benchmark(**values) if install is None else Benchmark(**values, install=install)
+    return Benchmark(**values, install=_with_answer(benchmark_id, install))
 
 
 def _link(candidate_expression: Node, benchmark_expression: Node) -> str:
@@ -209,7 +241,7 @@ async def test_benchmark_ids_are_one_flat_lowercase_identifier(benchmark_id: str
 
 
 async def test_candidate_authoring_canonicalizes_bare_domain_exclusions() -> None:
-    protocol = candidate(
+    protocol = candidate_invocation(
         "question",
         web_search=True,
         web_search_exclude=("B.TEST.", "a.test", "b.test"),
@@ -217,7 +249,7 @@ async def test_candidate_authoring_canonicalizes_bare_domain_exclusions() -> Non
 
     assert "web_search_exclude=a.test:b.test" in render(protocol)
     with pytest.raises(ValueError, match="bare domains"):
-        candidate(
+        candidate_invocation(
             "question",
             web_search=True,
             web_search_exclude="blocked.test",  # type: ignore[arg-type]
@@ -230,7 +262,7 @@ async def test_candidate_authoring_canonicalizes_bare_domain_exclusions() -> Non
         "bücher.example",
     ):
         with pytest.raises(ValueError, match="bare domains"):
-            candidate("question", web_search=True, web_search_exclude=(malformed,))
+            candidate_invocation("question", web_search=True, web_search_exclude=(malformed,))
 
 
 async def test_registry_installs_every_concrete_definition_even_with_one_installer() -> None:
@@ -424,10 +456,11 @@ def _candidate_call(
     params = [("web_search", "true" if web_search else "false")]
     if exclusions:
         params.append(("web_search_exclude", ":".join(exclusions)))
+    # The Candidate contract (spec R2): the prompt is the intent, the Recipe a source.
     call = RelExpr(
         path=CANDIDATE_ROUTE,
-        context="question",
-        intent=text(render(expression)),
+        context=render(src(text(render(expression)), name="recipe")),
+        intent=text("question"),
         params=tuple(params),
     )
     return expr(src(call, name="invocation", weight=0.0), intent=text("$invocation"))
@@ -484,8 +517,8 @@ async def test_candidate_policy_is_explicit_and_fail_closed(
     client, world = await _world(BenchmarkRegistry((benchmark,)), [])
     call = RelExpr(
         path=CANDIDATE_ROUTE,
-        context="question",
-        intent=text("literal answer"),
+        context=render(src(text("literal answer"), name="recipe")),
+        intent=text("question"),
         params=params,
     )
     request = expr(src(call, name="invocation", weight=0.0), intent=text("$invocation"))

@@ -36,6 +36,7 @@ from screamingface_engine.operation_calls import (  # noqa: E402
     operation_call_identity,
     record_operation_call,
 )
+from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
@@ -167,7 +168,7 @@ async def test_judge_cost_lands_in_the_cases_evidence_accounting(
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
     accounting = evidence["accounting"]
@@ -194,7 +195,7 @@ async def test_a_string_match_benchmarks_evidence_accounting_stays_none(
 
     rows = json.dumps([_row(1, "ANSWER: Paris")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
     assert evidence["accounting"] is None

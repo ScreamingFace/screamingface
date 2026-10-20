@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from screamingface_engine.benchmarks import Benchmark, BenchmarkDeclaration, candidate
+from screamingface_engine.benchmarks import Benchmark, BenchmarkDeclaration, candidate_invocation
 from screamingface_engine.benchmarks.provenance import (
     PROVENANCE_FIELD_NAMES,
     REQUIRED_PROVENANCE_FIELDS,
@@ -55,7 +55,7 @@ def _probe(**provenance: object) -> Benchmark:
         description="One non-comparable structural probe.",
         revision="example-probe-v1",
         case_count=1,
-        build=lambda selected: candidate("Say hello.", web_search=False),
+        build=lambda selected: candidate_invocation("Say hello.", web_search=False),
         declaration=BenchmarkDeclaration(
             failure_policy="coverage_declare", interaction="single_shot", difficulty="easy"
         ),

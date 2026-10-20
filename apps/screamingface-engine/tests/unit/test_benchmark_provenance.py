@@ -17,7 +17,7 @@ import pytest
 from screamingface_engine.benchmarks import (
     Benchmark,
     BenchmarkDeclaration,
-    candidate,
+    candidate_invocation,
 )
 from screamingface_engine.benchmarks.provenance import (
     SATURATION_HEADROOM,
@@ -66,7 +66,7 @@ def _benchmark(origin: str = "inspect_evals", **provenance: Any) -> Benchmark:
         description="One non-comparable structural probe.",
         revision="example-smoke-v1",
         case_count=3,
-        build=lambda selected: candidate(
+        build=lambda selected: candidate_invocation(
             f"Explain why the sky looks blue. Selected cases: {selected}.",
             web_search=False,
         ),

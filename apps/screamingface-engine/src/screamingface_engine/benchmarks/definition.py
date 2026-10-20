@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
-from screamingface_engine.benchmarks.case_request import CONTEXT_FORMAT
+from screamingface_engine.benchmarks.case_request import CASE_ATTEMPT_PARAM, RECIPE_SOURCE
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING, CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.provenance import (
     FrontierScore,
@@ -18,7 +18,7 @@ from screamingface_engine.benchmarks.provenance import (
     validate_provenance,
 )
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
-from url4 import Node, RelExpr, build, expr, render, src, struct, text
+from url4 import Expression, Node, RelExpr, Text, VarRef, build, render, src, text
 from url4.peer.server import Url4Node
 
 CANDIDATE_REF = f"${CANDIDATE_BINDING}"
@@ -428,120 +428,114 @@ class Benchmark:
         }
 
 
-def candidate_call(
-    input: str | Mapping[str, object],
+def candidate_invocation(
+    prompt: str,
     *,
-    binding: str = CANDIDATE_REF,
-    case_id: str | None = None,
-    case_index: str | None = None,
-    case_count: str | None = None,
     web_search: bool,
+    case_count: int | None = None,
     web_search_exclude: Sequence[str] = (),
+    attempt: int = 1,
+    binding: str = CANDIDATE_REF,
 ) -> RelExpr:
-    """The bare Candidate Invocation call, for use as a DIRECT slot of an enclosing group.
+    """One Candidate Invocation for the current Case, in LLM mode (spec R2).
 
-    WHY this exists beside `candidate()`: url4 sibling references resolve only within one
-    group — a reference inside `candidate()`'s wrapper cannot see the wrapper's siblings
-    and ships VERBATIM (OME-1126: the MedXpertQA commit's `$reasoning` reached the model
-    as the literal string, leaving the prompt without the turn-1 essay). An input that
-    must read a sibling binding uses this form inside the group that binds it.
+    ``prompt`` is the quoted intent — the model input, usually a template such as
+    ``"$item.input"``. The sources are the Case facts and the Recipe, never prompt text::
 
-    With case_id, input is a text template or a structured mapping; supply mappings
-    directly rather than pre-rendering them. The handler removes the metadata envelope
-    before evaluation, preserving the resolved input and keeping Case IDs out of prompts.
+        /benchmarks/candidate?web_search=false&q=(
+          case_id=$item.id, case_index=$index, case_count='3', recipe=$candidate
+        )!'$item.input'
+
+    ``case_count`` numbers the call inside a Benchmark's per-Case iteration (``$item``,
+    ``$index``); ``None`` makes a plain, unnumbered call that carries the Recipe alone.
+
+    WHY unweighted sources: url4 leaves a ``0.0`` source out of an endpoint's packed context,
+    and the adapter must receive them all. INVARIANT: ``recipe`` is last (``case_request``).
+    ``attempt`` 2 or more adds ``attempt=N`` so Attempt N is never served Attempt 1's reply
+    (OME-1458); Attempt 1 is spelled by absence.
     """
 
-    if not isinstance(input, str | Mapping) or not input:
-        raise ValueError("Candidate Invocation input must be non-empty URL4 context")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("Candidate Invocation prompt must be non-empty URL4 text")
     if not isinstance(binding, str) or not binding.startswith("$"):
         raise ValueError("Candidate binding must be a URL4 structural reference")
+    _positive(attempt, "attempt")
+    params = _candidate_params(web_search, web_search_exclude)
+    if attempt > 1:
+        params.append((CASE_ATTEMPT_PARAM, str(attempt)))
+    sources: tuple[Node, ...] = (
+        *_case_facts(case_count),
+        src(VarRef(binding[1:], ()), name=RECIPE_SOURCE),
+    )
+    return RelExpr(
+        path=CANDIDATE_ROUTE,
+        context=", ".join(render(source) for source in sources),
+        intent=Text(prompt),
+        params=tuple(params),
+    )
+
+
+def _candidate_params(web_search: bool, web_search_exclude: Sequence[str]) -> list[tuple[str, str]]:
+    """The retrieval policy of one Candidate Invocation as its protocol params."""
+
     if not isinstance(web_search, bool):
         raise TypeError("web_search must be a boolean")
     excluded = normalize_excluded_domains(web_search_exclude)
     if not web_search and excluded:
         raise ValueError("web_search_exclude requires web_search=true")
-
     params: list[tuple[str, str]] = [("web_search", "true" if web_search else "false")]
     if excluded:
         params.append(("web_search_exclude", ":".join(excluded)))
-    if case_id is None and (case_index is not None or case_count is not None):
-        raise ValueError("Case numbering requires Case identity")
-    context = render(struct(input)) if isinstance(input, Mapping) else input
-    if case_id is not None:
-        context = _candidate_context(input, case_id, case_index, case_count)
-        params.append(("context_format", CONTEXT_FORMAT))
-    return RelExpr(
-        path=CANDIDATE_ROUTE,
-        context=context,
-        intent=text(binding),
-        params=tuple(params),
+    return params
+
+
+def _case_facts(case_count: int | None) -> tuple[Node, ...]:
+    """The Case identity and selected position sources; none for a plain call."""
+
+    if case_count is None:
+        return ()
+    _positive(case_count, "case_count")
+    return (
+        src(VarRef("item", ("id",)), name="case_id"),
+        src(VarRef("index", ()), name="case_index"),
+        src(Text(str(case_count)), name="case_count"),
     )
 
 
-def _candidate_context(
-    input: str | Mapping[str, object],
-    case_id: str,
-    case_index: str | None,
-    case_count: str | None,
-) -> str:
-    if not isinstance(case_id, str) or not case_id:
-        raise ValueError("Case identity must be non-empty URL4 text")
-    envelope: dict[str, object] = {"input": input, "case_id": case_id}
-    if case_index is not None or case_count is not None:
-        if not case_index or not case_count:
-            raise ValueError("Case position and count must be supplied together")
-        envelope.update(case_index=case_index, case_count=case_count)
-    return render(struct(envelope))
-
-
-def candidate(
-    input: str | Mapping[str, object],
-    *,
-    binding: str = CANDIDATE_REF,
-    case_id: str | None = None,
-    case_index: str | None = None,
-    case_count: str | None = None,
-    web_search: bool,
-    web_search_exclude: Sequence[str] = (),
-) -> Node:
-    """Invoke a structurally linked Candidate under explicit Benchmark retrieval policy."""
-
-    call = candidate_call(
-        input,
-        binding=binding,
-        case_id=case_id,
-        case_index=case_index,
-        case_count=case_count,
-        web_search=web_search,
-        web_search_exclude=web_search_exclude,
-    )
-    # A parameterized relative call needs an expression boundary to round-trip canonically.
-    return expr(
-        src(call, name="candidate_invocation", weight=0.0),
-        intent=text("$candidate_invocation"),
-    )
+def _positive(value: object, label: str) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{label} must be a positive integer")
 
 
 def link_candidate(candidate_expression: Node | str, protocol: Node | str) -> str:
     """Bind one Candidate expression to a fetched Benchmark protocol, ready to execute.
 
-    This is the executable half of the resource contract `candidate_binding` names: the Candidate
-    is carried as an inert text source under that name, which is what makes the protocol's
-    `$candidate` resolve. It weighs 0.0 because it contributes no content of its own — the
-    protocol decides where and how often the Candidate is invoked.
+    This is the executable half of the resource contract `candidate_binding` names: the
+    Candidate is carried as an inert text source under that name, FIRST in the protocol's own
+    top-level source list, which is what makes the protocol's `$candidate` resolve. It weighs
+    0.0 because it contributes no content of its own — the protocol decides where and how often
+    the Candidate is invoked. WHY no wrapper group: a `(candidate, protocol)!''` wrapper puts an
+    empty prompt in intent position (spec R7).
     """
 
-    return render(
-        expr(
-            src(
-                text(_as_text(candidate_expression)),
-                name=CANDIDATE_BINDING,
-                weight=0.0,
-            ),
-            protocol if isinstance(protocol, Node) else build(protocol),
-            intent=text(""),
-        )
+    selected = protocol if isinstance(protocol, Node) else build(protocol)
+    if not isinstance(selected, Expression):
+        raise ValueError("a Benchmark protocol must be one top-level URL4 expression")
+    binding = src(
+        text(inert_text(_as_text(candidate_expression))), name=CANDIDATE_BINDING, weight=0.0
     )
+    return render(replace(selected, sources=(binding, *selected.sources)))
+
+
+def inert_text(value: str) -> str:
+    """Quoted URL4 text that resolves to ``value`` exactly, never interpolated.
+
+    WHY: the protocol's terminal is code, so its group is an RDS scope, where quoted text is
+    interpolated strictly (Spec B §6.3) — a Recipe's own ``$input`` would fail as unbound.
+    ``$$`` is the grammar's literal dollar (Spec B §6.2).
+    """
+
+    return value.replace("$", "$$")
 
 
 def _as_text(value: Node | str) -> str:
@@ -557,7 +551,6 @@ __all__ = [
     "DifficultyTier",
     "FailurePolicy",
     "InteractionType",
-    "candidate",
-    "candidate_call",
+    "candidate_invocation",
     "link_candidate",
 ]

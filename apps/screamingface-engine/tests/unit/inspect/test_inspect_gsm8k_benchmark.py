@@ -26,6 +26,7 @@ from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
+from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
@@ -177,7 +178,7 @@ async def test_aggregate_scores_through_the_shared_grading_code(tmp_path: Path) 
 
     node = _node(tmp_path)
     rows = json.dumps([_row(1, "The sum is small.\nANSWER: 42"), _row(2, "ANSWER: 59")])
-    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, GSM8K_BENCHMARK.aggregate_route, rows, 2))
     assert result["benchmark_id"] == "inspect-gsm8k"
     assert result["score"] == 0.5
     assert result["metrics"]["scored_cases"] == 2
@@ -192,7 +193,7 @@ async def test_aggregate_scores_through_the_shared_grading_code(tmp_path: Path) 
 async def test_a_missing_row_is_a_named_failure_not_a_zero(tmp_path: Path) -> None:
     node = _node(tmp_path)
     rows = json.dumps([_row(1, "ANSWER: 42")])
-    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, GSM8K_BENCHMARK.aggregate_route, rows, 2))
     failed = result["cases"][1]
     assert failed["grade"]["score"] is None
     assert failed["failures"][0]["code"] == "missing_case_row"
@@ -204,7 +205,7 @@ async def test_a_missing_target_asset_fails_by_its_own_name(tmp_path: Path) -> N
     node = _node(tmp_path)
     (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "2.json").unlink()
     rows = json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 60")])
-    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, GSM8K_BENCHMARK.aggregate_route, rows, 2))
     assert result["cases"][1]["failures"][0]["code"] == "missing_target_asset"
 
 

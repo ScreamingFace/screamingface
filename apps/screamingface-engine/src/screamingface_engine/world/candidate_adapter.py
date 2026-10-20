@@ -9,14 +9,11 @@ from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_context import case_attempt_scope, case_scope
 from screamingface_engine.benchmarks.case_request import (
     CASE_ATTEMPT_PARAM,
-    CONTEXT_FORMAT_PARAM,
     candidate_attempt,
-    candidate_input,
-    candidate_position,
+    candidate_request,
 )
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.failures import CandidateExecutionError
-from screamingface_engine.benchmarks.graded_answer import install_graded_answer_endpoint
 from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.candidate_scope import candidate_invocation_scope
@@ -31,11 +28,15 @@ from url4.peer.server import Request, Url4Node
 
 _POLICY_PARAMS = frozenset({"web_search", "web_search_exclude"})
 # Engine call metadata, decoded by the adapter and never part of the retrieval policy.
-_METADATA_PARAMS = frozenset({CONTEXT_FORMAT_PARAM, CASE_ATTEMPT_PARAM})
+_METADATA_PARAMS = frozenset({CASE_ATTEMPT_PARAM})
 
 
 class _CandidateInvocation:
-    """Evaluate linked Candidate URL4 in the same world under a narrower ambient policy."""
+    """Evaluate linked Candidate URL4 in the same world under a narrower ambient policy.
+
+    LLM mode (spec R2): the intent is the model input; the sources carry the Recipe and the
+    Case facts (``case_request.candidate_request``).
+    """
 
     __slots__ = ("_node",)
 
@@ -43,13 +44,7 @@ class _CandidateInvocation:
         self._node = node
 
     async def __call__(self, request: Request) -> str:
-        if not request.intent.strip():
-            raise ResolutionError(
-                "Candidate Invocation expression must be non-empty",
-                code="candidate_contract_error",
-                permanent=True,
-            )
-        input_text, case_id = candidate_input(request)
+        decoded = candidate_request(request)
         attempt: int | None = candidate_attempt(request)
         policy = _candidate_policy(
             {key: value for key, value in request.params.items() if key not in _METADATA_PARAMS}
@@ -64,10 +59,10 @@ class _CandidateInvocation:
             with (
                 retrieval_scope(policy),
                 candidate_invocation_scope(),
-                case_scope(case_id, position=candidate_position(request)),
+                case_scope(decoded.case_id, position=decoded.position),
                 _attempt_scope(attempt),
             ):
-                return await self._evaluate(request.intent, input_text)
+                return await self._evaluate(decoded.recipe, decoded.input_text)
         except RetrievalPolicyError as exc:
             raise ResolutionError(
                 str(exc),
@@ -99,7 +94,6 @@ def install_candidate_invocation(node: Url4Node) -> None:
     """Install the one Engine-owned Candidate adapter on ``node``."""
 
     node.endpoint(CANDIDATE_ROUTE)(_CandidateInvocation(node))
-    install_graded_answer_endpoint(node)
 
 
 def _candidate_policy(params: Mapping[str, str]) -> RetrievalPolicy:

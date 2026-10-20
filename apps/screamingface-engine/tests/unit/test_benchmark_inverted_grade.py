@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from screamingface_engine.benchmarks import Benchmark, BenchmarkDeclaration, candidate
+from screamingface_engine.benchmarks import Benchmark, BenchmarkDeclaration, candidate_invocation
 from screamingface_engine.benchmarks.aggregation import (
     CandidateScore,
     SelectedCase,
@@ -38,7 +38,7 @@ def _benchmark(**overrides: object) -> Benchmark:
         "declaration": BenchmarkDeclaration(
             failure_policy="coverage_declare", interaction="single_shot", difficulty="easy"
         ),
-        "build": lambda selected: candidate(
+        "build": lambda selected: candidate_invocation(
             f"Say hi. Selected cases: {selected}.", web_search=False
         ),
     }

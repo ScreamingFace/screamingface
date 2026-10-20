@@ -48,6 +48,7 @@ from screamingface_engine.operation_calls import (  # noqa: E402
     operation_call_identity,
     record_operation_call,
 )
+from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
@@ -387,7 +388,7 @@ async def test_a_model_role_benchmarks_judge_is_routed_and_accounted_end_to_end(
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert len(judge.requests) == 1

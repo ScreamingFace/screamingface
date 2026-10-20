@@ -31,6 +31,7 @@ from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
+from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect import benchmarks, single_shot  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BenchmarkSpec  # noqa: E402
 from screamingface_engine_inspect.envelopes import (  # noqa: E402
@@ -281,7 +282,7 @@ async def test_the_aggregate_binds_the_judge_transport_end_to_end(
     benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
-    result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     assert result["score"] == 1.0
     assert result["cases"][0]["grade"]["score"] == 1.0
@@ -312,7 +313,7 @@ async def test_a_judge_route_failure_fails_the_case_by_name(
     benchmark.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "Paris.")])
-    result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     case = result["cases"][0]
     assert case["grade"]["score"] is None
@@ -390,7 +391,7 @@ async def test_the_judged_aggregate_runs_its_judge_fetch_on_the_runs_loop(
 
     outer = asyncio.get_running_loop()
     rows = json.dumps([_row(1, "Paris.")])
-    result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert seen_loops == [outer]
 

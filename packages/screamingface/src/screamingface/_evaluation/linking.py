@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 
-from url4 import Iteration, Node, Text, VarRef, build, expr, render, src, text
+from url4 import Expression, Text, VarRef, build, render, src, text
 
 from screamingface.errors import PlanningError
 
@@ -29,13 +29,21 @@ class _PreparedBenchmark:
     and reference-scan it once, then bind each compiled Candidate's canonical text.
     """
 
-    node: Node
+    node: Expression
 
     def bind(self, candidate_url4: str) -> _LinkedCandidate:
-        """Bind one canonical Candidate expression text into this Benchmark."""
+        """Bind one canonical Candidate expression text into this Benchmark.
 
-        binding = src(text(candidate_url4), name="candidate", weight=0.0)
-        rendered = render(expr(binding, self.node, intent=text("")))
+        The Candidate is the FIRST source of the Benchmark's own top-level group, so every
+        ``$candidate`` inside it resolves. WHY no wrapper group: ``(candidate, benchmark)!''``
+        puts an empty prompt in intent position, which URL4 reads as an LLM prompt.
+        """
+
+        # WHY `$$`: the Benchmark's terminal is code, so its group is an RDS scope where quoted
+        # text is interpolated strictly (Spec B §6.3); the Recipe's own `$input` must stay
+        # literal, and `$$` is the grammar's literal dollar (Spec B §6.2).
+        binding = src(text(candidate_url4.replace("$", "$$")), name="candidate", weight=0.0)
+        rendered = render(replace(self.node, sources=(binding, *self.node.sources)))
         _require_candidate_references_bound(rendered)
         return _LinkedCandidate(url4=rendered)
 
@@ -78,10 +86,11 @@ def _prepare_benchmark(benchmark_url4: str) -> _PreparedBenchmark:
             code="candidate_shape_mismatch",
             permanent=True,
         )
-    if isinstance(benchmark, Iteration):
-        benchmark = expr(
-            src(benchmark, name="benchmark_result", weight=0.0),
-            intent=text("$benchmark_result"),
+    if not isinstance(benchmark, Expression) or benchmark.intent is None:
+        raise PlanningError(
+            "Benchmark URL4 must be one top-level (sources)!intent expression",
+            code="invalid_benchmark_resource",
+            permanent=True,
         )
     return _PreparedBenchmark(node=benchmark)
 

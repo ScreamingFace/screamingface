@@ -25,6 +25,7 @@ from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
 
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
+from screamingface_engine.testing.benchmark_code import run_aggregate  # noqa: E402
 from screamingface_engine_inspect.benchmarks import (
     benchmark_registrations,  # noqa: E402
     imported_benchmark,  # noqa: E402
@@ -167,7 +168,7 @@ async def test_aggregate_grades_letters_through_their_choice_scorer(
     right: str = letters[1]
     wrong: str = next(letter for letter in "ABCD" if letter != letters[2])
     rows = json.dumps([_row(1, f"ANSWER: {right}"), _row(2, f"ANSWER: {wrong}")])
-    result = json.loads(await _call(node, MMLU_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, MMLU_BENCHMARK.aggregate_route, rows, 2))
     assert result["benchmark_id"] == "inspect-mmlu"
     assert result["score"] == 0.5
     assert [case["grade"]["score"] for case in result["cases"]] == [1.0, 0.0]
@@ -180,7 +181,7 @@ async def test_an_unparseable_reply_scores_zero_not_a_failure(tmp_path: Path) ->
     root, _letters = _prepare(tmp_path)
     node = _node(root)
     rows = json.dumps([_row(1, "I refuse to pick a letter.")])
-    result = json.loads(await _call(node, MMLU_BENCHMARK.aggregate_route, rows, "aggregate:1"))
+    result = json.loads(await run_aggregate(node, MMLU_BENCHMARK.aggregate_route, rows, 1))
     case = result["cases"][0]
     assert case["grade"]["score"] == 0.0
     assert not case.get("failures")

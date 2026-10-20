@@ -1,36 +1,43 @@
-"""URL4 adapters for early canonical grading and authoritative final reduction."""
+"""URL4 code for early canonical grading and authoritative final reduction (spec R1).
+
+``(…, execution, case_index, case_count)!/…/aggregate/case-result`` grades one Case as it
+finishes; ``(evaluations, selected)!/…/aggregate/graded`` reduces the run.
+"""
 
 from collections.abc import Callable
 from functools import lru_cache
 
 from screamingface_engine.activity_kinds import ActivityKind
-from screamingface_engine.benchmarks.grading_endpoints import (
-    aggregate_endpoint,
-    async_aggregate_endpoint,
-)
+from screamingface_engine.benchmarks.case_evaluation import aggregate_code, text_input
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
+from url4 import CodeCall, CodeHandler
 from url4.core.errors import ResolutionError
-from url4.peer.server import Request
+
+EXECUTION_SOURCE = "execution"
+CASE_INDEX_SOURCE = "case_index"
+CASE_COUNT_SOURCE = "case_count"
 
 
 class CaseFinalizationError(ResolutionError):
     """Invalid grade transport cannot be downgraded to a missing case."""
 
 
-def case_result_endpoint(load: Callable[[int], Scoring], *, available_case_count: int):
+def case_result_code(load: Callable[[int], Scoring], *, available_case_count: int) -> CodeHandler:
+    """Grade one finished Case from its ``execution`` row and its selected position."""
+
     # WHY: installed assets are immutable; retain only one selection to avoid rereading
     # the whole answer key for every case without an unbounded per-limit cache.
     selection = lru_cache(maxsize=1)(load)
 
     @observe_phase(ActivityKind.GRADING)
-    async def endpoint(request: Request) -> str:
+    async def handler(call: CodeCall) -> str:
         try:
-            index_text, count_text = request.intent.split(":")
-            index, count = int(index_text), int(count_text)
+            index = int(text_input(call, CASE_INDEX_SOURCE))
+            count = int(text_input(call, CASE_COUNT_SOURCE))
             if not 0 < count <= available_case_count or not 0 <= index < count:
                 raise ValueError("invalid selected Case position")
-            return await selection(count).grade_row(request.context, index)
+            return await selection(count).grade_row(text_input(call, EXECUTION_SOURCE), index)
         # Grader crashes must abort just as they do in batch aggregation.
         # Cancellation remains outside this boundary (BaseException).
         except Exception as exc:
@@ -38,12 +45,14 @@ def case_result_endpoint(load: Callable[[int], Scoring], *, available_case_count
                 "could not finalize Case grade", code="benchmark_contract_error", permanent=True
             ) from exc
 
-    return endpoint
+    return handler
 
 
-def aggregate_result_endpoint(
+def graded_result_code(
     *, label: str, available_case_count: int, load: Callable[[int], Scoring]
-):
+) -> CodeHandler:
+    """Reduce the run's early-graded Case results into the report."""
+
     async def aggregate(raw: str, count: int):
         scoring = load(count)
         try:
@@ -53,15 +62,6 @@ def aggregate_result_endpoint(
                 "invalid completed Case results", code="benchmark_contract_error", permanent=True
             ) from exc
 
-    return async_aggregate_endpoint(
+    return aggregate_code(
         label=label, available_case_count=available_case_count, aggregate=aggregate
-    )
-
-
-def batch_result_endpoint(*, label: str, available_case_count: int, load: Callable[[int], Scoring]):
-    """Keep published batch expressions valid under their unchanged scoring revision."""
-    return aggregate_endpoint(
-        label=label,
-        available_case_count=available_case_count,
-        aggregate=lambda raw, count: load(count).aggregate(raw),
     )
