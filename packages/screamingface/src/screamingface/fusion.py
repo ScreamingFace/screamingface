@@ -404,12 +404,13 @@ def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer
     return _recipe(value, "Fusion synthesizer")
 
 
-def _members(values: object) -> tuple[Recipe, ...]:
+def _members(values: object, kind: str = "Fusion") -> tuple[Recipe, ...]:
+    """The checked members of a Fusion, or of a ``Fanout`` of the new surface (``kind``)."""
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TypeError("Fusion members must be an ordered sequence of model routes or Recipes")
-    selected = tuple(_recipe(value, "Fusion member", allow_optional=True) for value in values)
+        raise TypeError(f"{kind} members must be an ordered sequence of model routes or Recipes")
+    selected = tuple(_recipe(value, f"{kind} member", allow_optional=True) for value in values)
     if not selected:
-        raise ValueError("a Fusion requires at least one member")
+        raise ValueError(f"a {kind} requires at least one member")
     return selected
 
 

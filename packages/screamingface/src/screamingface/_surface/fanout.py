@@ -14,9 +14,9 @@ from typing import Any, ClassVar, Literal
 
 from screamingface._candidate_policy import prompt as _generation_prompt
 from screamingface._surface.chain import Step, _Category
-from screamingface.fusion import _declaration, _quorum
+from screamingface.fusion import _declaration, _members, _quorum
 from screamingface.model import Model
-from screamingface.recipe import Recipe, _inferred_name, _name, _recipe
+from screamingface.recipe import Recipe, _inferred_name, _name
 from screamingface.signal_sources import SignalSource
 
 
@@ -52,7 +52,7 @@ class Fanout(Step):
         name: str | None = None,
         prompt: str | None = None,
     ) -> None:
-        selected = _members(members)
+        selected = _members(members, "Fanout")
         object.__setattr__(self, "members", selected)
         object.__setattr__(self, "signals", _declaration(signals))
         object.__setattr__(self, "quorum", _quorum(quorum, len(selected)))
@@ -65,15 +65,6 @@ class Fanout(Step):
         return self.members
 
     __hash__: ClassVar[Any] = None
-
-
-def _members(values: object) -> tuple[Recipe, ...]:
-    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TypeError("Fanout members must be an ordered sequence of model routes or Recipes")
-    selected = tuple(_recipe(value, "Fanout member", allow_optional=True) for value in values)
-    if not selected:
-        raise ValueError("a Fanout requires at least one member")
-    return selected
 
 
 def _member_prompt(value: object, members: tuple[Recipe, ...]) -> str | None:

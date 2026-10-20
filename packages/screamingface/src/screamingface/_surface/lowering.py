@@ -21,6 +21,7 @@ from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.chain import Step, _Block, refuse_step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.refs import (
+    Weights,
     engine_op,
     field_extract,
     is_rule_name,
@@ -33,8 +34,8 @@ from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fusion import Fusion
 from screamingface.model import Model
 from screamingface.pipeline import Pipeline
-from screamingface.recipe import Recipe
-from screamingface.reducer import _DEFAULT_NORMALIZE, Reducer
+from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
+from screamingface.reducer import _DEFAULT_NORMALIZE, BENCHMARK_EXTRACT, Reducer
 from screamingface.reducer import Mean as MeanNode
 from screamingface.reducer import Median as MedianNode
 from screamingface.reducer import Vote as VoteNode
@@ -79,8 +80,21 @@ def reducer_node(step: Vote | Median | Mean) -> Reducer:
     """
 
     if isinstance(step, Vote):
-        return _vote_node(step)
+        return _vote_node(step, step.weights)
     return _statistic_node(step)
+
+
+def check_step(step: Vote | Median | Mean) -> None:
+    """Build today's reducer once, so a bad option raises when the step is built.
+
+    WHY a vote that reads ``score:judge`` is built with no weights here: that weight needs the
+    block's ``sf.Judge``, so the block close checks it (CH-10); every other option is checked now.
+    """
+
+    if isinstance(step, Vote) and reads_judge(step.weights):
+        _vote_node(step, None)
+        return
+    reducer_node(step)
 
 
 def with_prompt(model: Model, prompt: str) -> Model:
@@ -93,9 +107,6 @@ def with_prompt(model: Model, prompt: str) -> Model:
         params=model.params,
         optional=model.optional,
     )
-
-
-# ---------------------------------------------------------------- blocks
 
 
 def _members(fanout: Fanout) -> tuple[Recipe, ...]:
@@ -124,24 +135,24 @@ def _writer(step: Synthesize) -> Recipe:
     return with_prompt(cast("Model", step.model), step.prompt)
 
 
-def _vote_node(step: Vote) -> Reducer:
+def _vote_node(step: Vote, weights: Weights | None) -> Reducer:
     if is_rule_name(step.over):
         over = cast("str", step.over)
-        return VoteNode(extract=engine_op(over), normalize=step.normalize, weights=step.weights)
+        # WHY the default marker for "benchmark": today's Vote takes the benchmark's normalizer only
+        # when no normalize= was passed (GP-E2); the step holds None for it.
+        normalize = _DEFAULT_NORMALIZE if over == BENCHMARK_EXTRACT else step.normalize
+        return VoteNode(extract=engine_op(over), normalize=normalize, weights=weights)
     extract = _vote_extract(step)
-    if step.weights is None:
+    if weights is None:
         return Reduce("plurality", extract=extract)
-    return Reduce("weighted", extract=extract, weights=step.weights)
+    return Reduce("weighted", extract=extract, weights=weights)
 
 
 def _vote_extract(step: Vote) -> Extract:
-    """The extract of a field or ``sf.Extract`` vote: the step's normalizer goes in it, unless the
-    caller passed none and the ``sf.Extract`` has its own (EX-2)."""
+    """The extract of a field or ``sf.Extract`` vote, with the vote's normalizer in it."""
 
     if isinstance(step.over, str):
         return field_extract(step.over, step.normalize)
-    if step.normalize is _DEFAULT_NORMALIZE:
-        return step.over
     return with_normalizer(step.over, step.normalize)
 
 
@@ -157,9 +168,8 @@ def _statistic_node(step: Median | Mean) -> Reducer:
     return Reduce(op, select=step.select, extract=extract, **options)
 
 
-# ---------------------------------------------------------------- chains and today's containers
-
-
+# AIDEV-NOTE: the walk over today's containers mirrors S/_evaluation/fusion_recipe.py, with its
+# name rule (_kept_name). Unit 7 deletes fusion_recipe.py, so this becomes the only walker.
 def _lower(value: Recipe, active: _Active) -> Recipe:
     # WHY the active ids: a cyclic value (only built by hand) must reach the compiler, which names
     # the cycle; the lowering leaves a value it is already inside as it is.
@@ -209,7 +219,7 @@ def _rebuilt_fusion(
 ) -> Fusion:
     return Fusion(
         members,
-        name=fusion.name,
+        name=_kept_name(fusion.name, _inferred_name(fusion.members)),
         signals=fusion.signals,
         synthesizer=synthesizer,
         quorum=fusion.quorum,
@@ -230,14 +240,16 @@ def _loop(loop: CorrectiveLoop, active: _Active) -> Recipe:
     judge = _lower(loop.judge, active)
     if members is loop.members and judge is loop.judge:
         return loop
-    return CorrectiveLoop(members, judge=judge, max_rounds=loop.max_rounds, name=loop.name)
+    name = _kept_name(loop.name, _inferred_name(loop.members))
+    return CorrectiveLoop(members, judge=judge, max_rounds=loop.max_rounds, name=name)
 
 
 def _solo(solo: SelfCorrective, active: _Active) -> Recipe:
     member = _lower(solo.member, active)
     if member is solo.member:
         return solo
-    return SelfCorrective(member, max_rounds=solo.max_rounds, name=solo.name)
+    name = _kept_name(solo.name, _inferred_self_name(solo.member))
+    return SelfCorrective(member, max_rounds=solo.max_rounds, name=name)
 
 
 def _lowered(values: tuple[Recipe, ...], active: _Active) -> tuple[Recipe, ...]:
@@ -258,4 +270,4 @@ _LOWERINGS: tuple[tuple[type, Callable[[Any, _Active], Recipe]], ...] = (
 )
 
 
-__all__ = ["block_node", "lower", "reducer_node"]
+__all__ = ["block_node", "check_step", "lower", "reducer_node"]
