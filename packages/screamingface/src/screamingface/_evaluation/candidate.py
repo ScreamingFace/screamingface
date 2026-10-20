@@ -689,7 +689,7 @@ class _CandidateCompiler:
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
-        plan = reducer._plan()
+        plan = reducer._combine_plan()
         signals = _compile_signals(
             self,
             fusion,
@@ -1120,7 +1120,7 @@ def _judge_routes(stage: Recipe) -> frozenset[str]:
         return frozenset()
     return frozenset(
         _canonical_model(call.model)
-        for call in reducer._plan().signal_calls
+        for call in reducer._combine_plan().signal_calls
         if call.key in _JUDGE_CALL_KEYS
     )
 

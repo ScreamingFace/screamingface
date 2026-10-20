@@ -10,7 +10,7 @@ Pipeline stage receives exactly the selection.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._signals import JUDGE_SIGNAL, Signal, _Comparison, _comparison
@@ -92,6 +92,9 @@ class Rank(Reducer):
     by_field: str | None
     by_signal: Signal | None
     order: Literal["max", "min"]
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -110,6 +113,7 @@ class Rank(Reducer):
             raise ValueError("Rank needs exactly one of by=, by_field= or by_signal=")
         _check_rank_source(by, by_field, by_signal)
         object.__setattr__(self, "name", "rank")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "k", k)
         object.__setattr__(self, "by", by)
         object.__setattr__(self, "by_field", by_field)
@@ -221,6 +225,9 @@ class Concat(Reducer):
     name: str
     separator: str
     label: bool
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(self, separator: str = _DEFAULT_SEPARATOR, *, label: bool = True) -> None:
         if not isinstance(separator, str):
@@ -232,6 +239,7 @@ class Concat(Reducer):
         if not isinstance(label, bool):
             raise TypeError("Concat label must be a bool")
         object.__setattr__(self, "name", "concat")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "separator", separator)
         object.__setattr__(self, "label", label)
 
@@ -329,6 +337,9 @@ class Filter(Reducer):
     where: Matches | _Comparison
     extract: Extract | None
     judge: Judge | None
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -342,6 +353,7 @@ class Filter(Reducer):
             raise TypeError("Filter extract must be an sf.Extract")
         _check_filter_judge(where, judge)
         object.__setattr__(self, "name", "filter")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "where", where)
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "judge", judge)

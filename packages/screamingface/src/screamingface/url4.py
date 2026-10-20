@@ -8,7 +8,8 @@ import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, cast
 
 from url4 import (
     Binding,
@@ -49,8 +50,16 @@ from screamingface._operation_bindings import (
     OPERATION_BINDING,
     OPERATION_BINDING_PARAM,
 )
+from screamingface._signals import JUDGE_SIGNAL
 from screamingface.blocks import Reduce
-from screamingface.reducer import _JUDGE_CALL_KEYS, Reducer, _ModelSignal
+from screamingface.reducer import (
+    _JUDGE_CALL_KEYS,
+    Reducer,
+    _ModelSignal,
+    _narrow_steps,
+    _narrowed,
+    _op_name,
+)
 from screamingface.signal_sources import (
     SignalSource,
     declared_from_spec,
@@ -80,6 +89,14 @@ _NESTED_RECIPE_ROUTES = frozenset(
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
+# E4b narrow (narrow.md §2): the reducer a narrow item rebuilds as, by its select op.
+_NARROW_SELECTS: Mapping[str, str] = MappingProxyType({"kept": "filter", "top_k": "rank"})
+# AIDEV-NOTE: the editable Python of a narrow block is the new surface's chain (rebuild-display
+# §1, unit 6); today's classes have no spelling for it, so to_python refuses it until then.
+_NARROW_PYTHON = (
+    "URL4 Candidate has narrow steps before its reducer; their editable Python comes with the "
+    "map, select, reduce surface"
+)
 # WHY the optional sources tail: the combine context is {input, outputs or panel, samples,
 # signals, sources} (E4b part 7 writes `samples` before `signals`), and `signals` holds only
 # '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
@@ -312,7 +329,10 @@ def _render_topology(
     elif value.kind in {"corrective_loop", "self_corrective"}:
         lines = _render_corrective_topology(value, calls, indent=indent)
     elif value.kind == "reducer":
-        lines = [f"{' ' * indent}{_reducer_from_topology(value, calls)._python()}"]
+        reducer = _reducer_from_topology(value, calls)
+        if _narrow_steps(reducer):
+            raise ValueError(_NARROW_PYTHON)
+        lines = [f"{' ' * indent}{reducer._python()}"]
     else:
         lines = _render_fusion_topology(value, calls, indent=indent)
     if value.optional:
@@ -431,17 +451,23 @@ def _validate_topology(
     # this clause it rebuilds as an sf.Consistency recipe and replays with no sample calls.
     # WHY not every combine call (review P7 #5): a replay with an unpinned or wrong-stage operator
     # must fail with its operator error, which the recompile would hide behind a metadata error.
+    # WHY the narrow clause (E4b narrow): a narrow item changes which members the reduce reads, so
+    # a spec with ``narrow`` proves its bytes too.
     if (
         _has_fusion_policy(value)
         or _has_executable_fusion_policy(candidate)
         or any(
-            "signals" in decode_combine_spec(call.raw_intent)
+            not _PROVED_SPEC_KEYS.isdisjoint(decode_combine_spec(call.raw_intent))
             for call in calls.values()
             if call.model == COMBINE_MODEL
         )
     ):
         # WHY the pinned catalog (OME-1289 unit 13): a quorum Fusion may end in a reducer.
         _require_recompiles(candidate, _recipe_from_topology(value, calls), calls)
+
+
+# The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
+_PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
 
 
 def _require_recompiles(
@@ -566,6 +592,8 @@ def _rebuilt_reducer(  # noqa: PLR0911
     "cannot rebuild" error.
     """
 
+    if "narrow" in spec:
+        return _rebuilt_narrowed(spec, signals)
     # WHY through the module: the registry may be replaced as a whole (tests do).
     named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
     if "gate" in spec:
@@ -580,6 +608,63 @@ def _rebuilt_reducer(  # noqa: PLR0911
         with contextlib.suppress(TypeError, ValueError):
             return Reduce._rebuild(spec, signals)
         raise
+
+
+def _rebuilt_narrowed(spec: dict[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
+    """The main reducer of a spec with ``narrow``, carrying its narrow steps (narrow.md §2).
+
+    Each narrow item rebuilds as the sf.Filter or sf.Rank spec it is, and the main step as the spec
+    with no ``narrow`` key. The judge call goes to each step that reads ``score:judge``; every other
+    call (a gate fallback) is the main step's. The url4 recompile then proves the bytes.
+    """
+
+    judge = tuple(signal for signal in signals if signal.key == "judge")
+    others = tuple(signal for signal in signals if signal.key != "judge")
+    main = {key: value for key, value in spec.items() if key != "narrow"}
+    steps = tuple(
+        _rebuilt_narrow_step(cast("dict[str, object]", item), main, judge)
+        for item in cast("list[object]", spec["narrow"])
+    )
+    reducer = _rebuilt_reducer(main, (*(judge if _reads_judge(main) else ()), *others))
+    try:
+        return _narrowed(reducer, steps)
+    except ValueError as exc:
+        raise reducer_module._cannot_rebuild(str(spec["reducer"])) from exc
+
+
+def _rebuilt_narrow_step(
+    item: dict[str, object], main: dict[str, object], judge: tuple[_ModelSignal, ...]
+) -> Reducer:
+    """One narrow item as the spec of its own reducer: the main spec's schema and members, the
+    item's four stages, and no weights."""
+
+    select = cast("dict[str, object]", item["select"])
+    name = _NARROW_SELECTS.get(str(_op_name(str(select["op"]))))
+    if name is None:
+        raise reducer_module._cannot_rebuild(str(main["reducer"]))
+    step = {
+        "schema": main["schema"],
+        "reducer": name,
+        "members": main["members"],
+        **item,
+        "weights": None,
+    }
+    named = reducer_module._REDUCER_CLASSES[name]
+    return named._rebuild(step, judge if _reads_judge(step) else ())
+
+
+def _reads_judge(spec: Mapping[str, object]) -> bool:
+    """Whether a decoded step reads the judge reply: a judge pick, a judge score, a
+    ``score:judge`` filter, or ``score:judge`` weights."""
+
+    reduce = cast("Mapping[str, object]", spec["reduce"])
+    args = cast("Mapping[str, object]", reduce["args"])
+    return (
+        spec["reducer"] == "judge"
+        or (_op_name(str(reduce["op"])) == "scores" and args.get("source") == "judge")
+        or args.get("key") == JUDGE_SIGNAL
+        or spec["weights"] == {"signal": JUDGE_SIGNAL}
+    )
 
 
 def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSignal:

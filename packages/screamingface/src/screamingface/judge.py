@@ -8,7 +8,7 @@ that does not parse fails the case; the judge's prose is never the answer.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Literal, cast
 
@@ -157,6 +157,9 @@ class Judge(Reducer):
     rubric: str
     params: GenerationParams
     order: JudgeOrder
+    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
+    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -181,6 +184,7 @@ class Judge(Reducer):
         selected_rubric = _candidate_policy.prompt(rubric, "judge rubric")
         assert selected_rubric is not None  # a str never comes back as None
         object.__setattr__(self, "name", "judge")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "model", _model_route(model))
         object.__setattr__(self, "returns", returns)
         object.__setattr__(self, "rubric", selected_rubric)

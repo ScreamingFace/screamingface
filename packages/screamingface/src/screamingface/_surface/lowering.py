@@ -53,7 +53,7 @@ from screamingface.judge import Judge as JudgeNode
 from screamingface.model import Model
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
-from screamingface.reducer import _DEFAULT_NORMALIZE, BENCHMARK_EXTRACT, Reducer
+from screamingface.reducer import _DEFAULT_NORMALIZE, BENCHMARK_EXTRACT, Reducer, _narrowed
 from screamingface.reducer import Mean as MeanNode
 from screamingface.reducer import Median as MedianNode
 from screamingface.reducer import Vote as VoteNode
@@ -87,10 +87,20 @@ def block_node(block: _Block) -> Recipe:
     judge = None if block.judge is None else cast("Judge", block.judge)._node
     if not block.narrow:
         return _fusion_of(fanout, _terminal(fanout, block.terminal, judge))
-    # INVARIANT (CH-12, until unit 5): one narrow step, and a Synthesize after it.
-    (narrow,) = block.narrow
-    writer = _writer(cast("Synthesize", block.terminal))
-    return Pipeline([_fusion_of(fanout, step_node(narrow, judge)), writer])
+    narrow = tuple(step_node(step, judge) for step in block.narrow)
+    if isinstance(block.terminal, Synthesize):
+        # A selection goes to the writer: the last narrow step is the main step of the combine
+        # call, and the steps before it are its spec ``narrow`` list.
+        *before, main = narrow
+        selection = _carrying(main, tuple(before))
+        return Pipeline([_fusion_of(fanout, selection), _writer(block.terminal)])
+    return _fusion_of(fanout, _carrying(step_node(block.terminal, judge), narrow))
+
+
+def _carrying(node: Reducer, narrow: tuple[Reducer, ...]) -> Reducer:
+    """``node`` with the narrow steps before it in its combine call (the narrow carrier)."""
+
+    return _narrowed(node, narrow) if narrow else node
 
 
 def step_node(step: Step, judge: JudgeNode | None) -> Reducer:

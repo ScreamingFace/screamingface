@@ -18,7 +18,14 @@ from screamingface._signals import (
 )
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _name, _optional, _recipe
-from screamingface.reducer import _MAX_REDUCER_MEMBERS, Reducer, Vote, _read_signal
+from screamingface.reducer import (
+    _MAX_REDUCER_MEMBERS,
+    Reducer,
+    Vote,
+    _narrow_steps,
+    _read_signal,
+    _step_plans,
+)
 from screamingface.signal_sources import (
     INJECTED_PARAMS,
     Entropy,
@@ -211,10 +218,17 @@ def _check_sum_component(
 
 
 def _check_reads(reducer: Reducer, declared: Mapping[str, SignalSource] | None) -> None:
-    """A rule that reads a name this Fusion does not declare fails here, before any call (DS-E1)."""
-    signal = _read_signal(reducer._plan())
-    if signal is None or is_signal_key(signal.key):
-        return
+    """A rule that reads a name this Fusion does not declare fails here, before any call (DS-E1).
+
+    Each step of the combine call is checked: a narrow step reads its own signal (narrow.md §5).
+    """
+    for plan in _step_plans(reducer._combine_plan()):
+        signal = _read_signal(plan)
+        if signal is not None and not is_signal_key(signal.key):
+            _check_read_name(signal, declared)
+
+
+def _check_read_name(signal: Signal, declared: Mapping[str, SignalSource] | None) -> None:
     names = () if declared is None else tuple(declared)
     if signal.key in names:
         return
@@ -266,9 +280,14 @@ def _check_logprob_sources(
 
 
 def _check_weight_source(declared: Mapping[str, SignalSource], reducer: Reducer) -> None:
-    weights = reducer._plan().weights
-    if not isinstance(weights, Signal) or weights.key not in declared:
-        return
+    """The weight rules of P13 and P14, on each step of the combine call (narrow.md §5)."""
+    for plan in _step_plans(reducer._combine_plan()):
+        weights = plan.weights
+        if isinstance(weights, Signal) and weights.key in declared:
+            _check_weight_name(declared, weights)
+
+
+def _check_weight_name(declared: Mapping[str, SignalSource], weights: Signal) -> None:
     source = declared[weights.key]
     if isinstance(source, Sum):
         _check_sum_weight(weights.key, source, declared)
@@ -399,7 +418,9 @@ def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer
                 f"a reducer Fusion supports at most {_MAX_REDUCER_MEMBERS} members, "
                 f"not {len(members)}"
             )
-        value._check_members(len(members))
+        # each step of the combine call: a narrow Rank keeps at most the member count too
+        for step in (*_narrow_steps(value), value):
+            step._check_members(len(members))
         return value
     return _recipe(value, "Fusion synthesizer")
 
