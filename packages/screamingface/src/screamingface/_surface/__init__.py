@@ -15,7 +15,7 @@ swap (unit 7) makes these names ``sf.*``. Unit 4 adds the gate.
 from screamingface._surface.chain import Pipeline
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.judge import Judge, JudgePick
-from screamingface._surface.refs import Extract, field, matches, signal
+from screamingface._surface.refs import Extract, field, signal
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -29,6 +29,7 @@ from screamingface._surface.steps import (
     Vote,
 )
 from screamingface._surface.synthesize import Synthesize
+from screamingface.blocks import matches
 from screamingface.fields import FieldRule
 
 __all__ = [

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 from screamingface._candidate_policy import GenerationParams
 from screamingface._surface.chain import Step, _Category
@@ -21,7 +21,38 @@ from screamingface.judge import Judge as JudgeNode
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Judge(Step):
+class _JudgeStep(Step):
+    """A judge model call over every member: ``Judge`` scores them, ``JudgePick`` picks one."""
+
+    _returns: ClassVar[Literal["scores", "label"]]
+    _writes_judge_signal: ClassVar[bool] = True
+    model: str = field(compare=False)
+    rubric: str = field(compare=False)
+    params: GenerationParams = field(compare=False)
+    _node: JudgeNode = field(repr=False)
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        rubric: str,
+        params: Mapping[str, str | int | float | bool] | None = None,
+    ) -> None:
+        node = JudgeNode(model, returns=self._returns, rubric=rubric, params=params)
+        object.__setattr__(self, "model", node.model)
+        object.__setattr__(self, "rubric", node.rubric)
+        object.__setattr__(self, "params", node.params)
+        object.__setattr__(self, "_node", node)
+
+    def __repr__(self) -> str:
+        params = f", params={dict(self.params)!r}" if self.params else ""
+        return f"{type(self).__name__}({self.model!r}, rubric={self.rubric!r}{params})"
+
+    __hash__: ClassVar[Any] = None
+
+
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class Judge(_JudgeStep):
     """Score every member of the block with one judge call: the score step after ``sf.Fanout``.
 
     ``rubric`` says what a high number means. The steps after it read the scores as
@@ -31,26 +62,11 @@ class Judge(Step):
     """
 
     _category: ClassVar[_Category] = "score"
-    _writes_judge_signal: ClassVar[bool] = True
-    model: str = field(compare=False)
-    rubric: str = field(compare=False)
-    params: GenerationParams = field(compare=False)
-    _node: JudgeNode = field(repr=False)
-
-    def __init__(
-        self,
-        model: str,
-        *,
-        rubric: str,
-        params: Mapping[str, str | int | float | bool] | None = None,
-    ) -> None:
-        _set_node(self, JudgeNode(model, returns="scores", rubric=rubric, params=params))
-
-    __hash__: ClassVar[Any] = None
+    _returns: ClassVar[Literal["scores", "label"]] = "scores"
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class JudgePick(Step):
+@dataclass(frozen=True, slots=True, init=False, repr=False)
+class JudgePick(_JudgeStep):
     """A judge model names one member; the answer is that member's text, unchanged.
 
     The members are shown to the judge in the order they were written, so a judge may favor a
@@ -59,30 +75,8 @@ class JudgePick(Step):
     """
 
     _category: ClassVar[_Category] = "reduce"
-    _writes_judge_signal: ClassVar[bool] = True
+    _returns: ClassVar[Literal["scores", "label"]] = "label"
     _sees_every_member: ClassVar[bool] = True
-    model: str = field(compare=False)
-    rubric: str = field(compare=False)
-    params: GenerationParams = field(compare=False)
-    _node: JudgeNode = field(repr=False)
-
-    def __init__(
-        self,
-        model: str,
-        *,
-        rubric: str,
-        params: Mapping[str, str | int | float | bool] | None = None,
-    ) -> None:
-        _set_node(self, JudgeNode(model, returns="label", rubric=rubric, params=params))
-
-    __hash__: ClassVar[Any] = None
-
-
-def _set_node(step: Judge | JudgePick, node: JudgeNode) -> None:
-    object.__setattr__(step, "model", node.model)
-    object.__setattr__(step, "rubric", node.rubric)
-    object.__setattr__(step, "params", node.params)
-    object.__setattr__(step, "_node", node)
 
 
 __all__ = ["Judge", "JudgePick"]

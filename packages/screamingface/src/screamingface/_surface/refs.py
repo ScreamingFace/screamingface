@@ -11,15 +11,16 @@ as the answer.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
 from screamingface._signals import FIELD_PATH, FIELD_SIGNAL_PREFIX, Signal, signal
-from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule, matches
-from screamingface.fields import FieldNormalizer, _normalizer
+from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule
+from screamingface.fields import _FIELD_NAME, FieldNormalizer, _normalizer, _target_text
 from screamingface.reducer import BENCHMARK_EXTRACT, _weights_option
-from screamingface.reducer import _field_path as _field_path_of
+from screamingface.reducer import _field_path as _checked_field_path
 
 # The rule names over= takes: every sf.Extract rule with no required argument (EX-1). A rule with
 # arguments ("field", "regex") is written as "field:<path>" or as sf.Extract(...).
@@ -97,6 +98,21 @@ def weights(value: object, label: str) -> Weights | None:
     return _weights_option(signal(value) if isinstance(value, str) else value, label)
 
 
+def output_field(value: object, label: str) -> str | None:
+    """An ``output=`` value: None or one top-level field name of the winner's JSON reply."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{label} output= must be a string")
+    if _FIELD_NAME.fullmatch(value) is None:
+        raise ValueError(
+            f"{label} output={value!r} must be a top-level field name like 'answer' "
+            "(a letter or _, then letters, digits or _; at most 64 characters)"
+        )
+    return value
+
+
 def signal_key(value: object, label: str) -> Signal:
     """A ``by=`` value: one signal, as a key string or ``sf.signal(key)`` (RA-1).
 
@@ -121,11 +137,12 @@ class FieldEquals:
 
     path: str
     normalize: FieldNormalizer | None
-    value: object
+    value: str | int | float | bool
 
     def _key(self) -> tuple[object, ...]:
-        # WHY the type: True == 1 == 1.0, but each compares as other JSON text (as GE21).
-        return (self.path, self.normalize, type(self.value), self.value)
+        # WHY the JSON text: the value compares as that text (today's Pick), so == 7 and == "7"
+        # are one condition with one url4, and == 1 and == True are two.
+        return (self.path, self.normalize, _target_text(self.value))
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, FieldEquals) and self._key() == other._key()
@@ -146,7 +163,7 @@ class FieldRef:
     normalize: FieldNormalizer | None
 
     def __eq__(self, other: object) -> Any:
-        return FieldEquals(self.path, self.normalize, other)
+        return FieldEquals(self.path, self.normalize, _field_value(other, self.normalize))
 
     def __ne__(self, other: object) -> Any:
         raise TypeError(_SI2)
@@ -166,6 +183,20 @@ class FieldRef:
     __hash__: ClassVar[Any] = None
 
 
+def _field_value(value: object, normalize: FieldNormalizer | None) -> str | int | float | bool:
+    """The value of ``sf.field(path) == value``, checked with today's ``Pick(equals=)`` rules."""
+
+    if not isinstance(value, str | int | float | bool):
+        raise TypeError(f"sf.field compares with a string, a number or a bool, not {value!r}")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"sf.field == {value!r} must be finite")
+    if isinstance(value, bool) and normalize == "numeric":
+        raise ValueError("sf.field == True or False cannot be compared with normalize='numeric'")
+    if not _target_text(value).strip():
+        raise ValueError(f"sf.field == {value!r} must not be blank")
+    return value
+
+
 def field(path: str, *, normalize: FieldNormalizer | None = None) -> FieldRef:
     """A JSON field reference for ``sf.First``: ``sf.field("answer") == "yes"`` (surface §9).
 
@@ -173,7 +204,7 @@ def field(path: str, *, normalize: FieldNormalizer | None = None) -> FieldRef:
     ``"text"`` or ``"numeric"``.
     """
 
-    return FieldRef(_field_path_of(path, "sf.field path"), _normalizer(normalize, "sf.field"))
+    return FieldRef(_checked_field_path(path, "sf.field path"), _normalizer(normalize, "sf.field"))
 
 
 def _rule_name(value: str) -> str:
@@ -189,4 +220,4 @@ def _field_path(value: str) -> None:
         )
 
 
-__all__ = ["Extract", "field", "matches", "signal"]
+__all__ = ["Extract", "field", "signal"]

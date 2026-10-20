@@ -9,7 +9,7 @@ bad option raises here and never after a model call.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._signals import JUDGE_SIGNAL, Signal, _Comparison
@@ -21,6 +21,7 @@ from screamingface._surface.refs import (
     extractor,
     field_extract,
     is_rule_name,
+    output_field,
     signal_key,
     with_normalizer,
 )
@@ -219,26 +220,22 @@ class Concat(Step):
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class ArgMax(Step):
-    """Copy the member with the highest value of one signal, unchanged.
-
-    ``by`` is a signal key string or ``sf.signal(key)``; a member with no value is left out.
-    ``by="score:judge"`` reads a ``sf.Judge`` step of the block. ``output="<field>"`` makes the
-    answer that top-level field of the winner's JSON reply; a judge pick takes no ``output=``.
-    """
+class _ArgBest(Step):
+    """The member with the best value of one signal: ``ArgMax`` and ``ArgMin`` set ``_order``."""
 
     _category: ClassVar[_Category] = "reduce"
-    _order: ClassVar[Literal["max", "min"]] = "max"
+    _order: ClassVar[Literal["max", "min"]]
     by: Signal
     output: str | None
 
     def __init__(self, by: str | Signal, *, output: str | None = None) -> None:
-        object.__setattr__(self, "by", signal_key(by, f"sf.{type(self).__name__}"))
+        label = f"sf.{type(self).__name__}"
+        object.__setattr__(self, "by", signal_key(by, label))
         if output is not None and reads_judge(self.by):
             raise ValueError(  # JU-2
                 "output= reads a member field; a judge pick returns the member text"
             )
-        object.__setattr__(self, "output", output)
+        object.__setattr__(self, "output", output_field(output, label))
         _check_by_lowering(self)
 
     def _reads_judge(self) -> bool:
@@ -248,7 +245,19 @@ class ArgMax(Step):
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class ArgMin(ArgMax):
+class ArgMax(_ArgBest):
+    """Copy the member with the highest value of one signal, unchanged.
+
+    ``by`` is a signal key string or ``sf.signal(key)``; a member with no value is left out.
+    ``by="score:judge"`` reads a ``sf.Judge`` step of the block. ``output="<field>"`` makes the
+    answer that top-level field of the winner's JSON reply; a judge pick takes no ``output=``.
+    """
+
+    _order: ClassVar[Literal["max", "min"]] = "max"
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ArgMin(_ArgBest):
     """Copy the member with the lowest value of one signal, unchanged (see ``sf.ArgMax``)."""
 
     _order: ClassVar[Literal["max", "min"]] = "min"
@@ -271,7 +280,7 @@ class First(Step):
         if not isinstance(where, FieldEquals):
             raise TypeError("sf.First where= takes sf.field(path) == value")
         object.__setattr__(self, "where", where)
-        object.__setattr__(self, "output", output)
+        object.__setattr__(self, "output", output_field(output, "sf.First"))
         _check_by_lowering(self)
 
     __hash__: ClassVar[Any] = None
@@ -287,11 +296,15 @@ class Merge(Step):
 
     _category: ClassVar[_Category] = "reduce"
     _sees_every_member: ClassVar[bool] = True
-    fields: Mapping[str, FieldRule]
+    fields: Mapping[str, FieldRule] = field(compare=False)
+    # WHY a tuple: the fields compile in their order, so two Merges are equal only in one order.
+    _items: tuple[tuple[str, FieldRule], ...] = field(repr=False)
 
     def __init__(self, fields: Mapping[str, FieldRule]) -> None:
         # WHY today's Merge holds the fields: it checks them and keeps them in a read-only map.
-        object.__setattr__(self, "fields", MergeNode(fields).fields)
+        checked = MergeNode(fields).fields
+        object.__setattr__(self, "fields", checked)
+        object.__setattr__(self, "_items", tuple(checked.items()))
 
     __hash__: ClassVar[Any] = None
 
