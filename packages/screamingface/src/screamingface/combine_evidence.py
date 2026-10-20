@@ -30,7 +30,13 @@ from screamingface.answer import (
     SignalOrder,
     frozen_signals,
 )
-from screamingface.reducer import _MAX_REDUCER_MEMBERS, REDUCER_KINDS, REDUCER_NAMES, _ReducerKind
+from screamingface.reducer import (
+    _MAX_REDUCER_MEMBERS,
+    MAX_NARROW_STEPS,
+    REDUCER_KINDS,
+    REDUCER_NAMES,
+    _ReducerKind,
+)
 
 COMBINE_EVIDENCE_SCHEMA = "screamingface.combine-evidence.v1"
 
@@ -52,8 +58,6 @@ _GATE_OTHERWISE = frozenset(get_args(GateOtherwise.__value__))
 _GATE_SOURCES = ("chosen", "mean")
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
 _MAX_CUT_K = _MAX_REDUCER_MEMBERS  # the bound of sf.Rank k (blocks.py _MAX_K)
-# The Engine ports MAX_NARROW_STEPS (the narrow PRD, O10): the most narrow records of one evidence.
-MAX_NARROW_STEPS = 4
 
 
 @dataclass(frozen=True, slots=True)

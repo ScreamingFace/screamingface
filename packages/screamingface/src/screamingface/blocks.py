@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from screamingface import _candidate_policy
 from screamingface._regex_rule import check_regex
@@ -435,8 +435,7 @@ class Reduce(Reducer):
     op: str
     mode: ReduceMode
     options: Mapping[str, object]
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(self, op: str, mode: ReduceMode | None = None, **options: object) -> None:

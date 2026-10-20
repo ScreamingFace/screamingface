@@ -6,7 +6,7 @@ import copy
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
@@ -76,9 +76,18 @@ _FALLBACK_WRITER_KEY = "fallback_writer"
 _FALLBACK_KEYS: Mapping[Literal["judge", "writer"], str] = MappingProxyType(
     {"judge": _FALLBACK_JUDGE_KEY, "writer": _FALLBACK_WRITER_KEY}
 )
+# The key of E4a's judge call: the one call that every step reading score:judge reads.
+_JUDGE_KEY = "judge"
 # The keys of the model calls that judge the members: E4a's "judge" and a vote gate's fallback
 # label judge (E4b part 5).
-_JUDGE_CALL_KEYS: frozenset[str] = frozenset({"judge", _FALLBACK_JUDGE_KEY})
+_JUDGE_CALL_KEYS: frozenset[str] = frozenset({_JUDGE_KEY, _FALLBACK_JUDGE_KEY})
+# NR-S1 (narrow PRD, O10): the most narrow steps before one main step; the Engine ports the same
+# bound, and the SDK evidence decoder reads it.
+MAX_NARROW_STEPS = 4
+# The ONE table of the narrow steps (narrow PRD §2, NARROW_RULES): select op name -> the reducer
+# of that narrow step. The url4 rebuild reads a narrow item through it.
+_NARROW_SELECTS: Mapping[str, str] = MappingProxyType({"kept": "filter", "top_k": "rank"})
+_NARROW_REDUCERS: frozenset[str] = frozenset(_NARROW_SELECTS.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,33 +176,36 @@ def _with_narrow(plan: _ReducerPlan, narrow: tuple[Reducer, ...]) -> _ReducerPla
 
 
 def _narrow_steps(reducer: Reducer) -> tuple[Reducer, ...]:
-    """The narrow steps a reducer carries (lowering §2.2, "the narrow carrier").
+    """The narrow steps a reducer carries (lowering §2.2, "the narrow carrier")."""
 
-    WHY ``getattr``: only the reducer classes that a narrow step can come before have the field;
-    Merge, a label judge as a step and the internal projection never carry one (NR-C1).
-    """
-
-    return cast("tuple[Reducer, ...]", getattr(reducer, "_narrow", ()))
-
-
-# The reducers a narrow step lowers to (narrow.md §2, NARROW_RULES): sf.Rank and sf.Filter.
-_NARROW_REDUCERS: frozenset[str] = frozenset({"rank", "filter"})
+    return reducer._narrow if reducer._carries_narrow else ()
 
 
 def _narrowed[R: Reducer](reducer: R, narrow: tuple[Reducer, ...]) -> R:
-    """A copy of ``reducer`` that runs ``narrow`` first, in the same combine call.
+    """A copy of ``reducer`` that runs ``narrow`` first, in the same combine call; ``reducer``
+    itself when ``narrow`` is empty.
 
+    INVARIANT: the ONE gate of the carrier. The lowering (``S/_surface/lowering.py``) and the url4
+    rebuild (``S/url4.py``) are its only callers, so a hand-edited url4 meets the same rules as a
+    chain: NR-S1 (at most ``MAX_NARROW_STEPS``), NR-C1 (no main step that makes its own call over
+    every member), only Rank and Filter as narrow steps, and one judge call.
     WHY a copy: a lowered step can be a value that other steps share (the block's judge node is
     the synthesizer of ``ArgMax("score:judge")``), so the carrier is never set on it in place.
-    The lowering (``S/_surface/lowering.py``) and the url4 rebuild (``S/url4.py``) are the only
-    callers. A bad step or a judge in two forms raises here, when the block closes.
     """
 
-    if "_narrow" not in {item.name for item in fields(cast("Any", reducer))}:
+    if not narrow:
+        return reducer
+    if not reducer._carries_narrow:
         raise ValueError(f"sf.{type(reducer).__name__} cannot follow a narrow step")
+    if len(narrow) > MAX_NARROW_STEPS:
+        raise ValueError(f"a combine call takes 1 to {MAX_NARROW_STEPS} narrow steps")
+    whole = reducer._whole_context_call()
+    if whole is not None:  # NR-C1 (O11): it would see the members the narrow steps left out
+        raise ValueError(
+            f"{whole} makes its own call over every member, so it cannot follow a narrow step"
+        )
     for step in narrow:
-        plan = step._plan()
-        if plan.reducer not in _NARROW_REDUCERS or _narrow_steps(step):
+        if step._plan().reducer not in _NARROW_REDUCERS or _narrow_steps(step):
             raise ValueError(f"sf.{type(step).__name__} is not a narrow step")
     _with_narrow(reducer._plan(), narrow)
     copied = copy.copy(reducer)
@@ -221,11 +233,24 @@ class Reducer(ABC):
     """
 
     name: str
+    # The narrow carrier (lowering §2.2): the narrow steps that run before this step in its combine
+    # call. A class that a narrow step can come before sets ``_carries_narrow`` and declares the
+    # private dataclass field ``_narrow`` (``init=False``, default ``()``, out of the repr), set
+    # in its ``__init__`` to ``()``. Only ``_narrowed`` gives it steps; it is not a parameter, so
+    # no public signature or field moves. Equality reads it: equal values compile to equal bytes.
+    _carries_narrow: ClassVar[bool] = False
+    _narrow: tuple[Reducer, ...]
 
     @abstractmethod
     def _plan(self) -> _ReducerPlan:
         """The reducer name, kind (answer | selection | projection), unpinned operator steps and
         weights; the compiler pins the steps against the Engine catalog."""
+
+    def _whole_context_call(self) -> str | None:
+        """What makes its own model call over the whole Fusion context, so it cannot follow a
+        narrow step (NR-C1, O11), in the user's words; None for a step with no such call."""
+
+        return None
 
     def _combine_plan(self) -> _ReducerPlan:
         """The plan of the whole combine call: ``_plan()`` with the narrow steps this reducer
@@ -680,8 +705,7 @@ class Vote(Reducer):
     judge: Judge | None
     gate: Gate | None
     verify: None
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
@@ -711,6 +735,11 @@ class Vote(Reducer):
     @property
     def _is_benchmark(self) -> bool:
         return self.extract == BENCHMARK_EXTRACT
+
+    def _whole_context_call(self) -> str | None:
+        if self.gate is not None and self.gate.otherwise != "abstain":
+            return "a gate with a model fallback"
+        return None
 
     def _plan(self) -> _ReducerPlan:
         benchmark = self._is_benchmark
@@ -887,8 +916,7 @@ class Median(Reducer):
     extract: str
     select: str
     weights: tuple[float, ...] | Signal | None
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
@@ -944,8 +972,7 @@ class Mean(Reducer):
     extract: str
     select: str
     weights: tuple[float, ...] | Signal | None
-    # The narrow carrier (lowering §2.2): the narrow steps before this one in its combine call.
-    # Only ``_narrowed`` sets it; it is not a parameter, so no public signature moves.
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(

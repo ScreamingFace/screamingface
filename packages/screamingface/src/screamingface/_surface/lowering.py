@@ -87,20 +87,35 @@ def block_node(block: _Block) -> Recipe:
     judge = None if block.judge is None else cast("Judge", block.judge)._node
     if not block.narrow:
         return _fusion_of(fanout, _terminal(fanout, block.terminal, judge))
+    _check_judge_order(block)
     narrow = tuple(step_node(step, judge) for step in block.narrow)
     if isinstance(block.terminal, Synthesize):
         # A selection goes to the writer: the last narrow step is the main step of the combine
         # call, and the steps before it are its spec ``narrow`` list.
         *before, main = narrow
-        selection = _carrying(main, tuple(before))
+        selection = _narrowed(main, tuple(before))
         return Pipeline([_fusion_of(fanout, selection), _writer(block.terminal)])
-    return _fusion_of(fanout, _carrying(step_node(block.terminal, judge), narrow))
+    return _fusion_of(fanout, _narrowed(step_node(block.terminal, judge), narrow))
 
 
-def _carrying(node: Reducer, narrow: tuple[Reducer, ...]) -> Reducer:
-    """``node`` with the narrow steps before it in its combine call (the narrow carrier)."""
+def _check_judge_order(block: _Block) -> None:
+    """Refuse ``ArgMin("score:judge")`` after a narrow step that reads the judge.
 
-    return _narrowed(node, narrow) if narrow else node
+    WHY: until the neutral judge template (overview §4.1), ArgMin's judge call is told that a lower
+    number is better and the narrow step's call is not, so one block would need two judge calls.
+    AIDEV-NOTE: unit 7 (the ``judge-template@2`` swap) lifts this rule.
+    """
+
+    terminal = block.terminal
+    if (
+        isinstance(terminal, ArgMin)
+        and terminal._reads_judge()
+        and any(step._reads_judge() for step in block.narrow)
+    ):
+        raise ValueError(
+            'sf.ArgMin("score:judge") cannot follow a narrow step that reads score:judge until '
+            "the neutral judge template"
+        )
 
 
 def step_node(step: Step, judge: JudgeNode | None) -> Reducer:
