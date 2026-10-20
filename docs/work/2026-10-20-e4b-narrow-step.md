@@ -88,3 +88,25 @@ and the exclude reason `not_selected`, and the SDK decoder of that evidence. A s
   - Not done (spec silent): the Engine does not refuse `label@1`, `field_rules@1` or a judge or
     writer gate after a narrow step (NR-C1 is an SDK rule); evidence `operators` lists the main
     step's ops only.
+
+## Fix round (design review: ACCEPT WITH FIXES, 2026-10-20)
+
+- **Fixes:** the Engine enforces NR-C1 in `_plan` (no narrow step before `label@1`,
+  `field_rules@1`, or a gate with a judge or writer fallback); the NR-S2b signal and judge rule
+  reads the resolved step in `_narrow_plan` (normalize-needs-extract stays at parse);
+  `CombineInput.judged` is a tuple filled from `present` (no fallback property);
+  `MAX_NARROW_STEPS` lives in `E/combine/ports.py` and the SDK keeps a constant of the same name
+  (a test checks it equals the Engine schema bound); every refusal test matches the whole
+  message; the `_narrowed` docstring no longer says it reuses `_decide`; each narrow record has
+  the optional `reduce` key (the pinned reduce op id), written by the Engine and decoded by the
+  SDK.
+- **Pinned edits** (one commit, `d2d86b819`): `ST/data/schemas/screamingface.answer.v1.json`
+  regenerated (adds `not_selected`, same schema id); the literal edits in Engine
+  `test_combine_evidence_words.py` (line 324), `test_combine_consistency_words.py` (701-702), and
+  SDK `test_band_words.py` (268, 332), `test_evidence_words.py` (373, 476),
+  `test_gate_words.py` (567), `test_pick_output.py` (270). The evidence v1 schema snapshot and the
+  public surface snapshot follow the `reduce` key (in `80c84c279`).
+- **Commits:** 971f77d56 test (RED); 80c84c279 fix (GREEN); d2d86b819 test (pinned edits); this
+  ledger entry.
+- **Gates:** engine and screamingface: ALL GATES GREEN with `--skip-append-only`; the
+  append-only check flags only the pinned files above. repo: ALL GATES GREEN.
