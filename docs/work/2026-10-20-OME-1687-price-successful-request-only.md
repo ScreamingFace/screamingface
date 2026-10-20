@@ -39,7 +39,8 @@ Plan: `docs/plan/2026-10-20-OME-1687-price-successful-request-only.md`.
 
 - See plan A1 and B1: retried miss and hit priced, retained operation priced, saved cost claimed,
   run total priced, url4 `;retry=` after a 502 locked, capture status still `ambiguous`, gateway
-  field rules (reported, unavailable, unit, malformed, `null`, absent key).
+  field rules (reported, unavailable, unit, malformed, `null`, absent key), and the token rule for
+  `succeeded_attempt_usage` (mapping, malformed, absent/null).
 
 ## Acceptance
 
@@ -56,6 +57,10 @@ Plan: `docs/plan/2026-10-20-OME-1687-price-successful-request-only.md`.
   `test_signal_accounting.py`. D4: keep the flag. Q1 resolved (gateway already stores the
   succeeded send's cost). Q2: no token change, known limitation. Q4: one PR with both phases,
   after OME-1686 merges. Coding starts.
+- 2026-10-20: Phase A committed (`b94ff44b1`). Scope change (user): tokens also follow the
+  successful attempt, through the gateway key `usage_accounting.succeeded_attempt_usage`
+  (absent/null → today's sums; malformed → unknown). Latency stays the all-attempt sum (known
+  item). No prior token test changes.
 
 ## Outcome (fill at the end — required before COMMIT)
 

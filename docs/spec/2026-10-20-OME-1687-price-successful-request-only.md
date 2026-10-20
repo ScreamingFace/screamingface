@@ -24,6 +24,9 @@ attempt, in a consistent way. A retry is an infrastructure event. Thus:
   This spec does not change that rule.
 - **R5.** A judge redraw (a reply that cannot be parsed) is a successful call. Its cost
   continues to count.
+- **R6 (scope change, user decision 2026-10-20).** Token counts follow the same rule: they come
+  only from the successful attempt, never from failed attempts. Cost and tokens follow one rule:
+  the engine never calculates them from `attempts[]`.
 
 This rule reverses OME-1220 (owner decision D1 of 2026-10-09, "unknown over a confident
 undercount"). That decision protected the actual spend. The new rule protects the model price.
@@ -71,6 +74,11 @@ reported (`:1027-1029`). Only the INVARIANT comment at `:1068-1069` changes.
   failure, not dispatched).
 - The gateway calculates it from all attempts. It does not depend on truncation or on
   `capture_status`.
+- New key `_aigw.usage_accounting.succeeded_attempt_usage` (added 2026-10-20 for R6). Its value
+  is the `usage` of the same successful record, with the shape of `attempts[].usage`
+  (`input.total`, `input.cache_read`, `input.cache_write`, `output.total`, `output.reasoning`), or
+  `null`. The gateway calculates it from all records. It survives truncation and the size
+  degradation (`_degrade_to_bound`).
 - `direct_cost_status`, `known_direct_cost_subtotals` and `attempts[]` do not change.
 
 ## 5. Engine pricing rule (Phase B, `world/accounting.py` `usd_from_aigw`)
@@ -108,6 +116,18 @@ outside the engine reads the string (a repository search finds it only at `world
 the SDK compares only with `"unpriced"`). A new version would split priced runs on the board by an
 infrastructure event.
 
+**Token rule (R6, mirror of D1; `read_aigw`, live Usage, retained operation).**
+
+1. `succeeded_attempt_usage` is a mapping → take all 5 token classes from it. The retained
+   operation uses these tokens also when the capture is not `complete`, because the key survives
+   truncation and degradation.
+2. The key is present, not a mapping and not `null` (malformed) → the 5 classes are unknown
+   (`None`). Never mix them with the all-attempt sums. The live Usage then uses its existing
+   fallback for input and output (the top-level `usage`, `world/connector.py` `_token_count`).
+3. The key is absent or `null` → today's behaviour, unchanged: the sum over every attempt.
+
+Because of rule 3, prior token tests (their fixtures have no key) do not change.
+
 ## 6. Comments that state the old rule (update them)
 
 - `world/connector.py:674-713` `_report_served_from_cache` docstring: the INVARIANT "a RETRIED hit
@@ -129,12 +149,11 @@ infrastructure event.
   `runner/summary.py:7-8` ("never a false zero"). The prior test
   `tests/unit/test_cache_hit_retry_pricing.py::test_a_retried_hit_makes_the_whole_run_total_unpriced`
   pins this zero. Only `pricing_version = "unpriced"` shows the truth. Not changed here.
-- **Known limitation: tokens of failed attempts (owner decision 2026-10-20: no change, no
-  follow-up).** Token counts do NOT come only from the successful response. `read_aigw` adds the
-  tokens of every attempt, failures included (`world/accounting.py:354-379`). A failed gateway
-  attempt with no usage makes the sum `None` (`accumulate`, `:106-115`). The live Usage then falls
-  back to the response body's `usage` (`world/connector.py:768-773`), but the retained operation
-  reports `None` tokens (`world/accounting.py:488-505`). This unit does not change tokens.
+- **Known item: latency.** `provider_latency_ms` continues to add the latency of every attempt,
+  failures included (`world/accounting.py` `read_aigw`). User decision 2026-10-20: out of scope.
+- **Known item: older gateways.** With no `succeeded_attempt_usage` key, tokens are the sum over
+  every attempt (rule 3 above). A failed gateway attempt with no usage makes that sum `None`
+  (`accumulate`); the live Usage then falls back to the top-level `usage` for input and output.
 - The engine retry rules (when to retry). Only the price changes.
 - Gateway changes. They are in OME-1686.
 
@@ -199,6 +218,10 @@ Phase B (`tests/unit/test_succeeded_attempt_pricing.py`, new):
 - The key absent → today's rule (`complete` priced, `partial` unpriced).
 - Connector level: a gateway response with attempts 503 + 200 and the field → the Usage price is
   0.00042, the retained operation is `"0.00042"`, and the run is priced.
+- Tokens: `succeeded_attempt_usage` a mapping → all 5 classes from it (not the sum), in
+  `read_aigw`, the live Usage and the retained operation (also with a `partial` capture);
+  malformed → `None` for the 5 classes (live input/output fall back to the top-level `usage`);
+  absent or `null` → the all-attempt sum.
 
 ## 10. Owner decisions (approved 2026-10-20)
 
@@ -222,7 +245,10 @@ Phase B (`tests/unit/test_succeeded_attempt_pricing.py`, new):
   (`apps/aigateway/src/aigateway/plugins/taxonomy/entry_metadata.py:184-213`). It is certified
   when the collector status is `complete`, which is the case after a 503 → 200 retry. No
   dependency on OME-1686.
-- **Q2.** Tokens: no change and no follow-up ticket. See the known limitation in §7.
+- **Q2.** Superseded by the scope change R6 (user decision 2026-10-20): tokens follow the
+  successful attempt through the gateway key `usage_accounting.succeeded_attempt_usage`. The
+  engine-only proposal (terminal attempt of `attempts[]`) was rejected. Latency stays out of
+  scope.
 - **Q3.** Keep the flag (D4).
 - **Q4.** One PR with both phases. It opens after the OME-1686 PR merges. Phase B codes against
   the fixed contract (§4), with test fixtures that hold the key, and with the fallback (D1) when

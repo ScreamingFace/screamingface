@@ -78,7 +78,7 @@ restates the code.
 `run_gates.py screamingface-engine --base origin/main` green. Commit:
 `fix(screamingface-engine): stop unpricing a model call after a transport retry`.
 
-## Phase B — price from the gateway's successful-attempt cost
+## Phase B — price and tokens from the gateway's successful-attempt evidence
 
 ### B1 — RED
 
@@ -104,7 +104,13 @@ already (they lock D1).
 - Update the docstring and the AIDEV-NOTE (`:187-200`): the producer now gives the successful
   attempt's cost directly; still never walk `attempts[]`.
 
-Run all tests. No prior test may fail in this phase.
+- Tokens (R6, spec §5 token rule): in `read_aigw`, read
+  `usage_accounting.succeeded_attempt_usage`. A mapping → the 5 classes from it; malformed → all
+  `None`; absent or `null` → the existing all-attempt sums. Mark the evidence on `CallAccounting`
+  (a new defaulted field) so `retained_operation_accounting` uses these tokens also when the
+  capture is not `complete`. The live Usage needs no change: it already reads `call.*`.
+
+Run all tests. No prior test may fail in this phase. If one does, STOP and report it.
 
 ### B3 — gate and commit
 
