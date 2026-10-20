@@ -1041,8 +1041,8 @@ function RunsPanel({
   const [sampleSize, setSampleSize] = useState(50);
   const [full, setFull] = useState(false);
   const [custom, setCustom] = useState(false);
-  // What the Custom box shows while it is edited, so a cleared box stays empty instead of
-  // snapping to 1. `null` means "show the size the run would use".
+  // What the Custom box shows while it holds no number, so a cleared box stays empty instead
+  // of snapping to 1. `null` means "show the size the run would use".
   const [customDraft, setCustomDraft] = useState<string | null>(null);
   const [useCache, setUseCache] = useState(true);
   const [saveCache, setSaveCache] = useState(true);
@@ -1081,8 +1081,7 @@ function RunsPanel({
   const selectedRun =
     runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
   // A cleared Custom box has no size yet; Run waits rather than using one the user can't see.
-  const customEmpty =
-    custom && !full && customDraft !== null && Number.isNaN(Number.parseInt(customDraft, 10));
+  const customEmpty = custom && !full && customDraft !== null;
 
   useEffect(
     () => () => {
@@ -1482,9 +1481,10 @@ function RunsPanel({
                         return;
                       }
                       const most = benchmark?.case_count ?? Number.POSITIVE_INFINITY;
-                      const size = Math.min(most, Math.max(1, next));
-                      setSampleSize(size);
-                      setCustomDraft(size === next ? null : String(size));
+                      setSampleSize(Math.min(most, Math.max(1, next)));
+                      // A number shows the size the run will use, re-clamped whenever the
+                      // benchmark changes; the draft only holds text that is not a number.
+                      setCustomDraft(null);
                     }}
                     onBlur={() => setCustomDraft(null)}
                   />

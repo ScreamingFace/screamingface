@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { EngineClient } from "@/lib/engine/client";
@@ -217,6 +217,31 @@ describe("EnsembleComposerPage run benchmark picker", () => {
 
     expect(input).toHaveValue(52);
     expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeEnabled();
+  });
+
+  it("keeps a clamped custom size equal to the size the run saves after switching benchmarks", async () => {
+    client.listBenchmarks.mockResolvedValue([
+      benchmark("large", "Large", 52),
+      benchmark("small", "Small", 30),
+    ]);
+    const user = await openRuns();
+    await user.click(await screen.findByRole("radio", { name: "Large" }));
+    await user.click(screen.getByRole("button", { name: "Custom" }));
+    const input = screen.getByRole("spinbutton", { name: "Custom sample size" });
+    await user.clear(input);
+    await user.type(input, "9999");
+    expect(input).toHaveValue(52);
+
+    // WebKit (Studio's webview) does not focus a button on click, so the box keeps focus.
+    fireEvent.click(screen.getByRole("radio", { name: "Small" }));
+
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue(30);
+    await user.click(screen.getByRole("button", { name: /Run Evaluation/ }));
+    await waitFor(
+      () => expect(useEnsembleStore.getState().ensembles[0]?.runHistory?.[0]?.sampleSize).toBe(30),
+      { timeout: 5000 },
+    );
   });
 
   it("lets a cleared custom sample size be retyped", async () => {

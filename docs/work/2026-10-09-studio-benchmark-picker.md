@@ -93,3 +93,11 @@ The reviewer found three picker defects. Each now has a regression test that was
 - **The empty catalog was not announced.** It now shares one `role="status"` region with "Loading…". The text changes in place, so screen readers announce it.
 
 Gates: lint, typecheck and build are clean. 120 tests pass. Coverage is unchanged at 93.24% lines.
+
+## Second review follow-up (2026-10-20, PR #1326, HupBaHa)
+
+- **The Custom box could show a different size from the one the run used.** Picking Custom and typing `9999` on a 52-case benchmark showed `52`. Then switching to a 30-case benchmark still showed `52`, while the run used and saved `sampleSize: 30`.
+  - **Cause:** a clamped value was kept as the draft. The draft now only holds text that isn't a number (an empty box). A number always shows `selectedSize`, which is re-clamped whenever the benchmark changes.
+  - **Test:** "keeps a clamped custom size equal to the size the run saves after switching benchmarks". It clicks the radio without moving focus, because WebKit (Studio's webview) doesn't focus a button on click, so the box's blur never fires. It failed first, then asserts the visible field and the saved `sampleSize` are both 30.
+  - `customEmpty` no longer re-parses the draft.
+- **Gates:** lint, typecheck and build are clean. 124 tests pass. Coverage is 93.22% lines.
