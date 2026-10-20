@@ -47,7 +47,7 @@ from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
-from .middleware import CallIdMiddleware
+from .middleware import BodyCapMiddleware, CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .routes import (
     accounts,
@@ -389,6 +389,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "AIGW_ALLOWED_NETWORKS to the CIDR networks of the url4-cloud App and its Runner Pods "
             "(e.g. your cluster's Pod CIDR)"
         )
+
+    # FEATURE (OME-1542): the body cap. Registered just before CallIdMiddleware, so it sits INSIDE
+    # it (a refusal still carries the call id) and outside everything else, auth included — an
+    # oversized body is refused before any layer reads it.
+    # WHY the snapshot path keeps its own bound: it is an admin multipart upload with its own,
+    # larger cap; the extra MiB is the multipart envelope around the archive.
+    app.add_middleware(
+        BodyCapMiddleware,
+        max_bytes=settings.max_request_bytes,
+        path_limits={"/v1/admin/cache/snapshots": settings.cache_upload_max_bytes + 1024 * 1024},
+    )
 
     # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
     # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does

@@ -52,6 +52,12 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     custom_llm_provider: str
     provider_display_name: str
     settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
+    # FEATURE (OME-1542): the chat route refuses every remote image/file reference before the cache
+    # stage, so our process never dials a caller's URL. A provider sets this ONLY when its upstream,
+    # not the gateway, fetches `http(s)` image URLs (Codex: OpenAI does). It relaxes images only.
+    # INVARIANT: a provider that sets it keeps the base `global_cache_projection` (always a bypass),
+    # so no cache entry is ever keyed by a URL instead of the bytes behind it.
+    forwards_remote_image_urls: ClassVar[bool] = False
 
     def __init__(self, settings: TSettings | None = None) -> None:
         self.settings = settings if settings is not None else cast(TSettings, self.settings_cls())

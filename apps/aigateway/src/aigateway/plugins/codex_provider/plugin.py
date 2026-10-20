@@ -74,6 +74,10 @@ class CodexProviderPlugin(ProviderPluginBase):
     # platform API instead is a possible follow-up.
     custom_llm_provider = "codex"
     provider_display_name = "Codex"
+    # WHY (OME-1541 decision, re-confirmed OME-1542): `chat_handler._input_part` copies an https
+    # image URL into `input_image.image_url` and POSTs it to the ChatGPT backend; OpenAI fetches
+    # it. Nothing in this process dials it. Files stay data:-only.
+    forwards_remote_image_urls = True
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)

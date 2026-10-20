@@ -161,6 +161,13 @@ class Settings(BaseSettings):
         default=2_000_000, gt=0, validation_alias="AIGW_FROZEN_COPY_MAX_ENTRY_BYTES"
     )
 
+    # FEATURE (OME-1542): the request body cap, app-wide, on the bytes actually delivered. 8 MiB
+    # because MMMU's largest Case is 3.78 MB with its pictures inline (Khoa, OME-1542); HLE and
+    # MathVista are not measured yet, so the headroom is a guess. Over it: 413 naming the limit.
+    max_request_bytes: int = Field(
+        default=8 * 1024 * 1024, gt=0, validation_alias="AIGW_MAX_REQUEST_BYTES"
+    )
+
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
     # POST /v1/admin/cache/snapshots. Deliberately on the compressed bytes — that is what
     # crosses the wire and fills the spool directory — and deliberately generous: the DRACO

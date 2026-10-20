@@ -60,11 +60,13 @@ from ..core.frozen_copy.store import (
     frozen_copy_store_for,
     log_capture_failure,
 )
+from ..core.media_intake import refuse_remote_media
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
+from ..core.plugin_base import ProviderPluginBase
 from ..core.provider_access import (
     CredentialTarget,
     ProviderAccess,
@@ -440,6 +442,28 @@ async def _begin_capture(
     )
 
 
+def _admit_media(
+    request: Request,
+    body: dict[str, Any],
+    *,
+    plugin: ProviderPluginBase[Any],
+    provider: str,
+    streaming: bool,
+) -> dict[str, Any]:
+    """The data:-only media guard, accounted like the other ingress refusals (OME-1542)."""
+    try:
+        refuse_remote_media(
+            body.get("messages") or [],
+            provider=provider,
+            allow_remote_image_urls=plugin.forwards_remote_image_urls,
+        )
+    except HTTPException:
+        if not streaming:
+            begin_accounting(request, plugin=plugin, provider=provider, model=body.get("model", ""))
+        raise
+    return body
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
     # INVARIANT: authentication has already succeeded before this route-level boundary parses every
@@ -512,7 +536,18 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # including ``litellm_credential_name``, a CREDENTIAL SELECTOR: keyed it would be
     # a plan §10 stop condition, and ignored it would be a wrong-hit collision class.
     # Stripping first is what makes it neither.
-    body = plugin.strip_provider_dispatch_controls(body)
+    #
+    # FEATURE (OME-1542): then image and file parts are admitted only as `data:` URIs, so our
+    # process never fetches a caller's URL (LiteLLM would, for Anthropic, Ollama and the OpenAI
+    # wire). INVARIANT: BEFORE the cache stage, credential resolution and dispatch — a refused
+    # request can neither hit nor fill the cache, and nothing is sent upstream.
+    body = _admit_media(
+        request,
+        plugin.strip_provider_dispatch_controls(body),
+        plugin=plugin,
+        provider=provider,
+        streaming=streaming,
+    )
 
     # OME-303: non-streaming accounting is gateway-owned and default-on. Streaming
     # bypasses it until SSE usage can be observed without consuming or delaying the stream.
