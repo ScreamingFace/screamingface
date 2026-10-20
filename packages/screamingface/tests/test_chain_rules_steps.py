@@ -1,8 +1,8 @@
 """The chain rules that need a judge or a narrow step (E4b surface unit 3, surface §2.2).
 
 FEATURE: a block is ``Fanout``, then at most one ``Judge``, then 0–4 narrow steps, then one
-reduce or write step. A ``Judge`` needs a step that reads ``score:judge`` (CH-10). Until the narrow
-compile (unit 5), a block that needs the spec ``narrow`` key is refused (CH-12).
+reduce or write step. A ``Judge`` needs a step that reads ``score:judge`` (CH-10). Since the narrow
+compile (unit 5), a block that needs the spec ``narrow`` key builds: ``CH-12`` is gone.
 STORY: as a researcher, a wrong order of judge, narrow and terminal steps fails at the ``>>``, with
 a message that says what to do.
 """
@@ -167,22 +167,28 @@ def test_ch10_a_score_judge_read_with_no_judge_is_refused(steps: list[sx.Vote]) 
         sx.Pipeline([sx.Fanout(_PAIR), *steps])
 
 
-# ---------------------------------------------------------------- CH-12
+# ---------------------------------------------------------------- CH-12 is gone (unit 5)
 
 
 @pytest.mark.parametrize(
-    "steps",
+    ("steps", "carried"),
     [
-        [sx.Filter(where=sf.signal("cost_usd") < 1), sx.Mean()],
-        [sx.Rank(1, by="cost_usd"), sx.Vote()],
-        [sx.Rank(2, by="cost_usd"), sx.Filter(where=sf.matches("x")), sx.Synthesize("p/w")],
-        [sx.Rank(2, by="cost_usd"), sx.Concat(), sx.Synthesize("p/w")],
+        ([sx.Filter(where=sf.signal("cost_usd") < 1), sx.Mean()], 1),
+        ([sx.Rank(1, by="cost_usd"), sx.Vote()], 1),
+        ([sx.Filter(where=sf.signal("cost_usd") < 1), sx.Rank(1, by="cost_usd"), sx.Vote()], 2),
+        ([sx.Rank(2, by="cost_usd"), sx.Filter(where=sf.matches("x")), sx.Synthesize("p/w")], 1),
+        ([sx.Rank(2, by="cost_usd"), sx.Concat(), sx.Synthesize("p/w")], 1),
     ],
-    ids=["filter-mean", "rank-vote", "two-before-synthesize", "rank-concat"],
+    ids=["filter-mean", "rank-vote", "two-before-vote", "two-before-synthesize", "rank-concat"],
 )
-def test_ch12_a_block_that_needs_the_narrow_key_is_refused(steps: list[sx.Vote]) -> None:
-    with pytest.raises(ValueError, match=r"^narrow before a reducer is not built yet$"):
-        sx.Pipeline([sx.Fanout(_PAIR), *steps])
+def test_a_block_that_needs_the_narrow_key_builds(steps: list[sx.Vote], carried: int) -> None:
+    lowered = lower(sx.Pipeline([sx.Fanout(_PAIR), *steps]))
+
+    # lowering §2.2: before a writer the last narrow step is the main selection, so the reducer
+    # carries every narrow step before it; before a reducer it carries them all
+    fusion = lowered.stages[0] if isinstance(lowered, sf.Pipeline) else lowered
+    assert isinstance(fusion, sf.Fusion)
+    assert len(fusion.synthesizer._narrow) == carried  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------- the block record
