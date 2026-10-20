@@ -351,3 +351,35 @@ NC-1..NC-5.
   ArgMin("score:judge")` is refused: ArgMin's judge writes the `order=min` template and the
   narrow step's judge does not, so they are two different calls under one key. It works after the
   neutral `@2` template (unit 7).
+
+### Fix round (unit 5 review: ACCEPT WITH FIXES)
+
+- **Fixed:** (1) `Judge.__eq__` reads `_narrow`, so equal values compile to equal bytes; a
+  parametrized test covers all nine carrier classes (narrowed != plain, equal narrow ⇒ equal),
+  plus the `Judge >> Filter >> ArgMax("score:judge")` case. (2) `reducer._narrowed` is the one
+  gate of the carrier for the lowering and the url4 rebuild: at most `MAX_NARROW_STEPS` items
+  (NR-S1; one constant, now in `S/reducer.py`, read by `S/combine_evidence.py` and
+  `S/_surface/chain.py`), no main step that makes its own call over every member (NR-C1:
+  `Reducer._whole_context_call`, set by a label `Judge` and a `Vote` whose gate has a model
+  fallback), Rank and Filter only. A hand-edited url4 with 5 items, a label judge or a
+  model-fallback gate is refused on the rebuild ("cannot rebuild", the rule as its cause);
+  `Merge` cannot carry (confirmed by a test). (3) One table `_NARROW_SELECTS` in `S/reducer.py`;
+  `_NARROW_REDUCERS` is derived from it. (4) One idiom: `Reducer._carries_narrow` (ClassVar).
+  (5) `ArgMin("score:judge")` after a narrow step that reads the judge is refused in the lowering
+  with 'sf.ArgMin("score:judge") cannot follow a narrow step that reads score:judge until the
+  neutral judge template' (exact test). **Unit 7 lifts this rule** (the `@2` template makes the
+  two judge calls one) **and adds a test row** that the chain then compiles with one judge call.
+  (6) NC-5 compares the whole `combine` record with the contract case (one named override for
+  the rank fixture: the SDK weighted vote selects with `max_weight_holder@1`); a new fixture
+  `narrow_judge_rank_vote_candidate.url4` (`Judge >> Rank(by="score:judge") >> Vote()`) runs a
+  judge that only a narrow step reads. Nits: the `_JUDGE_KEY` constant; `_PROVED_SPEC_KEYS` in
+  the url4 header; no `_carrying` wrapper (`_narrowed` returns the reducer for no steps); the
+  carrier comment once, on `Reducer`; the ArgMax test renamed; the recompile comment says that an
+  operator error in a narrow spec shows as the recompile metadata error.
+- **Commits:** `56dc5430d` test (RED), `f2e4bd7a7` fix (GREEN), this ledger commit.
+- **Tests:** `ST/test_narrow_compile.py` 41, `ST/test_narrow_contract_fixtures.py` 6,
+  `ET/test_combine_narrow_run.py` 3; full SDK suite 5417 passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface-engine --base e4d44281c` and `screamingface`: the
+  append-only check lists only the owner-approved unit-1 files; with `--skip-append-only` ALL
+  GATES GREEN (engine pyright needed `uv sync --frozen` again). `run_gates.py repo --base
+  e4d44281c` ALL GATES GREEN.
