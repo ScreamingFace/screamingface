@@ -12,8 +12,10 @@ the caller's — the same forwarding rule ``connections.aigateway`` applies.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 
+import anyio
 import httpx
 
 from screamingface_engine import job_env
@@ -33,6 +35,9 @@ from screamingface_engine.connections.port import Caller
 logger = logging.getLogger(__name__)
 
 _ENTRIES_PATH = "/v1/cache/entries"
+# WHY bounded: `int()` refuses more than 4,300 digits with a ValueError, and no real delay needs
+# more than nine.
+_RETRY_AFTER = re.compile(r"[0-9]{1,9}")
 # WHY local, not `connections.upstream_errors`: the same statuses mean different things here —
 # 400/422 are the page query, 403 is the gateway refusing this Engine (502), and 429 carries its
 # `Retry-After` — so one shared table would be a parameter per difference. The transport
@@ -88,18 +93,19 @@ class AigatewayCommunityCache:
             logger.warning("AI Gateway community-cache transport failure (%s)", type(exc).__name__)
             raise CommunityCacheUnavailable() from exc
         if response.status_code != 200:
-            await response.aclose()
-            logger.info("AI Gateway community-cache request failed: %s", response.status_code)
-            if response.status_code == 403:
+            status, retry_after = response.status_code, _retry_after(response)
+            await _close(response)
+            logger.info("AI Gateway community-cache request failed: %s", status)
+            if status == 403:
                 # WHY not 401: the gateway answers 403 only to a peer it does not trust (or a
                 # non-loopback caller when its auth is disabled) — this Engine's deployment, not
                 # the user's identity. It falls through to 502.
                 logger.warning(
                     "AI Gateway refused this Engine as a peer (403) — check its trusted networks"
                 )
-            if response.status_code == 429:
-                raise CommunityCacheRateLimited(_retry_after(response))
-            raise _ERRORS.get(response.status_code, CommunityCacheBadResponse)()
+            if status == 429:
+                raise CommunityCacheRateLimited(retry_after)
+            raise _ERRORS.get(status, CommunityCacheBadResponse)()
         return _HttpxPage(response)
 
     async def aclose(self) -> None:
@@ -119,11 +125,23 @@ def _params(request: CachePageRequest) -> httpx.QueryParams:
     return httpx.QueryParams(params)
 
 
+async def _close(response: httpx.Response) -> None:
+    # INVARIANT: closing a refused response never replaces the typed error the caller gets. WHY
+    # shielded: a cancelled request would otherwise skip the close and leak the connection.
+    with anyio.CancelScope(shield=True):
+        try:
+            await response.aclose()
+        except Exception as exc:  # noqa: BLE001 — logged; the status is what the caller needs
+            logger.warning(
+                "AI Gateway community-cache response failed to close (%s)", type(exc).__name__
+            )
+
+
 def _retry_after(response: httpx.Response) -> int | None:
     # WHY whole seconds only: an HTTP-date or a malformed value is not passed on unchecked; the
     # caller just gets no hint.
     value = response.headers.get("retry-after", "").strip()
-    return int(value) if value.isascii() and value.isdigit() else None
+    return int(value) if _RETRY_AFTER.fullmatch(value) else None
 
 
 def _headers(caller: Caller, request: CachePageRequest) -> dict[str, str]:

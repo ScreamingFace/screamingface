@@ -14,6 +14,7 @@ from __future__ import annotations
 import gzip
 from collections.abc import Callable
 
+import anyio
 import httpx
 import pytest
 
@@ -230,6 +231,9 @@ async def test_a_403_is_the_gateway_refusing_this_engine_and_is_logged(
         ("1.5", None),
         (b"\xb2", None),  # a Latin-1 superscript two, which `str.isdigit` accepts
         ("Wed, 21 Oct 2026 07:28:00 GMT", None),
+        ("999999999", 999_999_999),
+        ("1234567890", None),
+        ("9" * 5000, None),  # past `int()`'s digit limit, which raises rather than refuses
     ],
 )
 async def test_a_rate_limit_keeps_only_a_whole_seconds_retry_after(
@@ -244,6 +248,44 @@ async def test_a_rate_limit_keeps_only_a_whole_seconds_retry_after(
         await adapter.open_page(_CALLER, CachePageRequest())
 
     assert raised.value.retry_after == kept
+    assert stream.closed
+
+
+class _FailingClose(_Closing):
+    async def aclose(self) -> None:
+        raise httpx.ReadError("connection reset while closing")
+
+
+async def test_a_refused_response_that_fails_to_close_still_raises_its_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    adapter, _ = _adapter(lambda _request: httpx.Response(401, stream=_FailingClose(b"")))
+
+    with pytest.raises(CommunityCacheRejected):
+        await adapter.open_page(_CALLER, CachePageRequest())
+
+    assert "failed to close (ReadError)" in caplog.text
+
+
+class _CancelledWhileClosing(_Closing):
+    """Cancels the request's scope as the close begins, as a caller that went away would."""
+
+    scope: anyio.CancelScope
+
+    async def aclose(self) -> None:
+        self.scope.cancel()
+        await anyio.sleep(0)
+        self.closed = True
+
+
+async def test_a_cancelled_request_still_closes_a_refused_response() -> None:
+    stream = _CancelledWhileClosing(b"")
+    adapter, _ = _adapter(lambda _request: httpx.Response(503, stream=stream))
+
+    with pytest.raises(CommunityCacheUnavailable), anyio.CancelScope() as scope:
+        stream.scope = scope
+        await adapter.open_page(_CALLER, CachePageRequest())
+
     assert stream.closed
 
 

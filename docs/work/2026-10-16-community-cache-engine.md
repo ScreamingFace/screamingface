@@ -127,3 +127,22 @@ Owner walked the ten findings one at a time and chose a fix for each; all landed
   - Supersedes "query values are not validated on the Engine" above in part: FastAPI's type
     coercion of `limit` / `count` already answered 422, now as problem+json. The gateway still
     owns every other rule.
+
+## Review round 2 (PR #1439 review by HupBaHa, fixed 2026-10-20)
+
+All five findings were valid. One commit; the gateway's fixes (#1433 round 2) are merged in first.
+
+- **Close before the error (blocking 1):** on a non-200, `open_page` reads the status and
+  `Retry-After` first, then closes the response under a cancellation shield, logging (not raising)
+  a close failure, then raises the typed error. A failing or cancelled close no longer replaces
+  the status mapping or leaks the connection.
+- **`Retry-After` (blocking 2):** only 1–9 ASCII digits are kept. A longer value got past
+  `isdigit()` to `int()`, which raises `ValueError` past 4,300 digits; now it just gets no hint.
+- **OpenAPI (blocking 3):** the 200 is declared as `application/x-ndjson` with its
+  `Content-Encoding`, `Cache-Control` and `Vary` headers.
+- **qvalue (non-blocking):** `_weight` uses the RFC 9110 qvalue grammar, the gateway's, instead
+  of `float()` (`q=2`, `1e-1`, `+0.5`, `nan` now refuse).
+- **405 (non-blocking):** the privacy invariant is narrowed to the handler's own answers; a
+  router-level 405 carries no caller data. No middleware added.
+- **Tests:** a close that fails, a close under cancellation (fails without the shield), the
+  `Retry-After` bounds, the qvalue rows and the OpenAPI 200. All are in files this PR added.
