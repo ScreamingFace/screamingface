@@ -105,3 +105,42 @@ def test_wj1_a_chain_with_another_writer_model_is_quiet() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error", JudgeWriterWarning)
         compile_candidate(chain, operators=flow_operators())
+
+
+def _narrowed_writer_block(writer: str) -> sx.Pipeline:
+    """One user stage that lowers to two: Pipeline([Fusion(Rank by judge), writer])."""
+
+    return (
+        sx.Fanout(["provider/a", "provider/b"])
+        >> sx.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+        >> sx.Rank(1, by="score:judge")
+        >> sx.Synthesize(writer)
+    )
+
+
+def test_e6_the_warning_numbers_the_users_stages_when_a_block_lowers_to_two() -> None:
+    chain = sx.Pipeline(
+        [
+            _narrowed_writer_block("provider/w"),
+            sx.Fanout(_MEMBERS) >> sx.JudgePick(_JUDGE_ROUTE, rubric=RUBRIC),
+            sf.Model(_JUDGE_ROUTE),
+        ],
+        name="judged",
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    # the lowered Pipeline has 4 stages (Fusion, writer, Fusion, writer); the user wrote 3
+    assert _messages(recorded) == [_message("judged", 2)]
+
+
+def test_e6_the_judge_and_writer_inside_one_block_still_warn() -> None:
+    chain = sx.Pipeline(
+        [sf.Model("provider/x"), _narrowed_writer_block(_JUDGE_ROUTE)], name="judged"
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    assert _messages(recorded) == [_message("a+b->b", 1)]

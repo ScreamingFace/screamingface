@@ -136,3 +136,31 @@ EX-2, LO-P1 (test plan "Unit 2").
 - **Tests:** 251 tests in the 7 unit-2 files; full SDK suite 5145 passed, 33 skipped.
 - **Gates:** `run_gates.py screamingface --base e4d44281c` ALL GATES GREEN;
   `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+
+## Unit 3: steps
+
+### Intent
+
+Add the score, narrow and the other reduce steps to the private surface: `Judge`, `JudgePick`,
+`Rank`, `Filter`, `Concat`, `ArgMax`, `ArgMin`, `First`, `Merge`, signal key strings in `by=` and
+`weights=`, and `field()`. Add the chain rules that need them (CH-3..CH-7, CH-10, CH-12, NR-C1 for
+`Merge`/`JudgePick`), errata E4 (FA-2 only with no narrow step) and E6 (WJ-1 with a block that
+lowers to `Pipeline([Fusion, writer])`). Every step lowers to today's classes and today's `@1`
+judge templates.
+
+### Files (planned)
+
+- New: `S/_surface/judge.py`. Edit: `S/_surface/steps.py`, `refs.py`, `chain.py`, `lowering.py`,
+  `__init__.py`; `S/_evaluation/candidate.py` (the judge-writer walk inside a block).
+- New tests: `ST/test_chain_rules_steps.py`, `test_judge_step.py`, `test_narrow_steps.py`,
+  `test_reduce_steps.py`; appended: `test_surface_parity.py` (LO-P2), `test_chain_warnings.py`
+  (E6), `test_fanout.py` (E4).
+
+### Rows
+
+CH-3..CH-7, CH-10, CH-12, JU-1, JU-2, RA-1, FI-1, RE-1, AR-1, SI-2, NR-C1 (Merge, JudgePick),
+LO-P2, E4, E6 (test plan "Unit 3").
+
+### Outcome
+
+- (filled at the end of the unit)

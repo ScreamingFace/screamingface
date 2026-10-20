@@ -151,6 +151,8 @@ def _quickstart_trio() -> sf.Recipe:  # QuickstartPage.vue:233
 
 
 _PAIR = ["provider/a", "provider/b"]
+_OPUS5 = "anthropic/claude-opus-5"
+_HIGHER = "Give a higher number to a more correct answer."
 
 # slug -> the example in the new form. Every example with no judge is here; the judge examples
 # (by-label, by-scores, judge-weighted, merged, pick, rank, joined) are unit 3.
@@ -226,6 +228,56 @@ _NEW_FORM: dict[str, Callable[[], sf.Recipe]] = {
     "extra-300-members": lambda: (
         sx.Fanout([f"provider/m{index}" for index in range(300)]) >> sx.Synthesize("provider/s")
     ),
+    "readme-339-by-label": lambda: (
+        sx.Fanout(_ROUTES) >> sx.JudgePick(_OPUS5, rubric="Pick the most correct answer.")
+    ),
+    "readme-345-by-scores": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge(_OPUS5, rubric=_HIGHER, params={"temperature": 0})
+        >> sx.ArgMax("score:judge")
+    ),
+    "readme-387-judge-weighted": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge(_OPUS5, rubric="Score each answer.")
+        >> sx.Vote(over="last_number", normalize="numeric", weights="score:judge")
+    ),
+    "readme-397-judge-weighted-block": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge(_OPUS5, rubric="Score each answer.")
+        >> sx.Vote(over=sf.Extract("last_number", normalize="numeric"), weights="score:judge")
+    ),
+    "readme-419-pick-answer": lambda: (
+        sx.Fanout(_ROUTES) >> sx.First(where=sx.field("answer", normalize="text") == "yes")
+    ),
+    "readme-422-cheapest": lambda: sx.Fanout(_ROUTES) >> sx.ArgMin("cost_usd"),
+    "readme-424-cheapest-block": lambda: sx.Fanout(_ROUTES) >> sx.ArgMin(sf.signal("cost_usd")),
+    "readme-428-merged": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Merge(
+            {
+                "answer": sf.FieldRule.majority(normalize="text"),
+                "score": sf.FieldRule.max(),
+                "source": sf.FieldRule.from_member(2),
+                "synonyms": sf.FieldRule.union(normalize="text"),
+                "summary": sf.FieldRule.model(
+                    "anthropic/claude-sonnet-5", prompt="Write one summary."
+                ),
+            }
+        )
+    ),
+    "readme-514-ranked": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge(_OPUS5, rubric=_HIGHER)
+        >> sx.Rank(2, by="score:judge")
+        >> sx.Synthesize(
+            "anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."
+        )
+    ),
+    "readme-529-joined": lambda: (
+        sx.Fanout(_ROUTES)
+        >> sx.Concat(separator="\n\n---\n\n", label=True)
+        >> sx.Synthesize("provider/next")
+    ),
     "extra-fusion-then-model": lambda: (
         sx.Fanout(_PAIR) >> sx.Synthesize("provider/s") >> "provider/after"
     ),
@@ -233,29 +285,14 @@ _NEW_FORM: dict[str, Callable[[], sf.Recipe]] = {
 _EXAMPLES = {example.slug: example for example in EXAMPLES}
 
 
-# The doc examples with a judge, a pick, a merge, a rank or a concat: units 3 and 4 add their steps
-# and move them to _NEW_FORM.
-_LATER_UNITS = frozenset(
-    {
-        "readme-339-by-label",
-        "readme-345-by-scores",
-        "readme-387-judge-weighted",
-        "readme-397-judge-weighted-block",
-        "readme-418-pick-confidence",
-        "readme-419-pick-answer",
-        "readme-422-cheapest",
-        "readme-424-cheapest-block",
-        "readme-428-merged",
-        "readme-514-ranked",
-        "readme-528-rank-by-field",
-        "readme-529-joined",
-    }
-)
+# The doc examples whose bytes change at the swap (overview §4.2): a field pick or a field rank
+# reads a signal in the new surface. S5 and S7 compare their new form with today's by_signal form.
+_PLANNED_BYTE_CHANGES = frozenset({"readme-418-pick-confidence", "readme-528-rank-by-field"})
 
 
-def test_every_doc_example_is_in_the_new_form_or_pinned_for_a_later_unit() -> None:
-    assert set(_NEW_FORM) | _LATER_UNITS == set(_EXAMPLES)
-    assert not set(_NEW_FORM) & _LATER_UNITS
+def test_every_doc_example_is_in_the_new_form_or_a_planned_byte_change() -> None:
+    assert set(_NEW_FORM) | _PLANNED_BYTE_CHANGES == set(_EXAMPLES)
+    assert not set(_NEW_FORM) & _PLANNED_BYTE_CHANGES
 
 
 @pytest.mark.parametrize("slug", sorted(_NEW_FORM))
@@ -267,3 +304,125 @@ def test_lop1_doc_example_compiles_to_the_bytes_of_today(slug: str) -> None:
 
     assert new == compile_example(example)
     assert new == golden
+
+
+# ---------------------------------------- LO-P2 (lowering §3, before the swap)
+
+_W = "openrouter/openai/gpt-5.5"
+_P = "Write the final answer from the selected drafts."
+_JR = "openrouter/anthropic/claude-opus-4.8"
+_R_MAX = "Give a higher number to a more correct answer."
+_R_MIN = "Give a lower number to a more correct answer."
+
+
+def _writer() -> sx.Synthesize:
+    return sx.Synthesize(_W, prompt=_P)
+
+
+def _today_writer() -> sf.Model:
+    return sf.Model(_W, prompt=_P)
+
+
+def _today_scores(rubric: str, **options: object) -> sf.Judge:
+    return sf.Judge(_JR, returns="scores", rubric=rubric, **options)  # type: ignore[arg-type]
+
+
+# S5 and S7 compare with today's by_signal form, S10, S10', S11 and S11' with today's @1 judge form.
+_STEPS: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
+    "S5": (
+        lambda: sx.Fanout(_json_members()) >> sx.ArgMax("field:confidence", output="answer"),
+        lambda: sf.Fusion(
+            _json_members(),
+            synthesizer=sf.Pick(
+                by_signal=sf.signal("field:confidence"), order="max", output="answer"
+            ),
+        ),
+    ),
+    "S7": (
+        lambda: sx.Fanout(_json_members()) >> sx.Rank(2, by="field:confidence") >> _writer(),
+        lambda: sf.Pipeline(
+            [
+                sf.Fusion(
+                    _json_members(),
+                    synthesizer=sf.Rank(k=2, by_signal=sf.signal("field:confidence")),
+                ),
+                _today_writer(),
+            ]
+        ),
+    ),
+    "S8": (
+        lambda: (
+            sx.Fanout(_json_members()) >> sx.ArgMax(sf.signal("field:confidence"), output="answer")
+        ),
+        lambda: sf.Fusion(
+            _json_members(),
+            synthesizer=sf.Pick(
+                by_signal=sf.signal("field:confidence"), order="max", output="answer"
+            ),
+        ),
+    ),
+    "S9": (
+        lambda: (
+            sx.Fanout(_json_members())
+            >> sx.Filter(where=sf.signal("field:confidence") > 0.7)
+            >> _writer()
+        ),
+        lambda: sf.Pipeline(
+            [
+                sf.Fusion(
+                    _json_members(),
+                    synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7),
+                ),
+                _today_writer(),
+            ]
+        ),
+    ),
+    "S10": (
+        lambda: (
+            sx.Fanout(_ROUTES)
+            >> sx.Judge(_JR, rubric=_R_MAX)
+            >> sx.Rank(2, by="score:judge")
+            >> _writer()
+        ),
+        lambda: sf.Pipeline(
+            [
+                sf.Fusion(_ROUTES, synthesizer=sf.Rank(k=2, by=_today_scores(_R_MAX))),
+                _today_writer(),
+            ]
+        ),
+    ),
+    "S10'": (
+        lambda: (
+            sx.Fanout(_ROUTES)
+            >> sx.Judge(_JR, rubric=_R_MAX)
+            >> sx.Filter(where=sf.signal("score:judge") >= 7)
+            >> _writer()
+        ),
+        lambda: sf.Pipeline(
+            [
+                sf.Fusion(
+                    _ROUTES,
+                    synthesizer=sf.Filter(
+                        where=sf.signal("score:judge") >= 7, judge=_today_scores(_R_MAX)
+                    ),
+                ),
+                _today_writer(),
+            ]
+        ),
+    ),
+    "S11": (
+        lambda: sx.Fanout(_ROUTES) >> sx.Judge(_JR, rubric=_R_MAX) >> sx.ArgMax("score:judge"),
+        lambda: sf.Fusion(_ROUTES, synthesizer=_today_scores(_R_MAX)),
+    ),
+    "S11'": (
+        lambda: sx.Fanout(_ROUTES) >> sx.Judge(_JR, rubric=_R_MIN) >> sx.ArgMin("score:judge"),
+        lambda: sf.Fusion(_ROUTES, synthesizer=_today_scores(_R_MIN, order="min")),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_STEPS))
+def test_lop2_notebook_case_compiles_to_the_bytes_of_today(case: str) -> None:
+    new, today = _STEPS[case]
+
+    assert _url4(new()) == _url4(today())
