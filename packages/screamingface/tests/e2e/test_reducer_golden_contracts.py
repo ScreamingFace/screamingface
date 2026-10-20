@@ -34,6 +34,7 @@ from harness.reducer_golden import (
 from pydantic import ValidationError
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface.case_result import CaseOperation
 from screamingface.combine_evidence import (
     CombineAnswerRow,
@@ -221,9 +222,11 @@ def _golden_doc(**overrides: Any) -> dict[str, Any]:
 
 
 def _models(candidate: Any) -> list[sf.Model]:
-    """The Fusion's members, each checked to be a plain Model (the Fusion types them as Recipe)."""
-    assert isinstance(candidate, sf.Fusion)
-    members = list(candidate.members)
+    """The Fanout's members, each checked to be a plain Model (the Fanout types them as Recipe)."""
+    assert isinstance(candidate, sx.Pipeline)
+    fanout = candidate.steps[0]
+    assert isinstance(fanout, sx.Fanout)
+    members = list(fanout.members)
     assert all(isinstance(member, sf.Model) for member in members)
     return [member for member in members if isinstance(member, sf.Model)]
 
@@ -236,7 +239,7 @@ def test_build_returns_a_fusion_of_n_seeded_samples_with_a_vote() -> None:
     assert [member.params for member in members] == [
         {"temperature": 0.7, "seed": seed} for seed in range(5)
     ]
-    assert candidate.synthesizer == sf.Vote(extract="last_number", normalize="numeric")
+    assert candidate.steps[1:] == (sx.Vote(over="last_number", normalize="numeric"),)
 
 
 # -- ReducerGolden ------------------------------------------------------------------

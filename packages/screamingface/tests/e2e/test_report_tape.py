@@ -502,16 +502,19 @@ def test_golden_report_refuses_a_fusion_golden_with_one_member() -> None:
 
 def test_build_candidate_builds_the_fusion_recipe() -> None:
     import screamingface as sf
+    from screamingface import _surface as sx
 
     golden = GoldenReport.model_validate(_fusion_golden_document())
     candidate = build_candidate(golden)
-    assert isinstance(candidate, sf.Fusion)
-    assert candidate.name == "best_open_source"
-    assert [member.name for member in candidate.members] == ["alpha", "beta"]
-    members = [member for member in candidate.members if isinstance(member, sf.Model)]
+    assert isinstance(candidate, sx.Pipeline)
+    fanout, writer = candidate.steps
+    assert isinstance(fanout, sx.Fanout) and isinstance(writer, sx.Synthesize)
+    assert fanout.name == "best_open_source"
+    assert [member.name for member in fanout.members] == ["alpha", "beta"]
+    members = [member for member in fanout.members if isinstance(member, sf.Model)]
     assert tuple(member.model for member in members) == (_MEMBER_1, _MEMBER_2)
-    assert isinstance(candidate.synthesizer, sf.Model)
-    assert candidate.synthesizer.model == _SYNTH
+    assert isinstance(writer.model, sf.Model)
+    assert writer.model.model == _SYNTH
 
 
 def test_build_candidate_keeps_the_single_model_path() -> None:

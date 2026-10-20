@@ -23,7 +23,7 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, requires_engine_app
 from _combine_flow_fixtures import flow_operators
 
-import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -32,20 +32,14 @@ _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 def s5_pick_output_url4() -> str:
     """S5: the answer is the ``answer`` field of the member with the highest confidence."""
 
-    recipe = sf.Fusion(
-        _MEMBERS,
-        synthesizer=sf.Pick("confidence", order="max", output="answer"),
-    )
+    recipe = sx.Fanout(_MEMBERS) >> sx.ArgMax("field:confidence", output="answer")
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
 def s8_pick_output_url4() -> str:
     """S8: the answer is the ``answer`` field of the member a signal chooses."""
 
-    recipe = sf.Fusion(
-        _MEMBERS,
-        synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max", output="answer"),
-    )
+    recipe = sx.Fanout(_MEMBERS) >> sx.ArgMax("field:confidence", output="answer")
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 

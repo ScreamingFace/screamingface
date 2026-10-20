@@ -32,6 +32,7 @@ from harness.goldens import GoldenReport
 from pydantic import ValidationError
 
 import screamingface as sf
+from screamingface import _surface as sx
 
 _MODEL = "openrouter/prov/model-x"
 _SHA = hashlib.sha256(b"rendered expression").hexdigest()
@@ -84,14 +85,18 @@ def test_build_uses_seeded_samples_and_the_recipe_synthesizer() -> None:
     model = spec.build("model_synthesizer")
     recipe = spec.build("recipe_synthesizer")
 
-    assert isinstance(model, sf.Fusion) and isinstance(recipe, sf.Fusion)
-    for fusion in (model, recipe):
-        members = [member for member in fusion.members if isinstance(member, sf.Model)]
+    assert isinstance(model, sx.Pipeline) and isinstance(recipe, sx.Pipeline)
+    for chain in (model, recipe):
+        fanout = chain.steps[0]
+        assert isinstance(fanout, sx.Fanout)
+        members = [member for member in fanout.members if isinstance(member, sf.Model)]
         assert [member.params for member in members] == [
             {"temperature": 0.7, "seed": seed} for seed in range(3)
         ]
-    assert model.synthesizer == sf.Model(_MODEL)
-    synthesizer = recipe.synthesizer
+    assert model.steps[1:] == (sx.Synthesize(sf.Model(_MODEL)),)
+    writer = recipe.steps[1]
+    assert isinstance(writer, sx.Synthesize)
+    synthesizer = writer.model
     assert isinstance(synthesizer, sf.Pipeline)
     assert list(synthesizer.stages) == [sf.Model(_MODEL), sf.Model(_MODEL, prompt=CHECK_PROMPT)]
 

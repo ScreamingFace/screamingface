@@ -66,18 +66,18 @@ class ReducerCandidateSpec(BaseModel):
     normalize: str | None
     weights: Literal["cost_usd"] | None = None
 
-    def build(self):  # -> sf.Fusion
-        """Fusion of ``samples`` seeded Models of ``model`` with a ``Vote`` synthesizer.
+    def build(self):  # -> sf.Pipeline (a chain)
+        """Fanout of ``samples`` seeded Models of ``model`` with a ``Vote`` synthesizer.
 
         ``weights="cost_usd"`` makes it the cost-weighted vote of the SG#15 claim.
         """
         import screamingface as sf
+        from screamingface import _surface as sx
 
         weights = None if self.weights is None else sf.signal(self.weights)
-        return sf.Fusion(
-            list(sf.samples(self.model, self.samples, temperature=self.temperature)),
-            synthesizer=sf.Vote(extract=self.extract, normalize=self.normalize, weights=weights),
-        )
+        return sx.Fanout(
+            list(sf.samples(self.model, self.samples, temperature=self.temperature))
+        ) >> sx.Vote(over=self.extract, normalize=self.normalize, weights=weights)
 
 
 class EvidenceLock(BaseModel):

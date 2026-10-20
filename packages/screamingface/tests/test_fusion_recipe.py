@@ -27,6 +27,7 @@ from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate, recipes_need_operators
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
+from screamingface._surface.lowering import lower
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
 
@@ -98,7 +99,9 @@ _BLOCK_EXAMPLES = [
     example
     for example in EXAMPLES
     if example.slug not in _NO_BLOCK_FORM
-    and any(not isinstance(fusion.synthesizer, Reducer) for fusion in _fusions(example.build()))
+    and any(
+        not isinstance(fusion.synthesizer, Reducer) for fusion in _fusions(lower(example.build()))
+    )
 ]
 
 
@@ -106,7 +109,7 @@ def test_the_goldens_without_a_block_form_are_exactly_the_unnamed_pipeline_synth
     found = {
         example.slug
         for example in EXAMPLES
-        if any(_unnamed_pipeline_synthesizer(fusion) for fusion in _fusions(example.build()))
+        if any(_unnamed_pipeline_synthesizer(fusion) for fusion in _fusions(lower(example.build())))
     }
 
     assert found == _NO_BLOCK_FORM
@@ -119,9 +122,9 @@ def test_the_goldens_without_a_block_form_are_exactly_the_unnamed_pipeline_synth
 
 @pytest.mark.parametrize("example", _BLOCK_EXAMPLES, ids=[e.slug for e in _BLOCK_EXAMPLES])
 def test_block_form_rewrites_to_fusion_and_compiles_byte_identical(example: DocExample) -> None:
-    block = _block(example.build())
+    block = _block(lower(example.build()))
 
-    assert block != example.build()  # the block form really is another value
+    assert block != lower(example.build())  # the block form really is another value
     assert compile_example(example, block) == _golden(example.slug)
 
 
@@ -229,7 +232,7 @@ def test_nested_fusion_keeps_its_bindings_in_both_block_forms() -> None:
 
 def test_every_recipe_without_a_context_block_is_returned_as_it_is() -> None:
     for example in EXAMPLES:
-        recipe = example.build()
+        recipe = lower(example.build())
         assert rewrite_fusion_recipe(recipe) is recipe
     for recipe in _CHARACTERIZED.values():
         assert rewrite_fusion_recipe(recipe) is recipe
