@@ -41,6 +41,7 @@ from screamingface.reducer import (
     _field_path,
     _ModelSignal,
     _op_name,
+    _reader_judge,
     _ReducerPlan,
     _refuse_judge_signal,
     _require_steps,
@@ -116,7 +117,7 @@ class RankNode(Reducer):
         object.__setattr__(self, "name", "rank")
         object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "k", k)
-        object.__setattr__(self, "by", by)
+        object.__setattr__(self, "by", _reader_judge(by))
         object.__setattr__(self, "by_field", by_field)
         object.__setattr__(self, "by_signal", by_signal)
         object.__setattr__(self, "order", _check_rank_order(order))
@@ -357,7 +358,7 @@ class FilterNode(Reducer):
         object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "where", where)
         object.__setattr__(self, "extract", extract)
-        object.__setattr__(self, "judge", judge)
+        object.__setattr__(self, "judge", _reader_judge(judge))
 
     def _plan(self) -> _ReducerPlan:
         extract, normalize, benchmark = (

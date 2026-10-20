@@ -15,7 +15,14 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from screamingface.pipeline import Pipeline as TodayPipeline
-from screamingface.recipe import OPTIONAL_MEMBERS_ONLY, Recipe, _name, _optional, _recipe
+from screamingface.recipe import (
+    OPTIONAL_MEMBERS_ONLY,
+    Recipe,
+    _Chainable,
+    _name,
+    _optional,
+    _recipe,
+)
 from screamingface.reducer import MAX_NARROW_STEPS  # O10: a bound for the spec and evidence
 
 if TYPE_CHECKING:
@@ -41,19 +48,10 @@ _ONE_JUDGE = (  # CH-3
 _TERMINALS: frozenset[str] = frozenset({"reduce", "write"})
 
 
-class Step:
-    """A chain value that is not a recipe: ``Fanout`` and every step that can follow it.
-
-    ``a >> b`` is ``Pipeline([a, b])``, as for a recipe (``Recipe.__rshift__``).
-    """
+class Step(_Chainable):
+    """A chain value that is not a recipe: ``Fanout`` and every step that can follow it."""
 
     __slots__ = ()
-
-    def __rshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([self, other])
-
-    def __rrshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([other, self])
 
     _category: ClassVar[_Category]
     # Concat: only sf.Synthesize can follow it (CH-7).

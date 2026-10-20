@@ -462,6 +462,22 @@ def _reads_judge(weights: object) -> bool:
     return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
 
 
+def _reader_judge[T](judge: T) -> T:
+    """A reader's judge (Rank ``by=``, Vote and Filter ``judge=``) with the default order.
+
+    WHY: a reader reads the scores with its own rule, and the judge call is the same for both
+    orders (``judge-template@2``), so a min judge there compiles to the bytes of a max judge; the
+    reader holds the max judge, so equal bytes are equal values (the url4 rebuild gives the same).
+    """
+
+    # WHY lazy: judge.py imports this module (cycle)
+    from screamingface.judge import JudgeNode, _with_overrides
+
+    if isinstance(judge, JudgeNode) and judge.order != "max":
+        return cast("T", _with_overrides(judge, None, "max"))
+    return judge
+
+
 def _check_judge_pair(
     judge: object, reads_judge: bool, label: str, *, reader: str, read_by: str, unpaired: str
 ) -> None:
@@ -722,7 +738,7 @@ class VoteNode(Reducer):
             self, "weights", None if weights is None else _weights_option(weights, "Vote weights")
         )
         _check_judge_weights(self.weights, judge, "Vote")
-        object.__setattr__(self, "judge", judge)
+        object.__setattr__(self, "judge", _reader_judge(judge))
         object.__setattr__(self, "gate", _vote_gate(gate))
         _check_verify(verify)
         object.__setattr__(self, "verify", None)

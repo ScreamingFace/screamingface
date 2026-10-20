@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from screamingface.reducer import Reducer
 
@@ -15,7 +15,25 @@ if TYPE_CHECKING:
     from screamingface.pipeline import Pipeline
 
 
-class Recipe(ABC):
+class _Chainable:
+    """``a >> b`` is the chain ``Pipeline([a, b])`` for every recipe and every step (D7-3); a
+    route string on the left works through ``__rrshift__``."""
+
+    __slots__ = ()
+
+    def __rshift__(self, other: str | Recipe | Step) -> Chain:
+        # WHY lazy: screamingface._surface builds on this module
+        from screamingface._surface.chain import Pipeline as Chain
+
+        return Chain([cast("Recipe | Step", self), other])
+
+    def __rrshift__(self, other: str | Recipe | Step) -> Chain:
+        from screamingface._surface.chain import Pipeline as Chain
+
+        return Chain([other, cast("Recipe | Step", self)])
+
+
+class Recipe(_Chainable, ABC):
     """Non-constructible umbrella type for answer-producing Recipe values."""
 
     name: str
@@ -31,21 +49,6 @@ class Recipe(ABC):
         from screamingface.pipeline import Pipeline
 
         return Pipeline((self, next_recipe))
-
-    def __rshift__(self, other: str | Recipe | Step) -> Chain:
-        """``a >> b`` is the chain ``Pipeline([a, b])`` (D7-3)."""
-
-        # WHY lazy: screamingface._surface builds on this module
-        from screamingface._surface.chain import Pipeline as Chain
-
-        return Chain([self, other])
-
-    def __rrshift__(self, other: str | Recipe | Step) -> Chain:
-        """``"route" >> recipe``: a route string on the left of a recipe."""
-
-        from screamingface._surface.chain import Pipeline as Chain
-
-        return Chain([other, self])
 
     @property
     @abstractmethod
