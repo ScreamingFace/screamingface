@@ -172,3 +172,15 @@ Session: 50f6407f-3458-41f4-acb5-f83801e79987. Both finishes succeeded with
 under_1s duration; origin python, mode byok, scope installation. The current
 Chrome/Safari notebook run remains outstanding; no staging/production test events
 were sent. This verifies local dev analytics delivery, not production readiness.
+
+
+### Owner-approved retention revision — 20 October 2026
+
+Owner approved replacing the 90-day raw-event deletion commitment with
+PostHog-managed retention. Current SDK disclosure, verification notebook, SDK and
+service READMEs, and governing specs/plans now reflect that policy. Historical
+entries above describe the previous requirement and are superseded by this entry.
+No fixed deletion deadline or indefinite-storage guarantee is asserted; query
+retention is not physical deletion. Data allowlist, opt-in consent, opt-out behavior,
+IP-handling gate, browser verification gate and historical-deletion procedure are
+unchanged. No PostHog settings or stored events were changed by this amendment.

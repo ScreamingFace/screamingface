@@ -8,7 +8,7 @@ NOTICE = (
     "Optional ScreamingFace analytics is off. Share evaluation/submission starts and outcomes, "
     "coarse timing, SDK version and local/hosted mode using random installation/session IDs. "
     "No prompts, responses, scores, credentials or email. "
-    "Dev events use PostHog plan retention; 90-day deletion is not yet enforced. "
+    "Events follow PostHog-managed retention; no fixed deletion deadline is promised. "
     "Allow: sf.analytics.enable() · Decline: sf.analytics.disable(). "
     "Your choice is remembered; continuing without choosing leaves analytics off. "
     "Opting out or resetting your ID does not delete past events."

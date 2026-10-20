@@ -1336,8 +1336,9 @@ Cookie continuity is per browser profile/Colab partition, not cross-browser iden
 Safari may show a first-run Colab JavaScript-output warning, also reproduced without
 this bridge. Real Colab background-worker verification remains a release gate.
 
-There is no identity linking. **The 90-day raw-event retention target is not yet
-enforced in dev.** PostHog's current event retention follows its plan, and the
-session-recording retention setting does not control these events. Disabling or
-resetting an identifier does not delete previously accepted events. Production
-rollout requires an enforceable deletion policy and verified IP handling.
+There is no identity linking. Events follow PostHog-managed retention under the
+selected plan; ScreamingFace does not promise a fixed raw-event deletion deadline.
+A query retention window is not a guarantee of physical deletion, and session
+recording retention does not control these events. Disabling or resetting an
+identifier does not delete previously accepted events. Production rollout still
+requires verified IP handling and a historical-deletion procedure.

@@ -77,7 +77,7 @@ In the test PostHog destination, prove:
 - Failed-only, cancelled-only, dropped and session-only cases are shown accurately; no unknown terminal event fabricated.
 - Anonymous capture has no person association, no identify/alias, no geographic or raw-request enrichment. Gateway retries preserve all PostHog dedup keys; duplicate events are eventually merged, not immediately unique.
 - SDK submission-success events describe observed attempts and temporal funnel sequence, not new database rows or proven causal attribution. Authoritative database aggregate work is deferred.
-- 90-day raw-event retention and deletion can be exercised; any longer-lived aggregates have no browser/installation/session IDs. Dashboard access is restricted.
+- Disclosures accurately describe PostHog-managed retention without a fixed deletion deadline; any longer-lived aggregates have no browser/installation/session IDs. Dashboard access is restricted.
 
 Browser matrix on owned HTTPS origin: Chrome/Safari normal profiles, reload, full quit/relaunch, second notebook/new runtime, opt-out/re-enable, lost/stale consent, browser cookie expiry, blocked cookies, private mode and network outage. Record supported/degraded/unsupported outcomes; do not treat private-mode new IDs as persistence bugs. Multi-day retention needs elapsed real time and a consented scheduled follow-up, not a changed system clock claim. Local matrix: CLI+Jupyter same user, different config/user, fresh virtualenv, concurrent processes, readonly home and remote persistent/ephemeral per-user storage.
 
