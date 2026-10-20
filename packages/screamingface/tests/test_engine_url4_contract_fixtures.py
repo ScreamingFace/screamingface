@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping, Sequence
 import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 from _combine_flow_fixtures import flow_operators
-from _nodes import fusion_node
+from _nodes import ReduceNode, VoteNode, fusion_node
 from _reducer_fixtures import FixtureVote, _entry
 
 import screamingface as sf
@@ -175,8 +175,8 @@ def test_engine_url4_fixture_matches_the_sdk_compiler(name: str) -> None:
 @pytest.mark.parametrize(
     "synthesizer",
     [
-        sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric")),
-        sf.Vote(extract="last_number", normalize="numeric"),
+        ReduceNode("plurality", extract=sf.Extract("last_number", normalize="numeric")),
+        VoteNode(extract="last_number", normalize="numeric"),
     ],
     ids=["reduce-plurality", "vote"],
 )

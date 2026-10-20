@@ -20,6 +20,7 @@ from typing import Any, NoReturn, cast
 
 import pytest
 from _combine_contract import engine_operators, read_contract, requires_engine_app
+from _nodes import FusionNode
 from test_consistency_contract_fixtures import BUILDERS
 from url4 import Binding, Expression, RelExpr, Source, Text, build, expr, render, src, text
 
@@ -40,6 +41,7 @@ from screamingface._evaluation.url4 import (
     _stamped_sitting,
     evaluate_url4_sync,
 )
+from screamingface._surface.lowering import lower
 from screamingface.signal_sources import declared_from_spec
 from screamingface.url4 import _calls, _candidate_expression, _combine_operator_pairs
 
@@ -65,14 +67,14 @@ _L5: tuple[str, ...] = (
 )
 
 
-def _f1() -> sf.Fusion:
+def _f1() -> sf.Recipe:
     """F1 (consistency-api §3): the recipe of consistency_pick_candidate.url4."""
     return sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=3)}, name="pick") >> sx.ArgMax(
         "cons"
     )
 
 
-def _f2() -> sf.Fusion:
+def _f2() -> sf.Recipe:
     """F2 (consistency-api §3): the recipe of consistency_median_candidate.url4."""
     return (
         sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=2, temperature=0.7)}, name="median")
@@ -80,7 +82,7 @@ def _f2() -> sf.Fusion:
     )
 
 
-def _f3() -> sf.Fusion:
+def _f3() -> sf.Recipe:
     """F3 (CB-3): a judge-weighted vote (one signal call judge_1) with one sample per member.
 
     WHY weights=: sf.Vote reads its judge only through weights=sf.signal('score:judge') (D-1).
@@ -92,7 +94,7 @@ def _f3() -> sf.Fusion:
     )
 
 
-_RECIPES: dict[str, Callable[[], sf.Fusion]] = {"F1": _f1, "F2": _f2}
+_RECIPES: dict[str, Callable[[], sf.Recipe]] = {"F1": _f1, "F2": _f2}
 _FIXTURES: dict[str, str] = {"F1": _PICK, "F2": _MEDIAN}
 _HEAD = (
     "import screamingface as sf\n"
@@ -154,6 +156,14 @@ def _rebuilt(url4: str) -> Any:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
     return namespace["candidate"]
+
+
+def _declared(recipe: sf.Recipe) -> dict[str, Any]:
+    """The signals the block of ``recipe`` declares, read on its lowered value."""
+
+    lowered = lower(recipe)
+    assert isinstance(lowered, FusionNode)
+    return dict(lowered.signals or {})
 
 
 def _recompiled(url4: str) -> str | None:
@@ -381,8 +391,8 @@ def test_to_python_rebuilds_sf_consistency_and_drops_the_sample_calls(name: str)
     for word in ("seed", "binding", "params="):
         assert word not in source, word
     rebuilt = _rebuilt(url4)
-    assert isinstance(rebuilt, sf.Fusion)
-    assert dict(rebuilt.signals or {}) == dict(recipe.signals or {})
+    assert isinstance(rebuilt, FusionNode)
+    assert dict(rebuilt.signals or {}) == _declared(recipe)
     assert _url4(rebuilt) == url4
 
 

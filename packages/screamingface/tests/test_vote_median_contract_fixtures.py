@@ -25,18 +25,21 @@ from _combine_contract import (
     requires_engine_app,
     rule,
 )
+from _nodes import FusionNode
 
 from screamingface import _surface as sx
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.reducer import Reducer
 
 _MEMBERS = ["prov/member-a", "prov/member-b", "prov/member-c"]
 _NUMBER_VOTE = sx.Vote(over="last_number", normalize="numeric")
 
-# name -> (reducer, member count, the benchmark rule an extract="benchmark" reducer reads)
-_SPECS: dict[str, tuple[Reducer, int, _BenchmarkAnswerRule | None]] = {
+# name -> (reducer, member count, the benchmark rule an over="benchmark" reducer reads)
+_SPECS: dict[str, tuple[Step, int, _BenchmarkAnswerRule | None]] = {
     "vote_number_5": (_NUMBER_VOTE, 5, None),
     "vote_number_4": (_NUMBER_VOTE, 4, None),
     "vote_number_1": (_NUMBER_VOTE, 1, None),
@@ -63,13 +66,23 @@ def model_synthesizer_candidate_url4() -> str:
     return compile_candidate(sx.Fanout(_MEMBERS) >> sx.Synthesize("prov/synth")).url4
 
 
+def _reducer(step: Step) -> Reducer:
+    """The internal reducer that ``step`` lowers to: the spec writer reads that node."""
+
+    lowered = lower(sx.Fanout(_MEMBERS) >> step)
+    assert isinstance(lowered, FusionNode)
+    reducer = lowered.synthesizer
+    assert isinstance(reducer, Reducer)
+    return reducer
+
+
 def reducer_specs() -> dict[str, str]:
     operators = engine_operators()
     return {
         name: combine_spec_text(
-            reducer, member_count=count, operators=operators, benchmark_rule=benchmark_rule
+            _reducer(step), member_count=count, operators=operators, benchmark_rule=benchmark_rule
         )
-        for name, (reducer, count, benchmark_rule) in _SPECS.items()
+        for name, (step, count, benchmark_rule) in _SPECS.items()
     }
 
 

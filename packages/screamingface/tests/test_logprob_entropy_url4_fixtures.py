@@ -31,8 +31,8 @@ _MEMBERS = [_ALPHA, _BETA, _GAMMA]
 _WRITER = "openrouter/acme/writer"
 
 
-def _pick(name: str, order: Literal["max", "min"] = "max") -> sf.Pick:
-    return sf.Pick(by_signal=sf.signal(name), order=order)
+def _pick(name: str, order: Literal["max", "min"] = "max") -> sx.ArgMax | sx.ArgMin:
+    return sx.ArgMax(name) if order == "max" else sx.ArgMin(name)
 
 
 def _compiled(recipe: sf.Recipe) -> str:
@@ -40,9 +40,7 @@ def _compiled(recipe: sf.Recipe) -> str:
 
 
 def logprob_pick_mean() -> str:
-    return _compiled(
-        sf.Fusion(_MEMBERS, signals={"lp": sf.Logprob("mean")}, synthesizer=_pick("lp"))
-    )
+    return _compiled(sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")}) >> _pick("lp"))
 
 
 def logprob_vote_prob() -> str:
@@ -52,68 +50,54 @@ def logprob_vote_prob() -> str:
 
 
 def logprob_filter_mean() -> str:
-    fusion = sf.Fusion(
-        _MEMBERS,
-        signals={"lp": sf.Logprob("mean")},
-        synthesizer=sf.Filter(where=sf.signal("lp") >= -0.5),
+    return _compiled(
+        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")})
+        >> sx.Filter(where=sf.signal("lp") >= -0.5)
+        >> sx.Synthesize(_WRITER)
     )
-    return _compiled(sf.Pipeline([fusion, _WRITER]))
 
 
 def logprob_steer_filter() -> str:
-    fusion = sf.Fusion(
-        [_ALPHA],
-        signals={"lp": sf.Logprob("mean")},
-        synthesizer=sf.Filter(where=sf.signal("lp") >= -0.3),
+    return _compiled(
+        sx.Fanout([_ALPHA], signals={"lp": sf.Logprob("mean")})
+        >> sx.Filter(where=sf.signal("lp") >= -0.3)
+        >> sx.Synthesize(_WRITER)
     )
-    return _compiled(sf.Pipeline([fusion, _WRITER]))
 
 
 def logprob_samples_pick() -> str:
     return _compiled(
-        sf.Fusion(
-            sf.samples(_ALPHA, 3), signals={"lp": sf.Logprob("mean")}, synthesizer=_pick("lp")
-        )
+        sx.Fanout(sf.samples(_ALPHA, 3), signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
     )
 
 
 def logprob_rank_mean() -> str:
-    fusion = sf.Fusion(
-        _MEMBERS,
-        signals={"lp": sf.Logprob("mean")},
-        synthesizer=sf.Rank(2, by_signal=sf.signal("lp")),
+    return _compiled(
+        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")})
+        >> sx.Rank(2, by="lp")
+        >> sx.Synthesize(_WRITER)
     )
-    return _compiled(sf.Pipeline([fusion, _WRITER]))
 
 
 def logprob_pick_sum() -> str:
-    return _compiled(
-        sf.Fusion([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}, synthesizer=_pick("lp"))
-    )
+    return _compiled(sx.Fanout([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}) >> _pick("lp"))
 
 
 def logprob_filter_prob() -> str:
-    fusion = sf.Fusion(
-        _MEMBERS,
-        signals={"p": sf.Logprob("prob")},
-        synthesizer=sf.Filter(where=sf.signal("p") >= 0.8),
+    return _compiled(
+        sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")})
+        >> sx.Filter(where=sf.signal("p") >= 0.8)
+        >> sx.Synthesize(_WRITER)
     )
-    return _compiled(sf.Pipeline([fusion, _WRITER]))
 
 
 def entropy_pick_min() -> str:
-    return _compiled(
-        sf.Fusion(_MEMBERS, signals={"ent": sf.Entropy()}, synthesizer=_pick("ent", "min"))
-    )
+    return _compiled(sx.Fanout(_MEMBERS, signals={"ent": sf.Entropy()}) >> _pick("ent", "min"))
 
 
 def logprob_entropy_shared() -> str:
     return _compiled(
-        sf.Fusion(
-            _MEMBERS,
-            signals={"lp": sf.Logprob("mean"), "ent": sf.Entropy()},
-            synthesizer=_pick("lp"),
-        )
+        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean"), "ent": sf.Entropy()}) >> _pick("lp")
     )
 
 

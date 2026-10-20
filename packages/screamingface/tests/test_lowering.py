@@ -54,7 +54,9 @@ def test_lo0_lower_is_the_identity_on_every_doc_golden(example: DocExample) -> N
 
 @pytest.mark.parametrize("golden", sorted(_GOLDEN))
 def test_lo0_lower_is_the_identity_on_every_characterized_golden(golden: str) -> None:
-    recipe = _GOLDEN[golden]
+    # WHY lower first: the characterized recipes are written in the new surface since 7d, so
+    # their lowered value is the internal value of today, on which lower is the identity.
+    recipe = lower(_GOLDEN[golden])
 
     assert lower(recipe) is recipe
     assert compile_candidate(recipe).url4 == _golden(_DATA / golden)
