@@ -321,7 +321,7 @@ def test_answer_v1_and_evidence_v1_snapshots_match() -> None:
             "gate_not_met",
             "in_band",
         ],
-        ["no_signal", "no_weight"],
+        ["no_signal", "no_weight", "not_selected"],
     ]
     assert record["properties"]["rank"] == {
         "anyOf": [{"type": "integer"}, {"type": "null"}],

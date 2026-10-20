@@ -698,7 +698,8 @@ def test_evidence_with_every_optional_key_orders_cut_consistency_declared_gate()
     ]
     assert _bytes(dumped) == _bytes(wire)
     fields = list(CombineEvidence.model_fields)
-    assert fields[fields.index("cut") + 1] == "consistency"
+    assert fields[fields.index("cut") + 1] == "narrow"
+    assert fields[fields.index("narrow") + 1] == "consistency"
     assert fields[fields.index("consistency") + 1] == "declared"
     doc = " ".join((evidence_module.__doc__ or "").split())
     assert "``consistency`` (written only when the spec declares a consistency source)" in doc
