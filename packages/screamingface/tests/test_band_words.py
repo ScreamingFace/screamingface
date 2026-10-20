@@ -265,7 +265,7 @@ def test_sdk_reason_words_equal_the_engine_enum_with_in_band() -> None:
     result_reason = pinned["$defs"]["ResultRecord"]["properties"]["reason"]
 
     assert {word for words in _enum_lists(answer_reason) for word in words} == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 14
+    assert len(ANSWER_REASONS) == 15
     assert {word for words in _enum_lists(result_reason) for word in words} == ABSTAIN_REASONS
     assert ABSTAIN_REASONS == set(_FIVE_WORDS)
     assert get_args(GateBranch.__value__) == ("majority", "fallback", "band")
@@ -329,6 +329,7 @@ def test_evidence_and_answer_snapshots_hold_the_band() -> None:
         "no_weight",
         "not_json",
         "not_numeric",
+        "not_selected",
         "output_missing",
         "too_large",
     ]

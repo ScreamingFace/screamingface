@@ -564,7 +564,7 @@ def test_sdk_reason_words_equal_the_engine_enum() -> None:
     result_reason = pinned["$defs"]["ResultRecord"]["properties"]["reason"]
 
     assert {word for words in _enum_lists(answer_reason) for word in words} == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 14
+    assert len(ANSWER_REASONS) == 15
     assert {word for words in _enum_lists(result_reason) for word in words} == ABSTAIN_REASONS
     assert ABSTAIN_REASONS == _GATE_NOT_MET_WORDS
 

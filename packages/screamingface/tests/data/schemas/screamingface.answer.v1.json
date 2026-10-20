@@ -33,6 +33,7 @@
     "no_weight",
     "not_json",
     "not_numeric",
+    "not_selected",
     "output_missing",
     "too_large"
   ],

@@ -267,6 +267,7 @@ def test_answer_v1_lists_output_missing() -> None:
         "no_weight",
         "not_json",
         "not_numeric",
+        "not_selected",
         "output_missing",
         "too_large",
     ]
