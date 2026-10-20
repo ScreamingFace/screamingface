@@ -1,7 +1,7 @@
 ---
 id: OME-1687
 linear_url: https://linear.app/openmined/issue/OME-1687/price-a-model-call-from-its-successful-request-only
-status: backlog
+status: in_review
 type: feature
 priority: high
 labels: [screamingface-engine, agentic, autonomous, blocked]
