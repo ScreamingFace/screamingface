@@ -1,9 +1,10 @@
 """Drift guard for the Engine fixtures of the narrow compile (E4b surface unit 5, NC-4).
 
 FEATURE: the Engine test ``ET/test_combine_narrow_run.py`` runs
-``narrow_filter_mean_candidate.url4`` and ``narrow_rank_vote_candidate.url4`` verbatim. This file
-keeps both data files byte-equal to what the SDK compiles from the new surface, and proves that
-each one rebuilds from its own url4 and recompiles to the same bytes (the url4 recompile check).
+``narrow_filter_mean_candidate.url4``, ``narrow_rank_vote_candidate.url4`` and
+``narrow_judge_rank_vote_candidate.url4`` verbatim. This file keeps the data files byte-equal to
+what the SDK compiles from the new surface, and proves that each one rebuilds from its own url4
+and recompiles to the same bytes (the url4 recompile check).
 STORY: as a researcher, ``Fanout >> Filter >> Mean`` and ``Fanout >> Judge >> Rank >> Vote`` are
 values that build (``CH-12`` is gone) and compile to the url4 the Engine runs.
 
@@ -61,9 +62,21 @@ def rank_vote_chain() -> sx.Pipeline:
     )
 
 
+def judge_rank_vote_chain() -> sx.Pipeline:
+    """Four members, one judge that only the narrow rank reads; then a plain vote."""
+
+    return (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge("prov/judge", rubric=_RUBRIC)
+        >> sx.Rank(2, by="score:judge")
+        >> sx.Vote()
+    )
+
+
 FIXTURES: dict[str, Callable[[], sx.Pipeline]] = {
     "narrow_filter_mean_candidate.url4": filter_mean_chain,
     "narrow_rank_vote_candidate.url4": rank_vote_chain,
+    "narrow_judge_rank_vote_candidate.url4": judge_rank_vote_chain,
 }
 
 
