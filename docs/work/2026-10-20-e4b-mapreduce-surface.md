@@ -264,3 +264,28 @@ GA-1..GA-6, NR-C1 (gate), GA-P, SI-1, CH-10 (a gated judge-weighted vote reads t
   - No doc example needed the gate, so no exclusion set was left to clear; GA-P compares the
     README part 5 and 6 recipes (g1–g4, s2) and two more (a writer fallback with a band and
     weights, a judge-weighted gated vote with a JudgePick fallback) in-process.
+
+## Unit 5: narrow-compile
+
+### Intent
+
+Compile a block with narrow steps before its terminal: the internal reducer carries the narrow
+steps in the private field `_narrow`, `_ReducerPlan.narrow` holds their plans, and the combine spec
+gets the `narrow` list (narrow.md §2, §5, §6; lowering.md §2.2). `CH-12` goes away; `NR-C1` stays.
+
+### Files (planned)
+
+- Edit: `S/reducer.py` (`_ReducerPlan.narrow`, the carrier field, the full plan),
+  `S/selection.py`, `S/judge.py`, `S/fields.py`, `S/blocks.py` (the carrier field),
+  `S/_evaluation/combine_spec.py` (narrow §5 SDK places), `S/_evaluation/reducer_signals.py`
+  (one call per key), `S/_evaluation/candidate.py` (the full plan), `S/fusion.py` (checks on every
+  step), `S/url4.py` (a narrow spec rebuilds and recompiles), `S/_surface/chain.py` (drop `CH-12`),
+  `S/_surface/lowering.py` (the narrow lowering).
+- New tests: `ST/test_narrow_compile.py`, `ST/test_narrow_contract_fixtures.py`,
+  `ET/test_combine_narrow_run.py`. New fixtures: `ET/data/combine_contract/
+  narrow_filter_mean_candidate.url4`, `narrow_rank_vote_candidate.url4`.
+- Edited unit 3–4 tests: the CH-12 refusals become passing chains.
+
+### Rows
+
+NC-1..NC-5.

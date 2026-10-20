@@ -359,11 +359,13 @@ def test_nrc1_a_model_fallback_gate_cannot_follow_a_narrow_step(otherwise: objec
         _ = sx.Fanout(_PANEL) >> sx.Rank(2, by="cost_usd") >> gate
 
 
-def test_an_abstain_gate_after_a_narrow_step_waits_for_the_narrow_compile() -> None:
+def test_an_abstain_gate_after_a_narrow_step_compiles_since_unit_5() -> None:
     gate = sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())
 
-    with pytest.raises(ValueError, match=r"^narrow before a reducer is not built yet$"):
-        _ = sx.Fanout(_PANEL) >> sx.Rank(2, by="cost_usd") >> gate
+    lowered = lower(sx.Fanout(_PANEL) >> sx.Rank(2, by="cost_usd") >> gate)
+
+    assert isinstance(lowered, sf.Fusion)
+    assert lowered.synthesizer._narrow == (sf.Rank(2, by_signal=sf.signal("cost_usd")),)  # type: ignore[union-attr]
 
 
 def test_ch10_a_gated_judge_weighted_vote_reads_the_judge() -> None:
