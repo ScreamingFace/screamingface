@@ -6,9 +6,10 @@
 //   - Pipeline: serial `stages` (only the last stage is graded)
 // These nest arbitrarily. There is no "reduce" primitive — reduction IS the synthesizer.
 //
-// `recipeToUrl4` renders the recipe as url4 in the same `(sources)!intent` shape the SDK's
-// `compile_candidate` produces (checked against SDK-generated goldens in `recipe.test.ts`), and
-// `parseRecipe` reads exactly that text back, so a copied recipe imports as the same recipe.
+// `recipeToUrl4` compiles the recipe to the very text the SDK's `compile_candidate` produces for
+// the same Recipe, `_sf_recipe` metadata included (spec D4; checked against SDK-generated goldens
+// in `recipe.test.ts`), and `parseRecipe` reads that text back, so a copied recipe imports as the
+// same recipe.
 
 import type { ModelParam, SavedModel, SavedSlot } from "./ensemble-store";
 import { quoteText } from "./engine/url4";
@@ -184,29 +185,37 @@ export function fusionFromSlots(
   };
 }
 
-// ── url4 preview ──────────────────────────────────────────────────────────────
+// ── url4 compilation ──────────────────────────────────────────────────────────
 
-// What `recipeToUrl4` writes for a solo with no model chosen yet, and for a solo with no
-// prompt. `parseRecipe` reads both back as "unset".
+// A solo with no model chosen yet. The SDK has no such thing (it cannot compile a Model without
+// a route), so this placeholder is the one place Studio's text cannot match the SDK's: a recipe
+// containing it can be previewed and shared, never run.
 const UNSET_MODEL = "‹model›";
+// The SDK's default prompts (`packages/screamingface/src/screamingface/_evaluation/policy.py:7-15`),
+// used when a solo has no prompt of its own. `parseRecipe` reads them back as "no prompt".
 const DEFAULT_PROMPT = {
-  answer: "Answer.",
-  synthesis: "Synthesize the member answers into one final answer.",
+  model:
+    "Answer the request accurately and completely. " +
+    "Follow every instruction and formatting constraint in the request.",
+  synthesis:
+    "Produce the final answer to the original request. " +
+    "Synthesize the strongest supported answer from the panel responses, and follow every " +
+    "instruction and formatting constraint in the original request.",
 } as const;
+
+type Role = keyof typeof DEFAULT_PROMPT;
 
 // Prompt text as url4 Text, exactly as the SDK's `_url4_text`
 // (`packages/screamingface/src/screamingface/_evaluation/candidate.py:436-447`): CR LF and CR
 // become LF, LF becomes U+2028 (url4 Text is one line), a tab becomes a space, and `$` is
 // doubled so `$input` / `$USD` stay literal text — the Engine collapses `$$` back to `$` when it
-// substitutes (`url4/dag/semantics/ensemble.py` `_ENV_VAR_RE`). The SDK refuses any other control
-// character; a builder preview cannot refuse, so Studio drops them. `quoteText` then escapes `\`
-// and `'` (url4's `_quote`).
+// substitutes (`url4/dag/semantics/ensemble.py` `_ENV_VAR_RE`). Any other control character is
+// refused (`recipeIssues`), as the SDK refuses it. `quoteText` then escapes `\` and `'`.
 function encodePrompt(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
     .replace(/\n/g, "\u2028")
     .replace(/\t/g, " ")
-    .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/\$/g, "$$$$");
 }
 
@@ -216,7 +225,7 @@ function decodePrompt(text: string): string {
   return text.replace(/\u2028/g, "\n").replace(/\$\$/g, "$");
 }
 
-// ── Parameters ───────────────────────────────────────────────────────────────
+// ── Issues the SDK would refuse ───────────────────────────────────────────────
 
 // Parameter names the SDK keeps for the Benchmark and Engine
 // (`packages/screamingface/src/screamingface/_candidate_policy.py:12-28`).
@@ -243,10 +252,17 @@ const PARAM_KEY = /^[A-Za-z0-9._]+$/;
 // (`_candidate_policy.py:73-76`). Anything else cannot be carried unquoted, and the SDK never
 // quotes a parameter, so the SDK would refuse to compile it.
 const PARAM_VALUE = /^[A-Za-z0-9._\-:/]+$/;
+// The model routes the SDK can address (`_evaluation/candidate.py` `_MODEL_ROUTE_RE`).
+const MODEL_ROUTE = /^[A-Za-z0-9\-_.~]+(?:\/[A-Za-z0-9\-_.~]+)*$/;
+// Control characters the SDK refuses in a prompt after mapping tab, CR and LF
+// (`candidate.py:439-446`).
+const PROMPT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
+// A name with any Unicode "other" character (category C*) is refused (`recipe.py:35-39` `_name`).
+const NAME_CONTROL = /\p{C}/u;
 
 export type RecipeIssue = { nodeId: string; key: string; message: string };
 
-// A recipe whose parameters url4 cannot carry. `issues` says which, for the UI to show.
+// A recipe the SDK would refuse to compile. `issues` says why, for the UI to show.
 export class RecipeError extends Error {
   readonly issues: RecipeIssue[];
 
@@ -275,15 +291,47 @@ function paramIssue(param: ModelParam): string | null {
   return null;
 }
 
-// Every parameter in the recipe that url4 cannot carry, so the builder can show them instead of
-// sharing or running a recipe the Engine would misread.
+// A user-given name, trimmed as the SDK trims it; blank means "no name".
+function givenName(node: RecipeNode): string | null {
+  const name = node.name?.trim();
+  return name ? name : null;
+}
+
+// Everything in the recipe the SDK would refuse to compile, so the builder can show it instead
+// of sharing or running text the SDK could never have produced.
 export function recipeIssues(root: RecipeNode): RecipeIssue[] {
-  return collectSolos(root).flatMap((solo) =>
-    filledParams(solo.params).flatMap((param) => {
-      const message = paramIssue(param);
-      return message ? [{ nodeId: solo.id, key: param.key, message }] : [];
-    }),
-  );
+  const issues: RecipeIssue[] = [];
+  const add = (node: RecipeNode, key: string, message: string) =>
+    issues.push({ nodeId: node.id, key, message });
+
+  function visit(node: RecipeNode) {
+    const name = givenName(node);
+    if (name && NAME_CONTROL.test(name)) {
+      add(node, "name", `The name "${name}" contains a control character.`);
+    }
+    if (node.kind === "solo") {
+      if (node.model && !MODEL_ROUTE.test(node.model.name)) {
+        add(node, "model", `The Engine can't address the model id "${node.model.name}" in url4.`);
+      }
+      if (PROMPT_CONTROL.test(node.prompt)) {
+        add(node, "prompt", "A prompt can't contain control characters.");
+      }
+      for (const param of filledParams(node.params)) {
+        const message = paramIssue(param);
+        if (message) add(node, param.key, message);
+      }
+    } else if (node.kind === "fusion") {
+      if (node.members.length === 0) add(node, "members", "A fusion needs at least one member.");
+      node.members.forEach(visit);
+      visit(node.synthesizer);
+    } else {
+      if (node.stages.length === 0) add(node, "stages", "A pipeline needs at least one stage.");
+      node.stages.forEach(visit);
+    }
+  }
+
+  visit(root);
+  return issues;
 }
 
 // url4's query form for a call with params: `?k=v&…&q=` and then the call's `(<context>)`
@@ -293,60 +341,119 @@ function paramQuery(params: ModelParam[]): string {
   return kv.length ? `?${kv.join("&")}&q=` : "";
 }
 
-export type RenderedRecipe = { ok: true; url4: string } | { ok: false; issues: RecipeIssue[] };
+// ── SDK naming and topology ───────────────────────────────────────────────────
 
-// The recipe's url4, or the parameters that keep it from having one.
-export function renderRecipe(root: RecipeNode): RenderedRecipe {
-  const issues = recipeIssues(root);
-  return issues.length ? { ok: false, issues } : { ok: true, url4: recipeToUrl4(root) };
+// The SDK's flattening of an unnamed nested Pipeline into its parent (`pipeline.py` `_stages`).
+function flatStages(node: PipelineNode): RecipeNode[] {
+  return node.stages.flatMap((stage) =>
+    stage.kind === "pipeline" && !givenName(stage) ? flatStages(stage) : [stage],
+  );
 }
 
-// Throws a `RecipeError` when a parameter cannot be carried (see `recipeIssues`).
-export function recipeToUrl4(root: RecipeNode): string {
-  const issues = recipeIssues(root);
-  if (issues.length) throw new RecipeError(issues);
-  const sources: string[] = [];
-  const counters = { model: 0, synthesis: 0 };
+// The SDK's Recipe name: the given name, or the inferred one — a Model's last route segment
+// (`model.py`), members joined by `+` (`fusion.py`), stages joined by `->` (`pipeline.py`).
+function sdkName(node: RecipeNode): string {
+  const name = givenName(node);
+  if (name) return name;
+  if (node.kind === "solo") return (node.model?.name ?? UNSET_MODEL).split("/").at(-1) as string;
+  if (node.kind === "fusion") return node.members.map(sdkName).join("+");
+  return flatStages(node).map(sdkName).join("->");
+}
 
-  function emit(
-    node: RecipeNode,
-    context: string,
-    role: "answer" | "synthesis",
-  ): string {
-    if (node.kind === "solo") {
-      const prefix = role === "synthesis" ? "synthesis" : "model";
-      const index = role === "synthesis" ? ++counters.synthesis : ++counters.model;
-      const name = `${prefix}_${index}`;
-      const path = `/${node.model ? node.model.name : UNSET_MODEL}`;
-      // A blank prompt means the default (the SDK refuses a blank one outright).
-      const prompt = node.prompt.trim() ? node.prompt : DEFAULT_PROMPT[role];
-      const intent = quoteText(encodePrompt(prompt));
-      sources.push(`${name}:0.0:${path}${paramQuery(node.params)}(${context})!${intent}`);
-      return name;
-    }
-    if (node.kind === "fusion") {
-      // As the SDK's `_recipe`/`_fusion_context` (`_evaluation/candidate.py:176-186,394-406`):
-      // members read the fusion's own input, and the synthesizer gets that input (as url4 text)
-      // beside the members' outputs. At pipeline stage 2+ that input is the previous stage.
-      const memberRefs = node.members.map((member) => emit(member, context, "answer"));
-      const outputs = memberRefs
-        .map((ref, i) => `member_${i + 1}: '$${ref}'`)
-        .join(", ");
-      const synthContext = `{input: ${quoteText(context)}, outputs: {${outputs}}}`;
-      return emit(node.synthesizer, synthContext, "synthesis");
-    }
-    // pipeline — each stage consumes the previous stage's output
-    let ctx = context;
-    let last = "";
-    for (const stage of node.stages) {
-      last = emit(stage, ctx, "answer");
-      ctx = `$${last}`;
-    }
-    return last || (context.startsWith("$") ? context.slice(1) : "input");
+// `_RecipeTopology` as `topology.py` `_encode_*` writes it, keys already in sorted order so
+// `JSON.stringify` matches `json.dumps(..., sort_keys=True, separators=(",", ":"))`.
+type Topology =
+  | { binding: string; kind: "model"; name: string; named: boolean; role: Role }
+  | { binding: string; kind: "pipeline"; name: string; named: boolean; stages: Topology[] }
+  | {
+      binding: string;
+      kind: "fusion";
+      members: Topology[];
+      name: string;
+      synthesizer: Topology;
+    };
+
+const TOPOLOGY_SCHEMA = "screamingface.recipe.v1";
+const TOPOLOGY_SOURCE = "_sf_recipe";
+
+// Compile a recipe to Candidate url4 exactly as the SDK's `compile_candidate` does
+// (`_evaluation/candidate.py` `_CandidateCompiler`): one `model_N` source per Model in
+// compile order, a `synthesis_N` source for a fusion's Model synthesizer (the number is spent
+// when the fusion is compiled, even when its synthesizer is a whole Recipe), the same
+// contexts, and the `_sf_recipe` topology source last.
+function compile(root: RecipeNode): string {
+  const sources: string[] = [];
+  let models = 0;
+  let syntheses = 0;
+
+  function call(binding: string, node: SoloNode, context: string, role: Role): Topology {
+    const route = node.model ? node.model.name : UNSET_MODEL;
+    const prompt = node.prompt.trim() ? node.prompt : DEFAULT_PROMPT[role];
+    sources.push(
+      `${binding}:0.0:/${route}${paramQuery(node.params)}(${context})!${quoteText(encodePrompt(prompt))}`,
+    );
+    return { binding, kind: "model", name: sdkName(node), named: Boolean(givenName(node)), role };
   }
 
-  const rootRef = emit(root, "$input", "answer");
-  return `(${sources.join(", ")})!'$${rootRef}'`;
+  // `_recipe`: a Model compiles as `model_N`, in the synthesis role when it is (or starts) a
+  // fusion's synthesizer Recipe.
+  function recipe(node: RecipeNode, context: string, synthesis: boolean): Topology {
+    if (node.kind === "solo") {
+      return call(`model_${++models}`, node, context, synthesis ? "synthesis" : "model");
+    }
+    if (node.kind === "fusion") {
+      const members = node.members.map((member) => recipe(member, context, false));
+      // `_fusion_context`: the fusion's input as url4 text, beside each member's answer.
+      const outputs = members.map((member, i) => `member_${i + 1}: '$${member.binding}'`);
+      const fusionContext = `{input: ${quoteText(context)}, outputs: {${outputs.join(", ")}}}`;
+      const binding = `synthesis_${++syntheses}`;
+      const synthesizer =
+        node.synthesizer.kind === "solo"
+          ? call(binding, node.synthesizer, fusionContext, "synthesis")
+          : recipe(node.synthesizer, fusionContext, true);
+      return {
+        binding: synthesizer.binding,
+        kind: "fusion",
+        members,
+        name: sdkName(node),
+        synthesizer,
+      };
+    }
+    let stageContext = context;
+    const stages = flatStages(node).map((stage, index) => {
+      const compiled = recipe(stage, stageContext, synthesis && index === 0);
+      stageContext = `$${compiled.binding}`;
+      return compiled;
+    });
+    return {
+      binding: stages.at(-1)?.binding ?? "",
+      kind: "pipeline",
+      name: sdkName(node),
+      named: Boolean(givenName(node)),
+      stages,
+    };
+  }
+
+  const topology = recipe(root, "$input", false);
+  const metadata = JSON.stringify({ recipe: topology, schema: TOPOLOGY_SCHEMA });
+  sources.push(`${TOPOLOGY_SOURCE}:0.0:${quoteText(metadata)}`);
+  return `(${sources.join(", ")})!'$${topology.binding}'`;
+}
+
+export type RenderedRecipe = { ok: true; url4: string } | { ok: false; issues: RecipeIssue[] };
+
+// The recipe's url4, or what keeps the SDK from compiling it.
+export function renderRecipe(root: RecipeNode): RenderedRecipe {
+  const issues = recipeIssues(root);
+  return issues.length ? { ok: false, issues } : { ok: true, url4: compile(root) };
+}
+
+// The recipe's Candidate url4, byte-identical to the SDK's `compile_candidate` for the same
+// Recipe. Throws a `RecipeError` for anything the SDK would refuse (see `recipeIssues`).
+export function recipeToUrl4(root: RecipeNode): string {
+  const rendered = renderRecipe(root);
+  if (!rendered.ok) throw new RecipeError(rendered.issues);
+  return rendered.url4;
 }
 
 // A short human-readable one-line shape, e.g. "Fusion(2 members → synthesizer)".
@@ -366,29 +473,23 @@ export function describeRecipe(node: RecipeNode): string {
 
 export type ParsedRecipe = { ok: true; root: RecipeNode } | { ok: false; error: string };
 
-// A source's context: its raw text, plus what it reads — another source (`$model_1`) or a
-// fusion's input and members. `$input` has neither.
-type SourceContext = {
-  text: string;
-  ref?: string;
-  fusion?: { input: string; members: string[] };
-};
-
 type ParsedSource = {
   name: string;
   modelId: string | null;
   params: ModelParam[];
   intent: string;
-  context: SourceContext;
 };
 
 class RecipeSyntaxError extends Error {}
 
 const NOT_A_RECIPE =
   "This isn't a recipe Studio can import. Paste the url4 that Share url4 copied.";
+const METADATA_MISSING = `${NOT_A_RECIPE} Its _sf_recipe metadata is missing.`;
+const METADATA_MALFORMED = `${NOT_A_RECIPE} Its _sf_recipe metadata is malformed.`;
+const METADATA_MISMATCH = `${NOT_A_RECIPE} Its _sf_recipe metadata doesn't match its model calls.`;
 
-function fail(): never {
-  throw new RecipeSyntaxError(NOT_A_RECIPE);
+function fail(message = NOT_A_RECIPE): never {
+  throw new RecipeSyntaxError(message);
 }
 
 // A cursor over one recipe string. It reads only the shapes `recipeToUrl4` writes.
@@ -449,35 +550,6 @@ class Scanner {
   }
 }
 
-// `{input: '<text>', outputs: {member_1: '$a', …}}`, as `recipeToUrl4` writes a fusion
-// synthesizer's context. The input is url4 text: `$input`, a previous stage's `$ref`, or (for a
-// fusion that synthesizes another fusion) that fusion's own context.
-function fusionContext(text: string): { input: string; members: string[] } {
-  const scanner = new Scanner(text);
-  scanner.expect("{input: ");
-  const input = scanner.quoted();
-  scanner.expect(", outputs: {");
-  const members: string[] = [];
-  for (;;) {
-    const [, index, ref] = scanner.match(/member_(\d+): '\$([a-z]+_\d+)'/);
-    if (Number(index) !== members.length + 1) fail();
-    members.push(ref);
-    if (text.startsWith("}}", scanner.pos)) break;
-    scanner.expect(", ");
-  }
-  scanner.expect("}}");
-  if (scanner.pos !== text.length) fail();
-  return { input, members };
-}
-
-function sourceContext(text: string): SourceContext {
-  if (text === "$input") return { text };
-  const ref = /^\$([a-z]+_\d+)$/.exec(text);
-  if (ref) return { text, ref: ref[1] };
-  if (!text.startsWith("{input: ")) fail();
-  return { text, fusion: fusionContext(text) };
-}
-
 function sourceParams(query: string | undefined): ModelParam[] {
   if (query === undefined) return [];
   return query
@@ -494,7 +566,8 @@ function readSource(scanner: Scanner): ParsedSource {
   const [, name, route, query] = scanner.match(
     /([a-z]+_\d+):0\.0:\/([^?(]+)(?:\?((?:[^&()]*&)+)q=)?/,
   );
-  const context = sourceContext(scanner.parenthesized());
+  // The context is checked by rendering the rebuilt recipe again, not read here.
+  scanner.parenthesized();
   scanner.expect("!");
   const intent = scanner.quoted();
   return {
@@ -502,23 +575,30 @@ function readSource(scanner: Scanner): ParsedSource {
     modelId: route === UNSET_MODEL ? null : route,
     params: sourceParams(query),
     intent,
-    context,
   };
 }
 
-function readSources(text: string): { sources: ParsedSource[]; root: string } {
+function readSources(text: string): { sources: ParsedSource[]; metadata: string; root: string } {
   const scanner = new Scanner(text);
   const sources: ParsedSource[] = [];
+  let metadata: string | null = null;
   scanner.expect("(");
   for (;;) {
-    sources.push(readSource(scanner));
+    if (metadata !== null) fail();
+    if (text.startsWith(`${TOPOLOGY_SOURCE}:0.0:`, scanner.pos)) {
+      scanner.expect(`${TOPOLOGY_SOURCE}:0.0:`);
+      metadata = scanner.quoted();
+    } else {
+      sources.push(readSource(scanner));
+    }
     if (scanner.text.startsWith(")", scanner.pos)) break;
     scanner.expect(", ");
   }
   scanner.expect(")!");
   const root = /^\$([a-z]+_\d+)$/.exec(scanner.quoted());
   if (!root || scanner.pos !== text.length) fail();
-  return { sources, root: root[1] };
+  if (metadata === null) fail(METADATA_MISSING);
+  return { sources, metadata, root: root[1] };
 }
 
 function modelFromRoute(route: string): SavedModel {
@@ -526,88 +606,113 @@ function modelFromRoute(route: string): SavedModel {
   return { id: route, name: route, providerId, providerName: providerId };
 }
 
-// Rebuild the recipe tree from `recipeToUrl4`'s flat source list, walking back from a source
-// through what its context reads until it reaches `base` (the input of the enclosing chain):
-// `$<ref>` is the previous pipeline stage, and a fusion context means the chain so far is that
-// fusion's synthesizer (a `synthesis_N` solo, or a pipeline of `model_N`s), whose members are
-// rebuilt from the fusion's own input.
-function buildTree(sources: ParsedSource[], rootRef: string): RecipeNode {
+function exactKeys(value: Record<string, unknown>, keys: string[]) {
+  const actual = Object.keys(value).sort();
+  if (actual.length !== keys.length || actual.some((key, i) => key !== keys[i])) {
+    fail(METADATA_MALFORMED);
+  }
+}
+
+function metadataObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(METADATA_MALFORMED);
+  return value as Record<string, unknown>;
+}
+
+function metadataText(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) fail(METADATA_MALFORMED);
+  return value;
+}
+
+// Rebuild the recipe from its `_sf_recipe` topology (checked as strictly as the SDK's
+// `topology.py` `_decode_*`), filling each Model from the call its binding names. Names come back
+// as given names where the SDK marks them `named` (Models, Pipelines) or where they differ from
+// the inferred name (Fusions, which carry no `named` flag).
+function buildTree(sources: ParsedSource[], metadata: string): RecipeNode {
+  let payload: Record<string, unknown>;
+  try {
+    payload = metadataObject(JSON.parse(metadata));
+  } catch {
+    return fail(METADATA_MALFORMED);
+  }
+  exactKeys(payload, ["recipe", "schema"]);
+  if (payload.schema !== TOPOLOGY_SCHEMA) fail(METADATA_MALFORMED);
+
   const byName = new Map(sources.map((source) => [source.name, source]));
   if (byName.size !== sources.length) fail();
   const used = new Set<string>();
 
-  function take(ref: string): ParsedSource {
-    const source = byName.get(ref);
-    if (!source || used.has(ref)) fail();
-    used.add(ref);
-    return source;
-  }
-
-  function toSolo(source: ParsedSource): SoloNode {
-    const role = source.name.startsWith("synthesis_") ? "synthesis" : "answer";
-    return {
-      kind: "solo",
-      id: createUuid(),
-      model: source.modelId ? modelFromRoute(source.modelId) : null,
-      prompt: source.intent === DEFAULT_PROMPT[role] ? "" : decodePrompt(source.intent),
-      params: source.params,
-    };
-  }
-
-  function chainOf(nodes: RecipeNode[]): RecipeNode {
-    return nodes.length === 1
-      ? nodes[0]
-      : { kind: "pipeline", id: createUuid(), stages: nodes };
-  }
-
-  type Link = { node: RecipeNode; synthesis: boolean };
-
-  function build(ref: string, base: string): RecipeNode {
-    let chain: Link[] = [];
-    let current = ref;
-    for (;;) {
-      const source = take(current);
-      chain.unshift({ node: toSolo(source), synthesis: source.name.startsWith("synthesis_") });
-      let context = source.context;
-      for (;;) {
-        if (context.text === base) return chainOf(chain.map((link) => link.node));
-        if (context.ref) {
-          current = context.ref;
-          break;
-        }
-        if (!context.fusion) fail();
-        const { input, members } = context.fusion;
-        const [first, ...rest] = chain;
-        const fusion: FusionNode = {
-          kind: "fusion",
-          id: createUuid(),
-          members: members.map((member) => build(member, input)),
-          synthesizer: first.synthesis ? first.node : chainOf(chain.map((link) => link.node)),
-        };
-        chain = [{ node: fusion, synthesis: false }, ...(first.synthesis ? rest : [])];
-        context = sourceContext(input);
-      }
+  function node(value: unknown): RecipeNode {
+    const topology = metadataObject(value);
+    const name = metadataText(topology.name);
+    metadataText(topology.binding);
+    if (topology.kind === "model") {
+      exactKeys(topology, ["binding", "kind", "name", "named", "role"]);
+      if (typeof topology.named !== "boolean") fail(METADATA_MALFORMED);
+      if (topology.role !== "model" && topology.role !== "synthesis") fail(METADATA_MALFORMED);
+      const source = byName.get(topology.binding as string);
+      if (!source || used.has(source.name)) fail(METADATA_MISMATCH);
+      used.add(source.name);
+      const role = topology.role as Role;
+      return {
+        kind: "solo",
+        id: createUuid(),
+        ...(topology.named ? { name } : {}),
+        model: source.modelId ? modelFromRoute(source.modelId) : null,
+        prompt: source.intent === encodePrompt(DEFAULT_PROMPT[role]) ? "" : decodePrompt(source.intent),
+        params: source.params,
+      };
     }
+    if (topology.kind === "pipeline") {
+      exactKeys(topology, ["binding", "kind", "name", "named", "stages"]);
+      if (typeof topology.named !== "boolean" || !Array.isArray(topology.stages)) {
+        fail(METADATA_MALFORMED);
+      }
+      if (topology.stages.length === 0) fail(METADATA_MALFORMED);
+      return {
+        kind: "pipeline",
+        id: createUuid(),
+        ...(topology.named ? { name } : {}),
+        stages: topology.stages.map(node),
+      };
+    }
+    if (topology.kind === "fusion") {
+      exactKeys(topology, ["binding", "kind", "members", "name", "synthesizer"]);
+      if (!Array.isArray(topology.members) || topology.members.length === 0) {
+        fail(METADATA_MALFORMED);
+      }
+      const fusion: FusionNode = {
+        kind: "fusion",
+        id: createUuid(),
+        members: topology.members.map(node),
+        synthesizer: node(topology.synthesizer),
+      };
+      return name === sdkName(fusion) ? fusion : { ...fusion, name };
+    }
+    return fail(METADATA_MALFORMED);
   }
 
-  const root = build(rootRef, "$input");
-  if (used.size !== sources.length) fail();
+  const root = node(payload.recipe);
+  if (used.size !== sources.length) fail(METADATA_MISMATCH);
   return root;
 }
 
-// Read back exactly what `recipeToUrl4` writes (spec D8). Anything else — the old
-// `url4://name?models=` form, a truncated copy, hand-edited text — is rejected whole, never
-// half-parsed: the rebuilt recipe must render back to the very same text.
+// Read back exactly what `recipeToUrl4` (and the SDK's `compile_candidate`) writes (spec D8).
+// Anything else — the old `url4://name?models=` form, a truncated copy, metadata that does not
+// describe the calls, hand-edited text — is rejected whole, never half-parsed: the rebuilt
+// recipe must compile back to the very same text.
 export function parseRecipe(url4: string): ParsedRecipe {
   const text = url4.trim();
   try {
-    const { sources, root: rootRef } = readSources(text);
-    const root = buildTree(sources, rootRef);
-    if (recipeToUrl4(root) !== text) fail();
+    const { sources, metadata, root: rootRef } = readSources(text);
+    const root = buildTree(sources, metadata);
+    const rendered = renderRecipe(root);
+    if (!rendered.ok) return { ok: false, error: `${NOT_A_RECIPE} ${new RecipeError(rendered.issues).message}` };
+    if (rendered.url4 !== text) {
+      fail(compile(root).endsWith(`)!'$${rootRef}'`) ? METADATA_MISMATCH : NOT_A_RECIPE);
+    }
     return { ok: true, root };
   } catch (error) {
     if (error instanceof RecipeSyntaxError) return { ok: false, error: error.message };
-    if (error instanceof RecipeError) return { ok: false, error: `${NOT_A_RECIPE} ${error.message}` };
     throw error;
   }
 }

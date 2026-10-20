@@ -228,3 +228,83 @@ fixes land in one commit.
 branches 90.34%, functions 96.56%, lines 96.78%; `recipe.ts` 98.9%, `run.ts` 92.0%,
 `run-result.ts` 98.2%) and `npm run build` all pass. Both fixture scripts regenerate the
 committed JSON byte for byte, and `uv run --frozen` left every lockfile untouched.
+
+## Byte-identical to the SDK (owner decision 2026-10-20)
+
+The owner's decision: "there should be no difference from the SDK". `recipeToUrl4(root)` now
+equals the SDK's `compile_candidate(<same Recipe>).url4` byte for byte, `_sf_recipe` included.
+`parseRecipe` reads that text back. Spec D4 is amended to say so.
+
+**TDD.** I extended `scripts/gen-link-fixtures.py` to 25 SDK-generated shapes and added tests
+for the metadata and for what the SDK refuses. 62 recipe tests failed before the change: 25
+byte-equality goldens, 25 import round-trips, 7 metadata checks and 5 SDK-refusal checks. All
+pass after it.
+
+**Differences found and how each was resolved.** All sources are under
+`packages/screamingface/src/screamingface/`.
+
+1. **Default prompts.** Studio used `Answer.` and `Synthesize the member answers…`. It now uses
+   the SDK's `DEFAULT_ANSWER_PROMPT` and `DEFAULT_SYNTHESIS_PROMPT` (`_evaluation/policy.py:7-15`).
+2. **`_sf_recipe` source.** Studio now emits it last, exactly as `topology.py` `_encode_*`
+   does, through `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. The
+   keys are written in sorted order.
+3. **Synthesis numbering.** The SDK spends a `synthesis_N` number as soon as it compiles a
+   fusion (`candidate.py:255-256`), even when the synthesizer is a whole Recipe. A fusion
+   synthesizing another fusion therefore yields `synthesis_2`, and a pipeline synthesizer
+   leaves a gap. Studio does the same.
+4. **Synthesis role.** In a fusion's Recipe synthesizer, only a Pipeline's first stage takes the
+   synthesis role and its default prompt (`candidate.py:351-356`). Members of a fusion inside a
+   synthesizer go back to the model role. Studio does the same.
+5. **Pipeline flattening.** An unnamed nested Pipeline is flattened into its parent; a named one
+   keeps its grouping (`pipeline.py` `_stages`). Studio does the same.
+6. **Names.** The SDK infers a Model's name from its route's last segment (`model.py`), joins
+   member names with `+` for a Fusion (`fusion.py`), and joins stage names with `->` for a
+   Pipeline (`pipeline.py`). A given name is trimmed (`recipe.py` `_name`).
+   - Studio's node name maps to the SDK's `name=`. Model and Pipeline topology record it with
+     `named: true`.
+   - Fusion topology has no `named` flag. On import, a fusion name that differs from the
+     inferred one comes back as a given name.
+7. **Things the SDK refuses.** These are now reported by `recipeIssues`. The builder shows
+   them, and they are never emitted:
+   - a model id outside `_MODEL_ROUTE_RE`, such as `ollama/llama3:8b`;
+   - a prompt with a control character other than tab, CR or LF (`candidate.py:439-446`).
+     Studio used to drop these silently;
+   - a name with a Unicode category-C character;
+   - a fusion with no members, or a pipeline with no stages (`fusion.py`, `pipeline.py`).
+   - The Models page's Compose link is disabled for a selection the SDK could not compile.
+8. **Import.** `parseRecipe` now rebuilds the tree from `_sf_recipe`, which replaces the old
+   structural inference. The metadata is checked as strictly as `topology.py` `_decode_*`
+   (exact key sets, schema, kinds, roles, bindings). Then the rebuilt recipe must compile back
+   to the same text. Each failure has its own message: metadata missing, metadata malformed,
+   or metadata that doesn't match the model calls.
+9. **Cannot be identical.** The one remaining difference is a solo with no model chosen. Studio
+   writes `/‹model›` for it, and the SDK cannot compile a Model without a route. Such a recipe
+   can be previewed and shared, but never run.
+
+**Shapes covered by goldens** (with and without params and encoded prompts): solo
+(defaults, params, text params, encoded prompt, named); fusion (defaults, prompts, params,
+encoded prompts, named, single member, fusion inside a member, two fusion members, fusion as
+synthesizer, pipeline as synthesizer, pipeline as a member); pipeline (prompts, defaults,
+single stage, named, nested unnamed and flattened, nested named, pipeline into a fusion,
+fusion into a pipeline, two fusions in a row).
+
+**Prior tests changed.** These hand-written exact strings had no `_sf_recipe` and used the old
+default prompts, so the owner decision changes their expected text:
+- "leaves a call without params unchanged", "skips params without a key or a value" and "uses
+  the default prompt for a blank one" now compare against the SDK golden `solo`.
+- "puts params in url4's query form…" and "encodes newlines as U+2028…" now assert the exact
+  model-call source.
+- "drops control characters the SDK refuses" became "reports control characters the SDK
+  refuses".
+- "renders an empty pipeline as its input" became "refuses an empty pipeline".
+- "rejects a prompt with a single $" now edits a real SDK golden.
+
+**Also changed:**
+- The `stop` placeholder now reads `e.g. END (letters, digits, . - _ : /)`. The old `\n\n`
+  can't be written in url4's parameter grammar.
+- The url4 preview caption now reads "The exact url4 the ScreamingFace SDK compiles for this
+  recipe".
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 359 tests; statements 94.49%,
+branches 89.5%, functions 96.6%, lines 96.66%; `recipe.ts` 95.96%) and `npm run build` all
+pass. The goldens regenerate byte for byte, and no lockfile was touched.

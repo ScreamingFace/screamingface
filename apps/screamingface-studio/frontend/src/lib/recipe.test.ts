@@ -1,4 +1,5 @@
 import linked from "./engine/__fixtures__/linked.json";
+import { quoteText } from "./engine/url4";
 import type { ModelParam, SavedModel } from "./ensemble-store";
 import {
   createNode,
@@ -59,47 +60,78 @@ const T07_SEED3: ModelParam[] = [
   { key: "seed", value: "3" },
 ];
 
-// The Studio recipes that mirror scripts/gen-link-fixtures.py's SDK recipes.
+const GPT = "openai/gpt-4o";
+const CLAUDE = "anthropic/claude-opus-4-5";
+const LLAMA = "ollama/llama3";
+const QWEN = "ollama/qwen";
+
+// A user-given name, as the builder's rename sets it.
+function named<T extends RecipeNode>(node: T, name: string): T {
+  return { ...node, name };
+}
+
+// The Studio recipes that mirror scripts/gen-link-fixtures.py's SDK recipes, key for key.
 const SDK_EQUIVALENTS: Record<keyof typeof linked, () => RecipeNode> = {
-  fusion: () =>
-    fusion(
-      [solo("anthropic/claude-opus-4-5", ANSWER), solo("openai/gpt-4o", ANSWER)],
-      solo("openai/gpt-4o", SYNTHESIZE),
-    ),
-  fusion_params: () =>
-    fusion(
-      [
-        solo("openai/gpt-4o", ANSWER, T07_SEED3),
-        solo("anthropic/claude-opus-4-5", "Say it's a \\ test."),
-      ],
-      solo("openai/gpt-4o", SYNTHESIZE, [{ key: "temperature", value: "0.2" }]),
-    ),
-  pipeline: () =>
-    pipeline([
-      solo("openai/gpt-4o", ANSWER),
-      solo("anthropic/claude-opus-4-5", "Check the answer."),
-    ]),
-  prompts_encoded: () =>
-    fusion(
-      [solo("openai/gpt-4o", MEMBER_TEXT), solo("anthropic/claude-opus-4-5", ANSWER)],
-      solo("openai/gpt-4o", SYNTHESIS_TEXT),
-    ),
-  solo_prompt_encoded: () => solo("openai/gpt-4o", SOLO_TEXT),
-  pipeline_into_fusion: () =>
-    pipeline([
-      solo("openai/gpt-4o", ANSWER),
-      fusion(
-        [solo("anthropic/claude-opus-4-5", ANSWER), solo("ollama/llama3", ANSWER)],
-        solo("openai/gpt-4o", SYNTHESIZE),
-      ),
-    ]),
+  solo: () => solo(GPT),
+  solo_params: () => solo(GPT, ANSWER, T07_SEED3),
   params_text: () =>
-    solo("openai/gpt-4o", ANSWER, [
+    solo(GPT, ANSWER, [
       { key: "stop", value: "END:of/answer-1.0_x" },
       { key: "reasoning_effort", value: "high" },
       { key: "logprobs", value: "true" },
     ]),
-  solo_params: () => solo("openai/gpt-4o", ANSWER, T07_SEED3),
+  solo_prompt_encoded: () => solo(GPT, SOLO_TEXT),
+  solo_named: () => named(solo(GPT, ANSWER), "drafter"),
+  fusion_defaults: () => fusion([solo(CLAUDE), solo(GPT)], solo(GPT)),
+  fusion: () => fusion([solo(CLAUDE, ANSWER), solo(GPT, ANSWER)], solo(GPT, SYNTHESIZE)),
+  fusion_params: () =>
+    fusion(
+      [solo(GPT, ANSWER, T07_SEED3), solo(CLAUDE, "Say it's a \\ test.")],
+      solo(GPT, SYNTHESIZE, [{ key: "temperature", value: "0.2" }]),
+    ),
+  prompts_encoded: () =>
+    fusion([solo(GPT, MEMBER_TEXT), solo(CLAUDE, ANSWER)], solo(GPT, SYNTHESIS_TEXT)),
+  fusion_named: () =>
+    named(
+      fusion([named(solo(CLAUDE), "careful"), solo(GPT)], named(solo(GPT), "judge")),
+      "panel",
+    ),
+  fusion_single_member: () => fusion([solo(LLAMA)], solo(QWEN)),
+  fusion_member_fusion: () =>
+    fusion([fusion([solo(GPT), solo(LLAMA)], solo(QWEN)), solo(QWEN)], solo(GPT)),
+  fusion_of_two_fusions: () =>
+    fusion(
+      [
+        fusion([solo(GPT), solo(LLAMA)], solo(QWEN, "", T07_SEED3)),
+        fusion([solo(CLAUDE), solo(QWEN)], solo(GPT, MEMBER_TEXT)),
+      ],
+      solo(CLAUDE),
+    ),
+  fusion_fusion_synthesizer: () =>
+    fusion([solo(GPT), solo(LLAMA)], fusion([solo(QWEN), solo(GPT)], solo(LLAMA))),
+  fusion_pipeline_synthesizer: () =>
+    fusion([solo(GPT), solo(LLAMA)], pipeline([solo(QWEN), solo(GPT, "Check.")])),
+  pipeline: () => pipeline([solo(GPT, ANSWER), solo(CLAUDE, "Check the answer.")]),
+  pipeline_defaults: () => pipeline([solo(GPT), solo(CLAUDE)]),
+  pipeline_single_stage: () => pipeline([solo(GPT)]),
+  pipeline_named: () => named(pipeline([solo(GPT), solo(CLAUDE)]), "draft-review"),
+  pipeline_nested_unnamed: () => pipeline([pipeline([solo(GPT), solo(LLAMA)]), solo(QWEN)]),
+  pipeline_nested_named: () =>
+    pipeline([named(pipeline([solo(GPT), solo(LLAMA)]), "draft"), solo(QWEN)]),
+  pipeline_into_fusion: () =>
+    pipeline([
+      solo(GPT, ANSWER),
+      fusion([solo(CLAUDE, ANSWER), solo(LLAMA, ANSWER)], solo(GPT, SYNTHESIZE)),
+    ]),
+  fusion_into_pipeline: () =>
+    pipeline([fusion([solo(GPT), solo(LLAMA, "", T07_SEED3)], solo(QWEN)), solo(GPT, SOLO_TEXT)]),
+  pipeline_of_two_fusions: () =>
+    pipeline([
+      fusion([solo(GPT), solo(LLAMA)], solo(QWEN)),
+      fusion([solo(CLAUDE), solo(QWEN)], solo(GPT)),
+    ]),
+  fusion_member_pipeline: () =>
+    fusion([pipeline([solo(GPT), solo(LLAMA)]), solo(QWEN)], solo(GPT)),
 };
 
 describe("recipeToUrl4", () => {
@@ -110,16 +142,23 @@ describe("recipeToUrl4", () => {
     },
   );
 
+  it.each(Object.keys(SDK_EQUIVALENTS) as (keyof typeof linked)[])(
+    "imports the SDK's candidate text back to the same text (%s)",
+    (name) => {
+      const parsed = parseRecipe(linked[name].candidate);
+      if (!parsed.ok) throw new Error(`rejected: ${parsed.error}`);
+      expect(recipeToUrl4(parsed.root)).toBe(linked[name].candidate);
+    },
+  );
+
   it("puts params in url4's query form, with the context after q=", () => {
-    expect(recipeToUrl4(solo("openai/gpt-4o", "Hi.", T07_SEED3))).toBe(
-      "(model_1:0.0:/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!'Hi.')!'$model_1'",
+    expect(recipeToUrl4(solo("openai/gpt-4o", "Hi.", T07_SEED3))).toContain(
+      "(model_1:0.0:/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!'Hi.', _sf_recipe:0.0:",
     );
   });
 
   it("leaves a call without params unchanged", () => {
-    expect(recipeToUrl4(solo("openai/gpt-4o"))).toBe(
-      "(model_1:0.0:/openai/gpt-4o($input)!'Answer.')!'$model_1'",
-    );
+    expect(recipeToUrl4(solo("openai/gpt-4o"))).toBe(linked.solo.candidate);
   });
 
   it("skips params without a key or a value", () => {
@@ -127,9 +166,7 @@ describe("recipeToUrl4", () => {
       { key: "", value: "1" },
       { key: "seed", value: "" },
     ];
-    expect(recipeToUrl4(solo("openai/gpt-4o", "", params))).toBe(
-      "(model_1:0.0:/openai/gpt-4o($input)!'Answer.')!'$model_1'",
-    );
+    expect(recipeToUrl4(solo("openai/gpt-4o", "", params))).toBe(linked.solo.candidate);
   });
 });
 
@@ -289,23 +326,25 @@ describe("parseRecipe", () => {
   });
 
   it("encodes newlines as U+2028 and tabs as spaces, as the SDK does", () => {
-    expect(recipeToUrl4(solo("a/b", "one\r\ntwo\rthree\tfour"))).toBe(
-      "(model_1:0.0:/a/b($input)!'one\u2028two\u2028three four')!'$model_1'",
+    expect(recipeToUrl4(solo("a/b", "one\r\ntwo\rthree\tfour"))).toContain(
+      "(model_1:0.0:/a/b($input)!'one\u2028two\u2028three four', _sf_recipe:0.0:",
     );
   });
 
-  it("drops control characters the SDK refuses", () => {
-    expect(recipeToUrl4(solo("a/b", "be\u0000ep\u007f"))).toBe(
-      "(model_1:0.0:/a/b($input)!'beep')!'$model_1'",
-    );
+  it("reports control characters the SDK refuses", () => {
+    const root = solo("a/b", "be\u0000ep\u007f");
+    expect(recipeIssues(root)).toEqual([expect.objectContaining({ nodeId: root.id, key: "prompt" })]);
+    expect(() => recipeToUrl4(root)).toThrow(RecipeError);
   });
 
   it("uses the default prompt for a blank one", () => {
-    expect(recipeToUrl4(solo("a/b", "  \n "))).toBe("(model_1:0.0:/a/b($input)!'Answer.')!'$model_1'");
+    expect(recipeToUrl4(solo("openai/gpt-4o", "  \n "))).toBe(linked.solo.candidate);
   });
 
   it("rejects a prompt with a single $, which would be a reference", () => {
-    expect(parseRecipe("(model_1:0.0:/a/b($input)!'use $input')!'$model_1'").ok).toBe(false);
+    const golden = linked.solo_prompt_encoded.candidate;
+    expect(golden).toContain("$$input");
+    expect(parseRecipe(golden.replace("$$input", "$input")).ok).toBe(false);
   });
 
   it("gives every node a fresh id", () => {
@@ -404,6 +443,75 @@ describe("parameter validation", () => {
   it("refuses to import a parameter value url4 cannot carry", () => {
     const parsed = parseRecipe("(model_1:0.0:/a/b?stop=a,b&q=($input)!'Answer.')!'$model_1'");
     expect(parsed.ok).toBe(false);
+  });
+});
+
+describe("recipe metadata", () => {
+  const golden = linked.fusion_named.candidate;
+  const calls = golden.slice(0, golden.indexOf(", _sf_recipe:"));
+  const metadata = golden.slice(golden.indexOf("_sf_recipe:0.0:'") + 16, golden.lastIndexOf("')!'"));
+  const withMetadata = (json: string) =>
+    `${calls}, _sf_recipe:0.0:${quoteText(json)})!'$synthesis_1'`;
+
+  it("recovers the recipe's names from the SDK metadata", () => {
+    const parsed = parseRecipe(golden);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const root = parsed.root as FusionNode;
+    expect(root.name).toBe("panel");
+    expect(root.members[0].name).toBe("careful");
+    expect(root.members[1].name).toBeUndefined();
+    expect(root.synthesizer.name).toBe("judge");
+  });
+
+  it.each([
+    ["missing", `${calls})!'$synthesis_1'`, "missing"],
+    ["not JSON", withMetadata("{not json"), "malformed"],
+    ["another schema", withMetadata(metadata.replace("recipe.v1", "recipe.v2")), "malformed"],
+    ["an extra key", withMetadata(metadata.replace('"named":true', '"named":true,"x":1')), "malformed"],
+    [
+      "a binding no call has",
+      withMetadata(metadata.replace('"binding":"model_1"', '"binding":"model_9"')),
+      "match",
+    ],
+    [
+      "a different structure",
+      withMetadata(metadata.replace('"kind":"fusion"', '"kind":"pipeline"')),
+      "malformed",
+    ],
+    [
+      "a role that disagrees with the call",
+      withMetadata(metadata.replace('"role":"synthesis"', '"role":"model"')),
+      "match",
+    ],
+  ])("rejects metadata that is %s", (_name, url4, word) => {
+    const parsed = parseRecipe(url4);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toContain(word);
+  });
+});
+
+describe("recipe issues the SDK would refuse", () => {
+  it("reports a model id url4 cannot address", () => {
+    const root = solo("ollama/llama3:8b");
+    expect(recipeIssues(root)).toEqual([
+      expect.objectContaining({ nodeId: root.id, key: "model" }),
+    ]);
+  });
+
+  it("reports a name with a control character", () => {
+    const root = named(solo(GPT), "bad\u0007name");
+    expect(recipeIssues(root)).toEqual([expect.objectContaining({ nodeId: root.id, key: "name" })]);
+  });
+
+  it("reports a fusion with no members and a pipeline with no stages", () => {
+    const empty = fusion([], solo(GPT));
+    const none = pipeline([]);
+    expect(recipeIssues(empty)).toEqual([expect.objectContaining({ nodeId: empty.id, key: "members" })]);
+    expect(recipeIssues(none)).toEqual([expect.objectContaining({ nodeId: none.id, key: "stages" })]);
+  });
+
+  it("takes a blank name as no name", () => {
+    expect(recipeToUrl4(named(solo(GPT), "   "))).toBe(linked.solo.candidate);
   });
 });
 
@@ -521,7 +629,7 @@ describe("recipe helpers", () => {
     expect(empty.synthesizer).toMatchObject({ model: null });
   });
 
-  it("renders an empty pipeline as its input", () => {
-    expect(recipeToUrl4(pipeline([]))).toBe("()!'$input'");
+  it("refuses an empty pipeline, which the SDK cannot compile", () => {
+    expect(() => recipeToUrl4(pipeline([]))).toThrow(RecipeError);
   });
 });

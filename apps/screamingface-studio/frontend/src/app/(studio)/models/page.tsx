@@ -28,14 +28,17 @@ import {
   GROUP_ORDER,
   providerPresentation,
 } from "@/lib/provider-presentation";
-import { fusionOf, recipeToUrl4 } from "@/lib/recipe";
+import { fusionOf, renderRecipe } from "@/lib/recipe";
 import { cn } from "@/lib/utils";
 
 const STARRED_VIEW = "__starred__";
 
 // A fusion of the selected models, in the form the builder's `?recipe=` import reads.
+// Null when there is nothing to compose, or a model id the SDK could not address.
 function buildRecipe(models: SavedModel[]) {
-  return recipeToUrl4(fusionOf(models));
+  if (models.length === 0) return null;
+  const rendered = renderRecipe(fusionOf(models));
+  return rendered.ok ? rendered.url4 : null;
 }
 
 function errorDetail(error: unknown) {
@@ -511,7 +514,7 @@ export default function ModelsPage() {
     [library, checked, load, availableIds],
   );
   const composeRecipe = buildRecipe(selectedModels);
-  const canCompose = selectedModels.length > 0;
+  const canCompose = composeRecipe !== null;
 
   const unreachable = load === "error" && providers.length === 0;
   const loading = (load === "idle" || load === "loading") && providers.length === 0;
@@ -614,7 +617,7 @@ export default function ModelsPage() {
                     >
                       {canCompose ? (
                         <Link
-                          href={`/ensembles/new/?recipe=${encodeURIComponent(composeRecipe)}`}
+                          href={`/ensembles/new/?recipe=${encodeURIComponent(composeRecipe ?? "")}`}
                           prefetch={false}
                         >
                           <Boxes className="size-3.5" />

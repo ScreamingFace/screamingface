@@ -113,7 +113,8 @@ const PARAM_CATALOG: {
   { key: "presence_penalty", label: "presence_penalty", kind: "number", min: -2, max: 2, step: 0.1 },
   { key: "reasoning_effort", label: "reasoning_effort", kind: "select", options: ["low", "medium", "high"] },
   { key: "seed", label: "seed", kind: "int" },
-  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. \\n\\n" },
+  // url4 carries a parameter value only as letters, digits and . - _ : / (see recipe.ts).
+  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. END (letters, digits, . - _ : /)" },
 ];
 
 function defaultParamValue(
@@ -2686,7 +2687,7 @@ function EnsembleComposer() {
                 )}
               </div>
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Structural preview — the engine emits the canonical url4 at run time.
+                The exact url4 the ScreamingFace SDK compiles for this recipe.
               </p>
             </div>
 
