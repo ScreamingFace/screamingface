@@ -9,6 +9,7 @@ from typing import Any, ClassVar
 
 import httpx
 from _combine_flow_fixtures import FLOW_OPERATOR_IDS
+from _nodes import fusion_node
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -158,7 +159,7 @@ class FixtureJudgeish(Reducer):
 
 
 def reducer_fusion(**kw: Any) -> sf.Fusion:
-    return sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=FixtureVote(**kw))
+    return fusion_node(["provider/a", "provider/b", "provider/c"], FixtureVote(**kw))
 
 
 def compiled_vote_url4() -> str:

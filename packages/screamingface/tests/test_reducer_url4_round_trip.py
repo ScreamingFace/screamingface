@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureJudgeish, FixtureVote, fixture_operators, reducer_fusion
 from url4 import Expression, build, expr, render, src, text
 
@@ -129,7 +130,7 @@ def _recipes() -> dict[str, sf.Recipe]:
         "model": sf.Model("provider/x"),
         "pipeline": sf.Pipeline(["provider/a", "provider/b"]),
         "pipeline_of_reducers": sf.Pipeline(
-            [reducer_fusion(), sf.Fusion(["provider/d", "provider/e"], synthesizer=FixtureVote())]
+            [reducer_fusion(), fusion_node(["provider/d", "provider/e"], FixtureVote())]
         ),
     }
 
@@ -170,7 +171,7 @@ def test_to_python_and_corrective_replay_use_the_reducer_registry(
         "synthesizer=sf.Reduce('plurality', extract=sf.Extract('last_number', "
         "normalize='numeric'))" in source
     )
-    judgeish = _compiled(sf.Fusion(["provider/a", "provider/b"], synthesizer=FixtureJudgeish()))
+    judgeish = _compiled(fusion_node(["provider/a", "provider/b"], FixtureJudgeish()))
     with pytest.raises(ValueError, match="cannot rebuild"):
         sf.Url4(judgeish).to_python()
 
