@@ -23,7 +23,6 @@ import json
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -373,9 +372,10 @@ def test_a_judge_pick_after_a_filter_picks_among_the_live_members() -> None:
 
 def _judge_input(members: tuple[str, ...], judged: tuple[str, ...] | None) -> CombineInput:
     answers = tuple(Answer(member, None, None, "answered", None) for member in members)
-    outputs = MappingProxyType(dict.fromkeys(("member_1", "member_2", "member_3"), "x"))
+    outputs: dict[str, str] = dict.fromkeys(("member_1", "member_2", "member_3"), "x")
     reply = canonical_json({"member_1": 1, "member_2": 2, "member_3": 3})
-    return CombineInput(answers, outputs, MappingProxyType({"judge": reply}), "q", judged)
+    signals: dict[str, str] = {"judge": reply}
+    return CombineInput(answers, outputs, signals, "q", judged)
 
 
 def test_scores_parses_over_the_judged_set_and_keeps_the_live_scores() -> None:
@@ -386,7 +386,7 @@ def test_scores_parses_over_the_judged_set_and_keeps_the_live_scores() -> None:
 
     assert dict(reduction.scores or {}) == {"member_1": Decimal(1), "member_3": Decimal(3)}
     assert reduction.judge is not None
-    assert dict(reduction.judge.parsed) == {"member_1": 1.0, "member_2": 2.0, "member_3": 3.0}
+    assert reduction.judge.parsed == {"member_1": 1.0, "member_2": 2.0, "member_3": 3.0}
 
 
 def test_scores_with_no_judged_set_parses_over_the_present_members() -> None:
@@ -452,7 +452,7 @@ def test_a_live_member_that_fails_the_narrow_extract_is_not_selected() -> None:
         {
             "select": "kept@1",
             "kept": ["member_1", "member_3"],
-            "scores": _marks("member_1", "member_3", members=3),
+            "scores": {"member_1": 1.0, "member_3": 1.0},
         }
     ]
 

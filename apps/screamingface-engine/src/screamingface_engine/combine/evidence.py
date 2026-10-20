@@ -6,10 +6,11 @@ how the tally came out, and which member's text won -- without the answer text c
 
 INVARIANT: the field order below IS the pinned wire order, every key is always present except
 ``mean`` (written only for the ``mean`` reducer), ``cut`` and the member ``rank`` (written only for
-a ``top_k@1`` step), ``consistency`` (written only when the spec declares a consistency source),
-``declared`` (written only when the spec declares signals), ``gate`` (written only when the spec
-has a gate) and ``verifier`` (reserved, never written in E4b part 5), and a null is written
-explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
+a ``top_k@1`` step), ``narrow`` (written only when the spec has narrow steps), ``consistency``
+(written only when the spec declares a consistency source), ``declared`` (written only when the
+spec declares signals), ``gate`` (written only when the spec has a gate) and ``verifier``
+(reserved, never written in E4b part 5), and a null is written explicitly. The encoder keeps no
+``sort_keys`` (the envelope never did).
 INVARIANT: this module imports pydantic and ``combine.ports`` and nothing else. ``benchmarks/
 contract.py`` imports it (unit 3), so it must never import ``benchmarks.*`` or
 ``operation_calls``.
@@ -109,6 +110,43 @@ class CutRecord(_EvidenceModel):
     # The bound of top_k@1 (operators/selection.py _MAX_K). This module cannot import a plugin.
     k: int = Field(ge=1, le=256)
     order: SignalOrder
+
+
+class NarrowRecord(_EvidenceModel):
+    """What one narrow step did (E4b map-reduce surface, narrow.md §4.2).
+
+    ``select`` is the pinned select op id; ``signal`` the key the step read (absent for a pattern
+    filter); ``kept`` the members it chose, in author order (empty: the step abstained, and it is
+    the last record); ``scores`` the step's score of each live member that had one; ``cut`` and
+    ``ranks`` only for a ``top_k@1`` step (the part 2 rules of ``top_k_ranks`` and ``CutRecord``).
+    A key that is not set is absent.
+    """
+
+    select: str
+    signal: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    kept: list[str]
+    cut: CutRecord | None = Field(default=None, exclude_if=lambda value: value is None)
+    scores: dict[str, float] | None = Field(default=None, exclude_if=lambda value: value is None)
+    ranks: dict[str, int] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def _check(self) -> NarrowRecord:
+        if len(set(self.kept)) != len(self.kept):
+            raise ValueError("narrow kept lists unique members in author order")
+        if self.ranks is None:
+            return self
+        if self.cut is None:
+            raise ValueError("a narrow record has ranks only with a cut")
+        # AR-I4, per step: the ranks are 1..n over the members the step scored.
+        if set(self.ranks) != set(self.scores or {}) or sorted(self.ranks.values()) != list(
+            range(1, len(self.ranks) + 1)
+        ):
+            raise ValueError("narrow ranks are 1..n over the scored members")
+        # CE-I2, per step: a top k that kept members kept exactly the ranks within its cut.
+        within = {member for member, rank in self.ranks.items() if rank <= self.cut.k}
+        if self.kept and (set(self.kept) != within or len(self.kept) != self.cut.k):
+            raise ValueError("a narrow top-k record keeps the members ranked within its cut")
+        return self
 
 
 class SampleCountRecord(_EvidenceModel):
@@ -274,6 +312,13 @@ class CombineEvidence(_EvidenceModel):
     signal: SignalRecord | None
     # E4b part 2: the k and the order of a top_k@1 step. Optional on the wire, like ``mean``.
     cut: CutRecord | None = Field(default=None, exclude_if=lambda value: value is None)
+    # E4b map-reduce surface (narrow.md §4.2): one record per narrow step that ran, in spec order.
+    # Optional on the wire: written only when the spec has narrow steps, so every other evidence
+    # keeps its v1 bytes. WHY after `cut`: the order of narrow.md §4.2 (after cut, before
+    # consistency).
+    narrow: list[NarrowRecord] | None = Field(
+        default=None, min_length=1, max_length=4, exclude_if=lambda value: value is None
+    )
     # E4b part 7 (P13, ans:Q4): each member's sample counts of the one declared consistency source.
     # Optional on the wire: written only when the spec declares consistency, so every other
     # evidence keeps its v1 bytes. WHY between `cut` and `declared`: older tests pin `cut` right
@@ -321,7 +366,88 @@ class CombineEvidence(_EvidenceModel):
             raise ValueError("a member result must be the one chosen member and not built")
         _check_gate(self)
         _check_consistency(self)
+        _check_narrow(self)
         return self
+
+
+def _check_narrow(evidence: CombineEvidence) -> None:
+    """NR-I1..NR-I5 (narrow.md §4.3); NR-I6 is the ``dropped`` check, AR-I3′ ``AnswerRecord``."""
+    reasons = {row.member_id: row.reason for row in evidence.members}
+    narrow = evidence.narrow
+    if narrow is None:
+        # NR-I4
+        if "not_selected" in reasons.values():
+            raise ValueError("not_selected goes with a narrow record, and only with it")
+        return
+    _check_narrow_kept(evidence, narrow)
+    _check_narrow_rows(evidence, narrow)
+    if not narrow[-1].kept:
+        _check_narrow_abstain(evidence)
+
+
+def _check_narrow_kept(evidence: CombineEvidence, narrow: list[NarrowRecord]) -> None:
+    """NR-I1: each ``kept`` is in author order and a subset of the live set before its step; the
+    scores of a step name only that live set; only the last step may keep no member."""
+    position = {row.member_id: index for index, row in enumerate(evidence.members)}
+    live = [row.member_id for row in evidence.members if row.status != "fail"]
+    for index, record in enumerate(narrow):
+        if not set(record.kept) <= set(live):
+            raise ValueError(
+                "kept of the first narrow step names only members that answered"
+                if index == 0
+                else "kept of a narrow step is a subset of the step before"
+            )
+        if [position[member] for member in record.kept] != sorted(
+            position[member] for member in record.kept
+        ):
+            raise ValueError("narrow kept lists unique members in author order")
+        if not set(record.scores or {}) <= set(live):
+            raise ValueError("narrow scores name only the members live at that step")
+        if not record.kept and index != len(narrow) - 1:
+            raise ValueError("only the last narrow step may keep no member")
+        live = record.kept
+
+
+def _check_narrow_rows(evidence: CombineEvidence, narrow: list[NarrowRecord]) -> None:
+    """NR-I2 and NR-I3: a member that a narrow step left out is excluded by the FIRST step whose
+    ``kept`` lacks it, with ``not_selected``, or ``no_signal`` when it had no value for the signal
+    of that step; a member every step kept is never ``not_selected``."""
+    final = set(narrow[-1].kept)
+    for row in evidence.members:
+        if row.member_id in final:
+            # NR-I2
+            if row.reason == "not_selected":
+                raise ValueError("a not_selected member is in no later narrow kept")
+            continue
+        if row.status == "fail":
+            continue
+        if row.reason not in ("not_selected", "no_signal"):
+            raise ValueError(
+                "a member that a narrow step left out is excluded with not_selected or no_signal"
+            )
+        if row.reason == "no_signal":
+            step = next(record for record in narrow if row.member_id not in record.kept)
+            if step.signal is None or row.signals.get(step.signal, 0.0) is not None:
+                raise ValueError(
+                    "a narrow no_signal member has no value for the signal of its step"
+                )
+
+
+def _check_narrow_abstain(evidence: CombineEvidence) -> None:
+    """NR-I5: a narrow abstain (the last step kept no member) ends the call with ``no_votes`` or
+    ``cut_not_met``, before the main step and the gate (GR-I1)."""
+    gate = evidence.gate
+    if evidence.result.reason not in ("no_votes", "cut_not_met") or (
+        gate is not None and gate.branch is not None
+    ):
+        raise ValueError("a narrow abstain ends with no_votes or cut_not_met and runs no gate")
+    if (
+        evidence.tally is not None
+        or evidence.judge is not None
+        or evidence.agreement is not None
+        or any(row.score is not None for row in evidence.members)
+    ):
+        raise ValueError("a narrow abstain has no main step score, tally or choice")
 
 
 def _check_consistency(evidence: CombineEvidence) -> None:
@@ -383,6 +509,7 @@ __all__ = [
     "FieldReadingRecord",
     "GateRecord",
     "JudgeReadingRecord",
+    "NarrowRecord",
     "ResultRecord",
     "SampleCountRecord",
     "SignalRecord",

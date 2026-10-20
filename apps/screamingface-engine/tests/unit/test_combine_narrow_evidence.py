@@ -147,7 +147,9 @@ def test_the_narrow_record_list_holds_one_to_four_steps(count: int) -> None:
 )
 def test_not_selected_goes_with_excluded_only(status: str, reason: str, match: str) -> None:
     with pytest.raises(ValidationError, match=match):
-        AnswerRecord.model_validate({**_row("member_1"), "status": status, "reason": reason})
+        AnswerRecord.model_validate(
+            {**_row("member_1"), "status": status, "reason": reason, "value": None}
+        )
 
 
 def test_an_excluded_not_selected_record_is_valid() -> None:
@@ -161,7 +163,7 @@ def test_an_excluded_not_selected_record_is_valid() -> None:
 
 def test_a_later_kept_is_a_subset_of_the_one_before() -> None:
     wire = _narrow_wire()
-    wire["narrow"][1]["kept"] = ["member_2", "member_4"]
+    wire["narrow"][1] = {"select": "kept@1", "kept": ["member_2", "member_4"]}
 
     _refused(wire, "kept of a narrow step is a subset of the step before")
 
@@ -282,9 +284,9 @@ def test_a_narrow_abstain_runs_no_gate() -> None:
         "observed": None,
         "cmp": ">=",
         "threshold": 0.5,
-        "passed": False,
-        "branch": "fallback",
-        "otherwise": "writer",
+        "passed": True,
+        "branch": "majority",
+        "otherwise": "abstain",
     }
 
     _refused(wire, "a narrow abstain ends with no_votes or cut_not_met and runs no gate")

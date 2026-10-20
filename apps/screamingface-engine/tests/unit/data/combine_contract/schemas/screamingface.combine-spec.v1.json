@@ -165,6 +165,46 @@
       "title": "LogprobSource",
       "type": "object"
     },
+    "NarrowSpec": {
+      "additionalProperties": false,
+      "description": "One narrow step before the main step: every key required, ``null`` only where typed.",
+      "properties": {
+        "extract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "normalize": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reduce": {
+          "$ref": "#/$defs/StepSpec"
+        },
+        "select": {
+          "$ref": "#/$defs/StepSpec"
+        }
+      },
+      "required": [
+        "extract",
+        "normalize",
+        "reduce",
+        "select"
+      ],
+      "title": "NarrowSpec",
+      "type": "object"
+    },
     "SignalWeights": {
       "additionalProperties": false,
       "description": "``weights: {\"signal\": key}``: each member's vote weight comes from the named signal.",
@@ -286,6 +326,21 @@
       "minItems": 1,
       "title": "Members",
       "type": "array"
+    },
+    "narrow": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/NarrowSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrow"
     },
     "normalize": {
       "anyOf": [

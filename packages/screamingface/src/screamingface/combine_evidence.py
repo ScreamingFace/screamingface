@@ -52,6 +52,7 @@ _GATE_OTHERWISE = frozenset(get_args(GateOtherwise.__value__))
 _GATE_SOURCES = ("chosen", "mean")
 _OPERATOR_ID = re.compile(r"[a-z][a-z0-9_]*@[1-9][0-9]*")
 _MAX_CUT_K = _MAX_REDUCER_MEMBERS  # the bound of sf.Rank k (blocks.py _MAX_K)
+_MAX_NARROW_STEPS = 4  # the Engine MAX_NARROW_STEPS (the narrow PRD, O10)
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +194,86 @@ class CombineCut:
 
     def to_dict(self) -> dict[str, object]:
         return {"k": self.k, "order": self.order}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CombineNarrow:
+    """What one narrow step (``sf.Filter`` or ``sf.Rank`` before the reducer) kept.
+
+    ``select`` is the pinned select op id (``kept@1`` or ``top_k@1``); ``signal`` the key the step
+    read (None for a pattern filter); ``kept`` the members it chose, in author order (empty: the
+    step chose none, so the Case abstained there); ``scores`` the step's score of each member it
+    read that had one; ``cut`` and ``ranks`` a top-k step only, with the rules of ``CombineCut``
+    and the row ``rank``.
+    """
+
+    select: str
+    signal: str | None = None
+    kept: tuple[str, ...]
+    cut: CombineCut | None = None
+    scores: Mapping[str, float] | None = None
+    ranks: Mapping[str, int] | None = None
+
+    def __post_init__(self) -> None:
+        _operator_ids((self.select,))
+        if self.signal is not None and not (
+            is_signal_key(self.signal) or is_signal_name(self.signal)
+        ):
+            raise ValueError("Combine narrow signal must be a signal key or a declared name")
+        object.__setattr__(self, "kept", _member_ids(self.kept, "Combine narrow kept"))
+        _optional_instance(self.cut, CombineCut, "Combine narrow cut")
+        object.__setattr__(self, "scores", _narrow_scores(self.scores))
+        object.__setattr__(self, "ranks", _narrow_ranks(self))
+
+    def to_dict(self) -> dict[str, object]:
+        # Keys that are not set are absent on the wire (the Engine NarrowRecord).
+        data: dict[str, object] = {"select": self.select}
+        if self.signal is not None:
+            data["signal"] = self.signal
+        data["kept"] = list(self.kept)
+        if self.cut is not None:
+            data["cut"] = self.cut.to_dict()
+        if self.scores is not None:
+            data["scores"] = dict(self.scores)
+        if self.ranks is not None:
+            data["ranks"] = dict(self.ranks)
+        return data
+
+
+def _narrow_scores(value: object) -> Mapping[str, float] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("Combine narrow scores must be a mapping")
+    _member_ids(tuple(value), "Combine narrow scores")
+    return MappingProxyType(
+        {key: _required_number(item, "Combine narrow score") for key, item in value.items()}
+    )
+
+
+def _narrow_ranks(record: CombineNarrow) -> Mapping[str, int] | None:
+    """The part 2 rank rules, per narrow step: ranks only with a cut, 1..n over the scored
+    members; a top k that kept members kept exactly the ranks within its cut."""
+    value = record.ranks
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("Combine narrow ranks must be a mapping")
+    if record.cut is None:
+        raise ValueError("Combine narrow record has ranks only with a cut")
+    ranks: dict[str, int] = {}
+    for member, rank in value.items():
+        if isinstance(rank, bool) or not isinstance(rank, int):
+            raise TypeError("Combine narrow ranks must be integers")
+        ranks[member] = rank
+    if set(ranks) != set(record.scores or {}) or sorted(ranks.values()) != list(
+        range(1, len(ranks) + 1)
+    ):
+        raise ValueError("Combine narrow ranks are 1..n over the scored members")
+    within = {member for member, rank in ranks.items() if rank <= record.cut.k}
+    if record.kept and (set(record.kept) != within or len(record.kept) != record.cut.k):
+        raise ValueError("Combine narrow top-k record keeps the members ranked within its cut")
+    return MappingProxyType(ranks)
 
 
 @dataclass(frozen=True, slots=True)
@@ -387,6 +468,7 @@ class CombineEvidence:
     separator_collision: bool | None
     signal: CombineSignal | None
     cut: CombineCut | None
+    narrow: tuple[CombineNarrow, ...] | None
     consistency: Mapping[str, tuple[CombineSampleCount, ...]] | None
     declared: Mapping[str, Mapping[str, object]] | None
     gate: CombineGate | None
@@ -420,6 +502,7 @@ class CombineEvidence:
         declared: Mapping[str, Mapping[str, object]] | None = None,
         gate: CombineGate | None = None,
         consistency: Mapping[str, Sequence[CombineSampleCount]] | None = None,
+        narrow: Sequence[CombineNarrow] | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
@@ -479,6 +562,7 @@ class CombineEvidence:
             ),
             "signal": selected_signal,
             "cut": _optional_instance(cut, CombineCut, "Combine evidence cut"),
+            "narrow": _narrow(narrow, selected_members, gate=selected_gate, result=selected_result),
             "consistency": _consistency_map(consistency, selected_declared, selected_members),
             "declared": selected_declared,
             "gate": selected_gate,
@@ -510,6 +594,12 @@ class CombineEvidence:
             "separator_collision": self.separator_collision,
             "signal": None if self.signal is None else self.signal.to_dict(),
             **({} if self.cut is None else {"cut": self.cut.to_dict()}),  # E4b part 2: optional
+            # E4b map-reduce surface: optional on the wire, only a block with narrow steps writes it
+            **(
+                {}
+                if self.narrow is None
+                else {"narrow": [record.to_dict() for record in self.narrow]}
+            ),
             # E4b part 7 (P13): optional on the wire, only a Fusion with sf.Consistency writes it
             **(
                 {}
@@ -529,6 +619,87 @@ class CombineEvidence:
             "dropped": self.dropped,
             "finish_reason": self.finish_reason,
         }
+
+
+def _narrow(
+    value: object,
+    members: tuple[CombineAnswerRow, ...],
+    *,
+    gate: CombineGate | None,
+    result: CombineResult,
+) -> tuple[CombineNarrow, ...] | None:
+    """NR-I1..NR-I5 of the narrow PRD §4.3, the twin of the Engine ``_check_narrow``.
+
+    NR-I6 is ``_dropped``; AR-I3′ is ``CombineAnswerRow``; the main-step score check of NR-I5
+    reads the rows.
+    """
+    if value is None:
+        # NR-I4
+        if any(row.reason == "not_selected" for row in members):
+            raise ValueError(
+                "Combine evidence not_selected goes with a narrow record, and only with it"
+            )
+        return None
+    records = _typed_tuple(value, CombineNarrow, "Combine evidence narrow")
+    if not 1 <= len(records) <= _MAX_NARROW_STEPS:
+        raise ValueError(f"Combine evidence narrow holds 1 to {_MAX_NARROW_STEPS} steps")
+    _narrow_kept(records, members)
+    _narrow_rows(records, members)
+    if not records[-1].kept and (
+        result.reason not in ("no_votes", "cut_not_met")
+        or (gate is not None and gate.branch is not None)
+        or any(row.score is not None for row in members)
+    ):
+        # NR-I5
+        raise ValueError(
+            "Combine evidence narrow abstain ends with no_votes or cut_not_met before the main "
+            "step and the gate"
+        )
+    return records
+
+
+def _narrow_kept(records: tuple[CombineNarrow, ...], members: tuple[CombineAnswerRow, ...]) -> None:
+    """NR-I1: each ``kept`` in author order, a subset of the live set before its step."""
+    position = {row.member_id: index for index, row in enumerate(members)}
+    live: Sequence[str] = [row.member_id for row in members if row.status != "fail"]
+    for index, record in enumerate(records):
+        if not set(record.kept) <= set(live):
+            raise ValueError(
+                "Combine evidence kept of the first narrow step names only members that answered"
+                if index == 0
+                else "Combine evidence kept of a narrow step is a subset of the step before"
+            )
+        order = [position[member] for member in record.kept]
+        if order != sorted(order):
+            raise ValueError("Combine evidence narrow kept is in author order")
+        if not set(record.scores or {}) <= set(live):
+            raise ValueError("Combine evidence narrow scores name only the members live then")
+        if not record.kept and index != len(records) - 1:
+            raise ValueError("Combine evidence only the last narrow step may keep no member")
+        live = record.kept
+
+
+def _narrow_rows(records: tuple[CombineNarrow, ...], members: tuple[CombineAnswerRow, ...]) -> None:
+    """NR-I2 and NR-I3: a member a narrow step left out is excluded by the first step that did."""
+    final = set(records[-1].kept)
+    for row in members:
+        if row.member_id in final:
+            if row.reason == "not_selected":
+                raise ValueError("Combine evidence not_selected member is in no later narrow kept")
+            continue
+        if row.status == "fail":
+            continue
+        if row.reason not in ("not_selected", "no_signal"):
+            raise ValueError(
+                "Combine evidence member a narrow step left out is excluded with not_selected or "
+                "no_signal"
+            )
+        if row.reason == "no_signal":
+            step = next(record for record in records if row.member_id not in record.kept)
+            if step.signal is None or row.signals.get(step.signal, 0.0) is not None:
+                raise ValueError(
+                    "Combine evidence narrow no_signal member has no value for its step's signal"
+                )
 
 
 def _is_gate_observe(value: str) -> bool:
@@ -830,6 +1001,7 @@ __all__ = [
     "CombineFieldReading",
     "CombineGate",
     "CombineJudgeReading",
+    "CombineNarrow",
     "CombineResult",
     "CombineSampleCount",
     "CombineSignal",
