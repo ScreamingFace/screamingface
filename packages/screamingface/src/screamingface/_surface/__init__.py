@@ -10,6 +10,9 @@ A ``Fanout`` opens a block, a ``Judge`` scores it, the narrow steps (``Rank``, `
 ``lowering.lower`` turns a chain into today's values, so it compiles to the url4 of today.
 INVARIANT: this package is not exported from ``screamingface``: only new tests import it until the
 swap (unit 7) makes these names ``sf.*``.
+WHY the recipe and signal-source names here too (``Model``, ``CorrectiveLoop``, ``Verbalized``,
+...): the rebuilt code (``rebuild.py``) names every value through one alias ``sf``, and its tests
+run that code with this package as ``sf``.
 """
 
 from screamingface._surface.chain import Pipeline
@@ -31,12 +34,18 @@ from screamingface._surface.steps import (
 )
 from screamingface._surface.synthesize import Synthesize
 from screamingface.blocks import matches
+from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fields import FieldRule
+from screamingface.model import Model
+from screamingface.signal_sources import Consistency, Entropy, Logprob, Sum, Verbalized
 
 __all__ = [
     "ArgMax",
     "ArgMin",
     "Concat",
+    "Consistency",
+    "CorrectiveLoop",
+    "Entropy",
     "Extract",
     "Fanout",
     "FieldRule",
@@ -45,12 +54,17 @@ __all__ = [
     "Gate",
     "Judge",
     "JudgePick",
+    "Logprob",
     "Mean",
     "Median",
     "Merge",
+    "Model",
     "Pipeline",
     "Rank",
+    "SelfCorrective",
+    "Sum",
     "Synthesize",
+    "Verbalized",
     "Vote",
     "agreement",
     "field",

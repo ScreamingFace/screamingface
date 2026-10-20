@@ -82,9 +82,13 @@ def test_rb1_a_narrow_fixture_round_trips(name: str) -> None:
     _round_trip(url4, _url4)
 
 
-# The url4 pins every rule id, and the rebuild keeps the pins (rebuild-display §1): a vote over
-# the default rule rebuilds as Vote(over="last_line@1", normalize="text@1").
-_PINNED = {"over": "last_line@1", "normalize": "text@1"}
+def _pinned_vote(weights: str | None = None) -> sx.Vote:
+    """The url4 pins every rule id, and the rebuild keeps the pins (rebuild-display §1): a vote
+    over the default rule rebuilds as ``Vote(over="last_line@1", normalize="text@1")``."""
+
+    return sx.Vote(over="last_line@1", normalize="text@1", weights=weights)
+
+
 _JUDGED = ["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"]
 _REBUILT: dict[str, Callable[[], sf.Recipe]] = {
     "narrow_filter_mean_candidate.url4": FIXTURES["narrow_filter_mean_candidate.url4"],
@@ -92,13 +96,13 @@ _REBUILT: dict[str, Callable[[], sf.Recipe]] = {
         sx.Fanout(_JUDGED)
         >> sx.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
         >> sx.Rank(2, by="score:judge")
-        >> sx.Vote(**_PINNED, weights="score:judge")
+        >> _pinned_vote(weights="score:judge")
     ),
     "narrow_judge_rank_vote_candidate.url4": lambda: (
         sx.Fanout(_JUDGED)
         >> sx.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
         >> sx.Rank(2, by="score:judge")
-        >> sx.Vote(**_PINNED)
+        >> _pinned_vote()
     ),
 }
 
@@ -129,7 +133,7 @@ def test_rb1_the_code_names_the_steps_in_the_new_form() -> None:
 def test_rb1_a_gate_rebuilds_with_its_references() -> None:
     chain = sx.Fanout(_ROUTES, signals={"conf": sf.Verbalized("C: ([0-9]+)")}) >> sx.Gate(
         when=sx.signal("conf").mean() >= 3.0,
-        then=sx.Vote(**_PINNED),
+        then=_pinned_vote(),
         otherwise=sx.Synthesize("prov/writer"),
         abstain_if=sx.signal("conf").mean().between(2.0, 4.0),
     )
@@ -147,8 +151,8 @@ def test_rb1_a_gate_rebuilds_with_its_references() -> None:
 
 
 def test_rb1_an_optional_member_block_rebuilds_in_the_explicit_form() -> None:
-    inner = sx.Pipeline([sx.Fanout(["prov/a", "prov/b"]), sx.Vote(**_PINNED)], optional=True)
-    chain = sx.Fanout([inner, "prov/c"], quorum=1) >> sx.Vote(**_PINNED)
+    inner = sx.Pipeline([sx.Fanout(["prov/a", "prov/b"]), _pinned_vote()], optional=True)
+    chain = sx.Fanout([inner, "prov/c"], quorum=1) >> _pinned_vote()
 
     rebuilt = rebuild(_url4(chain))
 

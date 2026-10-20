@@ -20,7 +20,7 @@ from screamingface._surface.chain import Step, _Category
 from screamingface.judge import Judge as JudgeNode
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class _JudgeStep(Step):
     """A judge model call over every member: ``Judge`` scores them, ``JudgePick`` picks one."""
 
@@ -43,10 +43,6 @@ class _JudgeStep(Step):
         object.__setattr__(self, "rubric", node.rubric)
         object.__setattr__(self, "params", node.params)
         object.__setattr__(self, "_node", node)
-
-    def __repr__(self) -> str:
-        params = f", params={dict(self.params)!r}" if self.params else ""
-        return f"{type(self).__name__}({self.model!r}, rubric={self.rubric!r}{params})"
 
     __hash__: ClassVar[Any] = None
 
