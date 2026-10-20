@@ -70,8 +70,15 @@ class LocalGateway:
         return self._database
 
     @property
-    def name(self) -> str:
-        return str(self._database)
+    def identity(self) -> tuple[str, int, int] | tuple[str]:
+        """The database file itself, not its path: a pull resumes only into the file it was
+        loading. A file deleted and recreated, moved into place, or reached through a retargeted
+        symlink is another file, and the pull into it starts over."""
+        try:
+            stat = self._database.stat()
+        except OSError:
+            return (str(self._database),)
+        return str(self._database.resolve()), stat.st_dev, stat.st_ino
 
     def prepare(self) -> None:
         """Refuse a pull that cannot land, before any request; load the local revisions."""

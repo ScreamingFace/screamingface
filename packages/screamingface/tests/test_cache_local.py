@@ -266,3 +266,35 @@ def test_a_pull_writes_to_the_database_the_runtime_starts_the_gateway_on(tmp_pat
     started_on = RuntimeConfig(data_dir=tmp_path).gateway_database_url
 
     assert started_on == f"sqlite://{gateway_database(tmp_path.resolve())}"
+
+
+# --- resume identity (PR #1446 review, round 2) ---------------------------------------------------
+
+
+def test_the_identity_is_the_database_file_not_its_path(tmp_path: Path) -> None:
+    # WHY: a resume skips the pages before its cursor, so it must only continue into the file
+    # that received them; a replacement at the same path starts over.
+    database = tmp_path / "aigateway.sqlite3"
+    database.write_bytes(b"first")
+    gateway = LocalGateway(database, empty=_EMPTY)
+    first = gateway.identity
+
+    assert gateway.identity == first
+    replacement = tmp_path / "restored.sqlite3"
+    replacement.write_bytes(b"restored")
+    replacement.replace(database)
+    assert gateway.identity != first
+
+
+def test_a_retargeted_symlink_is_another_database(tmp_path: Path) -> None:
+    (tmp_path / "a.sqlite3").write_bytes(b"a")
+    (tmp_path / "b.sqlite3").write_bytes(b"b")
+    link = tmp_path / "aigateway.sqlite3"
+    link.symlink_to(tmp_path / "a.sqlite3")
+    gateway = LocalGateway(link, empty=_EMPTY)
+    first = gateway.identity
+
+    link.unlink()
+    link.symlink_to(tmp_path / "b.sqlite3")
+
+    assert gateway.identity != first

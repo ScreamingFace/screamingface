@@ -207,3 +207,25 @@ The fixed #1439 branch (which carries #1433's) is merged in first; then one comm
   line; the loader stand-in returns `skipped`, and `test_cache_local.py` drops its `malformed_row`
   refusal row and asserts the `(inserted, skipped)` pair — the pinning-test update for the removal,
   recorded in `OME-1639.json`. The public-surface snapshot is regenerated (+`rows_skipped`).
+
+## Review round 2 (PR #1446 review by HupBaHa at the 8 MB-batch head, 2026-10-20)
+
+Four findings; the owner chose the approach for 1 and 3. One commit.
+
+1. **One sign-in per process:** `pull_into` no longer opens and closes a `Client` per call.
+   `_session` reuses the default client when it is already open on the same Engine origin (never
+   creating it, so the source still never follows `SCREAMINGFACE_ENGINE_URL`), and otherwise
+   keeps one pull client per origin for the process.
+2. **Resume identity:** the cursor is bound to `LocalGateway.identity` — the resolved path plus
+   the file's device and inode — so a database deleted and recreated, moved into place, or reached
+   through a retargeted symlink starts over. A file overwritten in place (same inode) still counts
+   as the same database.
+3. **Interruption:** the original `KeyboardInterrupt` is re-raised with the counts as `.result`
+   (a `CachePullError` would let `except Exception` swallow Ctrl-C). The CLI's "the next pull
+   starts over" stays: the CLI is its own process, so its next pull does start over.
+4. **Blank URL:** only `None` selects production; `url=""` is refused by the client, and the CLI
+   gives a blank or malformed `--url` a usage error (exit 2).
+- **Tests (new, in files this PR added):** shared session across calls, default-client reuse on
+  the same origin and not on another, blank URL refused, CLI usage error, interrupt counts, file
+  identity across replace and symlink retarget. `test_cache_local.py` (pinned in `OME-1639.json`)
+  only gains tests; its approved blob is refreshed.

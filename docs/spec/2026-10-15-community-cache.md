@@ -170,13 +170,16 @@ the same.
       everything. `url=None` is the hosted production Engine (`DEFAULT_ENGINE_URL`); it never
       follows `default_client()` or `SCREAMINGFACE_ENGINE_URL`, which point at the local stack
       or at wherever runs go — the pull's destination, not its source. Sign-in is the existing
-      in-memory Cloudflare Access flow (one browser login per process). It needs the
+      in-memory Cloudflare Access flow (one browser login per process): a pull reuses the
+      default client's session when that client is already open on the same Engine, and
+      otherwise keeps its own client per Engine for the process. It needs the
       `screamingface[runtime]` extra (the loader lives in `aigateway`) and imports it lazily, so
       `import screamingface` stays light. Before the first page it loads the gateway's provider
       plugins so the local revisions include the adapters' (today `openrouter_adapter`), the ones
       every hosted row is keyed under. `PullResult` reports rows read, rows added, pages,
-      whether it resumed and whether it finished; an interrupted pull's exception carries the
-      same counts.
+      whether it resumed and whether it finished; an interrupted pull re-raises its
+      `KeyboardInterrupt` with the same counts as `.result`. A resume continues only into the
+      database file it was loading (its device and inode), not merely the same path.
     - Progress follows `evaluate`: `progress=None` shows it in a notebook or an interactive
       terminal and stays quiet when piped. A notebook gets one card updated in place through an
       IPython display handle (no `ipywidgets` needed); a terminal gets one line on stderr
