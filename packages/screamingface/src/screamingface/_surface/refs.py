@@ -20,10 +20,8 @@ from screamingface._signals import (
     FIELD_PATH,
     FIELD_SIGNAL_PREFIX,
     Signal,
-    _Comparison,
-    _comparison,
     _finite_number,
-    is_signal_key,
+    signal,
 )
 from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule
 from screamingface.combine_evidence import GateCmp
@@ -47,41 +45,6 @@ _EX1 = (
 
 type Extractor = str | Extract
 type Weights = tuple[float, ...] | Signal
-
-
-@dataclass(frozen=True, slots=True, eq=False, repr=False)
-class SignalRef(Signal):
-    """``sf.signal(key)``: a signal key, with the gate references of a declared name (§7, §9).
-
-    INVARIANT: a step stores today's ``Signal`` (``_plain``, ``plain_comparison``), never this
-    subclass, so the lowered values are today's values with today's typed equality.
-    AIDEV-NOTE: unit 7 puts ``.chosen()`` and ``.mean()`` on today's ``Signal`` and deletes this
-    class and ``_plain``.
-    """
-
-    def chosen(self) -> GateRef:
-        """The declared signal of the member that the vote chose: a gate reference."""
-
-        return GateRef(f"chosen:{self._declared('chosen')}")
-
-    def mean(self) -> GateRef:
-        """The mean of the declared signal over the members: a gate reference."""
-
-        return GateRef(f"mean:{self._declared('mean')}")
-
-    def _declared(self, method: str) -> str:
-        if is_signal_key(self.key):
-            raise ValueError(  # SI-1
-                f"sf.signal({self.key!r}).{method}() reads a declared signal; an E4a key such as "
-                "cost_usd is not a gate input"
-            )
-        return self.key
-
-
-def signal(key: str) -> SignalRef:
-    """A named number on a member Answer (``sf.signal``), with ``.chosen()`` and ``.mean()``."""
-
-    return SignalRef(key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,12 +139,6 @@ def _condition(ref: GateRef, cmp: GateCmp, value: object) -> GateCondition:
     return GateCondition(ref, cmp, threshold)
 
 
-def plain_comparison(where: _Comparison) -> _Comparison:
-    """``where`` around today's ``Signal``: a step never stores a ``SignalRef``."""
-
-    return _comparison(_plain(where.signal), where.cmp, where.value)
-
-
 def extractor(value: object) -> Extractor:
     """``value`` if it is a valid ``over=`` value, else TypeError or ValueError (EX-1)."""
 
@@ -267,16 +224,12 @@ def signal_key(value: object, label: str) -> Signal:
     """
 
     if isinstance(value, str):
-        return _plain(signal(value))
+        return signal(value)
     if not isinstance(value, Signal):
         raise TypeError(
             f"{label} by= must be one signal: a key string such as 'cost_usd' or sf.signal(key)"
         )
-    return _plain(value)
-
-
-def _plain(value: Signal) -> Signal:
-    return Signal(value.key)
+    return value
 
 
 _SI2 = "sf.field compares with == only; use sf.signal('field:...') for numbers"
@@ -371,4 +324,4 @@ def _field_path(value: str) -> None:
         )
 
 
-__all__ = ["Extract", "agreement", "field", "signal"]
+__all__ = ["Extract", "agreement", "field"]

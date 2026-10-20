@@ -15,11 +15,12 @@ WHY the recipe and signal-source names here too (``Model``, ``CorrectiveLoop``, 
 run that code with this package as ``sf``.
 """
 
+from screamingface._signals import signal
 from screamingface._surface.chain import Pipeline
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Gate
 from screamingface._surface.judge import Judge, JudgePick
-from screamingface._surface.refs import Extract, agreement, field, signal
+from screamingface._surface.refs import Extract, agreement, field
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,

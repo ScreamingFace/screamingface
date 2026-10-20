@@ -41,23 +41,20 @@ _ONE_JUDGE = (  # CH-3
 _TERMINALS: frozenset[str] = frozenset({"reduce", "write"})
 
 
-class _Chainable:
-    """``a >> b`` is ``Pipeline([a, b])``; a route string or a Model on the left works through
-    ``__rrshift__``."""
+class Step:
+    """A chain value that is not a recipe: ``Fanout`` and every step that can follow it.
+
+    ``a >> b`` is ``Pipeline([a, b])``, as for a recipe (``Recipe.__rshift__``).
+    """
 
     __slots__ = ()
 
     def __rshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([cast("Step | Recipe", self), other])
+        return Pipeline([self, other])
 
     def __rrshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([other, cast("Step | Recipe", self)])
+        return Pipeline([other, self])
 
-
-class Step(_Chainable):
-    """A chain value that is not a recipe: ``Fanout`` and every step that can follow it."""
-
-    __slots__ = ()
     _category: ClassVar[_Category]
     # Concat: only sf.Synthesize can follow it (CH-7).
     _needs_writer: ClassVar[bool] = False
@@ -167,7 +164,7 @@ def _check_block(judge: Step | None, narrow: tuple[Step, ...], terminal: Step) -
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class Pipeline(Recipe, _Chainable):
+class Pipeline(Recipe):
     """Pass one input through an ordered chain of stages and blocks; ``a >> b`` builds one.
 
     A stage is a route string, a recipe, or a closed block: ``Fanout``, then a reducer or

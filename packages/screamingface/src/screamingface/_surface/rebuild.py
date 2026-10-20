@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from screamingface._signals import signal
 from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.chain import Step
 from screamingface._surface.fanout import Fanout
@@ -28,7 +29,6 @@ from screamingface._surface.refs import (
     _condition,
     agreement,
     field,
-    signal,
     with_normalizer,
 )
 from screamingface._surface.render import dispatch, model_options, render
