@@ -19,11 +19,12 @@ a page that did not are still valid entries, and loading them again adds nothing
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Hashable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from screamingface._cache.pages import CutPage, MalformedPage, PageHeader, walk_page
@@ -34,6 +35,7 @@ from screamingface.errors import ScreamingFaceError
 
 if TYPE_CHECKING:
     from screamingface._cache.local import LocalGateway
+    from screamingface.client import Client
 
 # WHY 4 attempts with 2/4/8 s between them: enough to ride out a gateway restart or an edge blip
 # (~14 s) without turning a genuinely unavailable Engine into a minute of silence.
@@ -56,7 +58,7 @@ class PageSource(Protocol):
 
 class Destination(Protocol):
     @property
-    def name(self) -> str: ...
+    def identity(self) -> Hashable: ...
 
     def prepare(self) -> None: ...
 
@@ -69,7 +71,7 @@ class Destination(Protocol):
 class _Cursor:
     """One pull's progress, kept for a repeat call in the same process."""
 
-    destination: str
+    destination: Hashable
     after: str | None = None
     rows_read: int = 0
     rows_added: int = 0
@@ -84,6 +86,12 @@ class _Cursor:
 # into another database starts over rather than skip the pages it never received.
 _CURSORS: dict[tuple[str, tuple[str, ...]], _Cursor] = {}
 
+# INVARIANT (spec decision 14): one browser sign-in per process and hosted origin. A pull's Client
+# outlives the call, so a repeat call or a resume reuses its Access session; it is never closed
+# here, like the process-wide default Client.
+_SESSIONS: dict[tuple[str, str, int], Client] = {}
+_SESSIONS_LOCK = Lock()
+
 
 def pull_into(
     models: tuple[str, ...], *, url: str | None, data_dir: Path, progress: bool | None
@@ -91,13 +99,41 @@ def pull_into(
     """Pull from the hosted Engine at `url` (production when None) into `data_dir`'s gateway."""
     from screamingface._cache.local import LocalGateway, gateway_database
     from screamingface._cache.remote import HostedPages
-    from screamingface.client import DEFAULT_ENGINE_URL, Client
+    from screamingface.client import DEFAULT_ENGINE_URL
 
     empty = PullResult(rows_read=0, rows_added=0, pages=0, resumed=False, complete=False)
     destination: LocalGateway = LocalGateway(gateway_database(data_dir), empty=empty)
-    with Client(engine_url=url or DEFAULT_ENGINE_URL) as client:
-        source = HostedPages(client._http, models)  # noqa: SLF001 — the Access-signed session
-        return run_pull(source, destination, models=models, report=reporter(progress))
+    # WHY `is None`, not `or`: only None means production; a blank URL is refused by the Client.
+    client = _session(DEFAULT_ENGINE_URL if url is None else url)
+    source = HostedPages(client._http, models)  # noqa: SLF001 — the Access-signed session
+    return run_pull(source, destination, models=models, report=reporter(progress))
+
+
+def _session(url: str) -> Client:
+    """The process's signed-in Client for `url`'s origin: the default Client when it is already
+    open on that origin, else this module's own, kept for the process.
+
+    WHY the default Client only when it already exists: creating it would follow
+    `SCREAMINGFACE_ENGINE_URL` or a local stack, which is where runs go, not where the cache
+    comes from (spec decision 14).
+    """
+    from screamingface import _default_client
+    from screamingface.client import Client
+
+    origin = _default_client._comparable_origin(url)  # noqa: SLF001 — one origin rule
+    shared = _default_client._client  # noqa: SLF001 — read, never created here
+    if (
+        shared is not None
+        and not shared.closed
+        and _default_client._comparable_origin(shared.engine_url) == origin  # noqa: SLF001
+    ):
+        return shared
+    with _SESSIONS_LOCK:
+        client = _SESSIONS.get(origin)
+        if client is None or client.closed:
+            client = Client(engine_url=url)
+            _SESSIONS[origin] = client
+        return client
 
 
 def run_pull(
@@ -122,8 +158,11 @@ def run_pull(
         raise CachePullError(
             error.message, code=error.code, hint=error.hint, result=loop.result(complete=False)
         ) from error
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as interrupt:
         report.stopped(loop.snapshot(), "interrupted")
+        # WHY the original interrupt, with the counts attached: a CachePullError would let
+        # `except Exception` swallow a Ctrl-C (spec decision 14: it carries the counts).
+        interrupt.result = loop.result(complete=False)  # pyright: ignore[reportAttributeAccessIssue]
         raise
     except Exception as error:
         # INVARIANT: every call that started the display stops it. An error nobody anticipated
@@ -148,8 +187,9 @@ class _Loop:
         self._destination = destination
         self._key = key
         saved = _CURSORS.get(key)
-        self._resumed = saved is not None and saved.destination == destination.name
-        self._cursor = saved if saved and self._resumed else _Cursor(destination.name)
+        identity = destination.identity
+        self._resumed = saved is not None and saved.destination == identity
+        self._cursor = saved if saved and self._resumed else _Cursor(identity)
         self._report = report
         self._clock = clock
         self._started = clock()

@@ -27,8 +27,10 @@ from screamingface.client import DEFAULT_ENGINE_URL
 
 
 @pytest.fixture(autouse=True)
-def _fresh_cursors() -> None:
+def _fresh_cursors(monkeypatch: pytest.MonkeyPatch) -> None:
     pull_module._CURSORS.clear()
+    monkeypatch.setattr(pull_module, "_SESSIONS", {})
+    monkeypatch.setattr("screamingface._default_client._client", None)
 
 
 def _recording(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
@@ -76,7 +78,7 @@ def test_models_must_be_a_sequence_of_names(bad: Any, monkeypatch: pytest.Monkey
 
 
 class _Gateway:
-    name = "aigateway.sqlite3"
+    identity = "aigateway.sqlite3"
 
     def __init__(self, database: Path, *, empty: PullResult) -> None:
         self.database = database
@@ -137,3 +139,72 @@ def test_a_pull_travels_through_a_real_client_session_to_the_production_engine(
     assert gateways[0].database == tmp_path / "aigateway.sqlite3"
     assert gateways[0].rows == ["a" * 64, "b" * 64]
     assert result == PullResult(rows_read=2, rows_added=2, pages=1, resumed=False, complete=True)
+
+
+# --- sign-in and source (PR #1446 review, round 2) ------------------------------------------------
+
+
+def _counting_clients(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[sf.Client]:
+    page = "\n".join([json.dumps({"schema": PAGE_SCHEMA, "revisions": {}}), '{"next": null}'])
+    real_client = sf.Client
+    built: list[sf.Client] = []
+
+    def client(*, engine_url: str) -> sf.Client:
+        built.append(
+            real_client(
+                engine_url=engine_url,
+                http_transport=httpx.MockTransport(lambda _r: httpx.Response(200, text=page)),
+            )
+        )
+        return built[-1]
+
+    monkeypatch.setattr("screamingface.client.Client", client)
+    monkeypatch.setattr(local_module, "LocalGateway", _Gateway)
+    return built
+
+
+def test_every_pull_in_a_process_shares_one_signed_in_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # WHY: the Access token lives in the Client; a Client per call would sign in per call.
+    built = _counting_clients(monkeypatch, tmp_path)
+
+    pull_module.pull_into((), url=None, data_dir=tmp_path, progress=False)
+    pull_module.pull_into(("m1",), url=None, data_dir=tmp_path, progress=False)
+
+    assert len(built) == 1
+    assert not built[0].closed
+
+
+def test_a_pull_reuses_the_default_client_already_signed_in_to_that_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    built = _counting_clients(monkeypatch, tmp_path)
+    shared = sf.Client(engine_url="HTTPS://FUSION.SCREAMINGFACE.AI:443/")
+    monkeypatch.setattr("screamingface._default_client._client", shared)
+
+    assert pull_module._session(DEFAULT_ENGINE_URL) is shared
+    assert built == []
+
+
+def test_a_default_client_on_another_engine_is_not_the_pulls_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    built = _counting_clients(monkeypatch, tmp_path)
+    local = sf.Client(engine_url="http://127.0.0.1:9108")
+    monkeypatch.setattr("screamingface._default_client._client", local)
+
+    pull_module.pull_into((), url=None, data_dir=tmp_path, progress=False)
+
+    assert [client.engine_url for client in built] == [DEFAULT_ENGINE_URL]
+
+
+def test_a_blank_url_is_refused_rather_than_read_as_production(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    built = _counting_clients(monkeypatch, tmp_path)
+
+    with pytest.raises(ValueError, match="engine_url"):
+        pull_module.pull_into((), url="", data_dir=tmp_path, progress=False)
+
+    assert built == []

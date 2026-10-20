@@ -36,7 +36,7 @@
     },
     "packages/screamingface/tests/test_cache_local.py": {
       "base_blob": "987801ee31dbfc42af0a95f08c37e423f57fcad8",
-      "approved_blob": "44e838ea3b78cf9a7f93dcd42a85a34f6d1eae2a"
+      "approved_blob": "790eb27803624f5a49b2c947c650294c9ef652ea"
     }
   }
 }

@@ -107,6 +107,20 @@ def test_an_interrupted_pull_exits_130(
     assert "starts over" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("url", ["", "not-a-url"])
+def test_a_blank_or_bad_url_is_a_usage_error_not_production(
+    url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = _pull(monkeypatch)
+
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["cache", "pull", "--url", url, "--data-dir", str(tmp_path)])
+
+    assert exited.value.code == 2
+    assert "--url" in capsys.readouterr().err
+    assert calls == []
+
+
 def test_an_empty_model_name_is_a_usage_error_not_a_traceback(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

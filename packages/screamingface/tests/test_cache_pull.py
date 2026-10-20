@@ -78,7 +78,7 @@ class _Source:
 
 
 class _Gateway:
-    name = "aigateway.sqlite3"
+    identity = "aigateway.sqlite3"
 
     def __init__(self, *, refuse_revisions: bool = False, refuse_prepare: bool = False) -> None:
         self.loaded: list[str] = []
@@ -318,6 +318,25 @@ def test_an_interrupted_pull_keeps_its_cursor_for_the_next_call() -> None:
     assert pull_module._CURSORS[("https://engine.test", ())].after == "c1"
 
 
+def test_an_interrupted_pull_carries_its_counts() -> None:
+    # WHY the KeyboardInterrupt itself: spec decision 14 gives an interrupted pull its counts,
+    # and a CachePullError would let `except Exception` swallow the Ctrl-C.
+    class _Interrupting(_Source):
+        @contextmanager
+        def open(self, *, after: str | None, count: bool):  # type: ignore[override]
+            if after == "c1":
+                raise KeyboardInterrupt
+            with super().open(after=after, count=count) as opened:
+                yield opened
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        _run(_Interrupting({None: [_page(["a", "b"], "c1")]}), _Gateway())
+
+    assert raised.value.result == PullResult(  # type: ignore[attr-defined]
+        rows_read=2, rows_added=2, pages=1, resumed=False, complete=False
+    )
+
+
 # --- progress -------------------------------------------------------------------------------------
 
 
@@ -351,7 +370,7 @@ def test_an_unexpected_failure_stops_the_progress_and_reaches_the_caller_as_itse
 
 def test_a_pull_into_another_database_does_not_continue_the_first_ones() -> None:
     class _Elsewhere(_Gateway):
-        name = "elsewhere/aigateway.sqlite3"
+        identity = "elsewhere/aigateway.sqlite3"
 
     with pytest.raises(CachePullError):
         _run(_Source({None: [_page(["a"], "c1")], "c1": [TransientPageError("x")]}), _Gateway())

@@ -104,7 +104,9 @@ def _add_cache_commands(commands: argparse._SubParsersAction) -> None:  # type: 
         type=_model_name,
         help="Only this model's rows, as the hosted cache names it (repeatable)",
     )
-    pull.add_argument("--url", default=None, help="The hosted Engine to pull from")
+    pull.add_argument(
+        "--url", default=None, type=_engine_url, help="The hosted Engine to pull from"
+    )
 
 
 def _add_data_dir(parser: argparse.ArgumentParser, *, default: Path | None = None) -> None:
@@ -161,6 +163,17 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
             run_scoreboard(config)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
+
+
+def _engine_url(value: str) -> str:
+    # WHY in the parser: `--url "$UNSET"` must not fall back to production, and a bad URL is a
+    # usage mistake, not a traceback.
+    from screamingface._client_connections import _engine_origin
+
+    try:
+        return _engine_origin(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
 
 
 def _model_name(value: str) -> str:
