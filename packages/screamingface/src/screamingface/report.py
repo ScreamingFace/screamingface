@@ -40,7 +40,7 @@ from screamingface.case_result import (
     _bind_operation_graph,
     named_scores,
 )
-from screamingface.combine_evidence import CombineEvidence
+from screamingface.combine_evidence import CombineCut, CombineEvidence
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.operation_accounting import OperationAccounting, OperationCache
@@ -1076,6 +1076,7 @@ __all__ = [
     "CaseResult",
     "CandidateResult",
     "Check",
+    "CombineCut",
     "CombineEvidence",
     "Evidence",
     "EvidenceProducer",

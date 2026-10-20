@@ -15,6 +15,7 @@
   ],
   "member_status": [
     "answered",
+    "excluded",
     "fail"
   ],
   "reason": [
@@ -23,7 +24,9 @@
     "field_missing",
     "missing",
     "no_match",
+    "no_signal",
     "no_votes",
+    "no_weight",
     "not_json",
     "not_numeric",
     "output_missing",
@@ -36,6 +39,7 @@
   "status": [
     "abstain",
     "answered",
+    "excluded",
     "fail"
   ]
 }

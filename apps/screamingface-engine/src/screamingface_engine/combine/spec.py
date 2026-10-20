@@ -5,8 +5,9 @@ FEATURE: read the spec (``screamingface.combine-spec.v1``, the url4 ``intent``) 
 STORY: as the endpoint, I get a typed spec and context or a ``SpecInvalid`` -- never a half-read
 payload, and never an error message that repeats what a member or a judge wrote.
 
-INVARIANT: every key of the spec is always present; ``null`` is allowed only where the type says
-so. Unknown keys, duplicate JSON keys, NaN/Infinity and nesting beyond 64 levels are rejected.
+INVARIANT: every key of the spec is always present except the optional ``signals`` (E4b part 3);
+``null`` is allowed only where the type says so. Unknown keys, duplicate JSON keys,
+NaN/Infinity and nesting beyond 64 levels are rejected.
 INVARIANT: a failure message names locations and rules, never input values.
 The spec text is the SDK's canonical JSON with ``$`` written as ``\\u0024``; ``json.loads`` gives
 the ``$`` back, so this parser needs no url4 escape handling.
@@ -19,18 +20,28 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote, unquote
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
 
 from screamingface_engine.combine.ports import (
+    MAX_DECLARED_SIGNALS,
     CallFingerprint,
     EvidenceKind,
     MemberSources,
     Reducer,
     SpecInvalid,
     is_signal_key,
+    is_signal_name,
     loads_bounded,
 )
 
@@ -60,8 +71,11 @@ class ReducerRule:
     """What a reducer needs, allows or forbids, and the evidence kind it makes.
 
     ``normalize_name`` is the one operator NAME (any version) its normalize step must have, or
-    None for any. It is the only operator rule in this row. E4b adds two operator rules outside
-    the rows, as a deliberate exception (erratum ER7): `_STATISTIC_REDUCERS` and `_MEAN_OPS`.
+    None for any. It is the only operator rule in this row. E4b adds three operator rules outside
+    the rows, as a deliberate exception (erratum ER7): `_STATISTIC_REDUCERS` and `_MEAN_OPS`
+    (part 1; they match operator NAMES, any version, when the spec is parsed) and
+    ``REDUCE_SELECT_RULES`` (part 2, ER1, ER2; it pairs a reduce op with its select ops and
+    matches exact operator ids, in the endpoint `_plan`).
     """
 
     kind: EvidenceKind
@@ -73,7 +87,10 @@ class ReducerRule:
 
 # Global rule (also checked below): normalize present => extract present.
 # AIDEV-NOTE: units 8-10 may tighten or loosen the presence rows of their own reducers, and still
-# add no operator rule. E4b adds the two operator rules below on purpose (erratum ER7).
+# add no operator rule. E4b adds three operator rules below on purpose (erratum ER7): the median
+# and mean rules `_STATISTIC_REDUCERS` and `_MEAN_OPS` match op NAMES at parse (`_check_stages`);
+# `REDUCE_SELECT_RULES` (ER1, ER2) matches exact op ids after the endpoint resolves the steps
+# (`_plan`).
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
         "vote": ReducerRule("answer", "required", "optional", "optional"),
@@ -108,6 +125,35 @@ _MEAN_OPS: tuple[frozenset[str], frozenset[str]] = (
     frozenset({"value", "nearest"}),
 )
 
+# An allow list: the only select op ids a reduce op pairs with. A reduce op not named here pairs
+# with any select. After a named reduce op, every select that is not in its list is refused as
+# combine_spec_invalid, also a pair that did not crash before: for example weighted_mean@1+top_k@1
+# or by_signal@1+all@1 (they failed later at run time, or abstained when no member voted). The
+# endpoint checks the list after it resolves the four steps (an unknown operator wins).
+# WHY (E4b part 2, review P2 #1, #2): a reduce op with a rule that leaves a member out (erd §6 X1,
+# X2) records that member "excluded", and the evidence refuses a chosen excluded member (CE-I3).
+# Every such reduce op is named here (the guard test checks it). Its list holds the selects that
+# the guard test runs with it and that never chose an excluded member there:
+# - filter@1 marks such a member 0, and only kept@1 reads a mark as pass or miss; any other select
+#   reads the mark as a score and can choose the member.
+# - by_field@1 chooses by the member's own field value and never reads the reduction, so it pairs
+#   with no reduce op that leaves a member out.
+# - by_signal@1+max_score@1 and weighted_mode@1+first_holder@1 are allowed although the SDK does
+#   not emit them: both ran before this rule, and both read only what the reduce step kept
+#   (by_signal@1 scores only a member with the signal; the weighted_mode@1 tally holds only a
+#   member with a weight), so they cannot choose an excluded member.
+# The SDK emits only listed pairs. test_combine_exclusion_never_chosen runs every pairing.
+# WHY exact ids, not names: a new version of either op is a new pairing, so it must be listed.
+REDUCE_SELECT_RULES: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "by_signal@1": frozenset({"best_holder@1", "max_score@1", "top_k@1"}),
+        "filter@1": frozenset({"kept@1"}),
+        "weighted_mean@1": frozenset({"nearest@1", "value@1"}),
+        "weighted_median@1": frozenset({"nearest@1", "value@1"}),
+        "weighted_mode@1": frozenset({"first_holder@1", "max_weight_holder@1"}),
+    }
+)
+
 
 class _SpecModel(BaseModel):
     """Closed consumer value: any unknown key or loose type is a spec error."""
@@ -130,9 +176,48 @@ class SignalWeights(_SpecModel):
     @field_validator("signal")
     @classmethod
     def _known_signal(cls, value: str) -> str:
-        if not is_signal_key(value):
-            raise ValueError("weights.signal must be a known signal key")
+        if not (is_signal_key(value) or is_signal_name(value)):
+            raise ValueError("weights.signal must be a known signal key or a declared name")
         return value
+
+
+class VerbalizedSource(_SpecModel):
+    """``{"source": "verbalized", "pattern": str, "ignore_case"?: bool}`` (E4b part 3).
+
+    The pattern rules (length, RE2 compile, one group) are the source plugin's; the endpoint checks
+    them at plan time through ``registry.source``.
+    """
+
+    source: Literal["verbalized"]
+    pattern: str
+    ignore_case: bool = False
+
+
+class LogprobSource(_SpecModel):
+    """``{"source": "logprob", "form": "mean" | "sum" | "prob"}`` (E4b part 3).
+
+    The value comes from each member's reply log-probabilities (the member reader), not from its
+    text.
+    """
+
+    source: Literal["logprob"]
+    form: Literal["mean", "sum", "prob"]
+
+
+class EntropySource(_SpecModel):
+    """``{"source": "entropy", "top_logprobs": 1..20}`` (E4b part 3).
+
+    The value is the mean token entropy of each member's reply, in nats (the member reader).
+    """
+
+    source: Literal["entropy"]
+    top_logprobs: int = Field(ge=1, le=20)
+
+
+# WHY a tagged union: the `source` word picks the one model, so a bad entry fails on its own keys.
+DeclaredSource = Annotated[
+    VerbalizedSource | LogprobSource | EntropySource, Field(discriminator="source")
+]
 
 
 class CombineSpec(_SpecModel):
@@ -146,13 +231,61 @@ class CombineSpec(_SpecModel):
     reduce: StepSpec
     select: StepSpec
     weights: dict[str, float] | SignalWeights | None
+    signals: dict[str, DeclaredSource] | None = None
+
+    @field_validator("signals", mode="wrap")
+    @classmethod
+    def _quiet_signals(cls, value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        # WHY: a nested error's location holds the declared name; a failure names rules only.
+        try:
+            return handler(value)
+        except ValidationError:
+            raise ValueError("signals must map declared names to known sources") from None
 
     @model_validator(mode="after")
     def _check(self) -> CombineSpec:
         _check_members(self.members)
         _check_weights(self.weights, self.members)
         _check_stages(self)
+        _check_signals(self)
         return self
+
+
+def _check_signals(spec: CombineSpec) -> None:
+    if "signals" not in spec.model_fields_set:
+        return
+    signals = spec.signals
+    # WHY an explicit null is refused although the schema types it: no declaration omits the key.
+    if signals is None or not 1 <= len(signals) <= MAX_DECLARED_SIGNALS:
+        raise ValueError(f"signals must declare 1 to {MAX_DECLARED_SIGNALS} names")
+    if not all(is_signal_name(name) for name in signals):
+        raise ValueError("signals has a name that is not a declared signal name")
+    # WHY at most one (C1): every member call asks for one `top_logprobs`, so two entropy sources
+    # could not each get the k they declare.
+    if sum(isinstance(entry, EntropySource) for entry in signals.values()) > 1:
+        raise ValueError("signals declares more than one entropy source")
+    _check_weight_source(spec.weights, signals)
+
+
+def _check_weight_source(
+    weights: dict[str, float] | SignalWeights | None, signals: Mapping[str, DeclaredSource]
+) -> None:
+    """A vote weight must be able to be greater than 0 (P14, LP-E1, EN-E2), as in the SDK.
+
+    WHY: a log-probability (``mean``, ``sum``) is at most 0, and a higher entropy means LESS
+    confidence; only ``logprob`` in the form ``prob`` is a probability.
+    """
+    if not isinstance(weights, SignalWeights):
+        return
+    if _cannot_weigh(signals.get(weights.signal)):
+        raise ValueError("weights.signal must not be an entropy or a non-prob logprob source")
+
+
+def _cannot_weigh(source: DeclaredSource | None) -> bool:
+    """Whether a declared source can never give a weight greater than 0 (P14)."""
+    return isinstance(source, EntropySource) or (
+        isinstance(source, LogprobSource) and source.form != "prob"
+    )
 
 
 def _check_members(members: list[str]) -> None:
@@ -214,6 +347,13 @@ def _check_mean_ops(reduce: StepSpec, select: StepSpec) -> None:
         raise ValueError("reducer mean requires a mean or weighted_mean reduce step")
     if select.op.partition("@")[0] not in selects:
         raise ValueError("reducer mean requires a value or nearest select step")
+
+
+def declares_reply_sources(spec: CombineSpec) -> bool:
+    """Whether the spec declares a logprob or entropy source: its context then carries
+    ``sources`` (erd §4), so the member reader can find each member's reply numbers."""
+    signals = spec.signals or {}
+    return any(isinstance(entry, LogprobSource | EntropySource) for entry in signals.values())
 
 
 def parse_spec(intent: str) -> CombineSpec:
@@ -405,13 +545,19 @@ __all__ = [
     "MAX_MEMBERS",
     "MAX_WEIGHT",
     "REDUCER_RULES",
+    "REDUCE_SELECT_RULES",
     "CombineContext",
     "CombineSpec",
+    "DeclaredSource",
+    "EntropySource",
+    "LogprobSource",
     "Presence",
     "ReducerRule",
     "SignalWeights",
     "StepSpec",
+    "VerbalizedSource",
     "canonical_params",
+    "declares_reply_sources",
     "parse_context",
     "parse_spec",
 ]

@@ -22,7 +22,7 @@ _DATA = Path(__file__).parent / "data"
     [
         (
             "schemas/screamingface.report-trace.v1.json",
-            "482fa302e2aed0e9a080d4465f115db857d021547ec2d3530b2d0c5a121ef459",
+            "687605763d666ce2ad69ef6e4c9420eb8ffa3f13e7e8a574f8a662510884567c",
         ),
         (
             "report_v1_combine_report.json",

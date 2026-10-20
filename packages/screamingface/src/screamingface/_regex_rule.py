@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator, Mapping
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
 MAX_PATTERN_CHARS = 256
 MAX_REPEAT_COUNT = 1000
@@ -51,6 +51,15 @@ def check_regex(args: Mapping[str, object], label: str) -> None:
         )
     if not _group_exists(args.get("group", 0), compiled):
         raise ValueError(f"{label} group must name a group of the pattern")
+
+
+def check_signal_pattern(pattern: object, ignore_case: object, label: str) -> None:
+    """Refuse, before any spend, a verbalized pattern the Engine would refuse: regex@1's pattern
+    rules plus exactly one capture group (E4b P7). INVARIANT: no message contains the pattern."""
+
+    check_regex({"pattern": pattern, "ignore_case": ignore_case}, label)
+    if _compile(cast(str, pattern), cast(bool, ignore_case), label).groups != 1:
+        raise ValueError(f"{label} pattern must have exactly one capture group")
 
 
 def _refuse_posix_class(pattern: str, label: str) -> None:

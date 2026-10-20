@@ -1,0 +1,74 @@
+{
+  "approver": "owner",
+  "date": "2026-10-15",
+  "issue": "OME-1652",
+  "branch": "OME-1652-e4b-evidence-and-signal-sources",
+  "scope": "Combined approvals for one PR. OME-E4B-P2: E4b part 2 (evidence completeness), all units on one branch. Unit 1: additive excluded status, reasons, rank and cut in the combine-evidence v1 and answer v1 schemas; the public-surface snapshot adds the new names; test_pick_output's exact reason list gains no_signal and no_weight. Unit 2 (ans:Q3): evidence_cases.json regenerated (rank_cut_not_met and mean_weighted_value show excluded; new exclusion cases), new scenarios in the engine and SDK evidence contract lists; test_combine_weighted_vote expects excluded/no_weight instead of answered for a voter without a weight; test_frozen_record_fields counts the new cases. Unit 3: new rank cases (evidence_cases.json, scenario lists, case count 30 to 32 under the owner's standing rule). Unit 4 (ans:Q4): report-trace v1 reduce entry gains judge_operation_id and judge_model; test_e4b_schema_pins updates that schema's sha256. Unit 5: the public-surface snapshot adds the judge-writer warning. No assertion is removed or weakened. | OME-E4B-P3: E4b part 3 (signal sources v1), all units on one branch. Unit 2 (ans:Q1): the combine-spec v1 schema gains the optional declared signals map, and the combine-evidence v1 schema the declared field; test_signals no longer refuses 'cost' at sf.signal, because it is a valid declared name (the error moves to the Fusion); the public-surface snapshot adds Fusion signals and sf.Verbalized. Unit 3 (ans:Q5, P13): one new failure code, logprobs_unsupported: test_e4b_catalog_pins counts 66 codes and names it, test_failure_classes adds it to the agreed set, test_terminal_error_detail allow-lists its engine-written text. Unit 4: the combine-spec v1 schema adds the logprob and entropy source shapes; the public-surface snapshot adds sf.Logprob and sf.Entropy. No assertion is removed or weakened.",
+  "reason": "The owner chose on 2026-10-18 to ship these parts as one PR (option A); this file joins the per-part approvals, with base_blob at the PR base and approved_blob at the PR tip. No new test change. OME-E4B-P2: Owner approved these 11 pinned test edits in chat on 2026-10-15 after the build reported them (plan section 6 plus the build errata). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. | OME-E4B-P3: Owner approved these 7 pinned test edits in chat on 2026-10-15 after the build reported them (plan section 6 plus the build errata). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. Re-pinned on 2026-10-15 after the restack on E4b part 2 (branch e4b-evidence-completeness): each base_blob is the blob at e4b-evidence-completeness and each approved_blob is the blob at the restacked tip. The combine-evidence v1 snapshot and the public-surface snapshot were regenerated on the new base; the part 3 delta in them is the same as the delta the owner approved.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "ecf2f814a51548ff56df7a12d2f51fd6beab2b44",
+      "approved_blob": "22d54b15b8c5d8f312b1a962ef6f590b61aa4791"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "c191827c4e963d59b13a77daa8ba9f8eac4f810c",
+      "approved_blob": "406747a92a4c44d05aff27f0922e7582250cc31a"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "c36a0d394e6edcaab5dc205fbfdae4b68eece1c6",
+      "approved_blob": "b3acb2a5cd5c489c570a57384cd40fa5c9f30273"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py": {
+      "base_blob": "f55477f5d3686514d18ad1cb0f7183c6cb6385cf",
+      "approved_blob": "b7100e62690d9dd01432ae599547906618924c4e"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_weighted_vote.py": {
+      "base_blob": "e70c69eebbd2fe2333a14c28ddfe69644e19e7de",
+      "approved_blob": "16e266abff3ec3f1b55f952ba1b56922aa37d275"
+    },
+    "apps/screamingface-engine/tests/unit/test_e4b_catalog_pins.py": {
+      "base_blob": "60a41ea9c7ea5001b2d4d298db5f34367deb74a2",
+      "approved_blob": "2fe20d9b61f54f95375331977ce9c51c8a675471"
+    },
+    "apps/screamingface-engine/tests/unit/test_failure_classes.py": {
+      "base_blob": "1d214eff0af8da49d40f642d5377583209835d12",
+      "approved_blob": "6d8699ab03d5e02491e30bed688356b974d7caad"
+    },
+    "apps/screamingface-engine/tests/unit/test_terminal_error_detail.py": {
+      "base_blob": "6c6824dfd7b379e0efccddd4e3c43b35cb2f7758",
+      "approved_blob": "31a4e7875a33f83816768fda200f39b1c337db58"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "d179ec29bf6aa230a3019cdd2da955be4c18e87a",
+      "approved_blob": "6524c2d068967d7f3455329323aa9dbd02ca5065"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.report-trace.v1.json": {
+      "base_blob": "47ddb41471b85c91b666d6a4ef053aa432e3e024",
+      "approved_blob": "9777fa55f21c48bff574337e21b9837dbec496e1"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "54d577706e2d870e3a8712af02d3738dc21b2097",
+      "approved_blob": "b94d62bb8199dd53c1c9ea320184b4ebc8e5968b"
+    },
+    "packages/screamingface/tests/test_combine_evidence_contract.py": {
+      "base_blob": "fab1c0db10ea4f66ca5f2d8642937d255e7165c4",
+      "approved_blob": "3aaa863684aa156cd2b80e0bcd30e08d33c406fd"
+    },
+    "packages/screamingface/tests/test_e4b_schema_pins.py": {
+      "base_blob": "d9b23d45a22d474a1d7c3024ce064a9ace23a4d3",
+      "approved_blob": "8a32a2c2f6ba4a7f8f0581e722139415e784b39b"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "c6b98604a87c661ede9e7b275fd6fbdd455045e1",
+      "approved_blob": "b0f1493ec8e1616c733b193f14b7c8ef280234b8"
+    },
+    "packages/screamingface/tests/test_pick_output.py": {
+      "base_blob": "26d21c21f5faf4aaf5f42e9f45a96ecf00a95c27",
+      "approved_blob": "03c12205ca6e56715e55f754c7f5e016ffbe6082"
+    },
+    "packages/screamingface/tests/test_signals.py": {
+      "base_blob": "9c24fb382a80860cdfc625814218f9d5e4458a15",
+      "approved_blob": "e252090bc9e93210f7a1e3a073d8b097079f2cb3"
+    }
+  }
+}
