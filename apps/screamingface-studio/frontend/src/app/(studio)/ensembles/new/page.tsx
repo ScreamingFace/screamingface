@@ -78,7 +78,7 @@ import {
   fusionFromSlots,
   memberSolos,
   parseRecipe,
-  recipeToUrl4,
+  renderRecipe,
   resolveModels,
   rootSynthesizerSolo,
 } from "@/lib/recipe";
@@ -2346,7 +2346,8 @@ function EnsembleComposer() {
 
   const slots = useMemo(() => deriveSlots(root), [root]);
   const judge = useMemo(() => deriveJudge(root), [root]);
-  const recipe = useMemo(() => recipeToUrl4(root), [root]);
+  const rendered = useMemo(() => renderRecipe(root), [root]);
+  const recipe = rendered.ok ? rendered.url4 : "";
   const draft = useMemo<SavedEnsemble>(
     () => buildDraft(ensembleId, name, root, runHistory),
     [ensembleId, name, root, runHistory],
@@ -2423,6 +2424,7 @@ function EnsembleComposer() {
   }
 
   async function copyRecipe() {
+    if (!rendered.ok) return;
     await navigator.clipboard.writeText(recipe);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
@@ -2503,7 +2505,12 @@ function EnsembleComposer() {
               )}
               {savedFlash ? "Saved" : "Save"}
             </Button>
-            <Button variant="outline" size="sm" onClick={copyRecipe}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyRecipe}
+              disabled={!rendered.ok}
+            >
               {copied ? (
                 <Check className="size-3.5 text-accent" />
               ) : (
@@ -2666,9 +2673,17 @@ function EnsembleComposer() {
                 url4 preview
               </p>
               <div className="rounded-lg border bg-card p-2">
-                <code className="block break-all font-mono text-[11px] text-primary/90">
-                  {recipe}
-                </code>
+                {rendered.ok ? (
+                  <code className="block break-all font-mono text-[11px] text-primary/90">
+                    {recipe}
+                  </code>
+                ) : (
+                  <ul role="alert" className="space-y-1 text-[11px] text-destructive">
+                    {rendered.issues.map((issue) => (
+                      <li key={`${issue.nodeId}-${issue.key}`}>{issue.message}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <p className="mt-1.5 text-[11px] text-muted-foreground">
                 Structural preview — the engine emits the canonical url4 at run time.

@@ -128,3 +128,103 @@ All under `apps/screamingface-studio/frontend/`:
       trailing spaces are no longer collapsed or trimmed (the SDK keeps them); a blank prompt
       renders the default prompt (it used to render `''`). Tabs, CRs and a literal U+2028 in a
       prompt do not survive a round trip, exactly as in the SDK.
+
+## Review follow-up (PR #1327)
+
+HupBaHa's six blocking items. I checked each one against the source before changing anything,
+and all six held. Item 6 turned out stricter than the review said. Tests were written first and
+seen failing: 20 recipe tests, 1 page test and 33 run-client tests went RED, then GREEN. All
+fixes land in one commit.
+
+1. **The run's root node.** Verified: the SDK takes as root the `started` frame whose
+   `data.url4` equals the url4 it sent. It keeps that frame's `source`, accepts result and
+   terminated frames only from it, counts subtree cost only from it, and fails a `terminated`
+   that arrives before the root is known (`packages/screamingface/src/screamingface/_engine/contract.py:191-199,246-279`).
+   `run.ts` `dispatch` now does the same. Fixtures: `gen-run-frames.py` puts the SDK's
+   `link_candidate` url4 in the root `started` frame and adds child frames
+   (`childStarted/Result/Cost/Terminated`).
+   - RED→GREEN: "takes the result and terminal state only from the root node", "fails a run
+     whose root never started", "does not take a started frame for another url4 as the root".
+   - Test setup change: "rejects a run the Engine timed out" now sends the root `started` frame
+     before its `terminated` frame. Its assertion is unchanged.
+2. **Bounded, cancellation-safe phases.** Each phase now has its own deadline, taken from the
+   SDK:
+   - A start request gets 30 s, the SDK's HTTP client timeout (`transport.py:141`). If no
+     answer comes, Studio sends `DELETE` in case the run began, then rejects as `unreachable`.
+     If the user had already aborted, it rejects as `stopped`, or `stop_unconfirmed` when the
+     `DELETE` fails.
+   - A start accepted after an abort is stopped.
+   - `DELETE` gets 5 s (`_STOP_TIMEOUT_SECONDS`, `transport.py:62`). A 2xx, 404, 409 or 410
+     answer counts as `stopped` (`_ALREADY_STOPPED_STATUSES`, `transport.py:64`). Any other
+     answer, or no answer in time, gives the new kind `stop_unconfirmed`.
+   - An artifact fetch gets 30 s per attempt, with the SDK's retry delays 0 / 200 / 800 ms
+     (`transport.py:1265`). That bounds a stalled artifact at about 91 s.
+   - RED→GREEN: "gives up on a start the Engine never answers and deletes the run in case it
+     began", "settles an abort whose start never answers once the start deadline passes",
+     "reports a stop it could not confirm when the DELETE refuses it / never answers", "does
+     not wait forever on an artifact the Engine never sends".
+   - These two tests passed before the fix too. They pin behaviour that was already right:
+     "stops a run the Engine accepts after the user aborted" and "treats a DELETE for a run
+     that is already gone as stopped".
+3. **Artifact memory.** The cap is `MAX_ARTIFACT_BYTES` = 256 MiB. It is large enough for a full
+   ContractEval result: 4,182 cases from a 209 MB dataset (spec D10). It also keeps the decoded
+   text well below V8's maximum string length (about 512 Mi UTF-16 units), so decoding and
+   `JSON.parse` cannot throw a RangeError. The Engine sets no artifact cap of its own.
+   - `size_bytes` is checked before fetching.
+   - If the response has a `Content-Length` and no `Content-Encoding`, the length must equal
+     `size_bytes`.
+   - The body is read in chunks, and the read is cancelled as soon as it passes `size_bytes`.
+   - The bytes are checked against the sha256, then decoded with
+     `TextDecoder("utf-8", {fatal: true})`.
+   - RED→GREEN: "refuses an artifact above the browser-safe maximum without fetching it",
+     "refuses a Content-Length that disagrees with the ticket before reading", "stops reading
+     once the body passes the ticket's size", "refuses an artifact that is not UTF-8".
+4. **Runtime check of `CandidateResult`.** The new `src/lib/engine/run-result.ts` checks the
+   fields Studio reads against the Engine's models
+   (`apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py:205-219,234-242,262-278,431-479`):
+   - top level: `schema` v1, `benchmark_id`, `benchmark_revision`, `case_count`, `score`,
+     `coverage`, `metrics`, `failures[]` (`code`, `message`), `cases[]`;
+   - each case: `status`, `case_id` (integer or string), `input` (non-empty), `output`,
+     `grade` (null, or `method`, `score`, `metrics`, `checks`), `failures`.
+   - A bad field rejects with `RunError` kind `invalid_result` (code `invalid_result`), and the
+     message names the field.
+   - RED→GREEN: "rejects a result with a bad <field>, naming it" (21 cases). "accepts a null
+     score and an ungraded case" is a positive control.
+5. **Fusion context.** Verified: the SDK compiles a fusion's members against the fusion's own
+   input, and puts that input in the synthesizer context as url4 text
+   (`_evaluation/candidate.py:176-186,394-406,313-318`). `recipeToUrl4` now passes the current
+   context to the members and writes `input: quoteText(context)`. The parser rebuilds chains
+   against that input; this rewrote `buildTree`. There is a new SDK golden,
+   `pipeline_into_fusion`.
+   - RED→GREEN: "renders the SDK's compiled candidate text (pipeline_into_fusion)", "round-trips
+     a pipeline into a fusion", "… with a pipeline synthesizer", "round-trips a fusion whose
+     synthesizer is a fusion".
+   - Not SDK-identical: in a fusion whose synthesizer is another fusion, the SDK numbers the
+     outer fusion's synthesis first (`synthesis_2` for the inner synthesizer). Studio numbers in
+     emit order. The context text matches. Names and topology were agreed out of scope.
+6. **Parameter validation.** Verified, and stricter than the review said. url4's `param-value`
+   allows only letters, digits and `. - _ , : /` (`packages/url4/src/url4/core/_annotations.py:63-67`,
+   `validate_param` :107-136). The renderer refuses `,` in a query value (`url4/core/render.py:504-511`),
+   and the SDK refuses `';(),&` and control characters (`_candidate_policy.py:68-77`). Because
+   the SDK renders through url4 and re-parses the result (`render.py:85`), a parameter value the
+   SDK can send is `[A-Za-z0-9._\-:/]+`. A value with a space, `=` or `\n` cannot be sent.
+   - Keys must match `[A-Za-z0-9._]+` and must not be reserved (`_candidate_policy.py:12-28`).
+   - `recipeIssues(root)` lists every bad value or key. `recipeToUrl4` throws a typed
+     `RecipeError` that carries the issues. `renderRecipe(root)` returns them for the UI.
+   - The builder shows the issues in place of the url4 preview and disables Share url4.
+     `parseRecipe` rejects them.
+   - New SDK golden `params_text`: `stop=END:of/answer-1.0_x&reasoning_effort=high&logprobs=true`.
+   - RED→GREEN: "reports a value with an ampersand / a comma / parentheses / a semicolon / a
+     quote / a space / a backslash escape / a newline / a control character / an equals sign
+     instead of emitting it", "reports a name with a space / a dash / a reserved name / another
+     reserved name", "accepts every value url4 carries unquoted, and skips unfinished rows",
+     "refuses to import a parameter value url4 cannot carry", and the page test "shows a
+     parameter url4 cannot carry and will not share the recipe".
+   - Product note: because of these url4 rules, the builder's `stop` field cannot hold a
+     typical stop sequence such as `\n\n` or a phrase with spaces. Supporting that would need
+     quoted parameter values in the SDK or the url4 grammar.
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 288 tests; statements 95.09%,
+branches 90.34%, functions 96.56%, lines 96.78%; `recipe.ts` 98.9%, `run.ts` 92.0%,
+`run-result.ts` 98.2%) and `npm run build` all pass. Both fixture scripts regenerate the
+committed JSON byte for byte, and `uv run --frozen` left every lockfile untouched.

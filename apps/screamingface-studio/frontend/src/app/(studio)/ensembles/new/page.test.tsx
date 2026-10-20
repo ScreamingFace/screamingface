@@ -28,9 +28,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { useBenchmarkStore } from "@/lib/benchmark-store";
-import { useEnsembleStore } from "@/lib/ensemble-store";
+import { type SavedEnsemble, useEnsembleStore } from "@/lib/ensemble-store";
 import { toSavedModel, useModelStore } from "@/lib/model-store";
-import { fusionOf, recipeToUrl4 } from "@/lib/recipe";
+import { type SoloNode, fusionOf, recipeToUrl4 } from "@/lib/recipe";
 import EnsembleComposerPage from "./page";
 
 const MODELS: EngineModel[] = [
@@ -94,6 +94,39 @@ describe("EnsembleComposerPage recipe import", () => {
       "This isn't a recipe Studio can import",
     );
     expect(screen.getByText("0 models · 0 runs")).toBeInTheDocument();
+  });
+});
+
+describe("EnsembleComposerPage recipe parameters", () => {
+  it("shows a parameter url4 cannot carry and will not share the recipe", async () => {
+    const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
+    const root = fusionOf([llama, qwen]);
+    root.members[0] = { ...(root.members[0] as SoloNode), params: [{ key: "stop", value: "a&b" }] };
+    useEnsembleStore.setState({
+      ensembles: [
+        {
+          id: "e1",
+          name: "with-stop",
+          root,
+          slots: [],
+          strategy: "majority_vote",
+          customReduce: false,
+          loopMode: "parallel",
+          judge: null,
+          judgeId: null,
+          runs: 0,
+          runHistory: [],
+          createdAt: 1,
+          updatedAt: 1,
+        } as SavedEnsemble,
+      ],
+    });
+    search.params = new URLSearchParams({ id: "e1" });
+    render(<EnsembleComposerPage />);
+
+    expect(await screen.findByText("with-stop")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("stop");
+    expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
   });
 });
 

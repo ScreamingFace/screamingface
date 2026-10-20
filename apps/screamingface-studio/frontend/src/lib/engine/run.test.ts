@@ -1,6 +1,8 @@
 import frames from "./__fixtures__/frames.json";
 import type { RunEvent } from "./run-types";
 import { RunError, type RunSocket, isRunError, startRun } from "./run";
+import { createHash } from "node:crypto";
+
 import { linkCandidate } from "./url4";
 
 vi.mock("../runtime", () => ({
@@ -10,8 +12,9 @@ vi.mock("../runtime", () => ({
 const BASE = "http://127.0.0.1:9108";
 const TOPIC = "3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b";
 const NOW = Date.UTC(2026, 9, 9, 12, 0, 0);
-const CANDIDATE = "(model_1:0.0:/openai/gpt-4o($input)!'Answer.')!'$model_1'";
-const BENCHMARK = "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'";
+// The fixtures' root `started` frame names exactly this linked run (scripts/gen-run-frames.py).
+const CANDIDATE = frames.candidate;
+const BENCHMARK = frames.benchmark;
 
 function base64url(value: string) {
   return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -30,17 +33,44 @@ type Reply = {
   headers: Headers;
   json: () => Promise<unknown>;
   arrayBuffer: () => Promise<ArrayBuffer>;
+  body: ReadableStream<Uint8Array> | null;
 };
 
-function reply(status: number, body?: unknown, type = "application/json"): Reply {
+function streamOf(bytes: Uint8Array) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+function reply(
+  status: number,
+  body?: unknown,
+  type = "application/json",
+  extraHeaders: Record<string, string> = {},
+): Reply {
   const raw = typeof body === "string" ? body : JSON.stringify(body ?? null);
+  const bytes = new TextEncoder().encode(raw);
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: new Headers({ "content-type": type }),
+    headers: new Headers({ "content-type": type, ...extraHeaders }),
     json: async () => JSON.parse(raw),
-    arrayBuffer: async () => new TextEncoder().encode(raw).buffer as ArrayBuffer,
+    arrayBuffer: async () => bytes.buffer as ArrayBuffer,
+    body: streamOf(bytes),
   };
+}
+
+// A request the Engine never answers: it only ends when the caller's signal aborts it.
+const HANG = "hang" as const;
+type Route = () => Reply | typeof HANG;
+
+function hang(signal: AbortSignal | null | undefined) {
+  return new Promise<never>((_resolve, reject) => {
+    signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+  });
 }
 
 function problem(status: number, detail: string) {
@@ -54,8 +84,9 @@ type Call = { url: string; method: string; headers: Record<string, string> };
 
 type EngineRoutes = {
   benchmark?: () => Reply;
-  start?: (() => Reply)[];
-  artifact?: () => Reply;
+  start?: (Route | (() => Promise<Reply>))[];
+  artifact?: Route;
+  remove?: Route;
 };
 
 function fakeEngine(routes: EngineRoutes = {}) {
@@ -69,9 +100,13 @@ function fakeEngine(routes: EngineRoutes = {}) {
       return (routes.benchmark ?? (() => reply(200, { id: "ifeval", url4: BENCHMARK })))();
     }
     if (url === `${BASE}/token` && method === "POST") return reply(200, { token: TOKEN });
-    if (url.startsWith(`${BASE}/?q=`)) return (start.shift() ?? (() => reply(202, "")))();
-    if (url.startsWith(`${BASE}/artifacts/`) && routes.artifact) return routes.artifact();
-    if (method === "DELETE") return reply(204, "");
+    const answer = (route: Route | (() => Promise<Reply>)) => {
+      const result = route();
+      return result === HANG ? hang(init.signal) : result;
+    };
+    if (url.startsWith(`${BASE}/?q=`)) return answer(start.shift() ?? (() => reply(202, "")));
+    if (url.startsWith(`${BASE}/artifacts/`) && routes.artifact) return answer(routes.artifact);
+    if (method === "DELETE") return answer(routes.remove ?? (() => reply(204, "")));
     throw new Error(`unexpected request ${method} ${url}`);
   }) as unknown as typeof globalThis.fetch;
   const startCalls = () => calls.filter((call) => call.url.startsWith(`${BASE}/?q=`));
@@ -332,11 +367,11 @@ describe("startRun", () => {
     const { outcome, socket } = await started();
     const timedOut = {
       ...frames.terminatedStopped,
-      sequence: "1",
+      sequence: "2",
       data: { status: "timed_out", error: { code: "run_timeout", message: "Too slow", permanent: false } },
     };
 
-    socket().receive(timedOut);
+    socket().receive(HAPPY[0], timedOut);
 
     expect(await rejection(outcome)).toMatchObject({ kind: "timed_out", code: "run_timeout" });
   });
@@ -646,5 +681,278 @@ describe("startRun events", () => {
     expect(error.message).toBe("The run was stopped.");
     expect(isRunError(error)).toBe(true);
     expect(isRunError(new Error("x"))).toBe(false);
+  });
+});
+
+// Give frames consecutive sequence numbers, in the order given.
+function sequenced(...items: Record<string, unknown>[]) {
+  return items.map((frame, index) => ({ ...frame, sequence: String(index + 1) }));
+}
+
+describe("startRun root node", () => {
+  it("takes the result and terminal state only from the root node", async () => {
+    const { outcome, events, socket } = await started();
+
+    socket().receive(
+      ...sequenced(
+        HAPPY[0],
+        frames.childStarted,
+        frames.childCost,
+        frames.childResult,
+        { ...frames.childTerminated, data: { status: "failed", error: { code: "x", message: "child", permanent: false } } },
+        frames.childTerminated,
+        ...HAPPY.slice(1),
+      ),
+    );
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(events).toEqual(EXPECTED_EVENTS);
+  });
+
+  it("fails a run whose root never started", async () => {
+    const { outcome, socket } = await started();
+
+    socket().receive(...sequenced(frames.childStarted, frames.childResult, frames.childTerminated));
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The Engine never started this run's root node.",
+    });
+  });
+
+  it("does not take a started frame for another url4 as the root", async () => {
+    const { outcome, socket } = await started();
+    const other = { ...HAPPY[0], data: { url4: "(x:0.0:'other')!'$x'" } };
+
+    socket().receive(other, ...HAPPY.slice(1));
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+});
+
+describe("startRun deadlines", () => {
+  it("gives up on a start the Engine never answers and deletes the run in case it began", async () => {
+    vi.useFakeTimers();
+    const { outcome, engine } = await started({ routes: { start: [() => HANG] } });
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(engine.calls.some((call) => call.method === "DELETE")).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "unreachable",
+      message: "The Engine did not answer the run's start within 30 seconds.",
+    });
+    expect(engine.calls.at(-1)).toMatchObject({ method: "DELETE", url: `${BASE}/?topic=${TOPIC}` });
+  });
+
+  it("stops a run the Engine accepts after the user aborted", async () => {
+    let accept: (value: Reply) => void = () => undefined;
+    const accepted = new Promise<Reply>((resolve) => {
+      accept = resolve;
+    });
+    const controller = new AbortController();
+    const { outcome, socket } = await started({
+      signal: controller.signal,
+      routes: { start: [() => accepted] },
+    });
+
+    controller.abort();
+    await flush();
+    expect(socket().sent).toHaveLength(1);
+    accept(reply(202, ""));
+    await flush();
+
+    expect(socket().sent[1]).toMatchObject({ type: "ai.url4.stop" });
+    socket().receive(...sequenced(HAPPY[0], frames.terminatedStopped));
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("settles an abort whose start never answers once the start deadline passes", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome, engine } = await started({
+      signal: controller.signal,
+      routes: { start: [() => HANG] },
+    });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.calls.at(-1)?.method).toBe("DELETE");
+  });
+
+  it.each([
+    ["refuses it", () => problem(500, "queue unavailable")],
+    ["never answers", () => HANG],
+  ] as [string, Route][])(
+    "reports a stop it could not confirm when the DELETE %s",
+    async (_name, remove) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const { outcome } = await started({ signal: controller.signal, routes: { remove } });
+
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(5_000 + 5_000);
+
+      expect(await rejection(outcome)).toMatchObject({ kind: "stop_unconfirmed" });
+    },
+  );
+
+  it("treats a DELETE for a run that is already gone as stopped", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome } = await started({
+      signal: controller.signal,
+      routes: { remove: () => problem(404, "no such run") },
+    });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("does not wait forever on an artifact the Engine never sends", async () => {
+    vi.useFakeTimers();
+    const { outcome, socket } = await started({ routes: { artifact: () => HANG } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(3 * 30_000 + 1_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable" });
+  });
+});
+
+function artifactFrame(bytes: Uint8Array, sizeBytes = bytes.length) {
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  return {
+    ...frames.artifactResult,
+    data: { body: null, media_type: null, artifact: { id: sha, size_bytes: sizeBytes, sha256: sha } },
+  };
+}
+
+describe("startRun artifact limits", () => {
+  it("refuses an artifact above the browser-safe maximum without fetching it", async () => {
+    const { outcome, engine, socket } = await started({
+      routes: { artifact: () => reply(200, frames.artifactBody) },
+    });
+
+    socket().receive(
+      ...HAPPY.slice(0, 10),
+      artifactFrame(new TextEncoder().encode("x"), 256 * 1024 * 1024 + 1),
+      HAPPY[11],
+    );
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    expect(engine.calls.some((call) => call.url.includes("/artifacts/"))).toBe(false);
+  });
+
+  it("refuses a Content-Length that disagrees with the ticket before reading", async () => {
+    const pulls = vi.fn();
+    const response = {
+      ...reply(200, frames.artifactBody, "application/json", {
+        "content-length": String(frames.artifactBody.length + 10),
+      }),
+      // highWaterMark 0: the stream asks for data only when someone reads it.
+      body: new ReadableStream<Uint8Array>({ pull: pulls }, { highWaterMark: 0 }),
+    };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    expect(pulls).not.toHaveBeenCalled();
+  });
+
+  it("stops reading once the body passes the ticket's size", async () => {
+    const cancel = vi.fn();
+    let sent = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1024;
+        controller.enqueue(new Uint8Array(1024).fill(32));
+      },
+      cancel,
+    });
+    const response = { ...reply(200, ""), headers: new Headers(), body: endless };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    expect(cancel).toHaveBeenCalled();
+    expect(sent).toBeLessThan(frames.artifactBody.length + 64 * 1024);
+  });
+
+  it("refuses an artifact that is not UTF-8", async () => {
+    const bytes = new Uint8Array([0x7b, 0xff, 0xfe, 0x7d]);
+    const response = { ...reply(200, ""), headers: new Headers(), body: streamOf(bytes) };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), artifactFrame(bytes), HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The run's result is not UTF-8 text.",
+    });
+  });
+});
+
+type Mutation = (result: Record<string, any>) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+describe("startRun result contract", () => {
+  async function resultWith(mutate: Mutation) {
+    const result = structuredClone(frames.candidateResult) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mutate(result);
+    const { outcome, socket } = await started();
+    socket().receive(
+      ...HAPPY.slice(0, 10),
+      { ...HAPPY[10], data: { body: JSON.stringify(result), media_type: "application/json" } },
+      HAPPY[11],
+    );
+    return outcome;
+  }
+
+  it.each([
+    ["schema", (r) => (r.schema = "screamingface.candidate-result.v2")],
+    ["benchmark_id", (r) => delete r.benchmark_id],
+    ["benchmark_revision", (r) => (r.benchmark_revision = 3)],
+    ["case_count", (r) => (r.case_count = -1)],
+    ["score", (r) => (r.score = "0.5")],
+    ["coverage", (r) => (r.coverage = 1.5)],
+    ["metrics", (r) => (r.metrics = [])],
+    ["failures", (r) => (r.failures = {})],
+    ["cases", (r) => (r.cases = null)],
+    ["cases[0].status", (r) => (r.cases[0].status = "ok")],
+    ["cases[0].case_id", (r) => (r.cases[0].case_id = true)],
+    ["cases[0].input", (r) => (r.cases[0].input = "")],
+    ["cases[0].output", (r) => (r.cases[0].output = 5)],
+    ["cases[0].grade", (r) => (r.cases[0].grade = "A")],
+    ["cases[0].grade.score", (r) => (r.cases[0].grade.score = "x")],
+    ["cases[0].grade.method", (r) => (r.cases[0].grade.method = "")],
+    ["cases[0].grade.metrics", (r) => (r.cases[0].grade.metrics = null)],
+    ["cases[0].grade.checks", (r) => delete r.cases[0].grade.checks],
+    ["cases[0].failures", (r) => (r.cases[0].failures = "none")],
+    ["cases[0].failures[0].code", (r) => (r.cases[0].failures = [{ message: "m" }])],
+    ["failures[0].message", (r) => (r.failures = [{ code: "c" }])],
+  ] as [string, Mutation][])("rejects a result with a bad %s, naming it", async (field, mutate) => {
+    const error = await rejection(resultWith(mutate));
+    expect(error).toMatchObject({ kind: "invalid_result", code: "invalid_result" });
+    expect(error.message).toContain(`\`${field}\``);
+  });
+
+  it("accepts a null score and an ungraded case", async () => {
+    const outcome = await resultWith((r) => {
+      r.score = null;
+      r.cases[0].grade = null;
+      r.cases[0].output = null;
+      r.cases[0].status = "failed";
+      r.cases[0].failures = [
+        { stage: "candidate", code: "upstream_error", message: "no profile", retryable: false, case_id: 1000, metadata: {} },
+      ];
+    });
+    expect(outcome).toMatchObject({ value: { score: null } });
   });
 });

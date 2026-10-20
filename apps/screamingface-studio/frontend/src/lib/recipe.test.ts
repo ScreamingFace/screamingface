@@ -17,6 +17,9 @@ import {
   fusionOf,
   parseRecipe,
   recipeToUrl4,
+  RecipeError,
+  recipeIssues,
+  renderRecipe,
   resolveModels,
 } from "./recipe";
 
@@ -82,6 +85,20 @@ const SDK_EQUIVALENTS: Record<keyof typeof linked, () => RecipeNode> = {
       solo("openai/gpt-4o", SYNTHESIS_TEXT),
     ),
   solo_prompt_encoded: () => solo("openai/gpt-4o", SOLO_TEXT),
+  pipeline_into_fusion: () =>
+    pipeline([
+      solo("openai/gpt-4o", ANSWER),
+      fusion(
+        [solo("anthropic/claude-opus-4-5", ANSWER), solo("ollama/llama3", ANSWER)],
+        solo("openai/gpt-4o", SYNTHESIZE),
+      ),
+    ]),
+  params_text: () =>
+    solo("openai/gpt-4o", ANSWER, [
+      { key: "stop", value: "END:of/answer-1.0_x" },
+      { key: "reasoning_effort", value: "high" },
+      { key: "logprobs", value: "true" },
+    ]),
   solo_params: () => solo("openai/gpt-4o", ANSWER, T07_SEED3),
 };
 
@@ -188,6 +205,34 @@ describe("parseRecipe", () => {
         ]),
     ],
     ["a fusion with unset models", () => createFusion()],
+    [
+      "a pipeline into a fusion",
+      () =>
+        pipeline([
+          solo("openai/gpt-4o", "Draft."),
+          fusion([solo("ollama/llama3"), solo("ollama/qwen", "", T07_SEED3)], solo("openai/gpt-4o")),
+          solo("ollama/qwen", "Polish."),
+        ]),
+    ],
+    [
+      "a pipeline into a fusion with a pipeline synthesizer",
+      () =>
+        pipeline([
+          solo("openai/gpt-4o"),
+          fusion(
+            [solo("ollama/llama3"), pipeline([solo("ollama/qwen"), solo("openai/gpt-4o")])],
+            pipeline([solo("ollama/qwen", "Merge."), solo("openai/gpt-4o", "Check.")]),
+          ),
+        ]),
+    ],
+    [
+      "a fusion whose synthesizer is a fusion",
+      () =>
+        fusion(
+          [solo("openai/gpt-4o"), solo("ollama/llama3")],
+          fusion([solo("ollama/qwen"), solo("openai/gpt-4o")], solo("ollama/llama3")),
+        ),
+    ],
   ];
 
   it.each(shapes)("round-trips %s", (_name, build) => {
@@ -308,6 +353,57 @@ describe("parseRecipe", () => {
     const parsed = parseRecipe(url4);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.error).toMatch(/\S/);
+  });
+});
+
+describe("parameter validation", () => {
+  it.each([
+    ["an ampersand", "a&b"],
+    ["a comma", "a,b"],
+    ["parentheses", "f(x)"],
+    ["a semicolon", "a;b"],
+    ["a quote", "it's"],
+    ["a space", "two words"],
+    ["a backslash escape", "\\n\\n"],
+    ["a newline", "a\nb"],
+    ["a control character", "a\u0007"],
+    ["an equals sign", "a=b"],
+  ])("reports a value with %s instead of emitting it", (_name, value) => {
+    const root = fusion([solo("openai/gpt-4o", "", [{ key: "stop", value }])], solo("ollama/llama3"));
+    const issues = recipeIssues(root);
+
+    expect(issues).toEqual([
+      { nodeId: (root.members[0] as SoloNode).id, key: "stop", message: expect.stringContaining("stop") },
+    ]);
+    expect(() => recipeToUrl4(root)).toThrow(RecipeError);
+    expect(renderRecipe(root)).toEqual({ ok: false, issues });
+  });
+
+  it.each([
+    ["a name with a space", "top p"],
+    ["a name with a dash", "top-p"],
+    ["a reserved name", "q"],
+    ["another reserved name", "model"],
+  ])("reports %s", (_name, key) => {
+    expect(recipeIssues(solo("a/b", "", [{ key, value: "1" }]))).toEqual([
+      expect.objectContaining({ key, message: expect.any(String) }),
+    ]);
+  });
+
+  it("accepts every value url4 carries unquoted, and skips unfinished rows", () => {
+    const root = solo("a/b", "", [
+      { key: "stop", value: "END:of/answer-1.0_x" },
+      { key: "temperature", value: "-0.5" },
+      { key: "", value: "x" },
+      { key: "seed", value: "" },
+    ]);
+    expect(recipeIssues(root)).toEqual([]);
+    expect(renderRecipe(root)).toEqual({ ok: true, url4: recipeToUrl4(root) });
+  });
+
+  it("refuses to import a parameter value url4 cannot carry", () => {
+    const parsed = parseRecipe("(model_1:0.0:/a/b?stop=a,b&q=($input)!'Answer.')!'$model_1'");
+    expect(parsed.ok).toBe(false);
   });
 });
 

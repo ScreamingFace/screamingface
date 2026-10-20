@@ -48,11 +48,20 @@ from url4.streaming.protocol import (
     TokenUsage,
     source_for,
 )
+from screamingface._evaluation.linking import link_candidate
 from url4.streaming.protocol.signals import ResultArtifact
 
 TOPIC = "3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b"
 TRACE = "4bf92f3577b34da6a3ce929d0e0e4736"
 NODE = "n0"
+# A child node of the run (one fusion member's model call), with its own lifecycle frames.
+CHILD = "n1"
+CHILD_URL4 = "/openai/gpt-4o($input)!'Answer.'"
+# The run the frames describe: this Candidate linked into this Benchmark by the SDK, so the root
+# `started` frame carries exactly the url4 Studio sends (the SDK's root rule, `contract.py`).
+CANDIDATE = "(model_1:0.0:/openai/gpt-4o($input)!'Answer.')!'$model_1'"
+BENCHMARK = "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'"
+LINKED = link_candidate(CANDIDATE, BENCHMARK).url4
 WHEN = datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC)
 
 CANDIDATE_RESULT = {
@@ -124,10 +133,10 @@ def _frame(event, sequence: int | None) -> dict:
     return json.loads(encode(decode(encode(event), sequence)))
 
 
-def _envelope(n: int) -> dict:
+def _envelope(n: int, node: str = NODE) -> dict:
     return {
         "id": f"evt-{n:04d}",
-        "source": source_for(TOPIC, NODE),
+        "source": source_for(TOPIC, node),
         "subject": TRACE,
         "time": WHEN,
     }
@@ -152,9 +161,7 @@ def _activity(n: int, kind: str, state: str, label: str, **facts) -> LogEvent:
 def happy_path() -> list[dict]:
     body = json.dumps(CANDIDATE_RESULT, separators=(",", ":"))
     events = [
-        StartedEvent(
-            **_envelope(1), data=StartedData(url4="(candidate:0.0:'…', …)!''")
-        ),
+        StartedEvent(**_envelope(1), data=StartedData(url4=LINKED)),
         SpanEvent(
             **_envelope(2),
             data=SpanData(
@@ -260,6 +267,43 @@ def main() -> None:
             11,
         ),
         "artifactBody": body.decode(),
+        "candidate": CANDIDATE,
+        "benchmark": BENCHMARK,
+        "linked": LINKED,
+        # Child lifecycle frames; tests give them sequence numbers in place.
+        "childStarted": _frame(
+            StartedEvent(**_envelope(801, CHILD), data=StartedData(url4=CHILD_URL4)),
+            801,
+        ),
+        "childResult": _frame(
+            ResultEvent(
+                **_envelope(802, CHILD),
+                data=ResultData(
+                    body='"a member answer"', media_type="application/json"
+                ),
+            ),
+            802,
+        ),
+        "childTerminated": _frame(
+            TerminatedEvent(
+                **_envelope(803, CHILD), data=TerminatedData(status="succeeded")
+            ),
+            803,
+        ),
+        "childCost": _frame(
+            CostUsageEvent(
+                **_envelope(804, CHILD),
+                data=CostUsageData(
+                    scope="subtree",
+                    provider="openai",
+                    model="gpt-4o-2024-08-06",
+                    pricing_version="2026-10-01",
+                    usage=TokenUsage(input_tokens=31, output_tokens=19),
+                    cost=CostBreakdown(total_usd=Decimal("0.0001")),
+                ),
+            ),
+            804,
+        ),
         "terminatedBenchmarkUnavailable": _frame(
             TerminatedEvent(
                 **_envelope(3),

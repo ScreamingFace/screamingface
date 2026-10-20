@@ -87,6 +87,30 @@ CASES: dict[str, sf.Model | sf.Fusion | sf.Pipeline] = {
         synthesizer=sf.Model("openai/gpt-4o", prompt=SYNTHESIS_TEXT),
     ),
     "solo_prompt_encoded": sf.Model("openai/gpt-4o", prompt=SOLO_TEXT),
+    # A fusion at pipeline stage 2: its members and synthesizer read stage 1's output.
+    "pipeline_into_fusion": sf.Pipeline(
+        stages=[
+            sf.Model("openai/gpt-4o", prompt=ANSWER),
+            sf.Fusion(
+                members=[
+                    sf.Model("anthropic/claude-opus-4-5", prompt=ANSWER),
+                    sf.Model("ollama/llama3", prompt=ANSWER),
+                ],
+                synthesizer=sf.Model("openai/gpt-4o", prompt=SYNTHESIZE),
+            ),
+        ]
+    ),
+    # The widest text parameter value url4 carries unquoted: `param-value` (`url4/core/
+    # _annotations.py` `_PARAM_VALUE_RE`) minus the `,` the renderer refuses in a query.
+    "params_text": sf.Model(
+        "openai/gpt-4o",
+        prompt=ANSWER,
+        params={
+            "stop": "END:of/answer-1.0_x",
+            "reasoning_effort": "high",
+            "logprobs": True,
+        },
+    ),
     "solo_params": sf.Model(
         "openai/gpt-4o", prompt=ANSWER, params={"temperature": 0.7, "seed": 3}
     ),

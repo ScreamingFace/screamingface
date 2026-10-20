@@ -216,16 +216,95 @@ function decodePrompt(text: string): string {
   return text.replace(/\u2028/g, "\n").replace(/\$\$/g, "$");
 }
 
+// ── Parameters ───────────────────────────────────────────────────────────────
+
+// Parameter names the SDK keeps for the Benchmark and Engine
+// (`packages/screamingface/src/screamingface/_candidate_policy.py:12-28`).
+const RESERVED_PARAMS = new Set([
+  "input",
+  "messages",
+  "model",
+  "plugins",
+  "provider",
+  "q",
+  "stream",
+  "tool_choice",
+  "tools",
+  "web_search",
+  "web_search_exclude",
+  "web_search_excluded_domains",
+  "web_search_policy",
+]);
+// url4 `param-key` (`packages/url4/src/url4/core/_annotations.py:63`), as the SDK checks it
+// (`_candidate_policy.py:54-65`).
+const PARAM_KEY = /^[A-Za-z0-9._]+$/;
+// url4 `param-value` (`_annotations.py:64-67`: ALPHA / DIGIT / . - _ , : /) without the `,` that
+// the renderer refuses in a query value (`url4/core/render.py:504-511`) and the SDK refuses too
+// (`_candidate_policy.py:73-76`). Anything else cannot be carried unquoted, and the SDK never
+// quotes a parameter, so the SDK would refuse to compile it.
+const PARAM_VALUE = /^[A-Za-z0-9._\-:/]+$/;
+
+export type RecipeIssue = { nodeId: string; key: string; message: string };
+
+// A recipe whose parameters url4 cannot carry. `issues` says which, for the UI to show.
+export class RecipeError extends Error {
+  readonly issues: RecipeIssue[];
+
+  constructor(issues: RecipeIssue[]) {
+    super(issues.map((issue) => issue.message).join(" "));
+    this.name = "RecipeError";
+    this.issues = issues;
+  }
+}
+
+// A row with no name or no value is still being typed, and is left out, not reported.
+function filledParams(params: ModelParam[]): ModelParam[] {
+  return params.filter((param) => param.key && param.value !== "");
+}
+
+function paramIssue(param: ModelParam): string | null {
+  if (!PARAM_KEY.test(param.key)) {
+    return `"${param.key}" isn't a valid parameter name: use letters, digits, "." and "_".`;
+  }
+  if (RESERVED_PARAMS.has(param.key)) {
+    return `"${param.key}" is set by the Engine and can't be a model parameter.`;
+  }
+  if (!PARAM_VALUE.test(param.value)) {
+    return `The value of "${param.key}" can only use letters, digits and . - _ : /`;
+  }
+  return null;
+}
+
+// Every parameter in the recipe that url4 cannot carry, so the builder can show them instead of
+// sharing or running a recipe the Engine would misread.
+export function recipeIssues(root: RecipeNode): RecipeIssue[] {
+  return collectSolos(root).flatMap((solo) =>
+    filledParams(solo.params).flatMap((param) => {
+      const message = paramIssue(param);
+      return message ? [{ nodeId: solo.id, key: param.key, message }] : [];
+    }),
+  );
+}
+
 // url4's query form for a call with params: `?k=v&…&q=` and then the call's `(<context>)`
 // (`url4/core/render.py` `_render_target_expr`). Without params a call is `/path(<context>)`.
 function paramQuery(params: ModelParam[]): string {
-  const kv = params
-    .filter((param) => param.key && param.value !== "")
-    .map((param) => `${param.key}=${param.value}`);
+  const kv = filledParams(params).map((param) => `${param.key}=${param.value}`);
   return kv.length ? `?${kv.join("&")}&q=` : "";
 }
 
+export type RenderedRecipe = { ok: true; url4: string } | { ok: false; issues: RecipeIssue[] };
+
+// The recipe's url4, or the parameters that keep it from having one.
+export function renderRecipe(root: RecipeNode): RenderedRecipe {
+  const issues = recipeIssues(root);
+  return issues.length ? { ok: false, issues } : { ok: true, url4: recipeToUrl4(root) };
+}
+
+// Throws a `RecipeError` when a parameter cannot be carried (see `recipeIssues`).
 export function recipeToUrl4(root: RecipeNode): string {
+  const issues = recipeIssues(root);
+  if (issues.length) throw new RecipeError(issues);
   const sources: string[] = [];
   const counters = { model: 0, synthesis: 0 };
 
@@ -246,11 +325,14 @@ export function recipeToUrl4(root: RecipeNode): string {
       return name;
     }
     if (node.kind === "fusion") {
-      const memberRefs = node.members.map((member) => emit(member, "$input", "answer"));
+      // As the SDK's `_recipe`/`_fusion_context` (`_evaluation/candidate.py:176-186,394-406`):
+      // members read the fusion's own input, and the synthesizer gets that input (as url4 text)
+      // beside the members' outputs. At pipeline stage 2+ that input is the previous stage.
+      const memberRefs = node.members.map((member) => emit(member, context, "answer"));
       const outputs = memberRefs
         .map((ref, i) => `member_${i + 1}: '$${ref}'`)
         .join(", ");
-      const synthContext = `{input: '$input', outputs: {${outputs}}}`;
+      const synthContext = `{input: ${quoteText(context)}, outputs: {${outputs}}}`;
       return emit(node.synthesizer, synthContext, "synthesis");
     }
     // pipeline — each stage consumes the previous stage's output
@@ -284,7 +366,13 @@ export function describeRecipe(node: RecipeNode): string {
 
 export type ParsedRecipe = { ok: true; root: RecipeNode } | { ok: false; error: string };
 
-type SourceContext = { kind: "ref"; ref: string } | { kind: "fusion"; members: string[] };
+// A source's context: its raw text, plus what it reads — another source (`$model_1`) or a
+// fusion's input and members. `$input` has neither.
+type SourceContext = {
+  text: string;
+  ref?: string;
+  fusion?: { input: string; members: string[] };
+};
 
 type ParsedSource = {
   name: string;
@@ -361,20 +449,33 @@ class Scanner {
   }
 }
 
-const FUSION_CONTEXT = /^\{input: '\$input', outputs: \{(.*)\}\}$/;
-const FUSION_OUTPUT = /^member_(\d+): '\$([a-z]+_\d+)'$/;
+// `{input: '<text>', outputs: {member_1: '$a', …}}`, as `recipeToUrl4` writes a fusion
+// synthesizer's context. The input is url4 text: `$input`, a previous stage's `$ref`, or (for a
+// fusion that synthesizes another fusion) that fusion's own context.
+function fusionContext(text: string): { input: string; members: string[] } {
+  const scanner = new Scanner(text);
+  scanner.expect("{input: ");
+  const input = scanner.quoted();
+  scanner.expect(", outputs: {");
+  const members: string[] = [];
+  for (;;) {
+    const [, index, ref] = scanner.match(/member_(\d+): '\$([a-z]+_\d+)'/);
+    if (Number(index) !== members.length + 1) fail();
+    members.push(ref);
+    if (text.startsWith("}}", scanner.pos)) break;
+    scanner.expect(", ");
+  }
+  scanner.expect("}}");
+  if (scanner.pos !== text.length) fail();
+  return { input, members };
+}
 
 function sourceContext(text: string): SourceContext {
-  const ref = /^\$(input|[a-z]+_\d+)$/.exec(text);
-  if (ref) return { kind: "ref", ref: ref[1] };
-  const fusion = FUSION_CONTEXT.exec(text);
-  if (!fusion) fail();
-  const members = fusion[1].split(", ").map((output, index) => {
-    const member = FUSION_OUTPUT.exec(output);
-    if (!member || Number(member[1]) !== index + 1) fail();
-    return member[2];
-  });
-  return { kind: "fusion", members };
+  if (text === "$input") return { text };
+  const ref = /^\$([a-z]+_\d+)$/.exec(text);
+  if (ref) return { text, ref: ref[1] };
+  if (!text.startsWith("{input: ")) fail();
+  return { text, fusion: fusionContext(text) };
 }
 
 function sourceParams(query: string | undefined): ModelParam[] {
@@ -425,9 +526,11 @@ function modelFromRoute(route: string): SavedModel {
   return { id: route, name: route, providerId, providerName: providerId };
 }
 
-// Rebuild the recipe tree from `recipeToUrl4`'s flat source list. A source's context says what
-// produced its input: `$input` starts a chain, `$<ref>` continues a pipeline, and a fusion
-// context starts a fusion's synthesizer (a `synthesis_N` solo, or a pipeline of `model_N`s).
+// Rebuild the recipe tree from `recipeToUrl4`'s flat source list, walking back from a source
+// through what its context reads until it reaches `base` (the input of the enclosing chain):
+// `$<ref>` is the previous pipeline stage, and a fusion context means the chain so far is that
+// fusion's synthesizer (a `synthesis_N` solo, or a pipeline of `model_N`s), whose members are
+// rebuilt from the fusion's own input.
 function buildTree(sources: ParsedSource[], rootRef: string): RecipeNode {
   const byName = new Map(sources.map((source) => [source.name, source]));
   if (byName.size !== sources.length) fail();
@@ -457,33 +560,37 @@ function buildTree(sources: ParsedSource[], rootRef: string): RecipeNode {
       : { kind: "pipeline", id: createUuid(), stages: nodes };
   }
 
-  function build(ref: string): RecipeNode {
-    const chain = [take(ref)];
-    let head = chain[0].context;
-    while (head.kind === "ref" && head.ref !== "input") {
-      chain.unshift(take(head.ref));
-      head = chain[0].context;
+  type Link = { node: RecipeNode; synthesis: boolean };
+
+  function build(ref: string, base: string): RecipeNode {
+    let chain: Link[] = [];
+    let current = ref;
+    for (;;) {
+      const source = take(current);
+      chain.unshift({ node: toSolo(source), synthesis: source.name.startsWith("synthesis_") });
+      let context = source.context;
+      for (;;) {
+        if (context.text === base) return chainOf(chain.map((link) => link.node));
+        if (context.ref) {
+          current = context.ref;
+          break;
+        }
+        if (!context.fusion) fail();
+        const { input, members } = context.fusion;
+        const [first, ...rest] = chain;
+        const fusion: FusionNode = {
+          kind: "fusion",
+          id: createUuid(),
+          members: members.map((member) => build(member, input)),
+          synthesizer: first.synthesis ? first.node : chainOf(chain.map((link) => link.node)),
+        };
+        chain = [{ node: fusion, synthesis: false }, ...(first.synthesis ? rest : [])];
+        context = sourceContext(input);
+      }
     }
-    if (head.kind === "ref") return chainOf(chain.map(toSolo));
-    const members = head.members.map(build);
-    if (!chain[0].name.startsWith("synthesis_")) {
-      return {
-        kind: "fusion",
-        id: createUuid(),
-        members,
-        synthesizer: chainOf(chain.map(toSolo)),
-      };
-    }
-    const fusion: FusionNode = {
-      kind: "fusion",
-      id: createUuid(),
-      members,
-      synthesizer: toSolo(chain[0]),
-    };
-    return chainOf([fusion, ...chain.slice(1).map(toSolo)]);
   }
 
-  const root = build(rootRef);
+  const root = build(rootRef, "$input");
   if (used.size !== sources.length) fail();
   return root;
 }
@@ -500,6 +607,7 @@ export function parseRecipe(url4: string): ParsedRecipe {
     return { ok: true, root };
   } catch (error) {
     if (error instanceof RecipeSyntaxError) return { ok: false, error: error.message };
+    if (error instanceof RecipeError) return { ok: false, error: `${NOT_A_RECIPE} ${error.message}` };
     throw error;
   }
 }

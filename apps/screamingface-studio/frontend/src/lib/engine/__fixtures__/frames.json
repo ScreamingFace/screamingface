@@ -14,7 +14,7 @@
       "tracestate": null,
       "type": "ai.url4.started",
       "data": {
-        "url4": "(candidate:0.0:'…', …)!''"
+        "url4": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o($input)!\\'Answer.\\')!\\'$model_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''"
       }
     },
     {
@@ -442,6 +442,97 @@
     }
   },
   "artifactBody": "{\"schema\":\"screamingface.candidate-result.v1\",\"benchmark_id\":\"ifeval\",\"benchmark_revision\":\"ifeval-2023-11.r1\",\"case_count\":1,\"score\":1.0,\"coverage\":1.0,\"metrics\":{\"prompt_level_strict_accuracy\":1.0},\"cases\":[{\"status\":\"scored\",\"case_id\":1000,\"input\":\"Write a haiku about the sea. Do not use any commas.\",\"output\":\"Waves fold into foam\\nsalt wind carries gull voices\\nthe tide keeps its time\",\"finish_reason\":\"stop\",\"refusal\":null,\"grade\":{\"method\":\"ifeval\",\"score\":1.0,\"metrics\":{\"prompt_level_strict\":true},\"checks\":[{\"type\":\"instruction\",\"id\":\"punctuation:no_comma\",\"label\":\"No commas\",\"outcome\":\"MET\",\"score\":1.0,\"evidence\":[],\"metadata\":{}}]},\"failures\":[],\"metadata\":{},\"operations\":[{\"operation_id\":\"op_model_1\",\"output\":\"Waves fold into foam\\u2026\",\"finish_reason\":\"stop\",\"accounting\":{\"provider\":\"openai\",\"request_model\":\"openai/gpt-4o\",\"response_model\":\"gpt-4o-2024-08-06\",\"usage\":{\"input_tokens\":31,\"output_tokens\":19,\"cache_read_tokens\":0,\"cache_creation_tokens\":0,\"reasoning_tokens\":0,\"cost_usd\":\"0.0002675\"},\"provider_latency_ms\":812,\"provider_attempts\":1,\"cache\":{\"hits\":0,\"misses\":1,\"bypasses\":0,\"unknown\":0}}}]}],\"failures\":[]}",
+  "candidate": "(model_1:0.0:/openai/gpt-4o($input)!'Answer.')!'$model_1'",
+  "benchmark": "(case:0.0:/sf/case-1($candidate)!'grade')!'$case'",
+  "linked": "(candidate:0.0:'(model_1:0.0:/openai/gpt-4o($input)!\\'Answer.\\')!\\'$model_1\\'', (case:0.0:/sf/case-1($candidate)!'grade')!'$case')!''",
+  "childStarted": {
+    "specversion": "1.0",
+    "id": "evt-0801",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n1",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "801",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.started",
+    "data": {
+      "url4": "/openai/gpt-4o($input)!'Answer.'"
+    }
+  },
+  "childResult": {
+    "specversion": "1.0",
+    "id": "evt-0802",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n1",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "802",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.result",
+    "data": {
+      "body": "\"a member answer\"",
+      "media_type": "application/json"
+    }
+  },
+  "childTerminated": {
+    "specversion": "1.0",
+    "id": "evt-0803",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n1",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "803",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.terminated",
+    "data": {
+      "status": "succeeded",
+      "error": null
+    }
+  },
+  "childCost": {
+    "specversion": "1.0",
+    "id": "evt-0804",
+    "source": "/trace/3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b/node/n1",
+    "subject": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "time": "2026-10-05T12:00:00Z",
+    "datacontenttype": "application/json",
+    "dataschema": null,
+    "sequence": "804",
+    "sequencetype": "Integer",
+    "traceparent": null,
+    "tracestate": null,
+    "type": "ai.url4.cost.usage",
+    "data": {
+      "scope": "subtree",
+      "gen_ai.provider.name": "openai",
+      "gen_ai.response.model": "gpt-4o-2024-08-06",
+      "pricing_version": "2026-10-01",
+      "usage": {
+        "gen_ai.usage.input_tokens": 31,
+        "gen_ai.usage.output_tokens": 19,
+        "gen_ai.usage.cache_read_tokens": 0,
+        "gen_ai.usage.cache_creation_tokens": 0,
+        "gen_ai.usage.reasoning_tokens": 0
+      },
+      "cost": {
+        "input_usd": "0",
+        "output_usd": "0",
+        "cache_read_usd": "0",
+        "cache_creation_usd": "0",
+        "reasoning_usd": "0",
+        "total_usd": "0.0001"
+      }
+    }
+  },
   "terminatedBenchmarkUnavailable": {
     "specversion": "1.0",
     "id": "evt-0003",
