@@ -133,10 +133,20 @@ def test_judge_pick_lowers_to_the_label_judge_of_today() -> None:
     )
 
 
-def test_ju1_median_and_mean_refuse_a_judge_weight() -> None:
-    with pytest.raises(ValueError, match=r"Median cannot read sf\.signal\('score:judge'\)"):
-        _ = sx.Fanout(_TRIO) >> _judge() >> sx.Median(weights="score:judge")
-    with pytest.raises(ValueError, match=r"Mean cannot read sf\.signal\('score:judge'\)"):
+_JU1 = r"^{0} cannot read sf\.signal\('score:judge'\): it has no judge; use {1}$"
+
+
+def test_ju1_median_and_mean_refuse_a_judge_weight_when_they_are_built() -> None:
+    # JU-1 is today's rule and it runs when the step is built: in a chain it raises before the
+    # >> that would close the block, after the Fanout and the Judge are in the chain.
+    scored = sx.Fanout(_TRIO) >> _judge()
+    median = _JU1.format(
+        "Median", r"authored weights or another signal, such as sf\.signal\('field:confidence'\)"
+    )
+    with pytest.raises(ValueError, match=median):
+        _ = scored >> sx.Median(weights="score:judge")
+    mean = _JU1.format("Mean", r"a JSON field signal such as sf\.signal\('field:confidence'\)")
+    with pytest.raises(ValueError, match=mean):
         sx.Mean(weights="score:judge")
 
 
@@ -156,4 +166,11 @@ def test_a_judge_block_compiles_to_the_bytes_of_today() -> None:
     assert (
         compile_candidate(chain, operators=flow_operators()).url4
         == compile_candidate(today, operators=flow_operators()).url4
+    )
+
+
+def test_judge_repr_shows_params_only_when_set() -> None:
+    assert repr(sx.Judge(_JUDGE, rubric="r")) == "Judge('provider/judge', rubric='r')"
+    assert repr(sx.JudgePick(_JUDGE, rubric="r", params={"seed": 1})) == (
+        "JudgePick('provider/judge', rubric='r', params={'seed': 1})"
     )

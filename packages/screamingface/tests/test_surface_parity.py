@@ -246,6 +246,10 @@ _NEW_FORM: dict[str, Callable[[], sf.Recipe]] = {
         >> sx.Judge(_OPUS5, rubric="Score each answer.")
         >> sx.Vote(over=sf.Extract("last_number", normalize="numeric"), weights="score:judge")
     ),
+    "readme-418-pick-confidence": lambda: sx.Fanout(_ROUTES) >> sx.ArgMax("field:confidence"),
+    "readme-528-rank-by-field": lambda: (
+        sx.Fanout(_ROUTES) >> sx.Rank(2, by="field:score") >> sx.Synthesize("provider/next")
+    ),
     "readme-419-pick-answer": lambda: (
         sx.Fanout(_ROUTES) >> sx.First(where=sx.field("answer", normalize="text") == "yes")
     ),
@@ -286,16 +290,37 @@ _EXAMPLES = {example.slug: example for example in EXAMPLES}
 
 
 # The doc examples whose bytes change at the swap (overview §4.2): a field pick or a field rank
-# reads a signal in the new surface. S5 and S7 compare their new form with today's by_signal form.
-_PLANNED_BYTE_CHANGES = frozenset({"readme-418-pick-confidence", "readme-528-rank-by-field"})
+# reads a signal in the new surface. Before the swap their new form compiles to the bytes of
+# today's by_signal rewrite, in the same process (lowering §3), not to the golden.
+_TODAY_REWRITE: dict[str, Callable[[], sf.Recipe]] = {
+    "readme-418-pick-confidence": lambda: sf.Fusion(
+        _ROUTES,
+        synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max"),
+    ),
+    "readme-528-rank-by-field": lambda: sf.Pipeline(
+        [
+            sf.Fusion(_ROUTES, synthesizer=sf.Rank(k=2, by_signal=sf.signal("field:score"))),
+            "provider/next",
+        ]
+    ),
+}
 
 
-def test_every_doc_example_is_in_the_new_form_or_a_planned_byte_change() -> None:
-    assert set(_NEW_FORM) | _PLANNED_BYTE_CHANGES == set(_EXAMPLES)
-    assert not set(_NEW_FORM) & _PLANNED_BYTE_CHANGES
+def test_every_doc_example_is_in_the_new_form() -> None:
+    assert set(_NEW_FORM) == set(_EXAMPLES)
+    assert set(_TODAY_REWRITE) <= set(_NEW_FORM)
 
 
-@pytest.mark.parametrize("slug", sorted(_NEW_FORM))
+@pytest.mark.parametrize("slug", sorted(_TODAY_REWRITE))
+def test_lop2_a_field_pick_example_compiles_to_todays_by_signal_bytes(slug: str) -> None:
+    example: DocExample = _EXAMPLES[slug]
+
+    assert compile_example(example, _NEW_FORM[slug]()) == compile_example(
+        example, _TODAY_REWRITE[slug]()
+    )
+
+
+@pytest.mark.parametrize("slug", sorted(set(_NEW_FORM) - set(_TODAY_REWRITE)))
 def test_lop1_doc_example_compiles_to_the_bytes_of_today(slug: str) -> None:
     example: DocExample = _EXAMPLES[slug]
     golden = (_GOLDEN_DIR / f"{slug}.url4").read_text(encoding="utf-8").removesuffix("\n")

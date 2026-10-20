@@ -68,7 +68,7 @@ def test_argmax_by_must_be_one_signal() -> None:
 
 
 def test_argmax_output_has_the_rule_of_today() -> None:
-    with pytest.raises(ValueError, match="must be a top-level field name"):
+    with pytest.raises(ValueError, match=r"^sf\.ArgMax output='a\.b' must be a top-level field"):
         sx.ArgMax("cost_usd", output="a.b")
 
 
@@ -99,13 +99,66 @@ def test_si2_field_compares_with_equals_only(compare: object) -> None:
         compare(sx.field("answer"))  # type: ignore[operator]
 
 
-def test_first_keeps_the_equals_rule_of_today_a_number_is_json_text() -> None:
-    assert _synthesizer(sx.First(where=sx.field("score") == 7)) == sf.Pick("score", equals=7)
+def test_first_compares_a_number_as_its_json_text() -> None:
+    assert (sx.field("score") == 7) == (sx.field("score") == "7")
+    assert sx.First(where=sx.field("score") == 7) == sx.First(where=sx.field("score") == "7")
+    assert _synthesizer(sx.First(where=sx.field("score") == 7)) == sf.Pick("score", equals="7")
 
 
 def test_first_refuses_a_bool_with_the_numeric_normalizer() -> None:
-    with pytest.raises(ValueError, match="cannot be compared with normalize='numeric'"):
-        sx.First(where=sx.field("ok", normalize="numeric") == True)  # noqa: E712
+    with pytest.raises(
+        ValueError,
+        match=r"^sf\.field == True or False cannot be compared with normalize='numeric'$",
+    ):
+        _ = sx.field("ok", normalize="numeric") == True  # noqa: E712
+
+
+@pytest.mark.parametrize(
+    ("value", "error", "message"),
+    [
+        (None, TypeError, r"^sf\.field compares with a string, a number or a bool, not None$"),
+        ([1], TypeError, r"^sf\.field compares with a string, a number or a bool, not \[1\]$"),
+        (" ", ValueError, r"^sf\.field == ' ' must not be blank$"),
+        (float("nan"), ValueError, r"^sf\.field == nan must be finite$"),
+    ],
+    ids=["none", "list", "blank", "nan"],
+)
+def test_field_equals_checks_its_value_with_field_messages(
+    value: object, error: type[Exception], message: str
+) -> None:
+    with pytest.raises(error, match=message):
+        _ = sx.field("x") == value
+
+
+@pytest.mark.parametrize("step", [sx.ArgMax, sx.ArgMin])
+def test_output_has_the_step_message(step: type[sx.ArgMax]) -> None:
+    name = step.__name__
+    with pytest.raises(
+        ValueError,
+        match=rf"^sf\.{name} output='' must be a top-level field name like 'answer' \(a letter "
+        r"or _, then letters, digits or _; at most 64 characters\)$",
+    ):
+        step("cost_usd", output="")
+    with pytest.raises(TypeError, match=rf"^sf\.{name} output= must be a string$"):
+        step("cost_usd", output=3)  # type: ignore[arg-type]
+
+
+def test_first_output_has_the_first_message() -> None:
+    with pytest.raises(ValueError, match=r"^sf\.First output='a\.b' must be a top-level field"):
+        sx.First(where=sx.field("x") == 1, output="a.b")
+
+
+def test_argmin_is_not_an_argmax() -> None:
+    assert not issubclass(sx.ArgMin, sx.ArgMax)
+    assert not isinstance(sx.ArgMin("cost_usd"), sx.ArgMax)
+
+
+def test_merge_equality_follows_the_field_order() -> None:
+    first = {"a": sf.FieldRule.max(), "b": sf.FieldRule.majority()}
+    second = {"b": sf.FieldRule.majority(), "a": sf.FieldRule.max()}
+
+    assert sx.Merge(first) == sx.Merge(dict(first))
+    assert sx.Merge(first) != sx.Merge(second)
 
 
 def test_field_checks_its_path_and_normalizer() -> None:
