@@ -7,6 +7,7 @@ import pytest
 from url4 import Expression, Source, Text, build, expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
 
@@ -39,7 +40,9 @@ def test_default_metadata_cannot_hide_executable_fusion_policy(
 ) -> None:
     # WHY: checking only policy declared in the rider lets removal of its fields
     # silently export a stricter Recipe than the expression actually executes.
-    recipe = sf.Fusion(["a", sf.Model("b", optional=optional)], synthesizer="synth", quorum=quorum)
+    recipe = sx.Fanout(["a", sf.Model("b", optional=optional)], quorum=quorum) >> sx.Synthesize(
+        "synth"
+    )
     value = _reset_metadata(compile_candidate(recipe).url4, mode)
     with pytest.raises(ValueError, match="metadata"):
         if entrypoint == "python":

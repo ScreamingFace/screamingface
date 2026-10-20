@@ -11,6 +11,7 @@ from _model_parameter_fixtures import details as _model_details
 from url4 import RelExpr, build, expr, iterate, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.benchmark import _decode_benchmark_resource
 from screamingface._evaluation.candidate import compile_candidate
@@ -148,14 +149,14 @@ def test_model_compilation_uses_candidate_owned_defaults_and_input_binding() -> 
 
 def test_fusion_compilation_is_benchmark_agnostic_and_uses_explicit_policy() -> None:
     compiled = compile_candidate(
-        sf.Fusion(
+        sx.Fanout(
             [
                 sf.Model("provider/a", prompt="Answer from A."),
                 sf.Model("provider/b"),
             ],
             name="pair",
-            synthesizer="provider/synth",
-        ),
+        )
+        >> sx.Synthesize("provider/synth"),
     )
 
     assert compiled.kind == "fusion"
@@ -214,11 +215,8 @@ def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -
     )
     recipes = (
         sf.Model("provider/a"),
-        sf.Fusion(
-            [sf.Model("provider/a"), sf.Model("provider/b")],
-            name="pair",
-            synthesizer="provider/synth",
-        ),
+        sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")], name="pair")
+        >> sx.Synthesize("provider/synth"),
     )
 
     evaluation = compile_evaluation(
@@ -255,11 +253,9 @@ def test_structural_candidate_bindings_are_rejected_before_model_preflight() -> 
             return httpx.Response(503, json={"detail": "catalog unavailable"})
         raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
 
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        name="pair",
-        synthesizer="provider/synth",
-    )
+    fusion = sx.Fanout(
+        [sf.Model("provider/a"), sf.Model("provider/b")], name="pair"
+    ) >> sx.Synthesize("provider/synth")
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(engine),
@@ -283,11 +279,9 @@ async def test_async_structural_candidate_bindings_are_rejected_before_model_pre
             return httpx.Response(503, json={"detail": "catalog unavailable"})
         raise AssertionError(f"unexpected Engine request: {request.method} {request.url}")
 
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        name="pair",
-        synthesizer="provider/synth",
-    )
+    fusion = sx.Fanout(
+        [sf.Model("provider/a"), sf.Model("provider/b")], name="pair"
+    ) >> sx.Synthesize("provider/synth")
     async with sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(engine),
@@ -390,11 +384,8 @@ def test_client_fetches_once_then_locally_builds_every_candidate_url4() -> None:
 
     candidates = [
         sf.Model("provider/a", prompt="Custom answer prompt."),
-        sf.Fusion(
-            [sf.Model("provider/a"), sf.Model("provider/b")],
-            name="pair",
-            synthesizer="provider/synth",
-        ),
+        sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")], name="pair")
+        >> sx.Synthesize("provider/synth"),
     ]
     transport = _Transport()
     with sf.Client(

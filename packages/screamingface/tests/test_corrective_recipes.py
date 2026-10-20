@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 import screamingface as sf
+from screamingface import _surface as sx
 
 
 def test_corrective_loop_normalizes_string_members_and_judge() -> None:
@@ -59,7 +60,7 @@ def test_loops_are_root_only_recipes() -> None:
     # possible fail-before-spend point.
     loop = sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j")
     with pytest.raises(TypeError, match="must be a model route or sf.Model"):
-        sf.Fusion([loop], synthesizer="prov/s")
+        _ = sx.Fanout([loop]) >> sx.Synthesize("prov/s")
     with pytest.raises(TypeError, match="must be a model route or sf.Model"):
         sf.Pipeline(("prov/a", loop))
     with pytest.raises(TypeError, match="must be a model route or sf.Model"):
@@ -69,7 +70,7 @@ def test_loops_are_root_only_recipes() -> None:
 
 
 def test_corrective_loop_accepts_composite_members() -> None:
-    fusion = sf.Fusion(["prov/a", "prov/b"], synthesizer="prov/s")
+    fusion = sx.Fanout(["prov/a", "prov/b"]) >> sx.Synthesize("prov/s")
     loop = sf.CorrectiveLoop([fusion, "prov/c"], judge="prov/j")
     assert loop.members[0] is fusion
 
