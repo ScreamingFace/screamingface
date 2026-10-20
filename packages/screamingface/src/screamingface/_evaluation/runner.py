@@ -103,7 +103,11 @@ def evaluate_sync(
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
     evaluation = compile_evaluation(
-        values, resource, limit, operators=_operators_sync(values, load_operators), lowered=True
+        values,
+        resource,
+        limit,
+        operators=_operators_sync(values, load_operators),
+        warn_judge_writers=False,
     )
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
@@ -178,7 +182,7 @@ async def evaluate_async(
         resource,
         limit,
         operators=await _operators_async(values, load_operators),
-        lowered=True,
+        warn_judge_writers=False,
     )
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.

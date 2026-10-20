@@ -109,15 +109,17 @@ class _CompiledSamples:
 _NO_SAMPLES = _CompiledSamples(MappingProxyType({}), (), ())
 
 
-def entry_recipe(recipe: Recipe) -> Recipe:
-    """The first compile entry of a user's Recipe: warn about a judge writer, then lower it once.
+def entry_recipe(recipe: Recipe, *, warn_judge_writers: bool = True) -> Recipe:
+    """The compile entry of a Recipe: warn about a judge writer, then lower it.
 
     WHY in this order (review P2 #3, E4b surface lowering §2.4): the lowering and the Fusion
     rewrite both change the stages, so only the user's own value carries the stage numbers the
-    user wrote. Every later place reads the lowered value.
+    user wrote. ``lower()`` is idempotent, so a lowered value passes through unchanged; the
+    warning runs once, at the first entry (``warn_judge_writers=False`` at every later one).
     """
 
-    _warn_judge_writers(recipe)
+    if warn_judge_writers:
+        _warn_judge_writers(recipe)
     return lower(recipe)
 
 
@@ -127,7 +129,7 @@ def compile_candidate(
     check_surface: _CheckSurface | None = None,
     operators: _OperatorCatalog | None = None,
     benchmark_rule: _BenchmarkAnswerRule | None = None,
-    lowered: bool = False,
+    warn_judge_writers: bool = True,
 ) -> _CompiledCandidate:
     """Compile one complete, benchmark-independent Recipe into Candidate URL4.
 
@@ -140,12 +142,11 @@ def compile_candidate(
 
     ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
 
-    ``lowered=True`` says the caller already passed ``recipe`` through ``entry_recipe`` (the
-    Evaluation entry does), so the compile neither warns nor lowers a second time.
+    ``warn_judge_writers=False`` says an earlier entry already warned on the user's own Recipe
+    (the Evaluation entry does); the compile always lowers (LO-3).
     """
 
-    if not lowered:
-        recipe = entry_recipe(recipe)
+    recipe = entry_recipe(recipe, warn_judge_writers=warn_judge_writers)
     recipe = rewrite_fusion_recipe(recipe)
     try:
         first = _CandidateCompiler(

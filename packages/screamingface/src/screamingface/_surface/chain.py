@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
+from screamingface.pipeline import Pipeline as TodayPipeline
 from screamingface.recipe import OPTIONAL_MEMBERS_ONLY, Recipe, _name, _optional, _recipe
 
 if TYPE_CHECKING:
@@ -33,17 +34,24 @@ _NAMED_OPEN = (  # CH-14
 _TERMINALS: frozenset[str] = frozenset({"reduce", "write"})
 
 
-class Step:
+class _Chainable:
+    """``a >> b`` is ``Pipeline([a, b])``; a route string or a Model on the left works through
+    ``__rrshift__``."""
+
+    __slots__ = ()
+
+    def __rshift__(self, other: str | Recipe | Step) -> Pipeline:
+        return Pipeline([cast("Step | Recipe", self), other])
+
+    def __rrshift__(self, other: str | Recipe | Step) -> Pipeline:
+        return Pipeline([other, cast("Step | Recipe", self)])
+
+
+class Step(_Chainable):
     """A chain value that is not a recipe: ``Fanout`` and every step that can follow it."""
 
     __slots__ = ()
     _category: ClassVar[_Category]
-
-    def __rshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([self, other])
-
-    def __rrshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([other, self])
 
     def _recipes(self) -> tuple[Recipe, ...]:
         """The recipes this step holds as the user wrote them (members, a writer recipe)."""
@@ -113,7 +121,7 @@ class _Block:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Pipeline(Recipe):
+class Pipeline(Recipe, _Chainable):
     """Pass one input through an ordered chain of stages and blocks; ``a >> b`` builds one.
 
     A stage is a route string, a recipe, or a closed block: ``Fanout``, then a reducer or
@@ -126,7 +134,7 @@ class Pipeline(Recipe):
     name: str
     optional: bool
     steps: tuple[Recipe | Step, ...]
-    _is_named: bool
+    _is_named: bool = field(repr=False)
     _stages: tuple[Recipe | _Block, ...] = field(compare=False, repr=False)
     _open: tuple[Step, ...] = field(compare=False, repr=False)
 
@@ -156,12 +164,6 @@ class Pipeline(Recipe):
     @property
     def _recipe_marker(self) -> None:
         return None
-
-    def __rshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([self, other])
-
-    def __rrshift__(self, other: str | Recipe | Step) -> Pipeline:
-        return Pipeline([other, self])
 
     def _stage_values(self) -> tuple[Recipe, ...]:
         """The stages as the user wrote them, a closed block as its node: one value per stage.
@@ -193,16 +195,8 @@ class _Chain:
         self.open: list[Step] = []
 
     def add(self, item: str | Recipe | Step) -> None:
-        if isinstance(item, Pipeline) and not item._is_named:
-            # WHY: an unnamed nested chain is flattened (today's rule, S/pipeline.py), so its
-            # closed blocks are taken as they are and its open block continues here.
-            if item.optional:
-                raise ValueError(OPTIONAL_MEMBERS_ONLY)
-            self.steps.extend(item.steps)
-            for stage in item._stages:
-                self._add_stage(stage)
-            for step in item._open:
-                self._add_step(step)
+        if isinstance(item, Pipeline | TodayPipeline) and not item._is_named:
+            self._flatten(item)
         elif isinstance(item, Step):
             self.steps.append(item)
             self._add_step(item)
@@ -210,6 +204,23 @@ class _Chain:
             recipe = _recipe(item, "Pipeline stage")
             self.steps.append(recipe)
             self._add_stage(recipe)
+
+    def _flatten(self, item: Pipeline | TodayPipeline) -> None:
+        """An unnamed nested Pipeline, a chain or one of today, is flattened (today's rule,
+        S/pipeline.py), so both spellings give equal chains. A chain's closed blocks are taken as
+        they are, and its open block continues here."""
+
+        if item.optional:
+            raise ValueError(OPTIONAL_MEMBERS_ONLY)
+        if isinstance(item, TodayPipeline):
+            for stage in item.stages:
+                self.add(stage)
+            return
+        self.steps.extend(item.steps)
+        for stage in item._stages:
+            self._add_stage(stage)
+        for step in item._open:
+            self._add_step(step)
 
     def name(self) -> str:
         """The inferred name: the stage names joined by ``->`` (an open block adds its Fanout)."""

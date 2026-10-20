@@ -28,20 +28,21 @@ def compile_evaluation(
     limit: int | None,
     *,
     operators: _OperatorCatalog | None = None,
-    lowered: bool = False,
+    warn_judge_writers: bool = True,
 ) -> _Evaluation:
     """Compile all Candidates locally against one selected Benchmark.
 
-    ``lowered=True`` says the Evaluation entry (``_candidate_values``) already warned about the
-    judge writers and lowered ``recipes`` (E4b surface lowering §2.4); else this is the first
-    entry, and it does both here.
+    The run passes the values of ``_candidate_values``, which already warned and lowered them
+    (``warn_judge_writers=False``). The default branch, which warns here, exists for the callers
+    and tests that pass the user's own Recipes before the swap (E4b surface lowering §2.4).
     """
 
     # FEATURE (GP-1): extract="benchmark" resolves here, at the plan seam, from the resource
     # already fetched; the compiled url4 then pins the rule's concrete operator ids.
     benchmark_rule = _BenchmarkAnswerRule(resource.info.id, resource.answer_rule)
-    if not lowered:
-        recipes = tuple(entry_recipe(recipe) for recipe in recipes)
+    recipes = tuple(
+        entry_recipe(recipe, warn_judge_writers=warn_judge_writers) for recipe in recipes
+    )
     # WHY rewritten first: the Fusion recipe rewrite changes the name of a block form (the Fusion it
     # becomes is "a+b", not "a+b->s"), so a candidate is named from the rewritten value.
     rewritten = tuple(rewrite_fusion_recipe(recipe) for recipe in recipes)
@@ -55,7 +56,7 @@ def compile_evaluation(
             check_surface=resource.check_surface,
             operators=operators,
             benchmark_rule=benchmark_rule,
-            lowered=True,
+            warn_judge_writers=False,
         )
         for recipe in recipes
     )

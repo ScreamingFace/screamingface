@@ -268,3 +268,17 @@ def test_the_benchmark_rule_takes_no_normalizer() -> None:
 def test_a_judge_weighted_vote_checks_its_other_options_when_it_is_built() -> None:
     with pytest.raises(TypeError):
         sx.Vote(weights="score:judge", normalize=3)  # type: ignore[arg-type]
+
+
+def test_a_numeric_extract_holds_no_normalizer_of_its_own() -> None:
+    plain = sx.Median(over=sf.Extract("regex", pattern="([0-9]+)"))
+    numeric = sx.Median(over=sf.Extract("regex", normalize="numeric", pattern="([0-9]+)"))
+
+    assert plain == numeric
+    assert _synthesizer(plain) == _synthesizer(numeric)
+
+
+def test_a_numeric_extract_with_another_normalizer_is_refused() -> None:
+    message = r"^sf\.Mean reads numbers, so its sf\.Extract takes normalize='numeric' or none$"
+    with pytest.raises(ValueError, match=message):
+        sx.Mean(over=sf.Extract("regex", normalize="text", pattern="([0-9]+)"))

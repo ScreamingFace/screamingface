@@ -16,7 +16,7 @@ from typing import cast
 
 from screamingface._signals import FIELD_PATH, FIELD_SIGNAL_PREFIX, Signal, signal
 from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule
-from screamingface.reducer import _weights_option
+from screamingface.reducer import BENCHMARK_EXTRACT, _weights_option
 
 # The rule names over= takes: every sf.Extract rule with no required argument (EX-1). A rule with
 # arguments ("field", "regex") is written as "field:<path>" or as sf.Extract(...).
@@ -44,6 +44,11 @@ def extractor(value: object) -> Extractor:
         _field_path(value)
     elif _rule_name(value) not in RULE_NAMES:
         raise ValueError(_EX1.format(value=value))
+    elif _rule_name(value) == BENCHMARK_EXTRACT != value:
+        # WHY: "benchmark" has no operator id, so the url4 rebuild never writes a pinned form.
+        raise ValueError(
+            f"over={BENCHMARK_EXTRACT!r} names the benchmark's answer rule and takes no version"
+        )
     return value
 
 
@@ -75,7 +80,7 @@ def field_extract(over: str, normalize: str | None) -> Extract:
 
 
 def with_normalizer(extract: Extract, normalize: str | None) -> Extract:
-    """``extract`` with the step's normalizer (EX-2 has proved the extract has none)."""
+    """``extract`` with ``normalize`` in place of its own normalizer."""
 
     rule = None if normalize is None else cast("NormalizeRule", str(normalize))
     return Extract(cast("ExtractRule", extract.rule), rule, **extract.args)
