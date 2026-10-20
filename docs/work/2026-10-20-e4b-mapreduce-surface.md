@@ -553,3 +553,47 @@ references on `Signal`). 7d–7h are not in this round.
   `test_judge_quorum.py`, `test_judge_reducer.py`, `test_judge_writer_warning.py`,
   `test_selection_input_bytes.py`, `test_signal_recipe_fixtures.py`); with `--skip-append-only` ALL
   GATES GREEN. `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+- **7d-0** (`729006ec4`, `fe0f845f2`, `e56ec10e2`): D7-5 and D7-4.
+  - `ST/data/surface_parity.json` (70 rows, `{"<test file>:<case>": url4}`): written once from the
+    today forms at `0838f2f17` (judge rows already `@2`), each row compiled the way its test
+    compiled it (`flow_operators`, `compile_example`, `compile_evaluation`). Rows:
+    `surface_parity:` S1–S4′, S5–S11′, the 41 doc slugs (39 equal their goldens; 418 and 528 hold
+    today's `by_signal` rewrite); `gate_surface:` 7; `lowering:` 2; `judge_step:` 1;
+    `narrow_compile:` 3; `narrow_steps:` 2; `surface_rebuild:` 3 (field pick, rank by field: the
+    D7-8 forms that no internal value can build after 7f; and the vote for `to_python`).
+  - New `ST/_nodes.py`: `fusion_node(members, reducer, *, name, signals, quorum, optional)`, the 12
+    `Node` class re-exports, and `frozen_url4(row)`.
+  - The 16 files of D7-5 (15 edited; `test_narrow_contract_fixtures.py` builds no today form): a
+    parity row compares the new form with `frozen_url4(...)`; an equality row (`lower(chain) ==
+    ...`, `isinstance`, `_carriers`) names the nodes. Done by an `ast`-span rewrite
+    (`sf.X` → `XNode`, `sf.Fusion(m, synthesizer=r)` → `fusion_node(m, r)`), no string touched.
+    `migrate_surface.py --audit 0838f2f17`: no lost assertion; 588 tests, as before.
+  - **Group D (pinned, owner list MG-3):** only the `sf.Fusion` calls around a fixture reducer
+    (`FixtureVote`, `FixtureJudgeish`, the local `Bogus`) moved to `fusion_node`, positional
+    reducer; no other line. Files and functions: `_reducer_fixtures.py` (`reducer_fusion`);
+    `test_combine_evidence.py` (`test_reducer_fusion_compiles_and_runs_inside_a_pipeline`, the
+    second member at :242); `test_duplicate_members_warning.py`
+    (`test_duplicate_members_in_reducer_fusion_warn`, the two tests at :37 and :44, the
+    `test_distinct_members_and_non_reducer_fusions_do_not_warn` params `samples`, `prompts`,
+    `params`, `nested-fusions` (outer only), `_duplicate_loop`, `_pair`);
+    `test_engine_url4_contract_fixtures.py` (the two members of the corrective-vote writer at
+    :76–:81, `_samples_url4`); `test_fixed_seed_sitting_warning.py` (the two recipe helpers at
+    :135, :139); `test_reducer_fusion_quorum.py` (the 4 sites at :69, :85, :94, :103);
+    `test_reducer_slot.py` (`test_fusion_accepts_a_reducer_in_the_synthesizer_slot` :116, :126,
+    :128, :130; `test_reducer_without_catalog_fails_and_bad_specs_are_refused` :209, :217;
+    `test_reducer_fusion_compiles_inside_pipeline_fusion_and_corrective_loop` :272);
+    `test_reducer_url4_round_trip.py` (:132, :173); `test_samples_preflight.py` (:132);
+    `test_url4_replay_fixed_seed_warning.py` (:27, :95). The other 12 of the 22 only import
+    helpers (`engine_operators`, `evidence_wire`, `fixture_operators`, `reducer_fusion`, ...):
+    no edit. Audit vs `fe0f845f2`: no lost assertion; the 21 test files: 371 passed.
+  - **Left for 7d-n (hand cases, not "around a fixture reducer"):** `test_reducer_slot.py` :75
+    (a reducer as a member: `_misplaced`) and :133 (`synthesizer=3` message);
+    `test_engine_url4_contract_fixtures.py::test_block_form_samples_vote_compiles_to_the_engine_fixture`
+    passes public `sf.Reduce`/`sf.Vote` into `_samples_url4` (now `fusion_node`): the codemod must
+    keep them nodes; the `-> sf.Fusion` / `fusion: sf.Fusion` annotations in group D;
+    `test_lowering.py` LO-0 rows still read `_fusion_doc_examples` and `_GOLDEN` (today values
+    from helpers): they meet the codemod of those helpers.
+  - **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check flags the
+    earlier owner-pending files (unit 1 and 7b, as listed above) plus the 10 group D files of
+    7d-0; with `--skip-append-only` ALL GATES GREEN; `run_gates.py repo --base e4d44281c` ALL
+    GATES GREEN.
