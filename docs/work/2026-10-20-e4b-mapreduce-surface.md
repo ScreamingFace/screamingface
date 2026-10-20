@@ -444,3 +444,36 @@ RB-1, RB-3, DS-1, DS-2.
     prefix), so a house CSS change does not move them.
   - The judge rows (S10, S11, the README judge examples) also round-trip before the swap, because
     the new surface still compiles today's `@1` judge template; RB-1b/RB-2 stay unit 7.
+
+### Fix round (unit 6 review: ACCEPT WITH FIXES)
+
+- **Fixed (structural, 1):** the compile role of a model call comes from the url4 topology, not
+  from a copy of the compiler's rules. `_recipe_from_topology(..., editable=True)` (with
+  `_fusion_from_topology` and `_synthesizer_from_topology`) gives a model call whose prompt is the
+  default of its topology role (`_role_default_prompt`, also used by `_render_model`) no prompt;
+  the rebuild reads it, and the `synthesis` argument is gone from every converter. A corrective
+  loop rebuilds its Models as `to_python` does (test against today's `to_python` for three loop
+  url4s). The url4 recompile check keeps `editable=False`, so `to_python` is byte-identical.
+- **Fixed:** (2) an unknown extract op is "cannot rebuild"; (3) a Median/Mean `select=` has no
+  pin; (4) `render.model_options` is the one "Model has no options" check; (5) the renderer reads
+  every default from the constructors (`inspect.signature`) and the Vote normalizer from
+  `steps._vote_normalizer`; (6) leaves give their own `_python()` text, and `render.dispatch` is the
+  one dispatch idiom of the renderer and the rebuild; (7) only `_Unexpressible` (raised by
+  `_built`, the constructor wrapper, and by the D3 refusals) becomes "cannot rebuild", and the byte
+  check is `url4._recompiles` (a compare; a compile error raises as itself); (8) a byte-mismatch
+  test; (9) a golden of the Combine section with two narrow steps
+  (`ST/data/narrow_display/combine_narrow_no_signal.html`); (12) an open chain card shows its open
+  block (`open fanout block`) with its steps; nits: no dead `stage.optional` branch,
+  `combine_view._narrow_records`, one `_narrow_word` per record, no "None" reason, `_block_of`
+  typed `_Block`, no empty comment, `surface_value` out of `__all__`, and `Filter` keeps `over=`
+  as written (`filter_extract` gives its `sf.Extract` at the lowering; the unit-3 test that held
+  the two forms equal now checks that both forms lower alike).
+- **Commits:** `1af78de80` test (RED), `9b34d1beb` fix (GREEN), this ledger commit.
+- **Tests:** `ST/test_surface_rebuild.py` 102, `ST/test_surface_cards.py` 10,
+  `ST/test_narrow_display.py` 11; full SDK suite 5540 passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check lists only the
+  owner-approved unit-1 files; with `--skip-append-only` ALL GATES GREEN. `run_gates.py repo --base
+  e4d44281c` ALL GATES GREEN.
+- **Unit 7 note:** when `to_python` switches to `rebuild`, the code string of a linked url4 must
+  add the evaluation call (today's `_evaluation_call`) and the `import screamingface as sf` line,
+  and a large candidate needs multi-line output (today's renderer writes one line).
