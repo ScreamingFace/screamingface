@@ -18,7 +18,6 @@ from .selector import Selector
 from .types import (
     Authorization,
     AvailabilityRow,
-    CredentialSummary,
     CredentialTarget,
     ResolvePolicy,
 )
@@ -101,40 +100,4 @@ class ProviderOperationalAccess(ProviderAccess, Protocol):
         plugin: Any,
     ) -> dict[str, Any] | None:
         """Persist one informative outcome without changing lifecycle state."""
-        ...
-
-
-@runtime_checkable
-class ProviderCredentialAdmin(Protocol):
-    """The write interface behind the credential admin routes (ops 7–9; A3, declared at A1).
-
-    # AIDEV-NOTE: window-compatible by construction — `legacy_name` exists only so the
-    # Profile-backed body (`profile_admin.py`, the relocated `upsert_api_key_profile` /
-    # `delete_profile_for_account`) can keep today's semantics; it disappears with the selector
-    # sunset. `defaults` left op 8 at the D2 cutover (OME-1323, Stage C).
-    """
-
-    async def list(
-        self, account_id: str, provider: str | None = None
-    ) -> tuple[CredentialSummary, ...]:
-        """Op 7 — masked summaries; never a secret."""
-        ...
-
-    async def set_api_key(
-        self,
-        account_id: str,
-        provider: str,
-        *,
-        raw_api_key: str,
-        legacy_name: str | None,
-    ) -> CredentialSummary:
-        """Op 8 — store an API key for the (account, provider) pair; `legacy_name or "default"`
-        names the Profile in the window; a Profile's historical defaults are kept as stored and
-        a new Profile gets none (D2: request parameters are the caller's); delete-wins and both
-        conflict contracts (`WriteConflict`) are preserved."""
-        ...
-
-    async def delete(self, account_id: str, provider: str, *, legacy_name: str) -> None:
-        """Op 9 — delete the named legacy target: index CAS first, blob second, one
-        transaction."""
         ...

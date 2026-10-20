@@ -21,7 +21,6 @@ FACTORIES = frozenset(
     {
         "credential_strategy_from",
         "credential_strategy_for_connection",
-        "_credential_strategy_for_app",
         "_credential_strategy_for_credential_name",
         "oauth_strategy_for",
         "credential_strategy_for",
@@ -35,7 +34,6 @@ REFRESHING = frozenset(
     {
         "core.oauth.token_service:OAuthConnectionTokenService.get_token",
         "core.provider_access.connection_authority:_strategy_for",
-        "core.provider_access.connection_facade:refresh_facade",
         "core.provider_access.profile_authorize:_strategy_for",
         "routes.oauth_connections:refresh_connection",
     }
@@ -44,16 +42,13 @@ REFRESHING = frozenset(
 BUILDERS = frozenset(
     {
         "core.provider_access.connection_locator:credential_strategy_for_connection",
-        "routes.auth:_credential_strategy_for_app",
         "routes.auth:_credential_strategy_for_credential_name",
     }
 )
 # Sites that only persist, delete or read an address — they never call a refresh.
 NO_REFRESH = frozenset(
     {
-        "core.provider_access.connection_admin:ConnectionBackedCredentialAdmin.delete",
         "core.provider_access.connection_locator:credential_blob_address",
-        "core.provider_access.connection_oauth:complete_connection_oauth",
         "core.provider_access.profile_admin:ProfileBackedCredentialAdmin._strategy",
         "routes.auth:_complete_oauth_for_app",
         "routes.auth:_persist_connection_credentials",

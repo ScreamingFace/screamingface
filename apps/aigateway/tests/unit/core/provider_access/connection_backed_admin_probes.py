@@ -10,16 +10,17 @@ from typing import Any
 
 from provider_access_harness import PROVIDER
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
 )
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
+from aigateway.core.profile_models import Profile
 from aigateway.core.provider_access import (
     PairAuthorityStore,
     Selector,
+    delete_pair,
     set_pair_api_key,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -27,21 +28,6 @@ from aigateway.plugins.anthropic_provider.auth import credential_service_for
 KEY = "sk-ant-api03-migrated-key-2468"
 MASKED = f"API key ····{KEY[-4:]}"
 DEFAULT = Selector.from_header(None)
-
-
-def admin_of(harness: Any) -> Any:
-    return harness.client.app.state.provider_credential_admin
-
-
-def set_api_key(harness: Any, name: str | None = "default", key: str = KEY, **kwargs: Any) -> Any:
-    return harness.call(
-        admin_of(harness).set_api_key,
-        harness.account_id,
-        PROVIDER,
-        raw_api_key=key,
-        legacy_name=name,
-        **kwargs,
-    )
 
 
 async def _accept_key() -> None:
@@ -60,12 +46,9 @@ def put_pair_key(harness: Any, key: str = KEY) -> Any:
     )
 
 
-def delete(harness: Any, name: str = "default") -> None:
-    harness.call(admin_of(harness).delete, harness.account_id, PROVIDER, legacy_name=name)
-
-
-def list_summaries(harness: Any, provider: str | None = None) -> Any:
-    return harness.call(admin_of(harness).list, harness.account_id, provider)
+def delete(harness: Any) -> None:
+    """The surviving pair-level delete (D18): the pair ends with no credential."""
+    harness.call(delete_pair, harness.client.app, harness.account_id, PROVIDER)
 
 
 def document(harness: Any, name: str = "default") -> Profile | None:
@@ -95,32 +78,16 @@ def blob_at_connection_address(harness: Any, connection_id: str) -> str | None:
     return harness.blobs.read(service, "default")
 
 
-def seed_legacy_provider(harness: Any, provider: str, name: str = "default") -> Profile:
-    profile = Profile(
-        id=profile_id_for(harness.account_id, provider, name),
-        account_id=harness.account_id,
-        provider=provider,
-        name=name,
-        state=ProfileState.AUTHENTICATED,
-    )
-    harness.call(ProfileIndexStore(credential_store=harness.blobs.store).upsert, profile)
-    return profile
-
-
 __all__ = [
     "DEFAULT",
     "KEY",
     "MASKED",
-    "admin_of",
     "blob_at_connection_address",
     "blob_at_profile_address",
     "connection",
     "connections",
     "delete",
     "document",
-    "list_summaries",
     "marker",
     "put_pair_key",
-    "seed_legacy_provider",
-    "set_api_key",
 ]

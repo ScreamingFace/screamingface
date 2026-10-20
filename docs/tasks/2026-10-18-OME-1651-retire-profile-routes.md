@@ -1,13 +1,13 @@
 ---
 id: OME-1651
 linear_url: https://linear.app/openmined/issue/OME-1651/retire-the-legacy-profile-http-routes-with-a-410-and-their-successor
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-18
-closed:
+closed: 2026-10-19
 ---
 
 # Retire the legacy Profile HTTP routes with a 410 and their successor (Stage E, E3)

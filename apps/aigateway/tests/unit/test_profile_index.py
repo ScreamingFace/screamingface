@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -14,7 +13,6 @@ from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import (
     INDEX_CREDENTIAL_SERVICE,
     ProfileIndexStore,
-    ProfileTransitionConflict,
 )
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileIndex, ProfileState
 from aigateway.core.secrets.local import LocalSecretStore
@@ -109,9 +107,7 @@ def test_profile_round_trips_through_json() -> None:
 def test_profile_index_serializes_with_version() -> None:
     idx = ProfileIndex(version=1, profiles=[])
     data = idx.model_dump()
-    # oauth_generations carries the per-profile OAuth ownership nonces (OME-307 Blocker 1);
-    # it defaults to an empty map and is part of the durable index document.
-    assert data == {"version": 1, "profiles": [], "oauth_generations": {}}
+    assert data == {"version": 1, "profiles": []}
 
 
 @pytest.mark.asyncio
@@ -581,21 +577,11 @@ async def test_isolated_orm_stores_preserve_concurrent_remove_and_upsert(
 
 
 @pytest.mark.asyncio
-async def test_authenticate_pending_rejects_superseded_generation(credential_blobs) -> None:
-    """OME-307 Blocker 1 — ownership lives INSIDE the durable publication CAS.
+async def test_stamp_refreshed_keeps_a_pending_entry_pending(credential_blobs) -> None:
+    """OME-1209 E3b — the refresh stamp never promotes a PENDING entry.
 
-    FEATURE: profile OAuth authentication with concurrent-flow safety.
-    STORY: as a user who restarts an OAuth login for a profile while an earlier attempt is
-    still exchanging its code, the earlier (stale) attempt must not hijack the profile the
-    new attempt now owns.
-
-    INVARIANT: a stale OAuth flow whose ownership generation was superseded by a newer
-    ``start_oauth`` for the same profile LOSES its publication even though the durable row is
-    still PENDING. A generic ``state == pending`` CAS cannot see the newer owner; binding a
-    per-operation generation into the SAME atomic CAS makes the stale flow fail with
-    ``ProfileTransitionConflict`` while the newer owner keeps the pending profile and can still
-    complete. The generation is an operation nonce and never leaves the index document, so it
-    is never exposed through the profile API.
+    INVARIANT (§5.3): `stamp_refreshed` changes only `state` and `last_refreshed_at`, and a
+    PENDING entry stays PENDING; only the timestamp moves.
     """
     store = ProfileIndexStore(credential_store=credential_blobs.store)
     pending = Profile(
@@ -604,162 +590,15 @@ async def test_authenticate_pending_rejects_superseded_generation(credential_blo
         provider="anthropic",
         name="work",
         state=ProfileState.PENDING,
+        defaults=ProfileDefaults(model="anthropic/claude-sonnet-4-5"),
     )
+    await store.upsert(pending)
 
-    generation_a = await store.begin_pending(pending)
-    generation_b = await store.begin_pending(pending)  # a newer start_oauth supersedes flow A
-    assert generation_b != generation_a
+    stamped = await store.stamp_refreshed(pending.id)
 
-    authenticated = pending.model_copy(update={"state": ProfileState.AUTHENTICATED})
-
-    # Flow A publishes with its now-stale generation: it must lose even though state==PENDING.
-    with pytest.raises(ProfileTransitionConflict):
-        await store.authenticate_pending(authenticated, expected_generation=generation_a)
-    still_pending = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert still_pending is not None
-    assert still_pending.state is ProfileState.PENDING  # A wrote nothing
-
-    # Flow B — the current owner — publishes with its generation and wins.
-    await store.authenticate_pending(authenticated, expected_generation=generation_b)
-    published = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert published is not None
-    assert published.state is ProfileState.AUTHENTICATED
-
-
-@pytest.mark.asyncio
-async def test_mark_pending_error_only_marks_still_owned_pending_profile(credential_blobs) -> None:
-    """OME-307 Blocker 2 — a stale OAuth failure must not corrupt a newer owner.
-
-    FEATURE: profile OAuth authentication with concurrent-flow safety.
-    INVARIANT: ``mark_pending_error`` transitions PENDING->ERROR only if the profile is still
-    present, still PENDING, and still owned by the failing operation's generation. Three stale
-    schedules must each be rejected with ``ProfileTransitionConflict`` and leave the newer
-    state intact: a newer OAuth flow, a committed API-key profile, and a deleted profile (which
-    must never be resurrected).
-    """
-    store = ProfileIndexStore(credential_store=credential_blobs.store)
-    profile_id = profile_id_for(ACCOUNT_ID, "anthropic", "work")
-    pending = Profile(
-        id=profile_id,
-        account_id=ACCOUNT_ID,
-        provider="anthropic",
-        name="work",
-        state=ProfileState.PENDING,
-    )
-
-    # Schedule 1 — a newer OAuth flow (B) supersedes A before A's failure fires.
-    generation_a = await store.begin_pending(pending)
-    await store.begin_pending(pending)  # flow B claims a newer generation
-    with pytest.raises(ProfileTransitionConflict):
-        await store.mark_pending_error(profile_id, expected_generation=generation_a)
-    survivor = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert survivor is not None
-    assert survivor.state is ProfileState.PENDING  # B's pending profile untouched
-
-    # Schedule 2 — a committed API-key profile replaced the pending flow before A failed.
-    generation_a2 = await store.begin_pending(pending)
-    await store.upsert(
-        pending.model_copy(update={"state": ProfileState.AUTHENTICATED, "auth_type": "api_key"})
-    )
-    with pytest.raises(ProfileTransitionConflict):
-        await store.mark_pending_error(profile_id, expected_generation=generation_a2)
-    survivor = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert survivor is not None
-    assert survivor.state is ProfileState.AUTHENTICATED
-    assert survivor.auth_type == "api_key"
-
-    # Schedule 3 — the profile was deleted before A failed: never resurrect it.
-    generation_a3 = await store.begin_pending(pending)
-    await store.remove(profile_id)
-    with pytest.raises(ProfileTransitionConflict):
-        await store.mark_pending_error(profile_id, expected_generation=generation_a3)
-    assert await store.get(ACCOUNT_ID, "anthropic", "work") is None  # no resurrection
-
-
-@pytest.mark.asyncio
-async def test_mark_pending_error_marks_owned_pending_profile(credential_blobs) -> None:
-    """The still-owning failing flow transitions its own pending profile to ERROR."""
-    store = ProfileIndexStore(credential_store=credential_blobs.store)
-    profile_id = profile_id_for(ACCOUNT_ID, "anthropic", "work")
-    pending = Profile(
-        id=profile_id,
-        account_id=ACCOUNT_ID,
-        provider="anthropic",
-        name="work",
-        state=ProfileState.PENDING,
-    )
-    generation = await store.begin_pending(pending)
-    await store.mark_pending_error(profile_id, expected_generation=generation)
-    errored = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert errored is not None
-    assert errored.state is ProfileState.ERROR
-
-
-@pytest.mark.asyncio
-async def test_authenticate_pending_publishes_last_refreshed_at_into_owner_fence(
-    credential_blobs,
-) -> None:
-    """OME-307 M-1 — the authenticated owner's refresh timestamp must survive publication.
-
-    FEATURE: profile OAuth authentication with concurrent-refresh safety.
-    STORY: as a user who re-authenticates a profile via OAuth while an earlier credential
-    refresh is still in flight, the earlier refresh's failure must not error the profile I
-    just re-authenticated.
-
-    INVARIANT: ``authenticate_pending`` publishes ``last_refreshed_at`` inside the SAME atomic
-    CAS that flips PENDING->AUTHENTICATED, so the timestamp joins ``mark_authenticated_error``'s
-    ownership fence (state + auth_type + last_refreshed_at). A stale refresh-failure carrying
-    the pre-re-auth timestamp (here the pending row's ``None``) can then no longer match the
-    fence: it is rejected with ``ProfileTransitionConflict`` and the freshly authenticated
-    profile stays AUTHENTICATED. Dropping the field at publication would leave the row at the
-    stale ``None`` and let the stale failure win.
-    """
-    store = ProfileIndexStore(credential_store=credential_blobs.store)
-    pending = Profile(
-        id=profile_id_for(ACCOUNT_ID, "anthropic", "work"),
-        account_id=ACCOUNT_ID,
-        provider="anthropic",
-        name="work",
-        state=ProfileState.PENDING,
-    )
-    generation = await store.begin_pending(pending)
-
-    # The OAuth callback stamps a fresh refresh time on the authenticated form it publishes.
-    refreshed_at = datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
-    authenticated = pending.model_copy(
-        update={
-            "state": ProfileState.AUTHENTICATED,
-            "auth_type": "oauth",
-            "last_refreshed_at": refreshed_at,
-        }
-    )
-    await store.authenticate_pending(authenticated, expected_generation=generation)
-
-    published = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert published is not None
-    assert published.state is ProfileState.AUTHENTICATED
-    # The owner's refresh timestamp is durably published, not dropped to the pending ``None``.
-    assert published.last_refreshed_at == refreshed_at
-
-    # A stale refresh-failure that read the profile BEFORE re-auth (last_refreshed_at is None)
-    # must NOT be able to error the new owner.
-    with pytest.raises(ProfileTransitionConflict):
-        await store.mark_authenticated_error(
-            published.id,
-            expected_auth_type="oauth",
-            expected_last_refreshed_at=None,
-        )
-    still_authenticated = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert still_authenticated is not None
-    assert still_authenticated.state is ProfileState.AUTHENTICATED
-
-    # The CURRENT owner (matching timestamp) can still legitimately error it — proving the
-    # fence stayed functional, not merely always-closed.
-    await store.mark_authenticated_error(
-        published.id,
-        expected_auth_type="oauth",
-        expected_last_refreshed_at=refreshed_at,
-    )
-    errored = await store.get(ACCOUNT_ID, "anthropic", "work")
-    assert errored is not None
-    assert errored.state is ProfileState.ERROR
+    assert stamped.state is ProfileState.PENDING
+    assert stamped.last_refreshed_at is not None
+    stored = await store.get(ACCOUNT_ID, "anthropic", "work")
+    assert stored is not None
+    assert stored == stamped
+    assert stored.model_copy(update={"last_refreshed_at": None}) == pending

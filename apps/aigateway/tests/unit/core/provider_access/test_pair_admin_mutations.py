@@ -28,7 +28,6 @@ from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_
 from aigateway.core.pending_auth import PendingAuthEntry, PendingAuthTable
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.provider_access import (
-    ConnectionBackedCredentialAdmin,
     CredentialAuthorityUnavailable,
     CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
@@ -567,26 +566,6 @@ def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
 
 
-def test_a_stale_legacy_writer_that_read_none_loses_after_the_bridge(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
-    stale = harness.call(PairAuthorityStore().read, harness.account_id, PROVIDER)
-
-    _put(harness)
-
-    legacy = ConnectionBackedCredentialAdmin(harness.client.app)
-    with pytest.raises(WriteConflict) as conflict:
-        harness.call(
-            legacy.set_api_key,
-            harness.account_id,
-            PROVIDER,
-            raw_api_key=OLD_KEY,
-            legacy_name="work",
-            observed_pair=stale,
-        )
-    assert conflict.value.kind == "superseded"
-    assert _blob(harness, _address(harness, "work")) == NEW_KEY
-
-
 @pytest.mark.parametrize("operation", ["put", "delete"])
 def test_a_store_outage_inside_the_write_is_the_scoped_write_refusal(
     harness, monkeypatch, operation
@@ -644,21 +623,20 @@ def test_the_mutation_evicts_the_cached_credential_it_changed(harness) -> None:
 def test_pending_cleanup_pops_only_the_pairs_captured_targets() -> None:
     table = PendingAuthTable()
 
-    def entry(provider: str, profile: str, connection: str | None = None) -> PendingAuthEntry:
+    def entry(provider: str, profile: str, connection: str) -> PendingAuthEntry:
         return PendingAuthEntry(
             account_id="acct",
             provider=provider,
             profile_name=profile,
-            profile_id=f"{provider}:{profile}",
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
             connection_id=connection,
         )
 
-    table.put("by-name", entry(PROVIDER, "work"))
+    table.put("by-name", entry(PROVIDER, "work", "c-work"))
     table.put("by-connection", entry(PROVIDER, "", "c-1"))
-    table.put("other-name", entry(PROVIDER, "other"))
-    table.put("other-provider", entry("openai", "work"))
+    table.put("other-name", entry(PROVIDER, "other", "c-other"))
+    table.put("other-provider", entry("openai", "work", "c-openai"))
 
     removed = table.pop_for_pair("acct", PROVIDER, profile_names=("work",), connection_ids=("c-1",))
 

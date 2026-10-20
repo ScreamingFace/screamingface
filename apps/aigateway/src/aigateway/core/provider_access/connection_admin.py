@@ -1,18 +1,14 @@
-"""The Connection-backed `ProviderCredentialAdmin` (OME-1208, Stage B S2'b1; spec §3.3 ops 7–9).
+"""The D18 API-key publication on a pair's Connection (OME-1208 S2'b1; reshaped by OME-1209 E3b).
 
-# FEATURE: OME-1138 Stage B (D14) — for a `migrated` pair every credential WRITE the legacy Profile
-# routes perform lands on the pair's effective Connection through THIS authority; `none` and
-# `quarantined` pairs keep the Profile-backed body byte for byte via `super()`.
+# FEATURE: OME-1138 D18 — the admin PUT (`pair_admin_writes.set_pair_api_key`) lands an API key on
+# the pair's Connection through `publish_api_key`; a pair captured as `none` is adopted (the G1
+# bridge).
 # INVARIANT (design card, one lock/CAS order): marker advance → index row CAS → Connection row →
 # blob, inside ONE transaction. The marker's generation CAS is the fence: a writer that observed a
 # stale generation changes nothing and surfaces `WriteConflict("superseded", subject="connection")`.
-# INVARIANT (D16 (a), D5): the legacy document is rewritten as a faithful MIRROR of what today's
-# Profile would hold, so an R1 rollback (marker reset, blobs kept) serves the same credential from
-# the legacy path. While migrated the document is never read as authority — `list` renders the
-# Connection's state over it.
-# AIDEV-NOTE: subclass, not sibling — the admin contract pins `isinstance(admin,
-# ProfileBackedCredentialAdmin)` and patches its seams (`persist_credentials_or_refuse` is called
-# through the `profile_admin` module attribute for the same reason).
+# INVARIANT (D16 (a), D5): the legacy document is rewritten as a faithful MIRROR of what a Profile
+# would hold, so an R1 rollback (marker reset, blobs kept) serves the same credential from the
+# legacy path. The document is never read as authority.
 """
 
 from __future__ import annotations
@@ -25,39 +21,23 @@ from uuid import UUID, uuid4
 from tortoise.transactions import in_transaction
 
 from ..credential_blob.store import CredentialBlobMutationConflict
-from ..credential_names import credential_name_for, profile_id_for
+from ..credential_names import profile_id_for
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, credential_locator_for
 from ..plugin_base import credential_service_provider_for
 from ..profile_index import ProfileTransitionConflict
 from ..profile_models import Profile, ProfileState
 from . import profile_admin
-from .connection_authority import LEGACY_STATE_FOR_STATUS
-from .connection_locator import credential_name_from_locator, credential_strategy_for_connection
+from .connection_locator import credential_name_from_locator
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
-from .profile_admin import DEFAULT_LEGACY_NAME, ProfileBackedCredentialAdmin, summary_of
+from .profile_admin import ProfileBackedCredentialAdmin
 from .profile_authorize import oauth_connection_store
-from .types import (
-    CredentialSummary,
-    TargetMissing,
-    UnsupportedAuthMode,
-    WriteConflict,
-)
+from .types import UnsupportedAuthMode, WriteConflict
 
 # WHY: the Connection-native default label for a keyed row; unique by construction, so the
 # authority never needs a label-conflict path.
 _API_KEY_LABEL = "api-key-{id}"
 _ERROR_PLACEHOLDER = "error:"
-
-
-def legacy_view(document: Profile, connection: OAuthConnection) -> Profile:
-    """The compat document as the legacy facade must SHOW it: the Connection decides the state."""
-    state = LEGACY_STATE_FOR_STATUS.get(connection.status)
-    if state is None:
-        raise ValueError(f"connection {connection.id} is not effective ({connection.status})")
-    return document.model_copy(
-        update={"state": ProfileState(state), "auth_type": connection.auth_type}
-    )
 
 
 def api_key_mirror(
@@ -68,7 +48,7 @@ def api_key_mirror(
     name: str,
     raw_api_key: str,
 ) -> Profile:
-    """What today's `set_api_key` would leave in the index — the rollback-coherent mirror.
+    """The API-key document an R1 rollback must find — the rollback-coherent mirror.
 
     # INVARIANT (OME-1323, D2): the mirror never writes `defaults` — a document keeps its
     # historical ones byte-identical, and a new document gets the empty model default.
@@ -87,78 +67,12 @@ def api_key_mirror(
     return profile
 
 
-def _is_effective(connection: OAuthConnection | None) -> bool:
-    return connection is not None and connection.status in LEGACY_STATE_FOR_STATUS
-
-
 class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
-    """Ops 7–9 with per-pair authority: a migrated pair's effective Connection, else legacy."""
+    """The D18 publication with per-pair authority: the marker's generation CAS fences it."""
 
     def __init__(self, app: Any, *, markers: PairAuthorityStore | None = None) -> None:
         super().__init__(app)
         self._markers = markers or PairAuthorityStore()
-
-    # --- op 7 ---------------------------------------------------------------------------------
-
-    async def list(
-        self, account_id: str, provider: str | None = None
-    ) -> tuple[CredentialSummary, ...]:
-        documents = await self._index.list(account_id, provider)
-        migrated = {
-            pair.provider: pair
-            for pair in await self._markers.list(account_id)
-            if pair.migration_state == "migrated"
-        }
-        effective: dict[str, OAuthConnection | None] = {}
-        rendered: list[CredentialSummary] = []
-        for document in documents:
-            pair = migrated.get(document.provider)
-            if pair is None:
-                rendered.append(summary_of(document))
-                continue
-            if document.provider not in effective:
-                effective[document.provider] = await self._effective(account_id, pair)
-            connection = effective[document.provider]
-            # WHY omit: a migrated pair with no effective Connection has NO credential (it is
-            # `not_connected`); listing its compat document would show a Profile serving nothing.
-            if connection is None or not _is_effective(connection):
-                continue
-            rendered.append(summary_of(legacy_view(document, connection)))
-        return tuple(rendered)
-
-    # --- op 8 ---------------------------------------------------------------------------------
-
-    async def set_api_key(
-        self,
-        account_id: str,
-        provider: str,
-        *,
-        raw_api_key: str,
-        legacy_name: str | None,
-        observed_pair: PairAuthority | None = None,
-    ) -> CredentialSummary:
-        name = legacy_name or DEFAULT_LEGACY_NAME
-        plugin = self._plugin(provider)
-        pair = observed_pair or await self._markers.read(account_id, provider)
-        if pair.migration_state != "migrated":
-            # INVARIANT (G0, §5.3): the branch read IS the capture — the legacy body claims this
-            # pair, so an adoption after the read makes it lose instead of writing under `migrated`.
-            return await super().set_api_key(
-                account_id,
-                provider,
-                raw_api_key=raw_api_key,
-                legacy_name=legacy_name,
-                observed_pair=pair,
-            )
-        current = await self._effective(account_id, pair)
-        # WHY start over: a revoked or absent effective Connection is the post-delete state; the
-        # key becomes a NEW Connection addressing the requested name's Profile blob (D5: a rollback
-        # finds it exactly where the legacy Profile would have written it).
-        reuse = current if _is_effective(current) else None
-        connection, mirror = await self.publish_api_key(
-            account_id, provider, plugin, pair=pair, reuse=reuse, name=name, raw_api_key=raw_api_key
-        )
-        return summary_of(legacy_view(mirror, connection))
 
     async def publish_api_key(
         self,
@@ -170,17 +84,17 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         reuse: OAuthConnection | None,
         name: str,
         raw_api_key: str,
-        expected_live: frozenset[UUID] | None = None,
-        claim_check: Callable[[], Awaitable[None]] | None = None,
+        expected_live: frozenset[UUID],
+        claim_check: Callable[[], Awaitable[None]],
     ) -> tuple[OAuthConnection, Profile]:
         """Publish `pair` as `migrated` with an active API-key Connection and its mirror.
 
         `reuse` keeps an existing row (its id and locator); None mints a row on `name`'s Profile
         address. Fenced on `pair.generation`, so a pair captured as `none` is adopted (the G1
-        bridge) and a stale capture loses. `expected_live`, when given, is the pair's live rows
-        the caller classified: any other live row found after the claim supersedes the write.
-        `claim_check`, when given, runs right after that check, still before any index, row or
-        blob write (the row-11 shadow identity re-read).
+        bridge) and a stale capture loses. `expected_live` is the pair's live rows the caller
+        classified: any other live row found after the claim supersedes the write. `claim_check`
+        runs right after that check, still before any index, row or blob write (the row-11 shadow
+        identity re-read).
         """
         credential_provider = credential_service_provider_for(plugin, provider)
         connection_id = reuse.id if reuse is not None else uuid4()
@@ -231,12 +145,10 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                     migration_state="migrated",
                     effective_connection_id=connection.id,
                 )
-                if expected_live is not None:
-                    await _require_live(
-                        account_id, provider, expected_live | {connection.id}, requested=name
-                    )
-                if claim_check is not None:
-                    await claim_check()
+                await _require_live(
+                    account_id, provider, expected_live | {connection.id}, requested=name
+                )
+                await claim_check()
                 # INVARIANT (OME-307 Unit 3, kept): an observed document publishes conditionally
                 # so a concurrent removal wins; a first mirror is an unconditional create.
                 if document_observed:
@@ -268,64 +180,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         self._invalidate(plugin, credential_name)
         return connection, mirror
 
-    # --- op 9 ---------------------------------------------------------------------------------
-
-    async def delete(
-        self,
-        account_id: str,
-        provider: str,
-        *,
-        legacy_name: str,
-        observed_pair: PairAuthority | None = None,
-    ) -> None:
-        plugin = self._plugin(provider)
-        pair = observed_pair or await self._markers.read(account_id, provider)
-        if pair.migration_state != "migrated":
-            return await super().delete(
-                account_id, provider, legacy_name=legacy_name, observed_pair=pair
-            )
-        document = await self._index.get(account_id, provider, legacy_name)
-        if document is None:
-            raise TargetMissing(provider, legacy_name)
-        current = await self._effective(account_id, pair)
-        revocable = current if current is not None and current.status != "revoked" else None
-        if revocable is not None:
-            strategy = credential_strategy_for_connection(
-                self._app, plugin, provider, revocable, account_id=account_id
-            )
-            credential_name = credential_name_from_locator(
-                revocable.credential_locator,
-                credential_provider=credential_service_provider_for(plugin, provider),
-                account_id=account_id,
-                connection_id=revocable.id,
-            )
-        else:
-            # WHY the legacy address: with no effective Connection the compat document's own blob
-            # (if any) is the only credential left; an orphan would reappear after a rollback.
-            credential_name = credential_name_for(account_id, legacy_name)
-            strategy = self._strategy(
-                plugin, provider, credential_name, auth_type=document.auth_type
-            )
-        store = oauth_connection_store(self._app)
-        try:
-            async with in_transaction():
-                await self._markers.advance(
-                    account_id,
-                    provider,
-                    expected_generation=pair.generation,
-                    migration_state="migrated",
-                )
-                await self._index.remove(document.id)
-                if revocable is not None:
-                    await store.mark_revoked(revocable)
-                if strategy is not None:
-                    await strategy.delete_credentials()
-        except PairAuthorityConflict as exc:
-            raise WriteConflict(
-                "superseded", subject="connection", provider=provider, requested=legacy_name
-            ) from exc
-        self._invalidate(plugin, credential_name)
-
     # --- shared --------------------------------------------------------------------------------
 
     async def _mirror_siblings(
@@ -348,11 +202,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                 raw_api_key=raw_api_key,
             )
             await self._index.upsert(sibling, require_present=True)
-
-    async def _effective(self, account_id: str, pair: PairAuthority) -> OAuthConnection | None:
-        if pair.effective_connection_id is None:
-            return None
-        return await oauth_connection_store(self._app).get(account_id, pair.effective_connection_id)
 
 
 async def live_connection_ids(account_id: str, provider: str) -> frozenset[UUID]:
@@ -410,6 +259,5 @@ async def _publish_api_key_on(
 __all__ = [
     "ConnectionBackedCredentialAdmin",
     "api_key_mirror",
-    "legacy_view",
     "live_connection_ids",
 ]

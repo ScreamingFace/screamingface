@@ -64,8 +64,8 @@ async def claim_pair(observed: PairAuthority) -> PairAuthority:
 async def claim_observed(observed: PairAuthority | None) -> PairAuthority | None:
     """Claim the pair a flow observed when the floor fences it: the published pair, else None.
 
-    # WHY None passes through: a migrated flow is fenced by its own marker advance, and a flow
-    # that captured nothing has nothing to claim.
+    # WHY None passes through: a migrated pair is not claimed here (`fences_writer`); its repair
+    # flow is fenced by `replace_effective`. A flow that captured nothing has nothing to claim.
     """
     if observed is None or not fences_writer(observed):
         return None
@@ -90,12 +90,6 @@ async def hold_pair(observed: PairAuthority) -> None:
     )
     if row is None or row.generation != observed.generation:
         raise PairAuthorityConflict(observed.provider, observed.generation)
-
-
-async def hold_observed(observed: PairAuthority | None) -> None:
-    """Hold the pair a flow observed when the floor fences it; pass through as `claim_observed`."""
-    if observed is not None and fences_writer(observed):
-        await hold_pair(observed)
 
 
 async def check_observed(observed: PairAuthority | None) -> None:
@@ -193,7 +187,6 @@ __all__ = [
     "claim_observed",
     "claim_pair",
     "fences_writer",
-    "hold_observed",
     "hold_pair",
     "mark_error_checked",
     "observe_pair_of",

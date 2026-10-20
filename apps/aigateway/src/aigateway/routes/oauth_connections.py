@@ -170,7 +170,6 @@ async def start_connection_oauth(
             account_id=account_id,
             provider=body.provider,
             profile_name=label,
-            profile_id=str(connection_id),
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             connection_id=str(connection_id),

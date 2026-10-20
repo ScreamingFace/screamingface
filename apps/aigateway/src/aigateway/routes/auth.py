@@ -9,7 +9,6 @@ from html import escape
 from ipaddress import ip_address
 from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -18,9 +17,7 @@ from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
 from ..core.auth.middleware import CurrentAccount
-from ..core.auth_types import AuthType
 from ..core.credential_blob.store import CredentialBlobMutationConflict
-from ..core.credential_names import credential_name_for
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.oauth.store import (
     OAuthConnectionStore,
@@ -30,30 +27,20 @@ from ..core.pending_auth import PendingAuthEntry
 from ..core.plugin_base import (
     OAuthCodeExchangeRequest,
     OAuthConfig,
-    credential_service_provider_for,
     credential_strategy_from,
 )
-from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
+from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import ProfileState
 from ..core.provider_access import (
-    PairAuthority,
     PairAuthorityConflict,
-    WriteConflict,
     claim_observed,
-    complete_connection_oauth,
     credential_name_of,
-    fail_connection_oauth,
-    hold_pair,
     replace_effective,
     retire_replaced,
 )
 from .credential_persistence import (
     SupportsCredentialPersistence,
-    SupportsCredentialSlot,
     persist_credentials_or_503,
-)
-from .provider_access_http import (
-    refusals_as_http,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,45 +66,18 @@ def _credential_store_for_app(app):
     return app.state.credential_store
 
 
-def _credential_strategy_for_app(
-    app,
-    plugin,
-    provider: str,
-    account_id: str,
-    name: str,
-    auth_type: AuthType = "oauth",
-):
-    return _credential_strategy_for_credential_name(
-        app,
-        plugin,
-        provider,
-        credential_name_for(account_id, name),
-        auth_type=auth_type,
-    )
-
-
-def _credential_strategy_for_credential_name(
-    app,
-    plugin,
-    provider: str,
-    credential_name: str,
-    auth_type: AuthType = "oauth",
-):
+def _credential_strategy_for_credential_name(app, plugin, provider: str, credential_name: str):
     return credential_strategy_from(
         plugin,
         credential_name,
-        auth_type=auth_type,
+        auth_type="oauth",
         credential_store=_credential_store_for_app(app),
         http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
     )
 
 
-def _invalidate_profile_session(app, plugin, account_id: str, name: str) -> None:
-    _invalidate_credential(app, plugin, credential_name_for(account_id, name))
-
-
 def _invalidate_credential(app, plugin, credential_name: str) -> None:
-    """Evict one credential name — the Profile address, or a migrated Connection's locator."""
+    """Evict one credential name — a replaced Connection's locator."""
     invalidator = getattr(plugin, "invalidate_profile_session", None)
     if callable(invalidator):
         invalidator(credential_name)
@@ -437,11 +397,6 @@ async def _redirect_uri_for(
     return _gateway_redirect_uri_for(request, cfg)
 
 
-# --- legacy Profile listings: shells over `ProviderCredentialAdmin.list` (OME-1230, A3) ---------
-# COMPATIBILITY: these routes and their JSON are the legacy Profile surface, retired at Stage E
-# (OME-1209); the backing-neutral successor is `GET /v1/provider-access` (A4).
-
-
 _CALLBACK_HTML = """<!doctype html>
 <html><body><p>Authentication complete. You may close this window.</p></body></html>
 """
@@ -464,7 +419,7 @@ async def oauth_callback(code: str, state: str, request: Request):
     This route intentionally does not require a JWT because OAuth providers
     redirect browser tabs here after the user leaves the app. The pending-auth
     state nonce is the callback credential; it maps back to the initiating
-    account and profile.
+    account and Connection.
 
     Some public OAuth clients require a fixed localhost callback path. We
     dispatch to the correct provider by looking up the ``state`` value in the
@@ -577,57 +532,11 @@ async def _complete_oauth_for_app(
         except Exception:
             await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
             raise
-        published: PairAuthority | None = None
-        if pending.pair_generation is not None:
-            await _publish_migrated_oauth(app, plugin, pending, creds, state)
-        elif pending.connection_id is None:
-            slot = cast(SupportsCredentialSlot, strategy)
-            try:
-                # WHY: token exchange stays outside the transaction; only profile + credential
-                # publication is atomic. The always-present account index row is mutated first,
-                # matching API-key set/delete's lock order; the optional credential row follows.
-                # The generation CAS rejects stale callbacks before they can write credentials.
-                # INVARIANT (OME-1497, G0): the pair claim precedes both — marker → index → blob.
-                async with in_transaction():
-                    published = await claim_observed(pending.observed_pair)
-                    await _mark_profile_authenticated(
-                        app,
-                        pending,
-                        plugin,
-                        creds,
-                        require_pending=True,
-                    )
-                    await persist_credentials_or_503(
-                        slot,
-                        creds,
-                        description="OAuth profile credentials",
-                    )
-            except (PairAuthorityConflict, ProfileTransitionConflict) as exc:
-                await _close_loopback_callback(app, state)
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "profile_auth_conflict",
-                        "provider": pending.provider,
-                        "profile": pending.profile_name,
-                    },
-                ) from exc
-            except HTTPException:
-                await _mark_oauth_completion_error(
-                    app, pending, "credential_store_unavailable", state
-                )
-                raise
-            _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
-        if pending.pair_generation is None:
-            # D14: the shadow Connection write is today's behaviour for a pair the legacy Profile
-            # owns; a MIGRATED pair's effective Connection IS the Connection.
-            await _record_oauth_connection_completion(
-                app, pending, plugin, creds, published=published
-            )
+        await _record_oauth_connection_completion(app, pending, plugin, creds)
         await _close_loopback_callback(app, state)
     except asyncio.CancelledError:
-        # INVARIANT (OME-307 Blocker 5): a callback cancellation must never strand the profile
-        # pending. We consumed the state before the first await above; on cancellation the
+        # INVARIANT (OME-307 Blocker 5): a callback cancellation must never strand the Connection
+        # flow. We consumed the state before the first await above; on cancellation the
         # enclosing transaction (if any) rolls back, and we re-publish the consumed state
         # SYNCHRONOUSLY so the flow stays completable via retry. Python 3.12
         # ``asyncio.CancelledError`` is a ``BaseException`` that escapes the ``except Exception``
@@ -635,40 +544,6 @@ async def _complete_oauth_for_app(
         # AIDEV-NOTE: cleanup-then-re-raise — the cancellation is NEVER caught-and-suppressed.
         pending_table.put(state, pending)
         raise
-
-
-async def _publish_migrated_oauth(
-    app,
-    plugin,
-    pending: PendingAuthEntry,
-    creds: dict,
-    state: str,
-) -> None:
-    """FEATURE (OME-1208, D14): a MIGRATED pair's callback publishes its effective Connection.
-
-    The bodies on the wire are the legacy flow's: a superseded publication is
-    `409 profile_auth_conflict`, a failed blob write `503 credential_store_unavailable`.
-    """
-    try:
-        with refusals_as_http():
-            try:
-                credential_name = await complete_connection_oauth(app, plugin, pending, creds)
-            except WriteConflict as exc:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "profile_auth_conflict",
-                        "provider": pending.provider,
-                        "profile": pending.profile_name,
-                    },
-                ) from exc
-    except HTTPException as exc:
-        if exc.status_code == 409:
-            await _close_loopback_callback(app, state)
-        else:
-            await _mark_oauth_completion_error(app, pending, "credential_store_unavailable", state)
-        raise
-    _invalidate_credential(app, plugin, credential_name)
 
 
 def _pending_or_unknown(pending: PendingAuthEntry | None) -> PendingAuthEntry:
@@ -716,14 +591,6 @@ async def _mark_oauth_completion_error(
     connection_message: str,
     state: str,
 ) -> None:
-    # INVARIANT (OME-307 Blocker 2): only a PROFILE flow that claimed an ownership generation
-    # can own a pending profile. Mark its error CONDITIONALLY on that generation so a stale
-    # failure cannot clobber a newer owner, overwrite a committed API-key profile, or resurrect
-    # a deleted profile. Connection flows are handled separately by _mark_connection_error.
-    if pending.pair_generation is not None:
-        await fail_connection_oauth(app, pending, connection_message)
-    elif pending.connection_id is None and pending.oauth_generation is not None:
-        await _mark_profile_error(app, pending.profile_id, pending.oauth_generation)
     await _mark_connection_error(app, pending, connection_message)
     await _close_loopback_callback(app, state)
 
@@ -733,9 +600,8 @@ async def _mark_profile_authenticated(
     pending: PendingAuthEntry,
     plugin,
     creds: dict,
-    *,
-    require_pending: bool = False,
 ) -> None:
+    """D14: mirror the native callback's success onto a same-named compat document, if any."""
     index = _index_store_for_app(app)
     profile = await index.get(
         pending.account_id,
@@ -743,11 +609,7 @@ async def _mark_profile_authenticated(
         pending.profile_name,
     )
     if profile is None:
-        if require_pending:
-            raise ProfileTransitionConflict("profile no longer exists")
         return
-    if require_pending and profile.state is not ProfileState.PENDING:
-        raise ProfileTransitionConflict("profile is no longer pending")
     profile.state = ProfileState.AUTHENTICATED
     # A completed OAuth round-trip overwrites the credential slot, so the
     # discriminator must flip back even if the profile was api_key before.
@@ -756,31 +618,14 @@ async def _mark_profile_authenticated(
     label = plugin.account_label_from_credentials(creds)
     if label is not None:
         profile.account_label = label
-    if require_pending:
-        # INVARIANT (OME-307 Blocker 1): bind publication to THIS OAuth operation by presenting
-        # the ownership generation this flow claimed at begin_pending. Ownership is decided
-        # INSIDE authenticate_pending's atomic durable CAS — a superseded flow loses even though
-        # the row is still PENDING — closing the check-then-act TOCTOU that a separate in-memory
-        # precheck left open. The state==PENDING guard inside the CAS remains defense in depth
-        # for a newer flow (or API-key write) that has already committed a non-pending state.
-        await index.authenticate_pending(
-            profile,
-            expected_generation=pending.oauth_generation,
-            account_label=label,
-        )
-    else:
-        await index.upsert(profile)
+    await index.upsert(profile)
 
 
 def _credential_name_for_pending(pending: PendingAuthEntry) -> str:
-    if pending.connection_id is not None:
-        return credential_key_for(pending.account_id, pending.connection_id)
-    return credential_name_for(pending.account_id, pending.profile_name)
+    return credential_key_for(pending.account_id, pending.connection_id)
 
 
 async def _mark_connection_error(app, pending: PendingAuthEntry, message: str) -> None:
-    if pending.connection_id is None:
-        return
     store = OAuthConnectionStore()
     connection = await store.get(pending.account_id, pending.connection_id)
     if connection is not None:
@@ -820,12 +665,8 @@ async def _record_oauth_connection_completion(
     pending: PendingAuthEntry,
     plugin,
     creds: dict,
-    *,
-    published: PairAuthority | None = None,
 ) -> None:
     store = OAuthConnectionStore()
-    if not _plugin_extracts_identity(plugin) and pending.connection_id is None:
-        return
     identity = await _extract_connection_identity(app, pending, plugin, creds)
     label = _connection_label(pending, plugin, creds, identity)
     if not label:
@@ -834,39 +675,33 @@ async def _record_oauth_connection_completion(
             detail={"code": "label_required", "provider": pending.provider},
         )
 
-    if await _handle_duplicate_connection_identity(app, store, pending, plugin, label, identity):
+    if await _handle_duplicate_connection_identity(app, store, pending, identity):
         return
-    if await _handle_duplicate_connection_label(app, store, pending, plugin, label, identity):
+    if await _handle_duplicate_connection_label(app, store, pending, label, identity):
         return
 
-    connection = await _connection_for_pending(store, pending, plugin, label)
+    connection = await _connection_for_pending(store, pending)
     replaced: list = []
     try:
         # INVARIANT: connection lifecycle operations lock the stable connection row before the
         # optional credential row. The pending-only CAS and credential write commit together, so
         # a concurrent DELETE wins without credential orphaning or stale-row resurrection.
         async with in_transaction():
-            if pending.connection_id is not None:
-                # INVARIANT (OME-1497, G0 §5.3): check and publication are atomic — the native
-                # claim and compat-document update commit with the activated row and its blob, or
-                # not at all.
-                await claim_observed(pending.observed_pair)
-                if pending.replaces_effective is None:
-                    await _mark_profile_authenticated(app, pending, plugin, creds)
-                else:
-                    # FEATURE (OME-1209, E1b, R6): this flow repairs a migrated pair — marker
-                    # first (D14), the old row revoked before this one activates.
-                    # INVARIANT (R6, §8 Q7): a repair writes no Profile document.
-                    await replace_effective(pending.replaces_effective, connection_id=connection.id)
-                    replaced = await retire_replaced(
-                        pending.replaces_effective,
-                        alongside=(connection.id,),
-                        identity_sub=getattr(identity, "sub", None),
-                    )
-            elif published is not None:
-                # INVARIANT (OME-1497, G0 D14 refinement): the shadow records the credential this
-                # callback published only while the pair still stands where it was published.
-                await hold_pair(published)
+            # INVARIANT (OME-1497, G0 §5.3): check and publication are atomic — the native claim
+            # and compat-document update commit with the activated row and its blob, or not at all.
+            await claim_observed(pending.observed_pair)
+            if pending.replaces_effective is None:
+                await _mark_profile_authenticated(app, pending, plugin, creds)
+            else:
+                # FEATURE (OME-1209, E1b, R6): this flow repairs a migrated pair — marker first
+                # (D14), the old row revoked before this one activates.
+                # INVARIANT (R6, §8 Q7): a repair writes no Profile document.
+                await replace_effective(pending.replaces_effective, connection_id=connection.id)
+                replaced = await retire_replaced(
+                    pending.replaces_effective,
+                    alongside=(connection.id,),
+                    identity_sub=getattr(identity, "sub", None),
+                )
             activated = await store.complete_pending(connection, label=label, identity=identity)
             if activated is None:
                 raise HTTPException(
@@ -889,15 +724,10 @@ async def _record_oauth_connection_completion(
                 app, plugin, credential_name_of(plugin, row, account_id=pending.account_id)
             )
     except PairAuthorityConflict as exc:
-        if pending.connection_id is not None:
-            # WHY: a lost native callback retires its row — a stranded `pending` row would keep
-            # its label taken with nothing to clean it up.
-            await store.mark_revoked(connection, "superseded")
-            raise _connection_conflict(pending) from exc
-        # WHY no error for a shadow: the Profile publication committed while this flow owned the
-        # pair; a later ownership change superseded it, so the shadow row retires without a blob.
+        # WHY: a lost callback retires its row — a stranded `pending` row would keep its label
+        # taken with nothing to clean it up.
         await store.mark_revoked(connection, "superseded")
-        return
+        raise _connection_conflict(pending) from exc
     except IntegrityError as exc:
         await store.mark_revoked(connection, "connection_conflict")
         raise HTTPException(
@@ -935,10 +765,6 @@ def _activation_failed(pending: PendingAuthEntry) -> HTTPException:
     )
 
 
-def _plugin_extracts_identity(plugin) -> bool:
-    return callable(getattr(plugin, "extract_identity", None))
-
-
 async def _extract_connection_identity(
     app,
     pending: PendingAuthEntry,
@@ -958,8 +784,6 @@ async def _handle_duplicate_connection_identity(
     app,
     store: OAuthConnectionStore,
     pending: PendingAuthEntry,
-    plugin,
-    label: str,
     identity,
 ) -> bool:
     if pending.replaces_effective is not None:
@@ -971,11 +795,10 @@ async def _handle_duplicate_connection_identity(
     )
     if duplicate is None:
         return False
-    if pending.connection_id is not None:
-        connection = await _connection_for_pending(store, pending, plugin, label)
-        if duplicate.id != connection.id:
-            await store.delete_or_supersede_pending(connection, duplicate)
-            await _delete_connection_credentials(app, connection.credential_locator)
+    connection = await _connection_for_pending(store, pending)
+    if duplicate.id != connection.id:
+        await store.delete_or_supersede_pending(connection, duplicate)
+        await _delete_connection_credentials(app, connection.credential_locator)
     return True
 
 
@@ -983,7 +806,6 @@ async def _handle_duplicate_connection_label(
     app,
     store: OAuthConnectionStore,
     pending: PendingAuthEntry,
-    plugin,
     label: str,
     identity,
 ) -> bool:
@@ -996,9 +818,7 @@ async def _handle_duplicate_connection_label(
     if observed is not None and duplicate_label.id == observed.effective_connection_id:
         # WHY: the flow asked for the effective row's own label — that row is being replaced.
         return False
-    if pending.connection_id is None:
-        return True
-    connection = await _connection_for_pending(store, pending, plugin, label)
+    connection = await _connection_for_pending(store, pending)
     if duplicate_label.id != connection.id:
         await store.delete_or_supersede_pending(connection, duplicate_label)
         await _delete_connection_credentials(app, connection.credential_locator)
@@ -1015,30 +835,11 @@ async def _delete_connection_credentials(app, locator: dict) -> None:
         await _credential_store_for_app(app).delete(service, account)
 
 
-async def _connection_for_pending(
-    store: OAuthConnectionStore,
-    pending: PendingAuthEntry,
-    plugin,
-    label: str,
-):
-    if pending.connection_id is not None:
-        connection = await store.get(pending.account_id, pending.connection_id)
-        if connection is None:
-            raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-        return connection
-    try:
-        return await store.create_pending(
-            account_id=pending.account_id,
-            provider=pending.provider,
-            label=label,
-            connection_id=uuid4(),
-            credential_provider=credential_service_provider_for(plugin, pending.provider),
-        )
-    except IntegrityError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "label_conflict", "provider": pending.provider, "label": label},
-        ) from exc
+async def _connection_for_pending(store: OAuthConnectionStore, pending: PendingAuthEntry):
+    connection = await store.get(pending.account_id, pending.connection_id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+    return connection
 
 
 def _connection_label(pending: PendingAuthEntry, plugin, creds: dict, identity) -> str | None:
@@ -1051,20 +852,7 @@ def _connection_label(pending: PendingAuthEntry, plugin, creds: dict, identity) 
     label = plugin.account_label_from_credentials(creds)
     if label:
         return label
-    return pending.compatibility_profile_name or pending.profile_name
-
-
-async def _mark_profile_error(app, profile_id: str, expected_generation: int) -> None:
-    # INVARIANT (OME-307 Blocker 2): a stale OAuth failure marks ERROR only while it still owns
-    # the pending profile (same generation, still present, still PENDING). If ownership moved
-    # on — newer flow, committed api_key, or delete — mark_pending_error raises and we do
-    # nothing rather than corrupt the newer state or recreate a deleted profile.
-    try:
-        await _index_store_for_app(app).mark_pending_error(
-            profile_id, expected_generation=expected_generation
-        )
-    except ProfileTransitionConflict:
-        pass
+    return pending.profile_name
 
 
 async def _generic_callback(provider: str, code: str, state: str, request: Request):

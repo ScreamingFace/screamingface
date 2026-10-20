@@ -9,9 +9,10 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from functools import partial
+from datetime import UTC, datetime
 from typing import cast
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -20,7 +21,8 @@ from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError, OperationalError
 
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import profile_id_for
+from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_models import Profile, ProfileState
@@ -36,7 +38,6 @@ from aigateway.routes.auth import (
     _loopback_host_allowed,
     close_loopback_callbacks,
 )
-from tests.unit.oauth_flow_seed import open_oauth_flow
 
 
 @pytest.fixture
@@ -59,19 +60,32 @@ def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
 
 
-def _open_flow(client, provider: str, name: str, **kwargs) -> str:
-    # FEATURE: Stage E route retirement — the legacy start route answers 410, so the callback
-    # tests open their flow with the shared storage seeder; returns the flow's `state`.
-    return client.portal.call(
-        partial(
-            open_oauth_flow,
-            client.app,
-            account_id=_account_id(client),
-            provider=provider,
-            name=name,
-            **kwargs,
-        )
+def _pending_profile(account_id: str, provider: str, name: str) -> Profile:
+    return Profile(
+        id=profile_id_for(account_id, provider, name),
+        account_id=account_id,
+        provider=provider,
+        name=name,
+        state=ProfileState.PENDING,
     )
+
+
+def _open_flow(
+    client, provider: str, name: str, *, redirect_uri: str | None = None
+) -> tuple[str, str]:
+    # FEATURE: OME-1209 Stage E3b — every pending flow is a native Connection flow. A PENDING
+    # compat document of the same name is seeded first, so the callback's D14 mirror flips it as
+    # the retired Profile start left it; returns the flow's `state` and `connection_id`.
+    client.portal.call(
+        client.app.state.profile_index.upsert,
+        _pending_profile(_account_id(client), provider, name),
+    )
+    body: dict[str, str] = {"provider": provider, "label": name}
+    if redirect_uri is not None:
+        body["redirect_uri"] = redirect_uri
+    started = client.post("/v1/oauth/connections", json=body)
+    assert started.status_code == 201, started.text
+    return started.json()["state"], started.json()["connection_id"]
 
 
 def _indexed_profile(client, provider: str, name: str) -> dict:
@@ -245,7 +259,7 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    state = _open_flow(client, "anthropic", "topcb")
+    state, _ = _open_flow(client, "anthropic", "topcb")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -265,7 +279,7 @@ def test_oauth2callback_alias_completes_auth(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    state = _open_flow(client, "anthropic", "oauth2cb")
+    state, _ = _open_flow(client, "anthropic", "oauth2cb")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -322,7 +336,6 @@ class _GenericOAuthPlugin:
     def __init__(self) -> None:
         self.strategy = _RecordingStrategy()
         self.exchange_request: OAuthCodeExchangeRequest | None = None
-        self.invalidated_profiles: list[str] = []
 
     def register_models(self) -> list:
         return []
@@ -354,9 +367,6 @@ class _GenericOAuthPlugin:
 
     def account_label_from_credentials(self, _credentials: dict) -> str | None:
         return None
-
-    def invalidate_profile_session(self, profile_name: str) -> None:
-        self.invalidated_profiles.append(profile_name)
 
 
 class _DelayedOAuthPlugin(_GenericOAuthPlugin):
@@ -444,37 +454,34 @@ async def _move_tortoise_to_pytest_loop(client, credential_blobs) -> None:
     await init_db(f"sqlite://{credential_blobs.db_path}")
 
 
-async def _seed_pending_profile(
+async def _seed_pending_flow(
     client,
     account_id: str,
     provider: str,
     name: str,
     state: str,
-) -> None:
-    # Mirror the real start_oauth: publish the pending profile AND claim an ownership
-    # generation via begin_pending, then record that generation on the pending entry so the
-    # callback presents it to authenticate_pending / mark_pending_error (OME-307 Blocker 1).
-    generation = await client.app.state.profile_index.begin_pending(
-        Profile(
-            id=profile_id_for(account_id, provider, name),
-            account_id=account_id,
-            provider=provider,
-            name=name,
-            state=ProfileState.PENDING,
-        )
+) -> str:
+    # WHY no HTTP start: these tests drive the loopback callback on pytest's loop. Mirror what the
+    # native start leaves — the pending Connection, the pending entry naming it — plus a PENDING
+    # compat document of the same name for the D14 mirror; returns the Connection id.
+    connection_id = uuid4()
+    await OAuthConnectionStore().create_pending(
+        account_id=account_id, provider=provider, label=name, connection_id=connection_id
     )
+    await client.app.state.profile_index.upsert(_pending_profile(account_id, provider, name))
     client.app.state.pending_auth.put(
         state,
         PendingAuthEntry(
             account_id=account_id,
             provider=provider,
             profile_name=name,
-            profile_id=profile_id_for(account_id, provider, name),
             code_verifier="verifier",
             redirect_uri="http://localhost:1455/callback",
-            oauth_generation=generation,
+            connection_id=str(connection_id),
+            requested_label=name,
         ),
     )
+    return str(connection_id)
 
 
 @pytest.mark.parametrize(
@@ -564,9 +571,9 @@ def test_connection_label_uses_plugin_account_label_fallback() -> None:
         account_id="account-1",
         provider="generic",
         profile_name="fallback-profile",
-        profile_id="profile-1",
         code_verifier="verifier",
         redirect_uri="http://localhost/callback",
+        connection_id="connection-1",
     )
 
     assert (
@@ -584,7 +591,7 @@ async def test_handle_loopback_callback_completes_oauth(client_with_index) -> No
     server = _FakeServer()
     client.app.state.providers._plugins["generic"] = plugin
     client.app.state.loopback_oauth_callbacks = {state: server}
-    await _seed_pending_profile(client, account_id, "generic", "loopback", state)
+    await _seed_pending_flow(client, account_id, "generic", "loopback", state)
 
     writer = _FakeWriter()
     await _handle_loopback_callback(
@@ -709,7 +716,7 @@ async def test_handle_loopback_callback_sanitizes_completion_errors(client_with_
     server = _FakeServer()
     client.app.state.providers._plugins["generic"] = _ExplodingOAuthPlugin()
     client.app.state.loopback_oauth_callbacks = {state: server}
-    await _seed_pending_profile(client, account_id, "generic", "loopback-error", state)
+    connection_id = await _seed_pending_flow(client, account_id, "generic", "loopback-error", state)
 
     writer = _FakeWriter()
     await _handle_loopback_callback(
@@ -727,9 +734,10 @@ async def test_handle_loopback_callback_sanitizes_completion_errors(client_with_
     assert b"OAuth callback failed. Try again." in writer.response
     assert server.closed is True
     assert server.waited is True
-    profile = await client.app.state.profile_index.get(account_id, "generic", "loopback-error")
-    assert profile is not None
-    assert profile.state == ProfileState.ERROR
+    # WHY the Connection: since OME-1209 Stage E3b a failed callback marks its own Connection.
+    connection = await OAuthConnectionStore().get(account_id, connection_id)
+    assert connection is not None
+    assert connection.status == "error"
     await Tortoise.close_connections()
 
 
@@ -740,7 +748,7 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     client.app.state.providers._plugins["generic"] = plugin
 
     redirect_uri = "http://localhost:1455/callback"
-    state = _open_flow(client, "generic", "work", redirect_uri=redirect_uri)
+    state, _ = _open_flow(client, "generic", "work", redirect_uri=redirect_uri)
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
@@ -1018,35 +1026,9 @@ def test_connection_completion_persist_failure_is_sanitized_and_non_active(
     assert leak_marker not in json.dumps(connection)
 
 
-def test_profile_oauth_persist_failure_is_sanitized_and_marks_error(
-    client_with_index, monkeypatch
-) -> None:
-    client, _ = client_with_index
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-    leak_marker = "sk-ant-api03-profile-secret-that-must-not-leak"
-
-    async def persist_failure(_creds: dict) -> None:
-        raise RuntimeError(f"credential store exploded with {leak_marker}")
-
-    monkeypatch.setattr(plugin.strategy, "persist_credentials", persist_failure)
-    state = _open_flow(client, "generic", "persist-failure")
-
-    auth_header = client.headers.pop("Authorization")
-    try:
-        with _server_errors_as_responses(client):
-            cb = client.get(
-                "/callback",
-                params={"code": "generic-code", "state": state},
-                follow_redirects=False,
-            )
-    finally:
-        client.headers["Authorization"] = auth_header
-
-    assert cb.status_code == 503
-    assert leak_marker not in cb.text
-    profile = _indexed_profile(client, "generic", "persist-failure")
-    assert profile["state"] == "error"
+# WHY no Profile-flow persist-failure test: since OME-1209 Stage E3b every flow is a native
+# Connection flow, pinned by
+# `test_connection_completion_persist_failure_is_sanitized_and_non_active`.
 
 
 def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
@@ -1055,17 +1037,14 @@ def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
     client, _ = client_with_index
     plugin = _GenericOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
-    state = _open_flow(client, "generic", "index-conflict")
+    state, _ = _open_flow(client, "generic", "index-conflict")
 
     async def authenticate_conflict(_profile, **_kwargs) -> None:
         raise CredentialBlobMutationConflict("forced contention")
 
-    # WHY: on the OAuth callback path a CAS conflict surfaces from the sole publication
-    # boundary, authenticate_pending() (OME-307 Unit 1); inject there, not at the removed
-    # trailing upsert() seam.
-    monkeypatch.setattr(
-        client.app.state.profile_index, "authenticate_pending", authenticate_conflict
-    )
+    # WHY: on the OAuth callback path a CAS conflict surfaces from the D14 compat-document
+    # mirror, the index upsert inside the completion transaction (OME-1209 Stage E3b).
+    monkeypatch.setattr(client.app.state.profile_index, "upsert", authenticate_conflict)
     auth_header = client.headers.pop("Authorization")
     try:
         with _server_errors_as_responses(client):
@@ -1156,7 +1135,9 @@ def test_callback_completes_auth(client_with_index) -> None:
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    state = _open_flow(client, "anthropic", "work")
+    state, connection_id = _open_flow(client, "anthropic", "work")
+    assert _indexed_profile(client, "anthropic", "work")["last_refreshed_at"] is None
+    before = datetime.now(UTC)
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1171,72 +1152,23 @@ def test_callback_completes_auth(client_with_index) -> None:
 
     prof = _indexed_profile(client, "anthropic", "work")
     assert prof["state"] == "authenticated"
+    # INVARIANT (D14): the native callback's mirror stamps the compat document's refresh time.
+    assert datetime.fromisoformat(prof["last_refreshed_at"]) >= before
 
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
     blob = credential_blobs.read(
-        credential_service_for(credential_name_for(account_id, "work")), "default"
+        credential_service_for(credential_key_for(account_id, connection_id)), "default"
     )
     assert "new-tok" in blob
 
 
-def test_callback_restores_api_key_blob_when_profile_index_update_fails(
-    client_with_index, monkeypatch
-) -> None:
-    client, credential_blobs = client_with_index
-    account_id = _account_id(client)
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-    api_key = "sk-ant-api03-existing-1234"
-
-    from aigateway.plugins.anthropic_provider.auth import credential_service_for
-
-    service = credential_service_for(credential_name_for(account_id, "default"))
-    # WHY: the retired `PUT .../api-key` left exactly this legacy state — an AUTHENTICATED
-    # api_key Profile plus its key blob; the flow below then opens over it in place.
-    client.portal.call(
-        client.app.state.profile_index.upsert,
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        ),
-    )
-    credential_blobs.write(
-        service, "default", json.dumps({"auth_type": "api_key", "api_key": api_key})
-    )
-    previous = credential_blobs.read(service, "default")
-    assert previous is not None
-    assert api_key in previous
-
-    state = _open_flow(client, "anthropic", "default")
-
-    async def _boom(_profile, **_kwargs) -> None:
-        raise RuntimeError("profile index unavailable")
-
-    # WHY: inject at the real callback publication boundary. The OAuth callback path
-    # authenticates a pending profile via authenticate_pending(); its failure must roll
-    # the credential write back with it (OME-307 Unit 1 removed the redundant trailing
-    # upsert() that this fault used to ride).
-    monkeypatch.setattr(client.app.state.profile_index, "authenticate_pending", _boom)
-    auth_header = client.headers.pop("Authorization")
-    try:
-        with _server_errors_as_responses(client):
-            cb = client.get(
-                "/callback",
-                params={"code": "auth-code-1", "state": state},
-                follow_redirects=False,
-            )
-    finally:
-        client.headers["Authorization"] = auth_header
-
-    assert cb.status_code == 500
-    assert "new-tok" not in cb.text
-    assert credential_blobs.read(service, "default") == previous
-    profile = _indexed_profile(client, "anthropic", "default")
-    assert profile["auth_type"] == "api_key"
+# WHY no Profile-flow rollback test: since OME-1209 Stage E3b every flow is a native Connection
+# flow; a failed compat-document mirror rolling the completion back is pinned in
+# `core/provider_access/test_writer_floor_native.py`
+# (`test_a_native_callback_publication_failure_leaves_same_named_profile_unchanged`) and
+# `core/provider_access/test_writer_floor_native_compat.py`
+# (`test_a_compat_document_conflict_rolls_the_native_callback_back_as_an_index_conflict`).
 
 
 def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_index) -> None:
@@ -1244,7 +1176,7 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
     account_id = _account_id(client)
     client.app.state.codex_http_factory = _mock_codex_token_factory()
 
-    state = _open_flow(client, "codex", "work")
+    state, connection_id = _open_flow(client, "codex", "work")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1264,7 +1196,7 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
     from aigateway.plugins.codex_provider.auth import credential_service_for
 
     blob = credential_blobs.read(
-        credential_service_for(credential_name_for(account_id, "work")), "default"
+        credential_service_for(credential_key_for(account_id, connection_id)), "default"
     )
     assert blob is not None
     assert json.loads(blob)["refresh_token"] == "codex-refresh"
@@ -1284,7 +1216,7 @@ def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _failing_token_factory()
 
-    state = _open_flow(client, "anthropic", "retry")
+    state, connection_id = _open_flow(client, "anthropic", "retry")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1304,8 +1236,8 @@ def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
 
     assert failed.status_code == 500
     assert retried.status_code == 400
-    prof = _indexed_profile(client, "anthropic", "retry")
-    assert prof["state"] == "error"
+    # WHY the Connection: since OME-1209 Stage E3b a failed callback marks its own Connection.
+    assert client.get(f"/v1/oauth/connections/{connection_id}").json()["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -1315,7 +1247,7 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     plugin = _DelayedOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
-    state = _open_flow(client, "generic", "race")
+    state, _ = _open_flow(client, "generic", "race")
     await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     results = await asyncio.gather(
@@ -1335,26 +1267,14 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     await Tortoise.close_connections()
 
 
-@pytest.mark.asyncio
-async def test_complete_oauth_invalidates_provider_profile_session(client_with_index) -> None:
-    client, credential_blobs = client_with_index
-    account_id = _account_id(client)
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-
-    state = _open_flow(client, "generic", "reauth")
-    await _move_tortoise_to_pytest_loop(client, credential_blobs)
-
-    await _complete_oauth_for_app(client.app, "generic", "code-one", state, account_id)
-
-    assert plugin.invalidated_profiles == [credential_name_for(account_id, "reauth")]
-    await Tortoise.close_connections()
+# WHY no Profile-session invalidation test: a native flow writes a fresh Connection address, so
+# there is no prior session to invalidate; it retired with the legacy callback (OME-1209 E3b).
 
 
 def test_callback_error_html_sanitizes_provider_response(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _html_failing_token_factory()
-    state = _open_flow(client, "anthropic", "htmlfail")
+    state, _ = _open_flow(client, "anthropic", "htmlfail")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -1391,7 +1311,7 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    state = _open_flow(client, "anthropic", "paste")
+    state, connection_id = _open_flow(client, "anthropic", "paste")
 
     resp = client.post(
         "/v1/auth/anthropic/exchange-code",
@@ -1406,7 +1326,7 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
     blob = credential_blobs.read(
-        credential_service_for(credential_name_for(account_id, "paste")), "default"
+        credential_service_for(credential_key_for(account_id, connection_id)), "default"
     )
     assert "new-tok" in blob
 
@@ -1415,7 +1335,7 @@ def test_exchange_code_with_unknown_provider_404(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.providers._plugins["generic"] = _GenericOAuthPlugin()
 
-    state = _open_flow(client, "generic", "gone")
+    state, _ = _open_flow(client, "generic", "gone")
     client.app.state.providers._plugins.pop("generic")
 
     resp = client.post(
@@ -1433,7 +1353,7 @@ def test_exchange_code_without_oauth_strategy_returns_400(client_with_index, mon
     monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
     client.app.state.providers._plugins["generic"] = plugin
 
-    state = _open_flow(client, "generic", "no-strategy")
+    state, _ = _open_flow(client, "generic", "no-strategy")
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
@@ -1450,7 +1370,7 @@ def test_exchange_code_race_after_validation_returns_unknown_state(
     client, _ = client_with_index
     client.app.state.providers._plugins["generic"] = _GenericOAuthPlugin()
 
-    state = _open_flow(client, "generic", "pop-race")
+    state, _ = _open_flow(client, "generic", "pop-race")
     monkeypatch.setattr(client.app.state.pending_auth, "pop", lambda _state: None)
 
     resp = client.post(
@@ -1506,7 +1426,7 @@ def test_exchange_code_with_unknown_state_400(client_with_index) -> None:
 
 def test_exchange_code_with_provider_mismatch_400(client_with_index) -> None:
     client, _ = client_with_index
-    state = _open_flow(client, "anthropic", "mismatch")
+    state, _ = _open_flow(client, "anthropic", "mismatch")
 
     resp = client.post(
         "/v1/auth/ghost/exchange-code",
@@ -1520,7 +1440,7 @@ def test_exchange_code_with_other_accounts_state_404(
     client_with_index, provisioned_user_factory
 ) -> None:
     client, _ = client_with_index
-    state = _open_flow(client, "anthropic", "admin-only")
+    state, _ = _open_flow(client, "anthropic", "admin-only")
     provisioned_user_factory("bob", "bob-pass1")
     login = client.post("/v1/auth/login", json={"username": "bob", "password": "bob-pass1"})
     client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})

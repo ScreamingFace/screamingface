@@ -1,6 +1,6 @@
 """Request and response models for the ``/v1/admin`` surface.
 
-WHY these exist when the tenant-facing profile routes get by on bare ``dict``: a TypeScript client
+WHY these exist when the retired tenant profile routes got by on bare ``dict``: a TypeScript client
 is generated from this app's OpenAPI document, and an untyped object there becomes an untyped
 object in the console. Every admin route declares a ``response_model`` so the generated types are
 real, and so a field rename breaks the UI's typecheck rather than its runtime.

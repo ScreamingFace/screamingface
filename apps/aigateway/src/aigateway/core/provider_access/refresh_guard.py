@@ -146,9 +146,9 @@ class GuardedRefreshPublication:
 def guard_refresh(strategy: Any, owner: RefreshOwner) -> Any:
     """Bind the owner guard to an OAuth strategy the app built; any other strategy passes through.
 
-    # AIDEV-NOTE: every app site that builds a strategy able to refresh binds it here (the §5.3
-    # inventory: dispatch for a Profile and a Connection, the token service, the migrated facade,
-    # the native and the legacy refresh routes). An unbound strategy writes directly.
+    # INVARIANT: every app site that builds a strategy able to refresh binds it here (the §5.3
+    # inventory: dispatch for a Profile and a Connection, the token service, the native refresh
+    # route). An unbound strategy writes directly.
     """
     if isinstance(strategy, BaseOAuthStrategy):
         publication: RefreshPublication = GuardedRefreshPublication(

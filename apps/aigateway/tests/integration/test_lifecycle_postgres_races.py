@@ -9,12 +9,10 @@ import threading
 import time
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID, uuid4
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -28,7 +26,6 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
@@ -36,8 +33,6 @@ from aigateway.core.oauth.store import (
     credential_locator_for,
 )
 from aigateway.main import create_app
-from aigateway.plugins.anthropic_provider.auth import credential_service_for
-from tests.unit.oauth_flow_seed import open_oauth_flow
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -102,24 +97,6 @@ def pg_client(postgres_database_url: str) -> Generator[TestClient, None, None]:
         yield client
 
 
-def _token_factory(token: str):
-    async def _handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "access_token": token,
-                "refresh_token": f"refresh-{token}",
-                "expires_in": 3600,
-                "token_type": "Bearer",
-            },
-        )
-
-    return lambda: httpx.AsyncClient(
-        transport=httpx.MockTransport(_handler),
-        timeout=httpx.Timeout(5.0),
-    )
-
-
 def _app(client: TestClient) -> FastAPI:
     app = client.app
     if not isinstance(app, FastAPI):
@@ -135,11 +112,6 @@ def _read_credential(client: TestClient, service: str, account: str) -> str | No
     if value is not None and not isinstance(value, str):
         raise AssertionError("credential store returned a non-string value")
     return value
-
-
-def _profile_credential(client: TestClient, account_id: str, name: str) -> str | None:
-    service = credential_service_for(credential_name_for(account_id, name))
-    return _read_credential(client, service, "default")
 
 
 def _connection_credential(client: TestClient, account_id: str, connection_id: UUID) -> str | None:
@@ -173,59 +145,12 @@ def _overlaps(client: TestClient, attempted: threading.Event) -> bool:
     return True
 
 
-def test_postcondition_owner_check_and_cas_are_atomic_on_postgres(
-    pg_client: TestClient,
-    monkeypatch,
-) -> None:
-    name = f"ownership-{uuid4()}"
-    account_id = pg_client.get("/v1/auth/me").json()["id"]
-    _app(pg_client).state.anthropic_http_factory = _token_factory("oauth-A-token")
-    # WHY the seeder: the Profile start route answers 410 since OME-1209 Stage E3, while the
-    # legacy-pending callback branch under test ships until E4.
-    open_flow = partial(
-        open_oauth_flow, _app(pg_client), account_id=account_id, provider="anthropic", name=name
-    )
-    portal = pg_client.portal
-    if portal is None:
-        raise AssertionError("TestClient portal is not active")
-    state_a = portal.call(open_flow)
-    index = _app(pg_client).state.profile_index
-    authenticate_pending = index.authenticate_pending
-    cas_reached = threading.Event()
-    release_cas = threading.Event()
-
-    async def _pause_before_cas(profile, **kwargs) -> None:
-        cas_reached.set()
-        if not await asyncio.to_thread(release_cas.wait, 10):
-            raise TimeoutError("profile CAS was not released")
-        await authenticate_pending(profile, **kwargs)
-
-    monkeypatch.setattr(index, "authenticate_pending", _pause_before_cas)
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        callback_a = executor.submit(
-            pg_client.get,
-            "/v1/auth/anthropic/callback",
-            params={"code": "code-A", "state": state_a},
-            follow_redirects=False,
-        )
-        assert cas_reached.wait(10), "A never reached its production durable-CAS boundary"
-        state_b = portal.call(open_flow)
-        release_cas.set()
-        response_a = callback_a.result(timeout=10)
-
-    assert response_a.status_code == 409
-    assert response_a.json()["detail"]["code"] == "profile_auth_conflict"
-    assert _profile_credential(pg_client, account_id, name) is None
-    profile = portal.call(index.get, account_id, "anthropic", name)
-    assert profile is not None and profile.state.value == "pending"
-
-    _app(pg_client).state.anthropic_http_factory = _token_factory("oauth-B-token")
-    response_b = pg_client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "code-B", "state": state_b},
-        follow_redirects=False,
-    )
-    assert response_b.status_code == 200
+# WHY no Profile-flow owner-check race: since OME-1209 Stage E3b every flow is a native
+# Connection flow fenced by the pair marker, pinned on PostgreSQL by
+# `test_native_repair_postgres.py`
+# (`test_a_repair_holding_the_marker_makes_a_racing_key_takeover_lose_on_postgres`) and
+# `test_pair_admin_mutations_postgres.py`
+# (`test_two_first_bridge_puts_commit_exactly_one_and_leave_no_orphan_on_postgres`).
 
 
 def test_connection_absent_credential_delete_set_commit_orders_on_postgres(

@@ -6,7 +6,7 @@
 # generation and mirrors the compat document (op 8 shape).
 # INVARIANT (D14): the marker and the index are written inside the CALLER's transaction BEFORE
 # the connection row and the blob — marker → index → connection row → blob, the one lock order
-# of the backing (`connection_admin`, `connection_oauth`).
+# of the backing (`connection_admin`).
 # AIDEV-NOTE: a row that is not a migrated pair's effective row is a plain Connection — every
 # function here is a no-op for it and the route behaves exactly as before S2'b4. Nothing here
 # reads for a response; the routes keep their own HTTP vocabulary.
@@ -81,7 +81,7 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
 
 
 # WHY these two: a row in `error` or `revoked` serves nothing — a new OAuth flow replaces it
-# whatever its auth type, as the Profile facade did.
+# whatever its auth type.
 UNUSABLE_EFFECTIVE = frozenset({"error", "revoked"})
 
 
@@ -283,9 +283,9 @@ async def republish_effective_api_key(
     """Key replacement: fence the pair and mirror the compat document, as op 8 does.
 
     Runs inside the caller's transaction, BEFORE `reactivate` and the blob write.
-    # INVARIANT: the generation moves (same effective id) so a Profile-facade OAuth callback
-    # still in flight loses its fence instead of publishing tokens over the key just set —
-    # never last-write-wins between two secrets.
+    # INVARIANT: the generation moves (same effective id) so a native repair callback still in
+    # flight loses its `replace_effective` compare-and-set instead of publishing tokens over the
+    # key just set — never last-write-wins between two secrets.
     """
     pair = await effective_pair_of(connection)
     if pair is None:

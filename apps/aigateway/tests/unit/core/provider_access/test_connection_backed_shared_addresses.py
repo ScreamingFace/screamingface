@@ -14,6 +14,9 @@
 # the flow through `POST /v1/auth/{provider}/profiles`, retired at OME-1209 Stage E3 (410); the
 # native repair twins in `test_native_oauth_replaces_unusable_effective.py` and
 # `test_native_repair_boundaries.py` cover it.
+# WHY finding 3 (an alias key write mirrored on every document) has no test here: the alias write
+# retired with the Profile-era admin ops at OME-1209 Stage E3b; `test_pair_admin_publication.py`
+# pins the sibling mirror on the D18 publication.
 """
 
 from __future__ import annotations
@@ -26,12 +29,11 @@ import pytest
 from backfill_probes import run
 from connection_backed_admin_probes import (
     DEFAULT,
-    MASKED,
     blob_at_profile_address,
     connection,
     document,
     marker,
-    set_api_key,
+    put_pair_key,
 )
 from connection_backed_harness import CREDENTIAL_PROVIDER, ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of
@@ -40,7 +42,6 @@ from provider_access_harness import ANTHROPIC, PROVIDER
 from aigateway import migrate_profiles
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import Selector
 from aigateway.core.provider_access.pair_authority import PairAuthorityStore
 
@@ -136,34 +137,6 @@ def test_deleting_a_rolled_back_connection_keeps_the_legacy_profiles_blob(migrat
     assert target.credential_name == credential_name_for(h.account_id, "default")
 
 
-# --- finding 3: a key written for the pair is mirrored on every document of the pair -------------
-
-
-def test_an_alias_key_write_mirrors_the_document_at_the_keys_address(migrated) -> None:
-    h = migrated
-    h.seed_document(name="default", auth_type="oauth")
-    h.seed_authority(name="default", auth_type="oauth")
-
-    set_api_key(h, "work")
-
-    default = document(h, "default")
-    assert default is not None
-    assert (default.state, default.auth_type, default.account_label) == (
-        ProfileState.AUTHENTICATED,
-        "api_key",
-        MASKED,
-    )
-    work = document(h, "work")
-    assert work is not None and work.auth_type == "api_key"
-
-    # After an R1 rollback the legacy path reads `default` from its document AND its blob: both
-    # say api_key.
-    rollback(h)
-    body = document(h, "default")
-    assert body is not None
-    assert (body.state.value, body.auth_type) == ("authenticated", "api_key")
-
-
 # --- R1 rehearsal over an address a document does not own: refused and reported ---------------
 
 
@@ -177,7 +150,7 @@ def test_a_rollback_refuses_a_pair_whose_key_lives_at_another_documents_address(
     h = migrated
     h.seed_document(name="default", auth_type="oauth")
     effective = h.seed_authority(name="default", auth_type="oauth")
-    set_api_key(h, "work")
+    h.seed_document(name="work", auth_type="api_key", credential=None)
     generation = marker(h).generation
 
     report, record = rollback_record(h)
@@ -206,7 +179,7 @@ def test_a_rollback_refuses_a_uuid_addressed_pair_that_gained_a_document(migrate
     row = h.seed_connection(label="default", credential="ctok")
     (applied,) = run(h, "apply").accounts[0].records
     assert (applied.category, applied.applied) == ("connection_only", True)
-    set_api_key(h, "default")
+    put_pair_key(h)
     assert blob_at_profile_address(h, "default") is None  # the key went to the UUID address
 
     _report, record = rollback_record(h)

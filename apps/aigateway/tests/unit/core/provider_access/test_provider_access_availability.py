@@ -164,8 +164,6 @@ def test_availability_reads_only_the_index_and_writes_nothing(seam: _Seam, monke
         "upsert",
         "remove",
         "mark_authenticated_error",
-        "mark_pending_error",
-        "update_metadata",
     ):
         monkeypatch.setattr(seam.index, name, _no_write)
 
