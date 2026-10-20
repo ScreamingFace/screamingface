@@ -23,10 +23,12 @@ from typing import Any
 
 import pytest
 from _combine_contract import ENGINE_APP, engine_operators, read_contract, requires_engine_app
+from _nodes import FusionNode, GateNode, JudgeNode, VoteNode, fusion_node
 from _vote_run_fixtures import spec_of
 from url4 import Expression, RelExpr, Source, Text, build, expr, render, src, struct, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
@@ -35,6 +37,8 @@ from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
 from screamingface._evaluation.reducer_signals import _signal_call_role
 from screamingface._evaluation.topology import _signal_role
 from screamingface._evaluation.url4 import _candidate_from_url4
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.judge import judge_intent
 from screamingface.operation import OperationInfo
 from screamingface.reducer import _ModelSignal
@@ -119,8 +123,8 @@ def _compiled(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
-def _fusion(vote: sf.Vote, **options: Any) -> sf.Fusion:
-    return sf.Fusion(MEMBERS, name="vote", synthesizer=vote, **options)
+def _fusion(step: Step, **options: Any) -> sx.Pipeline:
+    return sx.Fanout(MEMBERS, name="vote", **options) >> step
 
 
 def _sources(url4: str) -> list[Any]:
@@ -171,8 +175,8 @@ def _recompiled(url4: str) -> str:
 
 @requires_engine_app
 def test_vote_without_gate_keeps_its_bytes_repr_and_rebuild() -> None:
-    assert repr(sf.Vote()) == "Vote(extract='last_line', normalize='text')"
-    assert sf.Vote()._python() == "sf.Vote(extract='last_line', normalize='text')"
+    assert repr(sx.Vote()) == "Vote()"
+    assert VoteNode()._python() == "sf.Vote(extract='last_line', normalize='text')"
     for name in _L43:
         assert _recompiled(read_contract(name)) == read_contract(name), name
 
@@ -181,7 +185,7 @@ def test_vote_without_gate_keeps_its_bytes_repr_and_rebuild() -> None:
 
 
 def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
-    gate = sf.Gate("agreement", ">=", 0.7)
+    gate = GateNode("agreement", ">=", 0.7)
     assert gate._spec() == {
         "cmp": ">=",
         "observe": "agreement",
@@ -189,11 +193,11 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
         "threshold": 0.7,
     }
     assert gate._signal_call() is None
-    vote = sf.Vote(gate=gate)
+    vote = VoteNode(gate=gate)
     assert vote._plan().gate is gate
     assert vote._plan().signal_calls == ()
     assert combine_spec_text(vote, member_count=3, operators=engine_operators()) == _GATED_SPEC
-    url4 = _compiled(_fusion(vote))
+    url4 = _compiled(_fusion(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())))
     sources = _sources(url4)
     assert len(sources) == 5
     assert [source.name for source in sources] == [
@@ -206,7 +210,7 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
     context = _by_name(url4)["synthesis_1"].context
     assert context == render(struct({"input": "$input", "outputs": _OUTPUTS}))
     assert context is not None and "signals" not in context
-    ungated = _compiled(_fusion(sf.Vote()))
+    ungated = _compiled(_fusion(sx.Vote()))
     assert {k: v for k, v in spec_of(url4).items() if k != "gate"} == spec_of(ungated)
 
 
@@ -214,11 +218,9 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
 
 
 def test_gate_reads_a_declared_signal() -> None:
-    fusion = sf.Fusion(
-        MEMBERS,
-        name="vote",
+    fusion = _fusion(
+        sx.Gate(when=sx.signal("conf").chosen() >= 80, then=sx.Vote()),
         signals={"conf": sf.Verbalized(CONF_PATTERN)},
-        synthesizer=sf.Vote(gate=sf.Gate("chosen:conf", ">=", 80)),
     )
     url4 = _compiled(fusion)
     assert spec_of(url4)["signals"] == {"conf": {"pattern": CONF_PATTERN, "source": "verbalized"}}
@@ -231,9 +233,9 @@ def test_gate_reads_a_declared_signal() -> None:
     assert (
         '"gate":{"cmp":">=","observe":"chosen:conf","otherwise":"abstain","threshold":80.0}' in url4
     )
-    assert sf.Gate("chosen:conf", ">=", 80)._declared_name() == "conf"
-    assert sf.Gate("mean:lp", "<=", 0.5)._declared_name() == "lp"
-    assert sf.Gate("agreement", ">=", 0.7)._declared_name() is None
+    assert GateNode("chosen:conf", ">=", 80)._declared_name() == "conf"
+    assert GateNode("mean:lp", "<=", 0.5)._declared_name() == "lp"
+    assert GateNode("agreement", ">=", 0.7)._declared_name() is None
 
 
 # --- GA#6: the constructor refuses a bad observe, cmp or threshold, with fixed messages ---
@@ -283,19 +285,19 @@ _BAD_GATE_ARGS: list[tuple[tuple[Any, ...], type[Exception], str]] = [
 def test_gate_constructor_refuses_bad_observe_cmp_and_threshold() -> None:
     for args, error, message in _BAD_GATE_ARGS:
         with pytest.raises(error) as caught:
-            sf.Gate(*args)
+            GateNode(*args)
         assert str(caught.value) == message, args
-    assert sf.Gate("agreement", ">", 0).threshold == 0.0
-    assert sf.Gate("agreement", ">=", 1).threshold == 1.0
-    assert sf.Gate("mean:ent", "<=", -5).threshold == -5.0
-    assert sf.Gate("chosen:conf", "<", 1e300).cmp == "<"
+    assert GateNode("agreement", ">", 0).threshold == 0.0
+    assert GateNode("agreement", ">=", 1).threshold == 1.0
+    assert GateNode("mean:ent", "<=", -5).threshold == -5.0
+    assert GateNode("chosen:conf", "<", 1e300).cmp == "<"
 
 
 # --- GA#7: the fallback is "abstain", a label judge, or a model; nothing else ---
 
 
 def test_gate_otherwise_refuses_a_scores_judge_a_named_model_and_a_recipe() -> None:
-    scores_judge = sf.Judge("prov/j", returns="scores", rubric=SECRET)
+    scores_judge = JudgeNode("prov/j", returns="scores", rubric=SECRET)
     named_model = sf.Model("prov/w", name="writer", prompt=SECRET)
     optional_model = sf.Model("prov/w", optional=True, prompt=SECRET)
     bad_otherwise: list[tuple[Any, type[Exception], str]] = [
@@ -316,29 +318,29 @@ def test_gate_otherwise_refuses_a_scores_judge_a_named_model_and_a_recipe() -> N
             ValueError,
             "a gate fallback sf.Model takes no name= and is never optional",
         ),
-        (sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote()), TypeError, _OTHERWISE_RULE),
-        (sf.Vote(), TypeError, _OTHERWISE_RULE),
+        (fusion_node(["p/a", "p/b"], VoteNode()), TypeError, _OTHERWISE_RULE),
+        (VoteNode(), TypeError, _OTHERWISE_RULE),
         (None, TypeError, _OTHERWISE_RULE),
     ]
     for otherwise, error, message in bad_otherwise:
         with pytest.raises(error) as caught:
-            sf.Gate("agreement", ">=", 0.7, otherwise=otherwise)
+            GateNode("agreement", ">=", 0.7, otherwise=otherwise)
         assert str(caught.value) == message
         assert SECRET not in str(caught.value)
-    label_judge = sf.Judge(
+    label_judge = JudgeNode(
         "prov/j", returns="label", rubric="Pick the best answer.", params={"temperature": 0}
     )
     model = sf.Model("prov/w", prompt="Write one answer.")
-    assert sf.Gate("agreement", ">=", 0.7, otherwise=label_judge).otherwise is label_judge
-    assert sf.Gate("agreement", ">=", 0.7, otherwise=model).otherwise is model
-    assert sf.Gate("agreement", ">=", 0.7).otherwise == "abstain"
+    assert GateNode("agreement", ">=", 0.7, otherwise=label_judge).otherwise is label_judge
+    assert GateNode("agreement", ">=", 0.7, otherwise=model).otherwise is model
+    assert GateNode("agreement", ">=", 0.7).otherwise == "abstain"
 
 
 # --- GA#8: a Fusion refuses a gate that reads a name it does not declare, before any call ---
 
 
 def test_fusion_refuses_a_gate_that_reads_an_undeclared_name() -> None:
-    vote = sf.Vote(gate=sf.Gate("mean:lp", ">=", 0.5))
+    vote = sx.Gate(when=sx.signal("lp").mean() >= 0.5, then=sx.Vote())
     with pytest.raises(ValueError) as caught:
         _fusion(vote)
     assert str(caught.value) == (
@@ -350,10 +352,10 @@ def test_fusion_refuses_a_gate_that_reads_an_undeclared_name() -> None:
         "the gate reads 'mean:lp', but this Fusion does not declare 'lp' (declared: conf)"
     )
     _fusion(
-        sf.Vote(gate=sf.Gate("mean:conf", ">=", 50)),
+        sx.Gate(when=sx.signal("conf").mean() >= 50, then=sx.Vote()),
         signals={"conf": sf.Verbalized(CONF_PATTERN)},
     )
-    _fusion(sf.Vote(gate=sf.Gate("agreement", ">=", 0.7)))
+    _fusion(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote()))
 
 
 # --- GA#9: sf.Vote refuses a gate= that is not an sf.Gate ---
@@ -363,11 +365,11 @@ def test_vote_refuses_a_gate_that_is_not_a_gate() -> None:
     not_gates: list[Any] = [
         "agreement >= 0.7",
         {"observe": "agreement", "cmp": ">=", "threshold": 0.7},
-        sf.Judge("prov/j", returns="label", rubric="Pick."),
+        JudgeNode("prov/j", returns="label", rubric="Pick."),
     ]
     for gate in not_gates:
         with pytest.raises(TypeError) as caught:
-            sf.Vote(gate=gate)
+            VoteNode(gate=gate)
         assert str(caught.value) == "Vote gate must be an sf.Gate"
 
 
@@ -375,11 +377,11 @@ def test_vote_refuses_a_gate_that_is_not_a_gate() -> None:
 
 
 def test_gated_votes_round_trip_through_to_python() -> None:
-    abstain_gate = sf.Gate("agreement", ">=", 0.7)
-    verbalized_gate = sf.Gate("chosen:conf", ">=", 80)
-    cases: list[tuple[sf.Fusion, sf.Gate, str, str]] = [
+    abstain_gate = GateNode("agreement", ">=", 0.7)
+    verbalized_gate = GateNode("chosen:conf", ">=", 80)
+    cases: list[tuple[sf.Recipe, GateNode, str, str]] = [
         (
-            _fusion(sf.Vote(gate=abstain_gate)),
+            _fusion(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())),
             abstain_gate,
             "    synthesizer=sf.Vote(extract='last_line@1', normalize='text@1', "
             "gate=sf.Gate('agreement', '>=', 0.7)),",
@@ -388,11 +390,9 @@ def test_gated_votes_round_trip_through_to_python() -> None:
             "gate=Gate('agreement', '>=', 0.7)))",
         ),
         (
-            sf.Fusion(
-                MEMBERS,
-                name="vote",
+            _fusion(
+                sx.Gate(when=sx.signal("conf").chosen() >= 80, then=sx.Vote()),
                 signals={"conf": sf.Verbalized(CONF_PATTERN)},
-                synthesizer=sf.Vote(gate=verbalized_gate),
             ),
             verbalized_gate,
             "    synthesizer=sf.Vote(extract='last_line@1', normalize='text@1', "
@@ -414,18 +414,18 @@ def test_gated_votes_round_trip_through_to_python() -> None:
 
 
 def test_gate_repr_and_python_form() -> None:
-    writer = sf.Gate("agreement", ">=", 0.7, otherwise=sf.Model("prov/w", prompt="Write."))
+    writer = GateNode("agreement", ">=", 0.7, otherwise=sf.Model("prov/w", prompt="Write."))
     assert repr(writer) == (
         "Gate('agreement', '>=', 0.7, otherwise=Model('prov/w', prompt='Write.'))"
     )
     assert writer._python() == (
         "sf.Gate('agreement', '>=', 0.7, otherwise=sf.Model('prov/w', prompt='Write.'))"
     )
-    judge = sf.Gate(
+    judge = GateNode(
         "agreement",
         ">",
         0.5,
-        otherwise=sf.Judge("prov/j", returns="label", rubric="Pick."),
+        otherwise=JudgeNode("prov/j", returns="label", rubric="Pick."),
     )
     assert repr(judge) == (
         "Gate('agreement', '>', 0.5, otherwise=Judge('prov/j', returns='label', rubric='Pick.'))"
@@ -434,26 +434,26 @@ def test_gate_repr_and_python_form() -> None:
         "sf.Gate('agreement', '>', 0.5, otherwise=sf.Judge('prov/j', returns='label', "
         "rubric='Pick.'))"
     )
-    whole = sf.Gate("agreement", ">=", 1)
+    whole = GateNode("agreement", ">=", 1)
     assert whole.threshold == 1.0
     assert type(whole.threshold) is float
     assert repr(whole) == "Gate('agreement', '>=', 1.0)"
     assert whole._python() == "sf.Gate('agreement', '>=', 1.0)"
-    explicit = sf.Gate("chosen:conf", "<=", 5, otherwise="abstain")
+    explicit = GateNode("chosen:conf", "<=", 5, otherwise="abstain")
     assert repr(explicit) == "Gate('chosen:conf', '<=', 5.0)"
-    assert explicit == sf.Gate("chosen:conf", "<=", 5.0)
+    assert explicit == GateNode("chosen:conf", "<=", 5.0)
     assert [gate._spec()["otherwise"] for gate in (explicit, judge, writer)] == [
         "abstain",
         "judge",
         "writer",
     ]
-    assert repr(sf.Vote(gate=sf.Gate("agreement", ">=", 0.7))) == (
+    assert repr(VoteNode(gate=GateNode("agreement", ">=", 0.7))) == (
         "Vote(extract='last_line', normalize='text', gate=Gate('agreement', '>=', 0.7))"
     )
-    assert sf.Vote(gate=sf.Gate("agreement", ">=", 0.7))._python() == (
+    assert VoteNode(gate=GateNode("agreement", ">=", 0.7))._python() == (
         "sf.Vote(extract='last_line', normalize='text', gate=sf.Gate('agreement', '>=', 0.7))"
     )
-    assert repr(sf.Vote(extract="benchmark", gate=sf.Gate("agreement", ">", 0.5))) == (
+    assert repr(VoteNode(extract="benchmark", gate=GateNode("agreement", ">", 0.5))) == (
         "Vote(extract='benchmark', gate=Gate('agreement', '>', 0.5))"
     )
 
@@ -462,13 +462,13 @@ def test_gate_repr_and_python_form() -> None:
 
 
 def test_public_surface_lists_gate_and_the_vote_parameters() -> None:
-    vote_parameters = inspect.signature(sf.Vote).parameters
+    vote_parameters = inspect.signature(VoteNode).parameters
     assert {"gate", "verify"} <= set(vote_parameters)
     assert vote_parameters["gate"].kind is inspect.Parameter.KEYWORD_ONLY
     assert vote_parameters["gate"].default is None
     assert str(vote_parameters["verify"]) == "verify: 'None' = None"
     assert "Gate" in sf.__all__
-    gate_parameters = inspect.signature(sf.Gate).parameters
+    gate_parameters = inspect.signature(GateNode).parameters
     assert list(gate_parameters) == ["observe", "cmp", "threshold", "otherwise", "abstain_band"]
     assert gate_parameters["otherwise"].kind is inspect.Parameter.KEYWORD_ONLY
     assert gate_parameters["otherwise"].default == "abstain"
@@ -478,14 +478,18 @@ def test_public_surface_lists_gate_and_the_vote_parameters() -> None:
 
 
 def test_vote_accepts_verify_none_and_keeps_its_bytes() -> None:
-    plain = sf.Vote()
-    slot = sf.Vote(verify=None, gate=None)
+    plain = sx.Vote()
+    slot = sx.Vote(verify=None)
+    plain_node = VoteNode()
+    slot_node = VoteNode(verify=None, gate=None)
     assert slot == plain
     assert slot.verify is None
     assert plain.verify is None
-    assert slot.gate is None
-    assert plain.gate is None
-    assert combine_spec_text(slot, member_count=3, operators=engine_operators()) == _UNGATED_SPEC
+    assert slot_node.gate is None
+    assert plain_node.gate is None
+    assert (
+        combine_spec_text(slot_node, member_count=3, operators=engine_operators()) == _UNGATED_SPEC
+    )
     assert _compiled(_fusion(slot)) == _compiled(_fusion(plain))
 
 
@@ -496,7 +500,7 @@ def test_vote_refuses_any_verify_value_but_none() -> None:
     values: list[Any] = [lambda answer: True, "model", False, 0, {}]
     for value in values:
         with pytest.raises(ValueError) as caught:
-            sf.Vote(verify=value)
+            sx.Vote(verify=value)
         assert str(caught.value) == _VERIFY_RULE
 
 
@@ -504,10 +508,10 @@ def test_vote_refuses_any_verify_value_but_none() -> None:
 
 
 def test_vote_repr_and_rebuild_leave_verify_out() -> None:
-    assert repr(sf.Vote(verify=None)) == "Vote(extract='last_line', normalize='text')"
-    vote = sf.Vote(verify=None, gate=sf.Gate("agreement", ">=", 0.7))
+    assert repr(sx.Vote(verify=None)) == "Vote()"
+    vote = sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote(verify=None))
     assert "verify" not in repr(vote)
-    assert "verify" not in vote._python()
+    assert "verify" not in VoteNode(verify=None, gate=GateNode("agreement", ">=", 0.7))._python()
     url4 = _compiled(_fusion(vote))
     assert "verify" not in url4
     assert "verify" not in sf.Url4(url4).to_python()
@@ -527,32 +531,25 @@ _FB_MEMBER_OPS = ("op_model_1", "op_model_2", "op_model_3")
 _FB_ENGINE_SPEC = ENGINE_APP / "src" / "screamingface_engine" / "combine" / "spec.py"
 
 
-def _fb_judge(params: dict[str, Any] | None = None) -> sf.Judge:
-    return sf.Judge("prov/judge", returns="label", rubric=_FB_RUBRIC, params=params)
+def _fb_judge(params: dict[str, Any] | None = None) -> sx.JudgePick:
+    return sx.JudgePick("prov/judge", rubric=_FB_RUBRIC, params=params)
 
 
-def _fb_writer(params: dict[str, Any] | None = None) -> sf.Model:
-    return sf.Model("prov/writer", prompt=_FB_WRITE, params=params)
+def _fb_writer(params: dict[str, Any] | None = None) -> sx.Synthesize:
+    return sx.Synthesize(sf.Model("prov/writer", prompt=_FB_WRITE, params=params))
 
 
 def _fb_fusion(
     otherwise: Any,
     *,
-    judge: sf.Judge | None = None,
+    judge: sx.Judge | None = None,
     weights: Any = None,
     members: list[Any] | None = None,
     quorum: Any = "all",
-) -> sf.Fusion:
-    return sf.Fusion(
-        _FB_MEMBERS if members is None else members,
-        name="vote",
-        quorum=quorum,
-        synthesizer=sf.Vote(
-            weights=weights,
-            judge=judge,
-            gate=sf.Gate("agreement", ">=", 0.7, otherwise=otherwise),
-        ),
-    )
+) -> sx.Pipeline:
+    fanout = sx.Fanout(_FB_MEMBERS if members is None else members, name="vote", quorum=quorum)
+    gate = sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote(weights=weights), otherwise=otherwise)
+    return fanout >> gate if judge is None else fanout >> judge >> gate
 
 
 def _fb_compiled(recipe: sf.Recipe) -> Any:
@@ -585,11 +582,11 @@ def _fb_rider_synthesizer(url4: str) -> Any:
     return json.loads(rider.value)["recipe"]["synthesizer"]
 
 
-def _fb_recovered(url4: str) -> sf.Fusion:
+def _fb_recovered(url4: str) -> FusionNode:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
     candidate = namespace["candidate"]
-    assert isinstance(candidate, sf.Fusion)
+    assert isinstance(candidate, FusionNode)
     return candidate
 
 
@@ -755,12 +752,12 @@ def test_fallback_params_go_to_the_preflight(fallback: str) -> None:
     )
 
 
-def _fb_round_trip_recipes() -> dict[str, sf.Fusion]:
+def _fb_round_trip_recipes() -> dict[str, sx.Pipeline]:
     return {
         "judge": _fb_fusion(_fb_judge()),
         "judge_weighted": _fb_fusion(
             _fb_judge(),
-            judge=sf.Judge("prov/scorer", returns="scores", rubric="Score."),
+            judge=sx.Judge("prov/scorer", rubric="Score."),
             weights=sf.signal("score:judge"),
         ),
         "writer": _fb_fusion(_fb_writer()),
@@ -773,9 +770,12 @@ def test_gated_votes_with_a_fallback_call_round_trip_through_to_python(name: str
     compiled = _fb_compiled(recipe)
     source = sf.Url4(compiled.url4).to_python()
     rebuilt = _fb_recovered(compiled.url4)
-    original_vote, rebuilt_vote = recipe.synthesizer, rebuilt.synthesizer
-    assert isinstance(original_vote, sf.Vote)
-    assert isinstance(rebuilt_vote, sf.Vote)
+    # WHY lower: the rebuild gives the internal node that the chain lowers to (until 7e).
+    lowered = lower(recipe)
+    assert isinstance(lowered, FusionNode)
+    original_vote, rebuilt_vote = lowered.synthesizer, rebuilt.synthesizer
+    assert isinstance(original_vote, VoteNode)
+    assert isinstance(rebuilt_vote, VoteNode)
     assert original_vote.gate is not None
 
     assert _fb_compiled(rebuilt).url4 == compiled.url4
@@ -793,7 +793,7 @@ _FB_GATE_JUDGE = '"gate":{"cmp":">=","observe":"agreement","otherwise":"judge","
 _FB_SPEC_MEMBERS = '"members":["member_1","member_2","member_3"],'
 
 
-def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Fusion], str, str]]:
+def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Recipe], str, str]]:
     """case -> (recipe builder, text to replace (exactly once in the url4), replacement).
 
     WHY builders: each case compiles only its own recipe, so a case that fails at compile does
@@ -802,7 +802,7 @@ def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Fusion], str, str]]:
 
     return {
         "gate_on_a_median": (
-            lambda: sf.Fusion(_FB_MEMBERS, name="vote", synthesizer=sf.Median()),
+            lambda: sx.Fanout(_FB_MEMBERS, name="vote") >> sx.Median(),
             _FB_SPEC_MEMBERS,
             _FB_GATE_ABSTAIN + _FB_SPEC_MEMBERS,
         ),
@@ -812,10 +812,9 @@ def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Fusion], str, str]]:
             "",
         ),
         "judge_gate_without_its_call": (
-            lambda: sf.Fusion(
-                _FB_MEMBERS,
-                name="vote",
-                synthesizer=sf.Vote(gate=sf.Gate("agreement", ">=", 0.7)),
+            lambda: (
+                sx.Fanout(_FB_MEMBERS, name="vote")
+                >> sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())
             ),
             '"otherwise":"abstain"',
             '"otherwise":"judge"',
@@ -848,7 +847,8 @@ def test_hand_edited_gate_urls_cannot_rebuild(case: str) -> None:
 
 
 def test_hand_edited_gate_vote_with_two_fallback_calls_cannot_rebuild() -> None:
-    vote = sf.Vote(gate=sf.Gate("agreement", ">=", 0.7, otherwise=_fb_judge()))
+    fallback = JudgeNode("prov/judge", returns="label", rubric=_FB_RUBRIC)
+    vote = VoteNode(gate=GateNode("agreement", ">=", 0.7, otherwise=fallback))
     spec = decode_combine_spec(
         combine_spec_text(vote, member_count=3, operators=engine_operators())
     )
@@ -858,11 +858,11 @@ def test_hand_edited_gate_vote_with_two_fallback_calls_cannot_rebuild() -> None:
     writer = _ModelSignal("fallback_writer", "prov/writer", _FB_WRITE, MappingProxyType({}))
 
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._rebuild(spec, (judge, writer))
+        VoteNode._rebuild(spec, (judge, writer))
 
 
 def test_writer_default_prompt_rebuilds_without_prompt() -> None:
-    recipe = _fb_fusion(sf.Model("prov/writer"))
+    recipe = _fb_fusion(sx.Synthesize("prov/writer"))
     url4 = _fb_compiled(recipe).url4
 
     assert _fb_calls(url4)["writer_1"].prompt == DEFAULT_SYNTHESIS_PROMPT
@@ -871,7 +871,7 @@ def test_writer_default_prompt_rebuilds_without_prompt() -> None:
     )
     rebuilt = _fb_recovered(url4)
     vote = rebuilt.synthesizer
-    assert isinstance(vote, sf.Vote)
+    assert isinstance(vote, VoteNode)
     assert vote.gate is not None
     assert isinstance(vote.gate.otherwise, sf.Model)
     assert vote.gate.otherwise.prompt is None
