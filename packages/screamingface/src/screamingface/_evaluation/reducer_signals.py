@@ -33,7 +33,7 @@ from screamingface._evaluation.topology import (
     _writer_field,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
-from screamingface.fusion import Fusion
+from screamingface.fusion import FusionNode
 from screamingface.judge import panel_judge_signal
 from screamingface.reducer import (
     Reducer,
@@ -97,7 +97,7 @@ class _CompiledSignals:
 
 def _compile_signals(
     compiler: _CandidateCompiler,
-    fusion: Fusion,
+    fusion: FusionNode,
     plan: _ReducerPlan,
     members: tuple[_ResolvedRecipe, ...],
     *,
@@ -188,7 +188,7 @@ def _signal_call_role(signal: _ModelSignal) -> _SignalRole:
 
 def _projection_source(
     compiler: _CandidateCompiler,
-    fusion: Fusion,
+    fusion: FusionNode,
     signal: _ModelSignal,
     *,
     spec_text: str,
@@ -214,7 +214,7 @@ def _projection_source(
 
 def _model_signal_source(
     compiler: _CandidateCompiler,
-    fusion: Fusion,
+    fusion: FusionNode,
     signal: _ModelSignal,
     *,
     route: str,

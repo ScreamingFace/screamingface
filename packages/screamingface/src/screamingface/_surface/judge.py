@@ -17,7 +17,7 @@ from typing import Any, ClassVar, Literal
 
 from screamingface._candidate_policy import GenerationParams
 from screamingface._surface.chain import Step, _Category
-from screamingface.judge import Judge as JudgeNode
+from screamingface.judge import JudgeNode
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)

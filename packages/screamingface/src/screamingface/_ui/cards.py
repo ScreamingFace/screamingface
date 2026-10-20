@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from screamingface._surface.chain import Pipeline as Chain
     from screamingface._surface.chain import Step, _Block
     from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
-    from screamingface.fusion import Fusion
+    from screamingface.fusion import FusionNode
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
     from screamingface.recipe import Recipe
@@ -59,7 +59,7 @@ def model_card_html(model: Model) -> str:
     )
 
 
-def fusion_card_html(fusion: Fusion) -> str:
+def fusion_card_html(fusion: FusionNode) -> str:
     """Render the Benchmark-independent Fusion topology."""
 
     members = "".join(_member_detail(member) for member in fusion.members)

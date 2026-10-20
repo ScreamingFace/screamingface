@@ -38,7 +38,7 @@ from screamingface.reducer import (
 )
 
 if TYPE_CHECKING:
-    from screamingface.judge import Judge
+    from screamingface.judge import JudgeNode
 
 type ExtractRule = Literal[
     "boxed",
@@ -326,18 +326,18 @@ def _check_path(name: str) -> Callable[[str, object], str]:
 
 def _check_judge(op: str, value: object) -> object:
     # WHY lazy: judge.py imports this module to register its block form (F10)
-    from screamingface.judge import Judge
+    from screamingface.judge import JudgeNode
 
-    if not isinstance(value, Judge):
+    if not isinstance(value, JudgeNode):
         raise TypeError(f"sf.Reduce({op!r}) option 'judge' must be an sf.Judge")
     return value
 
 
 def _check_by(op: str, value: object) -> object:
     # WHY lazy: judge.py imports this module to register its block form (F10)
-    from screamingface.judge import Judge
+    from screamingface.judge import JudgeNode
 
-    if not isinstance(value, Judge):
+    if not isinstance(value, JudgeNode):
         raise TypeError(f"sf.Reduce({op!r}) option 'by' must be an sf.Judge")
     return value
 
@@ -422,7 +422,7 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
-class Reduce(Reducer):
+class ReduceNode(Reducer):
     """One reduce block in the Fusion synthesizer slot; compiles to the same combine call as its
     named form (block-api ans:Q1). select returns original member text; compute builds a value.
 
@@ -431,6 +431,7 @@ class Reduce(Reducer):
     block keeps only the mode, so both spellings are one block, with one repr and one url4.
     """
 
+    _public_name: ClassVar[str] = "Reduce"
     name: str
     op: str
     mode: ReduceMode
@@ -472,7 +473,7 @@ class Reduce(Reducer):
         # WHY the carrier is not in ``_key``: a narrow step (Rank, Filter) has no hash. Equal
         # values still have equal hashes.
         return (
-            isinstance(other, Reduce)
+            isinstance(other, ReduceNode)
             and self._key() == other._key()
             and self._narrow == other._narrow
         )
@@ -524,11 +525,11 @@ class Reduce(Reducer):
             )
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Reduce:
+    def _from_spec(cls, spec: Mapping[str, object]) -> ReduceNode:
         return _rebuilt_block(spec, lambda: _rebuild_plain(spec))
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Reduce:
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> ReduceNode:
         if not signals:
             return cls._from_spec(spec)
         return _rebuilt_block(spec, lambda: _rebuild_with_signals(spec, signals))
@@ -649,20 +650,20 @@ def _answer_steps(extract: Extract) -> tuple[_Step | None, _Step | None, bool]:
     return (*extract._steps(), False)
 
 
-def _plurality_plan(block: Reduce) -> _ReducerPlan:
+def _plurality_plan(block: ReduceNode) -> _ReducerPlan:
     extract, normalize, benchmark = _answer_steps(_extract_of(block))
     return _vote_plan(extract, normalize, None, benchmark_rule=benchmark)
 
 
-def _weighted_plan(block: Reduce) -> _ReducerPlan:
+def _weighted_plan(block: ReduceNode) -> _ReducerPlan:
     extract, normalize, benchmark = _answer_steps(_extract_of(block))
     weights = block.options["weights"]
     assert isinstance(weights, tuple | Signal)
-    judge = cast("Judge | None", block.options.get("judge"))
+    judge = cast("JudgeNode | None", block.options.get("judge"))
     return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark, judge=judge)
 
 
-def _statistic_plan(block: Reduce, statistic: _Statistic) -> _ReducerPlan:
+def _statistic_plan(block: ReduceNode, statistic: _Statistic) -> _ReducerPlan:
     extract, _ = _extract_of(block)._steps()
     weights = cast("tuple[float, ...] | Signal | None", block.options.get("weights"))
     steps = _Steps(
@@ -674,13 +675,13 @@ def _statistic_plan(block: Reduce, statistic: _Statistic) -> _ReducerPlan:
     return _ReducerPlan(statistic, "answer", steps, weights)
 
 
-def _extract_of(block: Reduce) -> Extract:
+def _extract_of(block: ReduceNode) -> Extract:
     extract = block.options["extract"]
     assert isinstance(extract, Extract)
     return extract
 
 
-_PLANS: Mapping[str, Callable[[Reduce], _ReducerPlan]] = MappingProxyType(
+_PLANS: Mapping[str, Callable[[ReduceNode], _ReducerPlan]] = MappingProxyType(
     {
         "plurality": _plurality_plan,
         "weighted": _weighted_plan,
@@ -728,17 +729,17 @@ def _normalize_from_spec(spec: Mapping[str, object]) -> str | None:
     return _op_name(step)
 
 
-def _rebuild_vote(spec: Mapping[str, object], *, judge: Judge | None = None) -> Reduce:
+def _rebuild_vote(spec: Mapping[str, object], *, judge: JudgeNode | None = None) -> ReduceNode:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
     extract = _extract_from_spec(spec, _normalize_from_spec(spec))
     weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
     pair = (_op_name(spec["reduce"]), _op_name(spec["select"]))
     if pair == ("mode", "first_holder") and weights is None:
-        return Reduce("plurality", extract=extract)
+        return ReduceNode("plurality", extract=extract)
     if pair == ("weighted_mode", "max_weight_holder") and weights is not None:
         options: dict[str, Any] = {"judge": judge} if judge else {}
-        return Reduce("weighted", extract=extract, weights=weights, **options)
+        return ReduceNode("weighted", extract=extract, weights=weights, **options)
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
 
@@ -750,7 +751,7 @@ _NUMERIC_MODES: Mapping[str, ReduceMode] = MappingProxyType(
 assert frozenset(_NUMERIC_MODES) == _NUMERIC_SELECTS
 
 
-def _rebuild_statistic(spec: Mapping[str, object], statistic: _Statistic) -> Reduce:
+def _rebuild_statistic(spec: Mapping[str, object], statistic: _Statistic) -> ReduceNode:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
     weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
@@ -760,10 +761,10 @@ def _rebuild_statistic(spec: Mapping[str, object], statistic: _Statistic) -> Red
     extract = _extract_from_spec(spec, "numeric")
     options: dict[str, Any] = {} if weights is None else {"weights": weights}
     mode = _NUMERIC_MODES[_op_name(spec["select"])]
-    return Reduce(statistic, mode=mode, extract=extract, **options)
+    return ReduceNode(statistic, mode=mode, extract=extract, **options)
 
 
-_REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyType(
+_REBUILD: Mapping[str, Callable[[Mapping[str, object]], ReduceNode]] = MappingProxyType(
     {
         "vote": _rebuild_vote,
         "median": partial(_rebuild_statistic, statistic="median"),
@@ -772,14 +773,16 @@ _REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyT
 )
 
 
-def _rebuild_plain(spec: Mapping[str, object]) -> Reduce:
+def _rebuild_plain(spec: Mapping[str, object]) -> ReduceNode:
     rebuilt = _REBUILD.get(str(spec.get("reducer")))
     if rebuilt is None:
         raise ValueError("not a rebuildable reducer")
     return rebuilt(spec)
 
 
-def _rebuild_with_signals(spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Reduce:
+def _rebuild_with_signals(
+    spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]
+) -> ReduceNode:
     """Only a judge-weighted vote reads model calls (8S F6); anything else is refused."""
 
     if spec.get("reducer") != "vote" or spec.get("weights") != {"signal": JUDGE_SIGNAL}:
@@ -790,7 +793,7 @@ def _rebuild_with_signals(spec: Mapping[str, object], signals: tuple[_ModelSigna
     return _rebuild_vote(spec, judge=judge_from_signals(signals, "scores"))
 
 
-def _rebuilt_block(spec: Mapping[str, object], rebuild: Callable[[], Reduce]) -> Reduce:
+def _rebuilt_block(spec: Mapping[str, object], rebuild: Callable[[], ReduceNode]) -> ReduceNode:
     """Run one rebuild; every refusal is the one "cannot rebuild" error."""
 
     try:
@@ -802,3 +805,7 @@ def _rebuilt_block(spec: Mapping[str, object], rebuild: Callable[[], Reduce]) ->
 
 
 __all__: list[str] = []
+
+
+# The public name until the swap (unit 7e) exports the new surface.
+Reduce = ReduceNode

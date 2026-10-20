@@ -44,23 +44,25 @@ from screamingface._surface.steps import (
     filter_extract,
 )
 from screamingface._surface.synthesize import Synthesize
-from screamingface.blocks import Extract, Reduce
+from screamingface.blocks import Extract, ReduceNode
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
-from screamingface.fields import Merge as MergeNode
-from screamingface.fields import Pick as PickNode
-from screamingface.fusion import Fusion
-from screamingface.gate import Gate as GateNode
-from screamingface.judge import Judge as JudgeNode
+from screamingface.fields import MergeNode, PickNode
+from screamingface.fusion import FusionNode
+from screamingface.gate import GateNode
+from screamingface.judge import JudgeNode
 from screamingface.model import Model
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
-from screamingface.reducer import _DEFAULT_NORMALIZE, BENCHMARK_EXTRACT, Reducer, _narrowed
-from screamingface.reducer import Mean as MeanNode
-from screamingface.reducer import Median as MedianNode
-from screamingface.reducer import Vote as VoteNode
-from screamingface.selection import Concat as ConcatNode
-from screamingface.selection import Filter as FilterNode
-from screamingface.selection import Rank as RankNode
+from screamingface.reducer import (
+    _DEFAULT_NORMALIZE,
+    BENCHMARK_EXTRACT,
+    MeanNode,
+    MedianNode,
+    Reducer,
+    VoteNode,
+    _narrowed,
+)
+from screamingface.selection import ConcatNode, FilterNode, RankNode
 
 _FA2 = "sf.Fanout signals= needs a reducer: sf.Synthesize reads no signal"
 # The judge a step is checked with when it is built: the block's own sf.Judge comes at block close.
@@ -149,8 +151,8 @@ def with_prompt(model: Model, prompt: str) -> Model:
     )
 
 
-def _fusion_of(fanout: Fanout, synthesizer: Recipe | Reducer) -> Fusion:
-    return Fusion(
+def _fusion_of(fanout: Fanout, synthesizer: Recipe | Reducer) -> FusionNode:
+    return FusionNode(
         _members(fanout),
         name=fanout.name,
         signals=fanout.signals,
@@ -207,9 +209,9 @@ def _vote_node(step: Vote, judge: JudgeNode | None, gate: GateNode | None = None
     assert gate is None
     extract = _vote_extract(step)
     if step.weights is None:
-        return Reduce("plurality", extract=extract)
+        return ReduceNode("plurality", extract=extract)
     options: dict[str, Any] = {} if judge is None else {"judge": judge}
-    return Reduce("weighted", extract=extract, weights=step.weights, **options)
+    return ReduceNode("weighted", extract=extract, weights=step.weights, **options)
 
 
 def _vote_extract(step: Vote) -> Extract:
@@ -229,7 +231,7 @@ def _statistic_node(step: Median | Mean, _judge: JudgeNode | None) -> Reducer:
     extract = field_extract(step.over, None) if isinstance(step.over, str) else step.over
     options: dict[str, Any] = {} if step.weights is None else {"weights": step.weights}
     op = "median" if isinstance(step, Median) else "mean"
-    return Reduce(op, select=step.select, extract=extract, **options)
+    return ReduceNode(op, select=step.select, extract=extract, **options)
 
 
 def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
@@ -353,11 +355,11 @@ def _optional_node(node: Recipe) -> Recipe:
     if isinstance(node, Pipeline):
         # a block's Pipeline([Fusion, writer]) is unnamed (lowering §2.2)
         return Pipeline(node.stages, optional=True)
-    assert isinstance(node, Fusion)
+    assert isinstance(node, FusionNode)
     return _rebuilt_fusion(node, node.members, node.synthesizer, optional=True)
 
 
-def _fusion(fusion: Fusion, active: _Active) -> Recipe:
+def _fusion(fusion: FusionNode, active: _Active) -> Recipe:
     members = _lowered(fusion.members, active)
     synthesizer = fusion.synthesizer
     if not isinstance(synthesizer, Reducer):
@@ -368,13 +370,13 @@ def _fusion(fusion: Fusion, active: _Active) -> Recipe:
 
 
 def _rebuilt_fusion(
-    fusion: Fusion,
+    fusion: FusionNode,
     members: Sequence[Recipe],
     synthesizer: Recipe | Reducer,
     *,
     optional: bool,
-) -> Fusion:
-    return Fusion(
+) -> FusionNode:
+    return FusionNode(
         members,
         name=_kept_name(fusion.name, _inferred_name(fusion.members)),
         signals=fusion.signals,
@@ -420,7 +422,7 @@ def _lowered(values: tuple[Recipe, ...], active: _Active) -> tuple[Recipe, ...]:
 # The recipe kinds that can hold a chain, and how each one lowers. A Model holds none.
 _LOWERINGS: tuple[tuple[type, Callable[[Any, _Active], Recipe]], ...] = (
     (Chain, _chain),
-    (Fusion, _fusion),
+    (FusionNode, _fusion),
     (Pipeline, _pipeline),
     (CorrectiveLoop, _loop),
     (SelfCorrective, _solo),

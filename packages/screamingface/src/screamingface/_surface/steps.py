@@ -28,8 +28,7 @@ from screamingface._surface.refs import (
 )
 from screamingface._surface.refs import weights as weights_option
 from screamingface.blocks import Extract, ExtractRule, Matches
-from screamingface.fields import FieldRule
-from screamingface.fields import Merge as MergeNode
+from screamingface.fields import FieldRule, MergeNode
 from screamingface.reducer import _DEFAULT_NORMALIZE, BENCHMARK_EXTRACT, _check_verify
 from screamingface.reducer import _Step as _OperatorStep
 from screamingface.selection import _DEFAULT_SEPARATOR

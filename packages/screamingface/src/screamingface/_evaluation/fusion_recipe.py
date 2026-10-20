@@ -15,9 +15,9 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from types import MappingProxyType
 
-from screamingface.blocks import CONTEXT_MISUSE, Reduce
+from screamingface.blocks import CONTEXT_MISUSE, ReduceNode
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
-from screamingface.fusion import Fusion
+from screamingface.fusion import FusionNode
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import (
     Recipe,
@@ -48,8 +48,8 @@ def _rewrite(recipe: Recipe, active: tuple[int, ...]) -> Recipe:
 
 
 def _is_context_fusion(recipe: Recipe) -> bool:
-    synthesizer = recipe.synthesizer if isinstance(recipe, Fusion) else None
-    return isinstance(synthesizer, Reduce) and synthesizer.op == "context"
+    synthesizer = recipe.synthesizer if isinstance(recipe, FusionNode) else None
+    return isinstance(synthesizer, ReduceNode) and synthesizer.op == "context"
 
 
 def _same(old: Sequence[object], new: Sequence[object]) -> bool:
@@ -60,7 +60,7 @@ def _unchanged(recipe: Recipe, active: tuple[int, ...]) -> Recipe:
     return recipe
 
 
-def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
+def _fusion(fusion: FusionNode, active: tuple[int, ...]) -> Recipe:
     """A Fusion met outside a Pipeline pair: a context Fusion here is misuse."""
 
     if _is_context_fusion(fusion):
@@ -71,7 +71,7 @@ def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
         synthesizer = _rewrite(synthesizer, active)
     if _same(fusion.members, members) and synthesizer is fusion.synthesizer:
         return fusion
-    return Fusion(
+    return FusionNode(
         members,
         name=_fusion_name(fusion),
         signals=fusion.signals,
@@ -81,22 +81,22 @@ def _fusion(fusion: Fusion, active: tuple[int, ...]) -> Recipe:
     )
 
 
-def _fusion_name(fusion: Fusion) -> str | None:
+def _fusion_name(fusion: FusionNode) -> str | None:
     return _kept_name(fusion.name, _inferred_name(fusion.members))
 
 
-def _lowered_pair(stages: Sequence[Recipe], index: int, active: tuple[int, ...]) -> Fusion:
+def _lowered_pair(stages: Sequence[Recipe], index: int, active: tuple[int, ...]) -> FusionNode:
     """The Fusion that the context Fusion at ``index`` and the stage after it make together."""
 
     context = stages[index]
-    assert isinstance(context, Fusion)
+    assert isinstance(context, FusionNode)
     follower = stages[index + 1] if index + 1 < len(stages) else None
     if follower is None or _is_context_fusion(follower):
         raise ValueError(CONTEXT_MISUSE)
     members = tuple(_rewrite(member, active) for member in context.members)
     # WHY the quorum rides along: the block form must compile to the named form's bytes. The
     # context Fusion is a Pipeline stage, never optional; the Pipeline's own flag is kept below.
-    return Fusion(
+    return FusionNode(
         members,
         name=_fusion_name(context),
         synthesizer=_rewrite(follower, active),
@@ -133,8 +133,8 @@ def _optional_fusion(stage: Recipe, optional: bool) -> Recipe:
 
     if not optional:
         return stage
-    assert isinstance(stage, Fusion)  # a lowered pair is always a Fusion
-    return Fusion(
+    assert isinstance(stage, FusionNode)  # a lowered pair is always a Fusion
+    return FusionNode(
         stage.members,
         name=_fusion_name(stage),
         signals=stage.signals,

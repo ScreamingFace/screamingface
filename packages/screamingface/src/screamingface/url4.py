@@ -50,7 +50,7 @@ from screamingface._operation_bindings import (
     OPERATION_BINDING_PARAM,
 )
 from screamingface._signals import JUDGE_SIGNAL
-from screamingface.blocks import Reduce
+from screamingface.blocks import ReduceNode
 from screamingface.reducer import (
     _JUDGE_CALL_KEYS,
     _JUDGE_KEY,
@@ -639,12 +639,12 @@ def _rebuilt_reducer(  # noqa: PLR0911
             raise reducer_module._cannot_rebuild(str(spec["reducer"]))
         return named._rebuild(spec, signals)
     if named is None:
-        return Reduce._rebuild(spec, signals)
+        return ReduceNode._rebuild(spec, signals)
     try:
         return named._rebuild(spec, signals)
     except (TypeError, ValueError):
         with contextlib.suppress(TypeError, ValueError):
-            return Reduce._rebuild(spec, signals)
+            return ReduceNode._rebuild(spec, signals)
         raise
 
 
@@ -841,13 +841,13 @@ def _fusion_from_topology(
 ) -> Recipe:
     """One Fusion; its members show only the params the author wrote (P16, DS-D10)."""
 
-    from screamingface.fusion import Fusion
+    from screamingface.fusion import FusionNode
 
     assert value.synthesizer is not None
     inferred_name = "+".join(member.name for member in value.members)
     declared = _fusion_signals(value, calls)
     drop = _injected_names(declared)
-    return Fusion(
+    return FusionNode(
         [
             _recipe_from_topology(member, calls, drop_params=drop, editable=editable)
             for member in value.members

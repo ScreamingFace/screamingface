@@ -301,13 +301,14 @@ class _FieldRules:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Merge(Reducer):
+class MergeNode(Reducer):
     """One JSON object with exactly the declared fields, each built by its own rule.
 
     A member that is not a JSON object is skipped and the report says so. A model-written field
     adds one projection call and one writer call; the writer sees only that field's values.
     """
 
+    _public_name: ClassVar[str] = "Merge"
     name: str
     fields: Mapping[str, FieldRule]
 
@@ -344,11 +345,11 @@ class Merge(Reducer):
                 )
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Merge:
+    def _from_spec(cls, spec: Mapping[str, object]) -> MergeNode:
         return cls._rebuild(spec, ())
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Merge:
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> MergeNode:
         entries = _merge_entries(spec)
         writers = {signal.key: signal for signal in signals}
         if len(writers) != len(signals):
@@ -370,7 +371,9 @@ class Merge(Reducer):
 
     def __eq__(self, other: object) -> bool:
         # WHY order counts: the field order is the spec order, so it changes the compiled bytes.
-        return isinstance(other, Merge) and list(self.fields.items()) == list(other.fields.items())
+        return isinstance(other, MergeNode) and list(self.fields.items()) == list(
+            other.fields.items()
+        )
 
     def _render(self, prefix: str) -> str:
         items = ", ".join(
@@ -503,7 +506,7 @@ def _output_arg(output: str | None) -> dict[str, str]:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Pick(Reducer):
+class PickNode(Reducer):
     """The member whose JSON field is the largest, the smallest or equal to a value, unchanged.
 
     ``order="max"|"min"`` compares numbers. ``equals=<value>`` compares text; ``normalize`` applies
@@ -520,6 +523,7 @@ class Pick(Reducer):
     never used. Works with a field and with ``by_signal=``.
     """
 
+    _public_name: ClassVar[str] = "Pick"
     name: str
     field: str | None
     by_signal: Signal | None
@@ -589,7 +593,7 @@ class Pick(Reducer):
         return _ReducerPlan("pick", "answer", steps)
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Pick:
+    def _from_spec(cls, spec: Mapping[str, object]) -> PickNode:
         steps = _spec_steps(spec)
         reduce = steps["reduce"]
         if reduce is not None and _op_name(reduce[0]) == "by_signal":
@@ -602,7 +606,7 @@ class Pick(Reducer):
         spec: Mapping[str, object],
         args: Mapping[str, object],
         select: tuple[str, Mapping[str, object]] | None,
-    ) -> Pick:
+    ) -> PickNode:
         key, order = args.get("key"), args.get("order")
         if not isinstance(key, str) or order not in ("max", "min"):
             raise _cannot_rebuild("pick")
@@ -613,7 +617,7 @@ class Pick(Reducer):
         return pick
 
     @classmethod
-    def _from_field_spec(cls, spec: Mapping[str, object]) -> Pick:
+    def _from_field_spec(cls, spec: Mapping[str, object]) -> PickNode:
         field, normalizer, args = _pick_parts(spec)
         output = args.pop("output", None)
         order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
@@ -693,8 +697,8 @@ def _pick_parts(spec: Mapping[str, object]) -> tuple[str, str | None, dict[str, 
     return field, None if normalize is None else normalize[0], dict(select[1])
 
 
-def _pick_from_options(options: Mapping[str, object]) -> Pick:
-    return Pick(
+def _pick_from_options(options: Mapping[str, object]) -> PickNode:
+    return PickNode(
         cast("str", options["field"]),
         order=cast("Literal['max', 'min'] | None", options.get("order")),
         equals=cast("str | int | float | bool | None", options.get("equals")),
@@ -706,22 +710,22 @@ def _pick_from_options(options: Mapping[str, object]) -> Pick:
 def _pick_options(named: Reducer) -> Mapping[str, object]:
     """The canonical options of a pick_field block, in op-table row order (F5)."""
 
-    pick = cast("Pick", named)
+    pick = cast("PickNode", named)
     if pick.order is not None:
         return {"field": pick.field, "order": pick.order, **_output_arg(pick.output)}
     normalize = {} if pick.normalize is None else {"normalize": pick.normalize}
     return {"field": pick.field, **normalize, "equals": pick.equals, **_output_arg(pick.output)}
 
 
-def _merge_from_options(options: Mapping[str, object]) -> Merge:
+def _merge_from_options(options: Mapping[str, object]) -> MergeNode:
     fields = options["fields"]
     if isinstance(fields, _FieldRules):
-        return Merge(dict(fields.items))
-    return Merge(cast("Mapping[str, FieldRule]", fields))
+        return MergeNode(dict(fields.items))
+    return MergeNode(cast("Mapping[str, FieldRule]", fields))
 
 
-def _argmax_from_options(options: Mapping[str, object]) -> Pick:
-    return Pick(
+def _argmax_from_options(options: Mapping[str, object]) -> PickNode:
+    return PickNode(
         by_signal=cast("Signal", options["by_signal"]),
         order=cast("Literal['max', 'min'] | None", options.get("order")),
         output=cast("str | None", options.get("output")),
@@ -731,7 +735,7 @@ def _argmax_from_options(options: Mapping[str, object]) -> Pick:
 def _argmax_options(named: Reducer) -> Mapping[str, object]:
     """The canonical options of an argmax block: the default order ``max`` is not stored."""
 
-    pick = cast("Pick", named)
+    pick = cast("PickNode", named)
     return {
         "by_signal": pick.by_signal,
         **({"order": "min"} if pick.order == "min" else {}),
@@ -739,12 +743,17 @@ def _argmax_options(named: Reducer) -> Mapping[str, object]:
     }
 
 
-_REDUCER_CLASSES.update(pick=Pick, merge=Merge)
+_REDUCER_CLASSES.update(pick=PickNode, merge=MergeNode)
 _BLOCK_FORMS["argmax"] = _BlockForm(build=_argmax_from_options, options=_argmax_options)
 _BLOCK_FORMS["pick_field"] = _BlockForm(build=_pick_from_options, options=_pick_options)
 _BLOCK_FORMS["merge"] = _BlockForm(
     build=_merge_from_options,
-    options=lambda named: {"fields": _FieldRules(tuple(cast("Merge", named).fields.items()))},
+    options=lambda named: {"fields": _FieldRules(tuple(cast("MergeNode", named).fields.items()))},
 )
 
 __all__ = ["FieldNormalizer", "FieldRule", "Merge", "Pick"]
+
+
+# The public names until the swap (unit 7e) exports the new surface.
+Pick = PickNode
+Merge = MergeNode

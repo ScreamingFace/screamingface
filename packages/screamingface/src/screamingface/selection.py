@@ -26,7 +26,11 @@ from screamingface.blocks import (
     _matches_args,
     _normalize_from_spec,
 )
-from screamingface.judge import Judge, judge_from_signals
+from screamingface.judge import (  # Judge: the public name in the Rank/Filter signatures until 7e
+    Judge,
+    JudgeNode,
+    judge_from_signals,
+)
 from screamingface.reducer import (
     _REDUCER_CLASSES,
     Reducer,
@@ -55,7 +59,7 @@ _RANK_NORMALIZER = "numeric@1"
 def _check_rank_source(by: object, by_field: object, by_signal: object) -> None:
     """Refuse a Rank source the Engine would only refuse after the paid member calls."""
 
-    if by is not None and not isinstance(by, Judge):
+    if by is not None and not isinstance(by, JudgeNode):
         raise TypeError("Rank by must be an sf.Judge")
     if by is not None and by.returns != "scores":
         raise ValueError("Rank(by=...) needs sf.Judge(..., returns='scores')")
@@ -76,7 +80,7 @@ def _check_rank_order(order: object) -> Literal["max", "min"]:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Rank(Reducer):
+class RankNode(Reducer):
     """Keep the ``k`` best-scored members: the next stage gets their original texts, best first.
 
     ``by=sf.Judge(..., returns="scores")`` scores every member with a judge model;
@@ -86,9 +90,10 @@ class Rank(Reducer):
     the cut goes to the earlier member. A Rank Fusion must be followed by another Pipeline stage.
     """
 
+    _public_name: ClassVar[str] = "Rank"
     name: str
     k: int
-    by: Judge | None
+    by: JudgeNode | None
     by_field: str | None
     by_signal: Signal | None
     order: Literal["max", "min"]
@@ -142,11 +147,11 @@ class Rank(Reducer):
             raise ValueError(f"Rank keeps k={self.k} members but the Fusion has {count}")
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Rank:
+    def _from_spec(cls, spec: Mapping[str, object]) -> RankNode:
         return cls._rebuild(spec, ())
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Rank:
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> RankNode:
         steps = _spec_steps(spec)
         select = steps["select"]
         args = {} if select is None else select[1]
@@ -214,13 +219,14 @@ def _recovered_source(
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Concat(Reducer):
+class ConcatNode(Reducer):
     """Join every member's original text in author order, with visible boundaries.
 
     No model is called. With ``label=True`` each part starts with ``[member_i]`` on its own line.
     A Concat Fusion must be followed by another Pipeline stage.
     """
 
+    _public_name: ClassVar[str] = "Concat"
     name: str
     separator: str
     label: bool
@@ -249,7 +255,7 @@ class Concat(Reducer):
         return _ReducerPlan("concat", "selection", steps)
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Concat:
+    def _from_spec(cls, spec: Mapping[str, object]) -> ConcatNode:
         reduce = _spec_steps(spec)["reduce"]
         args = {} if reduce is None else reduce[1]
         separator, label = args.get("separator"), args.get("label")
@@ -265,10 +271,10 @@ class Concat(Reducer):
     __hash__: ClassVar[Any] = None
 
 
-def _top_k_from_options(options: Mapping[str, object]) -> Rank:
-    return Rank(
+def _top_k_from_options(options: Mapping[str, object]) -> RankNode:
+    return RankNode(
         cast("int", options["k"]),
-        by=cast("Judge | None", options.get("by")),
+        by=cast("JudgeNode | None", options.get("by")),
         by_field=cast("str | None", options.get("by_field")),
         by_signal=cast("Signal | None", options.get("by_signal")),
         order=cast("Literal['max', 'min']", options.get("order", "max")),
@@ -279,7 +285,7 @@ def _top_k_options(named: Reducer) -> Mapping[str, object]:
     """The canonical options of a top_k block, in op-table row order: the default order ``max``
     is not stored."""
 
-    rank = cast("Rank", named)
+    rank = cast("RankNode", named)
     source = {
         name: getattr(rank, name) for name in _RANK_SOURCES if getattr(rank, name) is not None
     }
@@ -309,7 +315,7 @@ def _check_filter_judge(where: Matches | _Comparison, judge: object) -> None:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Filter(Reducer):
+class FilterNode(Reducer):
     """Keep the members that pass a test: the next stage gets their original texts, in author order.
 
     ``where=sf.matches(pattern)`` keeps a member whose original text matches the regex.
@@ -331,10 +337,11 @@ class Filter(Reducer):
     when the Filter is built.
     """
 
+    _public_name: ClassVar[str] = "Filter"
     name: str
     where: Matches | _Comparison
     extract: Extract | None
-    judge: Judge | None
+    judge: JudgeNode | None
     _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
     _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
@@ -374,11 +381,11 @@ class Filter(Reducer):
         )
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Filter:
+    def _from_spec(cls, spec: Mapping[str, object]) -> FilterNode:
         return cls._rebuild(spec, ())
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Filter:
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> FilterNode:
         # A judge call means a judge Filter; judge_from_signals refuses any other call.
         judge = judge_from_signals(signals, "scores") if signals else None
         reduce = _spec_steps(spec)["reduce"]
@@ -425,18 +432,18 @@ def _recovered_extract(spec: Mapping[str, object]) -> Extract | None:
         raise _cannot_rebuild("filter") from None
 
 
-def _filter_from_options(options: Mapping[str, object]) -> Filter:
-    return Filter(
+def _filter_from_options(options: Mapping[str, object]) -> FilterNode:
+    return FilterNode(
         where=cast("Matches | _Comparison", options["where"]),
         extract=cast("Extract | None", options.get("extract")),
-        judge=cast("Judge | None", options.get("judge")),
+        judge=cast("JudgeNode | None", options.get("judge")),
     )
 
 
 def _filter_options(named: Reducer) -> Mapping[str, object]:
     """The canonical options of a filter block, in op-table row order (where, extract, judge)."""
 
-    filtered = cast("Filter", named)
+    filtered = cast("FilterNode", named)
     return {
         "where": filtered.where,
         **({} if filtered.extract is None else {"extract": filtered.extract}),
@@ -444,8 +451,8 @@ def _filter_options(named: Reducer) -> Mapping[str, object]:
     }
 
 
-def _concat_from_options(options: Mapping[str, object]) -> Concat:
-    return Concat(
+def _concat_from_options(options: Mapping[str, object]) -> ConcatNode:
+    return ConcatNode(
         cast("str", options.get("separator", _DEFAULT_SEPARATOR)),
         label=cast("bool", options.get("label", True)),
     )
@@ -454,15 +461,21 @@ def _concat_from_options(options: Mapping[str, object]) -> Concat:
 def _concat_options(named: Reducer) -> Mapping[str, object]:
     """The canonical options of a concat block: the defaults are not stored."""
 
-    concat = cast("Concat", named)
+    concat = cast("ConcatNode", named)
     separator = {} if concat.separator == _DEFAULT_SEPARATOR else {"separator": concat.separator}
     return {**separator, **({} if concat.label else {"label": False})}
 
 
 _RANK_SOURCES = ("by", "by_field", "by_signal")
-_REDUCER_CLASSES.update(rank=Rank, concat=Concat, filter=Filter)
+_REDUCER_CLASSES.update(rank=RankNode, concat=ConcatNode, filter=FilterNode)
 _BLOCK_FORMS["top_k"] = _BlockForm(build=_top_k_from_options, options=_top_k_options)
 _BLOCK_FORMS["concat"] = _BlockForm(build=_concat_from_options, options=_concat_options)
 _BLOCK_FORMS["filter"] = _BlockForm(build=_filter_from_options, options=_filter_options)
 
 __all__ = ["Concat", "Filter", "Rank"]
+
+
+# The public names until the swap (unit 7e) exports the new surface.
+Rank = RankNode
+Filter = FilterNode
+Concat = ConcatNode
