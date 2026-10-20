@@ -1,12 +1,12 @@
 ---
 id: OME-1436
 linear_url: https://linear.app/openmined/issue/OME-1436/add-e14-metadata-capturetrue-and-sfreproduce-to-the-sdk
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [client-sf, agentic, autonomous]
 created: 2026-09-30
-closed:
+closed: 2026-10-20
 ---
 
 # Add E14 metadata, capture=True and sf.reproduce to the SDK

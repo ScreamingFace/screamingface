@@ -1,12 +1,12 @@
 ---
 id: OME-1556
 linear_url: https://linear.app/openmined/issue/OME-1556/document-e14-frozen-copies-reproduce-and-metadata-edits-in-the-public
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [repo-dev-processes, agentic, autonomous]
 created: 2026-10-09
-closed:
+closed: 2026-10-20
 ---
 
 # Document E14 frozen copies, reproduce and metadata edits in the public docs

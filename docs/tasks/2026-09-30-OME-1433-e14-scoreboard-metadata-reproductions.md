@@ -1,12 +1,12 @@
 ---
 id: OME-1433
 linear_url: https://linear.app/openmined/issue/OME-1433/build-e14-metadata-ownership-frozen-copy-fields-and-reproductions-in
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [scoreboard, agentic, autonomous]
 created: 2026-09-30
-closed:
+closed: 2026-10-20
 ---
 
 # Build E14 metadata ownership, frozen copy fields and reproductions in the scoreboard
