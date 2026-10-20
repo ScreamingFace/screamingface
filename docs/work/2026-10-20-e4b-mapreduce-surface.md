@@ -644,3 +644,62 @@ references on `Signal`). 7d–7h are not in this round.
   `test_reducer_fusion_quorum.py`, `test_reducer_slot.py`, `test_reducer_url4_round_trip.py`,
   `test_samples_preflight.py`, `test_url4_replay_fixed_seed_warning.py`), nothing of this round;
   with `--skip-append-only` ALL GATES GREEN. `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+
+## Unit 7: swap — step 7d-1 (helpers)
+
+- **Commits:** `5dbc11896` chore (the codemod sorts the imports it adds), `536c7d76a` test (the
+  helpers and their dependents), `619c8443e` test (the pinned field-pick bytes, alone),
+  `259256feb` chore (the codemod drops an unused `sf` import), this ledger commit. Pre-batch
+  commit: `fafb4a95d`.
+- **Codemod `--to sx`:** `tests/_combine_recipes.py`, `_signal_recipes.py`,
+  `_fusion_doc_examples.py`, `paid/_panel.py`, `e2e/harness/reducer_golden.py`, and the fixture
+  writer `test_pick_output_url4_fixtures.py` (it builds `recipe_s5_pick_output.url4`, so the
+  S5 pick-output bytes move with it). `_combine_contract.py`, the other `tests/_*.py`,
+  `e2e/harness/*` and `e2e/fixtures/*` had no old call or only hand cases.
+- **Hand cases:** `_combine_flow_fixtures.judge_fusion` (`**kw` into `sf.Judge`): a `JudgePick`, or
+  a `Judge` and `ArgMax`/`ArgMin` by `order=`; `_combine_recipes` S10/S11 (a judge from a
+  function) and the `_judge() -> sx.Judge` annotation; `e2e/harness/goldens.py`,
+  `e2e/fixtures/slice_snapshot.py` (a route synthesizer from a model field);
+  `e2e/harness/fusion_golden.py` `build` (Fanout >> Synthesize) and `build_block` (= `build`: the
+  context block form has one spelling since R11); the lazy `sx` import in `paid/_panel.py` and
+  `reducer_golden.py` (free tests never import the SDK at module load).
+- **Dependents fixed (pinned):** `e2e/test_fusion_golden_contracts.py`,
+  `e2e/test_reducer_golden_contracts.py`, `e2e/test_reducer_lane_contracts.py`,
+  `e2e/test_report_tape.py`, `paid/test_panel_models.py` read the chain steps (`steps[0].members`,
+  `steps[1]`, `Synthesize.model`); `test_fusion_recipe.py` (group F, deleted in 7f) and
+  `test_lowering.py` LO-0 lower the doc examples first (LO-0 now proves the identity on the
+  lowered value).
+- **Spec gap, README:** `test_combine_recipes_readme.py` compiles the README "Combine recipes"
+  code against the builders. The README S5/S7 code (`sf.Pick("confidence", order="max")`,
+  `sf.Rank(k=2, by_field="confidence")`) compiles to the old field-pick bytes, so it now spells
+  today's by_signal form (`sf.Pick(by_signal=sf.signal("field:confidence"), ...)`,
+  `sf.Rank(k=2, by_signal=...)`): two code lines, no prose. 7e moves the section.
+- **Pinned data (own commit):** exactly 5 files regenerated through their writers (`git diff
+  --stat`): `readme-418-pick-confidence.url4`, `readme-528-rank-by-field.url4`, Engine
+  `recipe_s5.url4`, `recipe_s5_pick_output.url4`, `recipe_s7.url4`. S5 == S8 and S5 pick output
+  == S8 pick output byte for byte. `surface_parity.json` rows 418 and 528 equal the new goldens.
+  (Its S5/S7 rows are the notebook forms with other members and do not equal the Engine
+  fixtures; not part of this check.)
+- **Forced test edits (pinned):** Engine `test_combine_recipes.py::test_recipe_s5_plain_text_member_is_not_picked`
+  (`fail`/`not_json` → `excluded`/`no_signal`, as S8); S7 (:126) and
+  `test_combine_empty_cut_envelope.py:187` stayed green, no edit.
+  `test_signal_recipe_fixtures.py`: the S5, S5 pick output, S7 sha256 pins (spec gap, as in 7b).
+- **Audit** `--audit fafb4a95d` over every touched SDK and Engine test file: no lost assertion.
+- **Tests:** SDK suite green (gate); Engine unit suite green (gate).
+- **Batches:** `scratchpad/7d-batches.json`: 127 remaining files (94 change under the codemod,
+  536 report lines), 4 groups of weight 166/166/166/165 (report lines + files), import-linked
+  files kept together (group 1 holds one 38-file component around `test_client_run.py`). Excluded:
+  the done helpers, `tests/_nodes.py`, `tests/test_migrate_surface.py`, the 5 README-coupled tests
+  (7e). Each group lists its hand files and reasons, the files with old tokens but no codemod
+  change, and the files whose `to_python` strings wait for 7e.
+- **Gates:** `run_gates.py screamingface-engine --base e4d44281c`: append-only flags the unit-1
+  files (2 schemas, `test_combine_consistency_words.py`, `test_combine_evidence_words.py`), the 7b
+  files (6 fixtures, 4 `test_sdk_*`), and new: `recipe_s5.url4`, `recipe_s5_pick_output.url4`,
+  `recipe_s7.url4`, `test_combine_recipes.py`; with `--skip-append-only` ALL GATES GREEN.
+  `run_gates.py screamingface`: the earlier list plus new: `_combine_flow_fixtures.py`,
+  `_combine_recipes.py`, `_fusion_doc_examples.py`, `_signal_recipes.py`, the 2 goldens,
+  `e2e/fixtures/slice_snapshot.py`, `e2e/harness/{fusion_golden,goldens,reducer_golden}.py`,
+  `e2e/test_{fusion_golden_contracts,reducer_golden_contracts,reducer_lane_contracts,report_tape}.py`,
+  `paid/_panel.py`, `paid/test_panel_models.py`, `test_fusion_recipe.py`,
+  `test_pick_output_url4_fixtures.py`; with `--skip-append-only` ALL GATES GREEN.
+  `run_gates.py repo` ALL GATES GREEN.
