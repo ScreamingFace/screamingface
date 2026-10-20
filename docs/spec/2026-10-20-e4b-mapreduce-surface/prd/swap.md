@@ -289,7 +289,7 @@ else (a parameter, `IfExp`, a subscript, a `FixtureVote`) is a hand case.
 | R7h | a scores judge inside `Rank(by=J)`, `Filter(judge=J)`, `Vote(judge=J)`, `Reduce(..., judge=J)` | hoist one `sx.Judge(...)` right after the `Fanout`; the reader keeps `by="score:judge"` / its `where` / `weights="score:judge"` |
 | R8 | `Rank(k, by_field=f)`; `Rank(k, by_signal=s)` | `Rank(k, by="field:f")`; `Rank(k, by=k')` |
 | R9 | `Vote(..., gate=sf.Gate(obs, cmp, t, otherwise=o, abstain_band=(lo, hi)))` | `sx.Gate(when=REF cmp t, then=sx.Vote(...), otherwise=o', abstain_if=REF.between(lo, hi))`; `REF` = `sx.agreement()` / `sx.signal("x").chosen()` / `sx.signal("x").mean()`; `o'`: label judge → R7l, Model or route → `sx.Synthesize(o)` |
-| R10 | `sf.Reduce(op, ...)` | `plurality`/`weighted` → `Vote`, `median`/`mean` → `Median`/`Mean`, `argmax` → R4, `top_k` → R8, `filter` → `Filter`, `pick_field` → R5/R6, `concat` → `Concat`, `judge` → R7, `merge` → `Merge`; `extract=sf.Extract("field", path=p)` → `over="field:p"` |
+| R10 | `sf.Reduce(op, ...)` | `plurality`/`weighted` → `Vote`, `median`/`mean` → `Median`/`Mean`, `argmax` → R4, `top_k` → R8, `filter` → `Filter`, `pick_field` → R5/R6, `concat` → `Concat`, `judge` → R7, `merge` → `Merge`; `extract=sf.Extract("field", path=p)` → `over="field:p"`, and for a `Vote` target also `normalize=None` (erratum 7c-1: `sx.Vote`'s default `"text"` applies to a `"field:"` over; the block had none). A mode: `median` `"compute"` → `select="value"`, `mean` `"select"` → `select="nearest"`; the default mode, or an op's only mode, is dropped (erratum 7c-9) |
 | R11 | `sf.Pipeline([sf.Fusion(M, synthesizer=sf.Reduce("context")), S, *rest])` | `sx.Fanout(M) >> sx.Synthesize(S) >> rest` |
 | R12 | `x.then(y)` | `x >> y` |
 | R13 | (7e) `sx.` | `sf.`; drop `from screamingface import _surface as sx` |
@@ -297,6 +297,22 @@ else (a parameter, `IfExp`, a subscript, a `FixtureVote`) is a hand case.
 Bare `sf.Vote()`, `sf.Median()`, `sf.Mean()`, `sf.Concat()`, `sf.Merge()` and `sf.Filter(where=...)`
 change only their prefix (`sx.`). `sf.Model`, `sf.signal`, `sf.matches`, `sf.Extract`,
 `sf.FieldRule` keep `sf.`.
+
+**Errata of the 7a–7c review (2026-10-20), rules 2–9.** (2) A name resolves in its own scope: the
+innermost function that binds it, else the module; a parameter, or a name bound more than once
+there, is a hand case (a local with one assignment resolves). (3) A scores `sf.Judge` alone with
+`order="min"` is a hand case (it would lose its order); a synthesizer that names such a judge too.
+(4) `Reduce("judge", judge=J)` keeps `J`'s name and refuses other options; a signal pick refuses
+other options. (5) A comment inside a rewritten call that the new text would drop is a hand case.
+(6) A field read (`x.members`, `x.order`, `x._signal_call()`, `(...).synthesizer`) on a value the
+run rewrote is reported; an annotation that names an old class (`x: sf.Fusion`, `-> sf.Fusion`)
+is not. A reducer value outside a synthesizer slot, in a file that imports `tests/_nodes.py`, is a
+hand case (its value stays a node). (7) The audit counts every function (tests and helpers, also in
+`tests/_*.py`), and per function also the `match=` keywords of `pytest.raises`/`warns` and the
+`parametrize` cases. (8) Until 7e, `Rank(by=)`, `Vote(judge=)` and `Filter(judge=)` hold a min-order
+judge as the max judge (one call under `@2`: equal bytes, equal values). (9) `Reduce(op, mode)` is
+rewritten (R10). Also: R12 parenthesizes a looser operand; `--check` prints the diff and writes
+nothing.
 
 **It cannot do** (hand group, from the `ast` scan): a synthesizer whose kind it cannot resolve — 97
 sites in 53 files, the largest `test_filter.py`, `test_fixed_seed_sitting_warning.py`,

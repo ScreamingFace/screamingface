@@ -601,3 +601,46 @@ references on `Signal`). 7d–7h are not in this round.
     earlier owner-pending files (unit 1 and 7b, as listed above) plus the 10 group D files of
     7d-0; with `--skip-append-only` ALL GATES GREEN; `run_gates.py repo --base e4d44281c` ALL
     GATES GREEN.
+
+### Fix round (7a–7c review: ACCEPT WITH FIXES)
+
+- **Commits:** `c5340f442` test (RED), `5804e51b8` fix (src: #8, #12), `960890e50` fix
+  (codemod), this spec erratum and ledger commit.
+- **Fixed (codemod, `scripts/migrate_surface.py`):** (1) a Vote whose extract was
+  `sf.Extract("field", path=p)` writes `over="field:p", normalize=None` (MG-1 byte rows: plurality,
+  weighted, a plurality `sf.Extract`, a median mode, a named Vote compile to the same url4). (2) A
+  name resolves in its own scope (innermost function that binds it, else the module); a parameter
+  or a name bound twice is a hand case (row: `def _fusion(synthesizer): sf.Fusion(M,
+  synthesizer=synthesizer)` next to a module `synthesizer = sf.Vote()`). **Deviation:** the review
+  asked for module-level names only; a function local with one assignment still resolves, in its
+  own scope, because the rewritten text keeps that same name in that same scope (row
+  `scope-local`). (3) A scores judge alone with `order="min"`, and a synthesizer name for one, is a
+  hand case. (4) `Reduce("judge", judge=J)` keeps `J`'s name (shared `_judge_parts`) and refuses
+  other options; a signal pick refuses other options. (5) A comment inside a rewritten call that
+  the new text would drop is a hand case (a trailing `# type: ignore` after the call is outside the
+  span and stays). (6) A field read on a value the run rewrote is reported (`f.members`,
+  `(...).synthesizer`; the global `.synthesizer` report is gone); annotations are not reported; a
+  reducer value outside a synthesizer slot in a file that imports `tests/_nodes.py` is a hand case
+  (`test_block_form_samples_vote_compiles_to_the_engine_fixture` :187, :188 are reported). (7) The
+  audit counts every function (helpers too), `match=` keywords and `parametrize` cases. (9)
+  `Reduce(op, mode)` maps the Median/Mean mode to `select=`. (10) TM-1 row: `Judge >> Rank >>
+  ArgMin` is one judge call. (11) R12 parenthesizes a looser operand. (13) `--check`.
+- **Fixed (src):** (8) `selection.py`/`reducer.py`: `RankNode(by=)`, `VoteNode(judge=)`,
+  `FilterNode(judge=)` hold a min-order judge as the max judge (`_reader_judge`), so equal bytes
+  are equal values (TM-1 row, with the `Reduce("top_k")` block). (12) One `_Chainable` mixin in
+  `recipe.py` (Recipe and Step), the duplicate pair in `chain.py` is gone.
+- **Spec erratum:** swap.md §4 R10 row (Vote target writes `normalize=None`, the mode map) and the
+  rule changes 2–9.
+- **`--check` over `tests/` (HEAD `960890e50`):** 102 files would change, 548 report lines in 61
+  files: attr 132, R1 128, value 105, R7h 59, R9 37, args 24, R10 18, R2 12, R7 9, R4 8, R5 6,
+  R8 5, nodes 2, comment 2, R6 1. Audit of each rewritten file against its own text: no lost
+  assertion (0 problems).
+- **Tests:** `ST/test_migrate_surface.py` 51, `ST/test_judge_template_v2.py` 10; full SDK suite
+  5605 passed, 33 skipped. Engine `test_sdk_*` + `test_combine_*` 1683 passed.
+- **Gates:** `run_gates.py screamingface --base e4d44281c`: the append-only check flags the unit-1
+  files, the 7b pinned files and the 7d-0 group D files (`_reducer_fixtures.py`,
+  `test_combine_evidence.py`, `test_duplicate_members_warning.py`,
+  `test_engine_url4_contract_fixtures.py`, `test_fixed_seed_sitting_warning.py`,
+  `test_reducer_fusion_quorum.py`, `test_reducer_slot.py`, `test_reducer_url4_round_trip.py`,
+  `test_samples_preflight.py`, `test_url4_replay_fixed_seed_warning.py`), nothing of this round;
+  with `--skip-append-only` ALL GATES GREEN. `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
