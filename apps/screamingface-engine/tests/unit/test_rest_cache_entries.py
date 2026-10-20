@@ -173,6 +173,13 @@ async def test_a_gzip_page_is_passed_through_still_compressed() -> None:
         ("gzip;q=0, *", False),
         ("identity", False),
         ("", False),
+        ("gzip;q=2", False),
+        ("gzip;q=1.1", False),
+        ("gzip;q=+0.5", False),
+        ("gzip;q=1e-1", False),
+        ("gzip;q=0.0001", False),
+        ("gzip;q=nan", False),
+        ("gzip;q=1.000", True),
     ],
 )
 async def test_gzip_is_asked_for_only_when_the_caller_accepts_it(
@@ -360,6 +367,14 @@ async def test_a_rate_limit_without_a_hint_sends_no_retry_after() -> None:
 
 
 # --- composition ---------------------------------------------------------------------------------
+
+
+async def test_the_openapi_document_describes_the_ndjson_page() -> None:
+    operation = _app(_FakeCache()).openapi()["paths"][_URL]["get"]
+    ok = operation["responses"]["200"]
+
+    assert list(ok["content"]) == ["application/x-ndjson"]
+    assert set(ok["headers"]) == {"Content-Encoding", "Cache-Control", "Vary"}
 
 
 async def test_no_gateway_address_builds_no_adapter() -> None:

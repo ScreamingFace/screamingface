@@ -88,9 +88,9 @@ class _Gateway:
     def check(self, remote: Any, result: PullResult) -> None:
         return None
 
-    def load(self, rows: Any, result: PullResult) -> int:
+    def load(self, rows: Any, result: PullResult) -> tuple[int, int]:
         self.rows.extend(row["key_hash"] for row in rows)
-        return len(rows)
+        return len(rows), 0
 
 
 def test_a_pull_travels_through_a_real_client_session_to_the_production_engine(

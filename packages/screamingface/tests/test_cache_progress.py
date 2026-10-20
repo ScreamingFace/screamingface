@@ -92,6 +92,18 @@ def test_the_final_line_ends_the_rewritten_line() -> None:
     assert final.rstrip() == "community cache  ✓ 1,000 rows read · 640 added · 2 MB · 1m15s"
 
 
+def test_the_final_line_counts_skipped_rows_when_there_are_any() -> None:
+    stream = _Stream(tty=False)
+
+    reporter(True, stream=stream).finished(
+        _snapshot(1000, elapsed=75.0), PullResult(1000, 640, 3, False, True, rows_skipped=2)
+    )
+
+    assert stream.getvalue() == (
+        "community cache  ✓ 1,000 rows read · 640 added · 2 skipped · 2 MB · 1m15s\n"
+    )
+
+
 def test_a_forced_non_interactive_stream_gets_a_line_per_tenth() -> None:
     stream = _Stream(tty=False)
     report = reporter(True, stream=stream)

@@ -6,9 +6,10 @@ served as an ordinary hit, without disturbing what I already had.
 
 Pinned here: a page round-trips into a table the gateway's ORM created and reads back through
 that ORM unchanged (text verbatim, timestamps, NULLs), with a fresh id and no hit history; a key
-the local cache already holds is kept, never replaced; reloading a page adds nothing; a malformed
-row writes nothing for its page; a file that is not a gateway database is refused; and revisions
-are compared before any row is read.
+the local cache already holds is kept, never replaced; reloading a page adds nothing; a row a
+local lookup could not serve is skipped and counted, never written, so a later valid row for its
+key still loads (owner decision, 2026-10-20); a file that is not a gateway database, or has no
+unique key on ``key_hash``, is refused; and revisions are compared before any row is read.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import pytest
 import pytest_asyncio
 from tortoise import Tortoise
 
+from aigateway.core.request_cache.entry_metadata import CacheEntryMetadata
 from aigateway.core.request_cache.models import RequestCacheEntry
 from aigateway.core.request_cache.sqlite_loader import (
     PageLoad,
@@ -34,12 +36,13 @@ from aigateway.core.request_cache.sqlite_loader import (
 from aigateway.db import build_tortoise_config
 
 _TEXT = '{"choices": [{"message": {"content": "tab\\there, quote \\" and \\u00e9"}}]}'
+_METADATA = CacheEntryMetadata(metadata_status="complete").serialize()
 
 
 def _row(key: str = "a", **overrides: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "key_hash": key.ljust(64, "0"),
-        "prompt_hash": "p" * 64,
+        "prompt_hash": "f" * 64,
         "provider": "openrouter",
         "model": "openrouter/anthropic/claude-opus-5.5",
         "response_json": _TEXT,
@@ -47,7 +50,7 @@ def _row(key: str = "a", **overrides: Any) -> dict[str, Any]:
         "created_at": "2026-10-01T12:00:00.123456+00:00",
         "updated_at": "2026-10-02T08:30:00+00:00",
         "expires_at": None,
-        "metadata_json": '{"schema": "aigw.cache-entry-metadata.v1"}',
+        "metadata_json": _METADATA,
     }
     row.update(overrides)
     return row
@@ -82,7 +85,7 @@ async def test_a_page_reads_back_through_the_orm_unchanged(database: Path) -> No
     assert a.updated_at == datetime(2026, 10, 2, 8, 30, tzinfo=UTC)
     assert a.expires_at is None
     assert b.expires_at == datetime(2027, 1, 1, tzinfo=UTC)
-    assert a.metadata_json == '{"schema": "aigw.cache-entry-metadata.v1"}'
+    assert a.metadata_json == _METADATA
     assert (a.hit_count, a.last_hit_at) == (0, None)
     assert isinstance(a.id, uuid.UUID) and a.id != b.id
 
@@ -128,34 +131,69 @@ async def test_an_empty_page_is_a_no_op(database: Path) -> None:
     "bad",
     [
         {"key_hash": None},
+        {"key_hash": "Z" * 64},
+        {"key_hash": "a" * 63},
+        {"prompt_hash": "not-a-digest"},
+        {"provider": ""},
+        {"provider": "p" * 65},
+        {"model": "m" * 256},
         {"response_json": 12},
+        {"response_json": "not-json"},
+        {"response_json": "[1, 2]"},
+        {"response_json": '{"x": NaN}'},
         {"response_size_bytes": "12"},
         {"response_size_bytes": True},
+        {"response_size_bytes": -7},
         {"created_at": "yesterday"},
         {"updated_at": "2026-10-02T08:30:00"},  # naive: no place on the UTC timeline
+        {"created_at": "0001-01-01T00:00:00+14:00"},  # valid ISO, outside the UTC range
         {"expires_at": 5},
-        {"metadata_json": {"schema": "x"}},
+        {"expires_at": "2000-01-01T00:00:00+00:00"},  # already expired
     ],
 )
-async def test_a_malformed_row_writes_nothing_for_its_page(
+async def test_a_row_a_lookup_could_not_serve_is_skipped_and_counted(
     database: Path, bad: dict[str, Any]
 ) -> None:
-    with pytest.raises(PageRejected) as refused:
-        load_page([_row("a"), _row("b", **bad)], database)
+    # WHY skip, not refuse (owner decision, 2026-10-20): a refusal would stop every pull at this
+    # row, while the valid rows beside it are independent entries worth loading.
+    outcome = load_page([_row("a"), _row("b", **bad)], database)
 
-    assert refused.value.reason == "malformed_row"
-    assert await RequestCacheEntry.all().count() == 0
+    assert outcome == PageLoad(rows=2, inserted=1, skipped=1)
+    assert [e.key_hash[0] for e in await RequestCacheEntry.all()] == ["a"]
 
 
 @pytest.mark.asyncio
-async def test_a_row_missing_a_field_is_malformed(database: Path) -> None:
+async def test_a_row_missing_a_field_is_skipped(database: Path) -> None:
     row = _row("a")
     del row["model"]
 
-    with pytest.raises(PageRejected) as refused:
-        load_page([row], database)
+    assert load_page([row], database) == PageLoad(rows=1, inserted=0, skipped=1)
 
-    assert refused.value.reason == "malformed_row"
+
+@pytest.mark.asyncio
+async def test_a_skipped_row_does_not_hold_its_key_against_a_later_valid_row(
+    database: Path,
+) -> None:
+    # INVARIANT: a kept key is never replaced, so an unservable row written once would hold its
+    # key unservable for good. Skipping it leaves the key free for the next valid row.
+    load_page([_row("a", response_json="not-json", response_size_bytes=-7)], database)
+
+    assert load_page([_row("a")], database) == PageLoad(rows=1, inserted=1, skipped=0)
+    assert (await RequestCacheEntry.get(key_hash="a".ljust(64, "0"))).response_json == _TEXT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata",
+    ["not-json", '{"schema": "aigw.cache-entry-metadata.v1"}', 12, "x" * 100_000],
+)
+async def test_unreadable_or_oversized_metadata_is_stored_as_null(
+    database: Path, metadata: object
+) -> None:
+    # WHY NULL, not a skipped row: a lookup treats an unreadable block as absent and still serves
+    # the body, so NULL is what it would read anyway.
+    assert load_page([_row("a", metadata_json=metadata)], database).inserted == 1
+    assert (await RequestCacheEntry.get(key_hash="a".ljust(64, "0"))).metadata_json is None
 
 
 def test_a_file_that_is_not_a_gateway_database_is_refused(tmp_path: Path) -> None:
@@ -224,6 +262,28 @@ def test_the_check_refuses_a_gateway_database_from_before_the_metadata_column(
 
     assert refused.value.reason == "outdated_gateway_database"
     assert "metadata_json" in str(refused.value)
+
+
+def test_the_check_refuses_a_lookalike_table_without_a_unique_key_hash(tmp_path: Path) -> None:
+    # WHY: ``ON CONFLICT(key_hash)`` needs that unique index; without it every insert would fail
+    # with a raw OperationalError after the download had started.
+    lookalike = tmp_path / "lookalike.sqlite3"
+    columns = ", ".join(
+        f"{name} TEXT"
+        for name in (
+            "id", "key_hash", "prompt_hash", "provider", "model", "response_json",
+            "response_size_bytes", "created_at", "updated_at", "expires_at", "last_hit_at",
+            "hit_count", "metadata_json",
+        )
+    )  # fmt: skip
+    with sqlite3.connect(lookalike) as conn:
+        conn.execute(f"create table request_cache_entries ({columns})")
+
+    with pytest.raises(PageRejected) as refused:
+        check_database(lookalike)
+
+    assert refused.value.reason == "not_a_gateway_database"
+    assert "unique key" in str(refused.value)
 
 
 def test_the_check_refuses_a_missing_database_without_creating_it(tmp_path: Path) -> None:

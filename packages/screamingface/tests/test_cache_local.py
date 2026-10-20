@@ -66,7 +66,7 @@ def gateway_modules(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         if state.reject:
             raise _Rejected(state.reject, "detail")
         state.loaded.append((list(rows), database))
-        return SimpleNamespace(rows=len(rows), inserted=len(rows) - 1)
+        return SimpleNamespace(rows=len(rows), inserted=len(rows) - 1, skipped=1)
 
     def check_revisions(remote: Any, local: Any) -> None:
         if state.check_reject:
@@ -172,11 +172,11 @@ def test_a_revision_mismatch_names_what_to_do(
 def test_a_batch_is_loaded_into_the_gateway_database(
     gateway_modules: SimpleNamespace, database: Path
 ) -> None:
-    added = LocalGateway(database, empty=_EMPTY).load(
+    loaded = LocalGateway(database, empty=_EMPTY).load(
         [{"key_hash": "a"}, {"key_hash": "b"}], _EMPTY
     )
 
-    assert added == 1
+    assert loaded == (1, 1)
     assert gateway_modules.loaded == [([{"key_hash": "a"}, {"key_hash": "b"}], database)]
 
 
@@ -185,7 +185,6 @@ def test_a_batch_is_loaded_into_the_gateway_database(
     [
         ("not_a_gateway_database", "local_gateway_missing", "screamingface up"),
         ("outdated_gateway_database", "local_gateway_outdated", "migrate"),
-        ("malformed_row", "malformed_page", None),
         ("something_new", "local_load_refused", None),
     ],
 )

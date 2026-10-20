@@ -15,6 +15,7 @@ with its ``Content-Encoding``, one upstream chunk at a time.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Annotated, Any
 
@@ -37,9 +38,12 @@ from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selec
 
 logger = logging.getLogger(__name__)
 
-# INVARIANT: every answer this route gives is private to its caller — refusals included — so a
-# shared cache in front of the Engine never serves one caller's answer to another.
+# INVARIANT: every answer this route's handler gives is private to its caller — refusals included —
+# so a shared cache in front of the Engine never serves one caller's answer to another. Router-level
+# answers (a 405 for another method) carry no caller data and are not covered.
 _PRIVATE_HEADERS = {"Cache-Control": "private, no-store", "Vary": "X-User-Email"}
+# RFC 9110 §12.4.2 qvalue: "0" with up to three decimals, or "1" with up to three zeros.
+_QVALUE = re.compile(r"0(\.[0-9]{0,3})?|1(\.0{0,3})?")
 
 
 class _CommunityCacheRoute(APIRoute):
@@ -81,6 +85,22 @@ _ERROR_DESCRIPTIONS = {
     503: "The community cache or AI Gateway is unavailable.",
     504: "AI Gateway did not respond in time.",
 }
+_PAGE_RESPONSE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "description": (
+            "One NDJSON page: a header line, one line per row, a trailer line with `next`."
+        ),
+        "content": {"application/x-ndjson": {"schema": {"type": "string"}}},
+        "headers": {
+            "Content-Encoding": {
+                "description": "`gzip` when the caller accepted it; absent otherwise.",
+                "schema": {"type": "string"},
+            },
+            "Cache-Control": {"schema": {"type": "string", "example": "private, no-store"}},
+            "Vary": {"schema": {"type": "string", "example": "Accept-Encoding, X-User-Email"}},
+        },
+    }
+}
 
 
 def _service(request: Request) -> CommunityCache:
@@ -110,10 +130,8 @@ def _weight(params: list[str]) -> float:
     for param in params:
         name, _, value = param.partition("=")
         if name.strip().lower() == "q":
-            try:
-                return float(value.strip())
-            except ValueError:
-                return 0.0
+            value = value.strip()
+            return float(value) if _QVALUE.fullmatch(value) else 0.0
     return 1.0
 
 
@@ -144,7 +162,7 @@ async def _body(page: CachePage) -> AsyncIterator[bytes]:
         "next cursor), passed through unchanged and still compressed when gzip was accepted."
     ),
     response_class=StreamingResponse,
-    responses=problem_responses(_ERROR_DESCRIPTIONS),
+    responses={**_PAGE_RESPONSE, **problem_responses(_ERROR_DESCRIPTIONS)},
 )
 async def community_cache_entries(
     request: Request,

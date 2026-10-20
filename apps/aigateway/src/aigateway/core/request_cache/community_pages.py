@@ -5,9 +5,15 @@ Spec: ``docs/spec/2026-10-15-community-cache.md``.
 
 A client walks the shareable rows of ``request_cache_entries`` page after page: each page is the
 rows after a cursor, and the cursor is the last row's ``(updated_at, key_hash)``. Each page is
-read in batches of ``BATCH_ROWS``, every batch its own short keyset query on the
-``(updated_at, key_hash)`` index (migration 0015), so no connection or transaction is held between
-batches and the caller can write each batch out before the next is read.
+read in batches, every batch two short keyset queries on the ``(updated_at, key_hash)`` index
+(migration 0015) — the next keys and their sizes, then the rows themselves — so no connection or
+transaction is held between batches and the caller can write each batch out before the next is
+read.
+INVARIANT: a batch holds at most ``BATCH_BYTES`` of responses (or one row, if a single response is
+larger) and at most ``BATCH_ROWS`` rows. A response can be up to 1 MB
+(``AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES``), so a row count alone would let one batch of the
+largest responses reach ~100 MB — several times that once the route encodes it — against ~240 MiB
+of headroom on a gateway pod.
 
 WHY write order: a row written while a walk is under way normally lands after the cursor, so the
 same walk reaches it. ``updated_at`` rather than ``created_at`` because a merge restore inserts
@@ -40,6 +46,10 @@ from .tavily_retrieval import TAVILY_PROVIDER
 PAGE_SCHEMA: Final = "screamingface.cache-page.v1"
 MAX_PAGE_ROWS: Final = 5000
 BATCH_ROWS: Final = 100
+# WHY 8 MB: the route holds a batch about three times over while encoding it (rows, encoded
+# lines, the joined chunk), so ~24 MB per request at most; a batch of typical rows (~3 KB) is
+# still capped by ``BATCH_ROWS`` long before this.
+BATCH_BYTES: Final = 8_000_000
 
 # INVARIANT (spec decision 7): what crosses. No ``id``, ``hit_count`` or ``last_hit_at``: they
 # describe the platform's usage, not the cached answer.
@@ -113,22 +123,51 @@ async def count_rows(*, after: PageCursor | None, models: Sequence[str], now: da
     return await _after(_eligible(models, now), after).count()
 
 
+async def has_rows_after(*, after: PageCursor, models: Sequence[str], now: datetime) -> bool:
+    """Whether any eligible row follows ``after`` — so a full page knows whether it was the last."""
+    return await _after(_eligible(models, now), after).exists()
+
+
+def _within_bytes(sizes: list[dict[str, Any]]) -> int:
+    """How many of the next rows fit in one batch: up to ``BATCH_BYTES``, and always one."""
+    total = 0
+    for taken, row in enumerate(sizes):
+        total += max(0, row["response_size_bytes"] or 0)
+        if taken and total > BATCH_BYTES:
+            return taken
+    return len(sizes)
+
+
 async def iter_page(
     *, after: PageCursor | None, limit: int, models: Sequence[str], now: datetime
 ) -> AsyncIterator[list[dict[str, Any]]]:
-    """Yield one page of at most ``limit`` rows, in batches of at most ``BATCH_ROWS``."""
+    """Yield one page of at most ``limit`` rows, in batches bounded by rows and bytes."""
     eligible = _eligible(models, now)
     cursor = after
     left = limit
     while left > 0:
-        size = min(BATCH_ROWS, left)
-        batch = await _after(eligible, cursor).order_by(*_ORDER).limit(size).values(*PAGE_FIELDS)
-        if not batch:
+        want = min(BATCH_ROWS, left)
+        sizes = (
+            await _after(eligible, cursor)
+            .order_by(*_ORDER)
+            .limit(want)
+            .values("key_hash", "updated_at", "response_size_bytes")
+        )
+        if not sizes:
             return
-        yield batch
-        left -= len(batch)
-        cursor = PageCursor(updated_at=batch[-1]["updated_at"], key_hash=batch[-1]["key_hash"])
-        if len(batch) < size:
+        taken = sizes[: _within_bytes(sizes)]
+        batch = (
+            await eligible.filter(key_hash__in=[row["key_hash"] for row in taken])
+            .order_by(*_ORDER)
+            .values(*PAGE_FIELDS)
+        )
+        if batch:
+            yield batch
+        # WHY the cursor and the count come from the keys, not the rows: a row deleted between
+        # the two queries is simply absent, and must neither end the page nor move it backwards.
+        left -= len(taken)
+        cursor = PageCursor(updated_at=taken[-1]["updated_at"], key_hash=taken[-1]["key_hash"])
+        if len(sizes) < want and len(taken) == len(sizes):
             return
 
 
@@ -149,8 +188,10 @@ __all__ = [
     "PAGE_FIELDS",
     "PAGE_SCHEMA",
     "InvalidCursor",
+    "BATCH_BYTES",
     "PageCursor",
     "count_rows",
     "cursor_after",
+    "has_rows_after",
     "iter_page",
 ]

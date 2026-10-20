@@ -1056,12 +1056,13 @@
       "PullResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, rows_read: 'int', rows_added: 'int', pages: 'int', resumed: 'bool', complete: 'bool') -> None",
+          "__init__": "method (self, rows_read: 'int', rows_added: 'int', pages: 'int', resumed: 'bool', complete: 'bool', rows_skipped: 'int' = 0) -> None",
           "complete": "field",
           "pages": "field",
           "resumed": "field",
           "rows_added": "field",
-          "rows_read": "field"
+          "rows_read": "field",
+          "rows_skipped": "field"
         }
       },
       "pull_from_remote": {
