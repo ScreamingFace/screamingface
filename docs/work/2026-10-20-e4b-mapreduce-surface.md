@@ -383,3 +383,26 @@ NC-1..NC-5.
   append-only check lists only the owner-approved unit-1 files; with `--skip-append-only` ALL
   GATES GREEN (engine pyright needed `uv sync --frozen` again). `run_gates.py repo --base
   e4d44281c` ALL GATES GREEN.
+
+## Unit 6: rebuild-display
+
+### Intent
+
+Rebuild a url4 as a chain of the new surface, with code that names the steps through the alias
+`sf`; give the chains and steps a `>>` repr; add the block and chain cards; show the narrow steps
+in the Combine section and the run summary (rebuild-display §1–§4). `Url4.to_python()`, today's
+cards and the report labels stay until the swap.
+
+### Files (planned)
+
+- New: `S/_surface/rebuild.py` (url4 → chain), `S/_surface/render.py` (the one renderer of `repr`
+  and the rebuilt code). Edit: `S/url4.py` (one decode helper shared by `to_python` and the
+  rebuild), `S/_surface/*.py` (repr through the renderer, `_repr_html_`), `S/_surface/__init__.py`
+  (the names the rebuilt code reads), `S/_ui/cards.py` (block and chain cards, a chain member),
+  `S/_ui/combine_view.py` (narrow chips, left-out cells, summary counts).
+- New tests: `ST/test_surface_rebuild.py`, `ST/test_surface_cards.py`, `ST/test_narrow_display.py`;
+  goldens `ST/data/surface_cards/*.html`.
+
+### Rows
+
+RB-1, RB-3, DS-1, DS-2.
