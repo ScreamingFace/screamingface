@@ -1311,10 +1311,17 @@ after opt-out. There is no durable event spool.
 
 In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in a
 background worker. Unknown consent shows the same nonblocking disclosure. Use
-`sf.analytics.enable()` to accept or `sf.analytics.disable()` to decline; controls
-return immediately with `pending=True` until the browser acknowledges the choice.
-Inspect `sf.analytics.status()` in a later cell. Operations begun before consent
-is confirmed are skipped, never replayed retroactively.
+`sf.analytics.enable()` to accept: it waits up to three seconds for confirmed browser
+consent and a usable ID, then prints `Analytics enabled.` or
+`Couldn't enable analytics; tracking remains off.` Its returned status dictionary
+is retained for programmatic checks. After successful return, the next evaluation
+can be tracked without a separate polling cell. A timed-out acceptance is cancelled
+locally so a late response cannot silently enable tracking.
+
+Automatic setup and event delivery remain nonblocking. `sf.analytics.disable()`
+stops local tracking immediately; browser persistence remains asynchronous and
+reports `pending=True` until acknowledged. Operations begun before consent is
+confirmed are skipped, never replayed retroactively.
 
 Colab uses the selected service's `/bridge/consent` iframe and cookie-checked
 `/bridge/id/events` route. The runtime never receives the cookie itself or sends

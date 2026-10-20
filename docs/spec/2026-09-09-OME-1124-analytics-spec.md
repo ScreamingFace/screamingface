@@ -150,3 +150,14 @@ ancestry is validated; no manual per-notebook setup is an acceptable rollout.
 ## 20 October endpoint configuration amendment
 
 One explicit SCREAMINGFACE_ANALYTICS_ENDPOINT HTTPS origin selects both event delivery and the Colab bridge. Default: https://analytics.screamingface.ai. No engine URL inference or fallback. Set before first analytics transport use; restart the process/kernel to change destinations. Local consent remains installation-wide; browser consent remains scoped to the selected service. Existing production retention/IP release gates still apply.
+
+
+### Approved explicit Colab opt-in confirmation — 20 October 2026
+
+`sf.analytics.enable()` waits at most three seconds, including worker queue delay,
+for browser consent and a usable ID. It prints a clear enabled/unavailable message
+and retains its status-dictionary return value. Timeout invalidates the pending
+acceptance so late replies cannot enable local tracking. Automatic setup, event
+delivery, and local opt-out remain nonblocking; browser decline persistence is
+still asynchronous. Verification must cover immediate evaluation readiness,
+unavailable storage, timeout/late replies and concurrent opt-out.

@@ -93,3 +93,14 @@ First end-to-end milestone: explicit opt-in -> evaluation start and classified f
 ## 20 October endpoint configuration amendment
 
 Add a shared, validated, process-cached analytics origin resolver. Route native /v1/events and browser /bridge/consent through it. Document explicit dev/staging overrides and verify destination consistency, invalid configuration, and no runtime destination changes.
+
+
+### Approved explicit Colab opt-in confirmation — 20 October 2026
+
+`sf.analytics.enable()` waits at most three seconds, including worker queue delay,
+for browser consent and a usable ID. It prints a clear enabled/unavailable message
+and retains its status-dictionary return value. Timeout invalidates the pending
+acceptance so late replies cannot enable local tracking. Automatic setup, event
+delivery, and local opt-out remain nonblocking; browser decline persistence is
+still asynchronous. Verification must cover immediate evaluation readiness,
+unavailable storage, timeout/late replies and concurrent opt-out.

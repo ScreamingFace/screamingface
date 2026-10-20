@@ -50,7 +50,7 @@ def status() -> dict:
 
 
 def enable(*, persist: bool = True) -> dict:
-    """Opt in to four anonymous activity events; persist=False accepts for this process."""
+    """Opt in; Colab waits up to three seconds for browser confirmation."""
     global _process_disabled, _session_only
     _process_disabled = False
     if _disabled():
@@ -62,8 +62,14 @@ def enable(*, persist: bool = True) -> dict:
             raise ValueError(
                 "Colab analytics requires browser consent; persist=False is unsupported"
             )
-        bridge().control("accept")
-        return status()
+        bridge().accept()
+        result = status()
+        print(
+            "Analytics enabled."
+            if result["enabled"]
+            else "Couldn't enable analytics; tracking remains off."
+        )
+        return result
     _session_only = not persist
     if persist:
         LocalConsentStore(config_path()).change("accepted")

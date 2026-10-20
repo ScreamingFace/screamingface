@@ -204,3 +204,26 @@ append-only tests, Ruff lint/format, Pyright, full parallel SDK suite with the 9
 coverage floor, notebook checks, build and distribution validation. `git diff
 --check` passed. Root cause was an unconditional terminal probe in optional setup;
 no public API, consent semantics, or browser transport changes were needed.
+
+### Confirm explicit Colab opt-in — 20 October 2026
+
+Owner approved a bounded wait in `sf.analytics.enable()` so the next evaluation
+can start with confirmed consent. Plan: keep automatic initialization, events and
+opt-out asynchronous; wait only on explicit acceptance for at most three seconds
+(including queue delay), cancel stale acceptance on timeout, and print a clear
+success/failure message. Preserve the returned status dictionary for callers.
+Test success, unavailable browser, bounded timeout, late responses, concurrent
+opt-out, and immediate evaluation readiness; update quickstart/notebook guidance.
+
+Outcome: added condition-based confirmation around explicit Colab acceptance only.
+Timeout clears local pending acceptance and invalidates its generation; a late
+browser reply cannot enable tracking. Opt-out wakes waiting callers immediately.
+The status dictionary remains compatible, and Colab prints a clear result. The
+verification notebook now asserts the returned state without a polling cell.
+
+All four new regression scenarios failed before implementation and passed after;
+56 focused analytics tests passed. The complete `screamingface` gate runner passed
+append-only tests, lint/format, Pyright, full parallel tests with the 95% coverage
+floor, notebook validation, build and distribution checks. No live Colab rerun of
+this revised confirmation flow was performed in this iteration; prior browser
+results do not constitute verification of this new wait behavior.

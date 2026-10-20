@@ -78,6 +78,7 @@ class ColabBridge:
         self._generation = 0
         self._queue: queue.Queue = queue.Queue(maxsize=100)
         self._lock = threading.RLock()
+        self._changed = threading.Condition(self._lock)
         self._worker: threading.Thread | None = None
         self.pending = False
 
@@ -108,6 +109,23 @@ class ColabBridge:
             self.pending = True
             self._drain()
             self._enqueue(command, None)
+            self._changed.notify_all()
+
+    def accept(self) -> None:
+        """Confirm explicit opt-in within three seconds, including queue delay."""
+        with self._changed:
+            self.control("accept")
+            generation = self._generation
+            finished = self._changed.wait_for(
+                lambda: generation != self._generation or not self.pending, timeout=3
+            )
+            if not finished:
+                # WHY: a timed-out opt-in must not silently enable tracking later.
+                self._generation += 1
+                self._state = Consent()
+                self.pending = False
+                self._drain()
+                self._changed.notify_all()
 
     def stop(self, *, persist: bool) -> None:
         with self._lock:
@@ -118,6 +136,7 @@ class ColabBridge:
             if persist:
                 self.pending = True
                 self._enqueue("decline", None)
+            self._changed.notify_all()
 
     def _drain(self) -> None:
         while True:
@@ -156,6 +175,7 @@ class ColabBridge:
                     self._state = state
                 if command != "events":
                     self.pending = False
+                self._changed.notify_all()
             if command == "state" and state is not None and state.choice == "unknown":
                 from screamingface._analytics.prompt import NOTICE
 

@@ -390,3 +390,91 @@ def test_notebook_rejects_unacknowledged_opt_out(browser, monkeypatch):
     finally:
         release.set()
         wait_until(lambda: not browser.pending)
+
+
+def test_enable_returns_confirmed_consent_ready_for_next_operation(browser, monkeypatch, capsys):
+    state = accepted()
+    entered, release = threading.Event(), threading.Event()
+
+    def exchange(command, event, **kwargs):
+        entered.set()
+        assert release.wait(1)
+        return state
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    result = []
+    caller = threading.Thread(target=lambda: result.append(analytics.enable()))
+    caller.start()
+    try:
+        assert entered.wait(1)
+        assert caller.is_alive(), "enable returned before browser confirmation"
+        release.set()
+        caller.join(1)
+        assert not caller.is_alive()
+        assert result[0]["enabled"] is True
+        assert result[0]["pending"] is False
+        assert wiring.coordinator().begin("evaluation", "recipe", "sync", "colab", "byok")
+        assert "Analytics enabled." in capsys.readouterr().out
+    finally:
+        release.set()
+        caller.join(1)
+
+
+def test_enable_reports_unavailable_without_claiming_success(browser, monkeypatch, capsys):
+    monkeypatch.setattr(colab, "exchange", lambda *args, **kwargs: {"unavailable": True})
+    result = analytics.enable()
+    assert result["enabled"] is False
+    assert result["pending"] is False
+    assert "Couldn't enable analytics; tracking remains off." in capsys.readouterr().out
+
+
+def test_enable_timeout_cancels_late_acceptance(browser, monkeypatch, capsys):
+    release, completed = threading.Event(), threading.Event()
+    commands = []
+
+    def exchange(command, event, **kwargs):
+        commands.append(command)
+        release.wait(5)
+        completed.set()
+        return accepted()
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    start = time.monotonic()
+    try:
+        result = analytics.enable()
+        elapsed = time.monotonic() - start
+        assert 2 <= elapsed < 4
+        assert result["enabled"] is False
+        assert result["pending"] is False
+        assert "tracking remains off" in capsys.readouterr().out
+    finally:
+        release.set()
+    assert completed.wait(1)
+    time.sleep(0.03)
+    assert analytics.status()["enabled"] is False
+    assert commands == ["accept"]
+
+
+def test_disable_interrupts_waiting_enable(browser, monkeypatch):
+    entered, release = threading.Event(), threading.Event()
+
+    def exchange(command, event, **kwargs):
+        entered.set()
+        release.wait(5)
+        return accepted()
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    result = []
+    caller = threading.Thread(target=lambda: result.append(analytics.enable()))
+    caller.start()
+    try:
+        assert entered.wait(1)
+        assert caller.is_alive()
+        analytics.disable(process_only=True)
+        caller.join(1)
+        assert not caller.is_alive()
+        assert result[0]["enabled"] is False
+        assert result[0]["choice"] == "declined"
+    finally:
+        release.set()
+        caller.join(1)
