@@ -1,7 +1,7 @@
 ---
 id: OME-1686
 linear_url: https://linear.app/openmined/issue/OME-1686/report-the-cost-of-the-successful-attempt-in-request-economics
-status: backlog
+status: in_review
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
