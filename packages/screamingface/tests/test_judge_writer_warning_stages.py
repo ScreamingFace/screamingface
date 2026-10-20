@@ -13,9 +13,11 @@ from collections.abc import Callable
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators
+from _nodes import FusionNode, JudgeNode, ReduceNode, VoteNode
 from test_pipeline_compilation import _whole_candidate_benchmark
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.compilation import compile_evaluation
 from screamingface.warnings import JudgeWriterWarning
@@ -34,31 +36,45 @@ def _message(first: int) -> str:
     )
 
 
-def _context() -> sf.Fusion:
-    return sf.Fusion(["provider/a", "provider/b"], synthesizer=sf.Reduce("context"))
+def _context() -> FusionNode:
+    return FusionNode(["provider/a", "provider/b"], synthesizer=ReduceNode("context"))
 
 
-def _judged_vote() -> sf.Fusion:
-    vote = sf.Vote(
+def _judged_vote() -> FusionNode:
+    vote = VoteNode(
         extract="last_number",
         normalize="numeric",
         weights=sf.signal("score:judge"),
-        judge=sf.Judge(_JUDGE_ROUTE, returns="scores", rubric=RUBRIC),
+        judge=JudgeNode(_JUDGE_ROUTE, returns="scores", rubric=RUBRIC),
     )
-    return sf.Fusion(_MEMBERS, synthesizer=vote)
+    return FusionNode(_MEMBERS, synthesizer=vote)
 
 
-def _after_context_writer() -> sf.Pipeline:
-    """The review repro: the user's stages 3 (judge) and 4 (writer)."""
+def _after_context_writer() -> sx.Pipeline:
+    """The review repro: the user's stages 2 (judge) and 3 (writer).
 
-    return sf.Pipeline(
-        [_context(), sf.Model("provider/w"), _judged_vote(), sf.Model(_JUDGE_ROUTE)],
+    WHY 2, not 3: the context block form has one spelling since R11, ``sf.Fanout(m) >>
+    sf.Synthesize(w)``, so the context Fusion and its writer are one stage of the chain.
+    """
+
+    return sx.Pipeline(
+        [
+            sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize(sf.Model("provider/w")),
+            sx.Fanout(_MEMBERS)
+            >> sx.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+            >> sx.Vote(over="last_number", normalize="numeric", weights="score:judge"),
+            sf.Model(_JUDGE_ROUTE),
+        ],
         name="judged",
     )
 
 
 def _after_context() -> sf.Pipeline:
-    """The judge Fusion follows the context Fusion, so the rewrite makes it its synthesizer."""
+    """The judge Fusion follows the context Fusion, so the rewrite makes it its synthesizer.
+
+    Group F (swap §5, deleted in 7f): it checks the context rewrite (``fusion_recipe.py``), and the
+    new surface has no context stage that a judge stage can follow.
+    """
 
     return sf.Pipeline([_context(), _judged_vote(), sf.Model(_JUDGE_ROUTE)], name="judged")
 
@@ -69,12 +85,10 @@ def _judge_writer_messages(recorded: pytest.WarningsRecorder) -> list[str]:
 
 @pytest.mark.parametrize(
     ("build", "first"),
-    [(_after_context_writer, 3), (_after_context, 2)],
+    [(_after_context_writer, 2), (_after_context, 2)],
     ids=["context-then-writer", "context-then-judge"],
 )
-def test_compile_names_the_users_stage_numbers(
-    build: Callable[[], sf.Pipeline], first: int
-) -> None:
+def test_compile_names_the_users_stage_numbers(build: Callable[[], sf.Recipe], first: int) -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         compile_candidate(build(), operators=flow_operators())
 
@@ -92,4 +106,4 @@ def test_evaluation_compile_names_the_users_stage_numbers() -> None:
             operators=flow_operators(),
         )
 
-    assert _judge_writer_messages(recorded) == [_message(3)]
+    assert _judge_writer_messages(recorded) == [_message(2)]
