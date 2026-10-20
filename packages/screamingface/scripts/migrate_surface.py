@@ -978,9 +978,11 @@ def _migrate(to: str, paths: Sequence[Path], *, check: bool) -> int:
             path.write_text(result.text)
     if changed and not check:
         # WHY isort first: the added sx import goes after the sf import, which is not always the
-        # sorted place (a relative import, an import under TYPE_CHECKING).
+        # sorted place (a relative import, an import under TYPE_CHECKING); F401 drops an sf
+        # import that no code reads any more.
         ruff = [sys.executable, "-m", "ruff"]
-        subprocess.run([*ruff, "check", "-q", "--select", "I", "--fix", *changed], check=False)
+        fix = ["check", "-q", "--select", "I,F401", "--fix", *changed]
+        subprocess.run([*ruff, *fix], check=False)
         subprocess.run([*ruff, "format", "-q", *changed], check=True)
     sys.stdout.write("".join(f"{line}\n" for line in report))
     verb = "would change" if check else "changed"
