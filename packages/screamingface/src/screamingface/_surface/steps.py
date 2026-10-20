@@ -22,6 +22,7 @@ from screamingface._surface.refs import (
     field_extract,
     is_rule_name,
     output_field,
+    plain_comparison,
     signal_key,
     with_normalizer,
 )
@@ -188,7 +189,8 @@ class Filter(Step):
             raise ValueError(  # FI-1
                 "sf.Filter over= reads the text for sf.matches: a signal comparison takes no over="
             )
-        object.__setattr__(self, "where", where)
+        selected = plain_comparison(where) if isinstance(where, _Comparison) else where
+        object.__setattr__(self, "where", selected)
         object.__setattr__(self, "over", None if over is None else _filter_extract(over))
         _check_by_lowering(self)
 
@@ -290,8 +292,8 @@ class First(Step):
 class Merge(Step):
     """One JSON object with exactly the declared fields, each built by its ``sf.FieldRule``.
 
-    A model-written field makes its own call over every member, so a ``Merge`` cannot follow a
-    narrow step.
+    A Merge reads the whole Fusion context, and a model-written field makes its own call over
+    every member, so a ``Merge`` cannot follow a narrow step.
     """
 
     _category: ClassVar[_Category] = "reduce"

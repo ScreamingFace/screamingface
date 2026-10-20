@@ -16,7 +16,15 @@ import re
 from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
-from screamingface._signals import FIELD_PATH, FIELD_SIGNAL_PREFIX, Signal, is_signal_key
+from screamingface._signals import (
+    FIELD_PATH,
+    FIELD_SIGNAL_PREFIX,
+    Signal,
+    _Comparison,
+    _comparison,
+    _finite_number,
+    is_signal_key,
+)
 from screamingface.blocks import _RULES, Extract, ExtractRule, NormalizeRule
 from screamingface.combine_evidence import GateCmp
 from screamingface.fields import _FIELD_NAME, FieldNormalizer, _normalizer, _target_text
@@ -29,6 +37,8 @@ RULE_NAMES: tuple[str, ...] = tuple(
     rule for rule, (_, required, _) in _RULES.items() if not required
 )
 _AGREEMENT = "agreement"
+_BAND_TYPE = "between(lo, hi) takes two numbers"
+_BAND_FINITE = "between(lo, hi) needs finite numbers"
 _PINNED = re.compile(r"([a-z][a-z0-9_]*)@([1-9][0-9]*)")
 _EX1 = (
     f"over= must be a rule name ({', '.join(RULE_NAMES)}), a rule name with a version such as "
@@ -43,8 +53,10 @@ type Weights = tuple[float, ...] | Signal
 class SignalRef(Signal):
     """``sf.signal(key)``: a signal key, with the gate references of a declared name (§7, §9).
 
-    INVARIANT: a step stores today's ``Signal`` (``_plain``), never this subclass, so the lowered
-    values are today's values with today's typed equality.
+    INVARIANT: a step stores today's ``Signal`` (``_plain``, ``plain_comparison``), never this
+    subclass, so the lowered values are today's values with today's typed equality.
+    AIDEV-NOTE: unit 7 puts ``.chosen()`` and ``.mean()`` on today's ``Signal`` and deletes this
+    class and ``_plain``.
     """
 
     def chosen(self) -> GateRef:
@@ -97,15 +109,26 @@ class GateRef:
     def between(self, lo: float, hi: float) -> GateBand:
         """The closed band [lo, hi] of this number: inside it, the gate abstains (part 6)."""
 
+        # WHY both types first: a pair such as (inf, "a") is a TypeError, not a ValueError.
         if any(isinstance(item, bool) or not isinstance(item, int | float) for item in (lo, hi)):
-            raise TypeError("between(lo, hi) takes two numbers")
-        if not (math.isfinite(lo) and math.isfinite(hi)):
-            raise ValueError("between(lo, hi) needs finite numbers")
-        if lo > hi:
+            raise TypeError(_BAND_TYPE)
+        low, high = (_finite_number(item, _BAND_TYPE, _BAND_FINITE) + 0.0 for item in (lo, hi))
+        if low > high:
             raise ValueError("between(lo, hi) needs lo <= hi")
-        if self.observe == _AGREEMENT and not 0 <= lo <= hi <= 1:
-            raise ValueError("sf.agreement().between(lo, hi) must be between 0 and 1")
-        return GateBand(self, float(lo), float(hi))
+        self._check_share(low, high)
+        return GateBand(self, low, high)
+
+    def _check_share(self, *numbers: float) -> None:
+        """An agreement is a share in [0, 1], so a threshold or a band outside it never holds."""
+
+        if self.observe == _AGREEMENT and not all(0.0 <= number <= 1.0 for number in numbers):
+            raise ValueError("sf.agreement() is a share: compare it with numbers between 0 and 1")
+
+    def __repr__(self) -> str:
+        if self.observe == _AGREEMENT:
+            return "agreement()"
+        method, _, name = self.observe.partition(":")
+        return f"signal({name!r}).{method}()"
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +139,9 @@ class GateCondition:
     cmp: GateCmp
     threshold: float
 
+    def __repr__(self) -> str:
+        return f"{self.ref!r} {self.cmp} {self.threshold!r}"
+
 
 @dataclass(frozen=True, slots=True)
 class GateBand:
@@ -124,6 +150,9 @@ class GateBand:
     ref: GateRef
     lo: float
     hi: float
+
+    def __repr__(self) -> str:
+        return f"{self.ref!r}.between({self.lo!r}, {self.hi!r})"
 
 
 def agreement() -> GateRef:
@@ -134,11 +163,23 @@ def agreement() -> GateRef:
 
 def _condition(ref: GateRef, cmp: GateCmp, value: object) -> GateCondition:
     # WHY a bool is refused: it is not a threshold, and True == 1 would hide the mistake.
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError(f"a gate condition compares with a number, not {value!r}")
-    if not math.isfinite(value):
-        raise ValueError("a gate condition compares with a finite number")
-    return GateCondition(ref, cmp, float(value))
+    # WHY + 0.0: -0.0 == 0.0 in Python but they render as different JSON (as _signals._finite).
+    threshold = (
+        _finite_number(
+            value,
+            f"a gate condition compares with a number, not {value!r}",
+            "a gate condition compares with a finite number",
+        )
+        + 0.0
+    )
+    ref._check_share(threshold)
+    return GateCondition(ref, cmp, threshold)
+
+
+def plain_comparison(where: _Comparison) -> _Comparison:
+    """``where`` around today's ``Signal``: a step never stores a ``SignalRef``."""
+
+    return _comparison(_plain(where.signal), where.cmp, where.value)
 
 
 def extractor(value: object) -> Extractor:
@@ -220,7 +261,7 @@ def output_field(value: object, label: str) -> str | None:
 
 
 def signal_key(value: object, label: str) -> Signal:
-    """A ``by=`` value: one signal, as a key string or ``sf.signal(key)`` (RA-1).
+    """A ``by=`` or ``weights=`` key: one signal, as a key string or ``sf.signal(key)`` (RA-1).
 
     A key string goes through ``sf.signal(key)``, so it has the same check and the same messages.
     """
