@@ -16,6 +16,7 @@ from test_judge_reducer import _calls_by_name, _context, _sources, _wrap
 from url4 import RelExpr, Source, Text, src
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import _url4_text, compile_candidate
 from screamingface._evaluation.topology import _signal_field, _writer_field, _writer_key
 from screamingface.fields import writer_intent
@@ -27,8 +28,8 @@ _WRITE = "Write one summary."
 
 
 def _merge(**extra: sf.FieldRule) -> sf.Merge:
-    return sf.Merge(
-        fields={
+    return sx.Merge(
+        {
             "answer": sf.FieldRule.majority(normalize="text"),
             "summary": sf.FieldRule.model("provider/w", prompt=_WRITE),
             **extra,
@@ -166,8 +167,8 @@ def test_the_writer_intent_is_the_versioned_template_then_the_author_prompt() ->
 
 
 def test_writer_params_follow_the_binding_and_are_recorded() -> None:
-    merge = sf.Merge(
-        fields={"s": sf.FieldRule.model("provider/w", prompt=_WRITE, params={"temperature": 0})}
+    merge = sx.Merge(
+        {"s": sf.FieldRule.model("provider/w", prompt=_WRITE, params={"temperature": 0})}
     )
     compiled = _compile(merge)
     calls = _calls_by_name(compiled.url4)
@@ -180,8 +181,8 @@ def test_writer_params_follow_the_binding_and_are_recorded() -> None:
 
 
 def test_two_model_fields_are_numbered_in_declared_order() -> None:
-    merge = sf.Merge(
-        fields={
+    merge = sx.Merge(
+        {
             "b": sf.FieldRule.model("provider/w", prompt="Write b."),
             "plain": sf.FieldRule.max(),
             "a": sf.FieldRule.model("provider/x", prompt="Write a."),

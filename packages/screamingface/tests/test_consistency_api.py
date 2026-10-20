@@ -38,6 +38,7 @@ from url4 import Expression, RelExpr, Source, Text, build
 from url4.core.nodes import walk
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._engine.model_parameters import _decode_model_details
 from screamingface._evaluation.candidate import _CompiledCandidate, compile_candidate
 from screamingface._evaluation.model import Candidate, _compiled_candidate
@@ -63,7 +64,7 @@ _DS_I3 = (
 
 
 def _pick() -> sf.Pick:
-    return sf.Pick(by_signal=sf.signal("cons"))
+    return sx.ArgMax("cons")
 
 
 # --- CA#2: the source holds n and the temperature (CA-1, CA-E1) --------------------------------
@@ -155,7 +156,7 @@ def test_consistency_seed_gives_the_erd_seeds() -> None:
 
 # --- CA#3: a Fusion refuses a bad declaration before any call (CA-E2) ---------------------------
 
-_NESTED = sf.Fusion(["prov/x", "prov/y"], name="inner", synthesizer=sf.Vote())
+_NESTED = sx.Fanout(["prov/x", "prov/y"], name="inner") >> sx.Vote()
 _CHAIN = sf.Pipeline(["prov/x", "prov/y"], name="chain")
 _THIRTY_THREE = [f"prov/m{index}" for index in range(1, 34)]
 
@@ -423,12 +424,12 @@ def test_the_member_keeps_its_params_and_the_sample_takes_the_stated_temperature
     """CA-7 (ans:Q3 "the member's other params unchanged")."""
     alpha = sf.Model("prov/alpha", params={"temperature": 0.2, "seed": 7, "max_tokens": 64})
     compiled = _ca_compiled(
-        sf.Fusion(
+        sx.Fanout(
             [alpha, "prov/beta", "prov/gamma"],
-            name="pick",
             signals={"cons": sf.Consistency(n=1, temperature=0.9)},
-            synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+            name="pick",
         )
+        >> sx.ArgMax("cons")
     )
     sources = _ca_sources(compiled.url4)
     assert _ca_call(sources, "model_1").params == (
@@ -544,12 +545,8 @@ def test_the_reducer_topology_lists_the_samples() -> None:
     assert [member["binding"] for member in rider["members"]] == ["model_1", "model_2", "model_3"]
     plain = _ca_rider(
         _ca_compiled(
-            sf.Fusion(
-                _CA_MEMBERS,
-                name="pick",
-                signals={"conf": sf.Verbalized("C: ([0-9]+)")},
-                synthesizer=sf.Pick(by_signal=sf.signal("conf")),
-            )
+            sx.Fanout(_CA_MEMBERS, signals={"conf": sf.Verbalized("C: ([0-9]+)")}, name="pick")
+            >> sx.ArgMax("conf")
         ).url4
     )
     assert plain["synthesizer"] == {"binding": "synthesis_1", "kind": "reducer", "name": "pick"}
@@ -614,12 +611,12 @@ def test_sample_fingerprints_never_meet_member_fingerprints() -> None:
 def test_the_logprob_params_stay_on_the_members() -> None:
     """CA-D8 (P5): the logprobs param of sf.Logprob is on the member calls only."""
     compiled = _ca_compiled(
-        sf.Fusion(
+        sx.Fanout(
             ["openrouter/acme/alpha", "openrouter/acme/beta"],
-            name="pick",
             signals={"cons": sf.Consistency(n=1), "lp": sf.Logprob("mean")},
-            synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+            name="pick",
         )
+        >> sx.ArgMax("cons")
     )
     sources = _ca_sources(compiled.url4)
     assert _ca_call(sources, "model_1").params == (("logprobs", "true"),)
@@ -654,12 +651,11 @@ def test_samples_are_not_fixed_seed_calls() -> None:
     assert sum(operation.kind == "sample" for operation in compiled.operations) == 9
     assert all("seed" in a.params for a in compiled.parameter_assignments)
     assert _own_seed_calls(_ca_candidate(compiled)) == ()
-    seeded = sf.Fusion(
+    seeded = sx.Fanout(
         [sf.Model("prov/alpha", params={"seed": 7}), "prov/beta", "prov/gamma"],
-        name="pick",
         signals={"cons": sf.Consistency(n=1)},
-        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
-    )
+        name="pick",
+    ) >> sx.ArgMax("cons")
     assert _own_seed_calls(_ca_candidate(_ca_compiled(seeded))) == ("op_model_1 (alpha answer)",)
 
 
@@ -700,13 +696,8 @@ def test_sample_operations_are_generation_accounting_rows() -> None:
 def test_quorum_pipeline_and_samples_members_compile_samples() -> None:
     """CA-D5, CA-D6, CA-D7: the panel counter, the stage input, sf.samples() members."""
     quorum = _ca_compiled(
-        sf.Fusion(
-            _CA_MEMBERS,
-            name="vote",
-            quorum=2,
-            signals={"cons": sf.Consistency(n=1)},
-            synthesizer=sf.Vote(),
-        )
+        sx.Fanout(_CA_MEMBERS, signals={"cons": sf.Consistency(n=1)}, quorum=2, name="vote")
+        >> sx.Vote()
     )
     assert _ca_root_names(quorum.url4) == [
         "panel_1",
@@ -740,12 +731,8 @@ def test_quorum_pipeline_and_samples_members_compile_samples() -> None:
         "member_3: '$panel_3'}}"
     )
     sampled = _ca_compiled(
-        sf.Fusion(
-            sf.samples("prov/alpha", 3),
-            name="pick",
-            signals={"cons": sf.Consistency(n=2)},
-            synthesizer=sf.Pick(by_signal=sf.signal("cons")),
-        )
+        sx.Fanout(sf.samples("prov/alpha", 3), signals={"cons": sf.Consistency(n=2)}, name="pick")
+        >> sx.ArgMax("cons")
     )
     sources = _ca_sources(sampled.url4)
     assert [_ca_call(sources, f"model_{k}").params for k in (1, 2, 3)] == [

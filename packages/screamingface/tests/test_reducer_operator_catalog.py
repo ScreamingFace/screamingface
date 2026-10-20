@@ -15,6 +15,7 @@ from _reducer_fixtures import (
 from test_client_run import _engine, _ReplayTransport
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._engine.catalog import AsyncOperatorCatalogResource, OperatorCatalogResource
 from screamingface._evaluation.operators import decode_operator_catalog
 
@@ -310,8 +311,8 @@ def test_client_fetches_the_catalog_once_for_repeated_reducer_evaluations() -> N
 
 
 def _plain_fusion() -> sf.Fusion:
-    return sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/judge")], synthesizer="provider/opus"
+    return sx.Fanout([sf.Model("provider/opus"), sf.Model("provider/judge")]) >> sx.Synthesize(
+        "provider/opus"
     )
 
 

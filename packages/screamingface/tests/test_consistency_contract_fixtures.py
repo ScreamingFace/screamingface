@@ -23,6 +23,7 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -30,21 +31,16 @@ _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 
 def consistency_pick_recipe() -> sf.Fusion:
     """F1: a Pick of the member whose answer comes back most often (n=3, temperature 1.0)."""
-    return sf.Fusion(
-        _MEMBERS,
-        name="pick",
-        signals={"cons": sf.Consistency(n=3)},
-        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+    return sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=3)}, name="pick") >> sx.ArgMax(
+        "cons"
     )
 
 
 def consistency_median_recipe() -> sf.Fusion:
     """F2: a median whose steps are the match of the samples (n=2, temperature 0.7)."""
-    return sf.Fusion(
-        _MEMBERS,
-        name="median",
-        signals={"cons": sf.Consistency(n=2, temperature=0.7)},
-        synthesizer=sf.Median(),
+    return (
+        sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=2, temperature=0.7)}, name="median")
+        >> sx.Median()
     )
 
 

@@ -25,6 +25,7 @@ from test_client_run import _engine
 from url4 import Expression, Node, RelExpr, Source, Text, build, expr, render, src, struct
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
@@ -73,8 +74,8 @@ def _misplaced() -> dict[str, Callable[[sf.Client], object]]:
     reducer: Any = FixtureVote()
     return {
         "pipeline stage": lambda client: sf.Pipeline([reducer]),
-        "fusion member": lambda client: sf.Fusion([reducer, "p/a"], synthesizer="p/s"),
-        "then": lambda client: sf.Model("p/a").then(reducer),
+        "fusion member": lambda client: sx.Fanout([reducer, "p/a"]) >> sx.Synthesize("p/s"),
+        "then": lambda client: sf.Model("p/a") >> reducer,
         "corrective member": lambda client: sf.CorrectiveLoop([reducer, "p/a"], judge="p/j"),
         "corrective judge": lambda client: sf.CorrectiveLoop(["p/a", "p/b"], judge=reducer),
         "self corrective": lambda client: sf.SelfCorrective(reducer),
@@ -280,7 +281,7 @@ def test_reducer_fusion_compiles_inside_pipeline_fusion_and_corrective_loop() ->
     assert sources["model_5"].context == "$synthesis_1"
 
     # (b) a reducer Fusion as a member of a Model-synthesized Fusion
-    nested = sf.Fusion([reducer_fusion(), "provider/d"], synthesizer="provider/s")
+    nested = sx.Fanout([reducer_fusion(), "provider/d"]) >> sx.Synthesize("provider/s")
     sources = _sources(compile_candidate(nested, operators=operators).url4)
     assert sources["synthesis_1"].path == _COMBINE_PATH
     assert sources["synthesis_2"].path == "/provider/s"

@@ -32,6 +32,7 @@ from _vote_run_fixtures import (
 from test_client_run import _ForbiddenTransport
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
@@ -56,7 +57,7 @@ def _url4(synthesizer: Reducer, benchmark_rule: _BenchmarkAnswerRule | None = No
 
 
 def test_benchmark_extract_compiles_a_different_url4_per_benchmark() -> None:
-    vote = sf.Vote(extract="benchmark")
+    vote = sx.Vote(over="benchmark")
     gsm8k = _url4(vote, _bound(_GSM8K, GSM8K_RULE_WIRE))
     aime24 = _url4(vote, _bound("inspect-aime24", AIME24_RULE_WIRE))
     aime25 = _url4(vote, _bound("inspect-aime25", AIME25_RULE_WIRE))
@@ -74,7 +75,7 @@ def test_benchmark_extract_compiles_a_different_url4_per_benchmark() -> None:
     # F10: the url4 depends on the rule's operators, not the benchmark id.
     assert aime24 == aime25
     # Control: a named rule never looks at the benchmark's rule.
-    control = sf.Vote(extract="last_number")
+    control = sx.Vote(over="last_number")
     assert (
         _url4(control)
         == _url4(control, _bound(_GSM8K, GSM8K_RULE_WIRE))
@@ -95,7 +96,7 @@ def _one_case(candidate: Candidate) -> list[dict[str, Any]]:
 
 
 def test_benchmark_extract_resolves_before_spend() -> None:
-    synthesizer = sf.Vote(extract="benchmark")
+    synthesizer = sx.Vote(over="benchmark")
     events: list[str] = []
     transport = ScriptedTransport(_GSM8K, "fixture-revision", _one_case, events)
 
@@ -159,7 +160,7 @@ def test_benchmark_without_rule_raises_before_spend() -> None:
         ) as client,
         pytest.raises(ValueError, match="declares no answer rule") as caught,
     ):
-        client.evaluate(_fusion(sf.Vote(extract="benchmark")), benchmark="draco", progress=False)
+        client.evaluate(_fusion(sx.Vote(over="benchmark")), benchmark="draco", progress=False)
 
     _check_no_rule_message(str(caught.value))
     assert transport.called is False
@@ -177,7 +178,7 @@ async def test_async_benchmark_without_rule_raises_before_spend() -> None:
     async with client:
         with pytest.raises(ValueError, match="declares no answer rule") as caught:
             await client.evaluate(
-                _fusion(sf.Vote(extract="benchmark")), benchmark="draco", progress=False
+                _fusion(sx.Vote(over="benchmark")), benchmark="draco", progress=False
             )
 
     _check_no_rule_message(str(caught.value))
@@ -215,7 +216,7 @@ def test_engine_without_inspect_operators_raises_capability_error(
         ) as client,
         pytest.raises(sf.EngineCapabilityError) as caught,
     ):
-        client.evaluate(_fusion(sf.Vote(extract="benchmark")), benchmark=_GSM8K, progress=False)
+        client.evaluate(_fusion(sx.Vote(over="benchmark")), benchmark=_GSM8K, progress=False)
 
     error = caught.value
     assert error.code == "engine_capability_missing"

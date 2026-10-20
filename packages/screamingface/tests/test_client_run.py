@@ -16,6 +16,7 @@ from protocol_server import protocol_server
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
@@ -57,10 +58,8 @@ REPLAY_URL4 = render(
     )
 )
 FUSION_CANDIDATE_URL4 = compile_candidate(
-    sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/sonnet")],
-        synthesizer="provider/synthesizer",
-    )
+    sx.Fanout([sf.Model("provider/opus"), sf.Model("provider/sonnet")])
+    >> sx.Synthesize("provider/synthesizer")
 ).url4
 assert FUSION_CANDIDATE_URL4 is not None
 FUSION_REPLAY_URL4 = render(
@@ -457,11 +456,9 @@ def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None
             return _not_installed_response()
         return _engine(request)
 
-    fusion = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/gpt")],
-        name="panel",
-        synthesizer="provider/synthesis",
-    )
+    fusion = sx.Fanout(
+        [sf.Model("provider/opus"), sf.Model("provider/gpt")], name="panel"
+    ) >> sx.Synthesize("provider/synthesis")
     transport = _ForbiddenTransport()
     client = sf.Client(
         engine_url="https://engine.example",

@@ -21,6 +21,7 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _ALPHA = "openrouter/acme/alpha"
@@ -46,11 +47,7 @@ def logprob_pick_mean() -> str:
 
 def logprob_vote_prob() -> str:
     return _compiled(
-        sf.Fusion(
-            _MEMBERS,
-            signals={"p": sf.Logprob("prob")},
-            synthesizer=sf.Vote(weights=sf.signal("p")),
-        )
+        sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")}) >> sx.Vote(weights=sf.signal("p"))
     )
 
 

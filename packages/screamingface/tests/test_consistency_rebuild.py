@@ -24,6 +24,7 @@ from test_consistency_contract_fixtures import BUILDERS
 from url4 import Binding, Expression, RelExpr, Source, Text, build, expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import _CompiledCandidate, compile_candidate
 from screamingface._evaluation.combine_spec import (
     canonical_json,
@@ -66,21 +67,16 @@ _L5: tuple[str, ...] = (
 
 def _f1() -> sf.Fusion:
     """F1 (consistency-api §3): the recipe of consistency_pick_candidate.url4."""
-    return sf.Fusion(
-        _MEMBERS,
-        name="pick",
-        signals={"cons": sf.Consistency(n=3)},
-        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
+    return sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=3)}, name="pick") >> sx.ArgMax(
+        "cons"
     )
 
 
 def _f2() -> sf.Fusion:
     """F2 (consistency-api §3): the recipe of consistency_median_candidate.url4."""
-    return sf.Fusion(
-        _MEMBERS,
-        name="median",
-        signals={"cons": sf.Consistency(n=2, temperature=0.7)},
-        synthesizer=sf.Median(),
+    return (
+        sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=2, temperature=0.7)}, name="median")
+        >> sx.Median()
     )
 
 
@@ -89,15 +85,10 @@ def _f3() -> sf.Fusion:
 
     WHY weights=: sf.Vote reads its judge only through weights=sf.signal('score:judge') (D-1).
     """
-    return sf.Fusion(
-        _MEMBERS,
-        signals={"cons": sf.Consistency(n=1)},
-        synthesizer=sf.Vote(
-            weights=sf.signal("score:judge"),
-            judge=sf.Judge(
-                "prov/judge", returns="scores", rubric="Score each answer from 0 to 10."
-            ),
-        ),
+    return (
+        sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=1)})
+        >> sx.Judge("prov/judge", rubric="Score each answer from 0 to 10.")
+        >> sx.Vote(weights=sf.signal("score:judge"))
     )
 
 
@@ -517,12 +508,11 @@ def test_replay_lists_no_sample_as_a_fixed_seed_call() -> None:
     assert stamped.answer_seed == 5
 
     # control: a member that sets its own seed is still a fixed-seed call
-    seeded = sf.Fusion(
+    seeded = sx.Fanout(
         [sf.Model("prov/alpha", params={"seed": 7}), "prov/beta", "prov/gamma"],
-        name="pick",
         signals={"cons": sf.Consistency(n=3)},
-        synthesizer=sf.Pick(by_signal=sf.signal("cons")),
-    )
+        name="pick",
+    ) >> sx.ArgMax("cons")
     replay = _replayed_url4(_linked(_url4(seeded)))
     assert replay.seeded == ("op_model_1 (alpha answer)",)
     with warnings.catch_warnings(record=True) as recorded:
@@ -679,7 +669,7 @@ def test_a_samples_key_without_a_declaration_and_policy_markers_does_not_rebuild
 
 def test_a_consistency_source_added_to_a_plain_url4_does_not_rebuild() -> None:
     """WHY: a declared source adds sample calls; a url4 without them must not rebuild or replay."""
-    url4 = _url4(sf.Fusion(_MEMBERS, name="median", synthesizer=sf.Median()))
+    url4 = _url4(sx.Fanout(_MEMBERS, name="median") >> sx.Median())
     signals = _spec_of(BUILDERS[_MEDIAN]())["signals"]
 
     def add_signals(spec: dict[str, Any]) -> None:
