@@ -1,9 +1,9 @@
 ---
 ticket: OME-1687
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-20
-finished:
+finished: 2026-10-20
 ---
 
 # OME-1687-price-successful-request-only — price a model call from its successful request only
@@ -64,7 +64,33 @@ Plan: `docs/plan/2026-10-20-OME-1687-price-successful-request-only.md`.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned — `world/connector.py`, `world/accounting.py`,
+  `world/cache_readback.py` (docstring only); new `tests/unit/test_retry_cost_of_intelligence.py`
+  (21 tests) and `tests/unit/test_succeeded_attempt_pricing.py` (28 tests); the approved flips in
+  `test_ambiguous_retry_pricing.py`, `test_cache_hit_retry_pricing.py`, `test_cache_saved_cost.py`
+  and the comment in `test_signal_accounting.py`, pinned in
+  `.claude/test-change-approvals/OME-1687.json`.
+- **Commits:** `b94ff44b1` fix(screamingface-engine): stop unpricing a model call after a
+  transport retry; Phase B: feat(screamingface-engine): price and count a call from its successful
+  attempt.
+- **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine --base origin/main` — ALL
+  GATES GREEN (append-only with 4 approved transitions, ruff check, ruff format, pyright, layering,
+  pytest with coverage ≥ 80): 5591 passed, 135 skipped. Phase A gate also green (5563 passed).
 - **Deviations:**
+  - Scope change mid-unit (user, 2026-10-20): tokens follow the successful attempt through the
+    gateway key `usage_accounting.succeeded_attempt_usage`. No prior token test changed (D1
+    fallback keeps the all-attempt sum when the key is absent or null).
+  - `usd_from_aigw` split into `usd_from_aigw` + `_usd_from_direct_cost_status` (PLR0911); the
+    old rule's body is unchanged.
+  - `CallAccounting` gained the defaulted field `tokens_from_succeeded_attempt`, so the retained
+    operation uses the key's tokens also when the capture is `partial` (key survives degradation).
+  - The retained operation's COST still needs a `complete` capture. In the rare degraded case
+    (`omitted_attempts > 0`) the live Usage is priced from the key and the retained operation cost
+    is `None`. Not changed: no rule covered it; reported to the owner.
+  - With a malformed `succeeded_attempt_usage`, the live Usage input/output use the existing
+    `_token_count` fallback to the top-level `usage` (the wire has no "unknown" count); cache and
+    reasoning are `None`. Never the all-attempt sums.
+  - `world/accounting.py` is now ~660 lines (was 593; the 450-line target was already exceeded).
+  - Not changed (stale comments in prior tests, outside the approved list): the section header
+    above `test_cache_saved_cost.py::test_a_hit_after_a_transport_retry_claims_its_saving` and the
+    module docstring of `test_cache_hit_retry_pricing.py` still describe the OME-1220 rule.

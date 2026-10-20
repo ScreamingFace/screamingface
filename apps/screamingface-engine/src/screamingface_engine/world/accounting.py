@@ -78,6 +78,11 @@ AMOUNT_PRECISION = 18 + 33 + 2
 _CANONICAL_AMOUNT = re.compile(r"^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{0,32}[1-9])?$")
 
 METADATA_KEY = "_aigw"
+# FEATURE: cost of intelligence (OME-1687). The successful attempt's own evidence, which the
+# gateway calculates from every record (OME-1686): its `direct_cost` beside the all-attempt
+# economics, and its `usage` beside the all-attempt `attempts[]`.
+_SUCCEEDED_ATTEMPT_DIRECT_COST = "succeeded_attempt_direct_cost"
+_SUCCEEDED_ATTEMPT_USAGE = "succeeded_attempt_usage"
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +106,11 @@ class CallAccounting:
     complete: bool
     provider_latency_ms: int | None
     attempts: int | None
+    # FEATURE: cost of intelligence (OME-1687). True when the gateway sent the key
+    # `succeeded_attempt_usage`, so the five token classes are that one attempt's (or all unknown,
+    # when it was malformed). The key survives the gateway's truncation and size degradation, so
+    # these tokens are exact even when `complete` is False.
+    tokens_from_succeeded_attempt: bool = False
 
 
 def accumulate[T: (int, Decimal)](prior: T | None, new: T | None) -> T | None:
@@ -184,6 +194,33 @@ def _credits_to_usd(subtotals: object) -> Decimal | None:
         return amount * _CREDIT_TO_USD
 
 
+def _succeeded_attempt_evidence(
+    section: Mapping[str, Any] | None, key: str
+) -> tuple[bool, Mapping[str, Any] | None]:
+    """Whether `section` carries the successful attempt's `key`, and its mapping if well formed.
+
+    INVARIANT (D1): an absent or null key is "not sent" — `(False, None)` — and the caller keeps
+    its pre-OME-1686 rule. A present value that is not a mapping is MALFORMED — `(True, None)` —
+    and the caller reports the quantity unknown. It never falls back to the all-attempt figures,
+    which would count the failed attempts this key exists to exclude.
+    """
+    value = section.get(key) if section is not None else None
+    if value is None:
+        return False, None
+    return True, _mapping(value)
+
+
+def _succeeded_attempt_usd(direct_cost: Mapping[str, Any] | None) -> Decimal | None:
+    """USD from the successful attempt's `direct_cost`: only a `reported` credit amount prices.
+
+    Every other status (`unavailable`, `invalid`, `provider_guaranteed_zero`, …), unit or amount
+    is a real unknown about the successful request itself (R3), so the call is unpriced.
+    """
+    if direct_cost is None or direct_cost.get("status") != "reported":
+        return None
+    return _credits_to_usd([{"unit": direct_cost.get("unit"), "amount": direct_cost.get("amount")}])
+
+
 def usd_from_aigw(aigw: object) -> Decimal | None:
     """USD for one gateway call, or `None` when the evidence cannot support a price.
 
@@ -194,6 +231,11 @@ def usd_from_aigw(aigw: object) -> Decimal | None:
     time this runs, so accounting must never turn a completed response into a run failure — the same
     rule the producing gateway applies on its own side of the boundary.
 
+    FEATURE: cost of intelligence (OME-1687). The price is the SUCCESSFUL attempt's cost, which the
+    producer states directly in `succeeded_attempt_direct_cost`; a retry before it changes nothing.
+    When the key is absent or null (an older gateway, an old frozen copy, a cache hit), the
+    pre-OME-1686 rule below applies unchanged (D1).
+
     AIDEV-NOTE: `known_direct_cost_subtotals` is populated by the producer ONLY when its capture was
     complete and nothing was omitted, and it has already summed across retries. Do not re-derive
     money by walking `attempts[]` — that double-counts, and it discards the producer's own refusal
@@ -203,6 +245,16 @@ def usd_from_aigw(aigw: object) -> Decimal | None:
     economics = _mapping(envelope.get("request_economics")) if envelope is not None else None
     if envelope is None or economics is None:
         return None
+    sent, direct_cost = _succeeded_attempt_evidence(economics, _SUCCEEDED_ATTEMPT_DIRECT_COST)
+    if sent:
+        return _succeeded_attempt_usd(direct_cost)
+    return _usd_from_direct_cost_status(envelope, economics)
+
+
+def _usd_from_direct_cost_status(
+    envelope: Mapping[str, Any], economics: Mapping[str, Any]
+) -> Decimal | None:
+    """The pre-OME-1686 rule (D1): price only a `complete` status, or a cache hit at zero."""
     status = economics.get("direct_cost_status")
     if status == "complete":
         return _credits_to_usd(economics.get("known_direct_cost_subtotals"))
@@ -346,11 +398,14 @@ def read_aigw(aigw: object) -> CallAccounting | None:
     `usage` object — the pre-`_aigw` behaviour. It is deliberately distinct from evidence whose
     fields are all `None`, which means the gateway was asked and reported nothing.
 
-    INVARIANT: tokens are summed across EVERY attempt, failures included. A retry genuinely costs
-    twice, and the producer contract states outright that a failed attempt may still carry
-    provider-authored usage, so dropping failures under-reports the run. The pre-existing live/root
-    Usage contract takes identity from the terminal attempt; retained operation accounting applies
-    its stricter all-attempt agreement policy separately.
+    FEATURE: cost of intelligence (OME-1687). Tokens come ONLY from the successful attempt when the
+    producer states its usage (`succeeded_attempt_usage`); a malformed value makes every class
+    unknown. The pre-existing live/root Usage contract takes identity from the terminal attempt;
+    retained operation accounting applies its stricter all-attempt agreement policy separately.
+
+    AIDEV-NOTE: when the key is absent or null (an older gateway), tokens are summed across EVERY
+    attempt, failures included — the pre-OME-1686 behaviour, kept unchanged (D1). Latency is
+    always that all-attempt sum: out of scope for OME-1687.
     """
     envelope = _mapping(aigw)
     if envelope is None:
@@ -366,10 +421,14 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         else []
     )
 
-    # Seed from the first attempt, then accumulate: seeding is what lets a genuine `None` in the
-    # first attempt poison the class, rather than being mistaken for "nothing seen yet".
+    sent, succeeded_usage = _succeeded_attempt_evidence(accounting, _SUCCEEDED_ATTEMPT_USAGE)
     totals: tuple[int | None, ...] = (None,) * 5
-    if attempts:
+    if sent:
+        # A malformed value reads as `{}`: every class `None`, never the all-attempt sums.
+        totals = _attempt_usage({"usage": succeeded_usage or {}})
+    elif attempts:
+        # Seed from the first attempt, then accumulate: seeding is what lets a genuine `None` in
+        # the first attempt poison the class, rather than being mistaken for "nothing seen yet".
         totals = _attempt_usage(attempts[0])
         for attempt in attempts[1:]:
             observed = _attempt_usage(attempt)
@@ -403,6 +462,7 @@ def read_aigw(aigw: object) -> CallAccounting | None:
         # INVARIANT: a count only exists where every attempt was validated. Counting a list
         # the reader had to skip entries from would publish a retry story that never happened.
         attempts=len(attempts) if attempts_are_well_formed else None,
+        tokens_from_succeeded_attempt=sent,
     )
 
 
@@ -447,6 +507,11 @@ def retained_operation_accounting(
 
     call = read_aigw(aigw)
     complete = call is not None and call.complete
+    # FEATURE: cost of intelligence (OME-1687). The successful attempt's usage is exact on its own,
+    # also when truncation or degradation made the capture incomplete.
+    token_call = (
+        call if call is not None and (complete or call.tokens_from_succeeded_attempt) else None
+    )
     retained_provider, retained_response_model = (
         _retained_attempt_identities(aigw) if complete else (None, None)
     )
@@ -483,24 +548,24 @@ def retained_operation_accounting(
         response_model=retained_response_model,
         usage=OperationUsage(
             input_tokens=(
-                call.input_tokens
-                if complete and call is not None
+                token_call.input_tokens
+                if token_call is not None
                 else _count(reported.get("prompt_tokens"))
                 if call is None
                 else None
             ),
             output_tokens=(
-                call.output_tokens
-                if complete and call is not None
+                token_call.output_tokens
+                if token_call is not None
                 else _count(reported.get("completion_tokens"))
                 if call is None
                 else None
             ),
-            cache_read_tokens=call.cache_read_tokens if complete and call is not None else None,
+            cache_read_tokens=token_call.cache_read_tokens if token_call is not None else None,
             cache_creation_tokens=(
-                call.cache_creation_tokens if complete and call is not None else None
+                token_call.cache_creation_tokens if token_call is not None else None
             ),
-            reasoning_tokens=call.reasoning_tokens if complete and call is not None else None,
+            reasoning_tokens=token_call.reasoning_tokens if token_call is not None else None,
             # FEATURE: cost of intelligence (OME-1687). The price is the successful request's,
             # so a transport retry before it changes nothing.
             cost_usd=(
