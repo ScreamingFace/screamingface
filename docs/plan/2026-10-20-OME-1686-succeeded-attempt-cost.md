@@ -10,6 +10,9 @@ Branch: `OME-1686-succeeded-attempt-cost`. Consumer: `OME-1687` (Engine), blocke
   prior-test changes are approved (manifest `.claude/test-change-approvals/OME-1686.json`). Q3: do
   not force `null` on error bodies.
 - No Engine file changes in this branch. The Engine is `OME-1687`.
+- Contract extension (owner, 2026-10-20): also `usage_accounting.succeeded_attempt_usage`, the
+  `usage` of the same record (spec §3). One selector helper feeds both keys. Each test below that
+  names the cost key has a matching usage-key test.
 
 ## Steps
 

@@ -48,6 +48,17 @@ that describe the actual spend do not change.
 - `direct_cost_status`, `known_direct_cost_subtotals`, `observed_new_attempts` and
   `usage_accounting.attempts[]` do not change.
 
+**Contract extension (owner, 2026-10-20).** The Engine also counts tokens from the successful
+attempt only. Thus a second additive key is part of this contract:
+
+- New key: `_aigw.usage_accounting.succeeded_attempt_usage`.
+- Value: the JSON of `usage` of the **same** record that `succeeded_attempt_direct_cost` uses.
+  The shape is exactly the shape of `usage_accounting.attempts[].usage` (schema `$defs.usage`).
+- The value is `null` in exactly the same cases as the cost key.
+- The same rules apply: all records, never the truncated list; independent of `capture_status`;
+  `_degrade_to_bound` keeps it.
+- One helper selects the record for both keys, so the two keys always describe the same attempt.
+
 ## 4. Decisions
 
 ### D1 — Selection rule
@@ -63,6 +74,11 @@ observed successful send). This case is not expected:
 
 The rule makes the value deterministic if a future path breaks this expectation. A unit test locks
 the rule.
+
+Implementation: `last_succeeded_record` in `plugins/taxonomy/render.py` selects the record, and
+`_answer_record` adds the cache-hit rule. Both keys use the one result. The request-cache
+write-time block (`plugins/taxonomy/entry_metadata.py`) used the same rule inline; it now calls
+`last_succeeded_record`, so the rule is defined once.
 
 ### D2 — Value is a copy of the record's `direct_cost`
 
@@ -128,6 +144,8 @@ key. Changes:
   `{"oneOf": [{"$ref": "#/$defs/direct_cost"}, {"type": "null"}]}`.
 - Add it to `required`. The gateway always emits it, and `required` makes the null/absent difference
   explicit.
+- Add `succeeded_attempt_usage` to `$defs.usage_accounting` in the same way:
+  `{"oneOf": [{"$ref": "#/$defs/usage"}, {"type": "null"}]}`, in `properties` and `required`.
 - Owner decision (2026-10-20, Q1): **keep** the document `$id` `aigw-usage-accounting.v2.json`.
   Do not bump it. The contract is pre-beta and consumers update with it
   (`docs/usage-accounting.md`, intro).
@@ -140,7 +158,8 @@ Update `apps/aigateway/docs/usage-accounting.md`:
 
 - Add the key to the response-shape example.
 - Add a section "Cost of intelligence and actual spend":
-  - To price a model call (cost of intelligence), use `succeeded_attempt_direct_cost`.
+  - To price a model call (cost of intelligence), use `succeeded_attempt_direct_cost`, and for its
+  tokens use `succeeded_attempt_usage`.
   - To get the actual spend of the request, use `direct_cost_status` with
     `known_direct_cost_subtotals`, and the existing completeness rule.
 - State D1, D3 and D4 in short form. State that `null` means "no successful attempt", and that
@@ -197,6 +216,8 @@ The owner approved this spec and the plan on 2026-10-20.
 - **Q1 — Schema `$id`:** keep `aigw-usage-accounting.v2.json`. Add the key to the current schema's
   `properties` and `required` as `direct_cost | null` (D7).
 - **Q2 — Prior tests:** §5 items 1–3 are approved. Nothing else in prior tests changes.
+- **Contract extension:** add `usage_accounting.succeeded_attempt_usage` (§3). The approved
+  prior-test changes (§5) cover this key too. Any other prior-test change needs approval first.
 - **Q3 — Error bodies:** do not force `null`. The Engine never reads `_aigw` on a failure (D4).
 - **Cache row:** the request-cache write-time block already stores the cost of the last succeeded
   send (`plugins/taxonomy/entry_metadata.py:184-213`). No change is needed there. The new

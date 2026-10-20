@@ -30,6 +30,8 @@ key. The fields for the actual spend do not change. Spec:
 - Prior tests (approved by the owner 2026-10-20, spec §5): `test_release_fixtures.py` hash values,
   `test_handoff_contract.py` exact dict, regenerated `fixtures/cache_hit_contract/openrouter_hit.json`.
   Recorded in `.claude/test-change-approvals/OME-1686.json`.
+- Contract extension 2026-10-20: `usage_accounting.succeeded_attempt_usage` (same record, `usage | null`),
+  in the same schema without an `$id` bump; documented beside the cost key.
 - Owner decisions 2026-10-20: Q1 keep `$id` v2; Q2 approved; Q3 no forced `null` on error bodies.
 - No schema/model (ORM) change, so no migration (rule S1 does not apply).
 
