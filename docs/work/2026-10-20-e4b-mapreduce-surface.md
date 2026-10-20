@@ -571,19 +571,23 @@ references on `Signal`). 7d–7h are not in this round.
   - **Group D (pinned, owner list MG-3):** only the `sf.Fusion` calls around a fixture reducer
     (`FixtureVote`, `FixtureJudgeish`, the local `Bogus`) moved to `fusion_node`, positional
     reducer; no other line. Files and functions: `_reducer_fixtures.py` (`reducer_fusion`);
-    `test_combine_evidence.py` (`test_reducer_fusion_compiles_and_runs_inside_a_pipeline`, the
-    second member at :242); `test_duplicate_members_warning.py`
-    (`test_duplicate_members_in_reducer_fusion_warn`, the two tests at :37 and :44, the
+    `test_combine_evidence.py` (`test_two_reducers_keep_separate_evidence`); `test_duplicate_members_warning.py`
+    (`test_duplicate_members_in_reducer_fusion_warn`,
+    `test_three_equal_members_name_all_three_positions`, `test_two_groups_of_duplicates_warn_once_each`, the
     `test_distinct_members_and_non_reducer_fusions_do_not_warn` params `samples`, `prompts`,
     `params`, `nested-fusions` (outer only), `_duplicate_loop`, `_pair`);
-    `test_engine_url4_contract_fixtures.py` (the two members of the corrective-vote writer at
-    :76–:81, `_samples_url4`); `test_fixed_seed_sitting_warning.py` (the two recipe helpers at
-    :135, :139); `test_reducer_fusion_quorum.py` (the 4 sites at :69, :85, :94, :103);
+    `test_engine_url4_contract_fixtures.py` (`two_reducers_url4`, `_samples_url4`); `test_fixed_seed_sitting_warning.py` (`_samples_fusion`,
+    `_unseeded_fusion`); `test_reducer_fusion_quorum.py` (`test_a_quorum_reducer_reads_a_broadcast_panel`,
+    `test_a_reducer_with_every_member_required_has_no_panel`,
+    `test_an_all_optional_fusion_without_a_quorum_still_needs_every_member`,
+    `test_a_quorum_reducer_round_trips_through_url4`);
     `test_reducer_slot.py` (`test_fusion_accepts_a_reducer_in_the_synthesizer_slot` :116, :126,
     :128, :130; `test_reducer_without_catalog_fails_and_bad_specs_are_refused` :209, :217;
     `test_reducer_fusion_compiles_inside_pipeline_fusion_and_corrective_loop` :272);
-    `test_reducer_url4_round_trip.py` (:132, :173); `test_samples_preflight.py` (:132);
-    `test_url4_replay_fixed_seed_warning.py` (:27, :95). The other 12 of the 22 only import
+    `test_reducer_url4_round_trip.py` (`_recipes`,
+    `test_to_python_and_corrective_replay_use_the_reducer_registry`); `test_samples_preflight.py` (`_candidate`);
+    `test_url4_replay_fixed_seed_warning.py` (`_samples_fusion`,
+    `test_no_warning_when_no_call_sets_a_seed`). The other 12 of the 22 only import
     helpers (`engine_operators`, `evidence_wire`, `fixture_operators`, `reducer_fusion`, ...):
     no edit. Audit vs `fe0f845f2`: no lost assertion; the 21 test files: 371 passed.
   - **Left for 7d-n (hand cases, not "around a fixture reducer"):** `test_reducer_slot.py` :75
