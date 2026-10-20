@@ -93,7 +93,8 @@ class _Terminal:
     def finished(self, snapshot: Snapshot, result: PullResult) -> None:
         self._write(
             f"community cache  ✓ {result.rows_read:,} rows read · {result.rows_added:,} added · "
-            f"{_megabytes(snapshot.bytes_received)} · {_duration(snapshot.elapsed_s)}",
+            f"{_skipped(result)}{_megabytes(snapshot.bytes_received)} · "
+            f"{_duration(snapshot.elapsed_s)}",
             final=True,
         )
 
@@ -136,7 +137,7 @@ class _Notebook:
     def finished(self, snapshot: Snapshot, result: PullResult) -> None:
         self._show(
             f"Community cache · ✓ {result.rows_read:,} rows read · {result.rows_added:,} added · "
-            f"{_duration(snapshot.elapsed_s)}",
+            f"{_skipped(result)}{_duration(snapshot.elapsed_s)}",
             1.0,
         )
 
@@ -167,6 +168,10 @@ def reporter(requested: bool | None, *, stream: TextIO | None = None) -> Reporte
         except ImportError:
             pass
     return _Terminal(selected, interactive=interactive)
+
+
+def _skipped(result: PullResult) -> str:
+    return f"{result.rows_skipped:,} skipped · " if result.rows_skipped else ""
 
 
 def _progress_text(snapshot: Snapshot) -> str:

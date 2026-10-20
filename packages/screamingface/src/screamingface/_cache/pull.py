@@ -62,7 +62,7 @@ class Destination(Protocol):
 
     def check(self, remote: Any, result: PullResult) -> None: ...
 
-    def load(self, rows: Sequence[Any], result: PullResult) -> int: ...
+    def load(self, rows: Sequence[Any], result: PullResult) -> tuple[int, int]: ...
 
 
 @dataclass
@@ -73,6 +73,7 @@ class _Cursor:
     after: str | None = None
     rows_read: int = 0
     rows_added: int = 0
+    rows_skipped: int = 0
     pages: int = 0
 
 
@@ -172,7 +173,7 @@ class _Loop:
                 return result
 
     def page(self, *, count: bool) -> str | None:
-        read = [0]
+        read, skipped = [0], [0]
 
         def header(value: PageHeader) -> None:
             self._destination.check(value.revisions, self.result(complete=False))
@@ -180,7 +181,9 @@ class _Loop:
                 self._total = self._cursor.rows_read + value.remaining
 
         def rows(batch: list[Any]) -> None:
-            self._cursor.rows_added += self._destination.load(batch, self.result(complete=False))
+            added, skips = self._destination.load(batch, self.result(complete=False))
+            self._cursor.rows_added += added
+            skipped[0] += skips
             read[0] += len(batch)
             self._report.update(self.snapshot(extra_rows=read[0]))
 
@@ -191,7 +194,10 @@ class _Loop:
             finally:
                 self._bytes_before += received()
                 self._bytes = lambda: 0
+        # WHY at the page's end, like `rows_read`: a retried page is skipped again, and counting
+        # its first attempt too would count those rows twice.
         self._cursor.rows_read += read[0]
+        self._cursor.rows_skipped += skipped[0]
         return after
 
     def result(self, *, complete: bool) -> PullResult:
@@ -201,6 +207,7 @@ class _Loop:
             pages=self._cursor.pages,
             resumed=self._resumed,
             complete=complete,
+            rows_skipped=self._cursor.rows_skipped,
         )
 
     def snapshot(self, *, extra_rows: int = 0) -> Snapshot:

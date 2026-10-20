@@ -18,8 +18,10 @@ class PullResult:
     """What one `pull_from_remote` call did.
 
     `rows_read` counts the rows of completed pages; `rows_added` the rows that were new to the
-    local cache (a row it already held is kept and not counted). `resumed` is true when the call
-    continued a pull this process had started; `complete` when it reached the last page.
+    local cache (a row it already held is kept and not counted). `rows_skipped` counts the rows
+    of completed pages the local gateway could not serve, which were not loaded. `resumed` is true
+    when the call continued a pull this process had started; `complete` when it reached the last
+    page.
     """
 
     rows_read: int
@@ -27,6 +29,7 @@ class PullResult:
     pages: int
     resumed: bool
     complete: bool
+    rows_skipped: int = 0
 
 
 class CachePullError(ScreamingFaceError):

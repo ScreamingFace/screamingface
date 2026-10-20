@@ -82,6 +82,7 @@ class _Gateway:
 
     def __init__(self, *, refuse_revisions: bool = False, refuse_prepare: bool = False) -> None:
         self.loaded: list[str] = []
+        self.unservable: set[str] = set()
         self.checked: list[dict[str, str]] = []
         self._refuse_revisions = refuse_revisions
         self._refuse_prepare = refuse_prepare
@@ -99,10 +100,11 @@ class _Gateway:
         if self._refuse_revisions:
             raise CachePullError("revisions differ", code="revision_mismatch", result=result)
 
-    def load(self, rows: Any, result: PullResult) -> int:
-        new = [row["key_hash"] for row in rows if row["key_hash"] not in self.loaded]
+    def load(self, rows: Any, result: PullResult) -> tuple[int, int]:
+        keys = [row["key_hash"] for row in rows]
+        new = [key for key in keys if key not in self.loaded and key not in self.unservable]
         self.loaded.extend(new)
-        return len(new)
+        return len(new), sum(key in self.unservable for key in keys)
 
 
 class _Report:
@@ -163,6 +165,18 @@ def test_rows_already_held_locally_are_read_but_not_added() -> None:
     result = _run(source, gateway)
 
     assert (result.rows_read, result.rows_added) == (2, 1)
+
+
+def test_rows_the_local_gateway_cannot_serve_are_skipped_and_counted_once() -> None:
+    # WHY a cut first attempt: its skipped row is skipped again on the retry, and counted once.
+    source = _Source({None: [_page(["a", "x"], None, trailer=False), _page(["a", "x", "b"], None)]})
+    gateway = _Gateway()
+    gateway.unservable = {"x"}
+
+    result = _run(source, gateway)
+
+    assert gateway.loaded == ["a", "b"]
+    assert (result.rows_read, result.rows_added, result.rows_skipped) == (3, 2, 1)
 
 
 def test_revisions_are_checked_on_every_page_header() -> None:

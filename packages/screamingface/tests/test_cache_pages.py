@@ -53,6 +53,24 @@ def test_a_page_hands_on_its_header_then_rows_in_batches_and_returns_next() -> N
     assert cursor == "cur-1"
 
 
+def test_a_batch_also_ends_at_its_byte_bound() -> None:
+    # WHY (PR #1433 review): 500 rows of large responses would hold far more than one batch's
+    # worth of memory; the byte bound keeps a batch small whatever its rows weigh.
+    lines = [_header(), _row("a"), _row("b"), _row("c"), '{"next": null}']
+    seen: list[object] = []
+
+    walk_page(
+        lines,
+        on_header=seen.append,
+        on_rows=lambda rows: seen.append(rows),
+        batch_rows=500,
+        batch_bytes=len(_row("a")) * 2,
+    )
+
+    batches = [batch for batch in seen[1:] if isinstance(batch, list)]
+    assert [len(batch) for batch in batches] == [2, 1]
+
+
 def test_the_last_page_returns_none_and_remaining_is_optional() -> None:
     seen, cursor = _walk([_header(), _row("a"), '{"next": null}', ""])
 

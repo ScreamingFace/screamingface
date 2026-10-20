@@ -3,7 +3,8 @@
 A page is NDJSON: a header line (`schema`, `revisions`, and `remaining` when the caller sent
 `count=true`), one line per row, and a trailer line carrying only `next`. The reader never holds
 the page: rows are handed on in batches as they arrive, so a page of the heaviest model (~235 MB
-of rows) costs one batch of memory.
+of rows) costs one batch of memory. A batch ends at `BATCH_ROWS` rows or `BATCH_BYTES` of line
+text, whichever comes first, so a page of large responses is bounded too (PR #1433 review).
 
 INVARIANT: the header is handed on before any row, so a revision mismatch refuses the page before
 anything is written locally.
@@ -21,6 +22,7 @@ from typing import Any, Final
 
 PAGE_SCHEMA: Final = "screamingface.cache-page.v1"
 BATCH_ROWS: Final = 500
+BATCH_BYTES: Final = 8_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,7 @@ def walk_page(
     on_header: Callable[[PageHeader], None],
     on_rows: Callable[[list[dict[str, Any]]], None],
     batch_rows: int = BATCH_ROWS,
+    batch_bytes: int = BATCH_BYTES,
 ) -> str | None:
     """Read one page; return its `next` cursor (None after the last page)."""
     stream = (line for line in lines if line.strip())
@@ -51,6 +54,7 @@ def walk_page(
         raise CutPage("the page ended before its header")
     on_header(_header(_object(first)))
     batch: list[dict[str, Any]] = []
+    size = 0
     for line in stream:
         value = _object(line)
         if set(value) == {"next"}:
@@ -59,8 +63,10 @@ def walk_page(
                 raise MalformedPage("a line followed the page trailer")
             return _cursor(value["next"])
         batch.append(value)
-        if len(batch) >= batch_rows:
+        size += len(line)
+        if len(batch) >= batch_rows or size >= batch_bytes:
             _flush(batch, on_rows)
+            size = 0
     _flush(batch, on_rows)
     raise CutPage("the page ended before its trailer")
 
@@ -101,4 +107,12 @@ def _cursor(value: object) -> str | None:
     raise MalformedPage("the page trailer's next cursor is not a string")
 
 
-__all__ = ["BATCH_ROWS", "PAGE_SCHEMA", "CutPage", "MalformedPage", "PageHeader", "walk_page"]
+__all__ = [
+    "BATCH_BYTES",
+    "BATCH_ROWS",
+    "PAGE_SCHEMA",
+    "CutPage",
+    "MalformedPage",
+    "PageHeader",
+    "walk_page",
+]

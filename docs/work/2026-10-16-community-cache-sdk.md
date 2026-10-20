@@ -189,3 +189,21 @@ settled item by item with the owner on 2026-10-16.
   owner-approved 2026-10-17 and recorded in `.claude/test-change-approvals/OME-1639.json`.
 - **Gates:** all `screamingface` gates green after every finding; the review fixes land as one
   commit (owner's choice).
+
+## Follow-up from the gateway and Engine reviews (#1433, #1439 round 2, 2026-10-20)
+
+The fixed #1439 branch (which carries #1433's) is merged in first; then one commit.
+
+- **Byte-bounded load batches:** `walk_page` ends a batch at `BATCH_ROWS` (500) rows or
+  `BATCH_BYTES` (8 MB) of line text, whichever comes first — the same memory issue #1433's review
+  found on the gateway side, here on the client.
+- **Skipped rows:** the loader now skips and counts a row a local lookup could not serve (owner's
+  choice in the #1433 round) instead of refusing its batch. `LocalGateway.load` returns
+  `(inserted, skipped)`; the loop counts skips at the page's end like `rows_read`, so a retried
+  page counts them once; `PullResult.rows_skipped` (default 0, last field) carries the total and
+  the final progress line shows it when non-zero. The `malformed_row` refusal mapping is gone (the
+  loader no longer raises it).
+- **Tests:** new tests for the byte bound, the skip count across a retried page, and the final
+  line; the loader stand-in returns `skipped`, and `test_cache_local.py` drops its `malformed_row`
+  refusal row and asserts the `(inserted, skipped)` pair — the pinning-test update for the removal,
+  recorded in `OME-1639.json`. The public-surface snapshot is regenerated (+`rows_skipped`).

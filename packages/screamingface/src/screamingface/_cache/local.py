@@ -38,11 +38,6 @@ _MESSAGES: Final = {
         "The hosted cache is keyed under revisions this local gateway does not use",
         "Upgrade screamingface to match the hosted Engine, then pull again.",
     ),
-    "malformed_row": (
-        "malformed_page",
-        "The hosted Engine sent a row this client cannot load",
-        None,
-    ),
 }
 
 
@@ -111,12 +106,14 @@ class LocalGateway:
         except PageRejected as rejected:
             self._refuse(rejected.reason, result, str(rejected))
 
-    def load(self, rows: Sequence[Mapping[str, Any]], result: PullResult) -> int:
-        """Load one batch of rows; return how many were new to the local cache."""
+    def load(self, rows: Sequence[Mapping[str, Any]], result: PullResult) -> tuple[int, int]:
+        """Load one batch of rows; return how many were new to the local cache, and how many
+        were skipped as rows a local lookup could not serve."""
         from aigateway.core.request_cache.sqlite_loader import PageRejected, load_page
 
         try:
-            return load_page(rows, self._database).inserted
+            loaded = load_page(rows, self._database)
+            return loaded.inserted, loaded.skipped
         except PageRejected as rejected:
             self._refuse(rejected.reason, result, str(rejected))
         except sqlite3.Error as exc:
