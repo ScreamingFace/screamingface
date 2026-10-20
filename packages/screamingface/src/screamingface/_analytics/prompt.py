@@ -16,6 +16,14 @@ NOTICE = (
 _shown = False
 
 
+def _interactive_stdin() -> bool:
+    # WHY: GUI hosts may have no stdin; detached or closed streams cannot be queried.
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def offer() -> None:
     global _shown
     from screamingface import analytics
@@ -28,7 +36,7 @@ def offer() -> None:
         _shown = True
         bridge().control("state")
         return
-    if not sys.stdin.isatty() and origin() != "local_jupyter":
+    if origin() != "local_jupyter" and not _interactive_stdin():
         return
     if analytics.status()["choice"] == "unknown":
         _shown = True

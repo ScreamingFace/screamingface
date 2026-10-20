@@ -184,3 +184,23 @@ No fixed deletion deadline or indefinite-storage guarantee is asserted; query
 retention is not physical deletion. Data allowlist, opt-in consent, opt-out behavior,
 IP-handling gate, browser verification gate and historical-deletion procedure are
 unchanged. No PostHog settings or stored events were changed by this amendment.
+
+### Unavailable stdin regression — 20 October 2026
+
+Owner requested a fix for the optional disclosure crashing connection-panel setup
+when GUI/pythonw provides no stdin. Plan: treat missing/closed/unavailable terminal
+input as noninteractive, preserve local Jupyter disclosure, and verify both public
+connect entry points with analytics initially off. No consent or event schema changes.
+
+Outcome: `_interactive_stdin()` treats absent stdin and AttributeError/OSError/
+ValueError from terminal detection as noninteractive. Local Jupyter bypasses this
+terminal-only check. The regression exercises real connection-panel creation via
+both `sf.connect()` and `client.connect()`, for missing, closed and erroring stdin
+in Python and local Jupyter, while asserting analytics stays off and no consent
+file is created. All 12 cases failed before the fix and passed afterward.
+
+Validation: `uv run .claude/scripts/run_gates.py screamingface` passed all gates:
+append-only tests, Ruff lint/format, Pyright, full parallel SDK suite with the 95%
+coverage floor, notebook checks, build and distribution validation. `git diff
+--check` passed. Root cause was an unconditional terminal probe in optional setup;
+no public API, consent semantics, or browser transport changes were needed.

@@ -184,3 +184,47 @@ with LocalConsentStore(config_path())._lock():
         if writer.poll() is None:
             writer.kill()
             writer.wait(timeout=5)
+
+
+@pytest.mark.parametrize("entrypoint", ["module", "client"])
+@pytest.mark.parametrize("environment", ["python", "local_jupyter"])
+@pytest.mark.parametrize("stdin_kind", ["missing", "closed", "unavailable"])
+def test_connect_with_unavailable_stdin(
+    config, monkeypatch, capsys, entrypoint, environment, stdin_kind
+):
+    import io
+    import sys
+    from types import SimpleNamespace
+
+    import httpx
+
+    import screamingface as sf
+    from screamingface import _default_client
+    from screamingface._analytics import prompt
+
+    def unavailable():
+        raise OSError("stdin unavailable")
+
+    closed = io.StringIO()
+    closed.close()
+    streams = {
+        "missing": None,
+        "closed": closed,
+        "unavailable": SimpleNamespace(isatty=unavailable),
+    }
+    monkeypatch.setattr(sys, "stdin", streams[stdin_kind])
+    monkeypatch.setattr(analytics, "_process_disabled", False)
+    monkeypatch.setattr(prompt, "_shown", False)
+    monkeypatch.setattr(prompt, "origin", lambda: environment)
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"object": "list", "data": []})
+    )
+    with sf.Client(engine_url="http://127.0.0.1:9108", http_transport=transport) as client:
+        monkeypatch.setattr(_default_client, "_client", client)
+        panel = sf.connect() if entrypoint == "module" else client.connect()
+        assert isinstance(panel, sf.ConnectionPanel)
+        assert panel.engine == client.engine_url
+        assert panel.connections == ()
+    assert analytics.status()["enabled"] is False
+    assert not config.exists()
+    assert (prompt.NOTICE in capsys.readouterr().out) == (environment == "local_jupyter")
