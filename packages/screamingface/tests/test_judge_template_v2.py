@@ -202,3 +202,30 @@ def test_u5c_an_argmin_by_the_judge_after_a_judge_filter_is_one_judge_call() -> 
     assert rebuild(url4).python.endswith(
         ">> sf.Filter(where=sf.signal('score:judge') <= 3.0) >> sf.ArgMin('score:judge')"
     )
+
+
+def test_an_argmin_by_the_judge_after_a_judge_rank_is_one_judge_call() -> None:
+    chain = (
+        sx.Fanout(_ROUTES)
+        >> sx.Judge("prov/judge", rubric=_RUBRIC_MIN)
+        >> sx.Rank(2, by="score:judge")
+        >> sx.ArgMin("score:judge")
+    )
+
+    url4 = _url4(chain)
+
+    [call] = _judge_calls(url4)
+    assert call.prompt == _SCORES + _RUBRIC_MIN
+
+
+def test_a_reader_reads_a_min_judge_as_the_same_judge() -> None:
+    # The judge call is the same for both orders, so a reader (Rank, Vote, Filter) that reads the
+    # scores with its own rule holds the default order: equal bytes are equal values.
+    low = sf.Judge("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
+    high = sf.Judge("prov/judge", returns="scores", rubric=_RUBRIC)
+    judged = sf.signal("score:judge")
+
+    assert sf.Rank(2, by=low) == sf.Rank(2, by=high)
+    assert sf.Vote(weights=judged, judge=low) == sf.Vote(weights=judged, judge=high)
+    assert sf.Filter(where=judged >= 7, judge=low) == sf.Filter(where=judged >= 7, judge=high)
+    assert sf.Reduce("top_k", k=2, by=low) == sf.Reduce("top_k", k=2, by=high)
