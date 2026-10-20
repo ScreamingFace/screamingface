@@ -487,13 +487,16 @@ async def test_record_same_run_twice_returns_the_first_row_with_200(client: Asyn
 async def test_the_same_run_id_on_another_score_is_a_new_record(client: AsyncClient) -> None:
     # The unique pair is `(score_id, run_id)`, not `run_id` alone.
     one = await _submit(client, spec_id="spec-1")
-    two = await _submit(client, spec_id="spec-2")
+    # One copy names one score (OME-1596, owner-approved): the second score has its own copy.
+    two = await _submit(client, spec_id="spec-2", frozen_copy_id=OTHER_COPY_ID)
 
     first = await client.post(
         f"/v1/scores/{one}/reproductions", json=_record(run_id="run-1"), headers=_as(BOB)
     )
     second = await client.post(
-        f"/v1/scores/{two}/reproductions", json=_record(run_id="run-1"), headers=_as(BOB)
+        f"/v1/scores/{two}/reproductions",
+        json=_record(run_id="run-1", frozen_copy_id=OTHER_COPY_ID),
+        headers=_as(BOB),
     )
 
     assert first.status_code == second.status_code == 201
@@ -564,7 +567,8 @@ async def test_same_identity_new_run_adds_a_row_with_no_cap(client: AsyncClient)
 @pytest.mark.asyncio
 async def test_score_read_shows_the_count_and_the_last_time(client: AsyncClient) -> None:
     score_id = await _submit(client)
-    other = await _submit(client, spec_id="spec-2")
+    # One copy names one score (OME-1596, owner-approved): the second score has its own copy.
+    other = await _submit(client, spec_id="spec-2", frozen_copy_id=OTHER_COPY_ID)
     for n, who in enumerate((BOB, BOB, CAROL)):
         recorded = await client.post(
             f"/v1/scores/{score_id}/reproductions",
@@ -572,7 +576,11 @@ async def test_score_read_shows_the_count_and_the_last_time(client: AsyncClient)
             headers=_as(who),
         )
         assert recorded.status_code == 201, recorded.text
-    await client.post(f"/v1/scores/{other}/reproductions", json=_record(), headers=_as(BOB))
+    await client.post(
+        f"/v1/scores/{other}/reproductions",
+        json=_record(frozen_copy_id=OTHER_COPY_ID),
+        headers=_as(BOB),
+    )
 
     shown = await client.get(f"/v1/scores/{score_id}")
 
