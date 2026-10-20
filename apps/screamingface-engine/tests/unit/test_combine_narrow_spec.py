@@ -7,11 +7,14 @@ must not have, or that reads two signals, before any member output is read.
 INVARIANT defended: NR-S1 (1 to 4 items, exactly four keys each), NR-S2 (the ``NARROW_RULES``
 pairs, a judge ``scores@1`` only), NR-S2b (the stage rules per item), NR-S3 (one signal per step:
 each narrow step and the main step count apart), NR-S4 (a narrow judge read needs the judge
-reply). A spec without ``narrow`` parses as before. Each refusal names a rule, never a value.
+reply), NR-C1 (no narrow step before a step that reads the whole context: ``label@1``,
+``field_rules@1``, or a gate with a judge or writer fallback). A spec without ``narrow`` parses as
+before. Each refusal names a rule, never a value; every test matches the whole message.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -29,9 +32,8 @@ from combine_narrow_support import (
 )
 from combine_support import spec_text
 
-from screamingface_engine.combine.ports import CombineError, SpecInvalid
+from screamingface_engine.combine.ports import MAX_NARROW_STEPS, CombineError, SpecInvalid
 from screamingface_engine.combine.spec import (
-    MAX_NARROW_STEPS,
     NARROW_RULES,
     CombineSpec,
     NarrowSpec,
@@ -51,13 +53,24 @@ def _spec(narrow: Any) -> dict[str, Any]:
     return spec
 
 
-def _refused(spec: dict[str, Any], match: str) -> None:
-    with pytest.raises(SpecInvalid, match=match):
+_PARSE = "combine spec is invalid: "
+_NOT_FOUR = f"{_PARSE}spec: Value error, narrow must list 1 to 4 steps"
+_SIGNAL_EXTRACT = "a narrow step that reads a signal or the judge has no extract"
+_WHOLE_CONTEXT = "a narrow step cannot come before a label@1 or field_rules@1 reduce"
+_MODEL_FALLBACK = "a narrow step cannot come before a gate with a judge or writer fallback"
+
+
+def _full(message: str) -> str:
+    return f"^{re.escape(message)}$"
+
+
+def _refused(spec: dict[str, Any], message: str) -> None:
+    with pytest.raises(SpecInvalid, match=_full(message)):
         parse_spec(spec_text(spec))
 
 
-def _run_refused(spec: dict[str, Any], match: str, code: str = "combine_spec_invalid") -> None:
-    with pytest.raises(CombineError, match=match) as caught:
+def _run_refused(spec: dict[str, Any], message: str, code: str = "combine_spec_invalid") -> None:
+    with pytest.raises(CombineError, match=_full(message)) as caught:
         outcome(spec, context(_TEXTS))
     assert caught.value.code == code
 
@@ -86,12 +99,12 @@ def test_narrow_takes_one_to_four_items() -> None:
     four = [keep_where("field:confidence", "gt", 0.1)] * 4
     assert len(parse_spec(spec_text(_spec(four))).narrow or ()) == 4
 
-    _refused(_spec([]), "narrow")
-    _refused(_spec(four + [keep_where("field:confidence", "gt", 0.1)]), "narrow")
+    _refused(_spec([]), _NOT_FOUR)
+    _refused(_spec(four + [keep_where("field:confidence", "gt", 0.1)]), _NOT_FOUR)
 
 
 def test_an_explicit_null_narrow_is_refused() -> None:
-    _refused(_spec(None), "narrow")
+    _refused(_spec(None), _NOT_FOUR)
 
 
 @pytest.mark.parametrize("key", ["extract", "normalize", "reduce", "select"])
@@ -99,13 +112,13 @@ def test_a_narrow_item_needs_all_four_keys(key: str) -> None:
     item = keep_where("field:confidence", "gt", 0.5)
     del item[key]
 
-    _refused(_spec([item]), "narrow")
+    _refused(_spec([item]), f"{_PARSE}narrow.0.{key}: Field required")
 
 
 def test_a_narrow_item_with_an_extra_key_is_refused() -> None:
     item = {**keep_where("field:confidence", "gt", 0.5), "gate": None}
 
-    _refused(_spec([item]), "narrow")
+    _refused(_spec([item]), f"{_PARSE}narrow.0.gate: Extra inputs are not permitted")
 
 
 # --- NR-2 (NR-S2): the narrow pairs --------------------------------------------------------------
@@ -137,25 +150,36 @@ def test_a_pair_that_is_not_a_narrow_rule_is_refused(
     extract = step("last_line@1") if reduce["op"] == "mode@1" else None
     item = narrow_item(reduce, select, extract=extract)
 
-    _run_refused(_spec([item]), "a narrow step pairs")
+    _run_refused(
+        _spec([item]),
+        "a narrow step pairs filter@1 with kept@1, by_signal@1 with top_k@1, scores@1 with top_k@1",
+    )
 
 
 def test_a_narrow_scores_step_reads_the_judge_only() -> None:
     item = narrow_item(step("scores@1", source="values"), step("top_k@1", k=1))
 
-    _run_refused(_spec([item]), "a narrow scores@1 step reads the judge")
+    _run_refused(
+        _spec([item]), f"{_PARSE}spec: Value error, a narrow scores@1 step reads the judge"
+    )
 
 
 def test_an_unknown_operator_in_a_narrow_item_is_unknown() -> None:
     item = narrow_item(step("filter@1", pattern="A"), step("nope@1"))
 
-    _run_refused(_spec([item]), "nope@1", code="combine_operator_unknown")
+    _run_refused(
+        _spec([item]),
+        "combine operator 'nope@1' is not registered",
+        code="combine_operator_unknown",
+    )
 
 
 def test_bad_args_in_a_narrow_item_are_refused() -> None:
     item = narrow_item(step("filter@1", key="field:confidence", cmp="!", value=1), step("kept@1"))
 
-    _run_refused(_spec([item]), "filter@1 args are invalid")
+    _run_refused(
+        _spec([item]), "filter@1 args are invalid: filter@1 cmp must be gt, ge, lt, le or eq"
+    )
 
 
 # --- NR-3 (NR-S3): one signal per step -----------------------------------------------------------
@@ -164,7 +188,7 @@ def test_bad_args_in_a_narrow_item_are_refused() -> None:
 def test_a_narrow_item_has_no_weights_so_it_reads_at_most_one_signal() -> None:
     item = {**top_by("field:confidence", 1), "weights": {"signal": "field:score"}}
 
-    _refused(_spec([item]), "narrow")
+    _refused(_spec([item]), f"{_PARSE}narrow.0.weights: Extra inputs are not permitted")
 
 
 def test_each_step_reads_its_own_signal() -> None:
@@ -196,7 +220,7 @@ def test_the_main_step_still_reads_at_most_one_signal() -> None:
 
 
 def test_a_narrow_item_that_reads_an_undeclared_name_is_refused() -> None:
-    _run_refused(_spec([keep_where("conf", "gt", 0.5)]), "reads an unknown signal")
+    _run_refused(_spec([keep_where("conf", "gt", 0.5)]), "filter@1 reads an unknown signal")
 
 
 # --- NR-10d (NR-S2b): stage rules per item -------------------------------------------------------
@@ -222,7 +246,8 @@ def test_a_narrow_item_that_reads_an_undeclared_name_is_refused() -> None:
     ids=["by_signal", "scores", "filter_threshold"],
 )
 def test_a_signal_or_judge_narrow_item_has_no_extract(item: dict[str, Any]) -> None:
-    _refused(_spec([item]), "narrow")
+    # The rule reads the resolved step (its signal read, or the judge reduce), so it runs at plan.
+    _run_refused(_spec([item]), _SIGNAL_EXTRACT)
 
 
 def test_a_pattern_filter_may_have_an_extract_and_a_normalize() -> None:
@@ -242,7 +267,7 @@ def test_a_pattern_filter_may_have_an_extract_and_a_normalize() -> None:
 def test_a_narrow_normalize_needs_an_extract() -> None:
     item = narrow_item(step("filter@1", pattern="a"), step("kept@1"), normalize=step("text@1"))
 
-    _refused(_spec([item]), "narrow")
+    _refused(_spec([item]), f"{_PARSE}spec: Value error, a narrow normalize needs a narrow extract")
 
 
 def test_a_pattern_filter_without_an_extract_parses() -> None:
@@ -253,8 +278,59 @@ def test_a_pattern_filter_without_an_extract_parses() -> None:
 
 
 def test_a_narrow_judge_rank_without_the_judge_reply_is_refused() -> None:
-    _run_refused(_spec([top_by_judge(1)]), "needs the judge signal")
+    _run_refused(_spec([top_by_judge(1)]), "score:judge needs the judge signal")
 
 
 def test_a_narrow_rank_by_score_judge_without_the_judge_reply_is_refused() -> None:
-    _run_refused(_spec([top_by("score:judge", 1)]), "needs the judge signal")
+    _run_refused(_spec([top_by("score:judge", 1)]), "score:judge needs the judge signal")
+
+
+# --- NR-C1: no narrow step before a step that reads the whole context ----------------------------
+
+
+def test_a_narrow_step_before_a_judge_label_pick_is_refused() -> None:
+    spec = vote_spec(
+        3,
+        [keep_where("field:confidence", "gt", 0.5)],
+        reducer="judge",
+        extract=None,
+        normalize=None,
+        reduce=step("label@1"),
+        select=step("by_label@1"),
+    )
+
+    _run_refused(spec, _WHOLE_CONTEXT)
+
+
+def test_a_narrow_step_before_a_field_merge_is_refused() -> None:
+    spec = vote_spec(
+        3,
+        [keep_where("field:confidence", "gt", 0.5)],
+        reducer="merge",
+        extract=step("json_object@1"),
+        normalize=None,
+        reduce=step("field_rules@1", rules=[]),
+        select=step("built@1"),
+    )
+
+    _run_refused(spec, _WHOLE_CONTEXT)
+
+
+@pytest.mark.parametrize("otherwise", ["judge", "writer"])
+def test_a_narrow_step_before_a_gate_with_a_model_fallback_is_refused(otherwise: str) -> None:
+    gate = {"observe": "agreement", "cmp": ">=", "threshold": 0.5, "otherwise": otherwise}
+    spec = vote_spec(3, [keep_where("field:confidence", "gt", 0.5)], gate=gate)
+
+    _run_refused(spec, _MODEL_FALLBACK)
+
+
+def test_a_narrow_step_before_an_abstain_gate_runs() -> None:
+    gate = {"observe": "agreement", "cmp": ">=", "threshold": 0.5, "otherwise": "abstain"}
+    spec = vote_spec(3, [keep_where("field:confidence", "gt", 0.5)], gate=gate)
+
+    # Oracle: the filter keeps member_1 and member_3 (both a): agreement 1.0 >= 0.5.
+    assert outcome(spec, context(_TEXTS)).evidence.chosen == ["member_1"]
+
+
+def test_the_narrow_step_bound_is_four() -> None:
+    assert MAX_NARROW_STEPS == 4

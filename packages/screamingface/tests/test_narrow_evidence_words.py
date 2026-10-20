@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from typing import Any
 
 import pytest
@@ -26,6 +27,7 @@ import screamingface as sf
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface.answer import ANSWER_REASONS, EXCLUDE_REASONS
 from screamingface.combine_evidence import (
+    MAX_NARROW_STEPS,
     CombineAnswerRow,
     CombineCut,
     CombineEvidence,
@@ -52,6 +54,20 @@ _EXPECTED_NAMES = (
 def _cases() -> dict[str, Any]:
     assert _CASES.is_file(), f"missing Engine contract fixture {_CASES}"
     return json.loads(_CASES.read_text(encoding="utf-8"))
+
+
+def _full(message: str) -> str:
+    return f"^{re.escape(message)}$"
+
+
+def _invalid(message: str) -> str:
+    """The whole decode refusal of a value check: the label, then the record's own message."""
+    return f"Engine evidence is invalid: {message}"
+
+
+def _decode_refused(wire: dict[str, Any], message: str) -> None:
+    with pytest.raises(ExecutionError, match=_full(message)):
+        decode_combine_evidence(wire, "Engine evidence")
 
 
 def _decoded(name: str) -> CombineEvidence:
@@ -86,6 +102,7 @@ def test_sdk_reads_the_rank_vote_record() -> None:
 
     assert narrow == (
         CombineNarrow(
+            reduce="by_signal@1",
             select="top_k@1",
             signal="field:confidence",
             kept=("member_1", "member_2"),
@@ -108,7 +125,8 @@ def test_sdk_reads_a_pattern_free_filter_record_with_no_cut_and_no_ranks() -> No
     assert narrow is not None
     (record,) = narrow
 
-    assert (record.select, record.signal, record.kept) == (
+    assert (record.reduce, record.select, record.signal, record.kept) == (
+        "filter@1",
         "kept@1",
         "field:confidence",
         ("member_1", "member_3"),
@@ -148,8 +166,10 @@ def test_not_selected_without_a_narrow_record_is_refused() -> None:
     wire = copy.deepcopy(_cases()["filter_mean"])
     del wire["narrow"]
 
-    with pytest.raises(ExecutionError, match="not_selected goes with a narrow record"):
-        decode_combine_evidence(wire, "Engine evidence")
+    _decode_refused(
+        wire,
+        _invalid("Combine evidence not_selected goes with a narrow record, and only with it"),
+    )
 
 
 @requires_engine_app
@@ -157,17 +177,17 @@ def test_an_unknown_narrow_record_key_is_refused() -> None:
     wire = copy.deepcopy(_cases()["filter_mean"])
     wire["narrow"][0]["order"] = "max"
 
-    with pytest.raises(ExecutionError, match="narrow"):
-        decode_combine_evidence(wire, "Engine evidence")
+    _decode_refused(wire, "Engine evidence narrow[0] contains unsupported field 'order'")
 
 
 @requires_engine_app
 def test_a_later_kept_that_is_not_a_subset_is_refused() -> None:
     wire = copy.deepcopy(_cases()["narrow_no_signal"])
-    wire["narrow"][1] = {"select": "kept@1", "kept": ["member_1", "member_2"]}
+    wire["narrow"][1] = {"reduce": "filter@1", "select": "kept@1", "kept": ["member_1", "member_2"]}
 
-    with pytest.raises(ExecutionError, match="subset of the step before"):
-        decode_combine_evidence(wire, "Engine evidence")
+    _decode_refused(
+        wire, _invalid("Combine evidence kept of a narrow step is a subset of the step before")
+    )
 
 
 def test_combine_narrow_is_public_on_report() -> None:
@@ -175,11 +195,13 @@ def test_combine_narrow_is_public_on_report() -> None:
 
 
 def test_a_combine_narrow_record_checks_its_own_ranks() -> None:
-    with pytest.raises(ValueError, match="ranks only with a cut"):
+    with pytest.raises(ValueError, match=_full("Combine narrow record has ranks only with a cut")):
         CombineNarrow(
             select="top_k@1", kept=("member_1",), scores={"member_1": 1.0}, ranks={"member_1": 1}
         )
-    with pytest.raises(ValueError, match="1..n"):
+    with pytest.raises(
+        ValueError, match=_full("Combine narrow ranks are 1..n over the scored members")
+    ):
         CombineNarrow(
             select="top_k@1",
             kept=("member_1",),
@@ -213,9 +235,16 @@ def test_an_excluded_answer_may_be_not_selected() -> None:
     assert sf.Answer.from_dict(answer.to_dict()) == answer
 
 
-@pytest.mark.parametrize("status", ["answered", "fail", "abstain"])
-def test_not_selected_goes_with_excluded_only(status: str) -> None:
-    with pytest.raises(ValueError, match="reason"):
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        ("answered", "Answer has a reason exactly when it did not answer"),
+        ("fail", "Answer has an exclude reason exactly when it was excluded"),
+        ("abstain", "an abstain Answer has no member and an abstain reason"),
+    ],
+)
+def test_not_selected_goes_with_excluded_only(status: str, message: str) -> None:
+    with pytest.raises(ValueError, match=_full(message)):
         sf.Answer(
             member_id="member_2",
             text="B",
@@ -289,52 +318,80 @@ def _five_records(wire: dict[str, Any]) -> None:
 @pytest.mark.parametrize(
     ("name", "change", "match"),
     [
-        ("filter_mean", _five_records, "1 to 4 steps"),
-        ("filter_mean", _set(("narrow", 0, "kept"), ["member_3", "member_1"]), "author order"),
-        ("filter_mean", _set(("narrow", 0, "signal"), "Not A Key"), "signal key"),
-        ("filter_mean", _set(("narrow", 0, "scores"), ["member_1"]), "scores must be"),
-        ("rank_vote", _set(("narrow", 0, "ranks"), ["member_1"]), "ranks must be"),
-        ("rank_vote", _set(("narrow", 0, "ranks", "member_1"), 1.5), "ranks must be"),
+        ("filter_mean", _five_records, _invalid("Combine evidence narrow holds 1 to 4 steps")),
+        (
+            "filter_mean",
+            _set(("narrow", 0, "kept"), ["member_3", "member_1"]),
+            _invalid("Combine evidence narrow kept is in author order"),
+        ),
+        (
+            "filter_mean",
+            _set(("narrow", 0, "signal"), "Not A Key"),
+            _invalid("Combine narrow signal must be a signal key or a declared name"),
+        ),
+        (
+            "filter_mean",
+            _set(("narrow", 0, "reduce"), "Filter"),
+            _invalid("Combine evidence operators must be pinned ids like 'mode@1'"),
+        ),
+        (
+            "filter_mean",
+            _set(("narrow", 0, "scores"), ["member_1"]),
+            "Engine evidence narrow[0] scores must be an object with text keys",
+        ),
+        (
+            "rank_vote",
+            _set(("narrow", 0, "ranks"), ["member_1"]),
+            "Engine evidence narrow[0] ranks must be an object with text keys",
+        ),
+        (
+            "rank_vote",
+            _set(("narrow", 0, "ranks", "member_1"), 1.5),
+            "Engine evidence narrow[0] ranks must be an integer",
+        ),
         (
             "narrow_no_signal",
             _set(
                 ("narrow", 1),
                 {
+                    "reduce": "filter@1",
                     "select": "kept@1",
                     "signal": "field:confidence",
                     "kept": ["member_1", "member_5"],
                     "scores": {"member_1": 1.0, "member_2": 0.0, "member_5": 1.0},
                 },
             ),
-            "live then",
+            _invalid("Combine evidence narrow scores name only the members live then"),
         ),
         (
             "narrow_cut_not_met",
             _set(("narrow", 0, "kept"), []),
-            "only the last narrow step may keep no member",
+            _invalid("Combine evidence only the last narrow step may keep no member"),
         ),
         (
             "filter_mean",
             _set(("members", 1, "status"), "answered"),
-            "reason exactly when it did not answer",
+            _invalid("Combine answer row has a reason exactly when it did not answer"),
         ),
         (
             "narrow_no_signal",
             _set(("members", 1, "signals", "field:score"), 1.0),
-            "no value for its step's signal",
+            _invalid("Combine evidence narrow no_signal member has no value for its step's signal"),
         ),
         (
             "narrow_no_votes",
             _set(("result", "reason"), "output_missing"),
-            "narrow abstain ends with no_votes or cut_not_met",
+            _invalid(
+                "Combine evidence narrow abstain ends with no_votes or cut_not_met before the "
+                "main step and the gate"
+            ),
         ),
     ],
 )
 def test_the_sdk_refuses_a_narrow_record_that_breaks_a_rule(
     name: str, change: Any, match: str
 ) -> None:
-    with pytest.raises(ExecutionError, match=match):
-        decode_combine_evidence(_mutated(name, change), "Engine evidence")
+    _decode_refused(_mutated(name, change), match)
 
 
 @requires_engine_app
@@ -342,8 +399,13 @@ def test_the_sdk_refuses_an_answered_row_that_a_narrow_step_left_out() -> None:
     def change(wire: dict[str, Any]) -> None:
         wire["members"][1].update(status="answered", reason=None)
 
-    with pytest.raises(ExecutionError, match="left out is excluded"):
-        decode_combine_evidence(_mutated("filter_mean", change), "Engine evidence")
+    _decode_refused(
+        _mutated("filter_mean", change),
+        _invalid(
+            "Combine evidence member a narrow step left out is excluded with not_selected or "
+            "no_signal"
+        ),
+    )
 
 
 @requires_engine_app
@@ -359,8 +421,10 @@ def test_the_sdk_refuses_a_not_selected_row_that_every_step_kept() -> None:
         }
         wire["tally"] = None
 
-    with pytest.raises(ExecutionError, match="in no later narrow kept"):
-        decode_combine_evidence(_mutated("rank_vote", change), "Engine evidence")
+    _decode_refused(
+        _mutated("rank_vote", change),
+        _invalid("Combine evidence not_selected member is in no later narrow kept"),
+    )
 
 
 @requires_engine_app
@@ -369,5 +433,33 @@ def test_the_sdk_refuses_a_failed_member_in_the_first_kept() -> None:
         wire["members"][0].update(status="fail", reason="empty", value=None)
         wire["dropped"] = 1
 
-    with pytest.raises(ExecutionError, match="names only members that answered"):
-        decode_combine_evidence(_mutated("filter_mean", change), "Engine evidence")
+    _decode_refused(
+        _mutated("filter_mean", change),
+        _invalid("Combine evidence kept of the first narrow step names only members that answered"),
+    )
+
+
+@requires_engine_app
+def test_the_sdk_narrow_bound_is_the_engine_bound() -> None:
+    pinned = json.loads(
+        (COMBINE_CONTRACT / "schemas" / "screamingface.combine-evidence.v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    (as_list,) = [
+        branch for branch in pinned["properties"]["narrow"]["anyOf"] if "maxItems" in branch
+    ]
+
+    assert MAX_NARROW_STEPS == 4
+    assert as_list["maxItems"] == MAX_NARROW_STEPS
+
+
+@requires_engine_app
+def test_every_decoded_record_names_its_reduce_op() -> None:
+    reduces = {
+        name: [record.reduce for record in _decoded(name).narrow or ()] for name in _EXPECTED_NAMES
+    }
+
+    assert reduces["filter_rank_envelope"] == ["filter@1"]
+    assert reduces["narrow_no_signal"] == ["filter@1", "by_signal@1"]
+    assert reduces["judge_rank_after_filter"] == ["filter@1", "scores@1"]

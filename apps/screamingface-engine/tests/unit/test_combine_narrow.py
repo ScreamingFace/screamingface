@@ -85,6 +85,7 @@ def test_filter_then_mean_reads_only_the_kept_members() -> None:
     assert rows(result) == [_ANSWERED, _NOT_SELECTED, _ANSWERED, _NO_SIGNAL]
     assert wire(result)["narrow"] == [
         {
+            "reduce": "filter@1",
             "select": "kept@1",
             "signal": "field:confidence",
             "kept": ["member_1", "member_3"],
@@ -117,6 +118,7 @@ def test_rank_then_vote_votes_over_the_top_k() -> None:
     assert rows(result) == [_ANSWERED, _ANSWERED, _NOT_SELECTED, _NOT_SELECTED, _NOT_SELECTED]
     assert evidence["narrow"] == [
         {
+            "reduce": "by_signal@1",
             "select": "top_k@1",
             "signal": "field:confidence",
             "kept": ["member_1", "member_2"],
@@ -157,6 +159,7 @@ def test_filter_then_rank_hands_on_the_final_live_set() -> None:
     assert evidence["signal"] == {"key": "field:score", "order": "max"}
     assert evidence["narrow"] == [
         {
+            "reduce": "filter@1",
             "select": "kept@1",
             "signal": "field:confidence",
             "kept": ["member_1", "member_3", "member_4"],
@@ -225,6 +228,7 @@ def test_a_narrow_filter_that_keeps_no_member_abstains_and_the_gate_does_not_run
     }
     assert evidence["narrow"] == [
         {
+            "reduce": "filter@1",
             "select": "kept@1",
             "signal": "field:confidence",
             "kept": [],
@@ -244,12 +248,14 @@ def test_a_narrow_cut_not_met_records_the_steps_up_to_the_abstain() -> None:
     # Three narrow items; the third never ran, so two records.
     assert evidence["narrow"] == [
         {
+            "reduce": "filter@1",
             "select": "kept@1",
             "signal": "field:confidence",
             "kept": ["member_1", "member_2"],
             "scores": _marks("member_1", "member_2", members=5),
         },
         {
+            "reduce": "by_signal@1",
             "select": "top_k@1",
             "signal": "field:confidence",
             "kept": [],
@@ -268,7 +274,9 @@ def test_a_narrow_spec_with_no_voter_abstains_at_the_first_step() -> None:
     evidence = wire(result)
 
     assert evidence["result"]["reason"] == "no_votes"
-    assert evidence["narrow"] == [{"select": "kept@1", "signal": "field:confidence", "kept": []}]
+    assert evidence["narrow"] == [
+        {"reduce": "filter@1", "select": "kept@1", "signal": "field:confidence", "kept": []}
+    ]
     assert rows(result) == [("fail", "missing")] * 3
     assert evidence["dropped"] == 3
 
@@ -321,6 +329,7 @@ def test_a_judge_read_by_a_narrow_rank_and_the_main_weights() -> None:
     ]
     assert evidence["narrow"] == [
         {
+            "reduce": "scores@1",
             "select": "top_k@1",
             "signal": "score:judge",
             "kept": ["member_2", "member_3"],
@@ -341,6 +350,7 @@ def test_a_judge_rank_after_a_filter_parses_every_member_and_ranks_the_live_ones
     # Oracle: the filter drops member_2 (the judge's 10). Of the rest, member_3 (6) is first.
     assert result.output == JUDGED_OUTPUTS[2]
     assert evidence["narrow"][1] == {
+        "reduce": "scores@1",
         "select": "top_k@1",
         "signal": "score:judge",
         "kept": ["member_3"],
@@ -370,7 +380,7 @@ def test_a_judge_pick_after_a_filter_picks_among_the_live_members() -> None:
     assert rows(result) == [_ANSWERED, _NOT_SELECTED, _ANSWERED, _ANSWERED]
 
 
-def _judge_input(members: tuple[str, ...], judged: tuple[str, ...] | None) -> CombineInput:
+def _judge_input(members: tuple[str, ...], judged: tuple[str, ...] = ()) -> CombineInput:
     answers = tuple(Answer(member, None, None, "answered", None) for member in members)
     outputs: dict[str, str] = dict.fromkeys(("member_1", "member_2", "member_3"), "x")
     reply = canonical_json({"member_1": 1, "member_2": 2, "member_3": 3})
@@ -390,15 +400,23 @@ def test_scores_parses_over_the_judged_set_and_keeps_the_live_scores() -> None:
 
 
 def test_scores_with_no_judged_set_parses_over_the_present_members() -> None:
-    reduction = scores(
-        _judge_input(("member_1", "member_2", "member_3"), None), {"source": "judge"}
-    )
+    reduction = scores(_judge_input(("member_1", "member_2", "member_3")), {"source": "judge"})
 
     assert dict(reduction.scores or {}) == {
         "member_1": Decimal(1),
         "member_2": Decimal(2),
         "member_3": Decimal(3),
     }
+
+
+def test_an_input_built_with_no_judged_set_judges_its_present_members() -> None:
+    combine_input = _judge_input(("member_1", "member_3"))
+
+    assert combine_input.judged == ("member_1", "member_3")
+    assert _judge_input(("member_1",), ("member_1", "member_2")).judged == (
+        "member_1",
+        "member_2",
+    )
 
 
 # --- NR-10: an abstain-fallback gate after a narrow step ----------------------------------------
@@ -450,6 +468,7 @@ def test_a_live_member_that_fails_the_narrow_extract_is_not_selected() -> None:
     assert rows(result) == [_ANSWERED, _NOT_SELECTED, _ANSWERED]
     assert wire(result)["narrow"] == [
         {
+            "reduce": "filter@1",
             "select": "kept@1",
             "kept": ["member_1", "member_3"],
             "scores": {"member_1": 1.0, "member_3": 1.0},
@@ -515,6 +534,8 @@ def test_every_narrow_fixture_case_has_the_narrow_key_after_cut() -> None:
             assert keys.index("cut") < keys.index("narrow")
         if "declared" in keys:
             assert keys.index("narrow") < keys.index("declared")
+        # Each record names its pinned reduce op first, so a later filter@2 is visible.
+        assert all(list(record)[:2] == ["reduce", "select"] for record in case["narrow"])
 
 
 if __name__ == "__main__":

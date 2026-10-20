@@ -20,6 +20,8 @@ from pydantic import ValidationError
 
 from screamingface_engine.combine.evidence import AnswerRecord, CombineEvidence, NarrowRecord
 
+_REASON_WHEN_NOT_ANSWERED = "an answer record has a reason exactly when it did not answer"
+_EXCLUDE_REASON = "an excluded answer has an exclude reason, and only it has one"
 _CONFIDENCE = {"member_1": 0.6, "member_2": 0.9, "member_3": 0.7, "member_4": 0.1}
 
 
@@ -62,12 +64,14 @@ def _narrow_wire() -> dict[str, Any]:
         "signal": None,
         "narrow": [
             {
+                "reduce": "filter@1",
                 "select": "kept@1",
                 "signal": "field:confidence",
                 "kept": ["member_1", "member_2", "member_3"],
                 "scores": {"member_1": 1.0, "member_2": 1.0, "member_3": 1.0, "member_4": 0.0},
             },
             {
+                "reduce": "by_signal@1",
                 "select": "top_k@1",
                 "signal": "field:confidence",
                 "kept": ["member_2"],
@@ -86,9 +90,15 @@ def _valid(wire: dict[str, Any]) -> CombineEvidence:
     return CombineEvidence.model_validate(wire)
 
 
-def _refused(wire: dict[str, Any], match: str) -> None:
-    with pytest.raises(ValidationError, match=match):
+def _errors(caught: pytest.ExceptionInfo[ValidationError]) -> list[str]:
+    return [error["msg"] for error in caught.value.errors()]
+
+
+def _refused(wire: dict[str, Any], message: str, *, value_error: bool = True) -> None:
+    """The evidence is refused with exactly this one message (the whole text, not a part)."""
+    with pytest.raises(ValidationError) as caught:
         _valid(wire)
+    assert _errors(caught) == [f"Value error, {message}" if value_error else message]
 
 
 def _main_abstain(wire: dict[str, Any]) -> dict[str, Any]:
@@ -117,6 +127,21 @@ def test_unset_record_keys_are_absent() -> None:
     assert record.model_dump(mode="json") == {"select": "kept@1", "kept": ["member_1"]}
 
 
+def test_a_record_names_its_pinned_reduce_op_first() -> None:
+    record = NarrowRecord(reduce="filter@1", select="kept@1", kept=["member_1"])
+
+    assert list(record.model_dump(mode="json")) == ["reduce", "select", "kept"]
+    assert list(NarrowRecord.model_fields) == [
+        "reduce",
+        "select",
+        "signal",
+        "kept",
+        "cut",
+        "scores",
+        "ranks",
+    ]
+
+
 def test_an_evidence_without_narrow_writes_no_key() -> None:
     wire = _narrow_wire()
     del wire["narrow"]
@@ -126,12 +151,18 @@ def test_an_evidence_without_narrow_writes_no_key() -> None:
     assert "narrow" not in _valid(wire).model_dump(by_alias=True)
 
 
-@pytest.mark.parametrize("count", [0, 5])
-def test_the_narrow_record_list_holds_one_to_four_steps(count: int) -> None:
+@pytest.mark.parametrize(
+    ("count", "message"),
+    [
+        (0, "List should have at least 1 item after validation, not 0"),
+        (5, "List should have at most 4 items after validation, not 5"),
+    ],
+)
+def test_the_narrow_record_list_holds_one_to_four_steps(count: int, message: str) -> None:
     wire = _narrow_wire()
     wire["narrow"] = [wire["narrow"][0]] * count
 
-    _refused(wire, "narrow")
+    _refused(wire, message, value_error=False)
 
 
 # --- AR-I3′ ---------------------------------------------------------------------------------------
@@ -140,16 +171,17 @@ def test_the_narrow_record_list_holds_one_to_four_steps(count: int) -> None:
 @pytest.mark.parametrize(
     ("status", "reason", "match"),
     [
-        ("answered", "not_selected", "has a reason exactly when it did not answer"),
-        ("fail", "not_selected", "an excluded answer has an exclude reason"),
-        ("excluded", "empty", "an excluded answer has an exclude reason"),
+        ("answered", "not_selected", _REASON_WHEN_NOT_ANSWERED),
+        ("fail", "not_selected", _EXCLUDE_REASON),
+        ("excluded", "empty", _EXCLUDE_REASON),
     ],
 )
 def test_not_selected_goes_with_excluded_only(status: str, reason: str, match: str) -> None:
-    with pytest.raises(ValidationError, match=match):
+    with pytest.raises(ValidationError) as caught:
         AnswerRecord.model_validate(
             {**_row("member_1"), "status": status, "reason": reason, "value": None}
         )
+    assert _errors(caught) == [f"Value error, {match}"]
 
 
 def test_an_excluded_not_selected_record_is_valid() -> None:
@@ -163,7 +195,7 @@ def test_an_excluded_not_selected_record_is_valid() -> None:
 
 def test_a_later_kept_is_a_subset_of_the_one_before() -> None:
     wire = _narrow_wire()
-    wire["narrow"][1] = {"select": "kept@1", "kept": ["member_2", "member_4"]}
+    wire["narrow"][1] = {"reduce": "filter@1", "select": "kept@1", "kept": ["member_2", "member_4"]}
 
     _refused(wire, "kept of a narrow step is a subset of the step before")
 
@@ -205,7 +237,7 @@ def test_a_not_selected_member_is_never_chosen() -> None:
     wire = _narrow_wire()
     wire["members"][1].update(status="excluded", reason="not_selected")
 
-    _refused(wire, "never chooses an excluded member")
+    _refused(wire, "combine evidence never chooses an excluded member")
 
 
 # --- NR-I3 ----------------------------------------------------------------------------------------
@@ -215,7 +247,9 @@ def test_a_member_a_narrow_step_left_out_is_excluded() -> None:
     wire = _narrow_wire()
     wire["members"][3].update(status="answered", reason=None)
 
-    _refused(wire, "a member that a narrow step left out is excluded")
+    _refused(
+        wire, "a member that a narrow step left out is excluded with not_selected or no_signal"
+    )
 
 
 def test_a_narrow_no_signal_member_was_left_out_by_a_step_that_reads_a_signal() -> None:
@@ -247,7 +281,7 @@ def test_not_selected_needs_a_narrow_record() -> None:
     wire = _narrow_wire()
     del wire["narrow"]
 
-    _refused(wire, "not_selected goes with a narrow record")
+    _refused(wire, "not_selected goes with a narrow record, and only with it")
 
 
 # --- NR-I5 ----------------------------------------------------------------------------------------
@@ -272,7 +306,7 @@ def test_a_narrow_abstain_has_an_abstain_result() -> None:
     wire = _narrow_abstain()
     wire["result"] = {"member_id": None, "value": None, "status": "abstain", "reason": "in_band"}
 
-    _refused(wire, "in_band goes with a gate")
+    _refused(wire, "in_band goes with a gate that abstained inside its band, and only with it")
     wire["result"]["reason"] = "output_missing"
     _refused(wire, "a narrow abstain ends with no_votes or cut_not_met and runs no gate")
 
@@ -313,7 +347,7 @@ def test_dropped_counts_failed_members_only() -> None:
     wire = _narrow_wire()
     wire["dropped"] = 3
 
-    _refused(wire, "dropped must count the failed members")
+    _refused(wire, "combine evidence dropped must count the failed members")
 
 
 # --- the top-k record rules (part 2 rules, per narrow step) --------------------------------------
