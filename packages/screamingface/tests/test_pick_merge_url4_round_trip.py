@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
+from _nodes import FusionNode, MergeNode, PickNode
 from test_judge_url4_round_trip import (
     _INVALID_REDUCER,
     _MODEL_CALLS,
@@ -15,44 +16,56 @@ from test_judge_url4_round_trip import (
 )
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.url4 import _candidate_from_url4
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.fields import writer_intent
-from screamingface.reducer import _ModelSignal
+from screamingface.reducer import Reducer, _ModelSignal
 
 _CANNOT_REBUILD_PROJECT = "project spec this SDK version cannot rebuild"
 _CANNOT_REBUILD_MERGE = "merge spec this SDK version cannot rebuild"
 _CANNOT_REBUILD_PICK = "pick spec this SDK version cannot rebuild"
 
 
-def _merge() -> sf.Merge:
-    return sf.Merge(
-        fields={
+def _merge() -> sx.Merge:
+    return sx.Merge(
+        {
             "answer": sf.FieldRule.majority(normalize="text"),
             "summary": sf.FieldRule.model("provider/w", prompt="Write one summary."),
         }
     )
 
 
+def _block(step: Step) -> sf.Recipe:
+    return sx.Fanout(members3()) >> step
+
+
+def _node(step: Step) -> Reducer:
+    """The reducer node that ``step`` lowers to: the spec, the plan and the rebuild read it."""
+
+    node = lower(_block(step))
+    assert isinstance(node, FusionNode)
+    assert isinstance(node.synthesizer, Reducer)
+    return node.synthesizer
+
+
 def _shapes() -> dict[str, sf.Recipe]:
     return {
-        "pick max": sf.Fusion(members3(), synthesizer=sf.Pick("confidence", order="max")),
-        "pick equals text": sf.Fusion(
-            members3(), synthesizer=sf.Pick("answer", equals="Yes.", normalize="text")
-        ),
-        "merge with two model fields": sf.Fusion(
-            members3(),
-            synthesizer=sf.Merge(
-                fields={
+        "pick max": _block(sx.ArgMax("field:confidence")),
+        "pick equals text": _block(sx.First(where=sx.field("answer", normalize="text") == "Yes.")),
+        "merge with two model fields": _block(
+            sx.Merge(
+                {
                     "b": sf.FieldRule.model("provider/w", prompt="Write b.", params={"seed": 7}),
                     "a": sf.FieldRule.model("provider/x", prompt='Write "a" for $5.\nLine two.'),
                     "c": sf.FieldRule.max(),
                 }
-            ),
+            )
         ),
-        "merge as a recipe synthesizer": sf.Fusion(
-            members3(),
-            synthesizer=sf.Pipeline([sf.Fusion(members3(), synthesizer=_merge()), "provider/s"]),
+        "merge as a recipe synthesizer": _block(
+            sx.Synthesize(sx.Fanout(members3()) >> _merge() >> "provider/s")
         ),
     }
 
@@ -73,11 +86,11 @@ def test_pick_and_merge_round_trip(shape: str) -> None:
     ]
 
 
-def _originals() -> dict[str, sf.Pick | sf.Merge]:
+def _originals() -> dict[str, sx.First | sx.Merge]:
     return {
-        "pick equals number": sf.Pick("n", equals=7),
-        "merge": sf.Merge(
-            fields={
+        "pick equals number": sx.First(where=sx.field("n") == 7),
+        "merge": sx.Merge(
+            {
                 "z": sf.FieldRule.model(
                     "provider/w", prompt="Write.\n'x' $5", params={"temperature": 0, "seed": 7}
                 ),
@@ -92,13 +105,15 @@ def _originals() -> dict[str, sf.Pick | sf.Merge]:
 def test_the_recovered_reducers_equal_the_originals_field_by_field(name: str) -> None:
     original = _originals()[name]
 
-    rebuilt = _recovered(_compiled(sf.Fusion(members3(), synthesizer=original)).url4)
+    rebuilt = _recovered(_compiled(_block(original)).url4)
+    # WHY the node: until the swap (7e) the rebuild gives back the value the step lowers to
+    node = _node(original)
 
-    assert isinstance(rebuilt, sf.Fusion)
-    assert rebuilt.synthesizer == original
-    assert type(rebuilt.synthesizer) is type(original)
-    if isinstance(original, sf.Merge):
-        assert isinstance(rebuilt.synthesizer, sf.Merge)
+    assert isinstance(rebuilt, FusionNode)
+    assert rebuilt.synthesizer == node
+    assert type(rebuilt.synthesizer) is type(node)
+    if isinstance(original, sx.Merge):
+        assert isinstance(rebuilt.synthesizer, MergeNode)
         assert list(rebuilt.synthesizer.fields) == list(original.fields)
 
 
@@ -152,7 +167,7 @@ def _tamperings() -> dict[str, tuple[str, str, str]]:
 @pytest.mark.parametrize("case", sorted(_tamperings()))
 def test_writer_topology_tampering_is_refused(case: str) -> None:
     old, new, message = _tamperings()[case]
-    url4 = _compiled(sf.Fusion(members3(), synthesizer=_merge())).url4
+    url4 = _compiled(_block(_merge())).url4
     assert old in url4, case
     tampered = url4.replace(old, new, 1)
 
@@ -161,7 +176,7 @@ def test_writer_topology_tampering_is_refused(case: str) -> None:
 
 
 def test_rebuild_refuses_signals_that_do_not_match_the_model_fields() -> None:
-    merge = _merge()
+    merge = _node(_merge())
     spec = decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
     writer = _ModelSignal(
         "writer_summary",
@@ -171,9 +186,9 @@ def test_rebuild_refuses_signals_that_do_not_match_the_model_fields() -> None:
         "summary",
     )
 
-    assert sf.Merge._rebuild(spec, (writer,)) == merge
+    assert MergeNode._rebuild(spec, (writer,)) == merge
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Merge._rebuild(spec, ())
+        MergeNode._rebuild(spec, ())
     stray = _ModelSignal(
         "writer_answer",
         "provider/w",
@@ -182,12 +197,12 @@ def test_rebuild_refuses_signals_that_do_not_match_the_model_fields() -> None:
         "answer",
     )
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Merge._rebuild(spec, (writer, stray))
+        MergeNode._rebuild(spec, (writer, stray))
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Merge._rebuild(spec, (writer, writer))
+        MergeNode._rebuild(spec, (writer, writer))
     judge = _ModelSignal("judge", "provider/j", "x", {})  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Merge._rebuild(spec, (judge,))
+        MergeNode._rebuild(spec, (judge,))
 
 
 _UNSUPPORTED_WRITER = "URL4 Candidate has an unsupported writer call"
@@ -197,14 +212,14 @@ _TEMPLATE_LINE = "writer-template@1 field=summary"
 def test_to_python_shows_only_the_author_prompt_of_each_model_field() -> None:
     for merge in (
         _merge(),
-        sf.Merge(
-            fields={
+        sx.Merge(
+            {
                 "b": sf.FieldRule.model("provider/w", prompt="Write b.", params={"seed": 7}),
                 "a": sf.FieldRule.model("provider/x", prompt='Write "a" for $5.\nLine two.'),
             }
         ),
     ):
-        compiled = _compiled(sf.Fusion(members3(), synthesizer=merge))
+        compiled = _compiled(_block(merge))
         python = sf.Url4(compiled.url4).to_python()
 
         assert "writer-template" not in python
@@ -212,7 +227,7 @@ def test_to_python_shows_only_the_author_prompt_of_each_model_field() -> None:
         for rule in merge.fields.values():
             if rule.rule == "model":
                 assert f"prompt={rule.prompt!r}" in python
-        assert f"synthesizer={merge._python()}," in python
+        assert f"synthesizer={_node(merge)._python()}," in python
         assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
 
 
@@ -226,14 +241,14 @@ def _writer_tamperings() -> dict[str, tuple[str, str]]:
 @pytest.mark.parametrize("case", sorted(_writer_tamperings()))
 def test_a_writer_call_without_its_exact_template_is_refused(case: str) -> None:
     old, new = _writer_tamperings()[case]
-    url4 = _compiled(sf.Fusion(members3(), synthesizer=_merge())).url4
+    url4 = _compiled(_block(_merge())).url4
     assert old in url4, case
 
     with pytest.raises(ValueError, match=_UNSUPPORTED_WRITER):
         sf.Url4(url4.replace(old, new, 1)).to_python()
 
 
-def _spec_of(reducer: sf.Pick | sf.Merge) -> dict[str, Any]:
+def _spec_of(reducer: Reducer) -> dict[str, Any]:
     return dict(
         decode_combine_spec(combine_spec_text(reducer, member_count=3, operators=flow_operators()))
     )
@@ -258,13 +273,14 @@ def _pick_edits() -> dict[str, dict[str, Any]]:
 
 @pytest.mark.parametrize("name", sorted(_pick_edits()))
 def test_a_pick_spec_edited_by_hand_is_refused(name: str) -> None:
-    pick = sf.Pick("confidence", order="max")
+    # group F (7f): the field order form of Pick is deleted code (D7-8)
+    pick = PickNode("confidence", order="max")
     spec = _spec_of(pick)
-    assert sf.Pick._from_spec(spec) == pick
+    assert PickNode._from_spec(spec) == pick
     assert pick._plan().kind == "answer"
 
     with pytest.raises(ValueError, match=_CANNOT_REBUILD_PICK):
-        sf.Pick._from_spec({**spec, **_pick_edits()[name]})
+        PickNode._from_spec({**spec, **_pick_edits()[name]})
 
 
 def _rules(*rules: Any) -> dict[str, Any]:
@@ -292,29 +308,29 @@ def _merge_edits() -> dict[str, tuple[dict[str, Any], str]]:
 
 @pytest.mark.parametrize("name", sorted(_merge_edits()))
 def test_a_merge_spec_edited_by_hand_is_refused(name: str) -> None:
-    merge = sf.Merge(
-        fields={"a": sf.FieldRule.from_member(2), "b": sf.FieldRule.majority(normalize="text")}
+    merge = _node(
+        sx.Merge({"a": sf.FieldRule.from_member(2), "b": sf.FieldRule.majority(normalize="text")})
     )
     spec = _spec_of(merge)
-    assert sf.Merge._from_spec(spec) == merge
+    assert MergeNode._from_spec(spec) == merge
     assert merge._plan().kind == "answer"
     edit, message = _merge_edits()[name]
 
     with pytest.raises(ValueError, match=message):
-        sf.Merge._from_spec({**spec, **edit})
+        MergeNode._from_spec({**spec, **edit})
 
 
 def test_a_writer_for_another_field_is_refused() -> None:
-    merge = _merge()
+    merge = _node(_merge())
     spec = decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
     other = _ModelSignal("writer_summary", "provider/w", "Write.", {}, "answer")  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Merge._rebuild(spec, (other,))
+        MergeNode._rebuild(spec, (other,))
 
 
 def test_a_writer_with_no_author_prompt_is_refused_as_cannot_rebuild() -> None:
-    merge = _merge()
+    merge = _node(_merge())
     spec = decode_combine_spec(combine_spec_text(merge, member_count=3, operators=flow_operators()))
     writer = _ModelSignal(
         "writer_summary",
@@ -326,4 +342,4 @@ def test_a_writer_with_no_author_prompt_is_refused_as_cannot_rebuild() -> None:
 
     # FieldRule.model refuses an empty prompt; a url4 decode never shows that text
     with pytest.raises(ValueError, match=_CANNOT_REBUILD_MERGE):
-        sf.Merge._rebuild(spec, (writer,))
+        MergeNode._rebuild(spec, (writer,))

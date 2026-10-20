@@ -12,31 +12,54 @@ judge rubric never appears in an error message.
 from __future__ import annotations
 
 import json
-from typing import Any
+from collections.abc import Sequence
+from types import SimpleNamespace
+from typing import Any, Literal
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
+from _nodes import FilterNode, FusionNode, JudgeNode, ReduceNode, fusion_node
 from url4 import Expression, build
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 RUBRIC = "Score each draft."
 SECRET = "SECRET-RUBRIC-TEXT"
-J = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
+J = sx.Judge("provider/j", rubric=RUBRIC)
 JUDGED = sf.signal("score:judge") >= 7
+# group F (7f): the old renderer (_python) writes ``sf.<today's class>``; these rows read it with
+# the node classes, so they keep working after the swap until 7f deletes them.
+_NODES_AS_SF = SimpleNamespace(
+    Filter=FilterNode, Judge=JudgeNode, Reduce=ReduceNode, signal=sf.signal, matches=sf.matches
+)
 
 
-def _filter_by_judge() -> sf.Filter:
+def _filter_by_judge() -> FilterNode:
     # WHY a function: the Filter is built inside each test, so a refusal fails that test and not
-    # the whole module at import.
-    return sf.Filter(where=JUDGED, judge=J)
+    # the whole module at import. WHY the node: it is the value that the judge filter chain lowers
+    # to, and the url4 rebuild gives it back until the swap (7e).
+    return FilterNode(where=JUDGED, judge=JudgeNode("provider/j", returns="scores", rubric=RUBRIC))
+
+
+def _judge_filter(
+    members: Sequence[str | sf.Recipe], quorum: int | Literal["all"] = "all"
+) -> sf.Recipe:
+    """Fanout >> Judge >> Filter(score:judge) >> Synthesize: the judge filter and its writer."""
+
+    return (
+        sx.Fanout(members, quorum=quorum)
+        >> J
+        >> sx.Filter(where=JUDGED)
+        >> sx.Synthesize("provider/next")
+    )
 
 
 def _wrapped(reducer: Reducer) -> sf.Pipeline:
-    return sf.Pipeline([sf.Fusion(members3(), synthesizer=reducer), "provider/next"])
+    return sf.Pipeline([fusion_node(members3(), reducer), "provider/next"])
 
 
 def _url4(reducer: Reducer) -> str:
@@ -55,7 +78,7 @@ def _recovered(url4: str) -> sf.Recipe:
 
 
 def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
-    url4 = _url4(_filter_by_judge())
+    url4 = compile_candidate(_judge_filter(members3()), operators=flow_operators()).url4
     root = build(url4)
     assert isinstance(root, Expression)
     calls = _calls(root)
@@ -89,63 +112,74 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
 
 
 def test_sdk_filter_score_judge_without_judge_is_refused() -> None:
-    message = (
-        r"Filter where=sf\.signal\('score:judge'\) needs a judge on the same reducer: "
-        r"add judge=sf\.Judge\(\.\.\., returns='scores'\)"
-    )
+    message = r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     with pytest.raises(ValueError, match=message):
-        sf.Filter(where=JUDGED)
+        _ = sx.Fanout(members3()) >> sx.Filter(where=JUDGED) >> sx.Synthesize("provider/next")
     with pytest.raises(ValueError, match=message):
-        sf.Filter(where=sf.signal("score:judge") < 3)
+        _ = (
+            sx.Fanout(members3())
+            >> sx.Filter(where=sf.signal("score:judge") < 3)
+            >> sx.Synthesize("provider/next")
+        )
+    # group F (7f): the filter block form is deleted code (D7-8)
     with pytest.raises(
         ValueError, match=r"^sf\.Reduce\('filter'\): Filter where=.*add judge=sf\.Judge"
     ):
-        sf.Reduce("filter", where=JUDGED)
+        ReduceNode("filter", where=JUDGED)
 
 
 # --- FJ-E4: a judge needs a score:judge comparison ----------------------------------------------
 
 
 def test_sdk_filter_judge_without_score_judge_where_is_refused() -> None:
-    secret = sf.Judge("provider/j", returns="scores", rubric=SECRET)
-    refusal = r"Filter judge is read only by a where=sf\.signal\('score:judge'\) comparison"
+    secret = sx.Judge("provider/j", rubric=SECRET)
+    unread = r"^sf\.Judge scores the members, but no step reads score:judge$"
     for where in (
         sf.signal("field:confidence") >= 0.6,
         sf.matches("yes"),
         sf.signal("cost_usd") <= 0.01,
     ):
-        with pytest.raises(ValueError, match=refusal) as caught:
-            sf.Filter(where=where, judge=secret)
+        with pytest.raises(ValueError, match=unread) as caught:
+            _ = (
+                sx.Fanout(members3())
+                >> secret
+                >> sx.Filter(where=where)
+                >> sx.Synthesize("provider/next")
+            )
         assert SECRET not in str(caught.value)
 
+    # group F (7f): the rest reads the Filter judge= parameter and the filter block (D7-8)
+    old_secret = JudgeNode("provider/j", returns="scores", rubric=SECRET)
+    refusal = r"Filter judge is read only by a where=sf\.signal\('score:judge'\) comparison"
     with pytest.raises(ValueError, match=r"^sf\.Reduce\('filter'\): " + refusal) as caught:
-        sf.Reduce("filter", where=sf.matches("yes"), judge=secret)
+        ReduceNode("filter", where=sf.matches("yes"), judge=old_secret)
     assert SECRET not in str(caught.value)
 
     with pytest.raises(TypeError, match=r"Filter judge must be an sf\.Judge"):
-        sf.Filter(where=JUDGED, judge="provider/j")  # type: ignore[arg-type]
+        FilterNode(where=JUDGED, judge="provider/j")  # type: ignore[arg-type]
     with pytest.raises(
         TypeError, match=r"sf\.Reduce\('filter'\) option 'judge' must be an sf\.Judge"
     ):
-        sf.Reduce("filter", where=JUDGED, judge="provider/j")
+        ReduceNode("filter", where=JUDGED, judge="provider/j")
 
 
 # --- FJ-D2: a label judge is refused --------------------------------------------------------------
 
 
 def test_sdk_filter_refuses_a_label_judge() -> None:
-    label = sf.Judge("provider/j", returns="label", rubric=SECRET)
+    # group F (7f): it reads only the Filter judge= parameter, which the chain has no place for
+    label = JudgeNode("provider/j", returns="label", rubric=SECRET)
 
     with pytest.raises(
         ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
     ) as caught:
-        sf.Filter(where=JUDGED, judge=label)
+        FilterNode(where=JUDGED, judge=label)
     assert SECRET not in str(caught.value)
 
     with pytest.raises(
         ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
     ) as caught:
-        sf.Reduce("filter", where=JUDGED, judge=label)
+        ReduceNode("filter", where=JUDGED, judge=label)
     assert SECRET not in str(caught.value)
 
 
@@ -155,17 +189,13 @@ def test_sdk_filter_refuses_a_label_judge() -> None:
 @pytest.mark.parametrize("shape", ["plain", "quorum"])
 def test_url4_round_trip_rebuilds_a_judge_filter_and_filter_block(shape: str) -> None:
     if shape == "plain":
-        fusion = sf.Fusion(members3(), synthesizer=_filter_by_judge())
+        chain = _judge_filter(members3())
     else:
         # WHY a quorum panel: the judge reads the panel, and the rebuild must still find its call
-        fusion = sf.Fusion(
-            ["provider/a", "provider/b", sf.Model("provider/c", optional=True)],
-            synthesizer=_filter_by_judge(),
-            quorum=2,
+        chain = _judge_filter(
+            ["provider/a", "provider/b", sf.Model("provider/c", optional=True)], quorum=2
         )
-    url4 = compile_candidate(
-        sf.Pipeline([fusion, "provider/next"]), operators=flow_operators()
-    ).url4
+    url4 = compile_candidate(chain, operators=flow_operators()).url4
 
     assert (
         "synthesizer=sf.Filter(where=sf.signal('score:judge') >= 7.0, judge=sf.Judge('provider/j', "
@@ -174,29 +204,31 @@ def test_url4_round_trip_rebuilds_a_judge_filter_and_filter_block(shape: str) ->
     recovered = _recovered(url4)
     assert isinstance(recovered, sf.Pipeline)
     stage = recovered.stages[0]
-    assert isinstance(stage, sf.Fusion)
-    assert type(stage.synthesizer) is sf.Filter
+    assert isinstance(stage, FusionNode)
+    assert type(stage.synthesizer) is FilterNode
     assert stage.synthesizer == _filter_by_judge()
     assert compile_candidate(recovered, operators=flow_operators()).url4 == url4
 
 
 def test_filter_block_and_repr_rebuild_the_judge_filter() -> None:
     # WHY a separate test: the round-trip test above is already at the statement limit
-    block = sf.Reduce("filter", where=JUDGED, judge=J)
-    assert dict(block.options) == {"where": JUDGED, "judge": J}
+    # group F (7f): the filter block, the Filter judge= parameter and _python() are deleted code
+    judge = JudgeNode("provider/j", returns="scores", rubric=RUBRIC)
+    block = ReduceNode("filter", where=JUDGED, judge=judge)
+    assert dict(block.options) == {"where": JUDGED, "judge": judge}
     assert _url4(block) == _url4(_filter_by_judge())
-    assert eval(block._python(), {"sf": sf}) == block  # noqa: S307
+    assert eval(block._python(), {"sf": _NODES_AS_SF}) == block  # noqa: S307
     recovered_block = _recovered(_url4(block))
     assert isinstance(recovered_block, sf.Pipeline)
     recovered_stage = recovered_block.stages[0]
-    assert isinstance(recovered_stage, sf.Fusion)
-    assert type(recovered_stage.synthesizer) is sf.Filter
+    assert isinstance(recovered_stage, FusionNode)
+    assert type(recovered_stage.synthesizer) is FilterNode
 
     assert repr(_filter_by_judge()) == (
         "Filter(where=sf.signal('score:judge') >= 7.0, "
         "judge=Judge('provider/j', returns='scores', rubric='Score each draft.'))"
     )
-    assert eval(_filter_by_judge()._python(), {"sf": sf}) == _filter_by_judge()  # noqa: S307
+    assert eval(_filter_by_judge()._python(), {"sf": _NODES_AS_SF}) == _filter_by_judge()  # noqa: S307
 
     # WHY a hand edit: the judge call is there, but the where no longer reads score:judge
     bad = _url4(_filter_by_judge()).replace('"key":"score:judge"', '"key":"field:confidence"')

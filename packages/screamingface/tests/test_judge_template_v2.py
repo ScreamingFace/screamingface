@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators
+from _nodes import FilterNode, JudgeNode, RankNode, ReduceNode, VoteNode
 from url4 import Expression, build
 
 import screamingface as sf
@@ -126,11 +127,14 @@ def test_tm1_the_four_templates_byte_for_byte() -> None:
 
 def test_tm1_a_min_judge_writes_the_same_template_as_a_max_judge() -> None:
     # The order selects only the select step (max_score / best_holder{order:min}).
-    low = sf.Judge("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
+    low = JudgeNode("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
+    argmin = (
+        sx.Fanout(_ROUTES) >> sx.Judge("prov/judge", rubric=_RUBRIC) >> sx.ArgMin("score:judge")
+    )
 
     assert low._signal_call().prompt == _SCORES + _RUBRIC
     assert judge_intent("scores", _RUBRIC, "panel") == _SCORES_PANEL + _RUBRIC
-    assert "order=min" not in _url4(sf.Fusion(_ROUTES, synthesizer=low))
+    assert "order=min" not in _url4(argmin)
 
 
 def test_tm1_a_scores_judge_compiles_and_recovers_with_the_v2_template() -> None:
@@ -221,11 +225,13 @@ def test_an_argmin_by_the_judge_after_a_judge_rank_is_one_judge_call() -> None:
 def test_a_reader_reads_a_min_judge_as_the_same_judge() -> None:
     # The judge call is the same for both orders, so a reader (Rank, Vote, Filter) that reads the
     # scores with its own rule holds the default order: equal bytes are equal values.
-    low = sf.Judge("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
-    high = sf.Judge("prov/judge", returns="scores", rubric=_RUBRIC)
+    # WHY the nodes: a reader that holds its judge is internal; the chain reads score:judge.
+    low = JudgeNode("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
+    high = JudgeNode("prov/judge", returns="scores", rubric=_RUBRIC)
     judged = sf.signal("score:judge")
 
-    assert sf.Rank(2, by=low) == sf.Rank(2, by=high)
-    assert sf.Vote(weights=judged, judge=low) == sf.Vote(weights=judged, judge=high)
-    assert sf.Filter(where=judged >= 7, judge=low) == sf.Filter(where=judged >= 7, judge=high)
-    assert sf.Reduce("top_k", k=2, by=low) == sf.Reduce("top_k", k=2, by=high)
+    assert RankNode(2, by=low) == RankNode(2, by=high)
+    assert VoteNode(weights=judged, judge=low) == VoteNode(weights=judged, judge=high)
+    assert FilterNode(where=judged >= 7, judge=low) == FilterNode(where=judged >= 7, judge=high)
+    # group F (7f): the top_k block form is deleted code (D7-8)
+    assert ReduceNode("top_k", k=2, by=low) == ReduceNode("top_k", k=2, by=high)
