@@ -23,10 +23,11 @@ from fastapi.testclient import TestClient
 
 import aigateway.main as main_module
 from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
+from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
 from aigateway.core.provider_access import profile_authorize as authorize_module
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 ROUTE = "/v1/provider-access"
 STATUSES: frozenset[str] = frozenset(get_args(AvailabilityStatus))
@@ -71,6 +72,12 @@ class _Edge:
         self.call(self.index.upsert, profile)
         return profile
 
+    def seed_pair(self, provider: str, state: str, **fields: Any) -> None:
+        """A migrated pair whose effective Connection is in `state` — what availability reads."""
+        seed_migrated_pair(
+            self.client, self.account_id, provider, state=ProfileState(state), **fields
+        )
+
     def get(self, headers: dict[str, str] | None = None) -> Any:
         response = self.client.get(ROUTE, headers=headers)
         if response.status_code == 200:
@@ -109,10 +116,9 @@ def test_route_refuses_an_anonymous_caller(client: TestClient) -> None:
 
 
 def test_rows_carry_provider_and_status_only_from_the_closed_family(edge: _Edge) -> None:
-    edge.seed("anthropic", "authenticated", "a")
-    edge.seed("anthropic", "error", "b")
-    edge.seed("gemini", "pending", "c")
-    edge.seed("codex", "error", "d")
+    edge.seed_pair("anthropic", "authenticated")
+    edge.seed_pair("gemini", "pending")
+    edge.seed_pair("codex", "error")
 
     response = edge.get()
 
@@ -127,14 +133,15 @@ def test_rows_carry_provider_and_status_only_from_the_closed_family(edge: _Edge)
     assert statuses["gemini"] == "pending"
     assert statuses["codex"] == "error"
     assert all(statuses[p] == "not_connected" for p in edge.registered - {"anthropic", "codex"})
-    # STORY: as the Hosted Engine, I never see `needs_reauth` while Profiles back the listing.
+    # STORY: as the Hosted Engine, I never see `needs_reauth` while effective Connections back the
+    # listing.
     assert "needs_reauth" not in statuses.values()
 
 
 def test_listing_is_scoped_to_the_caller(
     edge: _Edge, client: TestClient, provisioned_user_factory
 ) -> None:
-    edge.seed("anthropic", "authenticated", "mine")
+    edge.seed_pair("anthropic", "authenticated")
     provisioned_user_factory("bob")
     login = client.post(
         "/v1/auth/login", json={"username": "bob", "password": "test-user-password"}
@@ -168,8 +175,7 @@ def test_explicit_x_profile_is_rejected_before_availability(
 
 
 def test_empty_x_profile_remains_selectorless_and_non_selecting(edge: _Edge) -> None:
-    edge.seed("anthropic", "authenticated", "good")
-    edge.seed("anthropic", "error", "broken")
+    edge.seed_pair("anthropic", "authenticated")
     baseline = edge.get()
 
     selected = edge.get(headers={"X-Profile": ""})
@@ -211,11 +217,11 @@ def test_route_delegates_to_the_wired_port_verbatim(edge: _Edge, monkeypatch) ->
     }
 
 
-def test_route_reads_only_the_index_builds_no_strategy_and_writes_nothing(
+def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
     edge: _Edge, monkeypatch
 ) -> None:
-    edge.seed("anthropic", "authenticated", "a", auth_type="api_key")
-    edge.seed("codex", "authenticated", "b")
+    edge.seed_pair("anthropic", "authenticated", auth_type="api_key", credential="sk-ant-api03-a")
+    edge.seed_pair("codex", "authenticated")
     store = edge.app.state.credential_store
     real_read = store.read
     services_read: list[str] = []
@@ -244,7 +250,7 @@ def test_route_reads_only_the_index_builds_no_strategy_and_writes_nothing(
     statuses = edge.statuses(edge.get().json())
 
     assert statuses["anthropic"] == statuses["codex"] == "connected"
-    assert services_read and set(services_read) == {INDEX_CREDENTIAL_SERVICE}
+    assert services_read == []
 
 
 def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edge) -> None:

@@ -42,7 +42,7 @@ from provider_access_harness import ANTHROPIC, PROVIDER
 from aigateway import migrate_profiles
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.provider_access import Selector
+from aigateway.core.provider_access import Selector, TargetMissing
 from aigateway.core.provider_access.pair_authority import PairAuthorityStore
 
 
@@ -133,8 +133,8 @@ def test_deleting_a_rolled_back_connection_keeps_the_legacy_profiles_blob(migrat
     assert document(h) is not None
     shown = document(h)
     assert shown is not None and shown.state.value == "authenticated"
-    target = h.call(h.access.resolve, h.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC)
-    assert target.credential_name == credential_name_for(h.account_id, "default")
+    with pytest.raises(TargetMissing):
+        h.call(h.access.resolve, h.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC)
 
 
 # --- R1 rehearsal over an address a document does not own: refused and reported ---------------
@@ -166,9 +166,11 @@ def test_a_rollback_refuses_a_pair_whose_key_lives_at_another_documents_address(
     pair = marker(h)
     assert (pair.migration_state, pair.generation) == ("migrated", generation)
     assert str(pair.effective_connection_id) == effective
-    # Access through `work` keeps working — through the pair's one Connection, at its address.
+    # Access keeps working — through the pair's one Connection, at its address. WHY the default
+    # selector: a document name no longer selects a target (OME-1209 E4a), and the `work` name
+    # labels no Connection of the pair.
     target = h.call(
-        h.access.resolve, h.account_id, PROVIDER, Selector.from_header("work"), plugin=ANTHROPIC
+        h.access.resolve, h.account_id, PROVIDER, Selector.from_header(None), plugin=ANTHROPIC
     )
     assert target.credential_name == credential_name_for(h.account_id, "default")
     assert h.connection_status(effective) == "active"

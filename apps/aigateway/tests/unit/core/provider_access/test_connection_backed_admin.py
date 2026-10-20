@@ -109,10 +109,8 @@ def test_set_api_key_writes_the_effective_connection_and_mirrors_the_document(
     assert doc.defaults == ProfileDefaults(max_tokens=7)
     assert doc.last_refreshed_at is not None
     credential_name = credential_name_for(migrated.account_id, "default")
-    # WHY twice: the publication evicts inside the PUT's outer transaction, and the PUT evicts
-    # again after the commit.
-    assert migrated.evicted() == [credential_name, credential_name]
-    assert migrated.invalidated() == [credential_name, credential_name]
+    assert migrated.evicted() == [credential_name]
+    assert migrated.invalidated() == [credential_name]
 
 
 def test_set_api_key_reactivates_an_errored_connection_and_drops_the_error_placeholder(

@@ -35,6 +35,7 @@ from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.request_cache import RequestCacheWrite, global_keys
 from aigateway.core.request_cache.canonical import canonical_digest
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _CHAT_PATH = "/v1/chat/completions"
 _MODEL = "anthropic/claude-haiku-4-5"
@@ -174,6 +175,9 @@ def _seed_empty_default_profile(credential_blobs, client: TestClient) -> None:
         )
 
     asyncio.run(_upsert())
+    # WHY: since OME-1209 E4a the pair's Connection at this address dispatches; the key names
+    # neither it nor the account, so every pinned digest stays.
+    seed_migrated_pair(client, account_id, "anthropic", name=_PROFILE)
 
 
 # --- the digest, with no gateway code at all ----------------------------------

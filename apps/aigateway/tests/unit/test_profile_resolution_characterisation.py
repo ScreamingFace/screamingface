@@ -3,9 +3,9 @@
 # FEATURE: OME-1138 adapter-first convergence. Stage A1 relocates the resolver cluster in
 # `routes/chat_credentials.py` behind the provider-access port. These tests pin behaviours the
 # resolver has TODAY but that no other test asserts, so the relocation has a parity net.
-# AIDEV-NOTE: this module records LEGACY behaviour exactly; it does not judge or fix it. Two of
+# INVARIANT: this module records LEGACY behaviour exactly; it does not judge or fix it. Two of
 # the pinned behaviours are known risks (the shadow Connection that stays reachable after a
-# Profile delete; the unhandled index fault) — changing them is a separate, later decision
+# Profile delete; the unhandled resolver-read fault) — changing them is a separate, later decision
 # (spec `docs/spec/2026-09-09-OME-1138-converge-connections.md` §8 D14 and §10). A test here
 # going red after A1 means the boundary changed behaviour, never that the behaviour was wrong.
 """
@@ -17,7 +17,6 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
@@ -27,6 +26,7 @@ from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
+from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 _CHAT = "/v1/chat/completions"
@@ -104,16 +104,6 @@ def _active_connection(client, credential_blobs, account_id: str, *, label: str,
     return connection
 
 
-def _capturing(captured: dict):
-    async def fake_chat_completion(_self, body):
-        captured.update(body)
-        return SimpleNamespace(
-            model_dump=lambda: {"id": "x", "choices": [{"message": {"content": "ok"}}]}
-        )
-
-    return fake_chat_completion
-
-
 @contextmanager
 def _server_errors_as_responses(client) -> Iterator[None]:
     transport = getattr(client, "_transport")
@@ -131,33 +121,9 @@ _UNSUPPORTED_DETAIL = {
 }
 
 
-# --- 1. a selector-less Profile `default` beats an active Connection ------------------------
-
-
-def test_profile_named_default_wins_over_an_active_connection(
-    credential_blobs, authenticated_client
-) -> None:
-    """# INVARIANT (legacy, pinned): the resolver reads the Profile index FIRST and consults
-    Connections only when no Profile matches (`chat_credentials.py:224-225`). With both an
-    authenticated Profile `default` and an active Connection for the same account and
-    provider, chat dispatches with the PROFILE's credential and never reads the Connection's.
-    """
-    account_id = _account_id(authenticated_client)
-    authenticated_client.portal.call(partial(_seed_default_profile, credential_blobs, account_id))
-    _active_connection(
-        authenticated_client,
-        credential_blobs,
-        account_id,
-        label="work-anthropic",
-        token="connection-tok",
-    )
-
-    captured: dict = {}
-    with patch(_ANTHROPIC_CHAT, _capturing(captured)):
-        resp = authenticated_client.post(_CHAT, json=_body())
-
-    assert resp.status_code == 200
-    assert captured["api_key"] == _PROFILE_TOKEN
+# --- 1. a selector-less Profile `default` beside an active Connection -----------------------
+# WHY: the "Profile beats Connection" pin retired at OME-1209 Stage E4a. Resolve reads no Profile
+# document, so the Connection answers (`test_connection_only_resolve.py`); only the control stays.
 
 
 def test_literal_default_x_profile_is_rejected_without_dispatch(
@@ -248,24 +214,24 @@ def test_a_named_x_profile_header_is_rejected_without_dispatch(
 # delete a Profile while leaving its shadow Connection behind.
 
 
-# --- 4. a persistent index fault at the resolver read is UNHANDLED ---------------------------
+# --- 4. a persistent marker fault at the resolver read is UNHANDLED --------------------------
 
 
-async def _always_failing_get(*_args, **_kwargs):
-    raise RuntimeError("the profile index blob could not be decoded")
+async def _always_failing_read(*_args, **_kwargs):
+    raise RuntimeError("the pair marker row could not be decoded")
 
 
-def test_a_persistent_index_fault_at_the_resolver_read_escapes_the_route(
+def test_a_persistent_marker_fault_at_the_resolver_read_escapes_the_route(
     authenticated_client, monkeypatch
 ) -> None:
-    """# INVARIANT (legacy, pinned — spec §10): the resolver's index read
-    (`chat_credentials.py:224`) sits BEFORE the dispatch exception boundary and has no handler
+    """# INVARIANT (legacy, pinned — spec §10): the resolver's first read, the pair marker
+    (OME-1209 Stage E4a), sits BEFORE the dispatch exception boundary and has no handler
     of its own, so a store fault that persists past the pre-cache read (which swallows it and
     bypasses the cache) escapes the route as the raw exception. Nothing is dispatched.
-    The instance seam is patched because that is exactly what the resolver calls
-    (`request.app.state.profile_index`).
+    The class seam is patched because the port reads the marker through its own
+    `PairAuthorityStore` instance.
     """
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "get", _always_failing_get)
+    monkeypatch.setattr(PairAuthorityStore, "read", _always_failing_read)
     dispatched = AsyncMock()
 
     with (
@@ -277,13 +243,13 @@ def test_a_persistent_index_fault_at_the_resolver_read_escapes_the_route(
     dispatched.assert_not_called()
 
 
-def test_a_persistent_index_fault_at_the_resolver_read_renders_a_bare_500(
+def test_a_persistent_marker_fault_at_the_resolver_read_renders_a_bare_500(
     authenticated_client, monkeypatch
 ) -> None:
     """The wire outcome of the same fault: Starlette's default server-error page, not the
     gateway's JSON `detail` envelope and not the 503 `profile_index_conflict` mapping (that
     handler covers only CAS-retry exhaustion, `main.py:296-307`)."""
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "get", _always_failing_get)
+    monkeypatch.setattr(PairAuthorityStore, "read", _always_failing_read)
 
     with _server_errors_as_responses(authenticated_client):
         resp = authenticated_client.post(_CHAT, json=_body())

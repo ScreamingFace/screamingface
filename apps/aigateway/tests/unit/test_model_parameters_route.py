@@ -16,6 +16,7 @@ from aigateway.core.auth_types import AuthType
 from aigateway.core.credential_names import profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _MODEL = "anthropic/claude-opus-4-8"
 _UNSUPPORTED_DETAIL = {
@@ -28,9 +29,13 @@ def _account_id(client: TestClient) -> str:
     return client.get("/v1/auth/me").json()["id"]
 
 
-async def _seed_profile(credential_blobs, account_id: str, *, auth_type: AuthType) -> None:
-    # The detailed contract only needs the profile RECORD (auth mode + state) —
-    # it never injects a credential — so no credential blob is written here.
+async def _seed_profile(
+    credential_blobs, client: TestClient, account_id: str, *, auth_type: AuthType
+) -> None:
+    # The detailed contract never injects a credential, but resolve reads the pair's authority,
+    # not the document (OME-1209 E4a), and an api-key target's resolve reads its blob's
+    # operational register — so an unvalidated api-key blob is written. Re-seeding retags the
+    # same Connection, so the context identity is unchanged across an auth-mode change.
     idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
@@ -42,6 +47,13 @@ async def _seed_profile(credential_blobs, account_id: str, *, auth_type: AuthTyp
             auth_type=auth_type,
         )
     )
+    seed_migrated_pair(
+        client,
+        account_id,
+        "anthropic",
+        auth_type=auth_type,
+        credential="sk-ant-api03-never-validated" if auth_type == "api_key" else None,
+    )
 
 
 def _get(client: TestClient, model: str = _MODEL, **params: str):
@@ -51,7 +63,7 @@ def _get(client: TestClient, model: str = _MODEL, **params: str):
 @pytest.mark.asyncio
 async def test_returns_locked_headers_and_v1_envelope(credential_blobs, authenticated_client):
     account_id = _account_id(authenticated_client)
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
+    await _seed_profile(credential_blobs, authenticated_client, account_id, auth_type="api_key")
 
     resp = _get(authenticated_client)
     assert resp.status_code == 200, resp.text
@@ -126,7 +138,7 @@ async def test_keyless_answer_equals_the_credentialed_static_contract(
     assert keyless.status_code == 200, keyless.text
 
     account_id = _account_id(authenticated_client)
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
+    await _seed_profile(credential_blobs, authenticated_client, account_id, auth_type="api_key")
     credentialed = _get(authenticated_client)
     assert credentialed.status_code == 200, credentialed.text
 
@@ -153,7 +165,7 @@ async def test_auth_mode_is_derived_from_profile_not_caller_declared(
     credential_blobs, authenticated_client
 ):
     account_id = _account_id(authenticated_client)
-    await _seed_profile(credential_blobs, account_id, auth_type="oauth")
+    await _seed_profile(credential_blobs, authenticated_client, account_id, auth_type="oauth")
 
     # A caller-supplied auth_type query param must be ignored entirely.
     resp = _get(authenticated_client, auth_type="api_key")
@@ -167,12 +179,14 @@ async def test_contract_id_is_deterministic_and_changes_with_auth_mode(
 ):
     account_id = _account_id(authenticated_client)
 
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
+    await _seed_profile(credential_blobs, authenticated_client, account_id, auth_type="api_key")
     first = _get(authenticated_client).json()["contract_id"]
     again = _get(authenticated_client).json()["contract_id"]
     assert first == again  # deterministic for identical context
 
-    await _seed_profile(credential_blobs, account_id, auth_type="oauth")  # re-key same profile
+    await _seed_profile(
+        credential_blobs, authenticated_client, account_id, auth_type="oauth"
+    )  # re-key same profile
     after = _get(authenticated_client).json()["contract_id"]
     assert after != first  # auth-mode change is a relevant revision change
 
@@ -180,7 +194,7 @@ async def test_contract_id_is_deterministic_and_changes_with_auth_mode(
 @pytest.mark.asyncio
 async def test_response_never_exposes_account_id_or_secrets(credential_blobs, authenticated_client):
     account_id = _account_id(authenticated_client)
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
+    await _seed_profile(credential_blobs, authenticated_client, account_id, auth_type="api_key")
 
     resp = _get(authenticated_client)
     assert resp.status_code == 200, resp.text
@@ -203,6 +217,7 @@ async def test_response_never_exposes_account_id_or_secrets(credential_blobs, au
 
 async def _seed_profile_record(
     credential_blobs,
+    client: TestClient,
     account_id: str,
     *,
     name: str,
@@ -220,6 +235,8 @@ async def _seed_profile_record(
             auth_type=auth_type,
         )
     )
+    # WHY: resolve reads the pair's authority, not the document (OME-1209 E4a).
+    seed_migrated_pair(client, account_id, "anthropic", name=name, state=state, auth_type=auth_type)
 
 
 def _get_as_profile(client: TestClient, profile: str, model: str = _MODEL):
@@ -266,7 +283,11 @@ async def test_pending_profile_conflict_carries_private_cache_policy(
 ):
     account_id = _account_id(authenticated_client)
     await _seed_profile_record(
-        credential_blobs, account_id, name="default", state=ProfileState.PENDING
+        credential_blobs,
+        authenticated_client,
+        account_id,
+        name="default",
+        state=ProfileState.PENDING,
     )
 
     resp = _get(authenticated_client)
@@ -285,7 +306,7 @@ async def test_auth_required_error_keeps_reauth_url_and_private_cache_policy(
     # The boundary must ADD headers without disturbing the detail payload.
     account_id = _account_id(authenticated_client)
     await _seed_profile_record(
-        credential_blobs, account_id, name="default", state=ProfileState.ERROR
+        credential_blobs, authenticated_client, account_id, name="default", state=ProfileState.ERROR
     )
 
     resp = _get(authenticated_client)

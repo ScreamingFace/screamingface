@@ -27,6 +27,7 @@ from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openrouter_provider.discovery import MODELS_URL, OPENAPI_URL
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 from ._openapi_document import _OPENAPI, _RoutingClient
 
@@ -91,6 +92,16 @@ async def _credential(
             state=state,
             auth_type="api_key",
         )
+    )
+    # WHY: resolve reads the pair's authority, not the document (OME-1209 E4a), and an api-key
+    # target's resolve reads its blob's operational register.
+    seed_migrated_pair(
+        client,
+        account_id,
+        "openrouter",
+        state=state,
+        auth_type="api_key",
+        credential="sk-or-v1-never-validated",
     )
 
 

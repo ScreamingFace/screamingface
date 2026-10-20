@@ -340,7 +340,7 @@ def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
     # WHY ``None`` when disabled rather than an unbounded stub: the absence of a
     # runtime is the honest "no dynamic evidence", and it leaves no object that
     # could later be handed limits nobody configured.
-    # AIDEV-NOTE: ``HttpxDiscoveryClient`` opens (and closes) its connection per
+    # WHY: ``HttpxDiscoveryClient`` opens (and closes) its connection per
     # fetch, so there is nothing to shut down in the lifespan.
     """
     if not settings.discovery_enabled:
@@ -442,8 +442,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ``selector_from_request`` and provider-access implementations never inspect it.
     app.state.selector_policy = SelectorPolicy.REJECT_EXPLICIT
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
-    # OME-1208 (Stage B, D14): the Connection-backed authority serves a pair whose marker is
-    # `migrated` from its effective Connection and inherits the Profile-backed path for the rest.
+    # OME-1209 (Stage E, E4a): the Connection-backed authority resolves every pair from its marker
+    # and its Connections; no Profile document is read.
     app.state.provider_access = ConnectionBackedProviderAccess(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)

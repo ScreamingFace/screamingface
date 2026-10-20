@@ -31,7 +31,7 @@ class ResolvePolicy(Enum):
     DATASHEET = "datasheet"
 
 
-# `stored`: a Profile or Connection row backs the target and `credential_name` is set.
+# `stored`: a Connection row backs the target and `credential_name` is set.
 # `ambient`: no stored row, but the provider names a runtime credential of its own
 #            (`plugin.profileless_auth_mode()` is not None — Gemini's ADC path).
 # `none`: no stored row and no ambient credential — either the provider needs none
@@ -48,7 +48,7 @@ class CredentialTarget:
     implementation's private handle to the row it resolved — excluded from equality and repr
     so no consumer can depend on its shape.
 
-    # AIDEV-NOTE: `_backing` is what lets `authorize` and `record_dispatch_failure` mark the
+    # WHY: `_backing` is what lets `authorize` and `record_dispatch_failure` mark the
     # RIGHT row without a second lookup. At A2 it becomes a Connection handle and nothing
     # outside this package notices; never read it from a route.
     """
@@ -243,10 +243,10 @@ class CredentialAuthorityUnavailable(ProviderAccessRefusal):
 
 
 class PairNotManageable(ProviderAccessRefusal):
-    """A mutation on a pair the successor cannot address (`ambiguous`) or manage (`unresolved`).
+    """A pair the successor cannot address (`ambiguous`) or manage (`unresolved`).
 
-    # INVARIANT: refused before any write and before the provider key check; part 3 of G1 lets
-    # the legacy OAuth shadow identity proof turn one `unresolved` shape into a mutation.
+    Raised by a D18 mutation, and by resolve for a `quarantined` pair (OME-1209 E4a).
+    # INVARIANT: refused before any write and before the provider key check.
     """
 
     def __init__(self, provider: str, kind: Literal["ambiguous", "unresolved"]) -> None:

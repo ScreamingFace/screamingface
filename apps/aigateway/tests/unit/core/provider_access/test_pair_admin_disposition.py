@@ -25,7 +25,6 @@ from tortoise.exceptions import OperationalError
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     CredentialAuthorityUnavailable,
     CredentialStoreReadUnavailable,
@@ -138,23 +137,7 @@ def test_a_migrated_pair_with_no_effective_connection_lists_nothing(harness) -> 
     assert _only(harness) is None
 
 
-# --- row 8: the sole Profile ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("state", "rendered"),
-    [
-        (ProfileState.AUTHENTICATED, "active"),
-        (ProfileState.PENDING, "pending"),
-        (ProfileState.ERROR, "error"),
-    ],
-)
-def test_a_profile_only_pair_lists_its_legacy_owner(harness, state, rendered) -> None:
-    harness.seed_profile(state=state, auth_type="api_key", credential="sk-ant-api03-owner-0002")
-
-    assert _only(harness) == PairCredential(
-        provider=PROVIDER, auth_type="api_key", credential_state=rendered, last_refreshed_at=None
-    )
+# --- a listed owner's refresh time -------------------------------------------------------------
 
 
 def test_a_listed_owner_carries_its_stored_refresh_time(harness) -> None:
@@ -188,34 +171,7 @@ def test_a_revoked_connection_is_not_listed(harness) -> None:
     assert _only(harness) is None
 
 
-# --- row 10 and row 11: one Profile beside one Connection ---------------------------------------
-
-
-def test_a_profile_and_a_connection_at_the_same_locator_list_the_legacy_owner(harness) -> None:
-    harness.seed_profile(state=ProfileState.ERROR, auth_type="api_key", credential="sk-ant-x-0003")
-    _api_key_connection(harness, locator=_profile_address(harness))
-
-    assert _only(harness) == PairCredential(
-        provider=PROVIDER, auth_type="api_key", credential_state="error", last_refreshed_at=None
-    )
-
-
-def test_a_profile_and_a_connection_at_different_locators_are_unresolved(harness) -> None:
-    # The legacy OAuth shadow shape: the Profile blob and a UUID-addressed Connection.
-    harness.seed_profile()
-    harness.seed_connection(label="shadow")
-
-    assert _only(harness) == _conflict("unresolved")
-
-
 # --- row 3: more than one candidate -------------------------------------------------------------
-
-
-def test_two_documents_are_ambiguous(harness) -> None:
-    harness.seed_profile(name="default")
-    harness.seed_profile(name="work")
-
-    assert _only(harness) == _conflict("ambiguous")
 
 
 def test_two_live_connections_are_ambiguous_even_on_a_migrated_pair(harness) -> None:
@@ -368,13 +324,14 @@ def test_an_unknown_provider_is_an_explicit_unresolved_result(harness) -> None:
 # --- row 1: the store cannot be read ------------------------------------------------------------
 
 
-def test_an_unreadable_index_refuses_the_whole_inventory(harness, monkeypatch) -> None:
+def test_an_unreadable_store_refuses_the_whole_inventory(harness, monkeypatch) -> None:
     _api_key_connection(harness)
 
     async def undecodable(*_args: Any, **_kwargs: Any) -> Any:
         raise SecretDecryptionError("failed to decrypt credential blob")
 
-    monkeypatch.setattr(harness.client.app.state.profile_index, "list", undecodable)
+    # WHY the Connection read: LIST reads no Profile index since OME-1209 E4a.
+    monkeypatch.setattr(OAuthConnectionStore, "list", undecodable)
 
     with pytest.raises(CredentialStoreReadUnavailable):
         _inventory(harness)
@@ -384,7 +341,7 @@ def test_a_programming_error_is_never_an_empty_inventory(harness, monkeypatch) -
     async def broken(*_args: Any, **_kwargs: Any) -> Any:
         raise RuntimeError("a bug, not an outage")
 
-    monkeypatch.setattr(harness.client.app.state.profile_index, "list", broken)
+    monkeypatch.setattr(OAuthConnectionStore, "list", broken)
 
     with pytest.raises(RuntimeError):
         _inventory(harness)

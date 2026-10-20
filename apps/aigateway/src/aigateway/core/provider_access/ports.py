@@ -1,8 +1,8 @@
 """The provider-access port (OME-1200, spec §3.3): what a route may ask about credentials.
 
-# INVARIANT (hexagonal): this module names only core types. The Profile-backed implementation
-# in `profile_backed.py` and any later Connection-backed one satisfy the same Protocol, and the
-# contract suite under `tests/unit/core/provider_access/` runs unchanged over each.
+# INVARIANT (hexagonal): this module names only core types. The Connection-backed implementation
+# in `connection_backed.py` and the test fake satisfy the same Protocol, and the contract suite
+# under `tests/unit/core/provider_access/` runs unchanged over each.
 # INVARIANT (spec §3.3): the operations below are exactly the approved ones, with the spec's
 # parameter shapes — pinned by `test_provider_access_port_shape.py`. Later stages add
 # implementations and callers; they do not re-cut the port.

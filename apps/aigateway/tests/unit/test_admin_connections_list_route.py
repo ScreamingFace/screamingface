@@ -234,7 +234,7 @@ def test_a_store_outage_refuses_the_whole_list(client, admin_client, monkeypatch
     async def undecodable(*_args: Any, **_kwargs: Any) -> Any:
         raise SecretDecryptionError("failed to decrypt credential blob service='x'")
 
-    monkeypatch.setattr(admin_client.app.state.profile_index, "list", undecodable)
+    monkeypatch.setattr(OAuthConnectionStore, "list", undecodable)
 
     resp = _list(admin_client, tenant)
 
