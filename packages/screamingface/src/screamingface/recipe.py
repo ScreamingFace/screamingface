@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Literal
 from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
+    from screamingface._surface.chain import Pipeline as Chain
+    from screamingface._surface.chain import Step
     from screamingface.pipeline import Pipeline
 
 
@@ -29,6 +31,21 @@ class Recipe(ABC):
         from screamingface.pipeline import Pipeline
 
         return Pipeline((self, next_recipe))
+
+    def __rshift__(self, other: str | Recipe | Step) -> Chain:
+        """``a >> b`` is the chain ``Pipeline([a, b])`` (D7-3)."""
+
+        # WHY lazy: screamingface._surface builds on this module
+        from screamingface._surface.chain import Pipeline as Chain
+
+        return Chain([self, other])
+
+    def __rrshift__(self, other: str | Recipe | Step) -> Chain:
+        """``"route" >> recipe``: a route string on the left of a recipe."""
+
+        from screamingface._surface.chain import Pipeline as Chain
+
+        return Chain([other, self])
 
     @property
     @abstractmethod

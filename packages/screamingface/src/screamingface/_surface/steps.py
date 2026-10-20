@@ -22,7 +22,6 @@ from screamingface._surface.refs import (
     field_extract,
     is_rule_name,
     output_field,
-    plain_comparison,
     signal_key,
     with_normalizer,
 )
@@ -188,8 +187,7 @@ class Filter(Step):
             raise ValueError(  # FI-1
                 "sf.Filter over= reads the text for sf.matches: a signal comparison takes no over="
             )
-        selected = plain_comparison(where) if isinstance(where, _Comparison) else where
-        object.__setattr__(self, "where", selected)
+        object.__setattr__(self, "where", where)
         selected_over = None if over is None else extractor(over)
         if selected_over is not None:
             filter_extract(selected_over)  # refuse a pinned rule name here, when it is built

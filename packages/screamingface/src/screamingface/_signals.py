@@ -11,7 +11,10 @@ import math
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from screamingface._surface.refs import GateRef
 
 _FIELD_KEY = r"[A-Za-z_][A-Za-z0-9_]*"  # verbatim E/combine/ports.py
 _FIELD_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
@@ -113,6 +116,31 @@ class Signal:
 
     def __le__(self, other: object) -> Any:
         return _ordered(self, "le", other)
+
+    def chosen(self) -> GateRef:
+        """The declared signal of the member that the vote chose: a gate reference."""
+
+        return _gate_ref("chosen", self._declared("chosen"))
+
+    def mean(self) -> GateRef:
+        """The mean of the declared signal over the members: a gate reference."""
+
+        return _gate_ref("mean", self._declared("mean"))
+
+    def _declared(self, method: str) -> str:
+        if is_signal_key(self.key):
+            raise ValueError(  # SI-1
+                f"sf.signal({self.key!r}).{method}() reads a declared signal; an E4a key such as "
+                "cost_usd is not a gate input"
+            )
+        return self.key
+
+
+def _gate_ref(method: str, name: str) -> GateRef:
+    # WHY lazy: the gate references live with the gate step (S/_surface/refs.py imports this module)
+    from screamingface._surface.refs import GateRef
+
+    return GateRef(f"{method}:{name}")
 
 
 def _ordered(signal: Signal, cmp: _Cmp, other: object) -> Any:
