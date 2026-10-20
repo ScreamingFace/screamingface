@@ -19,6 +19,7 @@ from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openai_provider.plugin import PLUGIN
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _OLD_KEY = "sk-openai-synthetic-old-key-1234"
 _NEW_KEY = "sk-openai-synthetic-new-key-5678"
@@ -204,7 +205,8 @@ def test_chat_uses_effective_openai_api_key_connection(authenticated_client) -> 
 @pytest.mark.asyncio
 async def test_chat_uses_effective_openai_profile(authenticated_client, credential_blobs) -> None:
     # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and the
-    # subject here is a legacy Profile that still dispatches, so it is seeded at its own address.
+    # subject here is a backfilled pair that dispatches its Profile-addressed blob, so the blob
+    # is seeded at the Profile's own address and the pair's Connection points at it.
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
     credential_blobs.write(
         _service_for(credential_name_for(account_id, "default")),
@@ -221,6 +223,7 @@ async def test_chat_uses_effective_openai_profile(authenticated_client, credenti
             auth_type="api_key",
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "openai", auth_type="api_key")
     plugin = authenticated_client.app.state.providers.get("openai")
     captured: dict = {}
 

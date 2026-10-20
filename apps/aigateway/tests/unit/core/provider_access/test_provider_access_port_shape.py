@@ -2,7 +2,7 @@
 
 # INVARIANT: the read Protocol names exactly the operations the spec approves, with the spec's
 # parameter shapes, so A2/A3 add implementations — never re-cut the port. Both witnesses
-# (the fake and the Profile-backed implementation) satisfy the read interface structurally.
+# (the fake and the Connection-backed implementation) satisfy the read interface structurally.
 # WHY no admin shape here: the admin Protocol (ops 7-9) retired with its Profile routes at
 # OME-1209 Stage E3b; the D18 admin PUT and DELETE are pinned in `test_pair_admin_mutations.py`.
 """
@@ -15,12 +15,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from connection_backed_harness import ConnectionBackedHarness
 from provider_access_fake import FakeProviderAccess
-from provider_access_harness import ANTHROPIC, PROVIDER, FakeHarness, Harness, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, FakeHarness, Harness
 
 from aigateway.core.provider_access import (
     AvailabilityRow,
-    ProfileBackedProviderAccess,
+    ConnectionBackedProviderAccess,
     ProviderAccess,
     ProviderOperationalAccess,
     Selector,
@@ -126,7 +127,7 @@ def test_both_witnesses_expose_the_optional_outcome_capability() -> None:
     app = SimpleNamespace(state=SimpleNamespace())
 
     assert isinstance(FakeProviderAccess(), ProviderOperationalAccess)
-    assert isinstance(ProfileBackedProviderAccess(app), ProviderOperationalAccess)
+    assert isinstance(ConnectionBackedProviderAccess(app), ProviderOperationalAccess)
 
 
 def test_availability_is_account_scoped_and_returns_rows_only() -> None:
@@ -143,14 +144,14 @@ def test_both_witnesses_satisfy_the_read_interface_structurally() -> None:
     app = SimpleNamespace(state=SimpleNamespace())
 
     assert isinstance(FakeProviderAccess(), ProviderAccess)
-    assert isinstance(ProfileBackedProviderAccess(app), ProviderAccess)
+    assert isinstance(ConnectionBackedProviderAccess(app), ProviderAccess)
 
 
-@pytest.fixture(params=["fake", "profile_backed"])
+@pytest.fixture(params=["fake", "connection_backed"])
 def harness(request: pytest.FixtureRequest) -> Harness:
     if request.param == "fake":
         return FakeHarness()
-    return ProfileBackedHarness(
+    return ConnectionBackedHarness(
         request.getfixturevalue("authenticated_client"),
         request.getfixturevalue("credential_blobs"),
         request.getfixturevalue("monkeypatch"),

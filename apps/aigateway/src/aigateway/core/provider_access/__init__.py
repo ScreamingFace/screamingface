@@ -2,8 +2,8 @@
 "which credential, and may I use it?".
 
 # FEATURE: OME-1138 — deprecate Profiles and converge on Connections, adapter-first. Routes
-# depend on this port; the Profile-backed implementation below is the compatibility-window
-# adapter, swapped at Stage B (D11) without touching a route.
+# depend on this port; the Connection-backed implementation is its only adapter since OME-1209
+# Stage E, E4a deleted the Profile-backed one without touching a route.
 # INVARIANT (hexagonal): core defines the port; nothing in this package imports a route or a
 # plugin. THIS module is the public surface — import from here, never from a half.
 """
@@ -22,7 +22,11 @@ from .auth_mode import (
 )
 from .backfill_apply import BackfillReport, all_account_ids, run_backfill
 from .backfill_classify import BackfillContext, PairPlan, classify_account
-from .connection_backed import ConnectionBackedProviderAccess
+from .connection_backed import (
+    ConnectionBackedProviderAccess,
+    operational_access_for,
+    provider_access_for,
+)
 from .connection_native import (
     claim_for_connection,
     claim_native_write,
@@ -60,18 +64,12 @@ from .ports import ProviderAccess, ProviderOperationalAccess
 from .profile_authorize import (
     apply_authorization,
     invalidate_session,
-    mark_profile_error_fresh,
     oauth_connection_store,
     reauth_url_for,
 )
-from .profile_backed import (
-    ProfileBackedProviderAccess,
-    context_stamp,
-    operational_access_for,
-    provider_access_for,
-)
-from .refresh_guard import ConnectionRefreshOwner, ProfileRefreshOwner, guard_refresh
+from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
+from .targets import context_stamp
 from .types import (
     Authorization,
     AvailabilityRow,
@@ -130,8 +128,6 @@ __all__ = [
     "PairMutation",
     "PairNotManageable",
     "PairAuthorityStore",
-    "ProfileBackedProviderAccess",
-    "ProfileRefreshOwner",
     "ProviderAccess",
     "ProviderAccessRefusal",
     "ProviderOperationalAccess",
@@ -172,7 +168,6 @@ __all__ = [
     "fences_writer",
     "guard_refresh",
     "invalidate_session",
-    "mark_profile_error_fresh",
     "oauth_connection_store",
     "operational_access_for",
     "pair_inventory",

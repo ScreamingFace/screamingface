@@ -1063,7 +1063,7 @@ class TestDispatchFailureClassification:
         async def reject_credentials(*_args: Any, **_kwargs: Any) -> Any:
             raise TargetReauthRequired("anthropic", "https://example.invalid/reauth")
 
-        seam = "aigateway.core.provider_access.ProfileBackedProviderAccess.resolve"
+        seam = "aigateway.core.provider_access.ConnectionBackedProviderAccess.resolve"
         with patch(seam, reject_credentials):
             response = chat_client.post(_CHAT_PATH, json=_chat_body(), headers=_ACCOUNTING_HEADERS)
         assert response.status_code == 401

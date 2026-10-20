@@ -24,6 +24,7 @@ from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.plugins.codex_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _MODEL = "codex/gpt-5.4-mini"
 _DISPATCH = "aigateway.plugins.codex_provider.plugin.CodexProviderPlugin.chat_completion"
@@ -55,6 +56,7 @@ async def _seed_codex(credential_blobs, client) -> None:
             defaults=ProfileDefaults(),
         )
     )
+    seed_migrated_pair(client, account_id, "codex")
 
 
 def _capture(store: dict[str, Any]):

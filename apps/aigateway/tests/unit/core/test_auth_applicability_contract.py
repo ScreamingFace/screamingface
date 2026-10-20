@@ -342,6 +342,7 @@ async def _anthropic_contract(client, credential_blobs, auth_type: AuthType) -> 
     from aigateway.core.credential_names import profile_id_for
     from aigateway.core.profile_index import ProfileIndexStore
     from aigateway.core.profile_models import Profile, ProfileState
+    from tests.unit.migrated_pair_seed import seed_migrated_pair
 
     account_id = client.get("/v1/auth/me").json()["id"]
     await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
@@ -354,6 +355,9 @@ async def _anthropic_contract(client, credential_blobs, auth_type: AuthType) -> 
             auth_type=auth_type,
         )
     )
+    # WHY the key: a migrated api_key pair reads its blob at resolve; an OAuth one reads none.
+    key = "sk-ant-api03-never-validated" if auth_type == "api_key" else None
+    seed_migrated_pair(client, account_id, "anthropic", auth_type=auth_type, credential=key)
     resp = client.get("/v1/model-parameters", params={"model": _ANTHROPIC_MODEL})
     assert resp.status_code == 200, resp.text
     return resp.json()

@@ -1,7 +1,7 @@
 ---
 ticket: OME-1209
 parent: OME-1138
-status: accepted   # owner approval 2026-10-14; E1b and the E3 catalog delta amended 2026-10-15; each landing gets its own leaf issue under OME-1138 at PR-open
+status: accepted   # owner approval 2026-10-14; E1b and the E3 catalog delta amended 2026-10-15; E4 split and its marker rule amended 2026-10-20; each landing gets its own leaf issue under OME-1138 at PR-open
 created: 2026-10-14
 base: origin/main 9be66ecb0
 spec: docs/spec/2026-10-14-OME-1209-retire-legacy-profiles.md
@@ -35,7 +35,7 @@ Paths are relative to `apps/aigateway/src/aigateway` unless stated.
 
 ```
 E1 successor pointers ─▶ E1b native re-authorisation ─┐
-                                                      ├─▶ E3 route retirement ─▶ E3b dead core ─▶ (census + backfill, owner) ─▶ E4 authority end
+                                                      ├─▶ E3 route retirement ─▶ E3b dead core ─▶ (census + backfill, owner) ─▶ E4a readers ─▶ E4b writers ─▶ E4c hooks
 E2a neutral types ────────────────────────────────────┤
 E2b dead defaults ────────────────────────────────────┘
 ```
@@ -184,24 +184,80 @@ retired handlers reached. Nothing live changes.
 
 ### E4 — authority end
 
-Precondition (owner, outside the repo): a census in every environment shows every pair
-`migrated`; any other pair is backfilled with the existing tooling first. The agent prepares the
-read-only census command and its expected output; it does not run it.
+Precondition (owner, outside the repo): a census in every environment shows every pair with a
+Profile document `migrated`; any other pair is backfilled with the existing tooling first. Met on
+2026-10-20 (spec §7 Q3); the read-only census is re-run before each E4 landing is deployed to an
+environment.
 
-- Chat and model admission resolve through the Connection authority only:
-  `ConnectionBackedProviderAccess` stops subclassing the Profile-backed class; an absent, `none`
-  or `quarantined` marker fails closed with a coded refusal instead of reading the index.
-- Removed: the D14 dual write in the native OAuth callback, Profile bootstrap (`writer_floor.py`, `plugins/anthropic_provider/bootstrap.py`,
-  `bootstrap_profiles`), the D18 none-pair bridge and the Profile read in `pair_admin*`,
-  `ProfileIndexStore` wiring in `main.py`.
-- Plugin hooks: Profile-only hooks are deleted with their callers; the surviving ones get
-  neutral names (`allows_chatless_profile` → `allows_chatless_credential`,
-  `profileless_auth_mode` → `credentialless_auth_mode`, `invalidate_profile_session` →
-  `invalidate_credential_session`, `profile_name` parameters → `credential_name`).
-- Kept until E5: the `ProfileIndex` read models, `ProfileIndexStore` reads and the backfill
-  tools, because E5's reference check reads the same documents. They are reachable only from the
-  offline tools, which the import boundary enforces.
-- A rollback to the pre-E4 build stays safe: E4 deletes no document or blob (R5).
+Amended 2026-10-20 (spec §9). A map of every Profile-index consumer after E3b showed that the
+first version of this section ("an absent, `none` or `quarantined` marker fails closed") would
+refuse every natively created pair, because a native write publishes a `none` marker and never
+promotes it. The owner decisions:
+
+- An absent or `none` marker is Connection-owned: the pair resolves through its Connections and
+  nothing reads the index for it. Only `quarantined` fails closed, with 409
+  `credential_pair_unresolved` (spec §9 Q8).
+- A `migrated` pair resolves from the marker's effective Connection when it names one, otherwise
+  through the label path over active rows (Q9).
+- No runtime or admin path writes or removes a Profile document; documents left behind wait for
+  E5 (Q10).
+- Three PRs, each with its own leaf under `OME-1138` (Q11).
+
+#### E4a — Connection-only readers
+
+- `ConnectionBackedProviderAccess` stops subclassing `ProfileBackedProviderAccess`, which is
+  deleted; the helpers they share (`_resolve_without_profile`, `_active_connection`,
+  `_repair_api_key_only`, `targetless`, `connection_target`, `context_stamp`) move to the
+  Connection side.
+- Resolve reads no Profile document: absent or `none` → the label path, chatless or ambient, as
+  today when no document matches; `quarantined` → coded refusal; `migrated` → the effective
+  Connection when the marker names one (`migrated_target`, which loses its unused `document`
+  parameter), otherwise the label path. A named selector is answered by the effective Connection
+  only when it is that Connection's label (the document name the backfill gave it); any other
+  name takes the label path, so a name is matched or refused, never served by another row.
+  Production rejects every named selector (Stage D), so this keeps the port's contract only.
+- Authorize and op 5 lose their Profile-target branches (`ProfileRefreshOwner`,
+  `mark_profile_error_fresh`), which no target reaches once resolve builds none. The bare-Connection
+  branch stays for label-path targets.
+- Availability (op 6): the registry plus the migrated markers, each migrated provider from its
+  effective Connection as today; every other provider `not_connected` (D17 unchanged).
+- D18 classification reads no document: rows 8 and 10, the document half of row 3 and the
+  row-11 shadow proof (`pair_shadow`) are deleted, row 11 is refused like row 4, and LIST renders
+  no Profile. Rows 7 and 9 (an empty pair, one
+  Connection) keep publishing `migrated`.
+- Left for E4b: every Profile write and the reads that only feed it, Profile bootstrap and the
+  `main.py` wiring.
+
+#### E4b — no Profile writer; the index is offline-only
+
+- Removed: the D14 mirror on the native callback and its `CredentialBlobMutationConflict` arms;
+  the D18 PUT mirror (`api_key_mirror`, `_mirror_siblings`, `addressed_by_a_live_connection`) and
+  the DELETE's document removal; the mirror in `republish_effective_api_key` and the document
+  removal in `retire_effective`; the document check in `credential_has_other_owner`; Profile
+  bootstrap (`bootstrap_under_the_floor`, `plugins/anthropic_provider/bootstrap.py`,
+  `bootstrap_profiles`, the settings and error only it used); `ProfileIndexStore` wiring in
+  `main.py` and `BackfillContext.from_app`.
+- `writer_floor.py` keeps its live Connection-side fences (`claim_pair`, `claim_observed`,
+  `hold_pair`, `mark_error_checked`, `observe_pair_of`); only the bootstrap leaves it. A set
+  `AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE` logs a startup warning that the import is retired.
+- Kept until E5: the `ProfileIndex` read models, `ProfileIndexStore` and the backfill tools,
+  because E5's reference check reads the same documents. The import boundary allows
+  `profile_index` only in the offline tools, and importing `aigateway.main` loads no
+  `profile_index` (the package stops re-exporting the backfill modules).
+
+#### E4c — neutral plugin hooks
+
+- The surviving Profile-named hooks get neutral names: `allows_chatless_profile` →
+  `allows_chatless_credential`, `profileless_auth_mode` → `credentialless_auth_mode`,
+  `invalidate_profile_session` → `invalidate_credential_session`,
+  `should_mark_profile_error_on_dispatch_status` → `should_mark_credential_error_on_dispatch_status`,
+  and the `profile_name` parameters of `*_strategy_for` → `credential_name`.
+- The hooks are looked up duck-typed with a silent default, so a missed rename would fail
+  silently; a test asserts that no plugin or base class defines an old name.
+
+A rollback to the pre-E4 build stays safe after every landing: E4 deletes no document or blob
+(R5). The R1 rollback tool is not coherent for a pair changed after E4b, as spec §8 Q7 already
+accepts for a native repair.
 
 ## 4. Tests
 
@@ -213,7 +269,9 @@ read-only census command and its expected output; it does not run it.
 | E2b | chat on a stored target builds no defaults; deleted names absent (`git grep` check in the ledger); full suite green |
 | E3 | each of the 13 paths × each method it served → 410, R1 body, `Cache-Control: private, no-store`, with and without a body, with no storage read (spy) and no audit write; a malformed body still gets 410, not 422; OpenAPI has no `/profiles` path and none of the retired schemas; successor routes' OpenAPI fragments byte-identical before and after; callbacks unchanged |
 | E3b | every deleted symbol has no production caller; the native start and callback, the D14 mirror, the D18 pair PUT/DELETE and chat keep their assertions; live branches whose only test retires gain one: `publish_api_key` conflict mapping, index-before-blob order, an unsupported auth mode, the sibling mirror, `addressed_by_a_live_connection` both ways, `stamp_refreshed` on a PENDING document, the D14 mirror's `last_refreshed_at`; PostgreSQL lane green for the touched concurrency suites |
-| E4 | with every pair `migrated`: chat, D18 and native OAuth construct no `ProfileIndexStore` (spy); absent/`none`/`quarantined` marker → coded refusal, no index read; the native callback writes no Profile document; startup writes no Profile; PostgreSQL lane green for the concurrency suites listed in the D18 plan §4 |
+| E4a | chat, model admission, availability and D18 LIST and classification read no Profile index (spy on the wired store); absent and `none` pairs resolve through their Connections, chatless or ambient, as before; `quarantined` → 409 `credential_pair_unresolved` with no index read; a `migrated` pair resolves from its effective reference with or without a document and falls back to the label path when the reference is empty; availability unchanged for migrated pairs and for providers without a document |
+| E4b | the native callback, native re-key and delete, D18 PUT/DELETE and startup write and remove no Profile document; `main.py` wires no `ProfileIndexStore`; importing `aigateway.main` loads no `profile_index`; the import boundary allows it only in the offline tools; the backfill CLI still classifies, applies and rolls back from its own stores; PostgreSQL lane green for the concurrency suites listed in the D18 plan §4 |
+| E4c | rename-only: full suite green with only names changed; no plugin or base class defines an old hook name |
 
 ## 5. Gates
 
@@ -245,5 +303,10 @@ AIGW_TEST_PG=1 uv run pytest -m needs_postgres -v
 - E3 gains the catalog delta (spec §8 Q6), which this plan did not list.
 - Added 2026-10-19: E3b, between E3 and E4. It takes the callbacks' legacy-pending and facade
   branches from E4, because E3 left them without a producer; E4 keeps the authority end.
+- Added 2026-10-20 (spec §9): E4 lands as E4a, E4b and E4c. An absent or `none` marker resolves
+  through its Connections instead of failing closed; E4 also removes the Profile-document writes
+  this plan did not list (the D18 mirror and removal, the native re-key mirror and delete
+  removal); `should_mark_profile_error_on_dispatch_status` joins the hook renames because it gates
+  op 5 for migrated targets too.
 
 The spec's §4 table was updated to match on approval.

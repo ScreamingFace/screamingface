@@ -17,6 +17,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import test_provider_access_backing_postgres as backing
@@ -77,10 +78,12 @@ def _bridge_delete(client: TestClient, account_id: str) -> Any:
 
 
 async def _seed_legacy_profile(app: Any, account_id: str, name: str) -> None:
-    """What the retired legacy key route left on a `none` pair: its claim, document and blob.
+    """A single-Connection `none` pair at a legacy Profile's address: claim, document, blob, row.
 
     # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and the
-    # native create would write a Connection-addressed blob, not the sole Profile under test.
+    # native create would write a Connection-addressed blob, not the Profile address under test.
+    # WHY the Connection: D18 reads no Profile document since OME-1209 Stage E4a, so a Profile
+    # alone is the empty pair; one active row at its address keeps the pair in row 9.
     """
     markers = PairAuthorityStore()
     pair = await markers.read(account_id, PROVIDER)
@@ -101,6 +104,14 @@ async def _seed_legacy_profile(app: Any, account_id: str, name: str) -> None:
             state=ProfileState.AUTHENTICATED,
             auth_type="api_key",
         )
+    )
+    await OAuthConnectionStore().create_api_key(
+        account_id=account_id,
+        provider=PROVIDER,
+        label=name,
+        connection_id=uuid4(),
+        credential_provider=PROVIDER,
+        credential_locator=credential_locator_for(PROVIDER, account_id, name),
     )
 
 

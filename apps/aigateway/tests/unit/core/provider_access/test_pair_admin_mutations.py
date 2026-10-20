@@ -212,7 +212,7 @@ def test_delete_on_an_empty_pair_is_a_no_op_that_mints_no_marker(harness) -> Non
     assert _rows(harness) == []
 
 
-# --- row 8: a sole legacy Profile -----------------------------------------------------------
+# --- a sole legacy Profile: its document names the PUT's mirror (§5.2) ----------------------
 
 
 def test_put_adopts_a_sole_profile_on_its_own_name_and_address(harness) -> None:
@@ -227,20 +227,6 @@ def test_put_adopts_a_sole_profile_on_its_own_name_and_address(harness) -> None:
     marker = _marker(harness)
     assert marker is not None
     assert (marker["migration_state"], marker["effective_connection_id"]) == ("migrated", row["id"])
-
-
-def test_delete_ends_a_sole_profile_without_a_dummy_connection(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
-
-    _delete(harness)
-
-    assert _documents(harness) == []
-    assert _blob(harness, _address(harness, "work")) is None
-    assert _rows(harness) == []
-    marker = _marker(harness)
-    assert marker is not None
-    assert (marker["migration_state"], marker["effective_connection_id"]) == ("migrated", None)
-    assert _inventory(harness) == PairInventory(credentials=(), conflicts=())
 
 
 # --- row 9: a sole Connection ---------------------------------------------------------------
@@ -279,7 +265,7 @@ def test_delete_revokes_a_sole_connection_and_its_blob(harness) -> None:
     assert mutation.connection_ids == (str(connection.id),)
 
 
-# --- row 10: a Profile and a Connection at one address --------------------------------------
+# --- row 9 with a Profile document at the Connection's address ------------------------------
 
 
 def test_put_on_a_same_locator_pair_keeps_the_row_and_the_name(harness) -> None:
@@ -399,11 +385,6 @@ def _quarantined(harness: ProfileBackedHarness) -> None:
     _mark(harness, "quarantined")
 
 
-def _different_locators(harness: ProfileBackedHarness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
-    _connection(harness)
-
-
 def _migrated_null_beside_a_live_row(harness: ProfileBackedHarness) -> None:
     _mark(harness, "migrated")
     _connection(harness)
@@ -414,10 +395,9 @@ def _migrated_null_beside_a_live_row(harness: ProfileBackedHarness) -> None:
     [
         (_two_live, "ambiguous"),
         (_quarantined, "unresolved"),
-        (_different_locators, "unresolved"),
         (_migrated_null_beside_a_live_row, "unresolved"),
     ],
-    ids=["row-3", "row-4", "row-11", "migrated-null-live"],
+    ids=["row-3", "row-4", "migrated-null-live"],
 )
 @pytest.mark.parametrize("operation", ["put", "delete"])
 def test_an_unmanageable_pair_refuses_and_writes_nothing(harness, seed, kind, operation) -> None:
@@ -480,6 +460,7 @@ def test_a_failed_key_check_leaves_owner_and_data_unchanged(harness) -> None:
 
 def test_a_second_candidate_created_during_validation_makes_the_bridge_refuse(harness) -> None:
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    _connection(harness, locator=_address(harness, "work"), key=None)
 
     async def native_create_meanwhile() -> None:
         await OAuthConnectionStore().create_api_key(
@@ -534,17 +515,18 @@ def test_a_live_row_added_after_the_capture_supersedes_the_publication(
 def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
     harness, monkeypatch
 ) -> None:
-    # The delete's own capture saw one Profile; a native create landing before its transaction
+    # The delete's own capture saw one Connection; a native create landing before its transaction
     # (no claim on the pair it adds to) must not be swept away by the delete it never saw.
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    _connection(harness, locator=_address(harness, "work"), key=None)
     before = _marker(harness)
-    index = harness.client.app.state.profile_index
-    real_list = index.list
+    real_list = OAuthConnectionStore.list
     calls: list[int] = []
 
-    async def list_then_race(*args: Any, **kwargs: Any) -> Any:
+    async def list_then_race(self: OAuthConnectionStore, *args: Any, **kwargs: Any) -> Any:
         calls.append(1)
-        if len(calls) == 2:
+        listed = await real_list(self, *args, **kwargs)
+        if len(calls) == 1:
             await OAuthConnectionStore().create_api_key(
                 account_id=harness.account_id,
                 provider=PROVIDER,
@@ -552,15 +534,15 @@ def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
                 connection_id=uuid4(),
                 credential_provider=CREDENTIAL_PROVIDER,
             )
-        return await real_list(*args, **kwargs)
+        return listed
 
-    monkeypatch.setattr(index, "list", list_then_race)
+    monkeypatch.setattr(OAuthConnectionStore, "list", list_then_race)
 
     with pytest.raises(WriteConflict) as conflict:
         _delete(harness)
 
     assert conflict.value.kind == "superseded"
-    assert len(calls) >= 2
+    assert len(calls) >= 1
     assert _marker(harness) == before
     assert _documents(harness) == [("work", "api_key", "authenticated")]
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
@@ -571,6 +553,7 @@ def test_a_store_outage_inside_the_write_is_the_scoped_write_refusal(
     harness, monkeypatch, operation
 ) -> None:
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    _connection(harness, locator=_address(harness, "work"), key=None)
     before = _state(harness)
 
     async def down(*_args: Any, **_kwargs: Any) -> Any:
@@ -593,13 +576,14 @@ def test_a_store_outage_reading_the_documents_to_delete_is_a_read_refusal(
     harness, monkeypatch
 ) -> None:
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    _connection(harness, locator=_address(harness, "work"), key=None)
     index = harness.client.app.state.profile_index
     real_list = index.list
     calls: list[int] = []
 
     async def list_then_fail(*args: Any, **kwargs: Any) -> Any:
         calls.append(1)
-        if len(calls) == 2:
+        if len(calls) == 1:
             raise OperationalError("server closed the connection unexpectedly")
         return await real_list(*args, **kwargs)
 
@@ -614,6 +598,7 @@ def test_a_store_outage_reading_the_documents_to_delete_is_a_read_refusal(
 
 def test_the_mutation_evicts_the_cached_credential_it_changed(harness) -> None:
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    _connection(harness, locator=_address(harness, "work"), key=None)
 
     _delete(harness)
 

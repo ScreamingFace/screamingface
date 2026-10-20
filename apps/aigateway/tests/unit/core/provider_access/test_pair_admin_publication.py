@@ -199,7 +199,6 @@ def test_the_publication_mirrors_the_key_into_every_sibling_and_keeps_its_defaul
         name="work",
         raw_api_key=NEW_KEY,
         expected_live=frozenset(),
-        claim_check=_valid,
     )
 
     index = harness.client.app.state.profile_index

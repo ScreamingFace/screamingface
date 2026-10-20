@@ -20,6 +20,7 @@ from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _UNSUPPORTED_DETAIL = {
     "code": "x_profile_unsupported",
@@ -340,6 +341,7 @@ async def test_chat_409_when_profile_pending(credential_blobs, authenticated_cli
             state=ProfileState.PENDING,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "anthropic", state=ProfileState.PENDING)
     resp = authenticated_client.post(
         "/v1/chat/completions",
         json={
@@ -368,6 +370,7 @@ async def test_chat_removes_anthropic_reasoning_none(
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "anthropic")
     captured: dict = {}
 
     async def fake_chat_completion(_self, body):
@@ -459,6 +462,7 @@ async def test_chat_rejects_codex_stream_before_litellm(
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "codex")
     fake_stream = AsyncMock()
 
     with patch(
@@ -495,6 +499,7 @@ async def test_chat_streams_through_provider_plugin_boundary(
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "anthropic")
     captured: dict = {}
 
     async def fake_stream_completion(_self, body):
@@ -539,6 +544,7 @@ async def test_chat_overwrites_client_api_key_for_codex_oauth(
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "codex")
     captured: dict = {}
 
     async def fake_acompletion(_self, body):
@@ -585,6 +591,7 @@ async def test_chat_maps_codex_reasoning_effort_to_reasoning(
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "codex")
     captured: dict = {}
 
     async def fake_acompletion(_self, body):
@@ -630,6 +637,7 @@ async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticat
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "anthropic")
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(429, headers={"retry-after": "7"}, request=request)
 
@@ -665,10 +673,10 @@ async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticat
     assert calls["n"] == 4  # 1 initial + 3 retries (default AIGW_RETRY_MAX_ATTEMPTS=3)
 
 
-def _seed_anthropic_profile(credential_blobs, account_id: str):
+async def _seed_anthropic_profile(client, credential_blobs, account_id: str) -> None:
     _seed_authenticated_profile(credential_blobs, account_id)
     idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    return idx.upsert(
+    await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
             account_id=account_id,
@@ -677,6 +685,7 @@ def _seed_anthropic_profile(credential_blobs, account_id: str):
             state=ProfileState.AUTHENTICATED,
         )
     )
+    seed_migrated_pair(client, account_id, "anthropic")
 
 
 @pytest.mark.asyncio
@@ -684,7 +693,7 @@ async def test_chat_retries_rate_limit_then_succeeds(
     credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(429, headers={"retry-after": "1"}, request=request)
@@ -727,7 +736,7 @@ async def test_chat_retries_service_unavailable_then_succeeds(
     credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(503, request=request)
@@ -770,7 +779,7 @@ async def test_chat_persistent_rate_limit_still_returns_429(
     credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(429, headers={"retry-after": "1"}, request=request)
@@ -807,6 +816,7 @@ async def test_chat_persistent_rate_limit_still_returns_429(
 
 
 async def _seed_api_key_profile(
+    client,
     credential_blobs,
     account_id: str,
     *,
@@ -830,6 +840,7 @@ async def _seed_api_key_profile(
             auth_type="api_key",
         )
     )
+    seed_migrated_pair(client, account_id, provider, auth_type="api_key")
 
 
 @pytest.mark.asyncio
@@ -841,6 +852,7 @@ async def test_chat_api_key_profile_passes_raw_anthropic_key(
     OAuth-specific extra headers (anthropic-version/-beta)."""
     account_id = _account_id(authenticated_client)
     await _seed_api_key_profile(
+        authenticated_client,
         credential_blobs,
         account_id,
         provider="anthropic",
@@ -882,6 +894,7 @@ async def test_chat_api_key_profile_injects_gemini_header(
 
     account_id = _account_id(authenticated_client)
     await _seed_api_key_profile(
+        authenticated_client,
         credential_blobs,
         account_id,
         provider="gemini-cli",
@@ -914,45 +927,12 @@ async def test_chat_api_key_profile_injects_gemini_header(
 
 
 @pytest.mark.asyncio
-async def test_chat_api_key_profile_missing_blob_returns_401(
-    credential_blobs, authenticated_client
-) -> None:
-    account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
-
-    resp = authenticated_client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "anthropic/claude-haiku-4-5",
-            "messages": [{"role": "user", "content": "hi"}],
-        },
-    )
-
-    assert resp.status_code == 401
-    detail = resp.json()["detail"]
-    assert detail["code"] == "auth_required"
-    # The message is the actionable guidance the desktop surfaces (audit F26),
-    # and the reauth_url must point at the api-key endpoint, not OAuth.
-    assert "No API key stored" in detail["message"]
-    assert detail["reauth_url"] == "/v1/oauth/connections/api-key"
-
-
-@pytest.mark.asyncio
 async def test_chat_strips_caller_supplied_api_base(credential_blobs, authenticated_client) -> None:
     """A caller-chosen api_base would make LiteLLM send the injected
     credential to an arbitrary host — exfiltration (audit F03)."""
     account_id = _account_id(authenticated_client)
     await _seed_api_key_profile(
+        authenticated_client,
         credential_blobs,
         account_id,
         provider="anthropic",
@@ -986,53 +966,6 @@ async def test_chat_strips_caller_supplied_api_base(credential_blobs, authentica
 
 
 @pytest.mark.asyncio
-async def test_chat_bad_anthropic_api_key_marks_profile_error(
-    credential_blobs, authenticated_client
-) -> None:
-    """Plan D6: a bad key surfaces as 401 on first chat AND flips the profile
-    to ERROR — including via the LiteLLM exception path (audit F14)."""
-    from litellm.exceptions import AuthenticationError
-
-    account_id = _account_id(authenticated_client)
-    await _seed_api_key_profile(
-        credential_blobs,
-        account_id,
-        provider="anthropic",
-        service=credential_service_for(credential_name_for(account_id, "default")),
-        api_key="sk-ant-api03-revoked-key",
-    )
-
-    async def rejecting_chat_completion(_self, _body):
-        raise AuthenticationError(
-            "invalid x-api-key",
-            llm_provider="anthropic",
-            model="anthropic/claude-haiku-4-5",
-        )
-
-    with patch(
-        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
-        rejecting_chat_completion,
-    ):
-        resp = authenticated_client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "anthropic/claude-haiku-4-5",
-                "messages": [{"role": "user", "content": "hi"}],
-            },
-        )
-
-    assert resp.status_code == 401
-    assert resp.json()["detail"]["code"] == "auth_required"
-    assert resp.json()["detail"]["reauth_url"] == "/v1/oauth/connections/api-key"
-    # WHY: the Profile status route answers 410 since OME-1209 Stage E3; the index holds the
-    # state it rendered.
-    index: ProfileIndexStore = authenticated_client.app.state.profile_index
-    status = authenticated_client.portal.call(index.get, account_id, "anthropic", "default")
-    assert status is not None
-    assert status.state == "error"
-
-
-@pytest.mark.asyncio
 async def test_chat_api_key_auth_type_without_strategy_returns_400(
     credential_blobs, authenticated_client
 ) -> None:
@@ -1050,6 +983,7 @@ async def test_chat_api_key_auth_type_without_strategy_returns_400(
             auth_type="api_key",
         )
     )
+    seed_migrated_pair(authenticated_client, account_id, "codex", auth_type="api_key")
     dispatched = AsyncMock()
 
     with patch(

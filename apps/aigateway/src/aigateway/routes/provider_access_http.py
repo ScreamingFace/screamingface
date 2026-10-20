@@ -141,7 +141,8 @@ def render_refusal(exc: ProviderAccessRefusal) -> HTTPException:
 
 
 def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
-    """The rows added after A1's read table: the Stage D selector sunset and the A3 admin rows."""
+    """The rows added after A1's read table: the Stage D selector sunset, the A3 admin rows and
+    the pair the successor cannot manage."""
     if isinstance(exc, SelectorUnsupported):
         return HTTPException(
             status_code=400,
@@ -151,6 +152,12 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
         # The PUT shape of the retired Profile route (`upsert_api_key_profile` at 248b0b6d).
         return HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": exc.provider}
+        )
+    if isinstance(exc, PairNotManageable):
+        # WHY the D18 body on every route (OME-1209 E4a, spec §9 Q8): chat and model parameters
+        # refuse a quarantined pair with the code the successor admin API answers for it.
+        return HTTPException(
+            status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
         )
     if isinstance(exc, CredentialStoreUnavailable):
         # `routes/credential_persistence.py::persist_credentials_or_503` at 248b0b6d.
@@ -176,7 +183,7 @@ def refusals_as_http() -> Iterator[None]:
 
 # --- the D18 successor scope (OME-1497, G1; contract §7) -----------------------------------------
 # INVARIANT: these rows serve ONLY the `/v1/admin/accounts/{account_id}/connections` routes; the
-# legacy rows above keep their bodies, and a successor refusal never reaches `render_refusal`.
+# legacy rows above keep their bodies. The pair conflict is the one shared row (E4a).
 
 _PAIR_CONFLICT_MESSAGES = {
     "ambiguous": (
@@ -215,10 +222,6 @@ def render_successor_refusal(exc: ProviderAccessRefusal) -> HTTPException:
                 "message": _AUTHORITY_MESSAGE,
                 "provider": exc.provider,
             },
-        )
-    if isinstance(exc, PairNotManageable):
-        return HTTPException(
-            status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
         )
     if isinstance(exc, WriteConflict):
         return _successor_write_conflict(exc)
