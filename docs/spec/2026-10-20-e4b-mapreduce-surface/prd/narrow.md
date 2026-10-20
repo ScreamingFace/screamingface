@@ -50,6 +50,8 @@ so the key has no free position. A spec without the key keeps its bytes.
   each narrow step and the main step count apart).
 - `NR-S4` A narrow item that reads `score:judge` needs the judge reply in the combine context
   signals, as the main step does today (`E/combine/ports.py:632`).
+- `NR-C1` (erratum U1e) is also an Engine rule: with `narrow`, a main reduce `label@1` or
+  `field_rules@1`, and a gate whose `otherwise` is not `"abstain"`, are refused with `SpecInvalid`.
 - The JSON schema snapshot `ET/data/combine_contract/schemas/screamingface.combine-spec.v1.json`
   gets the optional `narrow` property (a pinned file, owner approval).
 
@@ -117,8 +119,18 @@ spec has `narrow`:
 ]
 ```
 
-- One record per narrow item, in spec order, up to the step that abstained (that step is recorded
-  with `kept: []`).
+- One record per narrow item, in spec order, up to the step that abstained. Erratum U1c: the
+  members that are live at the abstaining step are left out by it, and it is recorded with
+  `kept: []`; a spec with `narrow` and no voters records its first step with `kept: []` without
+  running it.
+- Erratum U1d: each record starts with an optional `reduce` key (the pinned reduce op id), so a
+  later `filter@2` is visible. The evidence `operators` list stays the main step's ops.
+- Erratum U1b: a filter record has `scores` too (the 0/1 pass marks, as a main filter writes
+  today).
+- Erratum U1f: a narrow `scores@1` step records `score:judge` in the member rows (a main `scores@1`
+  does not, for byte identity). The evidence `judge` record stays the main step's; a judge that only
+  a narrow step reads shows in that step's `scores`. The main `judge.parsed` can name left-out
+  members, because the judge saw every answered member.
 - `select`: the pinned select op id. `signal`: the key that the step read (`field:confidence`,
   `score:judge`, a declared name), absent for a pattern filter. The evidence `signal` key of today
   stays the main step's key (`E/combine/endpoint.py:1210`). `kept`: member ids in author order.
@@ -148,7 +160,7 @@ Each place below reads only the main step today. With `narrow`, each one follows
 |---|---|
 | `E/combine/endpoint.py:482` `_recorded_keys` | the union of the keys that every step reads |
 | `E/combine/endpoint.py:352-356` `parse_context(sources_expected=...)` | expected when any step reads an accounting key |
-| `E/combine/endpoint.py:1027-1037` `_read_members` (Answer signals) | every key that any step reads |
+| `E/combine/endpoint.py:1027-1037` `_read_members` (Answer signals) | erratum U1a: each step's `Answer.signals` hold that step's key only (rule I-S3); the member **rows** of the evidence hold every key that any step reads |
 | `E/combine/endpoint.py:1182-1218` `_evidence` (rows, `dropped`) | rows for every member; `dropped` counts failed members only (NR-I6) |
 | `E/combine/endpoint.py:991` one-signal rule | per step (NR-S3) |
 | `S/_evaluation/combine_spec.py:133` `accounting_signal` (used at `S/_evaluation/candidate.py:739`) | true when any step reads an accounting key, so the member sources go in the context |
@@ -179,7 +191,8 @@ Each place below reads only the main step today. With `narrow`, each one follows
   filter (the judged set), a judge `ArgMax` after a filter, and an abstain-fallback gate after
   narrow with `mean:` over the live set.
 - New url4 fixtures `ET/data/combine_contract/narrow_filter_mean_candidate.url4` and
-  `narrow_rank_vote_candidate.url4`, compiled by the SDK and read by the Engine test.
+  `narrow_rank_vote_candidate.url4`, compiled by the SDK and read by the Engine test (unit 5,
+  NC-4; erratum U1g).
 
 ## 8. Acceptance
 

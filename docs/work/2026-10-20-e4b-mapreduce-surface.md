@@ -50,6 +50,14 @@ step so a narrow step can come before a reducer.
   record `signal` + `scores`; EX-2 sentinel; MSG-1 by an `ast` scan with an allow list; CH-14;
   O14/GA-6 (gated vote with an extractor `over=` refused; owner choice open).
 
+- 2026-10-20: unit 1 (Engine narrow) built in worktree e4b-narrow, design review ACCEPT WITH FIXES,
+  fix round done (Engine NR-C1, `reduce` key, judged default, whole-message tests). OWNER APPROVED
+  the unit 1 pinned edits: combine-spec.v1.json, combine-evidence.v1.json,
+  public_surface_snapshot.json, answer.v1.json, and the literals in test_combine_evidence_words.py,
+  test_combine_consistency_words.py, test_band_words.py, test_evidence_words.py,
+  test_gate_words.py, test_pick_output.py. Cherry-picked onto this branch (c31a90603..0000b95f4).
+  Errata U1a–U1h applied to the spec.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**
