@@ -1,13 +1,13 @@
 ---
 id: OME-1609
 linear_url: https://linear.app/openmined/issue/OME-1609/make-the-leaderboard-list-filter-hide-rows-that-do-not-match
-status: in_review
+status: done
 type: bug
 priority: medium
 labels: [bug, client-sf, agentic, autonomous]
 parent: none (bug exception)
 created: 2026-10-15
-closed:
+closed: 2026-10-20
 ---
 
 # Make the leaderboard list filter hide rows that do not match
