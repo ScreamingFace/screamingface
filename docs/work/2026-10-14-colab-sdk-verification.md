@@ -109,3 +109,9 @@ Removing the entire message guard in a disposable copy makes all six forged-mess
 tests fail. State/accept/reset cancellation and DNT regressions ensure no subsequent
 ID request; timeout regressions pin the shared budget. Native Windows execution and
 real Colab browser scheduling are not covered by these local tests.
+
+Final validation of the consent fixes: 4,274 SDK tests passed, 33 skipped, 96.97%
+coverage (95% gate passed); ten Node browser-script tests passed. Type checking,
+lint, formatting, deterministic notebooks, build and distribution checks passed.
+Paid tests remained excluded by the suite's default collection guard. The six
+forged-message mutation failures were observed only in the disposable copy.
