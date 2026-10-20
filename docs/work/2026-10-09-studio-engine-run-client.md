@@ -404,3 +404,64 @@ SDK (`transport.py`). `limit` is not validated either, because nothing calls `st
 the tests yet.
 
 **Gates:** lint, typecheck and `npm test` (14 files / 387 tests) pass.
+
+## Second review follow-up (PR #1327, HupBaHa 2026-10-20)
+
+I checked all five findings against the code and the SDK and Engine sources, and all five held.
+TDD: 39 tests went RED, then GREEN.
+
+1. **A start lost in transport.** In `begin()`, a failed start request settled with `started`
+   still false, so no `DELETE` went out, even though the Engine may already have accepted the
+   GET.
+   - Every start that went out but got no answer is now handled the same way, whether the
+     deadline passed or the connection broke: Studio sends the bounded `DELETE`, then settles
+     as `unreachable` with `cleanup` set. If the user aborted in that window, it settles as
+     `stopped` or `stop_unconfirmed`.
+   - The timeout branch now reports `cleanup` too.
+   - RED→GREEN: "deletes a run whose start was sent but whose answer never arrived", "reports
+     the cleanup of a start that never answered", "deletes the run and reports stopped when the
+     user aborts and the start then resets".
+2. **The artifact capability.** Every request that carries a capability (the start, the
+   `DELETE` and the artifact fetch) now sets `redirect: "error"`. The artifact response is also
+   refused when it is `redirected`, or when its URL's origin is not the Engine's. The artifact
+   error detail is redacted with that attempt's fresh capability; the run's own token is still
+   redacted on every rejection.
+   - RED→GREEN: "never follows a redirect with a capability", "refuses an artifact answered
+     from another origin", "redacts the fresh artifact token from an error the Engine echoes".
+3. **Error bodies read without a deadline.** A refused start or artifact body is now read by
+   `boundedProblemDetail`:
+   - Each chunk read has a deadline: the 30 s request deadline for the start, which a caller
+     abort also ends, and the artifact's per-chunk inactivity deadline.
+   - The cap is **`PROBLEM_MAX_BYTES` = 64 KiB**. An Engine problem+json body is a few hundred
+     bytes, so anything larger is discarded, as is a body that stalls. The run then reports its
+     generic detail.
+   - RED→GREEN: "settles a refused start whose body never ends within the deadline", "lets an
+     abort cancel a refused start's body read", "settles a refused artifact whose body never
+     ends within the deadline", "discards a problem body larger than 64 KiB".
+4. **The full `CandidateResult` contract.** Checked against `benchmarks/contract.py`:
+   - every `Failure` field (`stage`, `code`, `message`, `retryable`, `case_id`, `metadata`).
+     A case's failures must name that case, and Candidate-level failures name none;
+   - the case's `finish_reason`, `refusal` (non-empty text or null) and `metadata`;
+   - `Check` (`type`, `id`, `label`, `outcome`, `score` in [0, 1], `evidence`, `metadata`);
+   - `operations[]` (`operation_id`, `output`, `finish_reason`, `accounting`);
+   - unique `case_id`, and `case_count === cases.length`.
+   - RED→GREEN: 22 new "rejects a result with a bad <field>, naming it" cases, for example
+     `case_count` (2 with one case), `cases[1].case_id` (a duplicate), and
+     `cases[0].failures[0].stage` (a `{code, message}`-only failure).
+   - Two existing cases (`cases[0].failures[0].code`, `failures[0].message`) now build
+     otherwise-complete failures, so they still fail on the field they name.
+5. **Empty parameter values.** Confirmed with `compile_candidate`: `params={"stop": ""}` →
+   `?stop=&q=`, and an empty name is refused (`_candidate_policy.py:54-56`).
+   - `filledParams` is gone. An empty value is emitted (`PARAM_VALUE` now allows it), and an
+     empty name is a `RecipeIssue` with or without a value. Nothing is dropped silently.
+   - New SDK golden: `params_empty_value`.
+   - "skips params without a key or a value" became "emits a param with an empty value, as the
+     SDK does" and "reports a param with an empty name with / without a value instead of
+     dropping it". The "accepts every value…" test no longer has an empty-name row.
+   - Page tests: "keeps a parameter with a name and an empty value in the url4", "shows an
+     issue for a parameter with no name and will not share the recipe".
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 426 tests; statements 93.43%,
+branches 89.42%, functions 94%, lines 96.23%) and `npm run build` all pass. Both SDK fixture
+scripts regenerate byte for byte; the only golden change is the new `params_empty_value`, an
+addition. No lockfile was touched. Committed locally, not pushed.

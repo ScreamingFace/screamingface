@@ -83,6 +83,11 @@ const SDK_EQUIVALENTS: Record<keyof typeof linked, () => RecipeNode> = {
     ]),
   solo_prompt_encoded: () => solo(GPT, SOLO_TEXT),
   solo_named: () => named(solo(GPT, ANSWER), "drafter"),
+  params_empty_value: () =>
+    solo(GPT, "", [
+      { key: "stop", value: "" },
+      { key: "seed", value: "3" },
+    ]),
   fusion_defaults: () => fusion([solo(CLAUDE), solo(GPT)], solo(GPT)),
   fusion: () => fusion([solo(CLAUDE, ANSWER), solo(GPT, ANSWER)], solo(GPT, SYNTHESIZE)),
   fusion_params: () =>
@@ -162,12 +167,18 @@ describe("recipeToUrl4", () => {
     expect(recipeToUrl4(solo("openai/gpt-4o"))).toBe(linked.solo.candidate);
   });
 
-  it("skips params without a key or a value", () => {
-    const params = [
-      { key: "", value: "1" },
-      { key: "seed", value: "" },
-    ];
-    expect(recipeToUrl4(solo("openai/gpt-4o", "", params))).toBe(linked.solo.candidate);
+  it("emits a param with an empty value, as the SDK does", () => {
+    const params = [{ key: "seed", value: "" }];
+    expect(recipeToUrl4(solo("openai/gpt-4o", "", params))).toContain("/openai/gpt-4o?seed=&q=($input)");
+  });
+
+  it.each([
+    ["with a value", { key: "", value: "1" }],
+    ["without a value", { key: "", value: "" }],
+  ])("reports a param with an empty name %s instead of dropping it", (_name, param) => {
+    const root = solo("openai/gpt-4o", "", [param]);
+    expect(recipeIssues(root)).toEqual([expect.objectContaining({ nodeId: root.id, key: "" })]);
+    expect(() => recipeToUrl4(root)).toThrow(RecipeError);
   });
 });
 
@@ -430,11 +441,10 @@ describe("parameter validation", () => {
     ]);
   });
 
-  it("accepts every value url4 carries unquoted, and skips unfinished rows", () => {
+  it("accepts every value url4 carries unquoted, and an empty value", () => {
     const root = solo("a/b", "", [
       { key: "stop", value: "END:of/answer-1.0_x" },
       { key: "temperature", value: "-0.5" },
-      { key: "", value: "x" },
       { key: "seed", value: "" },
     ]);
     expect(recipeIssues(root)).toEqual([]);

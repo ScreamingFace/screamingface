@@ -80,7 +80,12 @@ function problem(status: number, detail: string) {
 const ATTACHING = () =>
   problem(428, "attach a WebSocket to the topic before starting the run");
 
-type Call = { url: string; method: string; headers: Record<string, string> };
+type Call = {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  redirect?: RequestRedirect;
+};
 
 type EngineRoutes = {
   benchmark?: Route;
@@ -98,7 +103,12 @@ function fakeEngine(routes: EngineRoutes = {}) {
   const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = String(input);
     const method = init.method ?? "GET";
-    calls.push({ url, method, headers: (init.headers ?? {}) as Record<string, string> });
+    calls.push({
+      url,
+      method,
+      headers: (init.headers ?? {}) as Record<string, string>,
+      redirect: init.redirect,
+    });
     const answer = (route: Route | (() => Promise<Reply>)) => {
       const result = route();
       return result === HANG ? hang(init.signal) : result;
@@ -1045,8 +1055,66 @@ describe("startRun result contract", () => {
     ["cases[0].grade.metrics", (r) => (r.cases[0].grade.metrics = null)],
     ["cases[0].grade.checks", (r) => delete r.cases[0].grade.checks],
     ["cases[0].failures", (r) => (r.cases[0].failures = "none")],
-    ["cases[0].failures[0].code", (r) => (r.cases[0].failures = [{ message: "m" }])],
-    ["failures[0].message", (r) => (r.failures = [{ code: "c" }])],
+    [
+      "cases[0].failures[0].code",
+      (r) =>
+        (r.cases[0].failures = [
+          { stage: "candidate", message: "m", retryable: null, case_id: 1000, metadata: {} },
+        ]),
+    ],
+    [
+      "failures[0].message",
+      (r) =>
+        (r.failures = [
+          { stage: "candidate", code: "c", retryable: null, case_id: null, metadata: {} },
+        ]),
+    ],
+    ["case_count", (r) => (r.case_count = 2)],
+    ["cases[1].case_id", (r) => r.cases.push(structuredClone(r.cases[0]))],
+    ["cases[0].finish_reason", (r) => (r.cases[0].finish_reason = 5)],
+    ["cases[0].refusal", (r) => (r.cases[0].refusal = " ")],
+    ["cases[0].metadata", (r) => delete r.cases[0].metadata],
+    ["cases[0].grade.checks[0].type", (r) => (r.cases[0].grade.checks[0].type = "")],
+    ["cases[0].grade.checks[0].id", (r) => delete r.cases[0].grade.checks[0].id],
+    ["cases[0].grade.checks[0].label", (r) => (r.cases[0].grade.checks[0].label = 1)],
+    ["cases[0].grade.checks[0].outcome", (r) => (r.cases[0].grade.checks[0].outcome = "YES")],
+    ["cases[0].grade.checks[0].score", (r) => (r.cases[0].grade.checks[0].score = 2)],
+    ["cases[0].grade.checks[0].evidence", (r) => (r.cases[0].grade.checks[0].evidence = {})],
+    ["cases[0].grade.checks[0].metadata", (r) => (r.cases[0].grade.checks[0].metadata = [])],
+    ["cases[0].operations", (r) => (r.cases[0].operations = {})],
+    ["cases[0].operations[0].operation_id", (r) => (r.cases[0].operations[0].operation_id = "")],
+    ["cases[0].operations[0].output", (r) => (r.cases[0].operations[0].output = 1)],
+    ["cases[0].operations[0].finish_reason", (r) => (r.cases[0].operations[0].finish_reason = 1)],
+    ["cases[0].operations[0].accounting", (r) => (r.cases[0].operations[0].accounting = "x")],
+    [
+      "cases[0].failures[0].stage",
+      (r) => (r.cases[0].failures = [{ code: "c", message: "m" }]),
+    ],
+    [
+      "cases[0].failures[0].retryable",
+      (r) => (r.cases[0].failures = [{ stage: "candidate", code: "c", message: "m" }]),
+    ],
+    [
+      "cases[0].failures[0].case_id",
+      (r) =>
+        (r.cases[0].failures = [
+          { stage: "candidate", code: "c", message: "m", retryable: false, case_id: 7, metadata: {} },
+        ]),
+    ],
+    [
+      "cases[0].failures[0].metadata",
+      (r) =>
+        (r.cases[0].failures = [
+          { stage: "candidate", code: "c", message: "m", retryable: null, case_id: 1000 },
+        ]),
+    ],
+    [
+      "failures[0].case_id",
+      (r) =>
+        (r.failures = [
+          { stage: "candidate", code: "c", message: "m", retryable: null, case_id: 1000, metadata: {} },
+        ]),
+    ],
   ] as [string, Mutation][])("rejects a result with a bad %s, naming it", async (field, mutate) => {
     const error = await rejection(resultWith(mutate));
     expect(error).toMatchObject({ kind: "invalid_result", code: "invalid_result" });
@@ -1282,5 +1350,147 @@ describe("startRun artifact inactivity deadline", () => {
     await vi.advanceTimersByTimeAsync(200_000);
 
     expect(await rejection(outcome)).toMatchObject({ kind: "unreachable" });
+  });
+});
+
+describe("startRun start transport failures", () => {
+  function resetLater() {
+    let reset: () => void = () => undefined;
+    const pending = new Promise<Reply>((_resolve, reject) => {
+      reset = () => reject(new TypeError("connection reset"));
+    });
+    return { route: () => pending, reset: () => reset() };
+  }
+
+  it("deletes a run whose start was sent but whose answer never arrived", async () => {
+    const { outcome, engine } = await started({
+      routes: { start: [() => Promise.reject(new TypeError("connection reset"))] },
+    });
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable", cleanup: "stopped" });
+    expect(engine.calls.at(-1)).toMatchObject({ method: "DELETE", url: `${BASE}/?topic=${TOPIC}` });
+  });
+
+  it("reports the cleanup of a start that never answered", async () => {
+    vi.useFakeTimers();
+    const { outcome } = await started({ routes: { start: [() => HANG] } });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable", cleanup: "stopped" });
+  });
+
+  it("deletes the run and reports stopped when the user aborts and the start then resets", async () => {
+    const start = resetLater();
+    const controller = new AbortController();
+    const { outcome, engine } = await started({
+      signal: controller.signal,
+      routes: { start: [start.route] },
+    });
+
+    controller.abort();
+    start.reset();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.calls.at(-1)?.method).toBe("DELETE");
+  });
+});
+
+describe("startRun capability safety", () => {
+  it("never follows a redirect with a capability", async () => {
+    const { engine, outcome, socket } = await started({
+      routes: { artifact: () => reply(200, frames.artifactBody) },
+    });
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await outcome;
+
+    const carrying = engine.calls.filter((call) => call.headers["URL4-Capability"]);
+    expect(carrying.length).toBeGreaterThan(0);
+    for (const call of carrying) expect(call.redirect).toBe("error");
+  });
+
+  it("refuses an artifact answered from another origin", async () => {
+    const moved = { ...reply(200, frames.artifactBody), url: "http://elsewhere.example/a", redirected: true };
+    const { outcome, socket } = await started({ routes: { artifact: () => moved } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+
+  it("redacts the fresh artifact token from an error the Engine echoes", async () => {
+    const fresh = "fresh-artifact-capability-123";
+    const { outcome, socket } = await started({
+      routes: {
+        tokens: [() => reply(200, { token: TOKEN }), () => reply(200, { token: fresh })],
+        artifact: () => problem(403, `capability ${fresh} is not valid here`),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    const error = await rejection(outcome);
+    expect(error.message).not.toContain(fresh);
+    expect(error.message).toContain("[redacted]");
+  });
+});
+
+describe("startRun problem bodies", () => {
+  function endless(type = "application/problem+json") {
+    return (status: number) => ({
+      ...reply(status, ""),
+      headers: new Headers({ "content-type": type }),
+      // Headers arrived; the body never finishes, however it is read.
+      json: () => new Promise<never>(() => undefined),
+      body: new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            controller.enqueue(new TextEncoder().encode('{"detail":"'));
+            return new Promise<void>(() => undefined);
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    });
+  }
+
+  it("settles a refused start whose body never ends within the deadline", async () => {
+    vi.useFakeTimers();
+    const { outcome } = await started({ routes: { start: [() => endless()(500)] } });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed", code: "http_500" });
+  });
+
+  it("lets an abort cancel a refused start's body read", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome } = await started({
+      signal: controller.signal,
+      routes: { start: [() => endless()(500)] },
+    });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("settles a refused artifact whose body never ends within the deadline", async () => {
+    vi.useFakeTimers();
+    const { outcome, socket } = await started({ routes: { artifact: () => endless()(500) } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed", code: "http_500" });
+  });
+
+  it("discards a problem body larger than 64 KiB", async () => {
+    const huge = problem(400, "x".repeat(70 * 1024));
+    const { outcome } = await started({ routes: { start: [() => huge] } });
+
+    const error = await rejection(outcome);
+    expect(error).toMatchObject({ kind: "failed", code: "http_400" });
+    expect(error.message.length).toBeLessThan(1024);
   });
 });

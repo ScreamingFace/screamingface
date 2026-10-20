@@ -250,8 +250,9 @@ const PARAM_KEY = /^[A-Za-z0-9._]+$/;
 // url4 `param-value` (`_annotations.py:64-67`: ALPHA / DIGIT / . - _ , : /) without the `,` that
 // the renderer refuses in a query value (`url4/core/render.py:504-511`) and the SDK refuses too
 // (`_candidate_policy.py:73-76`). Anything else cannot be carried unquoted, and the SDK never
-// quotes a parameter, so the SDK would refuse to compile it.
-const PARAM_VALUE = /^[A-Za-z0-9._\-:/]+$/;
+// quotes a parameter, so the SDK would refuse to compile it. An empty value is a value: url4
+// accepts it (`validate_param`) and the SDK writes `stop=` for `params={"stop": ""}`.
+const PARAM_VALUE = /^[A-Za-z0-9._\-:/]*$/;
 // The model routes the SDK can address (`_evaluation/candidate.py` `_MODEL_ROUTE_RE`).
 const MODEL_ROUTE = /^[A-Za-z0-9\-_.~]+(?:\/[A-Za-z0-9\-_.~]+)*$/;
 // Control characters the SDK refuses in a prompt after mapping tab, CR and LF
@@ -273,12 +274,9 @@ export class RecipeError extends Error {
   }
 }
 
-// A row with no name or no value is still being typed, and is left out, not reported.
-function filledParams(params: ModelParam[]): ModelParam[] {
-  return params.filter((param) => param.key && param.value !== "");
-}
-
 function paramIssue(param: ModelParam): string | null {
+  // The SDK refuses a nameless parameter (`_candidate_policy.py:54-56`), with or without a value.
+  if (!param.key) return "A parameter has no name: name it or remove it.";
   if (!PARAM_KEY.test(param.key)) {
     return `"${param.key}" isn't a valid parameter name: use letters, digits, "." and "_".`;
   }
@@ -318,7 +316,7 @@ export function recipeIssues(root: RecipeNode): RecipeIssue[] {
       }
       const seen = new Set<string>();
       const repeated = new Set<string>();
-      for (const param of filledParams(node.params)) {
+      for (const param of node.params) {
         const message = paramIssue(param);
         if (message) add(node, param.key, message);
         // A Recipe's params are a mapping (`_candidate_policy.params`): one value per name.
@@ -345,7 +343,7 @@ export function recipeIssues(root: RecipeNode): RecipeIssue[] {
 // url4's query form for a call with params: `?k=v&…&q=` and then the call's `(<context>)`
 // (`url4/core/render.py` `_render_target_expr`). Without params a call is `/path(<context>)`.
 function paramQuery(params: ModelParam[]): string {
-  const kv = filledParams(params).map((param) => `${param.key}=${param.value}`);
+  const kv = params.map((param) => `${param.key}=${param.value}`);
   return kv.length ? `?${kv.join("&")}&q=` : "";
 }
 

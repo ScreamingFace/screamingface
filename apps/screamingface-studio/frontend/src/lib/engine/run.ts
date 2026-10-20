@@ -12,7 +12,7 @@
 
 import { getEngineUrl } from "../runtime";
 import { createUuid } from "../uuid";
-import { type RequestOptions, engineRequest, problemDetail, redact } from "./client";
+import { type RequestOptions, engineRequest, redact } from "./client";
 import { isEngineError } from "./errors";
 import { checkCandidateResult } from "./run-result";
 import type { CandidateResult, LogAttributes, RunEvent } from "./run-types";
@@ -243,18 +243,25 @@ const UNREACHABLE = Symbol("unreachable");
 
 // `work` with a deadline: it gets an AbortSignal that fires when `ms` passes, and the result is
 // `TIMED_OUT` if the deadline wins.
+// `cancelOn` ends the wait the same way, as soon as that signal aborts.
 async function withDeadline<T>(
   deps: RunDeps,
   ms: number,
   work: (signal: AbortSignal) => Promise<T>,
+  cancelOn?: AbortSignal,
 ): Promise<T | typeof TIMED_OUT> {
   const controller = new AbortController();
   let timer: unknown;
+  let onCancel = () => undefined as void;
   const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
-    timer = deps.setTimeout(() => {
+    const expire = () => {
       controller.abort();
       resolve(TIMED_OUT);
-    }, ms);
+    };
+    timer = deps.setTimeout(expire, ms);
+    onCancel = expire;
+    if (cancelOn?.aborted) expire();
+    cancelOn?.addEventListener("abort", onCancel);
   });
   const attempt = work(controller.signal);
   // Once the deadline wins, the aborted attempt's own rejection is expected and unobserved.
@@ -263,6 +270,56 @@ async function withDeadline<T>(
     return await Promise.race([attempt, deadline]);
   } finally {
     deps.clearTimeout(timer);
+    cancelOn?.removeEventListener("abort", onCancel);
+  }
+}
+
+// The most of an error body Studio reads for its problem detail. An Engine problem+json body is
+// a few hundred bytes (`auth/problem.py`); anything past this is not a detail worth waiting for.
+export const PROBLEM_MAX_BYTES = 64 * 1024;
+
+// `problemDetail` for an answer whose body may never end: each read waits under `wait` (a
+// deadline, which a caller abort may also end), and a body past `PROBLEM_MAX_BYTES`, a stall
+// or an unreadable body is discarded, leaving the caller's generic detail.
+async function boundedProblemDetail(
+  response: Response,
+  wait: <T>(next: () => Promise<T>) => Promise<T | typeof TIMED_OUT>,
+): Promise<string | undefined> {
+  if (!(response.headers.get("content-type") ?? "").includes("json")) {
+    void response.body?.cancel().catch(() => undefined);
+    return undefined;
+  }
+  let raw: string;
+  try {
+    if (!response.body) {
+      const whole = await wait(() => response.text());
+      if (whole === TIMED_OUT || whole.length > PROBLEM_MAX_BYTES) return undefined;
+      raw = whole;
+    } else {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      for (;;) {
+        const chunk = await wait(() => reader.read());
+        if (chunk === TIMED_OUT) {
+          void reader.cancel().catch(() => undefined);
+          return undefined;
+        }
+        if (chunk.done) break;
+        length += chunk.value.length;
+        if (length > PROBLEM_MAX_BYTES) {
+          void reader.cancel().catch(() => undefined);
+          return undefined;
+        }
+        chunks.push(chunk.value);
+      }
+      raw = new TextDecoder().decode(concat(chunks, length));
+    }
+    const body: unknown = JSON.parse(raw);
+    const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : undefined;
+    return typeof detail === "string" ? detail : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -418,6 +475,7 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
     // Aborts an artifact download when the caller aborts after the root has terminated.
     const download = new AbortController();
     let lastSequence = 0;
+    const engineOrigin = new URL(origin).origin;
     const pending = new Map<number, Frame>();
     let result: Promise<CandidateResult> | null = null;
     let rootSource: string | null = null;
@@ -490,6 +548,7 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
             method: "DELETE",
             headers: capability,
             cache: "no-store",
+            redirect: "error",
             signal: deadline,
           }),
         );
@@ -533,6 +592,14 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
       // A start in flight: `begin` settles it once the Engine answers or the deadline passes.
     }
 
+    // A start whose answer never came (no answer in time, or a broken connection): the Engine
+    // may have accepted it, so stop it over HTTP before settling, and say how that went.
+    async function unansweredStart(detail: string) {
+      const outcome = await deleteRun();
+      if (abortRequested) return fail(outcome === "stopped" ? "stopped" : "stop_unconfirmed");
+      settle({ error: new RunError("unreachable", detail, undefined, outcome) });
+    }
+
     async function begin() {
       starting = true;
       const headers: Record<string, string> = { ...capability, Prefer: "respond-async" };
@@ -545,11 +612,19 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
               method: "GET",
               headers,
               cache: "no-store",
+              // A capability never follows a redirect off the Engine.
+              redirect: "error",
               signal: deadline,
             }),
           );
         } catch {
-          return fail(abortRequested ? "stopped" : "unreachable");
+          // The request went out: the Engine may have accepted the run before the connection
+          // failed, so treat it like an unanswered start.
+          if (settled || closing) {
+            void deleteRun();
+            return;
+          }
+          return unansweredStart("The connection broke before the Engine answered the run's start.");
         }
         if (settled || closing) {
           // Accepted after Studio already gave up on this run: stop it rather than orphan it.
@@ -557,11 +632,7 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
           return;
         }
         if (response === TIMED_OUT) {
-          // The Engine may have accepted the run without answering: stop it over HTTP, so no
-          // run is left going with nobody watching it.
-          const outcome = await deleteRun();
-          if (abortRequested) return fail(outcome === "stopped" ? "stopped" : "stop_unconfirmed");
-          return fail("unreachable", "The Engine did not answer the run's start within 30 seconds.");
+          return unansweredStart("The Engine did not answer the run's start within 30 seconds.");
         }
         if (response.status === 202) {
           started = true;
@@ -571,7 +642,11 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
           return;
         }
         if (abortRequested) return fail("stopped");
-        const detail = await problemDetail(response);
+        const detail = await boundedProblemDetail(response, (next) =>
+          withDeadline(deps, REQUEST_DEADLINE_MS, () => next(), signal),
+        );
+        if (settled) return;
+        if (abortRequested) return fail("stopped");
         const registering =
           response.status === 428 && Boolean(detail?.toLowerCase().includes("attach a websocket"));
         if (!registering || attempt >= ATTACH_RETRIES) {
@@ -615,6 +690,8 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
             deps.fetch(`${origin}/artifacts/${id}`, {
               headers: { "URL4-Capability": fresh },
               cache: "no-store",
+              // The fresh capability never follows a redirect off the Engine.
+              redirect: "error",
               signal: controller.signal,
             }),
           );
@@ -622,10 +699,16 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
           return UNREACHABLE;
         }
         if (response === TIMED_OUT) return UNREACHABLE;
+        if (response.redirected || (response.url && new URL(response.url).origin !== engineOrigin)) {
+          void response.body?.cancel().catch(() => undefined);
+          throw new RunError("stream_failed", "The run's result came from somewhere other than the Engine.");
+        }
         if (!response.ok) {
+          const detail = await boundedProblemDetail(response, read);
           throw new RunError(
             "stream_failed",
-            (await problemDetail(response)) ?? "The Engine would not hand over the run's result.",
+            // The Engine may echo the capability it was given: this attempt's, not the run's.
+            redact(detail, fresh) ?? "The Engine would not hand over the run's result.",
             `http_${response.status}`,
           );
         }

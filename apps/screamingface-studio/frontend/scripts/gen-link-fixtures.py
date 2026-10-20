@@ -66,6 +66,8 @@ CASES: dict[str, sf.Model | sf.Fusion | sf.Pipeline] = {
     # `$` becomes `$$`, so `$USD` / `$input` stay literal text, never url4 references.
     "solo_prompt_encoded": M(GPT, prompt=SOLO_TEXT),
     "solo_named": M(GPT, name="drafter", prompt=ANSWER),
+    # An empty parameter value is a value: the SDK emits `stop=` (url4 accepts an empty value).
+    "params_empty_value": M(GPT, params={"stop": "", "seed": 3}),
     # ── fusion ──
     "fusion_defaults": sf.Fusion(members=[M(CLAUDE), M(GPT)], synthesizer=M(GPT)),
     "fusion": sf.Fusion(

@@ -131,6 +131,48 @@ describe("EnsembleComposerPage recipe parameters", () => {
     expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
   });
 
+  function openSaved(params: { key: string; value: string }[]) {
+    const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
+    const root = fusionOf([llama, qwen]);
+    root.members[0] = { ...(root.members[0] as SoloNode), params };
+    useEnsembleStore.setState({
+      ensembles: [
+        {
+          id: "e3",
+          name: "params",
+          root,
+          slots: [],
+          strategy: "majority_vote",
+          customReduce: false,
+          loopMode: "parallel",
+          judge: null,
+          judgeId: null,
+          runs: 0,
+          runHistory: [],
+          createdAt: 1,
+          updatedAt: 1,
+        } as SavedEnsemble,
+      ],
+    });
+    search.params = new URLSearchParams({ id: "e3" });
+    render(<EnsembleComposerPage />);
+  }
+
+  it("keeps a parameter with a name and an empty value in the url4", async () => {
+    openSaved([{ key: "stop", value: "" }]);
+
+    expect(await screen.findByText("params")).toBeInTheDocument();
+    expect(await screen.findByText(/\?stop=&q=\(\$input\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows an issue for a parameter with no name and will not share the recipe", async () => {
+    openSaved([{ key: "", value: "1" }]);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/name/i);
+    expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
+  });
+
   it("lists two issues of the same kind on one model without a duplicate key", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
