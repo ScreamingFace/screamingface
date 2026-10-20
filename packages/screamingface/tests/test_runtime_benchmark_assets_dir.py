@@ -510,3 +510,26 @@ def test_status_json_reports_artifacts_and_the_recorded_folder_together(
     assert payload["artifacts_bytes"] == 5
     assert payload["benchmark_assets_dir"] == str(bundled.resolve())
     assert payload["benchmarks"] == dict.fromkeys(_BENCHMARKS, "prepared")
+
+
+@pytest.mark.parametrize("case", ["deleted", "file", "unreadable"])
+def test_doctor_fails_when_the_recorded_folder_cannot_be_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+) -> None:
+    _owned_and_healthy(monkeypatch)
+    monkeypatch.setattr(cli, "_get_json", lambda _url: [{"status": "connected"}])
+    bundled = tmp_path / "bundled"
+    if case == "file":
+        bundled.write_text("not a folder")
+    elif case == "unreadable":
+        _prepared_folder(bundled)
+        monkeypatch.setattr(cli.os, "access", lambda _path, _mode: False)
+    config = RuntimeConfig(data_dir=tmp_path / "data")
+    _owned_state(config, bundled)
+
+    assert cli._doctor(config) == 1
+
+    assert f"FAIL  {'benchmark assets dir':22} {bundled.resolve()}" in capsys.readouterr().out

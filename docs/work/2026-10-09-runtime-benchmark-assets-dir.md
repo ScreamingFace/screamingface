@@ -82,5 +82,6 @@ Approved inputs (landing with the slice A PR, `studio-compose-fusion-run` branch
   - New test: `test_up_refuses_a_healthy_runtime_serving_another_folder[other|None]`, which failed first.
   - Guard test: `test_up_adopts_a_healthy_runtime_serving_the_same_folder`.
 - **Merged-tree test:** `test_status_json_reports_artifacts_and_the_recorded_folder_together` asserts the artifact status (#1217) and the recorded datasets folder in one response. It is a guard; the rebase had already put both together.
-- **Not done (the reviewer marked it as a follow-up):** `doctor` failing rather than passing when a recorded folder is missing or unreadable, and tightening how stale state feeds remembered config.
-- **Gates:** ruff, format and pyright are clean. 4224 passed and 33 skipped, with 97.02% coverage. Notebooks pass.
+- **`doctor` now fails on an unusable recorded folder** (the reviewer's follow-up, included here because it was trivial). The `benchmark assets dir` check is FAIL, and `doctor` exits 1, when the folder is deleted, is a file, or can't be read or listed. New test: `test_doctor_fails_when_the_recorded_folder_cannot_be_read[deleted|file|unreadable]`, which failed first.
+- **Not done (the reviewer marked it as a follow-up):** tightening how stale or unowned state feeds remembered config.
+- **Gates:** ruff, format and pyright are clean. 4227 passed and 33 skipped, with 97.02% coverage. Notebooks pass.

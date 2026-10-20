@@ -848,7 +848,10 @@ def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915
 
     assets = _recorded_assets(config, state, owned=owned)
     if assets.benchmark_assets_dir is not None:
-        checks.append(("pass", "benchmark assets dir", str(assets.benchmark_assets_dir)))
+        folder = assets.benchmark_assets_dir
+        # WHY fail, not pass: an explicit folder that is gone or unreadable fails every run.
+        readable = folder.is_dir() and os.access(folder, os.R_OK | os.X_OK)
+        checks.append(("pass" if readable else "fail", "benchmark assets dir", str(folder)))
     statuses = _benchmark_statuses(assets)
     for name, status in statuses.items():
         severity = "pass" if status == "prepared" else "warn" if status == "missing" else "fail"
