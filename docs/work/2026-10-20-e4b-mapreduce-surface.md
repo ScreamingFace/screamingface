@@ -219,3 +219,25 @@ LO-P2, E4, E6 (test plan "Unit 3").
   owner-approved unit-1 files (`answer.v1.json`, `public_surface_snapshot.json`,
   `test_band_words.py`, `test_evidence_words.py`, `test_gate_words.py`, `test_pick_output.py`);
   with `--skip-append-only` ALL GATES GREEN. `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+
+## Unit 4: gate
+
+### Intent
+
+Add `Gate(*, when, then, otherwise="abstain", abstain_if=None)` to the private surface, with the
+gate references `sf.signal(x).chosen()`, `sf.signal(x).mean()` and `sf.agreement()`, their
+comparisons and `.between(lo, hi)`. A gate lowers to today's `sf.Vote(gate=sf.Gate(...))`.
+
+### Files (planned)
+
+- New: `S/_surface/gate.py`. Edit: `S/_surface/refs.py` (the gate references), `chain.py`
+  (NR-C1 for a model-fallback gate), `lowering.py`, `judge.py`, `steps.py`, `__init__.py`.
+- New test: `ST/test_gate_surface.py`.
+
+### Rows
+
+GA-1..GA-6, NR-C1 (gate), GA-P, SI-1, CH-10 (a gated judge-weighted vote reads the judge).
+
+### Outcome
+
+- (filled at the end of the unit)
