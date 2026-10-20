@@ -27,7 +27,7 @@ so the key has no free position. A spec without the key keeps its bytes.
 ```json
 "narrow": [
   {"extract": null, "normalize": null,
-   "reduce": {"op": "filter@1", "args": {"key": "field:confidence", "cmp": ">", "value": 0.7}},
+   "reduce": {"op": "filter@1", "args": {"key": "field:confidence", "cmp": "gt", "value": 0.7}},
    "select": {"op": "kept@1", "args": {}}}
 ]
 ```

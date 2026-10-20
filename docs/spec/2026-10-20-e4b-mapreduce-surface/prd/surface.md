@@ -86,7 +86,7 @@ The chain is read left to right with these states. `CH-n` is the rule id that th
 - `CH-11` A step value that is not a recipe (a `Judge`, a reducer, a narrow step) is refused as a
   `Fanout` member, a `CorrectiveLoop` member, a `CorrectiveLoop(judge=)` or a `Synthesize` model:
   "sf.{X} is a step, not a recipe: put it after a sf.Fanout".
-- `CH-12` Before unit 5 (narrow compile), a block that needs the spec `narrow` key is refused: a
+- `CH-12` (**removed in unit 5**) Before unit 5 (narrow compile), a block that needs the spec `narrow` key was refused: a
   narrow step before a reducer, or two or more narrow steps before `Synthesize`. The message is
   "narrow before a reducer is not built yet". Unit 5 removes this refusal.
 - `NR-C1` (O11) A narrow step before `sf.Merge`, before `sf.JudgePick`, or before a `sf.Gate` whose
