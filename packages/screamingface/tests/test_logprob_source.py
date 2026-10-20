@@ -24,9 +24,10 @@ from _model_parameter_fixtures import SUMMARY as _SUMMARY
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
+from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._signals import Signal
-from screamingface.reducer import Reducer
+from screamingface._surface.lowering import lower
 from screamingface.signal_sources import declared_from_spec
 
 _ALPHA = "openrouter/acme/alpha"
@@ -35,14 +36,14 @@ _GAMMA = "openrouter/acme/gamma"
 _MEMBERS = [_ALPHA, _BETA, _GAMMA]
 _WRITER = "openrouter/acme/writer"
 _WEIGHTED: list[Any] = [
-    pytest.param(lambda s: sf.Vote(weights=s), id="vote"),
-    pytest.param(lambda s: sf.Median(weights=s), id="median"),
-    pytest.param(lambda s: sf.Mean(weights=s), id="mean"),
+    pytest.param(lambda s: sx.Vote(weights=s), id="vote"),
+    pytest.param(lambda s: sx.Median(weights=s), id="median"),
+    pytest.param(lambda s: sx.Mean(weights=s), id="mean"),
 ]
 
 
-def _pick(name: str, order: Literal["max", "min"] = "max") -> sf.Pick:
-    return sf.Pick(by_signal=sf.signal(name), order=order)
+def _pick(name: str, order: Literal["max", "min"] = "max") -> sx.ArgMax | sx.ArgMin:
+    return sx.ArgMax(name) if order == "max" else sx.ArgMin(name)
 
 
 def _compiled(recipe: sf.Recipe) -> str:
@@ -153,19 +154,19 @@ class _ForbiddenTransport:
 @pytest.mark.parametrize("form", ["mean", "sum"])
 @pytest.mark.parametrize("reducer", _WEIGHTED)
 def test_vote_weight_refuses_logprob_mean_and_sum_with_a_prob_hint(
-    form: Literal["mean", "sum"], reducer: Callable[[Signal], Reducer]
+    form: Literal["mean", "sum"], reducer: Callable[[Signal], sx.Vote | sx.Median | sx.Mean]
 ) -> None:
     with pytest.raises(ValueError, match=r"sf\.Logprob\('prob'\)"):
-        sf.Fusion(_MEMBERS, signals={"lp": sf.Logprob(form)}, synthesizer=reducer(sf.signal("lp")))
+        _ = sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob(form)}) >> reducer(sf.signal("lp"))
 
 
 @pytest.mark.parametrize("reducer", _WEIGHTED)
-def test_vote_weight_accepts_logprob_prob(reducer: Callable[[Signal], Reducer]) -> None:
-    fusion = sf.Fusion(
-        _MEMBERS, signals={"p": sf.Logprob("prob")}, synthesizer=reducer(sf.signal("p"))
-    )
+def test_vote_weight_accepts_logprob_prob(
+    reducer: Callable[[Signal], sx.Vote | sx.Median | sx.Mean],
+) -> None:
+    fusion = sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")}) >> reducer(sf.signal("p"))
 
-    assert isinstance(fusion, sf.Fusion)
+    assert isinstance(fusion, sx.Pipeline)
 
 
 # --- LP#5: OpenRouter sf.Model members only ----------------------------------------------------
@@ -173,24 +174,21 @@ def test_vote_weight_accepts_logprob_prob(reducer: Callable[[Signal], Reducer]) 
 
 def test_logprob_refuses_non_openrouter_and_recipe_members() -> None:
     with pytest.raises(ValueError, match=re.escape("sf.Logprob supports OpenRouter models in v1")):
-        sf.Fusion(
-            [_ALPHA, "prov/beta"], signals={"lp": sf.Logprob("mean")}, synthesizer=_pick("lp")
-        )
+        _ = sx.Fanout([_ALPHA, "prov/beta"], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
     nested: list[sf.Recipe] = [
-        sf.Fusion([_ALPHA, _BETA], synthesizer=sf.Vote()),
+        sx.Fanout([_ALPHA, _BETA]) >> sx.Vote(),
         sf.Pipeline([_ALPHA, _BETA]),
     ]
     for member in nested:
         with pytest.raises(ValueError, match="one sf.Model call"):
-            sf.Fusion([member, _GAMMA], signals={"lp": sf.Logprob("mean")}, synthesizer=_pick("lp"))
+            _ = sx.Fanout([member, _GAMMA], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
     with pytest.raises(ValueError, match="remove it from member 1"):
-        sf.Fusion(
+        _ = sx.Fanout(
             [sf.Model(_ALPHA, params={"logprobs": False}), _BETA],
             signals={"lp": sf.Logprob("mean")},
-            synthesizer=_pick("lp"),
-        )
+        ) >> _pick("lp")
     # Control: without a declaration there is no member check.
-    assert isinstance(sf.Fusion([_ALPHA, "prov/beta"], synthesizer=sf.Vote()), sf.Fusion)
+    assert isinstance(sx.Fanout([_ALPHA, "prov/beta"]) >> sx.Vote(), sx.Pipeline)
 
 
 # --- LP#6: logprobs=true on each member call, and the preflight sees it ------------------------
@@ -198,7 +196,7 @@ def test_logprob_refuses_non_openrouter_and_recipe_members() -> None:
 
 def test_logprob_compiles_logprobs_true_on_each_member_call() -> None:
     compiled = compile_candidate(
-        sf.Fusion(_MEMBERS, signals={"lp": sf.Logprob("mean")}, synthesizer=_pick("lp")),
+        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")}) >> _pick("lp"),
         operators=engine_operators(),
     )
     url4 = compiled.url4
@@ -213,9 +211,7 @@ def test_logprob_compiles_logprobs_true_on_each_member_call() -> None:
         ("op_model_3", _GAMMA, {"logprobs": True}),
     ]
     # Control (DS-2): no declaration, no injected param, no sources.
-    plain = compile_candidate(
-        sf.Fusion(_MEMBERS, synthesizer=sf.Vote()), operators=engine_operators()
-    )
+    plain = compile_candidate(sx.Fanout(_MEMBERS) >> sx.Vote(), operators=engine_operators())
     assert "logprobs" not in plain.url4
     assert "sources:" not in plain.url4
     assert plain.parameter_assignments == ()
@@ -234,7 +230,7 @@ def test_logprob_preflight_refuses_a_model_the_catalog_marks_without_logprobs(
         http_transport=_engine(support),
         run_transport=transport,
     )
-    candidate = sf.Fusion([_ALPHA], signals={"lp": sf.Logprob("mean")}, synthesizer=_pick("lp"))
+    candidate = sx.Fanout([_ALPHA], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
 
     with client, pytest.raises(sf.PlanningError) as caught:
         client.evaluate(candidate, benchmark="fixture")
@@ -250,19 +246,12 @@ def test_logprob_preflight_refuses_a_model_the_catalog_marks_without_logprobs(
 
 def test_pick_and_filter_accept_sum_and_prob() -> None:
     url4_sum = _compiled(
-        sf.Fusion([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}, synthesizer=_pick("lp"))
+        sx.Fanout([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}) >> _pick("lp")
     )
     url4_prob = _compiled(
-        sf.Pipeline(
-            [
-                sf.Fusion(
-                    _MEMBERS,
-                    signals={"p": sf.Logprob("prob")},
-                    synthesizer=sf.Filter(where=sf.signal("p") >= 0.8),
-                ),
-                _WRITER,
-            ]
-        )
+        sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")})
+        >> sx.Filter(where=sf.signal("p") >= 0.8)
+        >> sx.Synthesize(_WRITER)
     )
 
     assert '"signals":{"lp":{"form":"sum","source":"logprob"}}' in url4_sum
@@ -276,12 +265,11 @@ def test_pick_and_filter_accept_sum_and_prob() -> None:
 def test_logprob_fusion_rebuilds_from_url4_without_injected_params(
     quorum: int | Literal["all"],
 ) -> None:
-    fusion = sf.Fusion(
+    fusion = sx.Fanout(
         [sf.Model(_ALPHA, params={"temperature": 0.5}), _BETA],
         signals={"lp": sf.Logprob("mean")},
-        synthesizer=_pick("lp"),
         quorum=quorum,
-    )
+    ) >> _pick("lp")
     url4 = _compiled(fusion)
     code = sf.Url4(url4).to_python()
 
@@ -289,7 +277,8 @@ def test_logprob_fusion_rebuilds_from_url4_without_injected_params(
     assert "logprobs" not in code  # case-sensitive: sf.Logprob has a capital L
     assert "params={'temperature': 0.5}" in code
     recovered = _recovered(url4)
-    assert repr(recovered) == repr(fusion)
+    # WHY lower: until 7e the url4 rebuilds today's internal value, which the chain lowers to.
+    assert repr(recovered) == repr(lower(fusion))
     assert _compiled(recovered) == url4
 
 

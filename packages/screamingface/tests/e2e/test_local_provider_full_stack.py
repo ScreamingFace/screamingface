@@ -8,6 +8,7 @@ from e2e.harness.local_provider_stack import LocalProviderBackend, prepare_medxp
 from e2e.harness.stack import replay_stack
 
 import screamingface as sf
+from screamingface import _surface as sx
 
 _RAW_MODELS = (
     "local/member-a:v1",
@@ -44,7 +45,7 @@ def test_local_provider_discovery_reaches_a_real_fusion_benchmark(tmp_path) -> N
     with replay_stack(backend, work_dir=tmp_path, assets_dir=assets) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
             report = client.evaluate(
-                sf.Fusion(_ROUTES[:3], synthesizer=_ROUTES[3]),
+                sx.Fanout(_ROUTES[:3]) >> sx.Synthesize(_ROUTES[3]),
                 benchmark="medxpert",
                 limit=1,
                 progress=False,
