@@ -1314,7 +1314,9 @@ browser consent; normal disable requests a persisted decline. DNT suppresses all
 requests, including decline persistence, so it cannot clear existing browser cookies.
 
 The Colab queue holds at most 100 events, with one daemon worker and no retry.
-Each exchange has a two-second Python timeout and a shorter browser deadline.
+Each initialization or control sequence shares a two-second Python budget, with
+a shorter browser deadline for each command. Consent, DNT and cancellation are
+rechecked before follow-on commands, including ID retrieval.
 Blocked storage or browser errors fail closed; there is no runtime HTTP fallback.
 Late replies cannot re-enable the kernel after opt-out. Already-dispatched requests
 may complete; successful persisted decline prevents subsequent bridge delivery.

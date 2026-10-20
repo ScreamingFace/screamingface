@@ -48,7 +48,7 @@ def test_initialization_is_nonblocking_and_read_only_until_accepted(browser, mon
     release, entered = threading.Event(), threading.Event()
     commands = []
 
-    def exchange(command, event):
+    def exchange(command, event, **kwargs):
         commands.append(command)
         entered.set()
         assert release.wait(2)
@@ -71,7 +71,7 @@ def test_accept_delivery_and_persistent_decline(browser, monkeypatch, tmp_path):
     state = accepted()
     requests = []
 
-    def exchange(command, event):
+    def exchange(command, event, **kwargs):
         requests.append((command, event))
         if command == "events":
             return {"status": "upstream_accepted"}
@@ -104,7 +104,7 @@ def test_accept_delivery_and_persistent_decline(browser, monkeypatch, tmp_path):
 def test_late_accept_cannot_reenable_after_disable(browser, monkeypatch):
     entered, release = threading.Event(), threading.Event()
 
-    def exchange(command, event):
+    def exchange(command, event, **kwargs):
         entered.set()
         assert release.wait(2)
         return accepted()
@@ -121,7 +121,7 @@ def test_late_accept_cannot_reenable_after_disable(browser, monkeypatch):
 
 def test_dnt_prevents_even_bridge_controls(browser, monkeypatch):
     calls = []
-    monkeypatch.setattr(colab, "exchange", lambda *args: calls.append(args))
+    monkeypatch.setattr(colab, "exchange", lambda *args, **kwargs: calls.append(args))
     monkeypatch.setenv("DO_NOT_TRACK", "1")
     prompt.offer()
     analytics.enable()
@@ -132,11 +132,18 @@ def test_dnt_prevents_even_bridge_controls(browser, monkeypatch):
 
 def test_reset_changes_id_and_session_without_joining(browser, monkeypatch):
     identifiers = [str(uuid4()), str(uuid4())]
-    monkeypatch.setattr(
-        colab,
-        "exchange",
-        lambda command, event: accepted(identifiers[1 if command == "reset" else 0]),
-    )
+    current = 0
+    commands = []
+
+    def exchange(command, event, **kwargs):
+        nonlocal current
+        commands.append(command)
+        if command == "decline":
+            current = 1
+            return {"choice": "declined", "consent_version": "1"}
+        return accepted(identifiers[current])
+
+    monkeypatch.setattr(colab, "exchange", exchange)
     analytics.enable()
     wait_until(lambda: not browser.pending)
     core = wiring.coordinator()
@@ -147,6 +154,7 @@ def test_reset_changes_id_and_session_without_joining(browser, monkeypatch):
     assert first is not None and second is not None
     assert first.fields["persistent_id"] != second.fields["persistent_id"]
     assert first.fields["session_id"] != second.fields["session_id"]
+    assert commands == ["accept", "id", "decline", "accept", "id"]
 
 
 @pytest.mark.parametrize(
@@ -164,14 +172,14 @@ def test_reset_changes_id_and_session_without_joining(browser, monkeypatch):
     ],
 )
 def test_bad_browser_response_fails_closed(browser, monkeypatch, reply):
-    monkeypatch.setattr(colab, "exchange", lambda *args: reply)
+    monkeypatch.setattr(colab, "exchange", lambda *args, **kwargs: reply)
     analytics.enable()
     wait_until(lambda: not browser.pending)
     assert not analytics.status()["enabled"]
 
 
 def test_browser_unavailable_never_falls_back_to_runtime_http(browser, monkeypatch):
-    def unavailable(*args):
+    def unavailable(*args, **kwargs):
         raise TimeoutError()
 
     monkeypatch.setattr(colab, "exchange", unavailable)
@@ -189,7 +197,7 @@ def test_no_session_only_bypass_of_browser_consent(browser):
 def test_rejected_browser_delivery_disables_future_operations(browser, monkeypatch):
     replies = []
 
-    def exchange(command, event):
+    def exchange(command, event, **kwargs):
         replies.append(command)
         return {"unavailable": True} if command == "events" else accepted()
 
@@ -216,3 +224,65 @@ def test_exchange_uses_colab_timeout_and_serialized_payload(browser, monkeypatch
     assert 'const command = "state", batch = null' in calls[0][0]
     assert "parent_origin=" in calls[0][0]
     assert "/v1/events" not in calls[0][0]
+
+
+@pytest.mark.parametrize("command", ["state", "accept", "reset"])
+@pytest.mark.parametrize("stop", ["disable", "dnt"])
+def test_stop_during_consent_never_starts_follow_on_id(browser, monkeypatch, command, stop):
+    entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+    calls = []
+
+    def exchange(step, event, **kwargs):
+        calls.append(step)
+        if step == "decline":
+            return {"choice": "declined", "consent_version": "1"}
+        entered.set()
+        assert release.wait(2)
+        finished.set()
+        return {"choice": "accepted", "consent_version": "1"}
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    browser.control(command)
+    assert entered.wait(1)
+    if stop == "disable":
+        analytics.disable(process_only=True)
+    else:
+        monkeypatch.setenv("DO_NOT_TRACK", "1")
+    release.set()
+    assert finished.wait(1)
+    time.sleep(0.03)
+    assert "id" not in calls
+    assert not analytics.status()["enabled"]
+
+
+def test_control_steps_share_one_deadline(browser, monkeypatch):
+    now = [100.0]
+    calls = []
+    monkeypatch.setattr(colab, "time", types.SimpleNamespace(monotonic=lambda: now[0]))
+
+    def exchange(command, event, *, timeout_sec):
+        calls.append((command, timeout_sec))
+        now[0] += 1.25
+        return accepted()
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    analytics.enable()
+    wait_until(lambda: not browser.pending)
+    assert calls == [("accept", 2), ("id", 0.75)]
+
+
+def test_expired_control_never_requests_id(browser, monkeypatch):
+    now = [100.0]
+    calls = []
+    monkeypatch.setattr(colab, "time", types.SimpleNamespace(monotonic=lambda: now[0]))
+
+    def exchange(command, event, **kwargs):
+        calls.append(command)
+        now[0] += 2.1
+        return accepted()
+
+    monkeypatch.setattr(colab, "exchange", exchange)
+    analytics.enable()
+    wait_until(lambda: not browser.pending)
+    assert calls == ["accept"]
+    assert not analytics.status()["enabled"]

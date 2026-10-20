@@ -72,23 +72,28 @@ class LocalConsentStore:
 
     @contextmanager
     def _lock(self):
-        # WHY: a separate exclusive lock serializes first enable across processes while
-        # atomic replacement keeps operation-time reads free of lock waits.
+        # Keep the inode stable: unlinking a locked file lets another writer lock
+        # a different inode. The OS releases ownership even after a killed writer.
         path = self.path.with_suffix(self.path.suffix + ".lock")
-        deadline = time.monotonic() + 0.25
-        while True:
-            try:
-                descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-                break
-            except FileExistsError:
-                if time.monotonic() >= deadline:
-                    raise OSError("Analytics preferences are busy; try again") from None
-                time.sleep(0.01)
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            os.close(descriptor)
-            yield
+            if os.fstat(descriptor).st_size == 0:
+                os.write(descriptor, b"0")
+            deadline = time.monotonic() + 0.25
+            while True:
+                try:
+                    _file_lock(descriptor, acquire=True)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise OSError("Analytics preferences are busy; try again") from None
+                    time.sleep(0.01)
+            try:
+                yield
+            finally:
+                _file_lock(descriptor, acquire=False)
         finally:
-            path.unlink(missing_ok=True)
+            os.close(descriptor)
 
     def _write(self, state: Consent) -> None:
         value = {"version": 1, "consent_version": "1", "choice": state.choice}
@@ -103,3 +108,20 @@ class LocalConsentStore:
             os.replace(name, self.path)
         finally:
             Path(name).unlink(missing_ok=True)
+
+
+def _file_lock(descriptor: int, *, acquire: bool) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK if acquire else msvcrt.LK_UNLCK, 1)
+        except OSError as error:
+            if acquire and error.errno in {13, 36}:
+                raise BlockingIOError() from error
+            raise
+    else:
+        import fcntl
+
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB if acquire else fcntl.LOCK_UN)

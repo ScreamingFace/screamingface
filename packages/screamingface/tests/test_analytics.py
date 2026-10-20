@@ -101,9 +101,9 @@ def test_stale_consent_and_invalid_uuid_fail_off(config):
 
 
 def test_preferences_lock_is_bounded(config):
-    config.with_suffix(".json.lock").touch()
-    with pytest.raises(OSError, match="busy"):
-        analytics.enable()
+    with LocalConsentStore(config)._lock():
+        with pytest.raises(OSError, match="busy"):
+            analytics.enable()
     assert not config.exists()
 
 
@@ -115,7 +115,9 @@ def test_unwritable_choice_is_not_silently_persisted(config, monkeypatch):
     with pytest.raises(PermissionError):
         analytics.enable()
     assert not config.exists()
-    assert not config.with_suffix(".json.lock").exists()
+    # The inode remains, but ownership was released after the failed write.
+    with LocalConsentStore(config)._lock():
+        pass
 
 
 def test_setup_notice_once_without_waiting(config, monkeypatch, capsys):
@@ -145,3 +147,40 @@ def test_symlinked_preferences_do_not_enable_collection(config):
     LocalConsentStore(target).change("accepted")
     config.symlink_to(target)
     assert LocalConsentStore(config).read().choice == "unknown"
+
+
+def test_crashed_writer_does_not_block_persisted_opt_out(config):
+    import subprocess
+    import sys
+
+    analytics.enable()
+    code = """
+import time
+from screamingface._analytics.local import LocalConsentStore, config_path
+with LocalConsentStore(config_path())._lock():
+    print('locked', flush=True)
+    time.sleep(30)
+"""
+    writer = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    try:
+        assert writer.stdout is not None
+        assert writer.stdout.readline().strip() == "locked"
+        writer.kill()
+        writer.wait(timeout=5)
+        assert analytics.disable()["choice"] == "declined"
+        check = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from screamingface import analytics; print(analytics.status()['enabled'])",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        assert check.stdout.strip() == "False"
+    finally:
+        if writer.poll() is None:
+            writer.kill()
+            writer.wait(timeout=5)

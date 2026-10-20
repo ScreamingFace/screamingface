@@ -89,3 +89,23 @@ result but cannot prevent that new request. Reproduced with real SDK disable and
 actual parent script against a simulated iframe transport; no external cookies or
 services changed. This remains an action-required finding, not fixed by the rebase.
 No review comments were posted and the PR remains draft.
+
+
+## 20 October 2026 — consent review fixes
+
+Addressed the follow-on-ID review finding and the separately reported crashed-writer
+lock defect. Colab JavaScript now performs exactly one command per exchange; Python
+sequences state/accept/reset and ID retrieval, rechecking generation, opt-out and DNT
+between commands. A single two-second budget covers the sequence rather than resetting
+on each command. Persisted preference writes now use nonblocking OS locks (flock on
+POSIX, byte-range locking on Windows) with the existing bounded wait. The lock inode
+remains in place; ownership is released by the OS on process exit, including a kill.
+
+Regression evidence: the killed-writer test failed against the prior implementation
+with the reported busy error. With the fix it persists decline and a fresh interpreter
+reports analytics disabled. Separate forged source/origin/version/nonce/command/data
+tests now assert the request remains unresolved before sending a valid response.
+Removing the entire message guard in a disposable copy makes all six forged-message
+tests fail. State/accept/reset cancellation and DNT regressions ensure no subsequent
+ID request; timeout regressions pin the shared budget. Native Windows execution and
+real Colab browser scheduling are not covered by these local tests.

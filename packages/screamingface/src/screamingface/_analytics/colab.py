@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import threading
+import time
 from uuid import UUID
 
 from screamingface._analytics.ports import Consent, Event
@@ -40,15 +41,11 @@ _SCRIPT = r"""(async () => {
           ...(command === 'events' ? {batch} : {})}, origin);
       });
     }
-    if (command === 'events') return await request('events', batch);
-    if (command === 'reset') await request('decline');
-    const state = await request(command === 'reset' ? 'accept' : command);
-    if (state.choice !== 'accepted') return state;
-    return await request('id');
+    return await request(command, batch);
   };
   try {
     return await Promise.race([work(), new Promise((_, reject) => {
-      timer = setTimeout(() => reject(Error('timeout')), 1800);
+      timer = setTimeout(() => reject(Error('timeout')), TIMEOUT_MS);
     })]);
   } catch { return {choice:'unknown', unavailable:true}; }
   finally {
@@ -60,7 +57,7 @@ _SCRIPT = r"""(async () => {
 })()"""
 
 
-def exchange(command: str, event: Event | None = None) -> dict:
+def exchange(command: str, event: Event | None = None, *, timeout_sec: float = 2) -> dict:
     from google.colab import output  # type: ignore[import-not-found]
 
     batch = (
@@ -69,7 +66,8 @@ def exchange(command: str, event: Event | None = None) -> dict:
         else None
     )
     script = _SCRIPT.replace("COMMAND", json.dumps(command)).replace("BATCH", json.dumps(batch))
-    return output.eval_js(script, timeout_sec=2)
+    script = script.replace("TIMEOUT_MS", str(max(1, int(timeout_sec * 900))))
+    return output.eval_js(script, timeout_sec=timeout_sec)
 
 
 class ColabBridge:
@@ -148,7 +146,7 @@ class ColabBridge:
             with self._lock:
                 if generation != self._generation:
                     continue
-            state = self._dispatch(command, event)
+            state = self._dispatch(generation, command, event)
             with self._lock:
                 if generation != self._generation:
                     continue
@@ -161,27 +159,47 @@ class ColabBridge:
 
                 print(NOTICE)
 
-    def _dispatch(self, command: str, event: Event | None) -> Consent | None:
+    def _allowed(self, generation: int, command: str, event: Event | None) -> bool:
         from screamingface import analytics
         from screamingface._analytics.wiring import coordinator
 
+        with self._lock:
+            if generation != self._generation:
+                return False
         dnt = os.getenv("DO_NOT_TRACK", "").strip().lower()
-        blocked = dnt not in {"", "0", "false", "no", "off"}
-        if blocked or (command != "decline" and analytics._disabled()):
-            return Consent()
-        if event is not None and not coordinator().accepts(event):
-            return None
-        return self._exchange(command, event)
+        if dnt not in {"", "0", "false", "no", "off"} or (
+            command != "decline" and analytics._disabled()
+        ):
+            return False
+        return event is None or coordinator().accepts(event)
 
-    def _exchange(self, command: str, event: Event | None) -> Consent | None:
+    def _dispatch(self, generation: int, command: str, event: Event | None) -> Consent | None:
+        steps = {
+            "state": ("state", "id"),
+            "accept": ("accept", "id"),
+            "reset": ("decline", "accept", "id"),
+        }.get(command, (command,))
+        deadline = time.monotonic() + 2
         try:
-            result = exchange(command, event)
-            if result.get("unavailable"):
-                return Consent()
-            return self._parse(result) if command != "events" else None
+            result = self._steps(generation, steps, event, deadline)
+            return self._parse(result) if command != "events" or result.get("unavailable") else None
         except Exception:
             # Optional browser infrastructure must never kill product execution.
             return Consent()
+
+    def _steps(self, generation: int, steps: tuple, event: Event | None, deadline: float) -> dict:
+        result = {}
+        for step in steps:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self._allowed(generation, step, event):
+                return {"unavailable": True}
+            # Every exchange sends exactly one browser command. A late consent
+            # response cannot start ID creation without this fresh consent check.
+            result = exchange(step, event, timeout_sec=remaining)
+            expected = "declined" if step == "decline" else "accepted"
+            if result.get("consent_version") != "1" or result.get("choice") != expected:
+                return result
+        return result
 
     @staticmethod
     def _parse(result: dict) -> Consent:
