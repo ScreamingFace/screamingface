@@ -18,7 +18,7 @@
     <meta name="author" content="ScreamingFace" />
     <meta name="theme-color" content="#05070b" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#fcfdff" media="(prefers-color-scheme: light)" />
-    <link rel="canonical" href="https://screamingface.ai/" />
+    <!-- No static canonical: every route serves this file, so the router sets one per page. -->
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -28,15 +28,30 @@
       property="og:description"
       content="Compose model fusions, run them against benchmarks, and reproduce any result from a single url4 line. Documentation for the ScreamingFace Client."
     />
-    <meta property="og:url" content="https://screamingface.ai/" />
     <meta property="og:locale" content="en_US" />
+    <!-- Link-preview card. Crawlers need absolute URLs. No og:url: every route serves this
+         file, so a fixed value would collapse each shared docs link onto the home page. -->
+    <meta
+      property="og:image"
+      content="https://docs.screamingface.ai/social/sf-docs-og-1200x630.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The ScreamingFace mark above the ScreamingFace wordmark and the label DOCS, on black."
+    />
 
     <!-- Twitter -->
-    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="ScreamingFace documentation" />
     <meta
       name="twitter:description"
       content="Compose model fusions, run them against benchmarks, and reproduce any result from a single url4 line."
+    />
+    <meta
+      name="twitter:image"
+      content="https://docs.screamingface.ai/social/sf-docs-og-1200x630.png"
     />
 
     <!-- Fonts — IBM Plex Sans + IBM Plex Mono + Parastoo (SFDS v2). Not yet
