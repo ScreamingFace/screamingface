@@ -154,7 +154,7 @@ judge templates.
   `__init__.py`; `S/_evaluation/candidate.py` (the judge-writer walk inside a block).
 - New tests: `ST/test_chain_rules_steps.py`, `test_judge_step.py`, `test_narrow_steps.py`,
   `test_reduce_steps.py`; appended: `test_surface_parity.py` (LO-P2), `test_chain_warnings.py`
-  (E6), `test_fanout.py` (E4).
+  (E6). The E4 test is in `test_narrow_steps.py`.
 
 ### Rows
 
@@ -163,4 +163,28 @@ LO-P2, E4, E6 (test plan "Unit 3").
 
 ### Outcome
 
-- (filled at the end of the unit)
+- **Actual files:** new `S/_surface/judge.py`; edited `S/_surface/__init__.py`, `chain.py`,
+  `lowering.py`, `refs.py`, `steps.py`, `S/_evaluation/candidate.py`. New tests
+  `test_chain_rules_steps.py`, `test_judge_step.py`, `test_narrow_steps.py`,
+  `test_reduce_steps.py`; appended `test_surface_parity.py` and `test_chain_warnings.py`.
+- **Commits:** `30fb33e2b` test (RED), `c8ad95b6d` feat (GREEN), this ledger commit.
+- **Tests:** 365 tests in the 11 surface test files (114 new in unit 3); full SDK suite 5259
+  passed, 33 skipped.
+- **Gates:** `run_gates.py screamingface --base e4d44281c` ALL GATES GREEN;
+  `run_gates.py repo --base e4d44281c` ALL GATES GREEN. No pinned file changed.
+- **Deviations:**
+  - The doc examples `readme-418-pick-confidence` (`Pick("confidence", order="max")`) and
+    `readme-528-rank-by-field` (`Rank(by_field=...)`) stay out of the doc parity: in the new
+    surface a field pick reads a signal (overview §4.2), so their bytes change at the swap. The set
+    is now `_PLANNED_BYTE_CHANGES`; S5 and S7 compare their new form with today's `by_signal`
+    form. Every other README and docs example is in the parity (no example needs the gate).
+  - `Filter(over=)` refuses a pinned rule name (`"last_line@1"`): today's `Filter(extract=)` holds
+    an `sf.Extract`, which has no pin.
+  - A step that reads `score:judge` is checked when it is built with a probe judge; the block's
+    `Judge` is used at block close.
+  - `Judge` and `JudgePick` hold today's `sf.Judge` as their compile node; their equality is its
+    typed key (`params={"t": True}` is not `{"t": 1}`).
+  - E6: the judge and writer inside one block warn with the block's lowered Pipeline name and its
+    stage numbers 1 and 2 (today's message for the same form, `Pipeline([Fusion(Rank by judge),
+    writer])`); the chain's own stage numbers stay the user's.
+  - `FieldRule` is re-exported from `screamingface._surface`.
