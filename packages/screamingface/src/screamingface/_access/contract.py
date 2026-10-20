@@ -75,7 +75,20 @@ def _raise_if_cancelled(cancel: threading.Event) -> None:
         )
 
 
-def _access_authorization_url(origin: str, audience: str, public_key: str) -> str:
+def _access_authorization_url(
+    origin: str,
+    audience: str,
+    public_key: str,
+    *,
+    redirect_path: str | None = None,
+) -> str:
+    """Build the browser login URL; ``redirect_path`` (already encoded) replaces the origin path.
+
+    WHY: the edge transfers the application token only on a request that Access gates. An
+    application scoped to a path (production `/v1/scores`, OME-1649) leaves the origin root
+    public, so the login must end on the path that was challenged, never on `/`.
+    """
+
     parts = urlsplit(origin)
     transfer = {
         "token": public_key,
@@ -83,8 +96,9 @@ def _access_authorization_url(origin: str, audience: str, public_key: str) -> st
         "send_org_token": "true",
         "edge_token_transfer": "true",
     }
+    path = parts.path if redirect_path is None else redirect_path
     transfer["redirect_url"] = urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, urlencode(transfer), "")
+        (parts.scheme, parts.netloc, path, urlencode(transfer), "")
     )
     return urlunsplit(
         (
