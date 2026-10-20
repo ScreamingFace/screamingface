@@ -56,3 +56,32 @@ step so a narrow step can come before a reducer.
 - **Commits:**
 - **Gates:**
 - **Deviations:**
+
+## Unit 2: chain-core
+
+### Intent
+
+Build the core of the new recipe surface in the private package `screamingface._surface`: the
+`>>` chain, `Fanout`, `Synthesize`, `Vote`/`Median`/`Mean` with `over=`, the extractor strings,
+and the lowering to today's classes. Lower once at the first compile entry. No public name, no
+snapshot and no existing test changes.
+
+### Files (planned)
+
+- New: `S/_surface/__init__.py`, `chain.py`, `fanout.py`, `synthesize.py`, `steps.py`, `refs.py`,
+  `lowering.py`.
+- Edit: `S/recipe.py` (`_recipe` refuses a step and an open chain; a closed chain is a recipe),
+  `S/_evaluation/candidate.py` (the entry: judge-writer walk on the user's chain, then `lower()`),
+  `S/_evaluation/model.py` (`_candidate_values` lowers), `S/_evaluation/compilation.py` and
+  `S/_evaluation/runner.py` (the lowered values pass through).
+- New tests: `ST/test_chain_rules.py`, `test_fanout.py`, `test_synthesize.py`, `test_lowering.py`,
+  `test_surface_extract.py`, `test_surface_parity.py`, `test_chain_warnings.py`.
+
+### Rows
+
+CH-1, CH-2, CH-8, CH-9, CH-11, CH-13, CH-14, NM-1, WJ-1, FA-1, FA-2, SY-1, LO-0..LO-6, EX-1,
+EX-2, LO-P1 (test plan "Unit 2").
+
+### Outcome
+
+- (filled at the end of the unit)
