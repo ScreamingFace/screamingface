@@ -176,6 +176,8 @@ def test_every_openrouter_keyed_path_has_an_explicit_key_difference_proof() -> N
         "web_search_excluded_domains",
         # OME-993: keyed with the two-value row above.
         "reasoning_effort",
+        # OME-1656: the dotted scalar path projects to OpenRouter's nested reasoning object.
+        "reasoning.effort",
     }
     # `sort` has one valid value and is pinned by presence versus absence above.
     assert keyed == covered_by_two_values | {"provider_params.sort"}
@@ -206,6 +208,20 @@ def test_a_false_zdr_flag_keys_exactly_like_omitting_it() -> None:
     # Plan §2.6: `zdr` omitted == `zdr: false`. The gateway sends NOTHING for a false
     # flag, so the two requests are byte-identical upstream and must be one entry.
     assert _key(provider_params={"zdr": False}) == _key()
+
+
+def test_object_reasoning_effort_values_never_share_a_cache_key() -> None:
+    assert _key(**{"reasoning.effort": "low"}) != _key(**{"reasoning.effort": "high"})
+
+
+def test_object_reasoning_effort_is_accounted_for_as_a_keyed_path() -> None:
+    plugin = _plugin()
+    keyed = {
+        rule.request_path
+        for rule in plugin.chat_parameter_rules(model=_MODEL, auth_type=None)
+        if rule.cache_behavior == "keyed"
+    }
+    assert "reasoning.effort" in keyed
 
 
 def test_a_true_zdr_flag_is_a_distinct_key() -> None:

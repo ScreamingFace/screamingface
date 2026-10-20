@@ -57,6 +57,7 @@ _AUTH: tuple[AuthMode, ...] = ("api_key",)
 
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "openrouter-2026-07"
+_REASONING_OBJECT_REVISION = "openrouter-reasoning-object-2026-10"
 
 # WHY: OpenRouter documents ``top_k`` as an integer "0 or above" (0 disables top-k
 # sampling) and the installed litellm transform forwards 0 verbatim (§9 probe), so
@@ -72,6 +73,14 @@ OPENROUTER_TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=0)
 # proved it. litellm raises UnsupportedParamsError for non-reasoning models at
 # dispatch — a named upstream error, not a gateway fail-open.
 OPENROUTER_REASONING_EFFORT_SCHEMA = ParameterSchema(type="string", enum=("low", "medium", "high"))
+
+# FEATURE: OME-1656 — OpenRouter's native reasoning object accepts the full gateway effort ladder.
+# WHY separate from `reasoning_effort`: LiteLLM rejects that OpenAI-compatible scalar for models
+# such as gemini-4-argon, while forwarding `reasoning={"effort": ...}` verbatim. The public dotted
+# path keeps URL4 values scalar; the shared projector constructs the bounded nested object.
+OPENROUTER_REASONING_OBJECT_EFFORT_SCHEMA = ParameterSchema(
+    type="string", enum=("max", "xhigh", "high", "medium", "low", "minimal", "none")
+)
 
 # OME-305: the ONE spelling of where `top_k` lands upstream, shared with
 # ``global_cache`` so the rule's target and the cache projection cannot drift.
@@ -184,6 +193,13 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         schema=OPENROUTER_REASONING_EFFORT_SCHEMA,
         cache_behavior="keyed",
         projection_revision=_REVISION,
+    ),
+    direct_rule(
+        "reasoning.effort",
+        auth_modes=_AUTH,
+        schema=OPENROUTER_REASONING_OBJECT_EFFORT_SCHEMA,
+        cache_behavior="keyed",
+        projection_revision=_REASONING_OBJECT_REVISION,
     ),
     # direct: standard stop (string | array[string]); the installed litellm OpenRouter
     # path forwards it as the OpenAI-native `stop` (proven in test_openrouter_dispatch).
