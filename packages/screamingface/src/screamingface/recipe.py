@@ -71,6 +71,9 @@ def _model_route(value: object) -> str:
     return _name(value, "model route")
 
 
+OPTIONAL_MEMBERS_ONLY = "optional=True is only supported on Fusion members"
+
+
 def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recipe:
     """Normalize the one intentional shorthand at every Recipe-valued position."""
 
@@ -80,11 +83,16 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
         return Model(value)
     if isinstance(value, Reducer):
         raise TypeError(f"{label} cannot be a reducer: a reducer must be a Fusion synthesizer")
+    # WHY lazy: screamingface._surface builds on this module. Until the swap (E4b surface unit 7)
+    # the new chain steps live there: a step or an open chain is not a recipe (CH-8, CH-11).
+    from screamingface._surface.chain import refuse_step
+
+    refuse_step(value)
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
     assert isinstance(value, Recipe)
     if value.optional and not allow_optional:
-        raise ValueError("optional=True is only supported on Fusion members")
+        raise ValueError(OPTIONAL_MEMBERS_ONLY)
     return value
 
 
@@ -120,11 +128,14 @@ def _recipe_kind(
 
 
 def _is_supported_recipe(value: object) -> bool:
+    from screamingface._surface.chain import Pipeline as Chain
     from screamingface.fusion import Fusion
     from screamingface.model import Model
     from screamingface.pipeline import Pipeline
 
-    return isinstance(value, Model | Fusion | Pipeline)
+    # A closed chain of the new surface is a recipe; lower() turns it into today's values before
+    # the compile reads it (E4b surface lowering §2.4).
+    return isinstance(value, Model | Fusion | Pipeline | Chain)
 
 
 def _text(value: object, label: str) -> str:

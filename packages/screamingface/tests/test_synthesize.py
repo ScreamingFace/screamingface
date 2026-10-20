@@ -11,10 +11,10 @@ from __future__ import annotations
 import inspect
 
 import pytest
-from screamingface._surface.lowering import lower
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._surface.lowering import lower
 
 _PAIR = ["provider/a", "provider/b"]
 _PROMPT = "Write the final answer from the drafts."

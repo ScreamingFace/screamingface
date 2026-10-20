@@ -9,10 +9,10 @@ STORY: as a researcher, I give one prompt to the whole panel in one place.
 from __future__ import annotations
 
 import pytest
-from screamingface._surface.lowering import lower
 
 import screamingface as sf
 from screamingface import _surface as sx
+from screamingface._surface.lowering import lower
 
 _PAIR = ["provider/a", "provider/b"]
 _PROMPT = "Answer with one number."
@@ -124,7 +124,7 @@ def test_fa2_signals_with_a_bare_synthesize_are_refused() -> None:
     with pytest.raises(
         ValueError, match=r"^sf\.Fanout signals= needs a reducer: sf\.Synthesize reads no signal$"
     ):
-        fanout >> sx.Synthesize("provider/w")
+        _ = fanout >> sx.Synthesize("provider/w")
 
 
 def test_a_closed_chain_member_lowers_to_its_node() -> None:

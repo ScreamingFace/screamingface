@@ -326,23 +326,43 @@ def _reject_reducers(value: object) -> None:
 
 
 def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
+    """The Candidates of an Evaluation, checked and lowered: the first compile entry.
+
+    WHY the lowering runs here (E4b surface lowering §2.4): the operator check, the check-surface
+    check and the compile all read these values, so each one reads the lowered value and the
+    lowering runs once. The judge-writer warning reads the user's own values, before the lowering.
+    """
+
+    # WHY lazy: candidate.py imports this module
+    from screamingface._evaluation.candidate import _warn_judge_writers
+    from screamingface._surface.chain import refuse_step
+    from screamingface._surface.lowering import lower
+
     _reject_reducers(value)
+    refuse_step(value)  # a step or an open chain names its own rule (CH-8, CH-11)
     if isinstance(value, Recipe):
-        values = (value,)
+        given = (value,)
     elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        values = tuple(value)
+        given = tuple(value)
     else:
         raise TypeError("candidates must be a complete sf.Recipe or an ordered sequence of Recipes")
-    if not values:
+    if not given:
         raise ValueError("an Evaluation requires at least one Candidate")
+    values = tuple(lower(candidate) for candidate in given)
     if any(not isinstance(candidate, Recipe) for candidate in values):
         raise TypeError("candidates must contain only complete sf.Recipe values")
+    _check_candidate_names(values)
+    for candidate in given:
+        _warn_judge_writers(candidate)
+    return values
+
+
+def _check_candidate_names(values: tuple[Recipe, ...]) -> None:
     names: set[str] = set()
     for candidate in values:
         if candidate.name in names:
             raise ValueError(f"duplicate Candidate name {candidate.name!r}")
         names.add(candidate.name)
-    return values
 
 
 def _validate_limit(limit: int | None) -> None:
