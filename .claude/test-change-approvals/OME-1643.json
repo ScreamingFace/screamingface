@@ -24,7 +24,7 @@
     },
     "packages/screamingface/tests/public_surface_snapshot.json": {
       "base_blob": "dfaa04c2487082fcc75221375a8f4134bb40be8d",
-      "approved_blob": "98c033b38fe54c1d48ea4b66b63686ebd0bc5e80"
+      "approved_blob": "ae19b4180bf31698adb8903200995906c9c69bcd"
     },
     "packages/screamingface/tests/test_public_surface.py": {
       "base_blob": "b3b193d67f51f3ca114ad2f720630bec0e14b8c9",

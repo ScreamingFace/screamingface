@@ -125,9 +125,11 @@ const optOut = `sf.evaluate(candidates, benchmark="draco", use_cache=False)`
       stops, <code>CachePullError</code> says why and how far it got. Pages already loaded stay
       loaded, and calling the pull again in the same Python process continues from the last
       completed page. A new process starts over. That costs time but never a duplicate: rows you
-      already have are read again and skipped. A pull also refuses a shared cache whose entries were
-      stored under different cache-key rules than your local gateway uses, because those entries
-      could never be hit. Upgrading <code>screamingface</code> to match the hosted engine fixes it.
+      already have are read again and skipped. A row your local gateway could not serve is not
+      loaded; the pull skips it, counts it in <code>rows_skipped</code> and carries on. A pull also
+      refuses a shared cache whose entries were stored under different cache-key rules than your
+      local gateway uses, because those entries could never be hit. Upgrading
+      <code>screamingface</code> to match the hosted engine fixes it.
     </p>
 
     <h3>Opting a run out</h3>

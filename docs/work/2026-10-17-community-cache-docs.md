@@ -71,3 +71,8 @@ in `docs/plan/2026-10-15-community-cache.md`.
   - The docs' `SF_ENGINE_URL` (`src/lib/engine.ts`) names the dev engine while the SDK's default is
     production; the pull's default is stated as the production engine. Aligning that constant is
     out of scope here.
+
+## Follow-up from the gateway and Engine reviews (#1433, #1439 round 2, 2026-10-20)
+
+The fixed #1446 branch is merged in. `ModulesPage` lists `PullResult.rows_skipped`, and
+`CachingPage` says a row the local gateway could not serve is skipped, counted and not loaded.

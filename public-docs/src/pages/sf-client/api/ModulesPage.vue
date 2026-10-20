@@ -194,7 +194,8 @@ const reproduceSig = `sf.reproduce(
           <td>
             What one call did: <code>rows_read</code>, <code>rows_added</code> (rows that were new
             to the local cache), <code>pages</code>, <code>resumed</code> (it continued an earlier
-            call in the same process) and <code>complete</code>.
+            call in the same process), <code>complete</code> and <code>rows_skipped</code> (rows
+            your local gateway could not serve, which were not loaded).
           </td>
         </tr>
         <tr>
