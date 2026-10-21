@@ -38,9 +38,11 @@ KNOWN_UI_TARGETS = ("replay", "local")
 LINE_CAP = 20_000  # per run, held in memory; read at append time so tests can lower it
 
 _TEST_FILE = "tests/e2e/workbench/test_notebooks.py"
+# pytest's --basetemp under the run's out dir: the local target's work dir (and so its runtime
+# data dir, <work>/data) is tmp_path_factory.mktemp("workbench-target") inside it.
+BASETEMP = "pytest-tmp"
+_TARGET_WORK = "workbench-target*"
 _STEM = re.compile(r"^[a-z0-9_-]+$")
-# Stems that match _STEM but are pytest -k operators: they would break the expression.
-_K_KEYWORDS = frozenset({"and", "or", "not"})
 _KEY_ENV = "OPENROUTER_API_KEY"
 _PAID_ENV = "SCREAMINGFACE_TEST_PAID"
 
@@ -71,6 +73,7 @@ class Run:
     dropped: int = 0  # lines dropped from the front; absolute index of lines[0]
     returncode: int | None = None  # None while running
     cancelled: bool = False
+    killed: bool = False  # the cancel had to SIGKILL the group: fixture teardown may not have run
 
 
 @dataclass
@@ -115,14 +118,20 @@ def _validate(request: RunRequest, environ: Mapping[str, str]) -> None:
             f"unknown target {request.target!r}; choose one of {', '.join(KNOWN_UI_TARGETS)}"
         )
     for stem in request.notebooks:
-        if not _STEM.fullmatch(stem) or stem in _K_KEYWORDS:
-            raise RunRejected(
-                f"invalid notebook name {stem!r} (expected [a-z0-9_-]+, not and/or/not)"
-            )
+        if not _STEM.fullmatch(stem):
+            raise RunRejected(f"invalid notebook name {stem!r} (expected [a-z0-9_-]+)")
     if request.target == "local" and not request.confirm_paid:
         raise RunRejected("the local target spends real tokens; confirm it to start the run")
     if request.target == "local" and not environ.get(_KEY_ENV):
         raise RunRejected(f"{_KEY_ENV} is not set in the UI's environment; the local run needs it")
+
+
+def runtime_data_dir(run: Run) -> Path | None:
+    """The local target's runtime data dir for ``run``, or None unless exactly one exists."""
+    found = [
+        d / "data" for d in (run.out_dir / BASETEMP).glob(_TARGET_WORK) if (d / "data").is_dir()
+    ]
+    return found[0] if len(found) == 1 else None
 
 
 class RunManager:
@@ -152,12 +161,19 @@ class RunManager:
     def command(self, request: RunRequest, out_dir: Path) -> tuple[list[str], dict[str, str]]:
         """The pytest argv and env for ``request``; raises ``RunRejected`` on a bad request."""
         _validate(request, self._environ)
-        argv = [sys.executable, "-m", "pytest", _TEST_FILE, "-v", "-rs"]
-        if request.notebooks:
-            argv += ["-k", " or ".join(request.notebooks)]
+        argv = [sys.executable, "-m", "pytest", "-v", "-rs", f"--basetemp={out_dir / BASETEMP}"]
+        # WHY exact node ids, not -k: a -k substring also selects every notebook whose id
+        # contains it. The id is test_notebooks.py's own: test_notebook[<target>-<stem>].
+        argv += [
+            f"{_TEST_FILE}::test_notebook[{request.target}-{stem}]" for stem in request.notebooks
+        ] or [_TEST_FILE]
         env = dict(self._environ)
         # WHY pop: an inherited opt-in must not make a keyless replay launch paid.
         env.pop(_PAID_ENV, None)
+        if request.target != "local":
+            # WHY: replay is keyless by contract. A key here would reach the notebook, which
+            # connects whatever key it finds, so a stray live call could spend.
+            env.pop(_KEY_ENV, None)
         env.update(
             {
                 "SCREAMINGFACE_TEST_E2E": "1",
@@ -208,6 +224,7 @@ class RunManager:
                 _signal_group(live.process.pid, sig)
                 if live.ended(grace):
                     return live.run
+            live.run.killed = True
             _signal_group(live.process.pid, signal.SIGKILL)
         live.ended(None)
         return live.run

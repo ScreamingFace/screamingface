@@ -126,11 +126,13 @@ def layout(title: str, body: str, *, token: str | None) -> str:
     )
 
 
-def error_page(status: int, reason: str, *, token: str | None) -> str:
-    body = (
-        f"<section><p class='err'>{_e(reason)}</p>"
-        f"<p><a href='/{_q(token)}'>Back to the workbench</a></p></section>"
+def error_page(status: int, reason: str, *, token: str | None, back: str | None = None) -> str:
+    link = (
+        f'<a href="{_e(back)}">Back to the run</a>'
+        if back
+        else f"<a href='/{_q(token)}'>Back to the workbench</a>"
     )
+    body = f"<section><p class='err'>{_e(reason)}</p><p>{link}</p></section>"
     return layout(f"{status}", body, token=token)
 
 
@@ -333,7 +335,31 @@ def _run_bundles(run_id: str, bundles: Sequence[BundleSummary], token: str | Non
     return bundle_table(bundles, token)
 
 
-def run_page(run: Run, bundles: Sequence[BundleSummary], *, token: str | None) -> str:
+def _stop_note(run: Run, stop_command: str | None) -> str:
+    if stop_command is None:
+        return ""
+    why = (
+        "The run's process group had to be killed, so its teardown (which runs "
+        "<code>screamingface down</code>) may not have run."
+        if run.killed
+        else "<code>screamingface up</code> detaches into its own session, so cancelling the "
+        "run does not stop it; only the teardown's <code>down</code> does."
+    )
+    return (
+        f"<div class='warn' id='stop-note'><p><b>The runtime may still be up.</b> {why} "
+        "Check, and stop it with (from <code>packages/screamingface</code>, prefix "
+        "<code>uv run --extra runtime</code>):</p>"
+        f"<pre>{_e(stop_command)}</pre></div>"
+    )
+
+
+def run_page(
+    run: Run,
+    bundles: Sequence[BundleSummary],
+    *,
+    token: str | None,
+    stop_command: str | None = None,
+) -> str:
     notebooks = ", ".join(run.request.notebooks) or "all"
     finished = (
         f"<section><h2>Bundles written by this run</h2>{_run_bundles(run.id, bundles, token)}"
@@ -345,7 +371,8 @@ def run_page(run: Run, bundles: Sequence[BundleSummary], *, token: str | None) -
         f"<section><h2>Run <span class='mono'>{_e(run.id)}</span> {run_pill(run)}</h2>"
         f"<p id='status'>{_e(_exit_text(run))}</p>"
         f"<p>Target <b>{_e(run.request.target)}</b> · notebooks {_e(notebooks)} · output "
-        f"<code>{_e(run.out_dir)}</code></p>{_cancel_form(run, token)}</section>"
+        f"<code>{_e(run.out_dir)}</code></p>{_cancel_form(run, token)}"
+        f"{_stop_note(run, stop_command)}</section>"
         f"{finished}<section><h2>Output</h2>{_log_block(run)}</section>"
     )
     return layout(f"run {run.id}", body, token=token)

@@ -30,6 +30,7 @@ from workbench.ui.runs import (
     RunManager,
     RunRejected,
     RunRequest,
+    runtime_data_dir,
 )
 
 Spawn = Callable[[list[str], dict[str, str], Path], "subprocess.Popen[str]"]
@@ -88,8 +89,8 @@ def test_targets_are_the_keyless_and_the_paid_local_one() -> None:
 def test_command_sets_the_workbench_env_and_filters_notebooks(tmp_path: Path) -> None:
     argv, env = _manager(tmp_path).command(RunRequest("replay", ("quickstart",)), tmp_path / "o")
     assert argv[:3] == [sys.executable, "-m", "pytest"]
-    assert "tests/e2e/workbench/test_notebooks.py" in argv
-    assert argv[-2:] == ["-k", "quickstart"]
+    assert argv[-1] == "tests/e2e/workbench/test_notebooks.py::test_notebook[replay-quickstart]"
+    assert "-k" not in argv
     assert env["SCREAMINGFACE_TEST_E2E"] == "1"
     assert env["SCREAMINGFACE_WORKBENCH_TARGET"] == "replay"
     assert env["SCREAMINGFACE_WORKBENCH_REQUIRE_ALL"] == "1"
@@ -97,12 +98,50 @@ def test_command_sets_the_workbench_env_and_filters_notebooks(tmp_path: Path) ->
     assert "SCREAMINGFACE_TEST_PAID" not in env
 
 
-def test_command_ors_several_notebooks_and_runs_all_when_none_given(tmp_path: Path) -> None:
-    m = _manager(tmp_path)
+def test_command_selects_exact_node_ids_and_the_whole_file_when_none_given(
+    tmp_path: Path,
+) -> None:
+    # WHY node ids, not -k: a -k substring "quickstart" also selects "quickstart-v2", and a
+    # stem named like a -k operator ("not") breaks the expression.
+    m = _manager(tmp_path, environ={"OPENROUTER_API_KEY": "k"})
     argv, _ = m.command(RunRequest("replay", ("quickstart", "judge-panel")), tmp_path)
-    assert argv[-2:] == ["-k", "quickstart or judge-panel"]
+    node = "tests/e2e/workbench/test_notebooks.py::test_notebook"
+    assert argv[-2:] == [f"{node}[replay-quickstart]", f"{node}[replay-judge-panel]"]
+    argv_local, _ = m.command(RunRequest("local", ("not",), confirm_paid=True), tmp_path)
+    assert argv_local[-1] == f"{node}[local-not]"
     argv_all, _ = m.command(RunRequest("replay", ()), tmp_path)
-    assert "-k" not in argv_all
+    assert argv_all[-1] == "tests/e2e/workbench/test_notebooks.py"
+    assert not any("::" in a for a in argv_all)
+
+
+def test_pytest_temp_dirs_live_under_the_run_out_dir(tmp_path: Path) -> None:
+    # WHY: the local target's runtime data dir is a pytest temp dir; under the run's own out
+    # dir the UI can name it in the stop command after a cancel (and its logs stay on disk).
+    out = tmp_path / "runs" / "r"
+    argv, _ = _manager(tmp_path).command(RunRequest("replay", ()), out)
+    assert f"--basetemp={out / 'pytest-tmp'}" in argv
+
+
+def test_the_runtime_data_dir_is_found_only_when_unambiguous(tmp_path: Path) -> None:
+    run = Run("r", RunRequest("local", (), confirm_paid=True), tmp_path / "out")
+    assert runtime_data_dir(run) is None
+    data = run.out_dir / "pytest-tmp" / "workbench-target0" / "data"
+    data.mkdir(parents=True)
+    assert runtime_data_dir(run) == data
+    (run.out_dir / "pytest-tmp" / "workbench-target1" / "data").mkdir(parents=True)
+    assert runtime_data_dir(run) is None
+
+
+def test_a_replay_run_never_inherits_the_provider_key(tmp_path: Path) -> None:
+    # WHY: replay is keyless by contract; a key in the UI's environment must not reach a replay
+    # child, where the notebook would connect it (and any stray call could spend).
+    environ = {"OPENROUTER_API_KEY": "sk-or-v1-secret", "PATH": "/x"}
+    _, env = _manager(tmp_path, environ=environ).command(RunRequest("replay", ()), tmp_path)
+    assert "OPENROUTER_API_KEY" not in env and env["PATH"] == "/x"
+    _, local = _manager(tmp_path, environ=environ).command(
+        RunRequest("local", (), confirm_paid=True), tmp_path
+    )
+    assert local["OPENROUTER_API_KEY"] == "sk-or-v1-secret"
 
 
 def test_command_keeps_the_inherited_env(tmp_path: Path) -> None:
@@ -139,10 +178,8 @@ def test_a_confirmed_local_run_with_a_key_is_paid(tmp_path: Path) -> None:
         (RunRequest("replay", ("x or y",)), {}, "notebook"),
         (RunRequest("replay", ("Quickstart",)), {}, "notebook"),
         (RunRequest("replay", ("",)), {}, "notebook"),
-        # -k keywords pass the stem pattern but break the expression (a pytest usage error).
-        (RunRequest("replay", ("not",)), {}, "notebook"),
-        (RunRequest("replay", ("and",)), {}, "notebook"),
-        (RunRequest("replay", ("quickstart", "or")), {}, "notebook"),
+        (RunRequest("replay", ("quick]start",)), {}, "notebook"),
+        (RunRequest("replay", ("a::b",)), {}, "notebook"),
     ],
 )
 def test_invalid_or_ungated_requests_are_rejected_with_the_reason(
@@ -330,6 +367,15 @@ def test_cancel_escalates_when_the_interrupt_is_ignored(tmp_path: Path) -> None:
     done = m.cancel(run.id)
     assert time.monotonic() - started < 10
     assert done.cancelled and done.returncode == -9
+    assert done.killed  # the run page warns that teardown may not have run
+
+
+def test_a_cancel_that_ends_on_the_interrupt_is_not_killed(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="import time; print('up', flush=True); time.sleep(30)")
+    run = m.start(RunRequest("replay", ()))
+    next(m.follow(run.id, 0))
+    done = m.cancel(run.id)
+    assert done.cancelled and not done.killed
 
 
 def test_cancelling_a_finished_run_changes_nothing(tmp_path: Path) -> None:

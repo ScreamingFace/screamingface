@@ -25,6 +25,7 @@ import asyncio
 import json
 import re
 import secrets
+import shlex
 import sys
 import threading
 from collections.abc import AsyncIterator, Iterator, Sequence
@@ -37,9 +38,10 @@ from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from screamingface._runtime.config import default_data_dir as runtime_default_data_dir
 from workbench.ui import pages
 from workbench.ui.bundles import BundleNotFound, BundleSummary, discover, load
-from workbench.ui.runs import Run, RunBusy, RunManager, RunRejected, RunRequest
+from workbench.ui.runs import Run, RunBusy, RunManager, RunRejected, RunRequest, runtime_data_dir
 
 CSP = (
     "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
@@ -58,11 +60,14 @@ _SECURITY_HEADERS = (
 
 
 class _HttpError(Exception):
-    def __init__(self, status: int, reason: str, *, token: str | None = None) -> None:
+    def __init__(
+        self, status: int, reason: str, *, token: str | None = None, back: str | None = None
+    ) -> None:
         super().__init__(reason)
         self.status = status
         self.reason = reason
         self.token = token
+        self.back = back  # the page to return to (default: the index)
 
 
 class _Guard:
@@ -155,9 +160,16 @@ class _Workbench:
     """Route handlers sharing one configuration (the app's single run manager and root)."""
 
     def __init__(
-        self, *, root: Path, manager: RunManager, token: str, notebooks: Sequence[str]
+        self,
+        *,
+        root: Path,
+        manager: RunManager,
+        token: str,
+        notebooks: Sequence[str],
+        default_data_dir: Path,
     ) -> None:
         self.root = root
+        self.default_data_dir = default_data_dir
         self.manager = manager
         self.token = token
         self.notebooks = tuple(notebooks)
@@ -199,6 +211,20 @@ class _Workbench:
             names = []
         ids = {n for n in names if _RUN_ID.fullmatch(n)} | set(self.run_ids)
         return sorted(ids, reverse=True)
+
+    def stop_command(self, run: Run) -> str | None:
+        """After a cancel that may have skipped ``down``, the command that stops the runtime.
+
+        ``screamingface up`` detaches into its own session, so nothing in the run's process
+        group stops it: only fixture teardown's ``down`` does. That may not have run when the
+        group needed SIGKILL; on ``local`` the tester should check either way.
+        """
+        if run.returncode is None or not run.cancelled:
+            return None
+        if not (run.killed or run.request.target == "local"):
+            return None
+        data_dir = runtime_data_dir(run) or self.default_data_dir
+        return f"screamingface down --data-dir {shlex.quote(str(data_dir))}"
 
     def bundles_of(self, run_id: str) -> list[BundleSummary]:
         return [b for b in discover(self.root) if b.key.startswith(f"runs/{run_id}/")]
@@ -253,7 +279,8 @@ class _Workbench:
         run = self.live(run_id)
         bundles = self.bundles_of(run_id)
         if run is not None:
-            return HTMLResponse(pages.run_page(run, bundles, token=token))
+            stop = self.stop_command(run)
+            return HTMLResponse(pages.run_page(run, bundles, token=token, stop_command=stop))
         if not (self.root / "runs" / run_id).is_dir():
             raise _HttpError(404, f"no run {run_id!r}")
         return HTMLResponse(pages.past_run_page(run_id, bundles, token=token))
@@ -280,9 +307,14 @@ class _Workbench:
         yield f"event: end\ndata: {json.dumps(end)}\n\n"
 
     async def cancel(self, request: Request, run_id: str) -> RedirectResponse:
-        if self.live(run_id) is None:
+        run = self.live(run_id)
+        if run is None:
             raise _HttpError(404, f"no live run {run_id!r}")
         await self.authorized_fields(request)
+        if run.returncode is not None:
+            back = f"/runs/{run_id}?token={quote(self.token, safe='')}"
+            reason = f"Run {run_id} already finished — nothing to cancel."
+            raise _HttpError(409, reason, token=self.token, back=back)
         threading.Thread(target=self.manager.cancel, args=(run_id,), daemon=True).start()
         return RedirectResponse(f"/runs/{run_id}?token={quote(self.token, safe='')}", 303)
 
@@ -296,14 +328,31 @@ class _Workbench:
 
 def _error_response(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, _HttpError)
-    return HTMLResponse(pages.error_page(exc.status, exc.reason, token=exc.token), exc.status)
+    page = pages.error_page(exc.status, exc.reason, token=exc.token, back=exc.back)
+    return HTMLResponse(page, exc.status)
 
 
 def create_app(
-    *, root: Path, manager: RunManager, token: str, port: int, notebooks: Sequence[str]
+    *,
+    root: Path,
+    manager: RunManager,
+    token: str,
+    port: int,
+    notebooks: Sequence[str],
+    default_data_dir: Path | None = None,
 ) -> FastAPI:
-    """The workbench UI app. ``root`` holds bundles; runs write under ``root/runs/<id>``."""
-    wb = _Workbench(root=root.resolve(), manager=manager, token=token, notebooks=notebooks)
+    """The workbench UI app. ``root`` holds bundles; runs write under ``root/runs/<id>``.
+
+    ``default_data_dir`` is named in the stop command when a run's own runtime data dir is
+    unknown (default: the runtime's, ``SCREAMINGFACE_DATA_DIR`` or ``~/.screamingface``).
+    """
+    wb = _Workbench(
+        root=root.resolve(),
+        manager=manager,
+        token=token,
+        notebooks=notebooks,
+        default_data_dir=default_data_dir or runtime_default_data_dir(),
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

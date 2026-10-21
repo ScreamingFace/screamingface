@@ -29,6 +29,7 @@ BASE = f"http://127.0.0.1:{PORT}"
 TOKEN = "t0k3n-for-tests"
 NOTEBOOKS = ("quickstart", "judge-panel")
 TRACE_ID = "a" * 32
+DEFAULT_DATA_DIR = Path("/home/tester/.screamingface")
 
 Spawn = Callable[[list[str], dict[str, str], Path], "subprocess.Popen[str]"]
 
@@ -72,7 +73,12 @@ class _Rig:
             terminate_grace=5.0,
         )
         self.app: FastAPI = create_app(
-            root=self.root, manager=self.manager, token=TOKEN, port=PORT, notebooks=NOTEBOOKS
+            root=self.root,
+            manager=self.manager,
+            token=TOKEN,
+            port=PORT,
+            notebooks=NOTEBOOKS,
+            default_data_dir=DEFAULT_DATA_DIR,
         )
         self.client = TestClient(self.app, base_url=BASE, follow_redirects=False)
 
@@ -276,7 +282,7 @@ def test_index_shows_the_active_run_and_disables_launching(
 
 def test_post_with_token_starts_and_redirects(rig: _Rig) -> None:
     run_id = rig.start(notebooks="quickstart")
-    assert rig.calls and rig.calls[0][-2:] == ["-k", "quickstart"]
+    assert rig.calls and rig.calls[0][-1].endswith("::test_notebook[replay-quickstart]")
     stream = rig.events(run_id)
     assert "data: a\n" in stream and "data: b\n" in stream
     end = re.search(r"event: end\ndata: (.+)\n\n", stream)
@@ -378,6 +384,83 @@ def test_cancel_with_token_ends_the_run_and_redirects(rig_factory: Callable[...,
     assert end and json.loads(end.group(1))["cancelled"] is True
     page = rig.client.get(f"/runs/{run_id}").text
     assert "cancelled" in page and "EventSource" not in page
+
+
+_SLEEP_IN_DATA_DIR = """
+import os, pathlib, time
+out = pathlib.Path(os.environ["SCREAMINGFACE_WORKBENCH_OUT"])
+(out / "pytest-tmp" / "workbench-target0" / "data").mkdir(parents=True)
+print("up", flush=True)
+time.sleep(30)
+"""
+
+
+def _cancel_and_wait(rig: _Rig, run_id: str) -> str:
+    assert next(rig.manager.follow(run_id, 0)) == "up"  # the script is past its setup
+    response = rig.client.post(f"/runs/{run_id}/cancel", data={"token": TOKEN})
+    assert response.status_code == 303
+    rig.events(run_id)  # ends once the cancel finished
+    return rig.client.get(f"/runs/{run_id}", params={"token": TOKEN}).text
+
+
+def test_a_cancelled_local_run_names_the_command_that_stops_its_runtime(
+    rig_factory: Callable[..., _Rig],
+) -> None:
+    # `screamingface up` detaches into its own session: if teardown did not reach `down`, the
+    # runtime keeps its ports (and the tester must know how to stop it).
+    rig = rig_factory(script=_SLEEP_IN_DATA_DIR, environ={"OPENROUTER_API_KEY": "k"})
+    run_id = rig.start(target="local", confirm_paid="on")
+    page = _cancel_and_wait(rig, run_id)
+    data_dir = rig.root / "runs" / run_id / "pytest-tmp" / "workbench-target0" / "data"
+    assert "runtime may still be up" in page
+    assert f"screamingface down --data-dir {data_dir}" in page
+
+
+def test_a_cancelled_local_run_without_a_known_data_dir_names_the_default(
+    rig_factory: Callable[..., _Rig],
+) -> None:
+    rig = rig_factory(
+        script="import time; print('up', flush=True); time.sleep(30)",
+        environ={"OPENROUTER_API_KEY": "k"},
+    )
+    run_id = rig.start(target="local", confirm_paid="on")
+    page = _cancel_and_wait(rig, run_id)
+    assert "runtime may still be up" in page
+    assert f"screamingface down --data-dir {DEFAULT_DATA_DIR}" in page
+
+
+def test_a_killed_replay_run_warns_that_teardown_may_not_have_run(
+    rig_factory: Callable[..., _Rig],
+) -> None:
+    script = (
+        "import signal, time; signal.signal(signal.SIGINT, signal.SIG_IGN); "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); print('up', flush=True); time.sleep(60)"
+    )
+    rig = rig_factory(script=script)
+    rig.manager._graces = (0.2, 0.2)  # pyright: ignore[reportPrivateUsage]
+    run_id = rig.start()
+    page = _cancel_and_wait(rig, run_id)
+    assert "runtime may still be up" in page
+    assert f"screamingface down --data-dir {DEFAULT_DATA_DIR}" in page
+
+
+def test_a_replay_run_cancelled_cleanly_has_no_stop_note(
+    rig_factory: Callable[..., _Rig],
+) -> None:
+    rig = rig_factory(script="import time; print('up', flush=True); time.sleep(30)")
+    run_id = rig.start()
+    page = _cancel_and_wait(rig, run_id)
+    assert "cancelled" in page and "screamingface down" not in page
+
+
+def test_cancelling_a_finished_run_says_there_is_nothing_to_cancel(rig: _Rig) -> None:
+    run_id = rig.start()
+    rig.wait(run_id)
+    response = rig.client.post(f"/runs/{run_id}/cancel", data={"token": TOKEN})
+    assert response.status_code == 409
+    assert "already finished — nothing to cancel" in response.text
+    assert f'href="/runs/{run_id}?token={TOKEN}"' in response.text
+    assert not rig.manager.get(run_id).cancelled
 
 
 def test_a_crashed_run_shows_partial_output_and_exit_code(
