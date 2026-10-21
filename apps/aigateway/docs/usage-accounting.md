@@ -220,7 +220,11 @@ truthful to say about cost. A write-time block changes that premise, so adopting
 provider is now defensible — but doing so re-opens the corresponding decision and must be argued
 there, not here. Both stay at `None` until then.
 
-Full raw JSON evidence is parsed only when decoded content is at most 256 KiB. Accounting metadata is
+Full raw JSON evidence is parsed only when decoded content is at most 256 KiB. A successful (2xx)
+body over that size but at most 8 MiB, such as a long reasoning answer, is parsed the same lossless
+way, and only its `id`, `model` and `usage` fields are kept. So its exact provider cost is still
+reported, not LiteLLM's converted float. An error body never gets this larger read, because the
+OpenRouter zero-insurance proof reads every field of a 429. Accounting metadata is
 also bounded: at most 64 rendered attempts and 64 KiB for the complete `_aigw` object. Bounds degrade
 to explicit partial/unavailable states instead of failing an otherwise successful provider response.
 
