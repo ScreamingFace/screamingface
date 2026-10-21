@@ -75,7 +75,7 @@ sf.leaderboards.edit(score.id, authors_metadata=None)`
 const editLog = `for event in sf.leaderboards.metadata_events(score.id):
     print(event.edited_at, event.source, event.old_paper_url, "->", event.new_paper_url)`
 
-const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
+const remix = `plan = score.url4.to_python()   # Model / Fanout / Synthesize / Pipeline, free
 sf.evaluate(score.url4)        # a new paid run; omit benchmark= and limit=`
 
 const reproduce = `import screamingface as sf

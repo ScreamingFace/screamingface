@@ -233,20 +233,18 @@ opus = sf.Model("openrouter/anthropic/claude-opus-4.8", prompt=ANSWER)
 gpt = sf.Model("openrouter/openai/gpt-5.5", prompt=ANSWER)
 gemini = sf.Model("openrouter/google/gemini-3.1-pro-preview", prompt=ANSWER, params={"temperature": 0, "max_tokens": 8192})
 
-frontier_trio = sf.Fusion(
-    [opus, gpt, gemini],
-    name="frontier-trio",
-    synthesizer=sf.Model(
+frontier_trio = sf.Fanout([opus, gpt, gemini], name="frontier-trio") >> sf.Synthesize(
+    sf.Model(
         "openrouter/anthropic/claude-opus-4.8",
         prompt=SYNTHESIS,
         params={"temperature": 0, "max_tokens": 8192},
-    ),
+    )
 )`
 
 const lineup = `# Seven solo models answer on their own.
 solos = [opus, gpt, gemini, fable, gemini_flash, kimi, deepseek]
 
-# Nine Fusions combine them through a synthesizer. Reusing a Model object
+# Nine fusions combine them through a synthesizer. Reusing a Model object
 # means that answer is computed once and shared, not requested twice.
 fusions = [
     fable_plus_gpt,      # two frontier models
@@ -415,7 +413,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
         solo candidate.
       </li>
       <li>
-        <code>sf.Fusion</code>: several members combined through an explicit
+        <code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>: a fusion. <code>sf.Fanout</code>
+        sends the question to several members. <code>sf.Synthesize</code> adds an explicit
         <strong>synthesizer</strong>. Here, the synthesizer is another model that combines the
         members' answers into one.
       </li>

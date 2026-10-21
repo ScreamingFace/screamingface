@@ -12,10 +12,9 @@ const importCell = `import screamingface as sf`
 
 const connect = `sf.connect()  # opens the connection panel; log in when prompted`
 
-const build = `fusion = sf.Fusion(
+const build = `fusion = sf.Fanout(
     ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"],
-    synthesizer="openrouter/openai/gpt-5.5",
-)`
+) >> sf.Synthesize("openrouter/openai/gpt-5.5")`
 
 const run = `report = sf.evaluate(fusion, benchmark="ifeval", limit=3)`
 
@@ -66,9 +65,10 @@ candidate.score`
     <h2>3 · Build the fusion</h2>
 
     <p>
-      Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
-      same question in parallel; the synthesizer reads both drafts and writes the single answer that
-      gets graded. Here the first model doubles as the synthesizer — a fine way to start.
+      Give <code>sf.Fanout</code> two model routes. The two members answer the same question in
+      parallel. Then <code>&gt;&gt;</code> adds <code>sf.Synthesize</code>, the synthesizer: it
+      reads both drafts and writes the single answer that gets graded. Here the first model doubles
+      as the synthesizer — a fine way to start.
     </p>
 
     <div class="not-prose">
