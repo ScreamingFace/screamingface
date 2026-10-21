@@ -392,8 +392,9 @@ def test_hellaswag_pin_tracks_inspect_evals_own_revision_constant() -> None:
 
 def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     """OME-1269's first question-filter benchmark. Its questions are whatever the eval's own
-    filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
-    whose answer letter lies past their choices), and it renders inspect's own
+    filter keeps, minus the owner-approved named deviations (6 questions inspect keeps
+    whose answer letter lies past their choices, and 18 more whose options it splits
+    wrongly), and it renders inspect's own
     chain-of-thought template because the eval passes multiple_choice(cot=True).
     The question filter and the exclusion change which questions are served, so both ride its
     revision; the template pointer does not (template pointers predate revision-pin
@@ -409,8 +410,10 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     row = TASK_REPLAY_CASES["onet_m6"]
     assert row.source_pins == {"matichon/thai-onet-m6-exam": INSPECT_EVALS}
     assert row.task == "inspect_evals.onet.onet:onet_m6"
-    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
-    assert row.case_count == 397 - 6
+    # OME-1701 PR 6: 18 more ids joined the six (inspect_evals PR #2590's
+    # number-order parse; each pinned in test_onet_m6_option_parse_exclusions).
+    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6 + 18
+    assert row.case_count == 397 - 6 - 18
     assert any(pin.startswith("excluded_sample_ids=") for pin in _task_replay_pins(row))
 
 

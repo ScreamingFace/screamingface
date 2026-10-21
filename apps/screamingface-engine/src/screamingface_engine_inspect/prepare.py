@@ -1038,13 +1038,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face matichon/thai-onet-m6-exam/default
     #     pin revision 93ffb5e3f3ec630b73e501937805984dd24f2365
+    # Re-sealed 2026-10-21 (OME-1701 PR 6) by two build replays: the 373 are
+    #   the 391 less the 18 ids below, in the same order (positional Case ids renumber).
     "onet_m6": TaskReplayCasesSpec(
         task="inspect_evals.onet.onet:onet_m6",
-        case_count=391,
-        case_digest="92d013fe6efd85165221d02958efaf13df3f31ee25ce4e8868112b92c30e613b",
-        case_set_digest="7a6f28e40396cd9c450e0d4f7948368e22f522cb784636105072b95eb9fc96d9",
+        case_count=373,
+        case_digest="95dc23aef92510679bbd2641aecc4fd73b920b6a00055c234d59bc038c44a54a",
+        case_set_digest="8101723bfa4793922d1e04f9635dbd69d4031342c6772ba5a08dd8329a1fe6f1",
         # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
-        # questions, the Benchmark serves 391. Six cannot be graded as published: inspect_evals
+        # questions, the Benchmark serves 373 (391 until the 18 below). Six cannot be graded
+        # as published: inspect_evals
         # split their numbered choices wrongly, so the answer letter points past the last
         # choice (2021_4_b447: answer E, 4 choices).
         excluded_sample_ids=(
@@ -1054,6 +1057,36 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             "2021_10_0325",
             "2021_13_1922",
             "2021_4_b447",
+            # NAMED DEVIATION (OME-1701 PR 6, 2026-10-21): 18 more that
+            # v0.20.0 builds wrongly. Its option split knows only "N. x", so an option
+            # written "1.x" or "1 x" is dropped or merged and a year inside an option is
+            # split off as one; the key letter comes from the record's own number, so it
+            # can land on another option's text. inspect_evals PR #2590 (open) parses the
+            # options in number order: these, with the six above, are every Sample where its
+            # parse differs from v0.20.0's. Left out rather than re-parsed: #2590 is not
+            # merged, and re-parsing needs a local Task (a new origin and catalogue id); the
+            # other 373 Cases are the same under both parses. "4 of 5" = options v0.20.0
+            # reads of the record's five. The test pins each reason.
+            # The key names another option's text (16):
+            "2019_23_38bf",  # D, 4 of 5
+            "2019_27_0cda",  # B, 4 of 5
+            "2019_62_e6f7",  # B, 4 of 5
+            "2020_25_f98b",  # A, 4 of 5
+            "2020_30_aa8d",  # D, 4 of 5
+            "2021_17_309f",  # D is "It has lived", the answer "It lives"
+            "2021_17_b585",  # C, 4 of 5
+            "2021_22_d6cb",  # D, 4 of 5, two options merged into D
+            "2021_29_b28c",  # B, 4 of 5
+            "2021_31_213c",  # C is "2": years in the options split into 22
+            "2021_36_882c",  # A is "covering", the answer "picnic"
+            "2021_37_36fa",  # C is "amusing", the answer "excess"
+            "2021_38_60ca",  # B, two options merged into B
+            "2021_40_e2b5",  # D is "careless", the answer "restless"
+            "2021_5ก_cd35",  # C, 4 of 5
+            "2021_60_3497",  # B, two options merged into B
+            # The key is right, but an option is missing (2):
+            "2019_10ก_6985",  # B, 4 of 5
+            "2020_1ข_eead",  # B, 4 of 5
         ),
         source_pins={
             "matichon/thai-onet-m6-exam": "93ffb5e3f3ec630b73e501937805984dd24f2365",
