@@ -63,8 +63,9 @@ with the 2026-10-16 live evidence. Docs only.
   (`child_protocol.py:94-99`) and Cases come from `cases.json` (`single_shot.py:799-818`), not appended
   to `attachments[]`. D3 scoped to url4 attachments merged into an envelope. Four v1 gates recorded
   (Fusion/inspect re-serialisation `OME-1679`/`OME-1271` PR1, explicit judge refusal D6, Report
-  placeholder `OME-1680`, `data:` pattern conformance test). Not changed: the diagram still labels Case
-  ingress `RUN_SPEC ≤ 1 MiB`.
+  placeholder `OME-1680`, `data:` pattern conformance test). Diagram regenerated: Case ingress is now
+  `cases.json` → v2 envelope (§2.7) straight into the engine connector; only url4 refs feed
+  `attachments[]`; PNG re-rendered with `rsvg-convert`.
 - **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
   attachments under `OME-1271` v1; a remote nested expression (C6) does not receive the outer run's
   attachments; a request with no attachments keeps today's key; new codes travel with the url4 `x.`

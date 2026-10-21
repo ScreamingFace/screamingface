@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 860" role="img" aria-labelledby="t d" font-family="JetBrains Mono, Menlo, SF Mono, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1770 860" role="img" aria-labelledby="t d" font-family="JetBrains Mono, Menlo, SF Mono, monospace">
 <title id="t">File input path: url4, engine, gateway, provider (OME-1535)</title>
-<desc id="d">Top row, TODAY at main ec4b632b2 (2026-10-21): a caller can only send text in the URL; url4 payloads are strings and an unquoted data: source is a ParseError; the engine connector refuses non-text content; the gateway carries native image and PDF parts for Gemini, Antigravity and Codex and refuses the rest with a typed 422; Ollama answers a PDF with 422 since #1447. Bottom rows, TARGET v1: two separate ingress paths. Case ingress puts inline data: parts in the run spec, straight into the engine run blob store. url4 ingress resolves authority-less src= blob refs at the evaluating node; every url4:// blob ref, the node's own authority included, fails with x.remote_blob_unsupported before any network I/O. The engine keeps run-scoped blobs, verifies sha256 and carries an ordered attachments list beside the string payload; every model-calling node sends attachments first, then the text, through the gateway to the provider.</desc>
+<desc id="d">Top row, TODAY at main ec4b632b2 (2026-10-21): a caller can only send text in the URL; url4 payloads are strings and an unquoted data: source is a ParseError; the engine connector refuses non-text content; the gateway carries native image and PDF parts for Gemini, Antigravity and Codex and refuses the rest with a typed 422; Ollama answers a PDF with 422 since #1447. Bottom rows, TARGET v1: two separate ingress paths. Case ingress reads Cases from cases.json; a Case with pictures or PDFs is a v2 candidate-input envelope (spec 2.7) whose typed parts go straight to the engine connector in their written position, never through the run spec and never into attachments. url4 ingress resolves authority-less src= blob refs at the evaluating node; every url4:// blob ref, the node's own authority included, fails with x.remote_blob_unsupported before any network I/O. The engine run blob store keeps only these url4 blobs, run-scoped and sha256-verified, as an ordered attachments list beside the string payload. The engine connector keeps v2 envelope parts as written and puts url4 attachment parts on the last user message, data: URIs only, and refuses parts on judge calls; requests pass the gateway (content-part gate, 8 MiB body cap) to every model-calling node.</desc>
 <style>text{fill:#e2e8f0}.t{font-size:18px;font-weight:700}.s{font-size:15px;font-weight:700}.h{font-size:15px;font-weight:700;text-anchor:middle}.l{font-size:13px;text-anchor:middle;fill:#cbd5e1}.a{font-size:13px;text-anchor:middle;fill:#94a3b8}.c{font-size:13px;fill:#94a3b8}</style>
-<rect width="1500" height="860" fill="#0f172a"/>
+<rect width="1770" height="860" fill="#0f172a"/>
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>
 <text class="t" x="40" y="40">File input path: url4 → engine → gateway → provider (OME-1535)</text>
 <text class="s" x="40" y="80">TODAY (main ec4b632b2, 2026-10-21): a file cannot reach a model through url4 or the engine</text>
@@ -38,13 +38,15 @@
 <text class="l" x="1350.0" y="160">Antigravity · Codex ·</text>
 <text class="l" x="1350.0" y="182">Claude · OpenRouter ✓</text>
 <text class="l" x="1350.0" y="204">Ollama PDF → 422 (#1447)</text>
-<text class="s" x="40" y="320">TARGET v1: two ingress paths; local run-scoped blobs; attachments ride beside the string payload</text>
+<text class="s" x="40" y="320">TARGET v1: Case parts ride the v2 envelope; only url4 refs become run-scoped blobs in attachments[]</text>
 <rect x="40" y="345" width="260" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="h" x="170.0" y="375">Case ingress (engine)</text>
-<text class="l" x="170.0" y="405">inline data: parts in $input</text>
-<text class="l" x="170.0" y="427">RUN_SPEC ≤ 1 MiB</text>
-<text class="l" x="170.0" y="449">never in the URL</text>
-<text class="l" x="170.0" y="471">or an expression</text>
+<text class="l" x="170.0" y="405">cases.json → v2 candidate-</text>
+<text class="l" x="170.0" y="427">input envelope (§2.7)</text>
+<text class="l" x="170.0" y="449">typed parts, in place</text>
+<text class="l" x="170.0" y="471">not RUN_SPEC, not attachments[]</text>
+<line x1="304" y1="420" x2="1016" y2="420" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="660" y="408">v2 envelope parts as written (structure, no string scanning)</text>
 <rect x="40" y="545" width="260" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="h" x="170.0" y="575">url4 ingress</text>
 <text class="l" x="170.0" y="605">(img:src=/blob/sha256/&lt;hex&gt;)</text>
@@ -58,40 +60,48 @@
 <text class="l" x="490.0" y="649">x.remote_blob_unsupported</text>
 <text class="l" x="490.0" y="671">(no network I/O)</text>
 <line x1="304" y1="620" x2="356" y2="620" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
-<rect x="680" y="345" width="300" height="350" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
-<text class="h" x="830.0" y="375">engine run blob store</text>
-<text class="l" x="830.0" y="405">scope: tenant + run</text>
-<text class="l" x="830.0" y="427">sha256 verified on store</text>
-<text class="l" x="830.0" y="449">and on every read</text>
-<text class="l" x="830.0" y="471"></text>
-<text class="l" x="830.0" y="493">run context:</text>
-<text class="l" x="830.0" y="515">payload: str (unchanged)</text>
-<text class="l" x="830.0" y="537">attachments[]: ordered refs</text>
-<text class="l" x="830.0" y="559">(digest, media type,</text>
-<text class="l" x="830.0" y="581"> filename?, detail?)</text>
-<text class="l" x="830.0" y="603"></text>
-<text class="l" x="830.0" y="625">inherited unchanged by</text>
-<text class="l" x="830.0" y="647">pipelines, nesting, retries</text>
-<line x1="304" y1="420" x2="676" y2="420" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
-<text class="a" x="490" y="410">ingest: decode, hash, store</text>
+<rect x="680" y="470" width="280" height="240" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="820.0" y="500">engine run blob store</text>
+<text class="l" x="820.0" y="530">scope: tenant + run</text>
+<text class="l" x="820.0" y="552">sha256 verified on store</text>
+<text class="l" x="820.0" y="574">and on every read</text>
+<text class="l" x="820.0" y="596">attachments[]: ordered refs</text>
+<text class="l" x="820.0" y="618">(digest, media type,</text>
+<text class="l" x="820.0" y="640"> filename?, detail?)</text>
+<text class="l" x="820.0" y="662">url4 refs only; inherited</text>
+<text class="l" x="820.0" y="684">by pipelines, nesting, retries</text>
 <line x1="624" y1="620" x2="676" y2="620" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
 <text class="a" x="490" y="725">ref → attachment; IOLayer bytes fetch (bytes, media_type)</text>
-<rect x="1040" y="430" width="200" height="180" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
-<text class="h" x="1140.0" y="460">gateway</text>
-<text class="l" x="1140.0" y="490">content parts:</text>
-<text class="l" x="1140.0" y="512">[attachments…, text]</text>
-<text class="l" x="1140.0" y="534">gate 422</text>
-<text class="l" x="1140.0" y="556">body cap (OME-1542)</text>
-<text class="l" x="1140.0" y="578">/v1/models modalities</text>
-<line x1="984" y1="520" x2="1036" y2="520" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
-<rect x="1290" y="430" width="170" height="180" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
-<text class="h" x="1375.0" y="460">every model node</text>
-<text class="l" x="1375.0" y="490">members</text>
-<text class="l" x="1375.0" y="512">fusion / reducers</text>
-<text class="l" x="1375.0" y="534">judge (grading</text>
-<text class="l" x="1375.0" y="556">policy: OME-1271)</text>
-<line x1="1244" y1="520" x2="1286" y2="520" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
-<text class="a" x="1250" y="640">engine connector builds the parts from attachments[]</text>
+<line x1="964" y1="600" x2="1016" y2="600" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<text class="a" x="990" y="740">attachments[] → parts</text>
+<rect x="1020" y="345" width="240" height="350" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="1140.0" y="375">engine connector</text>
+<text class="l" x="1140.0" y="405">v2 envelope parts</text>
+<text class="l" x="1140.0" y="427">keep their position</text>
+<text class="l" x="1140.0" y="449"></text>
+<text class="l" x="1140.0" y="471">url4 attachments[] →</text>
+<text class="l" x="1140.0" y="493">image_url / file parts</text>
+<text class="l" x="1140.0" y="515">on the last user</text>
+<text class="l" x="1140.0" y="537">message (D3)</text>
+<text class="l" x="1140.0" y="559"></text>
+<text class="l" x="1140.0" y="581">data: URIs only</text>
+<text class="l" x="1140.0" y="603">judge: parts refused (D6)</text>
+<line x1="1264" y1="520" x2="1306" y2="520" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="1310" y="430" width="200" height="190" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="1410.0" y="460">gateway</text>
+<text class="l" x="1410.0" y="490">content parts</text>
+<text class="l" x="1410.0" y="512">gate 422</text>
+<text class="l" x="1410.0" y="534">8 MiB body cap</text>
+<text class="l" x="1410.0" y="556">(OME-1542, #1479)</text>
+<text class="l" x="1410.0" y="578">/v1/models modalities</text>
+<line x1="1514" y1="520" x2="1556" y2="520" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="1560" y="430" width="170" height="190" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
+<text class="h" x="1645.0" y="460">every model node</text>
+<text class="l" x="1645.0" y="490">members</text>
+<text class="l" x="1645.0" y="512">fusion / reducers</text>
+<text class="l" x="1645.0" y="534">judge: text only</text>
+<text class="l" x="1645.0" y="556">(grading policy:</text>
+<text class="l" x="1645.0" y="578"> OME-1271)</text>
 <rect x="40" y="778" width="22" height="14" rx="3" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="c" x="72" y="790">works / target</text>
 <rect x="300" y="778" width="22" height="14" rx="3" fill="#1e293b" stroke="#f5a524" stroke-width="2.5"/>
