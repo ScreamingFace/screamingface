@@ -79,9 +79,9 @@ class ErrorCode(StrEnum):
     SOURCE_NOT_FOUND = "source_not_found"
     """The source names content its node does not hold (Spec C §13.2.5, conformance case
     C5) — e.g. a ``blob:sha256/<hex>`` absent from the store. Permanent."""
-    BLOB_PEER_NOT_ALLOWED = "x.blob_peer_not_allowed"
-    """A ``url4://<node>/blob/…`` ref names a node the run's io does not allowlist: the
-    ``OME-1599`` interim rule, until blob refs carry trust checks. Permanent, no I/O."""
+    REMOTE_BLOB_UNSUPPORTED = "x.remote_blob_unsupported"
+    """A ``url4://<authority>/blob/…`` ref, any authority: remote blobs are deferred from v1
+    (#1450 spec §2 F1). Permanent, refused before any network I/O."""
     BLOB_DIGEST_MISMATCH = "x.blob_digest_mismatch"
     """The bytes served for a content address do not hash to it. Permanent: a content
     address that returns other content is refused, never passed on."""

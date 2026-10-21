@@ -19,6 +19,7 @@ from url4.core.nodes import Binding, Node, Source
 
 from url4.dag.node import DagNode  # isort: skip
 from url4.dag.nodes import ExpandNode, GuardNode, RelUrlNode, RemoteFetchNode, WebFetchNode  # isort: skip
+from url4.dag.nodes.blob import as_collection  # isort: skip
 
 if TYPE_CHECKING:  # the registry type only — this module never constructs one
     from url4.dag._lowering import LoweringRegistry
@@ -39,7 +40,7 @@ def _lower_source(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNo
     inner = registry.lower(node.value, {} if guard is not None else edges)
     _push_label(inner, node, ann)
     if node.expand:
-        inner = ExpandNode(deps={"inner": inner})
+        inner = ExpandNode(deps={"inner": as_collection(inner)})  # a blob ref is text (D4)
     if guard is not None:
         optional, timeout, retries = guard
         inner = GuardNode(

@@ -2,8 +2,8 @@
 
 Epic `OME-1529`. Contract: `OME-1534` conformance cases C1–C9, signed off by Kevin on 2026-10-13.
 Port: the `OME-1538` bytes fetch (`fetch_bytes(request) -> FetchedBytes(body, media_type)`).
-Trust checks (§5.4.2 policy, identity, attribution, `URL4-Auth-Token`) are `OME-1599`; only its
-interim cross-node allowlist applies here.
+Amended 2026-10-21 to #1450 spec §2 F1/F2 (owner decisions D1–D6): remote blobs are deferred from
+v1 and a resolved file is a typed attachment, not a `str` subclass. Trust checks are `OME-1599`.
 
 ## Today
 
@@ -33,32 +33,33 @@ interim cross-node allowlist applies here.
    - `blob:sha256/<hex>` → relative fetch of `/blob/sha256/<hex>`: the evaluating node's own store (C3).
      Any other algorithm, or an id that is not 64 hex digits, cannot be held: `source_not_found`,
      permanent, with no I/O (C5).
-   - `url4://<authority>/blob/sha256/<hex>` → a `url4`-kind fetch (§3.5), only when the run's io
-     allows that authority (interim rule below); otherwise refused, permanent, with no I/O (C2).
+   - `url4://<authority>/blob/…` — ANY authority (including one naming this node), any path or
+     query under `/blob` — is remote and fails `x.remote_blob_unsupported`, permanent, before any
+     I/O (C2 in v1; F1 / D1). Only a bare `/blob/sha256/<hex>` path or a token is local.
    - The store not holding the bytes → `source_not_found`, permanent (C5). Adapters report it from
      `fetch_bytes`: HTTP 404/410, a `StaticIOLayer` miss, a node's `endpoint_not_found`.
    - **Integrity:** the bytes' sha256 must equal `<hex>` (case-insensitive), else
      `x.blob_digest_mismatch`, permanent. A content address that returns other content is refused.
-5. **Payload.** Payloads stay `str` and refs travel as text (`OME-1534` point 4, `OME-1543`). A
-   resolved ref is a `ResolvedBlob`: a `str` whose value is the ref exactly as written, carrying
-   `body` (bytes), `media_type` and `digest`. Text consumers see the ref; the engine connector
-   (`OME-1545`) takes the bytes from it without fetching again.
+5. **Payload and attachment (F2 / D2).** Payloads stay plain `str`; `resolve` yields the ref
+   text exactly as written. The file is a typed `url4.dag.attachment.Attachment` — `digest`
+   (`sha256:<hex>`), `media_type` (`application/octet-stream` when the adapter reports none),
+   optional `filename` / `detail`, plus the verified `body` (out of `repr` and equality) — from
+   `BlobRefNode.attachment(ctx)`. No bytes ride on a `str`; nothing scans strings. Building the
+   run's ordered `attachments[]` and wiring it into model calls (D3, D5, D6) is `OME-1543`.
 6. **Nested sources are never modified (C6).** A `RemoteExpr` / `RelExpr` context is forwarded as
    written: the outer node neither resolves nor rewrites a ref inside it.
-7. **C8.** A resolved blob in collection position: a text media type (none, `text/*`, or one of the
+7. **C8 / D4.** A blob in collection position (marked at lowering, from structure), used as text and not attached: a text media type (none, `text/*`, or one of the
    collection parser's declared types) is parsed as today's fetched text; anything else is
    `unsupported_content_type`, permanent.
 8. **C9.** A model that cannot take the file is the engine's refusal (`OME-1545`/`OME-1548`); in url4
    a `process` hook raising `intent_error` surfaces as `intent_error`, the source having resolved.
-9. **Interim allowlist (`OME-1599`).** The io adapter declares the allowed peers through the optional
-   duck-typed capability `blob_peer_allowed(authority) -> bool`. `HttpIOLayer` and `StaticIOLayer`
-   take `blob_peers=` (authorities, `host[:port]`, compared lower-case). An adapter without the
-   capability allows **no** peer: fail closed. The run-wide bounded wrapper forwards it.
+9. **No remote fetch path.** There is no peer allowlist and no `url4://` bytes fetch in v1; a
+   follow-up remote-blob spec must meet the F1 bar first.
 10. **Status.** A node answering with `source_not_found` replies HTTP 404 (permanent under C §13.2.1).
 
 ## Out of scope
 
 The blob store and its routes (`OME-1540`), `data:` attachment and model refusal (`OME-1545`,
-`OME-1548`), refs through fan-out/reduce (`OME-1543`), trust checks (`OME-1599`), fetch-once
-pinning and size caps (`OME-1544`), wiring `blob_peers` into `Url4Node` / the CLI / the engine,
-quoted-URI parsing (`OME-1597`).
+`OME-1548`), the run's `attachments[]` and its wiring into model calls (`OME-1543`), trust checks
+(`OME-1599`), size caps (`OME-1544`), remote blobs (a follow-up spec, F1), quoted-URI parsing
+(`OME-1597`).
