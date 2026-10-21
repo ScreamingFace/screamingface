@@ -227,6 +227,8 @@ class Pipeline(Recipe):
         The judge-writer warning numbers these, so its stage numbers are the user's (WJ-1).
         """
 
+        # INVARIANT: an open chain is never read as stages (CH-8 refuses it at the compile).
+        assert not self._open, "an open chain has no stages"
         return tuple(stage.node if isinstance(stage, _Block) else stage for stage in self._stages)
 
     def _block_pipelines(self) -> tuple[Pipeline, ...]:

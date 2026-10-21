@@ -107,17 +107,19 @@ _NO_SAMPLES = _CompiledSamples(MappingProxyType({}), (), ())
 
 
 def entry_recipe(recipe: Recipe, *, warn_judge_writers: bool = True) -> Recipe:
-    """The compile entry of a Recipe: warn about a judge writer, then lower it.
+    """The compile entry of a Recipe: lower it, and warn about a judge writer.
 
-    WHY in this order (review P2 #3, E4b surface lowering §2.4): the lowering and the Fusion
-    rewrite both change the stages, so only the user's own value carries the stage numbers the
-    user wrote. ``lower()`` is idempotent, so a lowered value passes through unchanged; the
-    warning runs once, at the first entry (``warn_judge_writers=False`` at every later one).
+    WHY the warning reads the user's own value (review P2 #3, E4b surface lowering §2.4): the
+    lowering changes the stages, so only the user's value carries the stage numbers the user
+    wrote. WHY lower first: it refuses an open chain (CH-8) before the warning reads the stages.
+    ``lower()`` is idempotent, so a lowered value passes through unchanged; the warning runs once,
+    at the first entry (``warn_judge_writers=False`` at every later one).
     """
 
+    lowered = lower(recipe)
     if warn_judge_writers:
         _warn_judge_writers(recipe)
-    return lower(recipe)
+    return lowered
 
 
 def compile_candidate(

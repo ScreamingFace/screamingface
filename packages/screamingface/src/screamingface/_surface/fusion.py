@@ -22,6 +22,12 @@ _JUDGE_ONLY_SCORES = (
     "sf.Fusion synthesizer= takes a reducer, a writer or a narrow step; sf.Judge only scores: "
     "use sf.Fanout(...) >> sf.Judge(...) >> <reader>"
 )
+# WHY at the call: an optional open chain can never close (``>> sf.Synthesize`` refuses the
+# optional Pipeline, and as a member it is an open block, CH-8).
+_OPEN_OPTIONAL = (
+    "sf.Fusion optional=True needs a closed block: give a reducer or a writer as synthesizer=, "
+    "or close the chain first"
+)
 
 
 def Fusion(  # noqa: N802 - the public name of the shortcut is the name of the old class
@@ -43,7 +49,7 @@ def Fusion(  # noqa: N802 - the public name of the shortcut is the name of the o
     stays open, so add ``>> sf.Synthesize(...)``). A route string, an ``sf.Model`` or a recipe
     becomes ``sf.Synthesize(synthesizer)``. ``sf.Judge`` only scores, so it is refused.
     ``optional=True`` gives ``sf.Pipeline([chain], optional=True)``, a block that is an optional
-    member of an outer ``sf.Fanout``.
+    member of an outer ``sf.Fanout``; it needs a closed block, so a narrow step is refused there.
 
     The result is the ordinary chain: its ``repr`` and ``Url4.to_python()`` show the
     ``sf.Fanout(...) >> ...`` form. ``sf.Fusion`` is a function, so ``isinstance(x, sf.Fusion)``
@@ -51,7 +57,10 @@ def Fusion(  # noqa: N802 - the public name of the shortcut is the name of the o
     """
 
     fanout = Fanout(members, signals=signals, quorum=quorum, name=name, prompt=prompt)
-    chain = fanout >> _closing(synthesizer)
+    step = _closing(synthesizer)
+    if optional and step._category == "narrow":
+        raise ValueError(_OPEN_OPTIONAL)
+    chain = fanout >> step
     return Pipeline([chain], optional=True) if optional else chain
 
 
