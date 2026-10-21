@@ -135,7 +135,10 @@ chain `sf.Fanout(members, signals=signals, quorum=quorum, name=name, prompt=prom
   **open** chain that the user closes with `>> sf.Synthesize(...)` (CH-8 at compile if not);
 - an `sf.Judge(...)` is refused: "sf.Fusion synthesizer= takes a reducer, a writer or a narrow
   step; sf.Judge only scores: use sf.Fanout(...) >> sf.Judge(...) >> <reader>";
-- `optional=True` gives `sf.Pipeline([<that chain>], optional=True)` (LO-5).
+- `optional=True` gives `sf.Pipeline([<that chain>], optional=True)` (LO-5). It needs a closed
+  block: with a narrow step it raises at the call, "sf.Fusion optional=True needs a closed block:
+  give a reducer or a writer as synthesizer=, or close the chain first" (7e review, 2026-10-20: an
+  optional open chain can never close).
 
 The value is the ordinary chain, so `==`, `repr`, the cards and `to_python()` show the canonical
 `sf.Fanout(...) >> ...` form. `isinstance(x, sf.Fusion)` is not supported (a function). Bytes:
@@ -311,8 +314,12 @@ signature. Each old class stays an internal compile node with a `Node` name (O7)
 - The refusals raise at construction or at the `>>` that closes the block, never after a model
   call.
 - `MSG-1` (O13): a test scans (with `ast`) every string literal in a `raise` under `S/` and every
-  public docstring of `sf.*`, and checks that none names `sf.Fusion`, `sf.Pick`, `sf.Reduce`,
-  `returns=`, `by_field`, `by_signal`, `.then(` or `synthesizer=`. The allow list is explicit and
+  public docstring of `sf.*`, and checks that none names `sf.Pick`, `sf.Reduce`,
+  `returns=`, `by_field`, `by_signal`, `.then(` or `synthesizer`. **Erratum (7e review,
+  2026-10-20):** `sf.Fusion` is the public shortcut of §3b, so `sf.Fusion` and `synthesizer=` are
+  allowed ONLY in `S/_surface/fusion.py` (its messages and the `sf.Fusion` docstring), as a
+  per-module exemption, not an allow-list entry; everywhere else `sf.Fusion`, the bare word
+  `Fusion` and the word `synthesizer` stay forbidden. The allow list is explicit and
   short: internal-only messages that name `FusionNode` or its `synthesizer` field, and
   `CorrectiveLoop(judge=)`, which stays. Erratum U3c: no allow-list entry may hide a message that a
   new-surface value reaches at block close, for example "Rank keeps k=4 members but the Fusion has

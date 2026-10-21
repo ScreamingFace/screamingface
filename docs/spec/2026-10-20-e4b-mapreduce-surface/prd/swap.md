@@ -379,7 +379,10 @@ ValueError(...)` helpers such as `_cannot_rebuild`), (c) module-level `NAME = <s
 **Forbidden** (regex): `sf\.(Fusion|Pick|Reduce)\b`, `returns=`, `by_field(?!@)`, `by_signal(?!@)`,
 `\.then\(`, `synthesizer`, `\bFusion\b`, `\bPick\b`, `\bReduce\b`, `abstain_band=`, `extract=`.
 `by_signal@1` and `by_field@1` are wire op ids; `abstain_band` alone is the evidence field
-(`sf.report.CombineGate`); both pass.
+(`sf.report.CombineGate`); both pass. **Erratum (7e review, 2026-10-20, A4 revised):** the
+`sf.Fusion` shortcut is public, so `S/_surface/fusion.py` (its messages and the `sf.Fusion`
+docstring) is exempt from `sf\.Fusion\b`, `\bFusion\b` and `synthesizer` as a per-module
+exemption, not an allow-list entry; every other module keeps the full list.
 
 **Allow list** (explicit, `(module, substring)`, each with a reason; U3c: no entry may cover a
 message that a new-surface value reaches): only `CorrectiveLoop(judge=)`-related texts and
