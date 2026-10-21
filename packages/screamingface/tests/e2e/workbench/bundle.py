@@ -50,13 +50,36 @@ def write_bundle(
     }
     (out / "trace.json").write_text(json.dumps(redact_tree(trace), indent=2))
 
+    ids = ", ".join(chain.trace_ids) or "—"
+    why = "; ".join(reasons) or "—"
+    _append_row(root, target, notebook, "PASS" if passed else "FAIL", ids, why)
+    return out
+
+
+SETUP_ERROR_FILE = "setup_error.txt"
+SETUP_ROW = "(target setup)"
+
+
+def write_setup_failure(root: Path, *, target: str, skipped: bool, detail: str) -> Path:
+    """Record a target that never came up: ``root/setup_error.txt`` plus a summary row.
+
+    WHY (review finding 4): no notebook ran, so no bundle exists; without this the evidence dir
+    is empty and the reviewer has no artifact saying why. ``detail`` is redacted here.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    clean = redact(detail).rstrip()
+    path = root / SETUP_ERROR_FILE
+    with path.open("a") as fh:
+        fh.write(f"target: {target}\n{clean}\n")
+    last = (clean.splitlines() or ["?"])[-1]
+    _append_row(root, target, SETUP_ROW, "SETUP-SKIP" if skipped else "SETUP-ERROR", "—", last)
+    return path
+
+
+def _append_row(root: Path, target: str, notebook: str, outcome: str, ids: str, why: str) -> None:
     summary = root / "summary.md"
     if not summary.exists():
         summary.write_text(_HEADER)
-    ids = ", ".join(chain.trace_ids) or "—"
-    why = "; ".join(reasons) or "—"
-    outcome = "PASS" if passed else "FAIL"
     row = f"| {_cell(target)} | {_cell(notebook)} | {outcome} | {ids} | {_cell(why)} |\n"
     with summary.open("a") as fh:
         fh.write(redact(row))
-    return out

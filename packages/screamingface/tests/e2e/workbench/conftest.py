@@ -7,12 +7,15 @@ invocation is ``pytest tests/e2e``.
 from __future__ import annotations
 
 import os
+import traceback
 from collections.abc import Generator, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Final
 
 import pytest
 
+from workbench.bundle import write_setup_failure
 from workbench.redaction import redact
 from workbench.targets import LiveTarget, selected_target, start_target
 
@@ -32,8 +35,31 @@ def workbench_out(pytestconfig: pytest.Config, tmp_path_factory: pytest.TempPath
 
 
 @pytest.fixture(scope="session")
-def live_target(tmp_path_factory: pytest.TempPathFactory) -> Iterator[LiveTarget]:
-    with start_target(selected_target(), tmp_path_factory.mktemp("workbench-target")) as target:
+def live_target(
+    workbench_out: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[LiveTarget]:
+    """The selected target, booted once per session.
+
+    WHY it depends on ``workbench_out`` (review finding 4): the evidence root must exist BEFORE
+    the target boots, whatever order a test lists its fixtures in, and a target that errors or
+    skips while booting leaves ``setup_error.txt`` + a summary row there. CI uploads that dir
+    with ``if-no-files-found: error``, so an empty dir would also lose the reason.
+    """
+    name = selected_target()
+    with ExitStack() as stack:
+        try:
+            target = stack.enter_context(
+                start_target(name, tmp_path_factory.mktemp("workbench-target"))
+            )
+        except BaseException as exc:  # a skip is a BaseException (pytest OutcomeException)
+            skipped = isinstance(exc, pytest.skip.Exception)
+            detail = (
+                f"Skipped: {exc}"
+                if skipped
+                else "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            )
+            write_setup_failure(workbench_out, target=name, skipped=skipped, detail=detail)
+            raise
         yield target
 
 

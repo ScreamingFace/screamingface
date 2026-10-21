@@ -99,6 +99,7 @@ Each notebook writes a bundle, whether it passes or fails:
 ```
 <out>/
   summary.md                    # one row per notebook: target | notebook | outcome | trace ids | reasons
+  setup_error.txt               # only when the target errored/skipped while booting (+ a SETUP-ERROR/SETUP-SKIP summary row)
   <target>/<notebook>/
     executed.ipynb              # the run with outputs, tracebacks included
     trace.json                  # per hop: found (every id), missing_ids; verdict, reasons, result
