@@ -1,9 +1,9 @@
 ---
 ticket: OME-1695
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-21
-finished:
+finished: 2026-10-21
 ---
 
 # e4b-no-profile-writer — no runtime path writes or removes a Profile document
@@ -115,8 +115,8 @@ New tests first (prior tests are append-only until the owner approves the test m
       test in `test_auth_routes.py`; three startup-import tests in `test_bootstrap.py`.
     - Successor pointers re-pointed in three existing shells (`test_provider_credential_admin.py`,
       `test_pair_shadow_identity_writes.py`, `test_writer_floor_legacy_admin.py`).
-- **Commits:** `973f47876` refactor(aigateway)!: stop writing Profile documents; the index is
-  offline-only; a follow-up commit will carry the review and writer-race fixes.
+- **Commits:** squash-merged as `f7e54869b` (#1516) from `973f47876` (E4b) and `490a50d9a`
+  (the native/D18 writer-race fix).
 - **Review:** the independent read-only review found no E4b blocker. Its residual native-create/D18
   race is closed in the follow-up: `claim_native_write` holds a migrated pair's marker without
   advancing it, and PostgreSQL tests pin both commit orders.
