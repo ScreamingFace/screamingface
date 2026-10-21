@@ -1602,15 +1602,19 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         license="mit",
     ),
     # stereoset — imported by Task replay on 2026-10-16 from
-    #   inspect_evals.stereoset.stereoset:stereoset.
+    #   inspect_evals.stereoset.stereoset:stereoset; re-pointed on 2026-10-21 to
+    #   screamingface_engine_inspect.local_tasks.stereoset.stereoset:stereoset, inspect_evals'
+    #   Task with every record kept (NAMED DEVIATION, inspect_evals PR #2524): 2,115 → 2,123.
+    #   Sealed by two build replays of this declaration (the importer cannot read a local
+    #   Task's re-exported inspect_evals scorer), which reproduce the old seal on the old Task.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face McGill-NLP/stereoset/intersentence
     #     pin revision bf6e7ce50491784d094fb7afe60a70ecccb89035
     "stereoset": TaskReplayCasesSpec(
-        task="inspect_evals.stereoset.stereoset:stereoset",
-        case_count=2115,
-        case_digest="1c3774ed7ab9dc0ed30e77707ef33c6b0b0c2b822c9e78b35aceb71196b97f6a",
-        case_set_digest="69db3f56f3d47eede7314c04d9de8d73ce8eb6b3e2bd297a70c6cae0f9cbe548",
+        task="screamingface_engine_inspect.local_tasks.stereoset.stereoset:stereoset",
+        case_count=2123,
+        case_digest="2c8f8b3ba35b7fbe1232c33b6bcc90c31277f254ff37b79cac2ead1419ac7145",
+        case_set_digest="be5e20b59aa859aa64ed382a77ada26880677dd17c9858dd709f366dfb6bdcc4",
         keep_sample_metadata=True,
         letter_list_key=True,
         source_pins={

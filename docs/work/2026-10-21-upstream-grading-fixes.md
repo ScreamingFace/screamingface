@@ -133,6 +133,28 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - worldsense publishes a new revision; no other revision moves.
 - the tripwire names #2507.
 
+## PR 5 — Case-set fix: stereoset keeps every record (new Cases)
+
+### Planned changes
+
+- `.../local_tasks/stereoset/` (new): inspect_evals' Task with each record identified by the
+  dataset's own `id` (inspect_evals PR #2524, merged): 2,123 Cases.
+- `prepare.py`, `benchmarks.py`: the row points at the local Task, new count and digests,
+  honest description, origin ours.
+- tests: `test_local_task_stereoset.py` (new); `test_published_revisions.py` (stereoset first
+  frozen here); `test_benchmark_declaration.py` (its catalogue id).
+
+### Test plan
+
+- the id is the record's own; two records of one context get different ids under ours and the
+  SAME id under v0.20.0 (the tripwire, no network); the whole pinned file gives 2,123 Cases
+  under ours and 2,115 under v0.20.0 (tripwire on the count).
+
+### Acceptance
+
+- stereoset publishes a new revision; no other revision moves.
+- the tripwire names #2524.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -241,3 +263,17 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   bundle grows about 2.2×, 174 MiB → 376 MiB (cases.json 17.5 MB → 38.2 MB, i.e. 36.4 MiB, plus
   one ~170-byte target file per Case, each taking a whole disk block); OME-1675 already lists
   it as an unmeasured large bundle under the per-run memory budget.
+
+### PR 5
+
+- **Actual files:** as planned (the local Task package with README, the row in `prepare.py` and
+  `benchmarks.py`, one new test file, `test_published_revisions.py`), plus
+  `test_benchmark_declaration.py` (the id loses the `inspect-` prefix, as worldsense's did).
+- **Cases:** 2,115 → 2,123 (case_digest 1c3774ed… → 2c8f8b3b…, case_set_digest 69db3f56… →
+  be5e20b5…), the old 2,115 a subset of the new. Sealed by two build replays of the new
+  declaration, which reproduce the old seal exactly on the old Task; hand-edited row, as
+  worldsense's.
+- **Revisions:** stereoset 6fe6deab5af299e2 → dd1c2cc6e587ed15; no other moved.
+- **Gates:** relevant tests only (owner rule): `test_local_task_stereoset.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 690 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Deviations:** origin ours, catalogue id `stereoset` (was `inspect-stereoset`),
+  `inspect_contributors` moves to a comment, as for worldsense.

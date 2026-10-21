@@ -92,6 +92,10 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1701 PR 2: first frozen here, at the revision main serves, which the rows hold.
     "chembench": "a36d91b7eb601253",
     "infinite_bench_math_find": "eb87494cb4dab437",
+    # OME-1701 PR 5 (2026-10-21): first frozen here, at the move to a local Task
+    # that keeps every record (inspect_evals PR #2524 adopted; 2,115 → 2,123 Cases; stereoset
+    # 6fe6deab5af299e2 before it).
+    "stereoset": "dd1c2cc6e587ed15",
 }
 
 
