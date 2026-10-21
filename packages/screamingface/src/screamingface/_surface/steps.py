@@ -296,7 +296,7 @@ class First(Step):
 class Merge(Step):
     """One JSON object with exactly the declared fields, each built by its ``sf.FieldRule``.
 
-    A Merge reads the whole Fusion context, and a model-written field makes its own call over
+    A Merge reads the whole fanout context, and a model-written field makes its own call over
     every member, so a ``Merge`` cannot follow a narrow step.
     """
 
@@ -306,7 +306,7 @@ class Merge(Step):
     _items: tuple[tuple[str, FieldRule], ...] = field(repr=False)
 
     def __init__(self, fields: Mapping[str, FieldRule]) -> None:
-        # WHY today's Merge holds the fields: it checks them and keeps them in a read-only map.
+        # WHY the MergeNode holds the fields: it checks them and keeps them in a read-only map.
         checked = MergeNode(fields).fields
         object.__setattr__(self, "fields", checked)
         object.__setattr__(self, "_items", tuple(checked.items()))

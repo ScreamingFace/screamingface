@@ -79,7 +79,7 @@ def _model_route(value: object) -> str:
     return _name(value, "model route")
 
 
-OPTIONAL_MEMBERS_ONLY = "optional=True is only supported on Fusion members"
+OPTIONAL_MEMBERS_ONLY = "optional=True is only supported on sf.Fanout members"
 
 
 def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recipe:
@@ -90,14 +90,14 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
 
         return Model(value)
     if isinstance(value, Reducer):
-        raise TypeError(f"{label} cannot be a reducer: a reducer must be a Fusion synthesizer")
-    # WHY lazy: screamingface._surface builds on this module. Until the swap (E4b surface unit 7)
-    # the new chain steps live there: a step or an open chain is not a recipe (CH-8, CH-11).
+        raise TypeError(f"{label} cannot be a reducer: a reducer closes a sf.Fanout block")
+    # WHY lazy: screamingface._surface builds on this module: a step or an open chain is not a
+    # recipe (CH-8, CH-11).
     from screamingface._surface.chain import refuse_step
 
     refuse_step(value)
     if not _is_supported_recipe(value):
-        raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
+        raise TypeError(f"{label} must be a model route, an sf.Model or an sf.Pipeline")
     assert isinstance(value, Recipe)
     if value.optional and not allow_optional:
         raise ValueError(OPTIONAL_MEMBERS_ONLY)
@@ -132,7 +132,7 @@ def _recipe_kind(
     for recipe_type, kind in kinds:
         if isinstance(value, recipe_type):
             return kind
-    raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
+    raise TypeError("candidate must be an sf.Model or an sf.Pipeline")
 
 
 def _is_supported_recipe(value: object) -> bool:

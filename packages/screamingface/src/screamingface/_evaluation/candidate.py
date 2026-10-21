@@ -46,7 +46,7 @@ from screamingface.fusion import FusionNode, _consistency_member
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
-from screamingface.recipe import Recipe
+from screamingface.recipe import OPTIONAL_MEMBERS_ONLY, Recipe
 from screamingface.reducer import _JUDGE_CALL_KEYS, Reducer
 from screamingface.signal_sources import (
     Consistency,
@@ -247,7 +247,7 @@ class _CandidateCompiler:
 
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
-            raise ValueError("optional=True is only supported on Fusion members")
+            raise ValueError(OPTIONAL_MEMBERS_ONLY)
         # Corrective loops are ROOT-ONLY by construction (member/judge positions
         # reject them), so this dispatch is the single loop entry point.
         if isinstance(recipe, CorrectiveLoop | SelfCorrective):
@@ -260,7 +260,7 @@ class _CandidateCompiler:
             root = self._recipe(recipe)
             if root.selection is not None:
                 raise ValueError(
-                    f"a {root.selection} must be followed by another stage: {recipe.name!r} "
+                    f"a sf.{root.selection} must be followed by sf.Synthesize: {recipe.name!r} "
                     "ends the candidate with a selection"
                 )
         members = (
@@ -312,8 +312,8 @@ class _CandidateCompiler:
         )
         if resolved.selection is not None:
             raise ValueError(
-                f"a {resolved.selection} cannot feed a corrective loop: its selection goes "
-                "only to the next Pipeline stage"
+                f"a sf.{resolved.selection} block cannot feed a corrective loop: its selection "
+                "goes only to the sf.Synthesize that closes the block"
             )
         captured = tuple(self._sources[start:])
         del self._sources[start:]
@@ -350,7 +350,7 @@ class _CandidateCompiler:
                     input_dependencies=input_dependencies,
                     synthesis=synthesis,
                 )
-            raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
+            raise TypeError("candidate must be an sf.Model or an sf.Pipeline")
         finally:
             self._active.remove(identity)
 
@@ -740,7 +740,7 @@ class _CandidateCompiler:
             # stay out too, because their `binding` param already makes their fingerprint unique;
             # so do the consistency sample calls (E4b part 7).
             calls=_member_calls(members),
-            selection=reducer._public_name if plan.kind == "selection" else None,
+            selection=reducer._step_name() if plan.kind == "selection" else None,
         )
 
     def _claim_accounting_sources(
@@ -1032,7 +1032,7 @@ def _warn_duplicate_members(fusion: FusionNode) -> None:
     for (route, _prompt, _params), positions in groups.items():
         if len(positions) >= 2:
             warnings.warn(
-                f"Fusion {fusion.name!r}: members {_positions(positions)} send the same request "
+                f"sf.Fanout {fusion.name!r}: members {_positions(positions)} send the same request "
                 f"to {route!r}; identical requests may be served by one cached answer. "
                 "Use sf.samples() for independent samples.",
                 DuplicateMembersWarning,
@@ -1127,13 +1127,13 @@ def _member_models(members: tuple[_ResolvedRecipe, ...]) -> tuple[str, ...]:
 
 
 def _reject_selection_members(members: tuple[_ResolvedRecipe, ...]) -> None:
-    """A selection goes only to the next Pipeline stage, so it can never be a Fusion member."""
+    """A selection goes only to the stage that closes its block, so it is never a member."""
 
     for member in members:
         if member.selection is not None:
             raise ValueError(
-                f"a {member.selection} Fusion cannot be a Fusion member: its selection goes "
-                "only to the next Pipeline stage"
+                f"a sf.{member.selection} block cannot be a sf.Fanout member: its selection "
+                "goes only to the sf.Synthesize that closes the block"
             )
 
 

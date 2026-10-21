@@ -125,8 +125,8 @@ def _declared(value: object, synthesizer: Recipe | Reducer) -> Mapping[str, Sign
     combine = isinstance(synthesizer, Reducer)
     if declared is not None and not combine:
         raise ValueError(
-            "Fusion signals= needs a reducer synthesizer such as sf.Vote, sf.Median, sf.Mean, "
-            "sf.Pick, sf.Rank or sf.Filter: a model synthesizer has no combine step to record them"
+            "sf.Fanout signals= needs a reducer such as sf.Vote, sf.Median, sf.Mean, sf.ArgMax, "
+            "sf.Rank or sf.Filter: sf.Synthesize reads no signal"
         )
     if combine:
         assert isinstance(synthesizer, Reducer)
@@ -139,23 +139,23 @@ def _declaration(value: object) -> Mapping[str, SignalSource] | None:
     if value is None:
         return None
     if not isinstance(value, Mapping):
-        raise TypeError("Fusion signals must map names to sources such as sf.Verbalized(...)")
+        raise TypeError("sf.Fanout signals= must map names to sources such as sf.Verbalized(...)")
     if not value:
         return None  # signals={} is no declaration: the same bytes as none
     if len(value) > MAX_DECLARED_SIGNALS:
         raise ValueError(
-            f"a Fusion declares at most {MAX_DECLARED_SIGNALS} signals, not {len(value)}"
+            f"a sf.Fanout declares at most {MAX_DECLARED_SIGNALS} signals, not {len(value)}"
         )
     for name, source in value.items():
         _check_declared(name, source)
     if sum(source.source == "entropy" for source in value.values()) > 1:
         raise ValueError(
-            "a Fusion declares at most one sf.Entropy source: every member call takes one "
+            "a sf.Fanout declares at most one sf.Entropy source: every member call takes one "
             "top_logprobs value"
         )
     if sum(source.source == "consistency" for source in value.values()) > 1:
         raise ValueError(
-            "a Fusion declares at most one sf.Consistency source: every member gets one set "
+            "a sf.Fanout declares at most one sf.Consistency source: every member gets one set "
             "of samples"
         )
     _check_sums(value)
@@ -164,11 +164,11 @@ def _declaration(value: object) -> Mapping[str, SignalSource] | None:
 
 def _check_declared(name: object, source: object) -> None:
     if not isinstance(name, str):
-        raise TypeError("Fusion signal names must be text")
+        raise TypeError("sf.Fanout signal names must be text")
     if not is_signal_name(name):
         raise ValueError(_name_rejection(name))
     if not isinstance(source, SignalSource):
-        raise TypeError(f"Fusion signal {name!r} must be a source such as sf.Verbalized(...)")
+        raise TypeError(f"sf.Fanout signal {name!r} must be a source such as sf.Verbalized(...)")
 
 
 def _name_rejection(name: str) -> str:
@@ -202,7 +202,7 @@ def _check_sum_component(
 ) -> None:
     if component not in declared:
         raise ValueError(
-            f"sf.Sum {name!r} adds {component!r}, which this Fusion does not declare "
+            f"sf.Sum {name!r} adds {component!r}, which this sf.Fanout does not declare "
             f"(declared: {listed})"
         )
     if isinstance(declared[component], Sum):
@@ -229,7 +229,7 @@ def _check_read_name(signal: Signal, declared: Mapping[str, SignalSource] | None
         return
     listed = ", ".join(names) if names else "none"
     message = (
-        f"the synthesizer reads sf.signal({signal.key!r}), which this Fusion does not declare "
+        f"a step reads sf.signal({signal.key!r}), which this sf.Fanout does not declare "
         f"(declared: {listed})"
     )
     hint = get_close_matches(signal.key, ACCOUNTING_SIGNALS, n=1)
@@ -248,7 +248,7 @@ def _check_gate_name(reducer: Reducer, declared: Mapping[str, SignalSource] | No
         return
     listed = ", ".join(names) if names else "none"
     raise ValueError(
-        f"the gate reads {gate.observe!r}, but this Fusion does not declare {name!r} "
+        f"the gate reads {gate.observe!r}, but this sf.Fanout does not declare {name!r} "
         f"(declared: {listed})"
     )
 
@@ -295,7 +295,7 @@ def _check_weight_name(declared: Mapping[str, SignalSource], weights: Signal) ->
     if isinstance(source, Entropy):
         raise ValueError(
             "sf.Entropy cannot be a vote weight: a higher entropy means LESS confidence; read "
-            f"sf.signal({weights.key!r}) with sf.Pick or sf.Rank and order='min'"
+            f"sf.signal({weights.key!r}) with sf.ArgMin or sf.Rank(..., order='min')"
         )
 
 
@@ -307,7 +307,7 @@ def _check_sum_weight(key: str, total: Sum, declared: Mapping[str, SignalSource]
         if (isinstance(part, Logprob) and part.form != "prob") or isinstance(part, Entropy):
             raise ValueError(
                 f"sf.Sum {key!r} cannot be a vote weight: it adds {component!r} ({part!r}), and "
-                f"a weight must be greater than 0; read sf.signal({key!r}) with sf.Pick, "
+                f"a weight must be greater than 0; read sf.signal({key!r}) with sf.ArgMax, "
                 "sf.Rank or sf.Filter instead"
             )
 
@@ -315,8 +315,8 @@ def _check_sum_weight(key: str, total: Sum, declared: Mapping[str, SignalSource]
 def _check_logprob_member(label: str, position: int, member: Recipe) -> None:
     if not isinstance(member, Model):
         raise ValueError(
-            f"{label} needs each Fusion member to be one sf.Model call; member {position} "
-            f"({member.name!r}) is a nested Fusion or Pipeline"
+            f"{label} needs each sf.Fanout member to be one sf.Model call; member {position} "
+            f"({member.name!r}) is a nested block or Pipeline"
         )
     if not member.model.removeprefix("/").startswith("openrouter/"):
         raise ValueError(
@@ -341,8 +341,8 @@ def _consistency_member(position: int, member: Recipe) -> Model:
     """
     if not isinstance(member, Model):
         raise ValueError(
-            "sf.Consistency needs each Fusion member to be one sf.Model call; member "
-            f"{position} ({member.name!r}) is a nested Fusion or Pipeline"
+            "sf.Consistency needs each sf.Fanout member to be one sf.Model call; member "
+            f"{position} ({member.name!r}) is a nested block or Pipeline"
         )
     return member
 
@@ -361,7 +361,7 @@ def _check_consistency_source(
     if calls > _MAX_CONSISTENCY_CALLS:
         raise ValueError(
             f"sf.Consistency(n={source.n}) on {len(models)} members makes {calls} extra calls; "
-            f"the limit is {_MAX_CONSISTENCY_CALLS} per Fusion"
+            f"the limit is {_MAX_CONSISTENCY_CALLS} per sf.Fanout"
         )
     _check_sample_seeds(models, source.n)
 
@@ -400,9 +400,9 @@ def _quorum(value: object, member_count: int) -> int | Literal["all"]:
     if value == "all":
         return "all"
     if type(value) is not int:
-        raise TypeError("Fusion quorum must be an integer or 'all'")
+        raise TypeError("sf.Fanout quorum must be an integer or 'all'")
     if value < 0 or value > member_count:
-        raise ValueError("Fusion quorum must be between zero and the member count")
+        raise ValueError("sf.Fanout quorum must be between zero and the member count")
     return value
 
 
@@ -410,18 +410,18 @@ def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer
     if isinstance(value, Reducer):
         if len(members) > _MAX_REDUCER_MEMBERS:
             raise ValueError(
-                f"a reducer Fusion supports at most {_MAX_REDUCER_MEMBERS} members, "
+                f"a sf.Fanout block with a reducer takes at most {_MAX_REDUCER_MEMBERS} members, "
                 f"not {len(members)}"
             )
         # each step of the combine call: a narrow Rank keeps at most the member count too
         for step in (*_narrow_steps(value), value):
             step._check_members(len(members))
         return value
-    return _recipe(value, "Fusion synthesizer")
+    return _recipe(value, "the writer")
 
 
-def _members(values: object, kind: str = "Fusion") -> tuple[Recipe, ...]:
-    """The checked members of a Fusion, or of a ``Fanout`` of the new surface (``kind``)."""
+def _members(values: object, kind: str = "Fanout") -> tuple[Recipe, ...]:
+    """The checked members of a ``Fanout`` (and of the FusionNode it lowers to)."""
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise TypeError(f"{kind} members must be an ordered sequence of model routes or Recipes")
     selected = tuple(_recipe(value, f"{kind} member", allow_optional=True) for value in values)

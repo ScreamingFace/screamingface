@@ -196,7 +196,7 @@ def _narrowed[R: Reducer](reducer: R, narrow: tuple[Reducer, ...]) -> R:
     if not narrow:
         return reducer
     if not reducer._carries_narrow:
-        raise ValueError(f"sf.{reducer._public_name} cannot follow a narrow step")
+        raise ValueError(f"sf.{reducer._step_name()} cannot follow a narrow step")
     if len(narrow) > MAX_NARROW_STEPS:
         raise ValueError(f"a combine call takes 1 to {MAX_NARROW_STEPS} narrow steps")
     whole = reducer._whole_context_call()
@@ -206,7 +206,7 @@ def _narrowed[R: Reducer](reducer: R, narrow: tuple[Reducer, ...]) -> R:
         )
     for step in narrow:
         if step._plan().reducer not in _NARROW_REDUCERS or _narrow_steps(step):
-            raise ValueError(f"sf.{step._public_name} is not a narrow step")
+            raise ValueError(f"sf.{step._step_name()} is not a narrow step")
     _with_narrow(reducer._plan(), narrow)
     copied = copy.copy(reducer)
     object.__setattr__(copied, "_narrow", narrow)
@@ -240,14 +240,19 @@ class Reducer(ABC):
     # no public signature or field moves. Equality reads it: equal values compile to equal bytes.
     _carries_narrow: ClassVar[bool] = False
     _narrow: tuple[Reducer, ...]
-    # The class name a message shows as ``sf.<name>``: a node class keeps its public name of today
-    # until the swap rewords those messages (unit 7g); any other reducer shows its class name.
+    # The step name a message shows as ``sf.<name>`` (``_step_name``): each node class names the
+    # step it lowers from; any other reducer shows its class name.
     _public_name: ClassVar[str]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         if "_public_name" not in vars(cls):
             cls._public_name = cls.__name__
+
+    def _step_name(self) -> str:
+        """The step a message names as ``sf.<name>``: the step this node lowers from."""
+
+        return self._public_name
 
     @abstractmethod
     def _plan(self) -> _ReducerPlan:
@@ -398,12 +403,10 @@ def _vote_normalize(extract: str, normalize: str | None) -> str | None:
             _Step(normalize)  # TypeError for a non-str or blank name
         return None if normalize is None else str(normalize)
     if extract != BENCHMARK_EXTRACT:
-        raise ValueError(
-            "extract='benchmark' names the benchmark's answer rule and takes no version"
-        )
+        raise ValueError("over='benchmark' names the benchmark's answer rule and takes no version")
     if normalize is not _DEFAULT_NORMALIZE:
         raise ValueError(
-            "sf.Vote(extract='benchmark') takes the benchmark's own normalizer; "
+            "sf.Vote(over='benchmark') takes the benchmark's own normalizer; "
             "v1 does not let a recipe change it"
         )
     return None
@@ -465,10 +468,7 @@ def _check_judge_pair(
 
     if judge is None:
         if reads_judge:
-            raise ValueError(
-                f"{unpaired} needs a judge on the same reducer: "
-                "add judge=sf.Judge(..., returns='scores')"
-            )
+            raise ValueError(f"{unpaired} needs a judge: put sf.Judge(...) after sf.Fanout")
         return
     # WHY lazy: judge.py imports this module (cycle)
     from screamingface.judge import JudgeNode
@@ -477,7 +477,7 @@ def _check_judge_pair(
         raise TypeError(f"{label} judge must be an sf.Judge")
     if judge.returns != "scores":
         raise ValueError(
-            f"{label} judge needs sf.Judge(..., returns='scores'): "
+            f"{label} judge must be a sf.Judge, not a sf.JudgePick: "
             f"the {reader} reads one score per member"
         )
     if not reads_judge:
@@ -820,7 +820,7 @@ def _numeric_weights(
     _Step(select)
     if _op_name(extract) == BENCHMARK_EXTRACT:
         raise ValueError(
-            f"sf.{label} needs the numeric normalizer, so it cannot read extract='benchmark' "
+            f"sf.{label} needs the numeric normalizer, so it cannot read over='benchmark' "
             "(the benchmark brings its own normalizer)"
         )
     if _op_name(select) not in _NUMERIC_SELECTS:

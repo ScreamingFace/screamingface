@@ -159,10 +159,7 @@ class JudgeNode(Reducer):
         if order not in _ORDERS:
             raise ValueError(f"Judge order must be 'max' or 'min', not {order!r}")
         if (returns, order) not in _JUDGE_STEPS:
-            raise ValueError(
-                "Judge order='min' needs returns='scores': a label names one member and has no "
-                "order"
-            )
+            raise ValueError("a label judge (sf.JudgePick) has no order: it names one member")
         if not isinstance(rubric, str):
             raise TypeError("judge rubric must be a string")
         selected_rubric = _candidate_policy.prompt(rubric, "judge rubric")
@@ -174,6 +171,9 @@ class JudgeNode(Reducer):
         object.__setattr__(self, "rubric", selected_rubric)
         object.__setattr__(self, "params", _candidate_policy.params(params, "judge params"))
         object.__setattr__(self, "order", order)
+
+    def _step_name(self) -> str:
+        return "JudgePick" if self.returns == "label" else "Judge"
 
     def _whole_context_call(self) -> str | None:
         return "a label judge" if self.returns == "label" else None

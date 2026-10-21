@@ -6,7 +6,7 @@ class EvaluationWarning(UserWarning):
 
 
 class DuplicateMembersWarning(EvaluationWarning):
-    """Two members of a reducer Fusion send the same request, so they may be one cached answer."""
+    """Two members of a sf.Fanout send the same request, so they may be one cached answer."""
 
 
 class FixedSeedSittingWarning(EvaluationWarning):

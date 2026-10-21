@@ -319,7 +319,7 @@ class MergeNode(Reducer):
             if rule.member is not None and rule.member > count:
                 raise ValueError(
                     f"FieldRule.from_member({rule.member}) for field {field!r} needs "
-                    f"{rule.member} members; the Fusion has {count}"
+                    f"{rule.member} members; the sf.Fanout has {count}"
                 )
 
     @classmethod
@@ -423,7 +423,7 @@ def _check_pick_equals(order: object, equals: object, normalize: object) -> str:
     assert not (isinstance(equals, bool) and normalize == "numeric")
     target = _target_text(equals)
     if not target.strip():  # a hand-edited url4 only: sf.field refuses a blank value
-        raise ValueError("Pick equals must not be blank")
+        raise ValueError("a field pick must not compare with a blank value")
     return target
 
 
@@ -437,7 +437,7 @@ def _check_pick_signal(
     assert isinstance(by_signal, Signal) and equals is None and normalize is None
     assert order in (None, "max", "min")
     _refuse_judge_signal(
-        by_signal, "Pick", "sf.Judge(..., returns='scores'), which picks the highest judge score"
+        by_signal, "sf.ArgMax", "sf.Judge(...) after sf.Fanout, then sf.ArgMax('score:judge')"
     )
     return "max" if order is None else cast("Literal['max', 'min']", order)
 
@@ -448,10 +448,10 @@ def _output_field(value: object) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise TypeError("Pick output must be a string")
+        raise TypeError("a pick output= must be a string")
     if _FIELD_NAME.fullmatch(value) is None:
         raise ValueError(
-            f"Pick output {value!r} must be a top-level field name like 'answer' "
+            f"a pick output={value!r} must be a top-level field name like 'answer' "
             "(a letter or _, then letters, digits or _; at most 64 characters)"
         )
     return value
@@ -482,7 +482,7 @@ class PickNode(Reducer):
     never used. Works with a field and with ``by_signal=``.
     """
 
-    _public_name: ClassVar[str] = "Pick"
+    _public_name: ClassVar[str] = "First"
     name: str
     field: str | None
     by_signal: Signal | None
@@ -508,9 +508,9 @@ class PickNode(Reducer):
         if by_signal is not None:
             order = _check_pick_signal(by_signal, order, equals, normalize)
         else:
-            _field_path(field, "Pick field")
+            _field_path(field, "sf.field path")
             target = _check_pick_equals(order, equals, normalize)
-            chosen = _normalizer(normalize, "Pick")
+            chosen = _normalizer(normalize, "sf.field")
         chosen_output = _output_field(output)
         object.__setattr__(self, "name", "pick")
         object.__setattr__(self, "_narrow", ())
@@ -586,6 +586,11 @@ class PickNode(Reducer):
             raise _cannot_rebuild("pick")
         _require_steps(spec, pick._plan().steps, "pick")
         return pick
+
+    def _step_name(self) -> str:
+        if self.by_signal is None:
+            return "First"
+        return "ArgMax" if self.order == "max" else "ArgMin"
 
     def __repr__(self) -> str:
         suffix = "" if self.output is None else f", output={self.output!r}"

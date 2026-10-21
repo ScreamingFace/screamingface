@@ -170,7 +170,7 @@ def _recipe(value: Recipe, prefix: str) -> str:
             *_name(value.name, _inferred_self_name(value.member)),
         ]
         return _call(prefix, "SelfCorrective", arguments)
-    # A Model, or a value of today's surface in a chain (only built by hand): its own repr.
+    # A Model, or an internal node in a chain (only built by hand): its own repr.
     return prefix + repr(value)
 
 
@@ -267,7 +267,7 @@ _STEPS: tuple[tuple[type, Callable[[Any, str], list[str]]], ...] = (
 def _leaf(value: object, prefix: str) -> str:
     """A value inside a step: a condition, a band, an extract, a pattern, a field test.
 
-    A value with today's ``_python()`` (``sf.matches(...)``, ``sf.signal(...) >= x``,
+    A value with a ``_python()`` (``sf.matches(...)``, ``sf.signal(...) >= x``,
     ``sf.Extract(...)``) gives its own text; the gate condition and band give their repr, which
     starts with the name they are built by (``agreement()``, ``signal(...)``).
     """

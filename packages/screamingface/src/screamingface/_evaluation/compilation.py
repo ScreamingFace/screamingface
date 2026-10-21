@@ -33,7 +33,7 @@ def compile_evaluation(
 
     The run passes the values of ``_candidate_values``, which already warned and lowered them
     (``warn_judge_writers=False``). The default branch, which warns here, exists for the callers
-    and tests that pass the user's own Recipes before the swap (E4b surface lowering §2.4).
+    and tests that pass the user's own Recipes (E4b surface lowering §2.4).
     """
 
     # FEATURE (GP-1): extract="benchmark" resolves here, at the plan seam, from the resource

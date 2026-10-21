@@ -23,7 +23,7 @@ class Synthesize(Step):
     ``model`` is a route string, a ``sf.Model`` or a recipe. ``prompt`` is the writer prompt; with
     no prompt, the default synthesis prompt applies. The writer gets one of three inputs:
 
-    - right after ``sf.Fanout``: the Fusion context, the request ``input`` and the member
+    - right after ``sf.Fanout``: the fanout context, the request ``input`` and the member
       ``outputs`` (or the ``panel`` of the members that answered, with a quorum);
     - after ``sf.Rank`` or ``sf.Filter``: the envelope ``{"input", "selected"}``, with the
       selected members only;

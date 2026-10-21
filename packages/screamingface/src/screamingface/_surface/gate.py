@@ -3,7 +3,7 @@
 FEATURE: ``Gate(*, when, then, otherwise="abstain", abstain_if=None)`` closes a block. ``when``
 compares a gate reference with a finite number; it is the condition that keeps the vote's answer.
 ``then`` is a ``Vote``. ``otherwise`` gives the answer when the condition fails. A gate lowers to
-today's ``sf.Vote(gate=sf.Gate(observe, cmp, threshold, ...))`` (lowering §2.2).
+the internal ``VoteNode(gate=GateNode(observe, cmp, threshold, ...))`` (lowering §2.2).
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ def _vote(value: object) -> Vote:
     if not isinstance(value, Vote):
         raise TypeError("sf.Gate then= takes sf.Vote until E4c")  # GA-3 (D5)
     if not is_rule_name(value.over):
-        # GA-6 (O14): today's gated Vote holds an operator name only.
+        # GA-6 (O14): the gated VoteNode holds an operator name only.
         raise ValueError("a gated vote reads a rule name in over= until E4c")
     return value
 

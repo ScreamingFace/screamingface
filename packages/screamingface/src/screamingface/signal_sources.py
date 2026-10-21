@@ -1,11 +1,11 @@
-"""Declared signal sources of a Fusion (E4b): Verbalized, Logprob, Entropy, Sum and Consistency.
+"""Declared signal sources of a sf.Fanout (E4b): Verbalized, Logprob, Entropy, Sum, Consistency.
 
-FEATURE: a Fusion names a number that each member answer carries (ans:Q1).
+FEATURE: a sf.Fanout names a number that each member answer carries (ans:Q1).
 STORY: as a benchmark author, I declare signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
 and weight a vote with sf.signal("conf").
 INVARIANT: a source compiles to one entry of the combine spec ``signals`` map, and ``_from_spec``
 rebuilds an equal source from that entry (url4 → Python).
-sf.Sum (E4b part 6, ans:Q1) is derived: it adds other declared names of the same Fusion.
+sf.Sum (E4b part 6, ans:Q1) is derived: it adds other declared names of the same sf.Fanout.
 ``sf.Consistency`` (E4b part 7) is the one source whose entry also holds the step's ``match``: the
 compile gives it to ``_entry(match)``, and ``_spec()`` is the entry without ``match``.
 """
@@ -26,7 +26,7 @@ from screamingface._signals import MAX_DECLARED_SIGNALS, _finite_number, is_sign
 
 
 class SignalSource(ABC):
-    """Non-constructible umbrella type for the sources a Fusion declares in ``signals=``."""
+    """Non-constructible umbrella type for the sources a sf.Fanout declares in ``signals=``."""
 
     source: ClassVar[str]  # the wire word: "verbalized", "logprob", "entropy" or "consistency"
 
@@ -131,8 +131,9 @@ class Entropy(SignalSource):
     """The mean token entropy of each member's reply, in nats (OpenRouter models only in v1).
 
     Each member call asks for its ``top_logprobs`` most likely tokens at each position (1 to 20,
-    default 5). A higher entropy means LESS confidence: read it with ``sf.Pick`` or ``sf.Rank`` and
-    ``order="min"``. It cannot be a vote weight. A Fusion declares at most one ``sf.Entropy``.
+    default 5). A higher entropy means LESS confidence: read it with ``sf.ArgMin`` or with
+    ``sf.Rank(..., order="min")``. It cannot be a vote weight. A ``sf.Fanout`` declares at most one
+    ``sf.Entropy``.
     """
 
     source: ClassVar[str] = "entropy"
@@ -174,8 +175,8 @@ class Sum(SignalSource):
     """A fixed linear sum of other declared signals of the same member (E4b part 6, ans:Q1).
 
     ``sf.Sum({"sev_a": 0.5, "sev_b": 0.3})`` gives each member 0.5 x sev_a + 0.3 x sev_b. Each key
-    is another name of the same Fusion ``signals=``, never another sf.Sum. The value is missing
-    when a component is missing. The Engine adds the exact products and rounds once.
+    is another name of the same ``sf.Fanout(signals=...)``, never another sf.Sum. The value is
+    missing when a component is missing. The Engine adds the exact products and rounds once.
     """
 
     source: ClassVar[str] = "sum"
