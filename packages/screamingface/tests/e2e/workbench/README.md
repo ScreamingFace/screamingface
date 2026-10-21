@@ -83,6 +83,65 @@ the SDK's `runtime` extra; `just screamingface workbench` and the CI step pass `
 If `up` or the Engine fails partway, the target still tears down what it started: `down` runs
 once `up` was invoked, and the Engine is stopped once its start was attempted.
 
+## UI
+
+A local page that launches the lane above and shows its evidence bundles, so you never open
+`trace.json` or `executed.ipynb` by hand. It is dev-only (`ui/`, never in the SDK wheel).
+
+```sh
+just screamingface workbench-ui                    # from the repo root; bundles under ./workbench-out
+just workbench-ui ./my-out --port 9113 --no-open   # from packages/screamingface; extra args pass through
+```
+
+A relative `out` resolves from `packages/screamingface`. Without `just`, from
+`packages/screamingface`:
+`PYTHONPATH=tests/e2e uv run --extra runtime python -m workbench.ui --out ./workbench-out`.
+`PYTHONPATH` is required: `python -m` imports the `workbench` package before `__main__` runs,
+so the module cannot add `tests/e2e` to `sys.path` itself. `test_entrypoint.py` boots both
+commands for real.
+
+On start it prints `http://127.0.0.1:9112/?token=…` and opens it (`--no-open` skips that).
+Ctrl-C stops the server and cancels an active run.
+
+**Pages**
+
+| Page | Shows |
+|---|---|
+| `/` | The run form: target (`replay`, or `local` with a "spends real tokens" checkbox), notebooks (none checked = all). The runs found under `<out>/runs/`. Every bundle under `<out>`, newest first: verdict pill (PASS, FAIL, or "unreadable" when `trace.json` is missing or malformed), target, notebook, trace ids, reasons, time. |
+| `/runs/<id>` | Status, the pytest output streamed live, a Cancel button, and links to the bundles the run wrote. After the run ends it shows the exit code and the partial output, including when the run crashed or was cancelled. |
+| `/bundles/<key>` | Verdict and reasons, the hop table (found, matching lines, missing ids), score, cache hits and cache-saved cost per candidate, one collapsible log excerpt per hop, and the executed notebook. |
+
+A launched run is exactly `pytest tests/e2e/workbench/test_notebooks.py` with
+`SCREAMINGFACE_WORKBENCH_TARGET`, `SCREAMINGFACE_WORKBENCH_OUT=<out>/runs/<id>` and
+`SCREAMINGFACE_WORKBENCH_REQUIRE_ALL=1` set. The UI never executes notebooks itself. Bundles
+from an unzipped CI `workbench-evidence` artifact display the same way: point `out` at it.
+
+**Security model**
+
+- **Loopback only.** The server binds `127.0.0.1`. A request whose `Host` is not
+  `127.0.0.1:<port>` or `localhost:<port>` gets 400 (DNS-rebinding guard).
+- **Launch token.** Starting or cancelling a run needs the per-launch token from the printed
+  URL (form field or `X-Workbench-Token` header). Without it the route returns 403, so another
+  site in your browser cannot start a run. No cookies. A page opened without the token is
+  read-only.
+- **Sandboxed notebooks.** Executed-notebook outputs are untrusted. They render only inside an
+  `<iframe sandbox="">` (no scripts, no same-origin, no forms). Every other value is
+  HTML-escaped, and a strict CSP plus `X-Frame-Options: DENY` is on every response.
+- **Keys.** The UI never accepts or shows a provider key. A `local` run needs the paid
+  checkbox and `OPENROUTER_API_KEY` in the UI process's own environment. Otherwise `local` is
+  shown disabled with the reason, and a direct POST gets 400.
+- **Paths.** A bundle key that resolves outside `out` is 404. Symlinked directories are not
+  followed.
+
+**One run at a time.** The `local` target binds the fixed ports 9105/9106/9108, so a second
+launch while one is active gets 409. Cancel interrupts the run's whole process group (pytest,
+kernel, `screamingface up`, Engine) with SIGINT, so pytest tears the target down, then sends
+SIGTERM and SIGKILL if anything lingers. The live stream is kept in memory only. After a UI
+restart, past runs are rebuilt from `<out>/runs/*` on disk.
+
+`test_ui_e2e.py` launches a real `replay` run for `quickstart` through these routes and checks
+the bundle is listed PASS with both hops found (gated like the replay lane).
+
 ## What is verified, and what is not
 
 | Check | Key needed | Status (2026-10-16) |
@@ -90,6 +149,8 @@ once `up` was invoked, and the Engine is stopped once its start was attempted.
 | Unit tests (runner, evidence, bundle, targets, builder, result check, `REQUIRE_ALL`) | none | pass |
 | `test_notebook[replay-quickstart]`: notebook + engine/aigateway chain on the replay stack | none | pass locally; CI runs it on every PR |
 | `test_local_boot.py`: real `screamingface up` + inspect Engine boots and lists ifeval | none | pass locally (needs prepared assets) |
+| `ui/test_ui_e2e.py`: a real replay run launched through the UI, bundle listed PASS (2026-10-21) | none | pass locally |
+| `ui/test_entrypoint.py`: `python -m workbench.ui` and `just workbench-ui` (package + repo root) serve the page (2026-10-21) | none | pass locally; the `just` cases skip where `just` is absent |
 | `test_notebook[local-quickstart]`: the notebook itself on `local` | `OPENROUTER_API_KEY` + `SCREAMINGFACE_TEST_PAID=1` | **not run yet**: needs one paid run |
 
 So on `local`, the stack wiring is checked without a key, but the notebook's evaluate call, the

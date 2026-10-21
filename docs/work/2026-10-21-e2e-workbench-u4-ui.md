@@ -68,3 +68,34 @@ first version is viewer + launcher only; hosted/preview targets and Access login
   - Task 1: `nbconvert` was already importable in the dev env (transitively via
     `jupyterlab`), so the plan's import test passes before the change. RED came from an added
     test asserting `nbconvert` is a direct `dev`-group dependency and absent from `runtime`.
+  - Task 6: the entry point is fixed by `PYTHONPATH` in the `just workbench-ui` recipe, not by
+    `__main__` — `python -m workbench.ui` imports the package before `__main__` runs, so a
+    `sys.path` insert there can never take effect. The recipe uses `source_directory()` (a
+    first draft with `justfile_directory()` broke `just screamingface workbench-ui` from the
+    repo root; caught RED by the repo-root case of `test_entrypoint.py`). It also takes
+    `*args` (passed to the module, e.g. `--port`, `--no-open`), beyond the plan's `out` only.
+  - Task 6: added `ui/test_entrypoint.py` (not in the plan's file list): boots
+    `python -m workbench.ui` and `just workbench-ui` (package dir + repo root) for real and
+    fetches the page; the `just` cases skip where `just` is not on PATH (CI today). Locally
+    `just` 1.59.0 came from `uvx --from rust-just`.
+  - Task 6: the e2e test passes the child an environment without `OPENROUTER_API_KEY` /
+    `SCREAMINGFACE_TEST_PAID`, so a stray export can never make it a paid run.
+
+## Manual smoke (plan Task 6 Step 3) — 2026-10-21
+
+Started with `just screamingface workbench-ui <scratch out> --no-open` (repo root, `just` via
+uvx; `OPENROUTER_API_KEY` unset). The Playwright browser was held by another session, so the
+page's own requests were driven with an httpx script against the live server instead of a
+browser; the iframe was checked in HTML, not visually.
+
+- Index 200 with the token; `Host: evil.example:9112` → 400; POST `/runs` without token → 403.
+- Replay run for `quickstart`: 303 to the run page (EventSource present); the SSE stream
+  delivered pytest output from +0.2 s, 21 lines, ending `{"returncode": 0, "cancelled": false}`.
+- Index row for `runs/<id>/replay/quickstart` carries the PASS pill; bundle page: two `found`
+  hops, candidates table, `<iframe class="nb" sandbox="">` present.
+- Second run (all notebooks): a third POST while it ran → 409; cancel after ~4 s → 303, stream
+  ended `{"returncode": 2, "cancelled": true}`.
+- Afterwards `lsof -iTCP:9105 -iTCP:9106 -iTCP:9108 -sTCP:LISTEN` empty; no testcontainers
+  left running. SIGINT to the UI exited it; 9112 free too. Note: replay does not bind
+  9105/9106/9108 at all — the port check after a cancelled `local` run needs a paid run and was
+  not done.

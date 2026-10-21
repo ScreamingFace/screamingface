@@ -275,3 +275,14 @@ test-paid-benchmarks scope="all" benchmarks="":
 workbench target="replay":
     SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_WORKBENCH_TARGET={{target}} SCREAMINGFACE_WORKBENCH_OUT=./workbench-out \
       uv run --extra runtime pytest tests/e2e/workbench -v -rs
+
+# The workbench UI (tests/e2e/workbench/README.md, "UI"): a loopback page that launches the
+# `workbench` lane above one run at a time and shows every bundle under `out`. It prints the
+# one URL that can launch runs (it carries a per-launch token).
+# WHY PYTHONPATH here: `python -m workbench.ui` imports the package before its __main__ runs,
+# so the module cannot put tests/e2e on sys.path itself. Extra args go to the module, e.g.
+# `just workbench-ui ./workbench-out --port 9113 --no-open`.
+[doc("Open the e2e workbench UI (viewer + launcher) on 127.0.0.1:9112")]
+workbench-ui out="./workbench-out" *args:
+    PYTHONPATH="{{ source_directory() }}/tests/e2e" \
+      uv run --extra runtime python -m workbench.ui --out "{{ out }}" {{ args }}
