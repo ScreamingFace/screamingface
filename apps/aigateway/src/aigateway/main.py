@@ -436,6 +436,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # discovery egress of ANY kind. The catalog owns no transport; the models
     # route passes the runtime's client/limits per call.
     app.state.model_catalog = build_model_catalog(enabled=settings.discovery_enabled)
+    # OME-1634: a provider that dials discovery outside the runtime (Codex's credentialed
+    # per-account list on its refusal path) receives the same kill switch here.
+    # WHY getattr: the registry holds duck-typed providers (and minimal test doubles) — a
+    # provider without the hook has no out-of-runtime discovery to silence.
+    for plugin in registry.all():
+        configure = getattr(plugin, "configure_discovery", None)
+        if configure is not None:
+            configure(enabled=settings.discovery_enabled)
     # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
     # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and
     # the audit log are the durable truth.
