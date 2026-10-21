@@ -63,12 +63,13 @@ _EXACT = (
     " change the value."
 )
 _READS = (
-    "A rule or a gate reads the sum by its name: `sf.Pick`, `sf.Rank`, `sf.Filter`, a vote weight,"
-    ' and a gate on `"chosen:risk"` or `"mean:risk"`.'
+    "A step or a gate reads the sum by its name: `sf.ArgMax`, `sf.ArgMin`, `sf.Rank`, `sf.Filter`,"
+    ' a vote weight, and a gate on `sf.signal("risk").chosen()` or `sf.signal("risk").mean()`.'
 )
 _WEIGHT = (
     'A sum that adds `sf.Logprob("mean")`, `sf.Logprob("sum")` or `sf.Entropy(...)` cannot be a'
-    " vote weight: `sf.Fusion` raises `ValueError` before any call. A member whose sum is zero or"
+    " vote weight: the `>>` that closes the block raises `ValueError` before any call. A member"
+    " whose sum is zero or"
     f" less, or larger than `{_MAX_WEIGHT_TEXT}` (the largest float divided by 256), gets no"
     " weight, and the vote leaves it out with `no_weight`."
 )
@@ -76,7 +77,9 @@ _COST = (
     "A judge or writer fallback still runs on every Case, also when the number is in the band; its"
     " reply is not read."
 )
-_SCOPE = 'A sum adds the signals of one member. To compare the panel, gate on `"mean:<name>"`.'
+_SCOPE = (
+    "A sum adds the signals of one member. To compare the panel, gate on `sf.signal(name).mean()`."
+)
 _REPORT = (
     "The Case pane, the run summary and the export show the sum and the band (see"
     ' "Combine steps in the report").'
@@ -118,7 +121,7 @@ def test_readme_sum_section_sits_after_fusion_and_states_the_rules() -> None:
     # is directly after Fusion as a named recipe, directly before Install, with the rules.
     assert hasattr(sf, "Sum")
     assert "in_band" in ANSWER_REASONS
-    assert "abstain_band" in inspect.signature(sf.Gate).parameters
+    assert "abstain_if" in inspect.signature(sf.Gate).parameters
     assert repr(sys.float_info.max / 256) == _MAX_WEIGHT_TEXT
     # Restack on part 6 (2026-10-16): part 7 adds its section directly after this one.
     assert _headings_between(_FUSION, _INSTALL) == [_FUSION, _SUM, _CONSISTENCY]
@@ -136,7 +139,7 @@ def test_readme_sum_section_sits_after_fusion_and_states_the_rules() -> None:
         _EXACT,
         _READS,
         _WEIGHT,
-        "`sf.Gate(..., abstain_band=(lo, hi))`",
+        "`sf.Gate(..., abstain_if=<number>.between(lo, hi))`",
         "The band is closed (both ends are in it).",
         "The Engine checks the band before the comparison.",
         "the Case abstains with the reason `in_band` for every `otherwise`",

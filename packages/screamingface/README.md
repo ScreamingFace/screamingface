@@ -847,10 +847,13 @@ the status `"excluded"` and the reason `no_signal`.
 ### Combine recipes
 
 Each row is one combine scenario with a recipe that you can copy. Each recipe runs offline in the
-Engine's tests, from the url4 that the SDK compiles. A scenario that needs two values from each
-member (an answer and a confidence) asks each member for one JSON reply. Ask every member for the
-same confidence scale, for example 0 to 1. The Engine cannot see that one member writes 80 and
-another member writes 0.8.
+Engine's tests, from the url4 that the SDK compiles. A recipe is a chain: `sf.Fanout(members)` sends
+the input to every member, an optional `sf.Judge` scores the answers, optional narrow steps
+(`sf.Rank`, `sf.Filter`, `sf.Concat`) keep some of them, and one reducer or one `sf.Synthesize`
+writer gives the answer. `>>` joins the steps. A scenario that needs two values from each member
+(an answer and a confidence) asks each member for one JSON reply. Ask every member for the same
+confidence scale, for example 0 to 1. The Engine cannot see that one member writes 80 and another
+member writes 0.8.
 
 | S | Scenario | Recipe |
 |---|---|---|
@@ -858,15 +861,15 @@ another member writes 0.8.
 | S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
 | S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
 | S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
-| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `s4_median_by_confidence` or `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"), select="value")` |
-| S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.Pick(..., output="answer")` |
+| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `s4_median_by_confidence` |
+| S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.ArgMax("field:confidence", output="answer")` |
 | S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
-| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` or `sf.Pick(..., output="answer")` |
+| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
 | S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
 | S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
-| S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Filter(where=sf.signal("score:judge") >= 7, judge=sf.Judge(m, returns="scores", rubric=R))` |
+| S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Fanout(m) >> sf.Judge(j, rubric=R) >> sf.Filter(where=sf.signal("score:judge") >= 7) >> sf.Synthesize(w)` |
 | S11 | A judge scores each answer and returns the best answer | `s11_judge_best` |
-| S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Judge(m, returns="scores", rubric=R, order="min")` |
+| S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Fanout(m) >> sf.Judge(j, rubric=R) >> sf.ArgMin("score:judge")` |
 
 ```python
 import screamingface as sf
@@ -881,48 +884,29 @@ json_members = [sf.Model(route, prompt=reply_json) for route in routes]
 writer = sf.Model(
     "provider/writer", prompt="Write the final answer to the input from the selected answers."
 )
-judge = sf.Judge(
-    "provider/judge", returns="scores", rubric="Give a higher number to a more correct answer."
-)
+judge = sf.Judge("provider/judge", rubric="Give a higher number to a more correct answer.")
 
-s1_median_number = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
-s2_median_member = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number"))
-s3_mean_static = sf.Fusion(routes, synthesizer=sf.Mean(weights=(1, 1, 2)))
-s4_mean_by_confidence = sf.Fusion(
-    json_members,
-    synthesizer=sf.Reduce(
-        "mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence")
-    ),
+s1_median_number = sf.Fanout(routes) >> sf.Median(over="last_number", select="value")
+s2_median_member = sf.Fanout(routes) >> sf.Median(over="last_number")
+s3_mean_static = sf.Fanout(routes) >> sf.Mean(weights=(1, 1, 2))
+s4_mean_by_confidence = sf.Fanout(json_members) >> sf.Mean(
+    over="field:answer", weights="field:confidence"
 )
-s4_median_by_confidence = sf.Fusion(
-    json_members,
-    synthesizer=sf.Reduce(
-        "median",
-        extract=sf.Extract("field", path="answer"),
-        weights=sf.signal("field:confidence"),
-        select="value",
-    ),
+s4_median_by_confidence = sf.Fanout(json_members) >> sf.Median(
+    over="field:answer", weights="field:confidence", select="value"
 )
-s5_max_confidence = sf.Fusion(
-    json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")
+s5_max_confidence = sf.Fanout(json_members) >> sf.ArgMax("field:confidence")
+s7_top_confidence = (
+    sf.Fanout(json_members) >> sf.Rank(2, by="field:confidence") >> sf.Synthesize(writer)
 )
-s7_top_confidence = sf.Pipeline(
-    [
-        sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_signal=sf.signal("field:confidence"))),
-        writer,
-    ]
+s8_argmax_confidence = sf.Fanout(json_members) >> sf.ArgMax("field:confidence")
+s9_confident_only = (
+    sf.Fanout(json_members)
+    >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+    >> sf.Synthesize(writer)
 )
-s8_argmax_confidence = sf.Fusion(
-    json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")
-)
-s9_confident_only = sf.Pipeline(
-    [
-        sf.Fusion(json_members, synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7)),
-        writer,
-    ]
-)
-s10_judge_top = sf.Pipeline([sf.Fusion(routes, synthesizer=sf.Rank(k=2, by=judge)), writer])
-s11_judge_best = sf.Fusion(routes, synthesizer=judge)
+s10_judge_top = sf.Fanout(routes) >> judge >> sf.Rank(2, by="score:judge") >> sf.Synthesize(writer)
+s11_judge_best = sf.Fanout(routes) >> judge >> sf.ArgMax("score:judge")
 ```
 
 The writer after a Rank or a Filter gets one JSON object: the Case input and the kept member
@@ -930,17 +914,25 @@ texts (see "Rank and Concat selections"). `sf.Rank` gives the kept members best 
 `sf.Filter` gives them in author order. The `>` test of `sf.Filter` is strict: a confidence of
 exactly 0.7 is not kept. When no member passes, the Filter abstains with `no_votes` and the writer
 gets `{"input":"...","selected":[]}` (see "Filter selection"). A member whose reply is not JSON has
-no confidence, so `sf.Pick` never returns it. When no member has a confidence, the Case abstains. A
-judge reply that is not one JSON object with a finite score for each member fails the Case with
+no confidence, so `sf.ArgMax` never returns it. When no member has a confidence, the Case abstains.
+A judge reply that is not one JSON object with a finite score for each member fails the Case with
 `judge_reply_invalid`.
+
+`sf.Judge` asks the judge to score each member as the rubric says; the step after it reads the
+scores as `"score:judge"`. Say in the rubric which way is better, and pick the reader to match:
+`sf.ArgMax` or `sf.Rank(..., order="max")` when a higher number is better, `sf.ArgMin` or
+`order="min"` when a lower number is better. `sf.Vote(weights="score:judge")` uses the scores as
+given, as weights: with a rubric where a lower number is better, the worst answers get the most
+weight. Use a higher-is-better rubric for a judge-weighted vote.
 
 ### Signal sources
 
-A Fusion can declare named signals: numbers that the run measures from each member answer. Give
-`signals={name: source}` to `sf.Fusion`, and read a name in a rule with `sf.signal(name)`. The
-combine evidence records the value of every declared name for every member, also when no rule
-reads it. A rule that reads a name that the Fusion does not declare raises `ValueError` before any
-call.
+A `sf.Fanout` can declare named signals: numbers that the run measures from each member answer.
+Give `signals={name: source}` to `sf.Fanout`, and read a name in a later step of the same block:
+by its key (`weights="conf"`, `sf.ArgMax("conf")`, `sf.Rank(2, by="conf")`) or with
+`sf.signal(name)` in a condition. The combine evidence records the value of every declared name
+for every member, also when no step reads it. A step that reads a name that its `sf.Fanout` does
+not declare raises `ValueError` before any call.
 
 - `sf.Verbalized(pattern)` reads a number that the member writes in its text, for example
   `Confidence: 90`. The pattern is an RE2 pattern with exactly one group. The last match counts,
@@ -982,36 +974,22 @@ stated = (
     "On the last line write only your final answer."
 )
 
-s12_verbalized_vote = sf.Fusion(
+s12_verbalized_vote = sf.Fanout(
     [sf.Model(route, prompt=stated) for route in routes],
     signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
-    synthesizer=sf.Vote(weights=sf.signal("conf")),
-)
-s13_logprob_vote = sf.Fusion(
-    routes, signals={"p": sf.Logprob("prob")}, synthesizer=sf.Vote(weights=sf.signal("p"))
-)
-s14_logprob_best = sf.Fusion(
-    routes,
-    signals={"lp": sf.Logprob("mean")},
-    synthesizer=sf.Pick(by_signal=sf.signal("lp"), order="max"),
-)
-s15_entropy_best = sf.Fusion(
-    routes,
-    signals={"ent": sf.Entropy()},
-    synthesizer=sf.Pick(by_signal=sf.signal("ent"), order="min"),
-)
-s16_logprob_threshold = sf.Pipeline(
-    [
-        sf.Fusion(
-            ["openrouter/openai/gpt-4o-mini"],
-            signals={"lp": sf.Logprob("mean")},
-            synthesizer=sf.Filter(where=sf.signal("lp") >= -0.3),
-        ),
+) >> sf.Vote(weights="conf")
+s13_logprob_vote = sf.Fanout(routes, signals={"p": sf.Logprob("prob")}) >> sf.Vote(weights="p")
+s14_logprob_best = sf.Fanout(routes, signals={"lp": sf.Logprob("mean")}) >> sf.ArgMax("lp")
+s15_entropy_best = sf.Fanout(routes, signals={"ent": sf.Entropy()}) >> sf.ArgMin("ent")
+s16_logprob_threshold = (
+    sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("mean")})
+    >> sf.Filter(where=sf.signal("lp") >= -0.3)
+    >> sf.Synthesize(
         sf.Model(
             "openrouter/openai/gpt-4.1",
             prompt="Write the final answer to the input from the selected answers.",
-        ),
-    ]
+        )
+    )
 )
 ```
 
@@ -1024,25 +1002,21 @@ before a longer text is not found, and that member has no value.
 sum. `mean` and `prob` do not depend on the reply length, so use them to compare members.
 
 A vote weight must be above 0. A `mean` or a `sum` is 0 or less, so `sf.Vote`, `sf.Median` and
-`sf.Mean` refuse `sf.Logprob("mean")` and `sf.Logprob("sum")` as weights when you build the Fusion.
-They also refuse `sf.Entropy`, because a higher entropy means less confidence: use `sf.Pick` or
-`sf.Rank` with `order="min"` for entropy. Use `sf.Logprob("prob")` as a vote weight. The error
+`sf.Mean` refuse `sf.Logprob("mean")` and `sf.Logprob("sum")` as weights when `>>` closes the
+block. They also refuse `sf.Entropy`, because a higher entropy means less confidence: use
+`sf.ArgMin` or `sf.Rank(..., order="min")` for entropy. Use `sf.Logprob("prob")` as a vote weight. The error
 says so:
 
 ```python
 try:
-    sf.Fusion(
-        routes,
-        signals={"lp": sf.Logprob("mean")},
-        synthesizer=sf.Vote(weights=sf.signal("lp")),
-    )
+    sf.Fanout(routes, signals={"lp": sf.Logprob("mean")}) >> sf.Vote(weights="lp")
 except ValueError as error:
     print(error)  # names the fix: sf.Logprob("prob")
 ```
 
 `sf.Logprob` and `sf.Entropy` work with OpenRouter models only, and each member must be one model
-call (not a nested Fusion or Pipeline). The SDK asks each member call for `logprobs`, and also for
-`top_logprobs` when the Fusion declares `sf.Entropy`. A model that the gateway parameter catalog
+call (not a nested block or Pipeline). The SDK asks each member call for `logprobs`, and also for
+`top_logprobs` when the `sf.Fanout` declares `sf.Entropy`. A model that the gateway parameter catalog
 marks without logprobs is refused before any call. A model that cannot return logprobs at run time
 fails with `logprobs_unsupported` and the Case fails; under a quorum, that member is left out and
 shows as `missing`. A live test verifies one model: `openrouter/openai/gpt-4o-mini`.
@@ -1060,22 +1034,21 @@ writer gets `{"input":"...","selected":[]}`.
 
 A gate decides when a majority vote is strong enough to keep. It compares one named number with
 one threshold. The gate is data, not code, so a reader can replay it from the recipe:
-`sf.Vote(gate=sf.Gate(observe, cmp, threshold, otherwise=...))`. `observe` is `"agreement"`,
-`"chosen:<name>"` (a declared signal of the chosen member) or `"mean:<name>"` (the mean of a
-declared signal over the members). `<name>` must be a name that the Fusion declares in `signals=`
-(see "Signal sources"); any other name raises `ValueError` before any call. `cmp` is `>=`, `>`,
-`<=` or `<`, and it is the condition that keeps the majority: when `observed cmp threshold` is
-true, the answer is the majority answer. `>=` keeps the majority at equality. An agreement gate
-takes only `>=` or `>`, and a threshold from 0 to 1. The agreement is the winner's share of the
-votes; for a weighted vote, it is the winner's share of the weight. When the comparison is false,
-the fallback gives the answer:
+`sf.Fanout(members) >> sf.Gate(when=<number> <cmp> <threshold>, then=sf.Vote(...), otherwise=...)`.
+The number is `sf.agreement()`, `sf.signal(name).chosen()` (a declared signal of the chosen
+member) or `sf.signal(name).mean()` (the mean of a declared signal over the members). `name` must
+be a name that the `sf.Fanout` declares in `signals=` (see "Signal sources"); any other name raises
+`ValueError` before any call. `<cmp>` is `>=`, `>`, `<=` or `<`, and it is the condition that keeps
+the majority: when `observed cmp threshold` is true, the answer is the majority answer. `>=` keeps
+the majority at equality. An agreement gate takes only `>=` or `>`, and a threshold from 0 to 1.
+The agreement is the winner's share of the votes; for a weighted vote, it is the winner's share of
+the weight. When the comparison is false, the fallback gives the answer:
 
 - `otherwise="abstain"` (the default): the Case abstains with the reason `gate_not_met`. This is a
   scored decline, not a wrong answer and not a failure, and coverage counts it with the other
   abstains.
-- `otherwise=sf.Judge(..., returns="label")`: the judge names one member, and the answer is that
-  member's text.
-- `otherwise=sf.Model(...)`: the model writes the answer.
+- `otherwise=sf.JudgePick(...)`: the judge names one member, and the answer is that member's text.
+- `otherwise=sf.Synthesize(...)`: the model writes the answer.
 
 In this version the fallback call runs on every Case, also when the gate keeps the majority, and
 you pay for it. The gate chooses and records; a cascade that skips the call comes with E4c. If the
@@ -1094,47 +1067,31 @@ import screamingface as sf
 panel = ["prov/alpha", "prov/beta", "prov/gamma"]
 
 # Keep the majority when at least 70% of the votes agree; else the Case abstains.
-g1_agreement_abstain = sf.Fusion(
-    panel, name="vote", synthesizer=sf.Vote(gate=sf.Gate("agreement", ">=", 0.7))
+g1_agreement_abstain = sf.Fanout(panel, name="vote") >> sf.Gate(
+    when=sf.agreement() >= 0.7, then=sf.Vote()
 )
 # Below 70%, a judge names one member, and the answer is that member's text.
-g2_agreement_judge = sf.Fusion(
-    panel,
-    name="vote",
-    synthesizer=sf.Vote(
-        gate=sf.Gate(
-            "agreement",
-            ">=",
-            0.7,
-            otherwise=sf.Judge("prov/judge", returns="label", rubric="Pick the best answer."),
-        )
-    ),
+g2_agreement_judge = sf.Fanout(panel, name="vote") >> sf.Gate(
+    when=sf.agreement() >= 0.7,
+    then=sf.Vote(),
+    otherwise=sf.JudgePick("prov/judge", rubric="Pick the best answer."),
 )
 # Below 70%, a model writes the answer.
-g3_agreement_writer = sf.Fusion(
-    panel,
-    name="vote",
-    synthesizer=sf.Vote(
-        gate=sf.Gate(
-            "agreement",
-            ">=",
-            0.7,
-            otherwise=sf.Model("prov/writer", prompt="Write one answer."),
-        )
-    ),
+g3_agreement_writer = sf.Fanout(panel, name="vote") >> sf.Gate(
+    when=sf.agreement() >= 0.7,
+    then=sf.Vote(),
+    otherwise=sf.Synthesize("prov/writer", prompt="Write one answer."),
 )
 # Keep the majority when the chosen member states a confidence of 80 or more.
 # Each member must write a line such as "Confidence: 90" (see "Signal sources").
-g4_confidence_gate = sf.Fusion(
-    panel,
-    name="vote",
-    signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
-    synthesizer=sf.Vote(gate=sf.Gate("chosen:conf", ">=", 80)),
-)
+g4_confidence_gate = sf.Fanout(
+    panel, name="vote", signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
+) >> sf.Gate(when=sf.signal("conf").chosen() >= 80, then=sf.Vote())
 ```
 
-For a logprob cascade, declare `signals={"lp": sf.Logprob("prob")}` and gate on `"chosen:lp"`:
-the majority stays when the token probability of the chosen member's answer is high enough.
+For a logprob cascade, declare `signals={"lp": sf.Logprob("prob")}` and gate on
+`sf.signal("lp").chosen()`: the majority stays when the token probability of the chosen member's
+answer is high enough.
 
 `sf.Vote(verify=None)` is a reserved place for a later verifier; any other value raises
 `ValueError`.
@@ -1145,65 +1102,51 @@ The Case pane, the run summary and the export show the gate (see "Combine steps 
 
 ### Fusion as a named recipe
 
-`sf.Fusion(members, synthesizer=sf.Model(p))` is the named recipe Fan-out, then
-`Reduce.compute(context)`, then Model. The block form says the same in blocks:
+`sf.Fanout(members) >> sf.Synthesize(model)` is the named recipe: Fan-out, then one model writes
+the answer from the member answers. The shortcut `sf.Fusion(members, synthesizer=...)` builds the
+same chain: a route, an `sf.Model` or a recipe as `synthesizer=` becomes `sf.Synthesize(...)`, and
+a step (a reducer, `sf.Synthesize`, or a narrow step that you then close with `>> sf.Synthesize(...)`)
+comes after the `sf.Fanout` as it is. The two give the same value and the same url4, byte for byte,
+and the value shows in the `sf.Fanout(...) >> ...` form.
 
 ```python
-block = sf.Pipeline(
-    [
-        sf.Fusion(routes, synthesizer=sf.Reduce("context")),
-        sf.Model("openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts."),
-    ]
-)
-same = sf.Fusion(
-    routes,
-    synthesizer=sf.Model(
-        "openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts."
-    ),
-)
+writer = sf.Model("openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts.")
+chain = sf.Fanout(routes) >> sf.Synthesize(writer)
+same = sf.Fusion(routes, synthesizer=writer)
 ```
 
-Before the compile, the SDK rewrites the block form to the Fusion. The two give the same url4, byte
-for byte, and the same operation ids (`op_synthesis_N`). The rewrite keeps the stages after the
-synthesizer (`Pipeline([Fusion(m, Reduce("context")), S, *rest])` is `Pipeline([Fusion(m, S), *rest])`),
-and a named Pipeline keeps its name. A Fusion that was made with `sf.Fusion(...)` is not changed by
-the rewrite. The candidate is named from the rewritten value, so both forms report `a+b`, and
-`report.candidates[...]` uses that name (the block form's own `name` is `a+b->s`). Two block forms that
-get the same name raise `ValueError`: give each one `name=`. The
-`context` block makes no combine call: it needs no operator catalog (no `GET /v1/operators`) and it
-has no member limit.
-
-Use `sf.Reduce("context")` only as the synthesizer of a Fusion that is followed by the real
-synthesizer in the same Pipeline. In every other place (the last stage, a Fusion member, a loop
-member, or before another `context` Fusion) it raises `ValueError` before any call. To write a
-multi-stage synthesizer in the block form, give it a name: `sf.Pipeline` makes an unnamed nested
-Pipeline flat, so `sf.Pipeline([sf.Fusion(m, sf.Reduce("context")), sf.Pipeline([j, w])])` is read as
-`[Fusion, j, w]`. Use `sf.Pipeline([j, w], name="judge-write")`, or a Fusion, as the synthesizer.
+`sf.Synthesize(model, prompt=...)` sets the writer's prompt, and `sf.Fanout(members, prompt=...)`
+sets the prompt of each member. The writer can be any recipe: `sf.Synthesize(sf.Pipeline([j, w]))`
+runs `j`, then `w`. A chain goes on after the writer: `sf.Fanout(m) >> sf.Synthesize(w) >>
+sf.Model(p)` gives the written answer to `p`. The candidate is named from the block: `a+b`, or the
+`name=` of the `sf.Fanout`.
 
 ### Sum signals and the abstain band
 
 A sum is a declared signal that adds other declared signals of the same member, each multiplied
 by a fixed coefficient: `signals={"risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}), ...}` gives each
-member `risk = 0.5 × sev_a + 0.3 × sev_b`. Each component is another name that the same Fusion
-declares in `signals=`, never an E4a key (such as `cost_usd` or `score:judge`) and never another
+member `risk = 0.5 × sev_a + 0.3 × sev_b`. Each component is another name that the same
+`sf.Fanout` declares in `signals=`, never an E4a key (such as `cost_usd` or `score:judge`) and never another
 `sf.Sum`; any other component raises `ValueError` before any call. A sum has 1 to 7 components.
 Each coefficient is a finite number that is not zero; a negative coefficient is allowed, and the
-Engine does not normalize the coefficients. The sum counts toward the 8 names that a Fusion can
-declare.
+Engine does not normalize the coefficients. The sum counts toward the 8 names that a `sf.Fanout`
+can declare.
 
 When a component is missing, the sum is missing, not zero. A rule leaves the member out, as for
 any declared signal. The Engine adds the exact products and rounds once, so the order of the
 components does not change the value. A sum that is too large for a float is missing too.
 
-A rule or a gate reads the sum by its name: `sf.Pick`, `sf.Rank`, `sf.Filter`, a vote weight, and
-a gate on `"chosen:risk"` or `"mean:risk"`. The evidence records the sum of each member like any
-declared signal. A sum that adds `sf.Logprob("mean")`, `sf.Logprob("sum")` or `sf.Entropy(...)`
-cannot be a vote weight: `sf.Fusion` raises `ValueError` before any call. A member whose sum is
+A step or a gate reads the sum by its name: `sf.ArgMax`, `sf.ArgMin`, `sf.Rank`, `sf.Filter`, a
+vote weight, and a gate on `sf.signal("risk").chosen()` or `sf.signal("risk").mean()`. The evidence
+records the sum of each member like any declared signal. A sum that adds `sf.Logprob("mean")`,
+`sf.Logprob("sum")` or `sf.Entropy(...)` cannot be a vote weight: the `>>` that closes the block
+raises `ValueError` before any call. A member whose sum is
 zero or less, or larger than `7.022238808055921e+305` (the largest float divided by 256), gets
 no weight, and the vote leaves it out with `no_weight`.
 
 The abstain band is a range of the gate's number where the Case abstains and gives no verdict:
-`sf.Gate(..., abstain_band=(lo, hi))`. `lo` and `hi` are finite numbers, and `lo <= hi`; a band of
+`sf.Gate(..., abstain_if=<number>.between(lo, hi))`, on the same number as `when=`. `lo` and `hi`
+are finite numbers, and `lo <= hi`; a band of
 one point is valid. For an agreement gate, `lo` and `hi` must be from 0 to 1. The band is closed
 (both ends are in it). The Engine checks the band before the comparison. When the observed number
 is in the band, the Case abstains with the reason `in_band` for every `otherwise`, also a judge
@@ -1214,7 +1157,7 @@ skips the band, and the gate takes the fallback as before. The gate record shows
 A judge or writer fallback still runs on every Case, also when the number is in the band; its
 reply is not read.
 
-A sum adds the signals of one member. To compare the panel, gate on `"mean:<name>"`.
+A sum adds the signals of one member. To compare the panel, gate on `sf.signal(name).mean()`.
 
 Each recipe below runs offline in the Engine's tests, from the url4 that the SDK compiles. The
 routes are placeholders: put your own model routes in their place.
@@ -1231,19 +1174,12 @@ severity = {
 }
 
 # The member with the lowest risk gives the answer.
-s1_sum_pick = sf.Fusion(
-    panel,
-    name="pick",
-    signals=severity,
-    synthesizer=sf.Pick(by_signal=sf.signal("risk"), order="min"),
-)
+s1_sum_pick = sf.Fanout(panel, name="pick", signals=severity) >> sf.ArgMin("risk")
 # The Case abstains with in_band when the mean risk is from 2.5 to 3.5. Else the vote keeps
 # its majority when the mean risk is 3.0 or less, and abstains with gate_not_met when not.
-s2_band_gate = sf.Fusion(
-    panel,
-    name="vote",
-    signals=severity,
-    synthesizer=sf.Vote(gate=sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5))),
+risk = sf.signal("risk").mean()
+s2_band_gate = sf.Fanout(panel, name="vote", signals=severity) >> sf.Gate(
+    when=risk <= 3.0, then=sf.Vote(), abstain_if=risk.between(2.5, 3.5)
 )
 ```
 
@@ -1256,7 +1192,7 @@ report").
 its answer again: `signals={"cons": sf.Consistency(n=5)}`. Each member makes `n` more calls with
 distinct seeds at the stated `temperature`; its other params do not change. The value of a member
 is the share of the extra answers that equal the member's answer after the step's own extract and
-normalize, a number from 0 to 1. A step that has no extract, such as `sf.Pick(by_signal=...)`,
+normalize, a number from 0 to 1. A step that has no extract, such as `sf.ArgMax("cons")`,
 compares the last line with the `text` normalizer. The extra answers never vote: they feed only
 this number, and the step reads the members' answers as before.
 
@@ -1264,8 +1200,8 @@ An extra answer with nothing to extract is a successful extra call that does not
 is also missing when the member has no answer to compare (it failed, or nothing was extracted). A
 rule that reads a missing value leaves the member out, as for any declared signal.
 
-Each member makes n more calls on every Case: a Fusion of M members makes M × n extra calls, and
-you pay for them. The extra calls run also when the member call fails. A failed extra call does
+Each member makes n more calls on every Case: a `sf.Fanout` of M members makes M × n extra calls,
+and you pay for them. The extra calls run also when the member call fails. A failed extra call does
 not fail the Case: the value is the share of matches over the extra calls that answered, and when
 every extra call fails, the value is missing. The extra answers go into the combine context
 with the member answers, so many long extra answers can pass the 64 MiB context limit; the step
@@ -1273,10 +1209,10 @@ then fails with `combine_input_too_large`. The extra calls use fixed seeds that 
 sets, so a replay returns the same samples; they do not change with the run seed. The free
 preflight checks that each member's model takes `seed` and `temperature` before any call.
 
-The rules: one `sf.Consistency` per Fusion; each member is one `sf.Model` or a route, not a
-Pipeline or a Fusion; `n` from 1 to 32, with no default; `temperature` a finite number of 0 or
-more; at most 1024 extra calls per Fusion (members × n); the synthesizer is a reducer, not a
-model. A Fusion that breaks a rule raises `ValueError` before any call. `sf.Consistency` is not
+The rules: one `sf.Consistency` per `sf.Fanout`; each member is one `sf.Model` or a route, not a
+Pipeline or a block; `n` from 1 to 32, with no default; `temperature` a finite number of 0 or
+more; at most 1024 extra calls per `sf.Fanout` (members × n); the block ends in a reducer, not in
+`sf.Synthesize`. A block that breaks a rule raises `ValueError` before any call. `sf.Consistency` is not
 allowed inside a corrective loop in this version.
 
 The SDK tests compile each recipe below to a fixed url4, and the Engine's tests run the first one
@@ -1288,23 +1224,18 @@ import screamingface as sf
 panel = ["prov/alpha", "prov/beta", "prov/gamma"]
 # Each member answers 3 more times at temperature 1.0. The answer comes from the member whose
 # extra answers agree most often with its own answer.
-c1_pick_most_consistent = sf.Fusion(
-    panel,
-    name="pick",
-    signals={"cons": sf.Consistency(n=3)},
-    synthesizer=sf.Pick(by_signal=sf.signal("cons")),
-)
+c1_pick_most_consistent = sf.Fanout(
+    panel, name="pick", signals={"cons": sf.Consistency(n=3)}
+) >> sf.ArgMax("cons")
 # Each member answers 2 more times at temperature 0.7. The median compares the last number of
 # each answer, and the evidence records each member's value.
-c2_median_consistency = sf.Fusion(
-    panel,
-    name="median",
-    signals={"cons": sf.Consistency(n=2, temperature=0.7)},
-    synthesizer=sf.Median(),
+c2_median_consistency = (
+    sf.Fanout(panel, name="median", signals={"cons": sf.Consistency(n=2, temperature=0.7)})
+    >> sf.Median()
 )
 ```
 
-`sf.Vote(weights=sf.signal("cons"))` weights each member by its value; a member with the value 0
+`sf.Vote(weights="cons")` weights each member by its value; a member with the value 0
 has no weight and does not vote.
 
 The Case pane, the run summary and the export show the value and the failed extra calls (see
