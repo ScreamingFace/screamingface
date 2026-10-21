@@ -13,6 +13,7 @@ rebuild is refused with the "cannot rebuild" message.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -30,7 +31,7 @@ from screamingface._surface.refs import (
     field,
     with_normalizer,
 )
-from screamingface._surface.render import dispatch, model_options, render
+from screamingface._surface.render import code, dispatch, model_options
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -106,7 +107,8 @@ def rebuild_decoded(decoded: _DecodedCandidate) -> Rebuilt:
     check_surface = _replay_check_surface(decoded.topology)
     if not _recompiles(decoded.candidate, value, decoded.calls, check_surface=check_surface):
         raise ValueError(_CANNOT_REBUILD)
-    return Rebuilt(value, f"candidate = {render(value, 'sf.')}")
+    # WHY no width: Rebuilt.python is one line; Url4.to_python lays a long chain out (render.code)
+    return Rebuilt(value, code(value, "candidate", width=sys.maxsize))
 
 
 def surface_value(value: Recipe) -> Recipe:

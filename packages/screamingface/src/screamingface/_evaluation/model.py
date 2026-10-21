@@ -330,7 +330,7 @@ def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
 
     WHY the lowering runs here (E4b surface lowering §2.4): the operator check, the check-surface
     check and the compile all read these values, so each one reads the lowered value. The
-    judge-writer warning reads the user's own values, before the lowering (``entry_recipe``).
+    judge-writer warning reads the user's own values (``entry_recipe``).
     """
 
     # WHY lazy: candidate.py imports this module
