@@ -144,3 +144,59 @@ no existing test changed.
 **Gates:** `run_gates.py url4` ALL GATES GREEN (no `--skip-append-only`);
 `run_gates.py screamingface-engine` ALL GATES GREEN; `check_module_size.py` / `check_suppressions.py`
 within baseline (suppressions 5/5).
+
+## Review hardening 2 ("resource-cap-defeat", 2026-10-21)
+
+Background security review flagged `_body_decode.py` / `_guarded_transport.py`. Reproduced, fixed
+test-first (RED observed for every new test, then GREEN); no existing test changed.
+
+1. **The cap defeat (reproduced):** after the first gzip member ended, zlib's `decompressobj` put
+   every later input byte into `unused_data` — appended forever, never decoded, so the decoded
+   cap never fired, and raw bytes were not counted at all. Probe: `gzip(b"a"*10)` then 20 x 1 MB
+   of junk left `unused_data` at 20,000,520 bytes with 10 bytes decoded, and the fetch SUCCEEDED
+   (later members silently dropped). Memory was bounded only by `total_timeout` x bandwidth.
+   Endless empty stored deflate blocks (`00 00 00 ff ff`) likewise streamed with no limit but the
+   deadline. Fix (commit `c002088b8`):
+   - gzip members are decoded one after another under the same decoded cap; bytes after a deflate
+     stream, or bytes after a gzip member that are not a gzip member, are a decoding error
+     (`x.resolution_failed`). Nothing is parked in `unused_data`.
+   - `_CappedStream` also counts RAW wire bytes, capped at `max_bytes` (same cap as decoded),
+     counted before decoding and independent of `Content-Length`/`Content-Encoding` (which the
+     transport strips for httpx only).
+   - The decoder is fed at most `STEP` (64 KiB) raw bytes per call, so `unconsumed_tail` never
+     copies a large network chunk per step (one 1 MB chunk: peak 3.47 MB -> 1.51 MB at a 1 MiB cap).
+   - `flush()` is never called (unbounded); each feed drains in `STEP` pieces instead.
+   - Probes that did NOT defeat the cap before this fix: decoded output accumulated before the
+     check (each piece is checked, at most one `STEP` over); the `Content-Length` strip (no raw
+     cap existed to disable; the new raw count ignores headers).
+   Tests: `test_bytes_after_a_gzip_member_are_never_buffered`, `test_every_gzip_member_is_decoded`,
+   `test_gzip_members_share_one_decoded_cap`, `test_bytes_after_a_deflate_stream_are_refused`,
+   `test_bytes_after_a_gzip_member_that_are_not_gzip_are_refused`,
+   `test_raw_bytes_that_decode_to_nothing_hit_the_raw_cap`,
+   `test_raw_bytes_that_decode_to_nothing_still_hit_the_total_deadline`,
+   `test_identity_raw_cap_is_the_decoded_cap`, `test_one_huge_raw_chunk_is_decoded_a_step_at_a_time`.
+2. **Deprecated embedded IPv6** (commit `7795c3cd0`): IPv4-compatible `::/96` and SIIT
+   `::ffff:0:0:0/96` are refused outright, whatever they embed (`[::8.8.8.8]`,
+   `[::ffff:0:808:808]` blocked); `::` and `::1` keep IPv6's own rules. Tests:
+   `test_deprecated_embedded_forms_are_refused_whatever_they_embed`,
+   `test_unspecified_and_ipv6_loopback_keep_their_own_rules`,
+   `test_deprecated_embedded_ipv6_forms_are_refused_outright`.
+
+**Deviations / tradeoffs (spec-facing, for the PR body):**
+- **First-hop trust only (accepted tradeoff):** a relative fetch against `base_url` trusts only
+  its first hop. If the operator's base_url server redirects WITHIN its own origin, that hop is
+  checked like any destination, so a base_url on a private/loopback address (without
+  `allow_loopback`) fails on the redirect. Accepted to keep "no redirect hop is ever trusted".
+- **Raw cap = `max_bytes`:** a gzip/deflate body whose wire size exceeds `max_bytes` is refused
+  even if it would decode under the cap (only incompressible data near the cap, a few bytes per
+  64 KiB of overhead).
+- **Multi-member gzip is decoded** (RFC 1952); trailing non-gzip bytes (e.g. zero padding) after a
+  member are now a decoding error, where httpx would have silently ignored them.
+- **Loopback hatch on deprecated forms kept:** the prior test
+  `test_embedded_loopback_forms_follow_the_escape_hatch` admits `::7f00:1` / `::ffff:0:7f00:1`
+  under `allow_loopback`; with tests unchanged, the hatch still reads the embedded IPv4 for the
+  loopback case only. Without the hatch, nothing in these ranges is evaluated — all refused.
+  Dropping that too needs the prior test changed (owner call).
+
+**Gates:** `run_gates.py url4` ALL GATES GREEN (no `--skip-append-only`; also green with
+`--base origin/main`); `check_module_size.py` within baseline; `check_suppressions.py` 5/5.
