@@ -1,9 +1,9 @@
 ---
 ticket: OME-1653
 stack: screamingface
-status: planned
+status: done
 started: 2026-10-20
-finished:
+finished: 2026-10-21
 ---
 
 # e4b-mapreduce-surface — replace the recipe surface with map → select → reduce
@@ -60,10 +60,23 @@ step so a narrow step can come before a reducer.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** Engine `combine/` (narrow step); SDK new `_surface/` package (chain, fanout,
+  steps, judge, gate, refs, synthesize, lowering, rebuild, render, fusion shortcut), the old
+  classes as internal `Node` classes, `url4.py`/`_evaluation/*` compile and rebuild entry,
+  `_ui/` cards and combine view; ~120 SDK test files moved, new surface tests; README, CHANGELOG,
+  13 example notebooks (new `18_map_select_reduce.ipynb`), public-docs pages; gate tooling
+  (`approved_test_changes.py` accepts url4 fixtures); approval manifest `OME-1653.json`.
+- **Commits:** `06e58cee2`..HEAD on `OME-1653-e4b-display-gate-sums-consistency` (spec, units
+  1–8, reviews, fix rounds, manifest), on top of `e4d44281c`.
+- **Gates:** 2026-10-21 against the PR base `b174f9bb4` with the append-only check on:
+  screamingface-engine, screamingface, repo — ALL GATES GREEN.
+- **Deviations:** A4 revised (owner, during 7e): `sf.Fusion` kept as a public shortcut function.
+  Owner approvals: unit 1 pins (2026-10-20), 147 unit 7 pins (2026-10-21), 2 removed test modules
+  kept as docstring stubs, url4 fixtures allowed in the approval helper. Every review finding and
+  erratum is in the sections above. Follow-ups: one carrier on FusionNode (U5e); multi-line
+  layout inside one stage; double compile in `to_python` for policy topologies; private `Step`
+  in public signatures; judge-writer warning for a block that is a Fanout member names only the
+  stage.
 
 ## Unit 2: chain-core
 
