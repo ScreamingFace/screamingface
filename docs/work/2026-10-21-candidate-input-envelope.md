@@ -1,9 +1,9 @@
 ---
 ticket: OME-1678
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-21
-finished:
+finished: 2026-10-21
 ---
 
 # candidate-input-envelope — send a Case's inline pictures to the model as image parts
