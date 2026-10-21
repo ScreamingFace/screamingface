@@ -107,19 +107,20 @@ def _lowered_pair(stages: Sequence[Recipe], index: int, active: tuple[int, ...])
 def _pipeline(pipeline: Pipeline, active: tuple[int, ...]) -> Recipe:
     """Scan the stages left to right; a context Fusion and the stage after it become one Fusion."""
 
+    given = pipeline._stage_values()
     stages: list[Recipe] = []
     lowered = False
     index = 0
-    while index < len(pipeline.stages):
-        stage = pipeline.stages[index]
+    while index < len(given):
+        stage = given[index]
         if _is_context_fusion(stage):
-            stages.append(_lowered_pair(pipeline.stages, index, active))
+            stages.append(_lowered_pair(given, index, active))
             lowered = True
             index += 2
         else:
             stages.append(_rewrite(stage, active))
             index += 1
-    if not lowered and _same(pipeline.stages, stages):
+    if not lowered and _same(given, stages):
         return pipeline
     if lowered and len(stages) == 1 and not pipeline._is_named:
         return _optional_fusion(stages[0], pipeline.optional)

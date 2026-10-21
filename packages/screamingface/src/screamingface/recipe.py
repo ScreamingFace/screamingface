@@ -12,7 +12,6 @@ from screamingface.reducer import Reducer
 if TYPE_CHECKING:
     from screamingface._surface.chain import Pipeline as Chain
     from screamingface._surface.chain import Step
-    from screamingface.pipeline import Pipeline
 
 
 class _Chainable:
@@ -38,17 +37,6 @@ class Recipe(_Chainable, ABC):
 
     name: str
     optional: bool
-
-    def then(self, next_recipe: str | Recipe) -> Pipeline:
-        """Return an immutable serial Pipeline ending in ``next_recipe``.
-
-        WHY: unnamed-Pipeline flattening lives once, in the Pipeline constructor —
-        this method only expresses "these two, in order".
-        """
-
-        from screamingface.pipeline import Pipeline
-
-        return Pipeline((self, next_recipe))
 
     @property
     @abstractmethod
@@ -126,10 +114,10 @@ def _recipe_kind(
     Recipe kinds) reads this one function instead of forking its own mapping.
     """
 
+    from screamingface._surface.chain import Pipeline
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
     from screamingface.fusion import FusionNode
     from screamingface.model import Model
-    from screamingface.pipeline import Pipeline
 
     kinds: tuple[
         tuple[type, Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]],
@@ -148,14 +136,13 @@ def _recipe_kind(
 
 
 def _is_supported_recipe(value: object) -> bool:
-    from screamingface._surface.chain import Pipeline as Chain
+    from screamingface._surface.chain import Pipeline
     from screamingface.fusion import FusionNode
     from screamingface.model import Model
-    from screamingface.pipeline import Pipeline
 
-    # A closed chain of the new surface is a recipe; lower() turns it into today's values before
-    # the compile reads it (E4b surface lowering §2.4).
-    return isinstance(value, Model | FusionNode | Pipeline | Chain)
+    # A closed chain is a recipe; lower() turns its blocks into internal nodes before the compile
+    # reads it (E4b surface lowering §2.4).
+    return isinstance(value, Model | FusionNode | Pipeline)
 
 
 def _text(value: object, label: str) -> str:

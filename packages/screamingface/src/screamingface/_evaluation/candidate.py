@@ -40,7 +40,6 @@ from screamingface._evaluation.topology import (
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
-from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.lowering import lower
 from screamingface.blocks import ReduceNode
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -192,7 +191,7 @@ def _children(value: Recipe) -> tuple[Recipe | Reducer, ...]:
     if isinstance(value, FusionNode):
         children: tuple[Recipe | Reducer, ...] = (*value.members, value.synthesizer)
     elif isinstance(value, Pipeline):
-        children = value.stages
+        children = value._stage_values()
     elif isinstance(value, CorrectiveLoop):
         children = (*value.members, value.judge)
     elif isinstance(value, SelfCorrective):
@@ -880,7 +879,7 @@ class _CandidateCompiler:
         calls: tuple[_SourceCall, ...] = ()
         resolved: _ResolvedRecipe | None = None
         stage_topologies: list[_RecipeTopology] = []
-        for index, stage in enumerate(pipeline.stages):
+        for index, stage in enumerate(pipeline._stage_values()):
             resolved = self._recipe(
                 stage,
                 input_context=context,
@@ -1066,13 +1065,11 @@ def _warn_judge_writers(recipe: Recipe) -> None:
             continue
         seen.add(id(value))
         if isinstance(value, Pipeline):
-            _warn_judge_writer(value.name, value.stages)
-        if isinstance(value, Chain):
-            # WJ-1: a chain of the new surface, before the lowering: a closed block is one stage.
+            # WJ-1: the chain before the lowering: a closed block is one stage.
             _warn_judge_writer(value.name, value._stage_values())
-            # E6: a block that lowers to Pipeline([Fusion, writer]) holds a judge and a writer.
+            # E6: a block that lowers to Pipeline([FusionNode, writer]) holds a judge and a writer.
             for inner in value._block_pipelines():
-                _warn_judge_writer(inner.name, inner.stages)
+                _warn_judge_writer(inner.name, inner._stage_values())
             pending.extend(reversed(value._held_recipes()))
         else:
             pending.extend(reversed(_children(value)))

@@ -95,21 +95,47 @@ def _keyword(value: object, kind: type, name: str, text: str | None = None) -> l
     return [f"{name}={repr(value) if text is None else text}"]
 
 
-def _chain(chain: Pipeline, prefix: str) -> str:
+def code(value: Recipe, target: str, *, width: int = 100) -> str:
+    """``<target> = <value>`` as Python with the ``sf.`` prefix: one line when it fits in
+    ``width``, else a chain shows one stage per line (a step inside a stage stays on its line)."""
+
+    line = f"{target} = {render(value, 'sf.')}"
+    if len(line) <= width or not isinstance(value, Pipeline):
+        return line
+    stages = [_stage(step, "sf.") for step in value.steps]
+    if not _explicit(value):
+        rest = [f"    >> {stage}" for stage in stages[1:]]
+        return "\n".join([f"{target} = (", f"    {stages[0]}", *rest, ")"])
+    head = [f"{target} = sf.Pipeline(", "    ["]
+    listed = [f"        {stage}," for stage in stages]
+    options = [f"    {option}," for option in _chain_options(value)]
+    return "\n".join([*head, *listed, "    ],", *options, ")"])
+
+
+def _explicit(chain: Pipeline) -> bool:
+    """Whether a chain needs the ``Pipeline([...])`` form: named, optional, one stage, or two
+    recipes first (``'a' >> 'b'`` is no chain)."""
+
     steps = chain.steps
-    explicit = (
+    return (
         chain._is_named
         or chain.optional
         or len(steps) < 2
         or not any(isinstance(step, Step | Pipeline) for step in steps[:2])
     )
-    if not explicit:
+
+
+def _chain_options(chain: Pipeline) -> list[str]:
+    options = [f"name={chain.name!r}"] if chain._is_named else []
+    return [*options, *_keyword(chain.optional, Pipeline, "optional")]
+
+
+def _chain(chain: Pipeline, prefix: str) -> str:
+    steps = chain.steps
+    if not _explicit(chain):
         return " >> ".join(_stage(step, prefix) for step in steps)
     arguments = ["[" + ", ".join(_stage(step, prefix) for step in steps) + "]"]
-    if chain._is_named:
-        arguments.append(f"name={chain.name!r}")
-    arguments.extend(_keyword(chain.optional, Pipeline, "optional"))
-    return _call(prefix, "Pipeline", arguments)
+    return _call(prefix, "Pipeline", [*arguments, *_chain_options(chain)])
 
 
 def _stage(value: Recipe | Step, prefix: str) -> str:
@@ -288,4 +314,4 @@ def _call(prefix: str, head: str, arguments: list[str]) -> str:
     return f"{prefix}{head}({', '.join(arguments)})"
 
 
-__all__ = ["dispatch", "model_options", "render"]
+__all__ = ["code", "dispatch", "model_options", "render"]

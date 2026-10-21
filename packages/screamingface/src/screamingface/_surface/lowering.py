@@ -1,15 +1,12 @@
 """The lowering: a chain of the new surface → the internal values that today's compiler reads.
 
-FEATURE (E4b surface, lowering §1–§2): ``lower()`` turns a chain into today's ``Fusion``,
-``Pipeline`` and reducer values, so a recipe in the new form compiles to the url4 of today. It
-runs at block close (``block_node``) and once at the first compile entry
+FEATURE (E4b surface, lowering §1–§2): ``lower()`` turns a chain into the internal ``FusionNode``
+and reducer nodes that the compiler reads, inside a ``Pipeline`` that holds only recipes (D7-2).
+It runs at block close (``block_node``) and once at the first compile entry
 (``S/_evaluation/candidate.py``).
 INVARIANT (LO-1): pure and deterministic; it makes no call. Idempotent: a lowered value lowers to
 itself.
-INVARIANT (LO-0): until the swap, ``lower()`` is the identity on every value that is not a
-``_surface`` value and holds none, so no existing recipe changes by one byte.
-AIDEV-NOTE: the targets keep today's class names (``Fusion``, ``Vote``, ``Reduce``, ...) until the
-swap (unit 7) renames them to their ``Node`` names (O7).
+INVARIANT (LO-0): ``lower()`` is the identity on every value that holds no closed block.
 """
 
 from __future__ import annotations
@@ -18,8 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
-from screamingface._surface.chain import Pipeline as Chain
-from screamingface._surface.chain import Step, _Block, refuse_step
+from screamingface._surface.chain import Pipeline, Step, _Block, refuse_step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Fallback, Gate
 from screamingface._surface.judge import Judge, JudgePick
@@ -51,7 +47,6 @@ from screamingface.fusion import FusionNode
 from screamingface.gate import GateNode
 from screamingface.judge import JudgeNode
 from screamingface.model import Model
-from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
 from screamingface.reducer import (
     _DEFAULT_NORMALIZE,
@@ -304,7 +299,7 @@ _NODES: Mapping[type, Callable[[Any, JudgeNode | None], Reducer]] = MappingProxy
 )
 
 
-# AIDEV-NOTE: the walk over today's containers mirrors S/_evaluation/fusion_recipe.py, with its
+# AIDEV-NOTE: the walk over the recipe containers mirrors S/_evaluation/fusion_recipe.py, with its
 # name rule (_kept_name). Unit 7 deletes fusion_recipe.py, so this becomes the only walker.
 def _lower(value: Recipe, active: _Active) -> Recipe:
     # WHY the active ids: a cyclic value (only built by hand) must reach the compiler, which names
@@ -318,22 +313,25 @@ def _lower(value: Recipe, active: _Active) -> Recipe:
     return value
 
 
-def _chain(chain: Chain, active: _Active) -> Recipe:
+def _chain(chain: Pipeline, active: _Active) -> Recipe:
+    blocks = any(isinstance(stage, _Block) for stage in chain._stages)
     stages = tuple(
         stage.node if isinstance(stage, _Block) else _lower(stage, active)
         for stage in chain._stages
     )
-    if not chain._is_named and len(stages) == 1 and isinstance(chain._stages[0], _Block):
+    if not chain._is_named and len(stages) == 1 and blocks:
         # LO-5: an unnamed chain of one closed block is that block's node; its flag moves there.
         return _optional_node(stages[0]) if chain.optional else stages[0]
-    # LO-6: a named chain keeps its grouping. Today's Pipeline flattens the unnamed ones (LO-4).
+    if not blocks and all(new is old for new, old in zip(stages, chain._stages, strict=True)):
+        return chain  # LO-0: a chain of recipes that lower to themselves is already lowered
+    # LO-6: a named chain keeps its grouping; an unnamed one inside is flattened (LO-4).
     return Pipeline(stages, name=chain.name if chain._is_named else None, optional=chain.optional)
 
 
 def _optional_node(node: Recipe) -> Recipe:
     if isinstance(node, Pipeline):
-        # a block's Pipeline([Fusion, writer]) is unnamed (lowering §2.2)
-        return Pipeline(node.stages, optional=True)
+        # a block's Pipeline([FusionNode, writer]) is unnamed (lowering §2.2)
+        return Pipeline(node._stage_values(), optional=True)
     assert isinstance(node, FusionNode)
     return _rebuilt_fusion(node, node.members, node.synthesizer, optional=True)
 
@@ -365,14 +363,6 @@ def _rebuilt_fusion(
     )
 
 
-def _pipeline(pipeline: Pipeline, active: _Active) -> Recipe:
-    stages = _lowered(pipeline.stages, active)
-    if stages is pipeline.stages:
-        return pipeline
-    name = pipeline.name if pipeline._is_named else None
-    return Pipeline(stages, name=name, optional=pipeline.optional)
-
-
 def _loop(loop: CorrectiveLoop, active: _Active) -> Recipe:
     members = _lowered(loop.members, active)
     judge = _lower(loop.judge, active)
@@ -400,9 +390,8 @@ def _lowered(values: tuple[Recipe, ...], active: _Active) -> tuple[Recipe, ...]:
 
 # The recipe kinds that can hold a chain, and how each one lowers. A Model holds none.
 _LOWERINGS: tuple[tuple[type, Callable[[Any, _Active], Recipe]], ...] = (
-    (Chain, _chain),
+    (Pipeline, _chain),
     (FusionNode, _fusion),
-    (Pipeline, _pipeline),
     (CorrectiveLoop, _loop),
     (SelfCorrective, _solo),
 )

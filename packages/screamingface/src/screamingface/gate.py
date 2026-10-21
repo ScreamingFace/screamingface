@@ -19,10 +19,7 @@ from typing import Any, ClassVar, Literal, cast
 from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
 from screamingface._signals import _finite_number, is_signal_key
 from screamingface.combine_evidence import _GATE_CMPS, _GATE_SOURCES, GateCmp, _is_gate_observe
-from screamingface.judge import (  # Judge: the public name in the sf.Gate signature until 7e
-    Judge,
-    JudgeNode,
-)
+from screamingface.judge import JudgeNode
 from screamingface.model import Model
 from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY, _ModelSignal
 
@@ -64,7 +61,7 @@ class GateNode:
         cmp: GateCmp,
         threshold: float,
         *,
-        otherwise: Literal["abstain"] | Judge | Model = "abstain",
+        otherwise: Literal["abstain"] | JudgeNode | Model = "abstain",
         abstain_band: tuple[float, float] | None = None,
     ) -> None:
         checked_observe = _observe(observe)
@@ -229,8 +226,4 @@ def _python_form(value: JudgeNode | Model) -> str:
     return f"sf.{value!r}"
 
 
-__all__ = ["Gate"]
-
-
-# The public name until the swap (unit 7e) exports the new surface.
-Gate = GateNode
+__all__ = ["GateNode"]

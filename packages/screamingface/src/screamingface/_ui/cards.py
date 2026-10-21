@@ -19,12 +19,10 @@ from screamingface.reducer import Reducer
 if TYPE_CHECKING:
     from typing import Protocol
 
-    from screamingface._surface.chain import Pipeline as Chain
-    from screamingface._surface.chain import Step, _Block
+    from screamingface._surface.chain import Pipeline, Step, _Block
     from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
     from screamingface.fusion import FusionNode
     from screamingface.model import Model
-    from screamingface.pipeline import Pipeline
     from screamingface.recipe import Recipe
 
     class _ClientLike(Protocol):
@@ -80,7 +78,8 @@ def pipeline_card_html(pipeline: Pipeline) -> str:
     """Render one serial Candidate as an explicitly ordered topology."""
 
     stages = "".join(
-        _recipe_detail(stage, index=index) for index, stage in enumerate(pipeline.stages, start=1)
+        _recipe_detail(stage, index=index)
+        for index, stage in enumerate(pipeline._stage_values(), start=1)
     )
     return (
         f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace pipeline'>"
@@ -130,7 +129,7 @@ def block_card_html(block: _Block) -> str:
     )
 
 
-def chain_card_html(chain: Chain) -> str:
+def chain_card_html(chain: Pipeline) -> str:
     """Render one chain of the new surface: its stages in order; a block shows as one stage.
 
     A chain that ends inside a block (CH-8) shows that open block last, with the steps it has.
@@ -540,13 +539,13 @@ def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
 
 
 def _kind_word(recipe: Recipe) -> str:
-    """The kind a card names: a chain of the new surface is a ``chain`` (erratum E5), every
-    other value its recipe kind, as today."""
+    """The kind a card names: a ``Pipeline`` is a ``chain`` (erratum E5), every other value its
+    recipe kind."""
 
     # WHY lazy: the surface package imports the recipe tree, which imports this module's users
-    from screamingface._surface.chain import Pipeline as Chain
+    from screamingface._surface.chain import Pipeline
 
-    return "chain" if isinstance(recipe, Chain) else _recipe_kind(recipe)
+    return "chain" if isinstance(recipe, Pipeline) else _recipe_kind(recipe)
 
 
 def _synthesizer_fields(synthesizer: Recipe | Reducer) -> str:

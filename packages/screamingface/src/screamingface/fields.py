@@ -751,9 +751,4 @@ _BLOCK_FORMS["merge"] = _BlockForm(
     options=lambda named: {"fields": _FieldRules(tuple(cast("MergeNode", named).fields.items()))},
 )
 
-__all__ = ["FieldNormalizer", "FieldRule", "Merge", "Pick"]
-
-
-# The public names until the swap (unit 7e) exports the new surface.
-Pick = PickNode
-Merge = MergeNode
+__all__ = ["FieldNormalizer", "FieldRule", "MergeNode", "PickNode"]

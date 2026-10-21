@@ -7,19 +7,18 @@ WHY one decode path: the url4 decode and today's rebuild (``S/url4.py``) give to
 checks of today run once, and only the conversion is new.
 INVARIANT (RB-1): the rebuilt value compiles to the url4 it came from, byte for byte, or the
 rebuild is refused with the "cannot rebuild" message.
-AIDEV-NOTE: until the swap (unit 7) only new tests call this; the swap makes ``Url4.to_python()``
-use it, with the alias ``sf`` as the real ``screamingface``.
+``Url4.to_python()`` is ``import screamingface as sf`` and this code (unit 7e), so the alias
+``sf`` is the real ``screamingface``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from screamingface._signals import signal
-from screamingface._surface.chain import Pipeline as Chain
-from screamingface._surface.chain import Step
+from screamingface._surface.chain import Pipeline, Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Fallback, Gate
 from screamingface._surface.judge import Judge, JudgePick
@@ -51,7 +50,6 @@ from screamingface.fields import MergeNode, PickNode
 from screamingface.fusion import FusionNode
 from screamingface.judge import JudgeNode
 from screamingface.model import Model
-from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
 from screamingface.reducer import (
     BENCHMARK_EXTRACT,
@@ -63,6 +61,9 @@ from screamingface.reducer import (
     _narrow_steps,
 )
 from screamingface.selection import ConcatNode, FilterNode, RankNode
+
+if TYPE_CHECKING:
+    from screamingface.url4 import _DecodedCandidate
 
 _CANNOT_REBUILD = "URL4 Candidate has a recipe this SDK version cannot rebuild"
 _FIELD_PREFIX = "field:"
@@ -78,7 +79,8 @@ class _Unexpressible(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Rebuilt:
-    """A rebuilt url4: the chain value and the code that builds it through the alias ``sf``."""
+    """A rebuilt url4: the chain value and the one line of code that builds it through the alias
+    ``sf`` (``Url4.to_python()`` lays a long chain out over lines, ``render.code``)."""
 
     value: Recipe
     python: str
@@ -88,14 +90,16 @@ def rebuild(url4: str) -> Rebuilt:
     """The chain a url4 describes, and its code; ValueError when the new surface cannot say it."""
 
     # WHY lazy: S/url4.py imports the compiler, which imports this package's lowering
-    from screamingface.url4 import (
-        _decode_candidate,
-        _recipe_from_topology,
-        _recompiles,
-        _replay_check_surface,
-    )
+    from screamingface.url4 import _decode_candidate
 
-    decoded = _decode_candidate(url4)
+    return rebuild_decoded(_decode_candidate(url4))
+
+
+def rebuild_decoded(decoded: _DecodedCandidate) -> Rebuilt:
+    """``rebuild`` of a url4 that ``S/url4.py`` decoded and checked (``Url4.to_python()``)."""
+
+    from screamingface.url4 import _recipe_from_topology, _recompiles, _replay_check_surface
+
     # editable: a model call whose prompt is its role's default comes back with no prompt
     today = _recipe_from_topology(decoded.topology, decoded.calls, editable=True)
     value = surface_value(today)
@@ -118,8 +122,8 @@ def _model(model: Model) -> Model:
     return model
 
 
-def _fusion(fusion: FusionNode) -> Chain:
-    return Chain(_block(fusion), optional=fusion.optional)
+def _fusion(fusion: FusionNode) -> Pipeline:
+    return Pipeline(_block(fusion), optional=fusion.optional)
 
 
 def _loop(loop: CorrectiveLoop) -> CorrectiveLoop:
@@ -139,12 +143,12 @@ def _solo(solo: SelfCorrective) -> SelfCorrective:
     )
 
 
-def _chain(pipeline: Pipeline) -> Chain:
+def _chain(pipeline: Pipeline) -> Pipeline:
     """Today's stages as one chain: a selection Fusion and the stage after it are one block,
     ``Fanout >> <narrow> >> Synthesize(next stage)`` (rebuild-display §1)."""
 
     items: list[Recipe | Step] = []
-    stages = list(pipeline.stages)
+    stages = list(pipeline._stage_values())
     while stages:
         stage = stages.pop(0)
         if not isinstance(stage, FusionNode):
@@ -154,7 +158,7 @@ def _chain(pipeline: Pipeline) -> Chain:
         else:
             items.extend(_block(stage))
     name = pipeline.name if pipeline._is_named else None
-    return Chain(items, name=name, optional=pipeline.optional)
+    return Pipeline(items, name=name, optional=pipeline.optional)
 
 
 # The recipe kinds of today and their new-surface form.
@@ -413,4 +417,4 @@ _CONVERSIONS: tuple[tuple[type, Callable[[Any, list[JudgeNode]], Step]], ...] = 
 )
 
 
-__all__ = ["Rebuilt", "rebuild"]
+__all__ = ["Rebuilt", "rebuild", "rebuild_decoded"]
