@@ -20,6 +20,8 @@ from url4.dag.node import (  # isort: skip
 )
 
 
+from url4.dag.nodes._collected import collected_error
+
 from url4.dag.nodes._shared import (  # isort: skip
     DEFAULT_MAP_CONCURRENCY,
     _ITEM_KEY,
@@ -27,7 +29,6 @@ from url4.dag.nodes._shared import (  # isort: skip
     _as_text,
     _frame,
     _media_type_of,
-    collected_error,
 )
 
 

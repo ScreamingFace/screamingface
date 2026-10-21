@@ -56,7 +56,7 @@ from url4.dag.nodes import (
     WebFetchNode,
     current_guard_retry,
 )
-from url4.dag.nodes._shared import collected_error
+from url4.dag.nodes._collected import collected_error
 
 __all__ = [
     "collected_error",

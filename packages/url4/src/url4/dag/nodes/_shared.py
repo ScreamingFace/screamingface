@@ -28,7 +28,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from url4.core.context import Context
-from url4.core.errors import ErrorCause, ErrorCode, ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import Params
 from url4.dag.semantics.ensemble import interpolate
 from url4.io.layer import FetchRequest, fetch_result
@@ -153,36 +153,6 @@ async def _fetch(ctx: ExecutionContext, request: FetchRequest) -> FetchedText:
 def _media_type_of(payload: Payload) -> str | None:
     """The Content-Type a fetch attached to ``payload``, or None when unknown."""
     return getattr(payload, "media_type", None)
-
-
-def collected_error(exc: BaseException) -> dict:
-    """One collected row's wire error object (spec §5.3.6 ``collect``).
-
-    Preserves the exception's URL4 diagnostics — ``code`` and ``permanent`` — beside the
-    kind/message pair, so a ``collect``-boundary consumer (a benchmark's outcome envelope,
-    the SDK report) can render the ORIGINAL upstream failure instead of falling back to a
-    default code. ``permanent`` travels as ``retryable`` (its inverse): permanent errors
-    must not be retried, and every reader of this payload already keys on retryability
-    (``screamingface_engine.benchmarks.aggregation.public_error``).
-
-    Public (``url4.dag.collected_error``): a code handler that runs several steps in process
-    records a failed step in this same shape, so a reader of collected rows has one decoder.
-    """
-    payload: dict[str, object] = {
-        "kind": type(exc).__name__,
-        "message": str(exc) or repr(exc),
-    }
-    code = getattr(exc, "code", None)
-    if isinstance(code, str) and code:
-        payload["code"] = code
-    permanent = getattr(exc, "permanent", None)
-    if isinstance(permanent, bool):
-        payload["retryable"] = not permanent
-    cause = getattr(exc, "cause", None)
-    if isinstance(cause, ErrorCause):
-        # The handler's own failure behind an intent_error (Spec C §13.6), kept for the reader.
-        payload["cause"] = {"code": cause.code, "retryable": not cause.permanent}
-    return {"error": payload}
 
 
 def _wire_params(params: Params) -> list[tuple[str, str]]:

@@ -67,8 +67,6 @@ from url4.core.builders import (
     expr,
     identity,
     iterate,
-    literal,
-    literal_value,
     reduce,
     ref,
     self_,
@@ -87,6 +85,7 @@ from url4.core.errors import (
     ScopeError,
     Url4Error,
 )
+from url4.core.literal import literal, literal_value
 from url4.core.nodes import (
     Binding,
     Expression,
