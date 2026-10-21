@@ -20,7 +20,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "172505b9e25114482b8298f8e69beceb582a1986",
-      "approved_blob": "580cb63bbc0c356c21b5208debfd0db09db36194"
+      "approved_blob": "6bc5a6c5d8c6f7f17b4a29e7182e138e7bc5a77a"
     },
     "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
       "base_blob": "3edb324fa79b5f894bd442205ee97662ff2b2f7e",
