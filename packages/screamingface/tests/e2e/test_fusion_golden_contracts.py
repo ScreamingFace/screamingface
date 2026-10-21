@@ -4,8 +4,7 @@ DEFAULT lane: no docker, no subprocesses, no key. They pin what the GSM8K Fusion
 (``test_fusion_replay.py``) stands on, so a mistake in the models or in the replay checks
 shows up now and not after the user's paid recording:
 
-- ``FusionLaneSpec`` builds the two recorded shapes, and their block forms compile to the same url4
-  (FR-2);
+- ``FusionLaneSpec`` builds the two recorded shapes;
 - ``FusionGolden`` validates on read, and ``outcome()`` maps to a ``GoldenReport`` so that the five
   locks of ``compare_outcome`` run unchanged;
 - ``body_digests`` and ``assert_fusion_replay`` hold a replay to the recorded outputs and requests.

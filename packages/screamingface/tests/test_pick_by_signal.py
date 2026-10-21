@@ -10,12 +10,11 @@ from __future__ import annotations
 
 import json
 import warnings
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import FusionNode, PickNode, ReduceNode, fusion_node, lowered
+from _nodes import FusionNode, PickNode, lowered
 from test_combine_sources import _call, _context, context_of
 from url4 import Expression, build
 
@@ -28,18 +27,9 @@ from screamingface._surface.render import render
 from screamingface.reducer import Reducer, _Step, _Steps
 from screamingface.url4 import _Call, _calls
 
-# group F (7f): the old renderer (_python) writes ``sf.<today's class>``; these rows read it with
-# the node classes, so they keep working after the swap until 7f deletes them.
-_NODES_AS_SF = SimpleNamespace(Pick=PickNode, Reduce=ReduceNode, signal=sf.signal)
-
 
 def _url4(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=flow_operators()).url4
-
-
-def _fusion(synthesizer: Reducer) -> FusionNode:
-    # group F (7f): only the argmax block rows (D7-8) and the field order form wrap a node
-    return fusion_node(members3(), synthesizer)
 
 
 def _block(step: Step) -> sf.Recipe:
@@ -91,38 +81,10 @@ def test_pick_by_signal_compiles_by_signal_and_best_holder() -> None:
 
 
 def test_pick_by_signal_validation() -> None:
-    # group F (7f): every row but the score:judge one reads a deleted Pick parameter or the
-    # argmax block (D7-8); sf.ArgMax and sf.ArgMin take one signal key and no other option.
-    cost = sf.signal("cost_usd")
-
-    with pytest.raises(ValueError, match="Pick needs a field or by_signal=$"):
-        PickNode()
-    with pytest.raises(ValueError, match="Pick needs a field or by_signal=, not both"):
-        PickNode("a", by_signal=cost, order="max")
-    with pytest.raises(TypeError, match="Pick by_signal must be an sf.signal"):
-        PickNode(by_signal="cost_usd")  # type: ignore[arg-type]
-    extras: list[dict[str, Any]] = [
-        {"equals": "x"},
-        {"normalize": "text"},
-        {"equals": "x", "normalize": "text"},
-    ]
-    for extra in extras:
-        with pytest.raises(ValueError, match=r"Pick\(by_signal=\.\.\.\) takes order only"):
-            PickNode(by_signal=cost, **extra)
-    with pytest.raises(ValueError, match="Pick order must be 'max' or 'min', not 'up'"):
-        PickNode(by_signal=cost, order="up")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match=r"Pick takes order='max'\|'min' or equals"):
-        PickNode("a")
     with pytest.raises(
         ValueError, match=r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     ):
         _ = _block(sf.ArgMax("score:judge"))
-    message = (
-        r"Pick cannot read sf\.signal\('score:judge'\): it has no judge; "
-        r"use sf\.Judge\(\.\.\., returns='scores'\), which picks the highest judge score"
-    )
-    with pytest.raises(ValueError, match=r"sf\.Reduce\('argmax'\): " + message):
-        ReduceNode("argmax", by_signal=sf.signal("score:judge"))
 
 
 def test_pick_by_signal_value_equality_repr_and_python() -> None:
@@ -138,9 +100,6 @@ def test_pick_by_signal_value_equality_repr_and_python() -> None:
     assert pick != sf.ArgMin("latency_ms")
     with pytest.raises(TypeError):
         hash(pick)
-    # group F (7f): the field order form (deleted in 7f)
-    assert repr(PickNode("c", order="max")) == "Pick('c', order='max')"
-    assert PickNode("c", order="max")._python() == "sf.Pick('c', order='max')"
 
 
 def _argmax(key: str = "cost_usd") -> sf.Recipe:
@@ -174,37 +133,6 @@ def test_argmax_by_accounting_signal_emits_sources() -> None:
     assert sum(issubclass(item.category, sf.DuplicateMembersWarning) for item in caught) == 1
 
 
-@pytest.mark.parametrize("key", ["cost_usd"])
-@pytest.mark.parametrize("order", ["min"])
-def test_argmax_block_matches_pick(key: str, order: Any) -> None:
-    # group F (7f): the argmax block form is deleted code (D7-8)
-    signal = sf.signal(key)
-
-    block = ReduceNode("argmax", by_signal=signal, order=order)
-    named = PickNode(by_signal=signal, order=order)
-
-    assert _url4(_fusion(block)) == _url4(_fusion(named))
-
-
-def test_argmax_block_canonical_form() -> None:
-    # group F (7f): the argmax block form is deleted code (D7-8)
-    signal = sf.signal("cost_usd")
-    default = ReduceNode("argmax", by_signal=signal)
-
-    assert default == ReduceNode("argmax", by_signal=signal, order="max")
-    assert hash(default) == hash(ReduceNode("argmax", by_signal=signal, order="max"))
-    assert dict(default.options) == {"by_signal": signal}
-    assert dict(ReduceNode("argmax", by_signal=signal, order="min").options) == {
-        "by_signal": signal,
-        "order": "min",
-    }
-    assert default != ReduceNode("argmax", by_signal=signal, order="min")
-    for block in (default, ReduceNode("argmax", by_signal=signal, order="min")):
-        assert eval(block._python(), {"sf": _NODES_AS_SF}) == block  # noqa: S307 - our own generated code
-    with pytest.raises(TypeError, match="option 'by_signal' must be an sf.signal"):
-        ReduceNode("argmax", by_signal="cost_usd")  # type: ignore[arg-type]
-
-
 def _recovered(url4: str) -> Reducer:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
@@ -230,10 +158,6 @@ def test_argmax_round_trips_through_url4_and_recovers_as_pick() -> None:
     assert namespace["candidate"] == _block(pick)
     assert _url4(namespace["candidate"]) == url4
     assert "sources:" in url4  # the recompiled text keeps the accounting sources
-    # BK#8: the block form is recovered as the named class too (group F, 7f: D7-8)
-    block_url4 = _url4(_fusion(ReduceNode("argmax", by_signal=sf.signal("cost_usd"), order="min")))
-    assert block_url4 == url4
-    assert type(_recovered(block_url4)) is PickNode
 
 
 def _synthesis_call(url4: str) -> _Call:

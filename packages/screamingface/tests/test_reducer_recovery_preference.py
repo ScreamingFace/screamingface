@@ -99,7 +99,8 @@ def test_recovered_spec_prefers_named_class_else_reduce(
     recovered = _reducer_from_call(_synthesis_call(url4))
 
     assert type(recovered) is recovered_type
-    assert recovered._python() == (source._python() if python is None else python)
+    # WHY repr: the old ``_python()`` renderer went in unit 7f; the repr is that text without "sf."
+    assert repr(recovered) == (repr(source) if python is None else python.removeprefix("sf."))
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
     assert compile_candidate(namespace["candidate"], operators=engine_operators()).url4 == url4

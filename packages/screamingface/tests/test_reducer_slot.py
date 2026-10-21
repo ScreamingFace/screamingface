@@ -120,8 +120,6 @@ def test_fusion_accepts_a_reducer_in_the_synthesizer_slot() -> None:
     assert repr(fusion).endswith(
         "synthesizer=FixtureVote(extract='last_number', normalize='numeric'))"
     )
-    assert "reducer" in fusion._repr_html_()
-    assert "vote" in fusion._repr_html_()
 
     with pytest.raises(ValueError, match="1 weights for 2 members"):
         fusion_node(["provider/a", "provider/b"], FixtureVote(weights=(1.0,)))

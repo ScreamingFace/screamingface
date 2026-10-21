@@ -1,8 +1,8 @@
 """sf.Pick(..., output=...) makes the answer one field of the winner's reply (E4b pick-output).
 
 FEATURE: ``output="answer"`` on a field Pick or on ``by_signal=`` compiles to an ``output`` arg of
-the select step (``by_field@1`` or ``best_holder@1``). The block forms ``pick_field`` and ``argmax``
-take the same option. A Pick without ``output`` compiles to the same bytes as before.
+the select step (``by_field@1`` or ``best_holder@1``). A Pick without ``output`` compiles to the
+same bytes as before.
 STORY: as a researcher, my scorer reads ``42`` from a JSON reply, not the whole JSON text, and a
 hand-edited url4 that holds a bad ``output`` is refused.
 INVARIANT defended: the field name is checked before any call (``Pick output`` ValueError or
@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import PickNode, ReduceNode, fusion_node, lowered
+from _nodes import PickNode, fusion_node, lowered
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -70,10 +70,6 @@ def _recovered(url4: str) -> Reducer:
 
 
 def test_pick_without_output_compiles_the_same_select_args() -> None:
-    assert _spec(PickNode("confidence", order="max"))["select"] == {
-        "args": {"order": "max"},
-        "op": "by_field@1",
-    }
     assert _spec(PickNode(by_signal=sf.signal("field:confidence"), order="max"))["select"] == {
         "args": {"order": "max"},
         "op": "best_holder@1",
@@ -82,20 +78,9 @@ def test_pick_without_output_compiles_the_same_select_args() -> None:
         "args": {"normalize": None, "order": "equals", "value": "yes"},
         "op": "by_field@1",
     }
-    assert repr(PickNode("confidence", order="max")) == "Pick('confidence', order='max')"
-    assert PickNode("confidence", order="max")._python() == "sf.Pick('confidence', order='max')"
 
 
 def test_sdk_pick_output_compiles_the_select_arg() -> None:
-    plain = _spec(PickNode("confidence", order="max"))
-    spec = _spec(PickNode("confidence", order="max", output="answer"))
-    assert spec["select"] == {"args": {"order": "max", "output": "answer"}, "op": "by_field@1"}
-    assert (spec["extract"], spec["normalize"], spec["reduce"]) == (
-        plain["extract"],
-        plain["normalize"],
-        plain["reduce"],
-    )
-
     signal = _spec(PickNode(by_signal=sf.signal("field:confidence"), order="max", output="answer"))
     assert signal["select"] == {
         "args": {"order": "max", "output": "answer"},
@@ -106,6 +91,7 @@ def test_sdk_pick_output_compiles_the_select_arg() -> None:
         "op": "by_signal@1",
     }
 
+    plain = _spec(PickNode("label", equals="yes"))
     equals = _spec(PickNode("label", equals="yes", output="answer"))
     assert equals["select"]["args"] == {
         "normalize": None,
@@ -113,29 +99,12 @@ def test_sdk_pick_output_compiles_the_select_arg() -> None:
         "output": "answer",
         "value": "yes",
     }
-
-    assert _url4(
-        _fusion(ReduceNode("pick_field", field="confidence", order="max", output="answer"))
-    ) == (_url4(_fusion(PickNode("confidence", order="max", output="answer"))))
-    assert _url4(
-        _fusion(
-            ReduceNode(
-                "argmax", by_signal=sf.signal("field:confidence"), order="max", output="answer"
-            )
-        )
-    ) == _url4(
-        _fusion(PickNode(by_signal=sf.signal("field:confidence"), order="max", output="answer"))
+    assert (equals["extract"], equals["normalize"], equals["reduce"]) == (
+        plain["extract"],
+        plain["normalize"],
+        plain["reduce"],
     )
-    assert ReduceNode("pick_field", field="c", order="max", output="answer").options == {
-        "field": "c",
-        "order": "max",
-        "output": "answer",
-    }
-    assert ReduceNode("argmax", by_signal=sf.signal("cost_usd"), output="answer").options == {
-        "by_signal": sf.signal("cost_usd"),
-        "output": "answer",
-    }
-    assert PickNode("c", order="max", output="a") != PickNode("c", order="max")
+    assert PickNode("c", equals="yes", output="a") != PickNode("c", equals="yes")
 
 
 @pytest.mark.parametrize("bad", ["2bad", "a.b", "a[0]", "", "a" * 65, "an swer"])
@@ -155,15 +124,6 @@ def test_pick_output_that_is_not_text_raises_type_error() -> None:
         sf.ArgMax("field:confidence", output=7)  # type: ignore[arg-type]
 
 
-def test_block_output_with_a_bad_name_raises_before_any_call() -> None:
-    with pytest.raises(ValueError, match=r"sf\.Reduce\('pick_field'\): Pick output"):
-        ReduceNode("pick_field", field="confidence", order="max", output="a.b")
-    with pytest.raises(ValueError, match=r"sf\.Reduce\('argmax'\): Pick output"):
-        ReduceNode("argmax", by_signal=sf.signal("field:confidence"), output="a.b")
-    with pytest.raises(TypeError, match="option 'output' must be text"):
-        ReduceNode("pick_field", field="c", order="max", output=7)  # type: ignore[arg-type]
-
-
 def test_a_pick_output_of_the_longest_name_is_kept() -> None:
     assert sf.ArgMax("field:c", output="a" * 64).output == "a" * 64
 
@@ -180,10 +140,6 @@ def test_pick_repr_and_python_show_the_output() -> None:
     assert (
         repr(sf.First(where=sf.field("label", normalize="text") == "yes", output="answer"))
         == "First(where=field('label', normalize='text') == 'yes', output='answer')"
-    )
-    assert (
-        PickNode(by_signal=sf.signal("field:confidence"), order="max", output="answer")._python()
-        == "sf.Pick(by_signal=sf.signal('field:confidence'), order='max', output='answer')"
     )
 
 
@@ -223,24 +179,12 @@ def test_url4_to_python_shows_the_output_of_each_pick() -> None:
         assert expected in sf.Url4(_url4(recipe)).to_python()
 
 
-def test_block_forms_round_trip_to_the_named_pick_with_output() -> None:
-    signal = PickNode(by_signal=sf.signal("field:confidence"), order="max", output="answer")
-
-    assert (
-        _recovered(
-            _url4(
-                _fusion(
-                    ReduceNode("argmax", by_signal=sf.signal("field:confidence"), output="answer")
-                )
-            )
-        )
-        == signal
-    )
-
-
 def test_a_rebuilt_pick_refuses_an_output_that_is_not_a_field_name() -> None:
-    spec = _spec_of(PickNode("confidence", order="max", output="answer"))
-    spec["select"] = {"op": "by_field@1", "args": {"order": "max", "output": 7}}
+    spec = _spec_of(PickNode("label", equals="yes", output="answer"))
+    spec["select"] = {
+        "op": "by_field@1",
+        "args": {"normalize": None, "order": "equals", "output": 7, "value": "yes"},
+    }
 
     with pytest.raises(ValueError, match=_CANNOT_REBUILD_PICK):
         PickNode._from_spec(spec)

@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators
-from _nodes import FilterNode, JudgeNode, RankNode, ReduceNode, VoteNode
+from _nodes import JudgeNode
 from url4 import Expression, build
 
 import screamingface as sf
@@ -219,18 +219,3 @@ def test_an_argmin_by_the_judge_after_a_judge_rank_is_one_judge_call() -> None:
 
     [call] = _judge_calls(url4)
     assert call.prompt == _SCORES + _RUBRIC_MIN
-
-
-def test_a_reader_reads_a_min_judge_as_the_same_judge() -> None:
-    # The judge call is the same for both orders, so a reader (Rank, Vote, Filter) that reads the
-    # scores with its own rule holds the default order: equal bytes are equal values.
-    # WHY the nodes: a reader that holds its judge is internal; the chain reads score:judge.
-    low = JudgeNode("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
-    high = JudgeNode("prov/judge", returns="scores", rubric=_RUBRIC)
-    judged = sf.signal("score:judge")
-
-    assert RankNode(2, by=low) == RankNode(2, by=high)
-    assert VoteNode(weights=judged, judge=low) == VoteNode(weights=judged, judge=high)
-    assert FilterNode(where=judged >= 7, judge=low) == FilterNode(where=judged >= 7, judge=high)
-    # group F (7f): the top_k block form is deleted code (D7-8)
-    assert ReduceNode("top_k", k=2, by=low) == ReduceNode("top_k", k=2, by=high)

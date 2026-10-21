@@ -87,19 +87,6 @@ class FusionLaneSpec(BaseModel):
 
         return sf.Fanout(self.members()) >> sf.Synthesize(self.synthesizer(recipe))
 
-    def build_block(self, recipe: FusionRecipe):  # -> sf.Pipeline
-        """The block form: Fan-out, ``Reduce("context")``, then the synthesizer (FR-2).
-
-        group F (7f): the context block form has no step (D7-8), so it is built from the internal
-        nodes of ``tests/_nodes.py`` until the node is deleted.
-        """
-        from _nodes import ReduceNode, fusion_node
-
-        import screamingface as sf
-
-        context = fusion_node(self.members(), ReduceNode("context", mode="compute"))
-        return sf.Pipeline([context, self.synthesizer(recipe)])
-
 
 class FusionRecipeLock(BaseModel):
     """The expected outcome of one recipe over the lane's Cases."""

@@ -229,7 +229,6 @@ def test_vote_repr_python_and_equality_carry_the_judge() -> None:
     assert repr(V).endswith(f", judge={expected_judge})")
     namespace = {"Vote": VoteNode, "Judge": JudgeNode, "signal": sf.signal}
     assert eval(repr(V), namespace) == V  # noqa: S307 - the repr is the contract
-    assert V._python().endswith(f", judge=sf.{expected_judge})")
     assert V != VoteNode(
         extract="last_number",
         normalize="numeric",

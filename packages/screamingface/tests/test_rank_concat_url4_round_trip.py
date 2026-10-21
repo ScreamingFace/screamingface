@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
-from _nodes import FusionNode, RankNode, fusion_node
+from _nodes import FusionNode
 from url4 import expr, render, src, text
 
 import screamingface as sf
@@ -15,7 +15,6 @@ from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface._surface.chain import Step
 from screamingface._surface.lowering import lower
-from screamingface.reducer import Reducer
 
 _SURFACE = _CheckSurface(
     check_route="/benchmarks/ifeval/revision-1/check-surface",
@@ -55,12 +54,6 @@ def _after(*steps: Step, members: int = 3) -> sf.Recipe:
     return sf.Pipeline([sf.Fanout(routes), *steps, writer])
 
 
-def _after_node(synthesizer: Reducer, *, members: int = 3) -> sf.Pipeline:
-    # group F (7f): the rank by_field form has no step; only its node builds it (D7-8)
-    routes = [f"provider/{name}" for name in "abcdef"[:members]]
-    return sf.Pipeline([fusion_node(routes, synthesizer), sf.Model("provider/w", prompt="Write.")])
-
-
 def _scores_judge() -> sf.Judge:
     return sf.Judge("provider/j", rubric=RUBRIC)
 
@@ -75,9 +68,6 @@ def _shapes() -> dict[str, sf.Recipe]:
         "rank by judge with params": _after(
             sf.Judge("provider/j", rubric="Score.\nCosts $5.", params={"seed": 7}), _by_judge(1)
         ),
-        # group F (7f): the two by_field rows
-        "rank by field": _after_node(RankNode(k=2, by_field="result.score[0]")),
-        "rank by field min": _after_node(RankNode(k=2, by_field="score", order="min")),
         "rank by signal": _after(sf.Rank(2, by="field:score")),
         "rank by signal min": _after(sf.Rank(2, by="field:score", order="min")),
         "rank by accounting signal": _after(sf.Rank(2, by="cost_usd", order="min")),
@@ -166,25 +156,6 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
     """name -> (shape, text to replace, replacement, expected error)."""
 
     return {
-        "k is a string": ("rank by field", '"args":{"k":2}', '"args":{"k":"2"}', _CANNOT_REBUILD),
-        "k above the member count": (
-            "rank by field",
-            '"args":{"k":2}',
-            '"args":{"k":5}',
-            _CANNOT_REBUILD,
-        ),
-        "path is not a string": (
-            "rank by field",
-            '"path":"result.score[0]"',
-            '"path":3',
-            _CANNOT_REBUILD,
-        ),
-        "normalizer is not pinned to the exact id": (
-            "rank by field",
-            '"op":"numeric@1"',
-            '"op":"numeric@2"',
-            _CANNOT_REBUILD,
-        ),
         "by_signal: orders that differ": (
             "rank by signal",
             '"args":{"key":"field:score","order":"max"},"op":"by_signal@1"',

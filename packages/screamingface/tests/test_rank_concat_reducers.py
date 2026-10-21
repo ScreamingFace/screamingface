@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
-from _nodes import ConcatNode, JudgeNode, RankNode
+from _nodes import ConcatNode
 
 import screamingface as sf
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.reducer import Reducer
-
-
-def _scores_judge(**kw: Any) -> JudgeNode:
-    # group F (7f): only the Rank source rows read a judge node
-    return JudgeNode("provider/j", returns="scores", rubric=RUBRIC, **kw)
 
 
 def _spec(extract: str, normalize: str, reduce: str, select: str, reducer: str) -> str:
@@ -41,26 +34,6 @@ def test_k_bounds_are_enforced() -> None:
     with pytest.raises(ValueError, match="k=4"):
         _ = sf.Fanout(members3()) >> sf.Rank(4, by="field:s") >> sf.Synthesize("provider/w")
     assert (sf.Fanout(members3()) >> sf.Rank(3, by="field:s") >> sf.Synthesize("provider/w")).steps
-
-
-def test_rank_needs_exactly_one_ranking_source() -> None:
-    # group F (7f): the by=/by_field=/by_signal= sources of the Rank node are deleted (D7-8)
-    with pytest.raises(ValueError, match="exactly one of by=, by_field= or by_signal="):
-        RankNode(k=2)
-    with pytest.raises(ValueError, match="exactly one of by=, by_field= or by_signal="):
-        RankNode(k=2, by=_scores_judge(), by_field="score")
-    with pytest.raises(ValueError, match=r"Rank\(by=\.\.\.\) needs sf.Judge"):
-        RankNode(k=2, by=JudgeNode("provider/j", returns="label", rubric=RUBRIC))
-    with pytest.raises(TypeError, match="Rank by must be an sf.Judge"):
-        RankNode(k=2, by="provider/j")  # type: ignore[arg-type]
-
-    with pytest.raises(TypeError, match="Rank by_field must be a string"):
-        RankNode(k=2, by_field=3)  # type: ignore[arg-type]
-    for bad in ("", "a.", ".a", "a[01]", "a b", "$a", "a" * 257):
-        with pytest.raises(ValueError, match="Rank by_field .* must be a JSON path"):
-            RankNode(k=2, by_field=bad)
-    for good in ("score", "a.b", "a[0].b", "[0].a", "a" * 256):
-        assert RankNode(k=2, by_field=good).by_field == good
 
 
 def test_rank_fields_and_repr_round_trip() -> None:

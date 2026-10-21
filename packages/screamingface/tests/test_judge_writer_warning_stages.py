@@ -1,9 +1,7 @@
 """The judge-writer warning names the stages of the user's own Pipeline (E4b part 2, P2 #3).
 
-FEATURE: ``Pipeline([Fusion(m, Reduce("context")), S, ...])`` is rewritten before compile: the
-context Fusion and the stage after it become one Fusion. The ``sf.JudgeWriterWarning`` reads the
-Pipeline as the user wrote it, so its stage numbers are the user's, and a judge stage that the
-rewrite moves inside a Fusion still warns.
+FEATURE: the ``sf.JudgeWriterWarning`` reads the Pipeline as the user wrote it, so its stage
+numbers are the user's: a ``sf.Fanout(m) >> sf.Synthesize(w)`` block is one stage.
 STORY: as a researcher, the warning points at the stages I can see in my own code.
 """
 
@@ -13,7 +11,6 @@ from collections.abc import Callable
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators
-from _nodes import FusionNode, JudgeNode, ReduceNode, VoteNode
 from test_pipeline_compilation import _whole_candidate_benchmark
 
 import screamingface as sf
@@ -35,38 +32,10 @@ def _message(first: int) -> str:
     )
 
 
-def _context() -> FusionNode:
-    return FusionNode(["provider/a", "provider/b"], synthesizer=ReduceNode("context"))
-
-
-def _judged_vote() -> FusionNode:
-    vote = VoteNode(
-        extract="last_number",
-        normalize="numeric",
-        weights=sf.signal("score:judge"),
-        judge=JudgeNode(_JUDGE_ROUTE, returns="scores", rubric=RUBRIC),
-    )
-    return FusionNode(_MEMBERS, synthesizer=vote)
-
-
-def _after_context_writer() -> sf.Pipeline:
-    """The review repro: the user's stages 3 (judge) and 4 (writer).
-
-    Group F (swap §5, deleted in 7f): the context Fusion and its writer are two stages that the
-    context rewrite (``fusion_recipe.py``) joins; the new surface spells them as one stage.
-    """
-
-    return sf.Pipeline(
-        [_context(), sf.Model("provider/w"), _judged_vote(), sf.Model(_JUDGE_ROUTE)],
-        name="judged",
-    )
-
-
 def _after_chain_writer() -> sf.Pipeline:
     """The review repro on the surface: the user's stages 2 (judge) and 3 (writer).
 
-    WHY 2, not 3: the context block form has one spelling since R11, ``sf.Fanout(m) >>
-    sf.Synthesize(w)``, so the context Fusion and its writer are one stage of the chain.
+    WHY 2: ``sf.Fanout(m) >> sf.Synthesize(w)`` is one stage of the chain.
     """
 
     return sf.Pipeline(
@@ -81,25 +50,14 @@ def _after_chain_writer() -> sf.Pipeline:
     )
 
 
-def _after_context() -> sf.Pipeline:
-    """The judge Fusion follows the context Fusion, so the rewrite makes it its synthesizer.
-
-    Group F (swap §5, deleted in 7f): it checks the context rewrite (``fusion_recipe.py``), and the
-    new surface has no context stage that a judge stage can follow.
-    """
-
-    return sf.Pipeline([_context(), _judged_vote(), sf.Model(_JUDGE_ROUTE)], name="judged")
-
-
 def _judge_writer_messages(recorded: pytest.WarningsRecorder) -> list[str]:
     return [str(w.message) for w in recorded if issubclass(w.category, JudgeWriterWarning)]
 
 
 @pytest.mark.parametrize(
     ("build", "first"),
-    # group F (7f): the two context rows (the context rewrite is deleted, D7-8)
-    [(_after_context_writer, 3), (_after_context, 2), (_after_chain_writer, 2)],
-    ids=["context-then-writer", "context-then-judge", "chain-then-judge"],
+    [(_after_chain_writer, 2)],
+    ids=["chain-then-judge"],
 )
 def test_compile_names_the_users_stage_numbers(build: Callable[[], sf.Recipe], first: int) -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:

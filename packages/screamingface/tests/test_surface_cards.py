@@ -22,7 +22,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from _nodes import fusion_node
 
 import screamingface as sf
 from screamingface._surface.chain import _Block
@@ -142,12 +141,3 @@ def test_ds1_an_open_chain_card_shows_its_open_block(
 
     assert "<div class='sf-card__hint'>open fanout block</div>" in html
     assert html.count("<div class='sf-detail__index'>narrow</div>") == len(steps)
-
-
-def test_e5_a_chain_member_of_todays_fusion_shows_as_a_nested_chain() -> None:
-    fusion = fusion_node([sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(), "prov/c"], "prov/w")
-
-    html = fusion._repr_html_()
-
-    assert "<div class='sf-card__hint'>nested chain</div>" in html
-    assert "<span class='sf-card__kicker'>fusion</span>" in html

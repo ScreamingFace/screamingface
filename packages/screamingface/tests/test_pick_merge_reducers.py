@@ -163,16 +163,6 @@ def test_pick_refuses_targets_the_engine_would_only_refuse_after_the_member_call
 
 def test_pick_validates_its_arguments() -> None:
     with pytest.raises(
-        ValueError, match="Pick takes order='max'\\|'min' or equals=<value>, not both"
-    ):
-        PickNode("confidence", order="max", equals="x")
-    with pytest.raises(ValueError, match="Pick takes order='max'\\|'min' or equals=<value>"):
-        PickNode("confidence")
-    with pytest.raises(ValueError, match="Pick order must be 'max' or 'min'"):
-        PickNode("confidence", order="best")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Pick normalize applies to equals only"):
-        PickNode("confidence", order="max", normalize="numeric")
-    with pytest.raises(
         ValueError, match=re.escape("sf.field normalize must be 'text' or 'numeric', not 'lower'")
     ):
         sf.First(where=sf.field("confidence", normalize="lower") == "x")  # type: ignore[arg-type]
@@ -190,14 +180,10 @@ def test_pick_validates_its_arguments() -> None:
 
 def test_pick_and_merge_repr_round_trip_and_compare_by_field() -> None:
     picks = [
-        PickNode("confidence", order="max"),
-        PickNode("a.b[0]", order="min"),
         PickNode("answer", equals="yes", normalize="text"),
         PickNode("n", equals=7),
     ]
     assert [repr(pick) for pick in picks] == [
-        "Pick('confidence', order='max')",
-        "Pick('a.b[0]', order='min')",
         "Pick('answer', equals='yes', normalize='text')",
         "Pick('n', equals='7')",
     ]
@@ -213,10 +199,6 @@ def test_pick_and_merge_repr_round_trip_and_compare_by_field() -> None:
     assert repr(merge) == (
         "Merge(fields={'b': FieldRule.majority(normalize='text'), "
         "'a': FieldRule.model('p/w', prompt='Write.')})"
-    )
-    assert merge._python() == (
-        "sf.Merge(fields={'b': sf.FieldRule.majority(normalize='text'), "
-        "'a': sf.FieldRule.model('p/w', prompt='Write.')})"
     )
     assert eval(repr(merge), {"Merge": MergeNode, "FieldRule": sf.FieldRule}) == merge  # noqa: S307
     assert merge.name == "merge"
