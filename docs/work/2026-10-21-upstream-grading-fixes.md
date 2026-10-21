@@ -274,6 +274,11 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   declaration, which reproduce the old seal exactly on the old Task; hand-edited row, as
   worldsense's.
 - **Revisions:** stereoset 6fe6deab5af299e2 → dd1c2cc6e587ed15; no other moved.
-- **Gates:** relevant tests only (owner rule): `test_local_task_stereoset.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 690 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Review fixes:** the row description and the Task README no longer call our score the
+  paper's language modeling score: it is a multiple-choice adaptation (the model picks one of
+  three sentences once; the paper compares likelihoods, two comparisons per record, averaged
+  per target term) and not comparable with it. The description is not a revision input, so
+  the revision holds.
+- **Gates:** relevant tests only (owner rule): `test_local_task_stereoset.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 692 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
 - **Deviations:** origin ours, catalogue id `stereoset` (was `inspect-stereoset`),
   `inspect_contributors` moves to a comment, as for worldsense.

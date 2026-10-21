@@ -30,8 +30,12 @@ fixed seeded shuffle (seed 20260917).
 ## Scoring
 
 inspect_evals' `multiple_choice_scorer`: either related sentence scores 1, the unrelated one 0.
-No judge. Benchmark score is the paper's language modeling score. The eval's bias score
-(`stereoset_scorer`) is left out by name, an owner decision (OME-1602).
+No judge. Benchmark score is the share of related picks. That is a multiple-choice adaptation of
+the paper's language modeling score and **not comparable with it**: here the model picks one of
+the three sentences once, while the paper compares the likelihoods a model gives the sentences
+(each related sentence against the unrelated one, two comparisons per record) and averages per
+target term. The eval's bias score (`stereoset_scorer`) is left out by name, an owner decision
+(OME-1602).
 
 ## Licence
 
