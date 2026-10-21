@@ -38,9 +38,9 @@ def _raw_intent(url4: str) -> str:
 
 
 def test_missing_weight_raises_before_any_call() -> None:
-    with pytest.raises(ValueError, match=r"^vote has 2 weights for 3 members$"):
+    with pytest.raises(ValueError, match=r"^sf.Vote has 2 weights for 3 members$"):
         _ = sf.Fanout(["p/a", "p/b", "p/c"]) >> sf.Vote(weights=[1, 2])
-    with pytest.raises(ValueError, match=r"^vote has 3 weights for 2 members$"):
+    with pytest.raises(ValueError, match=r"^sf.Vote has 3 weights for 2 members$"):
         _ = sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=[1, 2, 3])
     assert sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=[1, 2]) is not None
 

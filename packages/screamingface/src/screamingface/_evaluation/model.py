@@ -283,7 +283,7 @@ def _compiled_evaluation(
     """Build one validated private Evaluation after no-spend compilation."""
 
     if not isinstance(benchmark, BenchmarkInfo):
-        raise TypeError("Evaluation benchmark must be an sf.BenchmarkInfo")
+        raise TypeError("Evaluation benchmark must be a sf.BenchmarkInfo")
     _validate_limit(limit)
     selected_count = _positive_count(case_count, "Evaluation case_count")
     expected_count = benchmark.case_count if limit is None else min(limit, benchmark.case_count)

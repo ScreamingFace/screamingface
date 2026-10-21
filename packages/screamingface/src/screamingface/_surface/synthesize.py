@@ -35,7 +35,7 @@ class Synthesize(Step):
     prompt: str | None
 
     def __init__(self, model: str | Recipe, *, prompt: str | None = None) -> None:
-        selected = _recipe(model, "Synthesize model")
+        selected = _recipe(model, "sf.Synthesize model")
         selected_prompt = _generation_prompt(prompt, "synthesize prompt")
         if selected_prompt is not None:
             _check_prompt_home(selected)

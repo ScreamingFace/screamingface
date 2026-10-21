@@ -93,11 +93,11 @@ def test_an_accounting_key_emits_sources_through_the_signal_seam(key: str) -> No
 
 
 def test_rank_by_signal_validation() -> None:
-    with pytest.raises(TypeError, match="Rank by must be an sf.signal"):
+    with pytest.raises(TypeError, match="sf.Rank by must be a sf.signal"):
         RankNode(2, by_signal="field:score")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Rank order must be 'max' or 'min'"):
+    with pytest.raises(ValueError, match="sf.Rank order must be 'max' or 'min'"):
         sf.Rank(2, by="cost_usd", order="avg")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="Rank order must be 'max' or 'min'"):
+    with pytest.raises(ValueError, match="sf.Rank order must be 'max' or 'min'"):
         sf.Rank(2, by="score:judge", order=None)  # type: ignore[arg-type]
     # score:judge has no judge here: the message names the step that writes it
     with pytest.raises(
@@ -105,7 +105,7 @@ def test_rank_by_signal_validation() -> None:
     ) as hint:
         _ = sf.Fanout(members3()) >> sf.Rank(2, by="score:judge") >> sf.Synthesize("provider/next")
     assert "sf.Judge(...) after sf.Fanout" in str(hint.value)
-    with pytest.raises(ValueError, match="Rank k must be between 1 and 256"):
+    with pytest.raises(ValueError, match="sf.Rank k must be between 1 and 256"):
         sf.Rank(0, by="cost_usd")
     with pytest.raises(ValueError, match="k=4"):
         _ = sf.Fanout(members3()) >> sf.Rank(4, by="cost_usd") >> sf.Synthesize("provider/next")

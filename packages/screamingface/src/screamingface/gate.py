@@ -26,13 +26,13 @@ _KEEP_HIGH: tuple[str, ...] = (">=", ">")
 _AGREEMENT = "agreement"
 _ABSTAIN: Literal["abstain"] = "abstain"
 _OBSERVE_RULE = (
-    "Gate observe must be 'agreement', 'chosen:<name>' or 'mean:<name>', where <name> is a "
+    "sf.Gate observe must be 'agreement', 'chosen:<name>' or 'mean:<name>', where <name> is a "
     "declared signal name"
 )
 _E4A_HINT = "; an E4a key such as cost_usd is not a gate input"
-_OTHERWISE_RULE = "Gate otherwise must be 'abstain', an sf.Judge or an sf.Model"
-_BAND_PAIR = "Gate abstain_band must be a pair (lo, hi) of numbers"
-_BAND_FINITE = "Gate abstain_band must be finite"
+_OTHERWISE_RULE = "sf.Gate otherwise must be 'abstain', a sf.Judge or a sf.Model"
+_BAND_PAIR = "sf.Gate abstain_band must be a pair (lo, hi) of numbers"
+_BAND_FINITE = "sf.Gate abstain_band must be finite"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -40,8 +40,8 @@ class GateNode:
     """Keep the majority when ``observe cmp threshold`` holds; else run ``otherwise``.
 
     ``observe``: "agreement", "chosen:<name>" or "mean:<name>" (a name the Fusion declares).
-    ``otherwise``: "abstain" (the Case abstains with gate_not_met), an sf.Judge(returns="label")
-    that names a member whose text is the answer, or an sf.Model that writes the answer.
+    ``otherwise``: "abstain" (the Case abstains with gate_not_met), a sf.Judge(returns="label")
+    that names a member whose text is the answer, or a sf.Model that writes the answer.
     ``abstain_band``: None, or (lo, hi) with lo <= hi: when the observed number is inside the
     closed band [lo, hi], the Case abstains with in_band for every ``otherwise``; outside it the
     gate compares as above. A missing number skips the band.
@@ -119,14 +119,14 @@ class GateNode:
         band = "" if self.abstain_band is None else f", abstain_band={self.abstain_band!r}"
         return f"Gate({self.observe!r}, {self.cmp!r}, {self.threshold!r}{otherwise}{band})"
 
-    # WHY unhashable (as sf.Vote): a gate may hold an sf.Model, which is unhashable.
+    # WHY unhashable (as sf.Vote): a gate may hold a sf.Model, which is unhashable.
     __hash__: ClassVar[Any] = None
 
 
 def _observe(value: object) -> str:
     """``value`` when it is agreement, chosen:<name> or mean:<name> with a declared name."""
     if not isinstance(value, str):
-        raise TypeError("Gate observe must be text")
+        raise TypeError("sf.Gate observe must be text")
     if _is_gate_observe(value):
         return value
     form, colon, name = value.partition(":")
@@ -138,13 +138,15 @@ def _observe(value: object) -> str:
 
 def _cmp(value: object) -> GateCmp:
     if value not in _GATE_CMPS:
-        raise ValueError("Gate cmp must be '>=', '>', '<=' or '<'")
+        raise ValueError("sf.Gate cmp must be '>=', '>', '<=' or '<'")
     return cast("GateCmp", value)
 
 
 def _threshold(value: object) -> float:
     """A finite float; an int is stored as a float, a bool is refused."""
-    return _finite_number(value, "Gate threshold must be a number", "Gate threshold must be finite")
+    return _finite_number(
+        value, "sf.Gate threshold must be a number", "sf.Gate threshold must be finite"
+    )
 
 
 def _check_agreement(observe: str, cmp: GateCmp, threshold: float) -> None:
@@ -166,7 +168,7 @@ def _band(value: object, observe: str) -> tuple[float, float] | None:
         return None
     lo, hi = _band_pair(value)
     if lo > hi:
-        raise ValueError("Gate abstain_band needs lo <= hi")
+        raise ValueError("sf.Gate abstain_band needs lo <= hi")
     if observe == _AGREEMENT and not 0.0 <= lo <= hi <= 1.0:
         raise ValueError("an agreement gate abstain_band must be between 0 and 1")
     return (lo, hi)

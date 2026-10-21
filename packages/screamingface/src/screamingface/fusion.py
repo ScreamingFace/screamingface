@@ -207,7 +207,7 @@ def _check_sum_component(
         )
     if isinstance(declared[component], Sum):
         raise ValueError(
-            f"sf.Sum {name!r} adds {component!r}, which is an sf.Sum; a sum adds only other "
+            f"sf.Sum {name!r} adds {component!r}, which is a sf.Sum; a sum adds only other "
             "sources, not sums"
         )
 
@@ -423,10 +423,10 @@ def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer
 def _members(values: object, kind: str = "Fanout") -> tuple[Recipe, ...]:
     """The checked members of a ``Fanout`` (and of the FusionNode it lowers to)."""
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TypeError(f"{kind} members must be an ordered sequence of model routes or Recipes")
-    selected = tuple(_recipe(value, f"{kind} member", allow_optional=True) for value in values)
+        raise TypeError(f"sf.{kind} members must be an ordered sequence of model routes or Recipes")
+    selected = tuple(_recipe(value, f"sf.{kind} member", allow_optional=True) for value in values)
     if not selected:
-        raise ValueError(f"a {kind} requires at least one member")
+        raise ValueError(f"a sf.{kind} requires at least one member")
     return selected
 
 

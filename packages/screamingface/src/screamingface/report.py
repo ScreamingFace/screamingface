@@ -367,7 +367,7 @@ class CandidateResult:
         capture_partial_reasons: Sequence[str] = (),
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Candidate benchmark must be a sf.BenchmarkInfo")
         _check_cache_counts(cache_hits, cache_unpriced_hits)
         selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
         selected_score = _optional_number(score, "Candidate score")
@@ -600,7 +600,7 @@ class Report:
         candidates: Sequence[CandidateResult],
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Report benchmark must be a sf.BenchmarkInfo")
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
         for candidate in selected_candidates:

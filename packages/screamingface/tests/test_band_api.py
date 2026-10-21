@@ -28,9 +28,9 @@ from screamingface._surface.lowering import lower
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 _RUBRIC = "Pick the best answer."
-_PAIR = "Gate abstain_band must be a pair (lo, hi) of numbers"
-_FINITE = "Gate abstain_band must be finite"
-_ORDER = "Gate abstain_band needs lo <= hi"
+_PAIR = "sf.Gate abstain_band must be a pair (lo, hi) of numbers"
+_FINITE = "sf.Gate abstain_band must be finite"
+_ORDER = "sf.Gate abstain_band needs lo <= hi"
 _AGREEMENT_BAND = "an agreement gate abstain_band must be between 0 and 1"
 _CANNOT_REBUILD = "URL4 Candidate has a vote spec this SDK version cannot rebuild"
 _BAND_SPEC = '"abstain_band":[2.5,3.5]'

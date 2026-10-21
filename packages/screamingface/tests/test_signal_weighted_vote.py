@@ -38,10 +38,10 @@ def _node_url4(synthesizer: Reducer) -> str:
 
 def test_median_rejects_signal_weights() -> None:
     # E4b weighted median (WM#13): Median and the median block take weights now; only the judge
-    # signal is refused, because a Median has no judge.
-    with pytest.raises(ValueError, match="has no judge"):
+    # signal is refused, because a Median does not read a judge's scores.
+    with pytest.raises(ValueError, match="does not read a judge's scores"):
         sf.Median(weights=sf.signal("score:judge"))
-    with pytest.raises(ValueError, match="has no judge"):
+    with pytest.raises(ValueError, match="does not read a judge's scores"):
         sf.Median(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
     assert sf.Median(weights=None).select == "nearest"
 

@@ -135,7 +135,6 @@ class JudgeNode(Reducer):
     says what a high number means.
     """
 
-    _public_name: ClassVar[str] = "Judge"
     name: str
     model: str
     returns: JudgeReturns
@@ -155,9 +154,9 @@ class JudgeNode(Reducer):
         order: Literal["max", "min"] = "max",
     ) -> None:
         if returns not in ("label", "scores"):
-            raise ValueError(f"Judge returns must be 'label' or 'scores', not {returns!r}")
+            raise ValueError(f"sf.Judge returns must be 'label' or 'scores', not {returns!r}")
         if order not in _ORDERS:
-            raise ValueError(f"Judge order must be 'max' or 'min', not {order!r}")
+            raise ValueError(f"sf.Judge order must be 'max' or 'min', not {order!r}")
         if (returns, order) not in _JUDGE_STEPS:
             raise ValueError("a label judge (sf.JudgePick) has no order: it names one member")
         if not isinstance(rubric, str):
@@ -173,7 +172,12 @@ class JudgeNode(Reducer):
         object.__setattr__(self, "order", order)
 
     def _step_name(self) -> str:
-        return "JudgePick" if self.returns == "label" else "Judge"
+        # WHY: a label judge lowers from sf.JudgePick; a scores judge that is the step itself (a
+        # node of its own, not a vote's or a rank's judge=) lowers from sf.ArgMax / sf.ArgMin of
+        # 'score:judge', by its order.
+        if self.returns == "label":
+            return "JudgePick"
+        return "ArgMax" if self.order == "max" else "ArgMin"
 
     def _whole_context_call(self) -> str | None:
         return "a label judge" if self.returns == "label" else None

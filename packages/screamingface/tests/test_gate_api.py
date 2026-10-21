@@ -63,11 +63,11 @@ _GATED_SPEC = (
     '"select":{"args":{},"op":"first_holder@1"},"weights":null}'
 )
 _OBSERVE_RULE = (
-    "Gate observe must be 'agreement', 'chosen:<name>' or 'mean:<name>', where <name> is a "
+    "sf.Gate observe must be 'agreement', 'chosen:<name>' or 'mean:<name>', where <name> is a "
     "declared signal name"
 )
 _E4A_HINT = "; an E4a key such as cost_usd is not a gate input"
-_OTHERWISE_RULE = "Gate otherwise must be 'abstain', an sf.Judge or an sf.Model"
+_OTHERWISE_RULE = "sf.Gate otherwise must be 'abstain', a sf.Judge or a sf.Model"
 _VERIFY_RULE = "sf.Vote verify= is reserved for a later part; pass None or leave it out"
 _CHECK_ROUTE = re.compile(r"/benchmarks/ifeval/[A-Za-z0-9]+/check-surface")
 # Test-plan §6 list L43, taken on 4e622af75. A FIXED tuple, never a glob: units 3 and 4 add
@@ -240,7 +240,7 @@ def test_gate_reads_a_declared_signal() -> None:
 # --- GA#6: the constructor refuses a bad observe, cmp or threshold, with fixed messages ---
 
 _BAD_GATE_ARGS: list[tuple[tuple[Any, ...], type[Exception], str]] = [
-    ((1, ">=", 0.5), TypeError, "Gate observe must be text"),
+    ((1, ">=", 0.5), TypeError, "sf.Gate observe must be text"),
     (("agreements", ">=", 0.5), ValueError, _OBSERVE_RULE),
     (("chosen:", ">=", 0.5), ValueError, _OBSERVE_RULE),
     (("chosen:Conf", ">=", 0.5), ValueError, _OBSERVE_RULE),
@@ -249,15 +249,15 @@ _BAD_GATE_ARGS: list[tuple[tuple[Any, ...], type[Exception], str]] = [
     (("chosen:cost_usd", ">=", 0.5), ValueError, _OBSERVE_RULE + _E4A_HINT),
     (("mean:score:judge", ">=", 0.5), ValueError, _OBSERVE_RULE + _E4A_HINT),
     (("chosen:field:confidence", ">=", 0.5), ValueError, _OBSERVE_RULE + _E4A_HINT),
-    (("agreement", "==", 0.5), ValueError, "Gate cmp must be '>=', '>', '<=' or '<'"),
-    (("agreement", "=>", 0.5), ValueError, "Gate cmp must be '>=', '>', '<=' or '<'"),
-    (("agreement", None, 0.5), ValueError, "Gate cmp must be '>=', '>', '<=' or '<'"),
-    (("agreement", ">=", True), TypeError, "Gate threshold must be a number"),
-    (("agreement", ">=", "0.7"), TypeError, "Gate threshold must be a number"),
-    (("agreement", ">=", None), TypeError, "Gate threshold must be a number"),
-    (("chosen:conf", ">=", float("nan")), ValueError, "Gate threshold must be finite"),
-    (("chosen:conf", "<", float("-inf")), ValueError, "Gate threshold must be finite"),
-    (("chosen:conf", ">=", 10**400), ValueError, "Gate threshold must be finite"),
+    (("agreement", "==", 0.5), ValueError, "sf.Gate cmp must be '>=', '>', '<=' or '<'"),
+    (("agreement", "=>", 0.5), ValueError, "sf.Gate cmp must be '>=', '>', '<=' or '<'"),
+    (("agreement", None, 0.5), ValueError, "sf.Gate cmp must be '>=', '>', '<=' or '<'"),
+    (("agreement", ">=", True), TypeError, "sf.Gate threshold must be a number"),
+    (("agreement", ">=", "0.7"), TypeError, "sf.Gate threshold must be a number"),
+    (("agreement", ">=", None), TypeError, "sf.Gate threshold must be a number"),
+    (("chosen:conf", ">=", float("nan")), ValueError, "sf.Gate threshold must be finite"),
+    (("chosen:conf", "<", float("-inf")), ValueError, "sf.Gate threshold must be finite"),
+    (("chosen:conf", ">=", 10**400), ValueError, "sf.Gate threshold must be finite"),
     (
         ("agreement", "<=", 0.5),
         ValueError,
@@ -357,7 +357,7 @@ def test_fusion_refuses_a_gate_that_reads_an_undeclared_name() -> None:
     _fusion(sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote()))
 
 
-# --- GA#9: sf.Vote refuses a gate= that is not an sf.Gate ---
+# --- GA#9: sf.Vote refuses a gate= that is not a sf.Gate ---
 
 
 def test_vote_refuses_a_gate_that_is_not_a_gate() -> None:
@@ -369,7 +369,7 @@ def test_vote_refuses_a_gate_that_is_not_a_gate() -> None:
     for gate in not_gates:
         with pytest.raises(TypeError) as caught:
             VoteNode(gate=gate)
-        assert str(caught.value) == "Vote gate must be an sf.Gate"
+        assert str(caught.value) == "sf.Vote gate must be a sf.Gate"
 
 
 # --- GA#12a: a gated vote survives to_python, the repr and the recompile ---

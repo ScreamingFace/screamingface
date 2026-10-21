@@ -79,7 +79,7 @@ def _pick(name: str) -> sf.ArgMin:
     return sf.ArgMin(sf.signal(name))
 
 
-# --- SA#1 (CHAR, SA-D1): a Fusion without an sf.Sum compiles to the same url4 bytes ------------
+# --- SA#1 (CHAR, SA-D1): a Fusion without a sf.Sum compiles to the same url4 bytes ------------
 
 
 @requires_engine_app
@@ -207,12 +207,12 @@ def test_fusion_refuses_a_sum_of_a_sum_and_a_sum_of_itself() -> None:
             },
         ) >> _pick("r2")
     assert str(caught.value) == (
-        "sf.Sum 'r2' adds 'r1', which is an sf.Sum; a sum adds only other sources, not sums"
+        "sf.Sum 'r2' adds 'r1', which is a sf.Sum; a sum adds only other sources, not sums"
     )
     with pytest.raises(ValueError) as caught:
         _ = sf.Fanout(_MEMBERS, signals={"r": sf.Sum({"r": 1.0})}) >> _pick("r")
     assert str(caught.value) == (
-        "sf.Sum 'r' adds 'r', which is an sf.Sum; a sum adds only other sources, not sums"
+        "sf.Sum 'r' adds 'r', which is a sf.Sum; a sum adds only other sources, not sums"
     )
 
 

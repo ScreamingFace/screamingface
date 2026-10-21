@@ -71,7 +71,7 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
         ReduceNode(3)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"'plurality'.*'k'|'k'.*'plurality'"):
         ReduceNode("plurality", extract=LAST, k=2)
-    with pytest.raises(TypeError, match="sf.Vote judge must be an sf.Judge"):
+    with pytest.raises(TypeError, match="sf.Vote judge must be a sf.Judge"):
         ReduceNode("weighted", extract=LAST, weights=[1], judge="m")
 
 

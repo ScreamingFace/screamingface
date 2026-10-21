@@ -325,7 +325,7 @@ def _validate_topology(
     # INVARIANT: default-valued metadata cannot conceal executable policy.
     # WHY the signals clause (E4b part 7 unit 5): a declared source adds calls, so it must prove
     # its bytes. Hand edit: add a consistency entry to the spec of a plain Median url4; without
-    # this clause it rebuilds as an sf.Consistency recipe and replays with no sample calls.
+    # this clause it rebuilds as a sf.Consistency recipe and replays with no sample calls.
     # WHY not every combine call (review P7 #5): a replay with an unpinned or wrong-stage operator
     # must fail with its operator error, which the recompile would hide behind a metadata error.
     # WHY the narrow clause (E4b narrow): a narrow item changes which members the reduce reads, so

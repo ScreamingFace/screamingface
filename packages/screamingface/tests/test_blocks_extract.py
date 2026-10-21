@@ -28,7 +28,7 @@ def test_extract_validates_rule_normalizer_and_args() -> None:
     with pytest.raises(ValueError, match="field"):
         sf.Extract("field", path="a..b")
     for not_text in (True, None, 3):
-        with pytest.raises(TypeError, match="path must be text"):
+        with pytest.raises(TypeError, match="path must be a string"):
             sf.Extract("field", path=not_text)
     with pytest.raises(ValueError, match="does not take 'path'"):
         sf.Extract("regex", pattern="a", path="x")

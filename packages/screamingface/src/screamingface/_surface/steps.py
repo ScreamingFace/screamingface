@@ -69,7 +69,7 @@ class Vote(Step):
         # so two equal votes always lower to equal bytes (EX-2).
         object.__setattr__(self, "normalize", _vote_normalizer(selected, normalize))
         object.__setattr__(self, "over", _bare(selected))
-        object.__setattr__(self, "weights", weights_option(weights, "Vote weights"))
+        object.__setattr__(self, "weights", weights_option(weights, "sf.Vote weights"))
         _check_verify(verify)
         object.__setattr__(self, "verify", None)
         _check_by_lowering(self)
@@ -104,7 +104,7 @@ class Median(Step):
     ) -> None:
         object.__setattr__(self, "over", _numeric_over(extractor(over), "Median"))
         object.__setattr__(self, "select", select)
-        object.__setattr__(self, "weights", weights_option(weights, "Median weights"))
+        object.__setattr__(self, "weights", weights_option(weights, "sf.Median weights"))
         _check_by_lowering(self)
 
     __hash__: ClassVar[Any] = None
@@ -132,7 +132,7 @@ class Mean(Step):
     ) -> None:
         object.__setattr__(self, "over", _numeric_over(extractor(over), "Mean"))
         object.__setattr__(self, "select", select)
-        object.__setattr__(self, "weights", weights_option(weights, "Mean weights"))
+        object.__setattr__(self, "weights", weights_option(weights, "sf.Mean weights"))
         _check_by_lowering(self)
 
     __hash__: ClassVar[Any] = None
@@ -187,6 +187,8 @@ class Filter(Step):
             raise ValueError(  # FI-1
                 "sf.Filter over= reads the text for sf.matches: a signal comparison takes no over="
             )
+        if isinstance(where, _Comparison):  # the path rule of sf.field() (gap c)
+            signal_key(where.signal, "sf.Filter where=")
         object.__setattr__(self, "where", where)
         selected_over = None if over is None else extractor(over)
         if selected_over is not None:

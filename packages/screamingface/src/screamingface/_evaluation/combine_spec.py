@@ -76,7 +76,9 @@ def combine_spec_text(
     steps = plan.steps
     weights = plan.weights
     if isinstance(weights, tuple) and len(weights) != member_count:
-        raise ValueError(f"{reducer.name} has {len(weights)} weights for {member_count} members")
+        raise ValueError(
+            f"sf.{reducer._step_name()} has {len(weights)} weights for {member_count} members"
+        )
     members = [f"member_{index}" for index in range(1, member_count + 1)]
     spec: dict[str, object] = {
         "schema": COMBINE_SPEC_SCHEMA,
@@ -137,7 +139,7 @@ def _pinned_step(
 
 
 def _consistency_match(steps: _Steps, operators: _OperatorCatalog) -> dict[str, object]:
-    """The ``match`` of an sf.Consistency entry (E4b part 7 P3): the step's own pinned extract and
+    """The ``match`` of a sf.Consistency entry (E4b part 7 P3): the step's own pinned extract and
     normalize when the step has an extract, else the E4a vote default ``last_line`` and ``text``.
 
     WHY in the spec: a Pick or Rank by a signal has no extract of its own, and the pinned ids make

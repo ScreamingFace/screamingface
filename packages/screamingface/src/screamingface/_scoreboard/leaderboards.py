@@ -721,7 +721,7 @@ def _submission(
     paper_url: str | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
-        raise TypeError("candidate_result must be an sf.CandidateResult")
+        raise TypeError("candidate_result must be a sf.CandidateResult")
     selected_authors = _submission_authors(authors)
     selected_paper_url = None if paper_url is None else _paper_url(paper_url)
     payload: dict[str, object] = {

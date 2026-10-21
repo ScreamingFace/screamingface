@@ -210,7 +210,7 @@ class Sum(SignalSource):
 
 
 def _sum_terms(coefficients: object) -> dict[str, float]:
-    """The checked terms of an sf.Sum, sorted by name, as floats (SA-1, SA-E1).
+    """The checked terms of a sf.Sum, sorted by name, as floats (SA-1, SA-E1).
 
     The checks run in input order, so the first bad entry gives the error.
     """

@@ -107,7 +107,7 @@ def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
         ),
         ([1.0, 2.0, 3.0], secret, ValueError, read_only),
         (sf.signal("cost_usd"), secret, ValueError, read_only),
-        (JUDGE_SIGNAL, "m", TypeError, r"must be an sf\.Judge"),
+        (JUDGE_SIGNAL, "m", TypeError, r"must be a sf\.Judge"),
     ]
     if kind == "vote":
         cases.append((None, secret, ValueError, read_only))

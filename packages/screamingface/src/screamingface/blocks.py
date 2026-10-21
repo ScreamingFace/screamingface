@@ -15,19 +15,18 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 from screamingface._regex_rule import check_regex
-from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
+from screamingface._signals import JUDGE_SIGNAL, Signal
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
-    _MEAN_SIGNAL_USE,
-    _MEDIAN_JUDGE_USE,
     _NUMERIC_SELECTS,
     BENCHMARK_EXTRACT,
     Reducer,
     _check_judge_weights,
+    _field_path,
     _ModelSignal,
     _recovered_weights,
     _ReducerPlan,
-    _refuse_judge_signal,
+    _refuse_judge_weights,
     _Statistic,
     _Step,
     _Steps,
@@ -142,16 +141,9 @@ def _check_args(rule: str, args: Mapping[str, object]) -> None:
             raise ValueError(f"sf.Extract({rule!r}) does not take {name!r}")
         _check_scalar(rule, name, value)
     if rule == "field":
-        _check_field_path(args["path"])
+        _field_path(args["path"], "sf.Extract('field') path")
     if rule == "regex":
         check_regex(args, "sf.Extract('regex')")
-
-
-def _check_field_path(path: object) -> None:
-    if not isinstance(path, str):
-        raise TypeError("sf.Extract('field') path must be text")
-    if FIELD_PATH.fullmatch(path) is None:
-        raise ValueError("sf.Extract('field') path must be a JSON path like 'a', 'a.b' or 'a[0].b'")
 
 
 def _check_scalar(rule: str, name: str, value: object) -> None:
@@ -231,7 +223,7 @@ def _step_of(op: str) -> str:
 
 def _check_extract(op: str, value: object) -> Extract:
     if not isinstance(value, Extract):
-        raise TypeError(f"{_step_of(op)} over= must be an sf.Extract")
+        raise TypeError(f"{_step_of(op)} over= must be a sf.Extract")
     return value
 
 
@@ -244,7 +236,7 @@ def _check_judge(op: str, value: object) -> object:
     from screamingface.judge import JudgeNode
 
     if not isinstance(value, JudgeNode):
-        raise TypeError(f"{_step_of(op)} judge must be an sf.Judge")
+        raise TypeError(f"{_step_of(op)} judge must be a sf.Judge")
     return value
 
 
@@ -264,7 +256,6 @@ class ReduceNode(Reducer):
     block keeps only the mode, so both spellings are one block, with one repr and one url4.
     """
 
-    _public_name: ClassVar[str] = "Vote"
     name: str
     op: str
     mode: ReduceMode
@@ -401,15 +392,14 @@ def _numeric_extract(extract: object, op: str) -> Extract:
     return Extract(extract.rule, normalize="numeric", **extract.args)
 
 
-# A median and a mean block differ only in their name and in the advice text that refuses a
-# score:judge weight: one code path builds and rebuilds both.
+# A median and a mean block differ only in their name: one code path builds and rebuilds both.
 
 
-def _canonical_statistic(checked: dict[str, object], statistic: _Statistic, use: str) -> None:
+def _canonical_statistic(checked: dict[str, object], statistic: _Statistic) -> None:
     checked["extract"] = _numeric_extract(checked["extract"], statistic)
     weights = checked.get("weights")
     if isinstance(weights, Signal):
-        _refuse_judge_signal(weights, _step_of(statistic), use)
+        _refuse_judge_weights(weights, _step_of(statistic))
 
 
 def _canonical_weighted(checked: dict[str, object]) -> None:
@@ -419,9 +409,9 @@ def _canonical_weighted(checked: dict[str, object]) -> None:
 # op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
 _CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType(
     {
-        "median": partial(_canonical_statistic, statistic="median", use=_MEDIAN_JUDGE_USE),
+        "median": partial(_canonical_statistic, statistic="median"),
         "weighted": _canonical_weighted,
-        "mean": partial(_canonical_statistic, statistic="mean", use=_MEAN_SIGNAL_USE),
+        "mean": partial(_canonical_statistic, statistic="mean"),
     }
 )
 

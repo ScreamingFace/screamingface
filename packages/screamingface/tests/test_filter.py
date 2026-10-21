@@ -99,7 +99,7 @@ def test_signal_comparisons_build_predicates() -> None:
     assert (same == 1).value == 1.0  # type: ignore[union-attr]
     assert (same == True) != (same == 1)  # noqa: E712
 
-    with pytest.raises(TypeError, match="an sf.Filter predicate, not a bool"):
+    with pytest.raises(TypeError, match="a sf.Filter predicate, not a bool"):
         bool(predicate)
     with pytest.raises(TypeError, match=r"sf\.Filter has no != predicate"):
         _ = same != 1
@@ -245,7 +245,7 @@ def test_filter_as_last_stage_is_rejected() -> None:
 
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(fusion, operators=flow_operators())
-    # a Fanout member and a corrective-loop judge are refused too
+    # a sf.Fanout member and a corrective-loop judge are refused too
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(
             sf.Fanout([fusion, "provider/d"]) >> sf.Synthesize("provider/s"),
@@ -288,7 +288,7 @@ def test_filter_validation() -> None:
         sf.Filter(where="x")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=where_rule):
         sf.Filter(where=None)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="Filter extract must be an sf.Extract"):
+    with pytest.raises(TypeError, match="sf.Filter extract must be a sf.Extract"):
         FilterNode(where=sf.matches("a"), extract="last_number")  # type: ignore[arg-type]
     with pytest.raises(
         ValueError, match=re.escape("score:judge needs sf.Judge(...) after sf.Fanout")

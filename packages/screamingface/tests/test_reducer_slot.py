@@ -227,7 +227,7 @@ def test_reducer_without_catalog_fails_and_bad_specs_are_refused() -> None:
 
 
 def test_spec_builder_refuses_a_weight_count_that_does_not_match_the_members() -> None:
-    with pytest.raises(ValueError, match="vote has 1 weights for 3 members"):
+    with pytest.raises(ValueError, match="sf.FixtureVote has 1 weights for 3 members"):
         combine_spec_text(
             FixtureVote(weights=(1.0,)), member_count=3, operators=fixture_operators()
         )

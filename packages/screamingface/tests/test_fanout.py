@@ -44,8 +44,8 @@ def test_name_quorum_and_signals_go_to_the_fusion_node() -> None:
 @pytest.mark.parametrize(
     ("members", "error", "message"),
     [
-        ("provider/a", TypeError, "Fanout members must be an ordered sequence"),
-        ([], ValueError, "a Fanout requires at least one member"),
+        ("provider/a", TypeError, "sf.Fanout members must be an ordered sequence"),
+        ([], ValueError, "a sf.Fanout requires at least one member"),
     ],
     ids=["string", "empty"],
 )
@@ -93,7 +93,7 @@ def test_prompt_keeps_an_optional_member_optional() -> None:
 
 
 def test_fa1_a_member_with_its_own_prompt_is_refused() -> None:
-    message = r"^Fanout prompt= sets the member prompts: member 2 already has one$"
+    message = r"^sf.Fanout prompt= sets the member prompts: member 2 already has one$"
     with pytest.raises(ValueError, match=message):
         sf.Fanout(["provider/a", sf.Model("provider/b", prompt="Mine.")], prompt=_PROMPT)
 
@@ -108,7 +108,7 @@ def test_fa1_a_member_with_its_own_prompt_is_refused() -> None:
     ids=["chain", "pipeline", "fusion"],
 )
 def test_fa1_a_member_that_is_not_a_model_is_refused(member: sf.Recipe) -> None:
-    message = r"^Fanout prompt= sets the member prompts: member 1 is not a model$"
+    message = r"^sf.Fanout prompt= sets the member prompts: member 1 is not a model$"
     with pytest.raises(ValueError, match=message):
         sf.Fanout([member, "provider/c"], prompt=_PROMPT)
 

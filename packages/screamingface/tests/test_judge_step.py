@@ -142,19 +142,20 @@ def test_judge_pick_lowers_to_the_label_judge_of_today() -> None:
     )
 
 
-_JU1 = r"^{0} cannot read sf\.signal\('score:judge'\): it has no judge; use {1}$"
+_JU1 = (
+    r"^sf\.{0} does not read a judge's scores as weights; use "
+    r"sf\.Vote\(weights='score:judge'\) or sf\.ArgMax\('score:judge'\)$"
+)
 
 
 def test_ju1_median_and_mean_refuse_a_judge_weight_when_they_are_built() -> None:
     # JU-1 is today's rule and it runs when the step is built: in a chain it raises before the
     # >> that would close the block, after the Fanout and the Judge are in the chain.
     scored = sf.Fanout(_TRIO) >> _judge()
-    median = _JU1.format(
-        "Median", r"authored weights or another signal, such as sf\.signal\('field:confidence'\)"
-    )
+    median = _JU1.format("Median")
     with pytest.raises(ValueError, match=median):
         _ = scored >> sf.Median(weights="score:judge")
-    mean = _JU1.format("Mean", r"a JSON field signal such as sf\.signal\('field:confidence'\)")
+    mean = _JU1.format("Mean")
     with pytest.raises(ValueError, match=mean):
         sf.Mean(weights="score:judge")
 

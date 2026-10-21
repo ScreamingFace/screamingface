@@ -97,7 +97,7 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
 
     refuse_step(value)
     if not _is_supported_recipe(value):
-        raise TypeError(f"{label} must be a model route, an sf.Model or an sf.Pipeline")
+        raise TypeError(f"{label} must be a model route, a sf.Model or a sf.Pipeline")
     assert isinstance(value, Recipe)
     if value.optional and not allow_optional:
         raise ValueError(OPTIONAL_MEMBERS_ONLY)
@@ -132,7 +132,7 @@ def _recipe_kind(
     for recipe_type, kind in kinds:
         if isinstance(value, recipe_type):
             return kind
-    raise TypeError("candidate must be an sf.Model or an sf.Pipeline")
+    raise TypeError("candidate must be a sf.Model or a sf.Pipeline")
 
 
 def _is_supported_recipe(value: object) -> bool:

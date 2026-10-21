@@ -350,7 +350,8 @@ When no member is left, the Case abstains. For a number in a JSON reply, use the
 weights=sf.signal("field:confidence"), select="value")`. The block form takes `select=` as
 `sf.Median` does: `select="value"` returns the median number, and the default
 `select="nearest"` returns the text of the nearest member. A `sf.signal("score:judge")` weight
-raises `ValueError`: a Median has no judge.
+raises `ValueError`: a Median does not read a judge's scores as weights; use
+`sf.Vote(weights="score:judge")` or `sf.ArgMax("score:judge")`.
 
 `sf.Mean` returns the mean of the members' numbers (`select="value"`, the default) or the text of
 the member nearest the mean (`select="nearest"`). Give it weights to make some members count more:

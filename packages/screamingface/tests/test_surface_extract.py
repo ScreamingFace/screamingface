@@ -125,12 +125,13 @@ def test_a_field_median_and_mean_lower_to_the_numeric_block() -> None:
 
 @pytest.mark.parametrize("over", ["field:", "field:a..b", "field:1a", "field:a b"])
 def test_a_field_with_a_bad_path_is_refused(over: str) -> None:
-    message = (
-        rf"^over={over!r} must name a JSON path after 'field:', like 'field:a\.b' or "
-        r"'field:a\[0\]\.b'$"
-    )
-    with pytest.raises(ValueError, match=message):
+    path = over.removeprefix("field:")
+    with pytest.raises(ValueError) as caught:
         sf.Vote(over=over)
+    assert str(caught.value) == (
+        f"over= field path {path!r} must be a JSON path like 'score', 'a.b' or 'a[0].b' "
+        "(at most 256 characters)"
+    )
 
 
 # ---------------------------------------------------------------- sf.Extract
@@ -200,9 +201,9 @@ def test_a_bad_weights_key_has_the_signal_message() -> None:
 
 
 def test_median_and_mean_refuse_a_judge_weight_with_the_rule_of_today() -> None:
-    with pytest.raises(ValueError, match=r"Median cannot read sf\.signal\('score:judge'\)"):
+    with pytest.raises(ValueError, match=r"^sf\.Median does not read a judge's scores as weights"):
         sf.Median(weights="score:judge")
-    with pytest.raises(ValueError, match=r"Mean cannot read sf\.signal\('score:judge'\)"):
+    with pytest.raises(ValueError, match=r"^sf\.Mean does not read a judge's scores as weights"):
         sf.Mean(weights="score:judge")
 
 

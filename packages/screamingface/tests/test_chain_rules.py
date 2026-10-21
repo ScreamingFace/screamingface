@@ -234,7 +234,7 @@ def test_ch9_the_fusion_rules_run_at_the_rshift_that_closes_the_block() -> None:
     fanout = sf.Fanout(_PAIR)
     vote = sf.Vote(weights=(1, 2, 3))
 
-    with pytest.raises(ValueError, match="vote has 3 weights for 2 members"):
+    with pytest.raises(ValueError, match="sf.Vote has 3 weights for 2 members"):
         _ = fanout >> vote
 
 
@@ -327,7 +327,7 @@ _SOLO = sf.SelfCorrective("provider/a")
 
 @pytest.mark.parametrize("root", [_LOOP, _SOLO], ids=["corrective-loop", "self-corrective"])
 def test_ch13_a_corrective_root_is_not_a_chain_stage(root: sf.Recipe) -> None:
-    message = r"^Pipeline stage must be a model route, an sf\.Model or an sf\.Pipeline$"
+    message = r"^Pipeline stage must be a model route, a sf\.Model or a sf\.Pipeline$"
     with pytest.raises(TypeError, match=message):
         sf.Pipeline(["provider/x", root])
     with pytest.raises(TypeError, match=message):
@@ -336,7 +336,7 @@ def test_ch13_a_corrective_root_is_not_a_chain_stage(root: sf.Recipe) -> None:
 
 @pytest.mark.parametrize("root", [_LOOP, _SOLO], ids=["corrective-loop", "self-corrective"])
 def test_ch13_a_corrective_root_is_not_a_fanout_member(root: sf.Recipe) -> None:
-    message = r"^Fanout member must be a model route, an sf\.Model or an sf\.Pipeline$"
+    message = r"^sf.Fanout member must be a model route, a sf\.Model or a sf\.Pipeline$"
     with pytest.raises(TypeError, match=message):
         sf.Fanout(["provider/a", root])
 
