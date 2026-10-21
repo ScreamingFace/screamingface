@@ -2,7 +2,8 @@
 
 Epic `OME-1529`. Status: **draft for review** (url4: Kevin; gateway: Dmitry; architecture: HupBaHa).
 Owner decisions F1–F4 locked by Sergey on 2026-10-21 (§2); his follow-up decisions D1–D6 of the
-same day are folded into F1 and F2.
+same day are folded into F1 and F2, and his review-round-4 decisions (C6 disabled in v1; one
+canonical request identity) into F1b, F3 and §2.7.
 
 **Snapshot.** Every "today" claim and every `file:line` citation is pinned to `main` at
 [`ec4b632b2`][snap] (2026-10-21, after #1447). Citations are commit-qualified links, so they stay
@@ -89,7 +90,9 @@ Case ingress**. **Every** `url4://<authority>/blob/...` ref is remote in v1, wha
 there is no self-recognition, so a ref naming the evaluating node itself is remote too. It fails with
 the typed, permanent **`x.remote_blob_unsupported`** at resolution, **before any network I/O** (no DNS
 lookup, no connection). Only an authority-less ref is local: the bare path `/blob/sha256/<hex>` (C1) and
-the bare token `blob:sha256/<hex>` (C3), which names that same path on the evaluating node. There is no
+the bare token `blob:sha256/<hex>` (C3). Both are a **direct tenant + run store read** on the evaluating
+node; neither is rewritten into an authority-bearing `url4://` URL, so a local ref can never re-enter
+source classification as a remote one. There is no
 "fetch once and pin" for remote sources in v1.
 
 **Rationale.** A remote fetch is an SSRF/egress boundary. url4 HTTP sources follow redirects to
@@ -128,11 +131,14 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
 - **Escape hatch:** loopback may be allowed only through explicit configuration for tests and dev; off
   by default.
 - **Errors and logs:** each refusal raises a typed `x.` error (see §4). Response bodies are never logged.
-- **Remote-node calls:** the same guard covers `url4://` remote-node calls, which `HttpIOLayer` rewrites to
-  `https://`, for example a nested remote expression (C6). The address rules apply, and only hosts on an
-  operator-configured **peer allowlist** may be called (default: empty, so no remote-node calls). Anything
-  else fails `x.source_destination_blocked`. This is separate from F1: blob transfer between nodes stays
-  deferred.
+- **Remote-node calls are disabled in v1** (owner, review round 4). Destination allowlisting does not
+  authenticate the caller at the remote node, so every `url4://` remote-node call, for example a nested
+  remote expression (C6), is refused by the url4 node resolver with the typed, permanent
+  **`x.remote_node_unsupported`** before any I/O (no DNS lookup, no connection), until a node-to-node
+  authentication spec defines outbound identity, credential transport and rotation, inbound
+  authorization, replay behaviour, typed auth failures and tests at both nodes. The guard's
+  operator-configured **peer allowlist** (#1521) stays **empty by default and must not be populated**
+  until that spec exists. Blob transfer between nodes stays deferred under F1.
 - **Scope of attachments:** only an `https://` value in a `src=` binding is fetched at run start and
   attached; other `https://` sources stay lazy text fetches. Attached bytes are also written through to
   the tenant+run store (`OME-1540`). "Fetched once per run" belongs to the per-run cache in `OME-1543`;
@@ -141,8 +147,8 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
 time (`OME-1271`) and never fetched at run time. Media-type validation and per-run file-count and byte
-limits follow the attachment rules in F2/F3. Node-to-node authentication applies only to F1's deferred
-remote blobs.
+limits follow the attachment rules in F2/F3. Node-to-node authentication is the prerequisite for both
+F1's deferred remote blobs and remote-node calls (C6); neither is enabled in v1.
 
 ### F2 — Attachments are a side-channel; the payload stays `str`
 
@@ -182,8 +188,10 @@ parts travel in the v2 envelope instead, §2.7) and are **inherited unchanged** 
 reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1. Because the list is fixed before execution, a
 blob source marked `;optional` that fails to resolve **fails the whole run** with its own code (§4); it
 is never dropped from the list (D5).
-A nested expression evaluated by a **remote** node (C6) resolves its own sources against its own store;
-the outer run's attachments are not shipped to it, because that would be a remote blob transfer (F1).
+A nested expression addressed to a **remote** node (C6) is refused in v1 (`x.remote_node_unsupported`,
+F1b). When node-to-node authentication enables it, the remote node resolves its own sources against
+its own store, and the outer run's attachments are not shipped to it, because that would be a remote
+blob transfer (F1).
 
 **Judge.** The judge uses the same builder. Which attachments a grading call receives is the
 benchmark's grading policy: under `OME-1271` v1 the grader receives none, so grading stays text-only.
@@ -193,13 +201,23 @@ contexts) byte-identical for text-only runs and removes any ambiguity between da
 
 ### F3 — Canonical part identity and run scope
 
-**Decision.** The model request key ([`E/request_identity.py:13-33`][e-key]) hashes, in addition to today's
-fields, the **canonical ordered content-part list**: for each part `kind` (`text` \| `image` \| `file`),
-`digest` (none for text, whose bytes are already in `context`/`intent`), `media_type`, `role`,
-`position`, `detail`, `filename`; plus the model, the params and the **adapter revision** of the
-connector that builds the parts. The digest alone is not the identity: equal bytes with a different type,
-role, position, detail or filename are a different model request. A request with no attachments hashes
-exactly as today, so existing keys are unchanged.
+**Decision.** There is **one request-identity authority, everywhere** (owner, review round 4): the
+model request key ([`E/request_identity.py:13-33`][e-key]) hashes the **canonical ordered content-part
+list** plus the model, the params and the **adapter revision** of the connector that builds the parts.
+Every input form is normalized to that list **before keying**: url4 `attachments[]` merged by D3, and a
+v2 Case envelope (§2.7). Raw request or envelope bytes are never the identity.
+
+- **Canonical part.** For each part, in message order and then part order: `kind` (`text` \| `image` \|
+  `file`), `role`, message index, `position`, and for non-text parts `digest` (`sha256:<hex>` of the
+  **decoded** bytes), `media_type`, `detail`, `filename` (absent fields omitted, never `null`). A text
+  part carries its text. The list is serialized as canonical JSON (UTF-8, sorted keys, no
+  insignificant whitespace) and hashed together with model, params and adapter revision.
+- **What this excludes.** Base64 padding or line breaks, envelope key order and whitespace do not
+  change the key; equal bytes with a different type, role, position,
+  detail or filename do.
+- **Text-only requests.** A request with no non-text part keeps today's key: its canonical list is the
+  text already hashed as `context`/`intent`, and adapter revision does not enter the key, because it
+  only versions how non-text parts are built. Existing text keys and goldens are unchanged.
 
 **Authorization.** A digest is **not a bearer capability**. A blob read is scoped to *tenant + run*: a
 node may read a digest only if it was ingested into the same run of the same tenant. A digest from
@@ -207,6 +225,19 @@ another run or tenant is `source_not_found`, indistinguishable from a missing bl
 
 **Integrity.** sha256 is verified against the ref **before storing** (ingress) and **before use** (every
 read that builds a part). A mismatch is `x.blob_digest_mismatch`, permanent.
+
+**Order (normative).** For every model-calling node, on a cache hit and a cache miss alike:
+
+1. take the tenant and run from the run context, never from the request or the ref;
+2. authorize each blob digest against that tenant + run (otherwise `source_not_found`);
+3. read the bytes and verify sha256 (otherwise `x.blob_digest_mismatch`); v2 Case parts are decoded
+   and hashed here;
+4. derive the canonical part list;
+5. only then form the request key and consult the model-result cache or a frozen copy.
+
+A caller who knows an out-of-scope digest therefore cannot form, let alone hit, a model-result key:
+step 2 fails first. Tests pin this order for a hit and a miss: an out-of-scope digest whose key is
+already cached returns `source_not_found` and never reads the cache or the frozen copy.
 
 ### F4 — "Today" is the stated snapshot
 
@@ -230,9 +261,10 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
 - **Structure, not scanning.** The connector reads parts from the typed envelope, never from string
   contents, so F2's no-scanning rule holds.
 - **Position.** Parts keep the position the importer wrote them in; D3 does not move them (F2).
-- **Identity.** `model_request_key` hashes the raw `context` string
-  ([`E/request_identity.py:13-33`][e-key]), which carries the envelope verbatim, so a v2 Case's parts and
-  their order are in the key and F3 holds without a separate part list.
+- **Identity.** The raw `context` JSON is **not** the identity: its bytes are not a canonical part list
+  (base64 and key-order variants of equal content differ) and carry no adapter revision. The connector
+  normalizes a v2 envelope to F3's canonical ordered part list, plus model, params and adapter
+  revision, before keying ([`E/request_identity.py:13-33`][e-key] gains that input).
 - **Only `data:` URIs.** Media parts carry inline `data:` URIs and nothing else; the gateway refuses
   any other form before its cache stage (`OME-1542`, #1479, open at this revision).
 - **Limits.** The gateway's 8 MiB request-body cap (#1479) bounds one request: a larger body gets 413
@@ -246,8 +278,11 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
    `{"input": <v2 envelope string>, …}` ([`P/_evaluation/candidate.py:769-787`][p-fctx]), which
    `_native_messages` ([`E/world/connector.py:1495`][pr-native]) does not read as an envelope, and
    `conversation_messages` ([`I/conversation_input.py:62`][pr-conv]) re-wraps a v2 Case as v1 text; both
-   would send the base64 as prompt tokens. Either `OME-1679` and `OME-1271` PR1 block the v2 importer
-   (`OME-1271` PR2), or Fusion candidates on v2 Cases are refused at admission.
+   would send the base64 as prompt tokens. **Enabling dependency:** `OME-1679` and `OME-1271` PR1 (the
+   shared envelope parser) both block the v2 importer (`OME-1271` PR2); a v2 Case may not be imported
+   before both land. The only alternative is that admission refuses Fusion candidates on v2 Cases by
+   name, shipped with the importer; "imports may proceed while `OME-1679` blocks only SOTA pushes" does
+   not satisfy this gate.
 2. **The judge is text-only by an explicit refusal, not by accident (D6).** `_messages`
    ([`E/world/connector.py:1481`][pr-msgs]) builds parts for any v2 context; pictures are dropped today
    only because [`I/judge_provider.py:432`][i-judge] writes v1 from `message.text`. A parts message under
@@ -260,6 +295,10 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
 4. **One `data:` URI pattern.** A conformance test, in both projects, pins the engine's `_DATA_URI_RE`
    ([`E/benchmarks/candidate_input.py:40-42`][pr-dre]) to the gateway's
    ([`G/core/content_parts.py:23-25`][g-dre]).
+5. **Limits fit together.** The importer's largest encoded Case plus the request, model and parameter
+   overhead fits under the gateway body cap (#1479), checked by a test on the importer's limit values;
+   and the whole-`cases.json` memory gate (every run parses the whole file) is measured against the
+   per-run memory budget. Both are owned by `OME-1271` and are enabling dependencies of the v2 importer.
 
 ## 3. Execution contract
 
@@ -271,10 +310,12 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
      are not appended to `attachments[]`, never sit in the URL and never in a url4 expression. This path
      does not go through url4.
    - **url4 ingress.** A `src=` binding carrying `/blob/sha256/<hex>` or `blob:sha256/<hex>` is resolved
-     at the evaluating node against the local run store (§5) and appended to `attachments[]`. Any
-     `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1).
+     at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
+     `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
+     `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
      An `https://` source is fetched through the url4 transport's destination guard (F1b) and, when it
-     returns a non-text type, is hashed into the run store and appended to `attachments[]` like a local blob.
+     returns a non-text type, is hashed and written through to the tenant + run store (`OME-1540`) and
+     appended to `attachments[]` like a local blob.
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
    `data:` URI); v2 envelope parts already have that shape. It is the only shape the gateway sees. The
@@ -290,7 +331,8 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
    - **reject:** with a typed error (§4). A blind model is refused by name at admission (C9 `intent_error`), never degraded silently.
 5. **Benchmarks pin files at build time.** Assets are baked into the benchmark image ([`I/prepare.py:8`][i-prep8]),
    so a Case never depends on a run-time fetch.
-6. **Identity** is the canonical part list of F3, not a digest and never a URL.
+6. **Identity** is the canonical part list of F3 (plus model, params and adapter revision), formed only
+   after scoped authorization and digest verification, never a digest alone, a URL or raw envelope bytes.
 
 ## 4. Error ownership
 
@@ -304,20 +346,24 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 |---|---|---|---|---|
 | `source_not_found` | url4 node resolver | per Spec C §13.2.5 | permanent | C5; also a digest outside the tenant + run scope (F3) |
 | `x.remote_blob_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1; every `url4://` blob ref; raised before any network I/O |
+| `x.remote_node_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1b, C6; every `url4://` remote-node call in v1; raised before any network I/O |
 | `x.source_destination_blocked` | url4 HTTP transport guard | 422 (proposed) | permanent | F1b; disallowed scheme, refused address range on any hop, or `https`→`http` downgrade; `OME-1704` |
 | `x.source_redirect_limit` | url4 HTTP transport guard | 422 (proposed) | permanent | F1b; more than the configured hop limit (default 3) |
 | `x.source_too_large` | url4 HTTP transport guard | 413 (proposed) | permanent | F1b; streaming cap on decoded bytes, aborted mid-stream |
 | `x.source_timeout` | url4 HTTP transport guard | 504 (proposed) | retryable | F1b; connect timeout or the total deadline across all hops |
-| `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); run failure at read | permanent | F3; a mismatch at read is store corruption and is logged as such |
+| `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); 500 at read (proposed) | permanent | F3; at read it is store corruption, logged as such: the node fails with this code and the node path, the run ends `failed` with it, and it is never retried or served from a cache (F3 order) |
 | `unsupported_content_type` | engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; the connector wraps it as `intent_error` carrying the gateway `info` as `cause` |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same attachments and the same request key |
 | `too_large` | engine ingress (per-blob and per-run limit); gateway body cap (`OME-1542`) | 413 (proposed) | permanent | `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code; limit values are set in the implementation leaves |
 
-Statuses marked *proposed* are new in this spec and need Kevin's sign-off for the url4 wire.
-Blocked destination and remote auth failure have no v1 owner: no remote fetch exists (F1). They belong
-to the remote-blob spec.
+Statuses marked *proposed* are new in this spec and need Kevin's sign-off for the url4 wire. His
+recorded approval at `e61bcde` predates these codes and statuses, so it does not cover them; they stay
+proposed until he signs off this revision. `x.source_destination_blocked` and the other `x.source_*`
+codes **are** active in v1, owned by the url4 HTTP transport guard (F1b). Only remote-node
+authentication failure has no v1 owner, because neither remote blobs (F1) nor remote-node calls (F1b)
+exist in v1; it belongs to the node-to-node authentication spec.
 
 ## 5. Boundary with `OME-1330` / `OME-1271`
 
@@ -332,16 +378,16 @@ Shared representation: benchmark files use the same spec-native form. `sf-blob:/
 ## 6. url4 contract
 
 Adopted **as signed off by Kevin (2026-10-13)** in `OME-1534`; the Parse column of C1 is corrected
-(it is a relative URL, `RelUrl`, not a data URI), and the v1 note applies F1.
+(it is a relative URL, `RelUrl`, not a data URI), and the v1 notes apply F1 (C1, C2) and F1b (C6).
 
 | # | Expression | Parse (B §5.2) | Resolution at the evaluating node |
 | -- | -- | -- | -- |
-| C1 | `(img:0.5:src=/blob/sha256/<hex>)!'Describe'` | relative URL (`RelUrl`) | `url4://<current_node>/blob/sha256/<hex>` with §5.4.2 policy, identity and attribution; bytes go to the model as a `data:` URI (§26.2.3) |
+| C1 | `(img:0.5:src=/blob/sha256/<hex>)!'Describe'` | relative URL (`RelUrl`) | direct tenant + run store read on the evaluating node (F1, F3); it is **not** rewritten to `url4://<current_node>/…`, and attribution records the relative path, which never re-enters classification; bytes go to the model as a `data:` URI (§26.2.3) |
 | C2 | `(img:src=url4://n2.example/blob/sha256/<hex>)!'Describe'` | remote URL4 reference | fetched from `n2` with `url4://` semantics (§3.5). **v1: `x.remote_blob_unsupported`** for any authority, `n2` or the evaluating node itself (F1) |
 | C3 | `(img:src=blob:sha256/<hex>)!'Describe'` | bare token (identifier) | resolved from the evaluating node's own store |
 | C4 | `(img:'blob:sha256/<hex>')!'Describe'` | quoted text | the literal string; not resolved |
 | C5 | C3 where the node doesn't hold the bytes | bare token | `source_not_found`, permanent (C §13.2.5) |
-| C6 | `(url4://n2.example/v1(img:src=blob:sha256/<hex>)!'Describe')!'Summarize'` | nested remote expression | the outer node forwards the inner sources unchanged; `n2` resolves C3 against its own store |
+| C6 | `(url4://n2.example/v1(img:src=blob:sha256/<hex>)!'Describe')!'Summarize'` | nested remote expression | the outer node forwards the inner sources unchanged; `n2` resolves C3 against its own store. **v1: `x.remote_node_unsupported`** before any I/O, until node-to-node authentication is specified (F1b) |
 | C7 | `(blob:sha256/<hex>)!'Describe'` | ParseError | `blob` reads as a name with no value-shaped binding (§4.5 disambiguation), so `src=` is required |
 | C8 | resolved bytes of a type the node can't handle | n/a | `unsupported_content_type` (C §13.5.2) |
 | C9 | resolved image sent to a model that can't take images | n/a | `intent_error`; the source stays `resolved` (C §13.6) |
@@ -366,6 +412,7 @@ All rows below are manual observations; none is a guarantee or a fixture.
 | Per-provider size and count limits | **UNVERIFIED**; not measured. Needed for the `too_large` limit values. |
 | `inspect` `media_resolver` firing on our out-of-loop scorer path | **UNVERIFIED** (`OME-1271` caveat); needs a spike before the inline-to-reference step. |
 | Remote blobs | Deferred (F1); needs its own spec and ticket. |
+| Remote-node calls (C6) | Disabled in v1 (F1b); need a node-to-node authentication spec; #1521's peer allowlist stays empty until then. |
 
 [snap]: https://github.com/ScreamingFace/screamingface/tree/ec4b632b2267212783ca932c93a6c7314256ef3a
 [u-text]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/core/nodes.py#L63-L66

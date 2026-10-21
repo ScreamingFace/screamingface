@@ -66,7 +66,21 @@ with the 2026-10-16 live evidence. Docs only.
   placeholder `OME-1680`, `data:` pattern conformance test). Diagram regenerated: Case ingress is now
   `cases.json` → v2 envelope (§2.7) straight into the engine connector; only url4 refs feed
   `attachments[]`; PNG re-rendered with `rsvg-convert`.
+- **Review round 4 (2026-10-21, HupBaHa CHANGES_REQUESTED at `a6d53fb5`):** owner decisions of the
+  same day applied. (1) C6 remote-node calls disabled in v1: refused by the resolver with
+  `x.remote_node_unsupported` before any I/O until a node-to-node authentication spec exists; #1521's
+  peer allowlist stays empty and must not be populated. (2) One request identity: the canonical ordered
+  part list plus model, params and adapter revision; a v2 envelope is normalized to it before keying;
+  §2.7 no longer claims the raw `context` suffices. Also: C1 is a direct tenant + run store read, never
+  rewritten to `url4://<self>/…`; F3 gains a normative order (run scope → authorize → read + verify →
+  canonical parts → cache / frozen-copy lookup, hit and miss); the v2 importer gate is a hard enabling
+  dependency (`OME-1679` + `OME-1271` PR1, or Fusion refused at admission) plus a limits-fit gate;
+  §4 corrected (the `x.source_*` codes are active in v1, Kevin's `e61bcde` approval predates them,
+  read-time digest mismatch is 500 / run `failed`). Diagram gains the https ingress → transport guard →
+  store write-through row and the C6 refusal; PNG re-rendered with `rsvg-convert`. Linear bodies stale
+  vs the spec are listed in the PR comment for the owner (not edited here).
 - **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
-  attachments under `OME-1271` v1; a remote nested expression (C6) does not receive the outer run's
-  attachments; a request with no attachments keeps today's key; new codes travel with the url4 `x.`
+  attachments under `OME-1271` v1; a remote nested expression (C6), once enabled, does not receive the outer run's
+  attachments; a request with no non-text part keeps today's key (adapter revision enters only
+  multimodal keys, so text keys and frozen copies stay valid); new codes travel with the url4 `x.`
   prefix until Spec C adopts them.
