@@ -168,3 +168,16 @@ owner had all 10 fixed in one commit:
 10. The `pytest.raises(match=...)` lines this PR changed assert the exact message instead.
 
 Gates after the fixes: `run_gates.py screamingface --base origin/main` ALL GATES GREEN.
+
+## Live check on staging (2026-10-21, branch at `b61ec9951`)
+
+`sf.Client(engine_url="https://fusion.staging.screamingface.ai", scoreboard_url="https://leaderboard.staging.screamingface.ai").evaluate(pinned_cache="69a76841-73fc-47e8-8e6f-03796f6128c3")`
+against a real Engine, gateway and board (the capture was made the same day by the OME-1649
+staging check: score `5fc68454-338c-4645-bc10-a58b3e3a74e4`, 1 case, no seed).
+
+- Lookup by pinned cache answered; the replay ran with no seed (the capture had none).
+- Result: score 1.0 over 1 case, cost `0`, no capture on the replay run; replayed in 82.3 s.
+- Verdict `exact`, no reason, no missed cases. The leaderboard login was asked for only then; its
+  `redirect_url` was `/v1/scores/{id}/reproductions` (the #1486 fix on the recording path). After
+  the owner's login: `recorded=True`, no `record_error`.
+- The board reads back `reproduction_count: 1`, `last_reproduced_at: 2026-10-21T20:33:50Z`.
