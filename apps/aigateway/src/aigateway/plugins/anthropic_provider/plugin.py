@@ -87,13 +87,13 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def oauth_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AnthropicOAuth(
-            profile_name=profile_name,
+            profile_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
             settings=self.settings,
@@ -104,13 +104,13 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy:
         return ApiKeyStrategy(
-            profile_name,
-            service=credential_service_for(profile_name),
+            credential_name,
+            service=credential_service_for(credential_name),
             account=self.settings.keychain_account,
             header_builder=_api_key_headers,
             credential_store=credential_store,
@@ -122,7 +122,7 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
             registered_models=self.register_models(),
         )
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         # Stored keys/tokens get no validation at set time (plan D6); an
         # upstream 401 after header injection means the credential is bad, so
         # flip the target to ERROR like gemini does (SF-244 audit F14).

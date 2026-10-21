@@ -138,10 +138,10 @@ class FakeProviderAccess:
             raise SelectorAmbiguous(provider)
         if active:
             raise SelectorUnknown(provider, selector.name, tuple(c.label for c in active))
-        chatless = getattr(plugin, "allows_chatless_profile", lambda: False)()
+        chatless = getattr(plugin, "allows_chatless_credential", lambda: False)()
         if not chatless and not (policy is ResolvePolicy.DATASHEET and selector.is_default):
             raise TargetMissing(provider, selector.name)
-        kind = "ambient" if plugin.profileless_auth_mode() is not None else "none"
+        kind = "ambient" if plugin.credentialless_auth_mode() is not None else "none"
         return CredentialTarget(
             kind=kind,
             auth_type="oauth",

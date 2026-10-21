@@ -164,10 +164,10 @@ class _ApiKeyOnlyPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("api_key",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return False
 
-    def profileless_auth_mode(self) -> str | None:
+    def credentialless_auth_mode(self) -> str | None:
         return None
 
 

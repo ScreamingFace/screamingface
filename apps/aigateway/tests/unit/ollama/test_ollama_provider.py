@@ -18,7 +18,7 @@ def test_ollama_provider_loads_without_oauth() -> None:
     assert plugin.custom_llm_provider == "ollama"
     assert plugin.oauth_config() is None
     assert plugin.oauth_strategy_for("default") is None
-    assert plugin.allows_chatless_profile() is True
+    assert plugin.allows_chatless_credential() is True
 
 
 def test_register_models_exposes_public_ollama_names(monkeypatch) -> None:

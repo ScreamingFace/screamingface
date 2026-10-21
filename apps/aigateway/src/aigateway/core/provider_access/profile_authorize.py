@@ -1,7 +1,7 @@
 """Authorize and failure-marking of a label-path Connection target (OME-1200, ops 4–5).
 
 Relocated from `routes/chat_credentials.py` (`_strategy_for_credential_target`,
-`_inject_credentials`, `_reauth_url_for`, `_invalidate_profile_session`,
+`_inject_credentials`, `_reauth_url_for`, the session-invalidation wrapper,
 `_oauth_connection_store`) and the STORE half of
 `routes/chat_dispatch.py::_dispatch_failure_response`. OME-1209 Stage E, E4a removed the
 Profile-target branches: no resolve answers a Profile any more.
@@ -50,7 +50,7 @@ def reauth_url_for(auth_type: AuthType | None, *, connection_id: str | None = No
 
 
 def invalidate_session(plugin: Any, credential_name: str) -> None:
-    invalidator = getattr(plugin, "invalidate_profile_session", None)
+    invalidator = getattr(plugin, "invalidate_credential_session", None)
     if callable(invalidator):
         invalidator(credential_name)
 
@@ -206,7 +206,7 @@ async def record_dispatch_failure(
 
     Drops the cached strategy so its (now bad) token is not reused and marks the Connection; the
     detail is never rewritten for a label-path target. The status gate
-    (`should_mark_profile_error_on_dispatch_status`) stays with the caller; `status` travels
+    (`should_mark_credential_error_on_dispatch_status`) stays with the caller; `status` travels
     with the call for a backing that records it — this one persists only the message, exactly
     as at 17048f5d.
     """

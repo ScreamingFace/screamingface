@@ -57,7 +57,7 @@ class OllamaProviderPlugin(ProviderPluginBase):
             )
         ]
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
     def chat_parameter_rules(
