@@ -120,7 +120,7 @@ jobs:
         # step's `uv run --extra runtime`, which only left them installed by an inexact sync.
         # --junitxml lands inside the evidence dir, so the upload below carries it; the
         # workbench conftest redacts every report before it reaches JUnit.
-        run: uv run --extra runtime pytest tests/e2e -rs -v --junitxml=$SCREAMINGFACE_WORKBENCH_OUT/junit.xml
+        run: uv run --extra runtime pytest tests/e2e -rs -v -o junit_family=legacy --junitxml=$SCREAMINGFACE_WORKBENCH_OUT/junit.xml
 
       - name: Upload workbench evidence
         if: always()

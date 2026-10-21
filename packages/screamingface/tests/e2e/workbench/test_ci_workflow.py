@@ -30,6 +30,8 @@ def test_the_replay_lane_writes_junit_inside_the_evidence_dir() -> None:
     args = shlex.split(step["run"])
     junit = [a.removeprefix("--junitxml=") for a in args if a.startswith("--junitxml=")]
     assert junit == [f"${OUT_ENV}/junit.xml"], args
+    # record_property (trace_ids, bundle) is dropped-with-a-warning under the default xunit2.
+    assert "junit_family=legacy" in args, args
     # The shell expands it from the step env, so it lands where the bundles are written.
     assert step["env"][OUT_ENV] == "${{ runner.temp }}/workbench-out"
 

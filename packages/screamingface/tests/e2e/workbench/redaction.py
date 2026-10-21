@@ -50,7 +50,8 @@ _SECRET_NAME: Final = r"(?:key|token|secret|password|passwd|pwd|credentials?|aut
 # parameter): the gateway logs `key=<cache key>` on every cache hit, and masking it would blur
 # the evidence. A compound name (`api_key`, `SECRET_KEY`, `apikey`, `x-api-key`) still matches.
 _ASSIGNED_NAME: Final = (
-    r"(?:[\w-]*(?:token|secret|password|passwd|pwd|credentials?|auth|sig|signature)|[\w-]+key)"
+    r"(?:[\w-]{0,64}(?:token|secret|password|passwd|pwd|credentials?|auth|sig|signature)"
+    r"|[\w-]{1,64}key)"
 )
 _NOT_MASKED: Final = rf"(?!{re.escape(MASK)})"
 # `"name": `, `name=`, `\"name\": ` (JSON inside a JSON string), `'name': ` (a repr).
@@ -73,9 +74,11 @@ _QUERY: Final = re.compile(rf"(?i)([?&][\w.-]*{_SECRET_NAME}=){_NOT_MASKED}[^&#\
 _AUTHORIZATION: Final = re.compile(
     rf"(?i)\b((?:proxy-)?authorization){_SEPARATOR}{_NOT_MASKED}(?:{_QUOTED}|\S[^\r\n]*)"
 )
+# WHY `(?<![\w-])` + a 64-char cap instead of `\b`: `\b` restarts the name at every `-` boundary
+# of a long `[\w-]` run (urlsafe base64), which made matching quadratic (16 KB took ~7 s).
 # NAME=value, NAME: value, 'name': 'value', "name": "value", name='value', name=b"value".
 _ASSIGNMENT: Final = re.compile(
-    rf"(?i)\b({_ASSIGNED_NAME}){_SEPARATOR}{_NOT_MASKED}"
+    rf"(?i)(?<![\w-])({_ASSIGNED_NAME}){_SEPARATOR}{_NOT_MASKED}"
     rf"(?:{_QUOTED}|(?!{_CODE})[^\s'\",;&)}}\]]+)"
 )
 

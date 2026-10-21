@@ -180,3 +180,17 @@ def test_redact_tree_masks_keys_and_values_in_nested_containers() -> None:
 def test_redact_is_idempotent(text: str) -> None:
     once = redact(text)
     assert redact(once) == once
+
+
+def test_long_identifier_runs_redact_in_linear_time() -> None:
+    """A long `[\\w-]` run (urlsafe base64, `-a-a-a…`) must not make the name match quadratic.
+
+    Before the fix `-a` * 8000 took ~7 s; executed notebooks can carry MB-sized outputs.
+    """
+    import time
+
+    for blob in ("-a" * 50_000, "A-" * 50_000 + "=", "x" * 100_000 + "_key=v"):
+        started = time.perf_counter()
+        redact(blob)
+        assert time.perf_counter() - started < 1.0
+    assert "v" not in redact("x" * 60 + "_key=v").split("=", 1)[1]
