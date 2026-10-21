@@ -12,7 +12,6 @@ Case abstains with the reason ``in_band``; the Engine checks the band before the
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, ClassVar, Literal, cast
 
@@ -114,17 +113,11 @@ class GateNode:
         return self.observe.split(":", 1)[1]
 
     def __repr__(self) -> str:
-        return self._render("Gate", repr)
-
-    def _python(self) -> str:
-        return self._render("sf.Gate", _python_form)
-
-    def _render(self, head: str, show: Callable[[JudgeNode | Model], str]) -> str:
         # WHY no otherwise for abstain: the default keeps the repr short (GA-D8).
-        otherwise = "" if isinstance(self.otherwise, str) else f", otherwise={show(self.otherwise)}"
+        otherwise = "" if isinstance(self.otherwise, str) else f", otherwise={self.otherwise!r}"
         # WHY no band when None: a gate without a band keeps its part 5 repr (BA-D1).
         band = "" if self.abstain_band is None else f", abstain_band={self.abstain_band!r}"
-        return f"{head}({self.observe!r}, {self.cmp!r}, {self.threshold!r}{otherwise}{band})"
+        return f"Gate({self.observe!r}, {self.cmp!r}, {self.threshold!r}{otherwise}{band})"
 
     # WHY unhashable (as sf.Vote): a gate may hold an sf.Model, which is unhashable.
     __hash__: ClassVar[Any] = None
@@ -219,11 +212,6 @@ def _otherwise_word(value: Literal["abstain"] | JudgeNode | Model) -> str:
     if isinstance(value, Model):
         return "writer"
     return "abstain"
-
-
-def _python_form(value: JudgeNode | Model) -> str:
-    """``sf.Judge(...)`` or ``sf.Model(...)``: the text ``Url4.to_python`` writes."""
-    return f"sf.{value!r}"
 
 
 __all__ = ["GateNode"]

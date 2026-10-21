@@ -11,7 +11,6 @@ from screamingface._evaluation.candidate import (
     compile_candidate,
     entry_recipe,
 )
-from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.linking import _prepare_benchmark
 from screamingface._evaluation.model import (
     _compiled_candidate,
@@ -43,13 +42,6 @@ def compile_evaluation(
     recipes = tuple(
         entry_recipe(recipe, warn_judge_writers=warn_judge_writers) for recipe in recipes
     )
-    # WHY rewritten first: the Fusion recipe rewrite changes the name of a block form (the Fusion it
-    # becomes is "a+b", not "a+b->s"), so a candidate is named from the rewritten value.
-    rewritten = tuple(rewrite_fusion_recipe(recipe) for recipe in recipes)
-    _check_rewritten_names(recipes, rewritten)
-    # WHY the lowered Recipe and not the rewritten one: compile_candidate rewrites it the same
-    # way (the rewrite is pure and idempotent). The judge-writer warning already read the stages
-    # as the user wrote them (review P2 #3), so the compile does not warn again.
     compiled = tuple(
         compile_candidate(
             recipe,
@@ -65,7 +57,7 @@ def compile_evaluation(
     prepared = _prepare_benchmark(resource.url4)
     linked = tuple(prepared.bind(value.url4) for value in compiled)
     candidates = []
-    for recipe, value, result in zip(rewritten, compiled, linked, strict=True):
+    for recipe, value, result in zip(recipes, compiled, linked, strict=True):
         candidates.append(
             _compiled_candidate(
                 name=recipe.name,
@@ -89,22 +81,6 @@ def compile_evaluation(
             tuple(model for candidate in selected_candidates for model in candidate.models)
         ),
     )
-
-
-def _check_rewritten_names(recipes: Sequence[Recipe], rewritten: Sequence[Recipe]) -> None:
-    """Refuse two Candidates that the rewrite names alike, and say the name is not the user's."""
-
-    seen: dict[str, str] = {}
-    for original, lowered in zip(recipes, rewritten, strict=True):
-        name = lowered.name
-        if name in seen and (original.name != name or seen[name] != name):
-            raise ValueError(
-                f"duplicate Candidate name {name!r}: the Fusion recipe rewrite named "
-                f"{original.name!r} {name!r} (a block form is named from the Fusion it becomes). "
-                "Give each candidate its own name= (sf.Fusion(..., name=...) or "
-                "sf.Pipeline(..., name=...))"
-            )
-        seen.setdefault(name, original.name)
 
 
 def _known_operation_ids(candidate: _CompiledCandidate) -> tuple[str, ...]:

@@ -40,9 +40,6 @@ class SignalSource(ABC):
         """Rebuild an equal source from its spec entry; ValueError when this SDK did not write
         it."""
 
-    def _python(self) -> str:
-        return f"sf.{self!r}"
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class Verbalized(SignalSource):
@@ -394,13 +391,6 @@ def declared_from_spec(entries: object) -> dict[str, SignalSource] | None:
         except (TypeError, ValueError) as exc:
             raise ValueError(_CANNOT_REBUILD) from exc
     return declared
-
-
-def python_signals(declared: Mapping[str, SignalSource]) -> str:
-    """``{'conf': sf.Verbalized('...')}``: the ``signals=`` text of ``Url4.to_python``."""
-    return (
-        "{" + ", ".join(f"{name!r}: {source._python()}" for name, source in declared.items()) + "}"
-    )
 
 
 __all__ = ["Consistency", "Entropy", "Logprob", "SignalSource", "Sum", "Verbalized"]

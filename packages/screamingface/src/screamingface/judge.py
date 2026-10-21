@@ -10,11 +10,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import ClassVar, Literal, cast
+from typing import ClassVar, Literal
 
 from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
-from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
@@ -230,21 +229,6 @@ class JudgeNode(Reducer):
         return hash(self._key())
 
 
-def _with_overrides(judge: JudgeNode, rubric: object, order: object) -> JudgeNode:
-    """The block form's overrides: the same judge with another rubric (F3) or order (JO-D2)."""
-
-    if rubric is None and order is None:
-        return judge
-    # the block's rubric and order checks ran first
-    return JudgeNode(
-        judge.model,
-        returns=judge.returns,
-        rubric=judge.rubric if rubric is None else cast("str", rubric),
-        params=judge.params,
-        order=judge.order if order is None else cast("JudgeOrder", order),
-    )
-
-
 def panel_judge_signal(signal: _ModelSignal) -> _ModelSignal:
     """The same judge call in its panel form: the panel template, then the same rubric."""
 
@@ -306,11 +290,5 @@ def _shape_of(spec: Mapping[str, object]) -> _JudgeShape:
 
 
 _REDUCER_CLASSES["judge"] = JudgeNode
-_BLOCK_FORMS["judge"] = _BlockForm(
-    build=lambda options: _with_overrides(
-        cast("JudgeNode", options["judge"]), options.get("rubric"), options.get("order")
-    ),
-    options=lambda named: {"judge": named},
-)
 
 __all__ = ["JudgeNode"]

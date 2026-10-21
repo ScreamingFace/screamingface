@@ -27,13 +27,10 @@ from screamingface.blocks import Matches
 from screamingface.reducer import Reducer
 
 # WHY the internal nodes: this file checks the block reducer itself (ReduceNode), which the surface
-# steps lower to: plurality, weighted, median and mean (the other ops go in 7f, swap D7-8).
+# steps lower to: plurality, weighted, median and mean (the other ops went in 7f, swap D7-8).
 LAST = sf.Extract("last_number")
 NUMERIC = sf.Extract("last_number", normalize="numeric")
-_OPS = (
-    "plurality, weighted, argmax, top_k, filter, pick_field, concat, median, mean, judge, merge, "
-    "context"
-)
+_OPS = "plurality, weighted, median, mean"
 
 
 @pytest.mark.parametrize(

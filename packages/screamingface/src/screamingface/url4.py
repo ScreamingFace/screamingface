@@ -57,7 +57,6 @@ from screamingface.reducer import (
     _NARROW_SELECTS,
     Reducer,
     _ModelSignal,
-    _narrow_steps,
     _narrowed,
     _op_name,
 )
@@ -65,7 +64,6 @@ from screamingface.signal_sources import (
     SignalSource,
     declared_from_spec,
     injected_member_params,
-    python_signals,
 )
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
@@ -92,12 +90,6 @@ _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
 # The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
 _PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
-# AIDEV-NOTE: only the old renderer (``_render_topology``, deleted in unit 7f) reads this;
-# ``to_python`` renders a narrow block through the chain rebuild since unit 7e.
-_NARROW_PYTHON = (
-    "URL4 Candidate has narrow steps before its reducer; their editable Python comes with the "
-    "map, select, reduce surface"
-)
 # WHY the optional sources tail: the combine context is {input, outputs or panel, samples,
 # signals, sources} (E4b part 7 writes `samples` before `signals`), and `signals` holds only
 # '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
@@ -306,153 +298,10 @@ def _has_binding(value: Expression, name: str) -> bool:
     return any(isinstance(node, Source) and node.name == name for node in value.sources)
 
 
-def _render_model(
-    call: _Call,
-    *,
-    role: str,
-    explicit_name: str | None,
-    indent: int,
-    force_name: bool = False,
-    drop_params: frozenset[str] = frozenset(),
-) -> list[str]:
-    prefix = " " * indent
-    lines = [f"{prefix}sf.Model(", f"{prefix}    {call.model!r},"]
-    inferred_name = call.model.rsplit("/", 1)[-1]
-    if explicit_name is not None and (force_name or explicit_name != inferred_name):
-        lines.append(f"{prefix}    name={explicit_name!r},")
-    if call.prompt != _role_default_prompt(role):
-        lines.append(f"{prefix}    prompt={call.prompt!r},")
-    params = _editable_params(call, drop_params)
-    if params:
-        lines.append(f"{prefix}    params={params!r},")
-    lines.append(f"{prefix})")
-    return lines
-
-
 def _role_default_prompt(role: str | None) -> str:
     """The prompt the compiler gives a model call of this topology role when it has none."""
 
     return DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
-
-
-def _render_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-    drop_params: frozenset[str] = frozenset(),
-) -> list[str]:
-    if value.kind == "model":
-        assert value.role is not None
-        lines = _render_model(
-            calls[value.binding],
-            role=value.role,
-            explicit_name=value.name,
-            indent=indent,
-            force_name=value.named,
-            drop_params=drop_params,
-        )
-    elif value.kind == "pipeline":
-        lines = _render_pipeline_topology(value, calls, indent=indent)
-    elif value.kind in {"corrective_loop", "self_corrective"}:
-        lines = _render_corrective_topology(value, calls, indent=indent)
-    elif value.kind == "reducer":
-        reducer = _reducer_from_topology(value, calls)
-        if _narrow_steps(reducer):
-            raise ValueError(_NARROW_PYTHON)
-        lines = [f"{' ' * indent}{reducer._python()}"]
-    else:
-        lines = _render_fusion_topology(value, calls, indent=indent)
-    if value.optional:
-        lines.insert(-1, f"{' ' * indent}    optional=True,")
-    return lines
-
-
-def _render_corrective_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-) -> list[str]:
-    prefix = " " * indent
-    if value.kind == "self_corrective":
-        member = value.members[0]
-        lines = [f"{prefix}sf.SelfCorrective("]
-        rendered = _render_topology(member, calls, indent=indent + 4)
-        rendered[-1] += ","
-        lines.extend(rendered)
-        if value.name != member.name:
-            lines.append(f"{prefix}    name={value.name!r},")
-    else:
-        assert value.judge is not None
-        lines = [f"{prefix}sf.CorrectiveLoop(", f"{prefix}    ["]
-        for member in value.members:
-            rendered = _render_topology(member, calls, indent=indent + 8)
-            rendered[-1] += ","
-            lines.extend(rendered)
-        lines.append(f"{prefix}    ],")
-        inferred_name = "+".join(member.name for member in value.members)
-        if value.name != inferred_name:
-            lines.append(f"{prefix}    name={value.name!r},")
-        judge = _render_topology(value.judge, calls, indent=indent + 4)
-        judge[0] = f"{prefix}    judge={judge[0].lstrip()}"
-        judge[-1] += ","
-        lines.extend(judge)
-    if value.max_rounds != _DEFAULT_CORRECTIVE_ROUNDS:
-        lines.append(f"{prefix}    max_rounds={value.max_rounds!r},")
-    lines.append(f"{prefix})")
-    return lines
-
-
-def _render_pipeline_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-) -> list[str]:
-    prefix = " " * indent
-    lines = [f"{prefix}sf.Pipeline(", f"{prefix}    ["]
-    for stage in value.stages:
-        rendered = _render_topology(stage, calls, indent=indent + 8)
-        rendered[-1] += ","
-        lines.extend(rendered)
-    lines.append(f"{prefix}    ],")
-    inferred_name = "->".join(stage.name for stage in value.stages)
-    if value.named or value.name != inferred_name:
-        lines.append(f"{prefix}    name={value.name!r},")
-    lines.append(f"{prefix})")
-    return lines
-
-
-def _render_fusion_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-) -> list[str]:
-    assert value.synthesizer is not None
-    prefix = " " * indent
-    declared = _fusion_signals(value, calls)
-    drop = _injected_names(declared)
-    lines = [f"{prefix}sf.Fusion(", f"{prefix}    ["]
-    for member in value.members:
-        rendered = _render_topology(member, calls, indent=indent + 8, drop_params=drop)
-        rendered[-1] += ","
-        lines.extend(rendered)
-    lines.append(f"{prefix}    ],")
-    inferred_name = "+".join(member.name for member in value.members)
-    if value.name != inferred_name:
-        lines.append(f"{prefix}    name={value.name!r},")
-    if declared is not None:
-        lines.append(f"{prefix}    signals={python_signals(declared)},")
-    synthesizer = _render_topology(value.synthesizer, calls, indent=indent + 4)
-    synthesizer[0] = f"{prefix}    synthesizer={synthesizer[0].lstrip()}"
-    synthesizer[-1] += ","
-    lines.extend(synthesizer)
-    if value.quorum != "all":
-        lines.append(f"{prefix}    quorum={value.quorum!r},")
-    lines.append(f"{prefix})")
-    return lines
 
 
 def _validate_topology(

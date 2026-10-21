@@ -116,18 +116,13 @@ class FusionNode(Recipe):
             arguments.append("optional=True")
         return f"Fusion({', '.join(arguments)})"
 
-    def _repr_html_(self) -> str:
-        from screamingface._ui.cards import fusion_card_html
-
-        return fusion_card_html(self)
-
     __hash__: ClassVar[Any] = None
 
 
 def _declared(value: object, synthesizer: Recipe | Reducer) -> Mapping[str, SignalSource] | None:
     """The checked declaration (sorted by name), and every name the reducer reads (ans:Q1, P2)."""
     declared = _declaration(value)
-    combine = isinstance(synthesizer, Reducer) and synthesizer._compiles_to_combine()
+    combine = isinstance(synthesizer, Reducer)
     if declared is not None and not combine:
         raise ValueError(
             "Fusion signals= needs a reducer synthesizer such as sf.Vote, sf.Median, sf.Mean, "
@@ -413,7 +408,7 @@ def _quorum(value: object, member_count: int) -> int | Literal["all"]:
 
 def _synthesizer(value: object, members: tuple[Recipe, ...]) -> Recipe | Reducer:
     if isinstance(value, Reducer):
-        if value._compiles_to_combine() and len(members) > _MAX_REDUCER_MEMBERS:
+        if len(members) > _MAX_REDUCER_MEMBERS:
             raise ValueError(
                 f"a reducer Fusion supports at most {_MAX_REDUCER_MEMBERS} members, "
                 f"not {len(members)}"
