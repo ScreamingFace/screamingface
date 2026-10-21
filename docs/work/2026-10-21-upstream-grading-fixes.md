@@ -85,6 +85,27 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - chembench and infinite_bench_math_find keep their published revisions (held); their computed
   fingerprints move and are pinned; no other revision moves.
 
+## PR 3 — MATH reads its answer line through the wrapping
+
+### Planned changes
+
+- `.../named_deviations/math/` (new): both MATH scorers read the `ANSWER:` line through our
+  extraction, which unwraps `\boxed{}` (inspect_evals PR #2199), strips an outer `\(..\)` or
+  `\[..\]` (PR #2340) and drops markdown bold (ours); the compare steps stay the eval's.
+- `.../benchmarks.py`: the math row grades with them; antlr4 joins sympy as a pinned scorer
+  dependency; description; NAMED DEVIATION comment.
+- tests: `test_named_deviation_math.py` (new); `test_published_revisions.py` (math's literal);
+  `test_scorer_source_pins.py` (its row set gains math).
+
+### Test plan
+
+- each wrapping of a right answer scores correct under ours and 0 under v0.20.0 (the tripwires);
+  an unwrapped answer grades exactly as inspect's own scorer grades it.
+
+### Acceptance
+
+- math publishes a new revision; no other revision moves.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -122,3 +143,13 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   edit moved chembench's computed fingerprint once more (2fdb430f6a3505f0 → 7af1d67ffad68471;
   the verbatim copy then moved it to b86658ea78c51962).
 - **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), the yes_no tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 759 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 14 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+
+### PR 3
+
+- **Actual files:** as planned, plus one edited prior test: `test_math_squad_named_scores.py`
+  (the dependency pins now list antlr4 beside sympy; its docstring says the conservation
+  invariant holds for MATH only on an unwrapped answer line).
+- **Revisions:** math 0fb750cf19e00c11 → 4974287b20a4f1aa.
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_math.py` (new), `test_math_squad_named_scores.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 703 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 9 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Deviations:** `**ANSWER: 42**` (markdown bold on MATH's answer line) has no inspect_evals
+  item; its fix is ours alone.

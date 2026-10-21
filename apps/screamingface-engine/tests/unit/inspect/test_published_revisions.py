@@ -69,7 +69,10 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "medmcqa": "60e9f16fbe7c0227",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
-    "math": "0fb750cf19e00c11",
+    # OME-1701 PR 3 (2026-10-21): math grades with our answer-line extraction adopting
+    # inspect_evals' fixes (a Named Deviation; the scorer source is hashed): 0fb750cf19e00c11
+    # moved once.
+    "math": "4974287b20a4f1aa",
     "mmlu": "9d4c0946ae71f6fa",
     "arc_easy": "f7d6a5325fb0bcff",
     "arc_challenge": "810d45748fde3b18",
