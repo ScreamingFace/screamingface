@@ -38,6 +38,7 @@ from screamingface._evaluation.topology import _signal_role
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface._surface.chain import Step
 from screamingface._surface.lowering import lower
+from screamingface._surface.render import render as render_step
 from screamingface.judge import judge_intent
 from screamingface.operation import OperationInfo
 from screamingface.reducer import _ModelSignal
@@ -382,11 +383,10 @@ def test_gated_votes_round_trip_through_to_python() -> None:
         (
             _fusion(sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())),
             abstain_gate,
-            "    synthesizer=sf.Vote(extract='last_line@1', normalize='text@1', "
-            "gate=sf.Gate('agreement', '>=', 0.7)),",
-            "Fusion(['alpha', 'beta', 'gamma'], name='vote', "
-            "synthesizer=Vote(extract='last_line@1', normalize='text@1', "
-            "gate=Gate('agreement', '>=', 0.7)))",
+            "    >> sf.Gate(when=sf.agreement() >= 0.7, "
+            "then=sf.Vote(over='last_line@1', normalize='text@1'))",
+            "Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'], name='vote') >> "
+            "Gate(when=agreement() >= 0.7, then=Vote(over='last_line@1', normalize='text@1'))",
         ),
         (
             _fusion(
@@ -394,18 +394,20 @@ def test_gated_votes_round_trip_through_to_python() -> None:
                 signals={"conf": sf.Verbalized(CONF_PATTERN)},
             ),
             verbalized_gate,
-            "    synthesizer=sf.Vote(extract='last_line@1', normalize='text@1', "
-            "gate=sf.Gate('chosen:conf', '>=', 80.0)),",
-            "Fusion(['alpha', 'beta', 'gamma'], name='vote', signals={'conf': "
-            "Verbalized('Confidence: ([0-9]+)')}, synthesizer=Vote(extract='last_line@1', "
-            "normalize='text@1', gate=Gate('chosen:conf', '>=', 80.0)))",
+            "    >> sf.Gate(when=sf.signal('conf').chosen() >= 80.0, "
+            "then=sf.Vote(over='last_line@1', normalize='text@1'))",
+            "Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'], signals={'conf': "
+            "Verbalized('Confidence: ([0-9]+)')}, name='vote') >> "
+            "Gate(when=signal('conf').chosen() >= 80.0, "
+            "then=Vote(over='last_line@1', normalize='text@1'))",
         ),
     ]
     for fusion, gate, line, literal in cases:
         url4 = _compiled(fusion)
         assert line in sf.Url4(url4).to_python().splitlines()
         assert repr(_rebuilt(url4)) == literal
-        assert _rebuilt(url4).synthesizer.gate == gate
+        # the rebuilt chain lowers to the gate node it was compiled from
+        assert lower(_rebuilt(url4)).synthesizer.gate == gate  # type: ignore[attr-defined]
         assert _compiled(_rebuilt(url4)) == url4
 
 
@@ -514,7 +516,7 @@ def test_vote_repr_and_rebuild_leave_verify_out() -> None:
     url4 = _compiled(_fusion(vote))
     assert "verify" not in url4
     assert "verify" not in sf.Url4(url4).to_python()
-    assert _rebuilt(url4).synthesizer.verify is None
+    assert lower(_rebuilt(url4)).synthesizer.verify is None  # type: ignore[attr-defined]
 
 
 # ---- E4b part 5 unit 4 (gate-api-fallback): GA#3, 4, 10, 11, 12b, 13, 14, 15, 16 ----
@@ -582,9 +584,10 @@ def _fb_rider_synthesizer(url4: str) -> Any:
 
 
 def _fb_recovered(url4: str) -> FusionNode:
+    """The rebuilt chain of ``url4``, lowered to the node that holds the gated vote."""
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    candidate = namespace["candidate"]
+    candidate = lower(namespace["candidate"])
     assert isinstance(candidate, FusionNode)
     return candidate
 
@@ -769,7 +772,6 @@ def test_gated_votes_with_a_fallback_call_round_trip_through_to_python(name: str
     compiled = _fb_compiled(recipe)
     source = sf.Url4(compiled.url4).to_python()
     rebuilt = _fb_recovered(compiled.url4)
-    # WHY lower: the rebuild gives the internal node that the chain lowers to (until 7e).
     lowered = lower(recipe)
     assert isinstance(lowered, FusionNode)
     original_vote, rebuilt_vote = lowered.synthesizer, rebuilt.synthesizer
@@ -781,7 +783,9 @@ def test_gated_votes_with_a_fallback_call_round_trip_through_to_python(name: str
     assert rebuilt_vote.gate == original_vote.gate
     assert repr(rebuilt_vote.gate) == repr(original_vote.gate)
     assert rebuilt_vote.judge == original_vote.judge
-    assert original_vote.gate._python() in source
+    gate_step = recipe.steps[-1]
+    assert isinstance(gate_step, sf.Gate)
+    assert render_step(gate_step.when, "sf.") in source
     assert _candidate_from_url4(_fb_linked(compiled.url4)).operations == compiled.operations
 
 
@@ -865,9 +869,7 @@ def test_writer_default_prompt_rebuilds_without_prompt() -> None:
     url4 = _fb_compiled(recipe).url4
 
     assert _fb_calls(url4)["writer_1"].prompt == DEFAULT_SYNTHESIS_PROMPT
-    assert "gate=sf.Gate('agreement', '>=', 0.7, otherwise=sf.Model('prov/writer'))" in (
-        sf.Url4(url4).to_python()
-    )
+    assert "otherwise=sf.Synthesize('prov/writer'))" in sf.Url4(url4).to_python()
     rebuilt = _fb_recovered(url4)
     vote = rebuilt.synthesizer
     assert isinstance(vote, VoteNode)

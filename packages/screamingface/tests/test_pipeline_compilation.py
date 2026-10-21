@@ -213,7 +213,7 @@ def test_reusing_one_recipe_at_a_later_stage_creates_a_distinct_invocation() -> 
 
 def test_candidate_compilation_rejects_a_cycle_even_when_it_rebinds_input() -> None:
     pipeline = sf.Pipeline([sf.Model("provider/a"), sf.Model("provider/b")])
-    object.__setattr__(pipeline, "stages", (sf.Model("provider/a"), pipeline))
+    object.__setattr__(pipeline, "_stages", (sf.Model("provider/a"), pipeline))
 
     with pytest.raises(ValueError, match="cycle"):
         compile_candidate(pipeline)

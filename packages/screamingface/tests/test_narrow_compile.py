@@ -220,7 +220,7 @@ def test_nc2_the_last_of_two_narrow_steps_is_the_main_selection() -> None:
     lowered = lower(chain)
 
     assert isinstance(lowered, Pipeline)
-    fusion, writer = lowered.stages
+    fusion, writer = lowered._stage_values()
     assert isinstance(fusion, FusionNode)
     assert writer == sf.Model("prov/writer")
     assert isinstance(fusion.synthesizer, FilterNode)
@@ -362,10 +362,14 @@ def test_a_narrow_spec_decodes_and_names_its_narrow_operators() -> None:
 
 
 def test_to_python_of_a_narrow_url4_names_the_new_surface() -> None:
+    # U5d lifted at the swap (7e): to_python writes the narrow step in the new surface
     chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> sf.Vote()
 
-    with pytest.raises(ValueError, match=r"narrow steps"):
-        sf.Url4(_url4(chain)).to_python()
+    assert sf.Url4(_url4(chain)).to_python().splitlines()[-3:] == [
+        "    >> sf.Rank(2, by='cost_usd')",
+        "    >> sf.Vote(over='last_line@1', normalize='text@1')",
+        ")",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -504,8 +508,10 @@ def test_the_rebuild_refuses_five_narrow_items() -> None:
 def test_the_rebuild_takes_four_narrow_items_as_far_as_to_python() -> None:
     url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
 
-    # the url4 rebuilds and recompiles, then to_python names the surface that can spell it
-    _rebuild_refusal(_with_narrow_items(url4, 4), r"narrow steps before its reducer")
+    # the url4 rebuilds and recompiles, and to_python spells the four narrow steps (7e)
+    source = sf.Url4(_with_narrow_items(url4, 4)).to_python()
+
+    assert source.count("    >> sf.Filter(where=sf.matches('x'))\n") == 4
 
 
 def test_the_rebuild_refuses_a_label_judge_after_a_narrow_step() -> None:

@@ -55,10 +55,11 @@ def test_judge_round_trips_through_url4() -> None:
     compiled = _compiled(judge_fusion())
 
     source = sf.Url4(compiled.url4).to_python()
-    assert (
-        "synthesizer=sf.Judge('provider/j', returns='label', rubric='Pick the most correct "
-        "answer.'),"
-    ) in source
+    assert source.splitlines()[-2:] == [
+        "    >> sf.JudgePick('provider/j', rubric='Pick the most correct answer.')",
+        ")",
+    ]
+    assert _recovered(compiled.url4) == judge_fusion()
     assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
 
     replayed = _candidate_from_url4(_linked(compiled.url4))
@@ -88,16 +89,20 @@ def test_judge_round_trip_keeps_params_and_scores() -> None:
     )
     chain = sf.Fanout(members3()) >> original >> sf.ArgMax("score:judge")
     compiled = _compiled(chain)
-    # WHY the lowered node: until the swap (7e) the rebuild gives back today's value of the chain.
     lowered = lower(chain)
 
     rebuilt = _recovered(compiled.url4)
 
-    assert isinstance(rebuilt, FusionNode) and isinstance(lowered, FusionNode)
-    assert rebuilt.synthesizer == lowered.synthesizer
-    assert isinstance(rebuilt.synthesizer, JudgeNode)
-    for field in ("name", "model", "returns", "rubric", "params"):
-        assert getattr(rebuilt.synthesizer, field) == getattr(lowered.synthesizer, field)
+    assert rebuilt == chain
+    assert isinstance(rebuilt, sf.Pipeline)
+    judge = rebuilt.steps[1]
+    assert isinstance(judge, sf.Judge)
+    for field in ("model", "rubric", "params"):
+        assert getattr(judge, field) == getattr(original, field)
+    rebuilt_node = lower(rebuilt)
+    assert isinstance(rebuilt_node, FusionNode) and isinstance(lowered, FusionNode)
+    assert rebuilt_node.synthesizer == lowered.synthesizer
+    assert isinstance(rebuilt_node.synthesizer, JudgeNode)
     assert _compiled(rebuilt).url4 == compiled.url4
 
 
@@ -210,7 +215,7 @@ def test_corrective_replay_recompiles_a_judge_member() -> None:
     compiled = _compiled(loop)
 
     source = sf.Url4(compiled.url4).to_python()
-    assert "synthesizer=sf.Judge(" in source
+    assert ">> sf.JudgePick('provider/j', rubric='Pick the most correct answer.')" in source
     replayed = _candidate_from_url4(_linked(compiled.url4))
     assert replayed.kind == "corrective_loop"
     assert "ensemble/combine/v1" not in replayed.models

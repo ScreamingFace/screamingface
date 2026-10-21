@@ -20,6 +20,7 @@ from screamingface._evaluation.combine_spec import combine_spec_text, decode_com
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface._surface.chain import Step
 from screamingface._surface.lowering import lower
+from screamingface._surface.render import render
 from screamingface.fields import writer_intent
 from screamingface.reducer import Reducer, _ModelSignal
 
@@ -105,15 +106,18 @@ def test_the_recovered_reducers_equal_the_originals_field_by_field(name: str) ->
     original = _originals()[name]
 
     rebuilt = _recovered(_compiled(_block(original)).url4)
-    # WHY the node: until the swap (7e) the rebuild gives back the value the step lowers to
     node = _node(original)
 
-    assert isinstance(rebuilt, FusionNode)
-    assert rebuilt.synthesizer == node
-    assert type(rebuilt.synthesizer) is type(node)
+    assert rebuilt == _block(original)
+    assert isinstance(rebuilt, sf.Pipeline)
+    assert rebuilt.steps[1] == original
+    lowered = lower(rebuilt)
+    assert isinstance(lowered, FusionNode)
+    assert lowered.synthesizer == node
+    assert type(lowered.synthesizer) is type(node)
     if isinstance(original, sf.Merge):
-        assert isinstance(rebuilt.synthesizer, MergeNode)
-        assert list(rebuilt.synthesizer.fields) == list(original.fields)
+        assert isinstance(lowered.synthesizer, MergeNode)
+        assert list(lowered.synthesizer.fields) == list(original.fields)
 
 
 def _tamperings() -> dict[str, tuple[str, str, str]]:
@@ -226,7 +230,7 @@ def test_to_python_shows_only_the_author_prompt_of_each_model_field() -> None:
         for rule in merge.fields.values():
             if rule.rule == "model":
                 assert f"prompt={rule.prompt!r}" in python
-        assert f"synthesizer={_node(merge)._python()}," in python
+        assert f"    >> {render(merge, 'sf.')}" in python.splitlines()
         assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
 
 

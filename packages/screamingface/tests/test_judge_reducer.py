@@ -261,7 +261,8 @@ def test_a_judge_is_only_a_fusion_synthesizer() -> None:
     )
     misplaced: list[tuple[Any, type[Exception], str]] = [
         (lambda: sf.CorrectiveLoop(["p/a", "p/b"], judge=_judge()), TypeError, _NOT_A_RECIPE),
-        (lambda: sf.Pipeline([_judge()]), TypeError, _NOT_A_RECIPE),
+        # D7-2: sf.Pipeline is the chain, so a step in it needs the Fanout before it (CH-1)
+        (lambda: sf.Pipeline([_judge()]), ValueError, _NO_FANOUT),
         (lambda: sf.Fanout([_judge(), "p/a"]) >> sf.Synthesize("p/s"), TypeError, _NOT_A_RECIPE),
         (lambda: sf.Model("p/a") >> _judge(), ValueError, _NO_FANOUT),
         (lambda: client.evaluate(_judge(), benchmark="draco"), TypeError, _NOT_A_RECIPE),

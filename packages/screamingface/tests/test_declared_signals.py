@@ -260,22 +260,23 @@ def test_fusion_signals_round_trip_through_url4_rebuild_and_repr() -> None:
     )
     url4 = _compiled(fusion)
     code = sf.Url4(url4).to_python()
-    lines = code.splitlines()
-    signals_line = "    signals={'conf': sf.Verbalized('Confidence: ([0-9]+)')},"
-    assert signals_line in lines
-    synthesizer_lines = [
-        index for index, line in enumerate(lines) if line.startswith("    synthesizer=")
+    # the Fanout that declares the signal comes before the step that reads it
+    assert code.splitlines()[-3:] == [
+        "    sf.Fanout(['provider/a', 'provider/b', 'provider/c'], "
+        "signals={'conf': sf.Verbalized('Confidence: ([0-9]+)')})",
+        "    >> sf.Vote(over='last_line@1', normalize='text@1', weights='conf')",
+        ")",
     ]
-    assert synthesizer_lines and lines.index(signals_line) < synthesizer_lines[0]
 
     namespace: dict[str, Any] = {}
     exec(code, namespace)  # noqa: S102 - our own generated code
     rebuilt = namespace["candidate"]
-    assert rebuilt.signals == {"conf": sf.Verbalized(CONF_PATTERN)}
+    assert rebuilt.steps[0].signals == {"conf": sf.Verbalized(CONF_PATTERN)}
     # WHY: the url4 rebuild keeps the pinned operator ids ('@1'), erratum E9.
     assert repr(rebuilt) == (
-        "Fusion(['a', 'b', 'c'], signals={'conf': Verbalized('Confidence: ([0-9]+)')}, "
-        "synthesizer=Vote(extract='last_line@1', normalize='text@1', weights=signal('conf')))"
+        "Fanout(['provider/a', 'provider/b', 'provider/c'], "
+        "signals={'conf': Verbalized('Confidence: ([0-9]+)')}) >> "
+        "Vote(over='last_line@1', normalize='text@1', weights='conf')"
     )
     assert _compiled(rebuilt) == url4
 
@@ -330,5 +331,5 @@ def test_rebuild_keeps_authored_params_of_a_declared_fusion() -> None:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
     rebuilt = namespace["candidate"]
-    assert rebuilt.members[0].params == {"logprobs": True, "top_logprobs": 3}
+    assert rebuilt.steps[0].members[0].params == {"logprobs": True, "top_logprobs": 3}
     assert _compiled(rebuilt) == url4

@@ -116,7 +116,7 @@ def test_benchmark_extract_resolves_before_spend() -> None:
     benchmark_paths = [path for path in events if path.startswith("/v1/benchmarks")]
     assert benchmark_paths == [f"/v1/benchmarks/{_GSM8K}"]
     python = sf.Url4(report.candidates[0].url4).to_python()
-    assert "sf.Vote(extract='inspect_number@1', normalize='inspect_numeric@1')" in python
+    assert "sf.Vote(over='inspect_number@1', normalize='inspect_numeric@1')" in python
     reported = spec_of(report.candidates[0].url4)
     assert all("benchmark" not in str(reported[stage]) for stage in ("extract", "normalize"))
 

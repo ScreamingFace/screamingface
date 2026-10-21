@@ -38,10 +38,16 @@ _G_GATE_SPEC = (
     '"gate":{"abstain_band":[2.5,3.5],"cmp":"<=","observe":"mean:risk",'
     '"otherwise":"abstain","threshold":3.0}'
 )
-_G_TEXT = "sf.Gate('mean:risk', '<=', 3.0, abstain_band=(2.5, 3.5))"
+_G_TEXT = (
+    "    >> sf.Gate(when=sf.signal('risk').mean() <= 3.0, "
+    "then=sf.Vote(over='last_line@1', normalize='text@1'), "
+    "abstain_if=sf.signal('risk').mean().between(2.5, 3.5))"
+)
 _G_JUDGE_TEXT = (
-    "sf.Gate('mean:risk', '<=', 3.0, otherwise=sf.Judge('prov/judge', returns='label', "
-    "rubric='Pick the best answer.'), abstain_band=(2.5, 3.5))"
+    "    >> sf.Gate(when=sf.signal('risk').mean() <= 3.0, "
+    "then=sf.Vote(over='last_line@1', normalize='text@1'), "
+    "otherwise=sf.JudgePick('prov/judge', rubric='Pick the best answer.'), "
+    "abstain_if=sf.signal('risk').mean().between(2.5, 3.5))"
 )
 # The four part 5 gate fixtures. A FIXED tuple, never a glob (test-plan §6).
 _PART5_GATE_FIXTURES: tuple[str, ...] = (
@@ -82,9 +88,10 @@ def _compiled(recipe: sf.Recipe) -> str:
 
 
 def _rebuilt(url4: str) -> FusionNode:
+    """The chain ``to_python()`` builds, lowered to the node that holds the gated vote."""
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    candidate = namespace["candidate"]
+    candidate = lower(namespace["candidate"])
     assert isinstance(candidate, FusionNode)
     return candidate
 
@@ -213,7 +220,7 @@ def test_url4_rebuilds_a_band_with_and_without_a_fallback_judge(fallback: str) -
     recipe = _recipe_g("abstain" if fallback == "abstain" else _judge())
     url4 = _compiled(recipe)
     text = _G_TEXT if fallback == "abstain" else _G_JUDGE_TEXT
-    assert text in sf.Url4(url4).to_python()
+    assert text in sf.Url4(url4).to_python().splitlines()
     lowered = lower(recipe)
     assert isinstance(lowered, FusionNode)
     original, rebuilt = lowered.synthesizer, _rebuilt(url4).synthesizer

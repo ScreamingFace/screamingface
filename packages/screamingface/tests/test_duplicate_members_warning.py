@@ -80,7 +80,7 @@ def test_two_groups_of_duplicates_warn_once_each() -> None:
     ],
     ids=["samples", "prompts", "params", "model-synthesizer", "nested-fusions"],
 )
-def test_distinct_members_and_non_reducer_fusions_do_not_warn(fusion: sf.Fusion) -> None:
+def test_distinct_members_and_non_reducer_fusions_do_not_warn(fusion: sf.Recipe) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error", sf.DuplicateMembersWarning)
         _compile(fusion)
@@ -125,11 +125,11 @@ def test_url4_recovery_never_repeats_the_warning() -> None:
         python = sf.Url4(compiled).to_python()
         recovered = _candidate_from_url4(_linked(compiled))
 
-    assert "Fusion" in python
+    assert "sf.Fanout(['provider/a', 'provider/a'])" in python
     assert recovered.kind == "corrective_loop"
 
 
-def _pair(first: sf.Model, second: sf.Model) -> sf.Fusion:
+def _pair(first: sf.Model, second: sf.Model) -> sf.Recipe:
     return fusion_node([first, second], FixtureVote())
 
 
@@ -150,7 +150,7 @@ def _pair(first: sf.Model, second: sf.Model) -> sf.Fusion:
     ],
     ids=["default-prompt", "leading-slash", "param-spelling", "param-order", "names"],
 )
-def test_spellings_that_send_the_same_request_warn(fusion: sf.Fusion) -> None:
+def test_spellings_that_send_the_same_request_warn(fusion: sf.Recipe) -> None:
     with pytest.warns(sf.DuplicateMembersWarning, match="members 1 and 2"):
         _compile(fusion)
 

@@ -92,5 +92,5 @@ def test_a_quorum_judge_recovers_as_the_same_judge() -> None:
         _url4(sf.Fanout(_MEMBERS, quorum=2) >> judge >> sf.ArgMax("score:judge"), flow_operators())
     )
 
-    assert f"sf.Judge('provider/j', returns='scores', rubric={RUBRIC!r})" in source
+    assert f">> sf.Judge('provider/j', rubric={RUBRIC!r})" in source
     assert "quorum=2" in source

@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import FilterNode, FusionNode, JudgeNode, ReduceNode, fusion_node
+from _nodes import FilterNode, FusionNode, JudgeNode, ReduceNode, fusion_node, lowered
 from url4 import Expression, build
 
 import screamingface as sf
@@ -196,13 +196,16 @@ def test_url4_round_trip_rebuilds_a_judge_filter_and_filter_block(shape: str) ->
         )
     url4 = compile_candidate(chain, operators=flow_operators()).url4
 
-    assert (
-        "synthesizer=sf.Filter(where=sf.signal('score:judge') >= 7.0, judge=sf.Judge('provider/j', "
-        "returns='scores', rubric='Score each draft.'))," in sf.Url4(url4).to_python()
-    )
+    assert sf.Url4(url4).to_python().splitlines()[-4:] == [
+        "    >> sf.Judge('provider/j', rubric='Score each draft.')",
+        "    >> sf.Filter(where=sf.signal('score:judge') >= 7.0)",
+        "    >> sf.Synthesize('provider/next')",
+        ")",
+    ]
     recovered = _recovered(url4)
+    assert recovered == chain
     assert isinstance(recovered, sf.Pipeline)
-    stage = recovered.stages[0]
+    stage = lowered(recovered)._stage_values()[0]
     assert isinstance(stage, FusionNode)
     assert type(stage.synthesizer) is FilterNode
     assert stage.synthesizer == _filter_by_judge()

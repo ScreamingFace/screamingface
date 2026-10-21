@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 from _combine_contract import GSM8K_RULE_WIRE, engine_operators
-from _nodes import VoteNode
+from _nodes import VoteNode, lowered
 from _vote_run_fixtures import ScriptedTransport, benchmark_resource, case_wire, engine_handler
 from test_engine_url4_contract_fixtures import signal_vote_url4
 from url4 import build, render
@@ -80,6 +80,6 @@ def test_signal_reduce_replays_identically_from_cache() -> None:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
     recovered = namespace["candidate"]
-    assert recovered.synthesizer.weights == sf.signal("cost_usd")
-    assert type(recovered.synthesizer) is VoteNode
+    assert lowered(recovered).synthesizer.weights == sf.signal("cost_usd")
+    assert type(lowered(recovered).synthesizer) is VoteNode
     assert compile_candidate(recovered, operators=engine_operators()).url4 == original

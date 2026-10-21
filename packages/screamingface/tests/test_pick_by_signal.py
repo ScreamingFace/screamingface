@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import FusionNode, PickNode, ReduceNode, fusion_node
+from _nodes import FusionNode, PickNode, ReduceNode, fusion_node, lowered
 from test_combine_sources import _call, _context, context_of
 from url4 import Expression, build
 
@@ -208,7 +208,7 @@ def test_argmax_block_canonical_form() -> None:
 def _recovered(url4: str) -> Reducer:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    synthesizer = namespace["candidate"].synthesizer
+    synthesizer = lowered(namespace["candidate"]).synthesizer
     assert isinstance(synthesizer, Reducer)
     return synthesizer
 
@@ -218,13 +218,16 @@ def test_argmax_round_trips_through_url4_and_recovers_as_pick() -> None:
     url4 = _url4(_block(pick))
 
     source = sf.Url4(url4).to_python()
-    assert "sf.Pick(by_signal=sf.signal('cost_usd'), order='min')" in source
+    assert source.endswith(
+        "candidate = sf.Fanout(['provider/a', 'provider/b', 'provider/c']) >> sf.ArgMin('cost_usd')"
+    )
     recovered = _recovered(url4)
-    # WHY the node: until the swap (7e) the rebuild gives back the value the step lowers to
+    # the chain's lowered node holds the Pick the url4 is recovered as
     assert type(recovered) is PickNode
     assert recovered == _reducer(pick)
     namespace: dict[str, Any] = {}
     exec(source, namespace)  # noqa: S102 - our own generated code
+    assert namespace["candidate"] == _block(pick)
     assert _url4(namespace["candidate"]) == url4
     assert "sources:" in url4  # the recompiled text keeps the accounting sources
     # BK#8: the block form is recovered as the named class too (group F, 7f: D7-8)

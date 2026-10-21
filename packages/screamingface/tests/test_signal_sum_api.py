@@ -42,8 +42,9 @@ _SPEC_SIGNALS = {
     "sev_b": {"pattern": _B, "source": "verbalized"},
 }
 _SIGNALS_LINE = (
-    "    signals={'risk': sf.Sum({'sev_a': 0.5, 'sev_b': 0.3}), "
-    "'sev_a': sf.Verbalized('A: ([0-9]+)'), 'sev_b': sf.Verbalized('B: ([0-9]+)')},"
+    "    sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'], "
+    "signals={'risk': sf.Sum({'sev_a': 0.5, 'sev_b': 0.3}), "
+    "'sev_a': sf.Verbalized('A: ([0-9]+)'), 'sev_b': sf.Verbalized('B: ([0-9]+)')}, name='pick')"
 )
 
 
@@ -339,11 +340,12 @@ def test_url4_rebuilds_a_sum() -> None:
     namespace: dict[str, Any] = {}
     exec(code, namespace)  # noqa: S102 - our own generated code
     recovered = namespace["candidate"]
-    assert isinstance(recovered, FusionNode)
-    lowered = lower(fusion)
+    assert recovered == fusion
+    assert repr(recovered) == repr(fusion)
+    node, lowered = lower(recovered), lower(fusion)
+    assert isinstance(node, FusionNode)
     assert isinstance(lowered, FusionNode)
-    assert recovered.signals == lowered.signals
-    assert repr(recovered) == repr(lowered)
+    assert node.signals == lowered.signals
     assert _compiled(recovered) == url4
 
 

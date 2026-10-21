@@ -20,7 +20,6 @@ import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._signals import Signal
 from screamingface._surface.chain import Step
-from screamingface._surface.lowering import lower
 
 _ALPHA = "openrouter/acme/alpha"
 _BETA = "openrouter/acme/beta"
@@ -130,8 +129,8 @@ def test_entropy_fusion_rebuilds_from_url4_without_injected_params(
     assert code.count("top_logprobs") == 1
     assert "params=" not in code
     recovered = _recovered(url4)
-    # WHY lower: until the swap (7e) the rebuild writes today's classes, the lowered value.
-    assert repr(recovered) == repr(lower(fusion))
+    assert recovered == fusion
+    assert repr(recovered) == repr(fusion)
     assert _compiled(recovered) == url4
 
 

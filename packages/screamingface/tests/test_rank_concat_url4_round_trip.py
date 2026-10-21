@@ -125,16 +125,18 @@ def test_rank_and_concat_round_trip(shape: str) -> None:
 
 def test_to_python_writes_the_reducers() -> None:
     judged = sf.Url4(_compiled(_shapes()["rank by judge"]).url4).to_python()
-    assert (
-        "synthesizer=sf.Rank(k=2, by=sf.Judge('provider/j', returns='scores', "
-        "rubric='Pick the most correct answer.')),"
-    ) in judged
+    assert judged.splitlines()[-4:] == [
+        "    >> sf.Judge('provider/j', rubric='Pick the most correct answer.')",
+        "    >> sf.Rank(2, by='score:judge')",
+        "    >> sf.Synthesize('provider/w', prompt='Write.')",
+        ")",
+    ]
     signal = sf.Url4(_compiled(_shapes()["rank by signal min"]).url4).to_python()
-    assert "synthesizer=sf.Rank(k=2, by_signal=sf.signal('field:score'), order='min')," in signal
+    assert "    >> sf.Rank(2, by='field:score', order='min')" in signal.splitlines()
     plain = sf.Url4(_compiled(_shapes()["rank by signal"]).url4).to_python()
-    assert "synthesizer=sf.Rank(k=2, by_signal=sf.signal('field:score'))," in plain
+    assert "    >> sf.Rank(2, by='field:score')" in plain.splitlines()
     concat = sf.Url4(_compiled(_shapes()["concat"]).url4).to_python()
-    assert "synthesizer=sf.Concat(separator='\\n\\n---\\n\\n', label=True)," in concat
+    assert "    >> sf.Concat()" in concat.splitlines()
 
 
 def test_the_recovered_reducers_equal_the_originals() -> None:
@@ -144,12 +146,17 @@ def test_the_recovered_reducers_equal_the_originals() -> None:
         "rank by accounting signal",
         "concat without labels",
     ):
-        # WHY lower: until the swap (7e) the rebuild gives back the lowered value of a chain
-        original = lower(_shapes()[shape])
-        rebuilt = _recovered(_compiled(original).url4)
-        assert isinstance(original, sf.Pipeline)
+        chain = _shapes()[shape]
+        rebuilt = _recovered(_compiled(chain).url4)
+        assert isinstance(chain, sf.Pipeline)
         assert isinstance(rebuilt, sf.Pipeline)
-        before, after = original.stages[0], rebuilt.stages[0]
+        # the Fanout, the judge and the narrow step come back as written; the writer holds its
+        # prompt on the step (Synthesize('provider/w', prompt=...)), which lowers to the same Model
+        assert rebuilt.steps[:-1] == chain.steps[:-1]
+        original, lowered = lower(chain), lower(rebuilt)
+        assert isinstance(original, sf.Pipeline)
+        assert isinstance(lowered, sf.Pipeline)
+        before, after = original._stage_values()[0], lowered._stage_values()[0]
         assert isinstance(before, FusionNode)
         assert isinstance(after, FusionNode)
         assert after.synthesizer == before.synthesizer
@@ -215,7 +222,8 @@ def test_a_followed_selection_inside_a_corrective_loop_round_trips() -> None:
     for recipe, kind in ((loop, "corrective_loop"),):
         compiled = _compiled(recipe)
         source = sf.Url4(compiled.url4).to_python()
-        assert "synthesizer=sf.Concat(" in source or "synthesizer=sf.Rank(" in source
+        assert ">> sf.Concat() >> sf.Synthesize(" in source
+        assert ">> sf.Rank(1, by='score:judge') >> sf.Synthesize(" in source
         assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
         replayed = _candidate_from_url4(_linked(compiled.url4))
         assert replayed.kind == kind

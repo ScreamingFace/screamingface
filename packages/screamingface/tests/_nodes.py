@@ -14,8 +14,9 @@ import json
 from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+from screamingface._surface.lowering import lower
 from screamingface.blocks import ReduceNode
 from screamingface.fields import MergeNode, PickNode
 from screamingface.fusion import FusionNode
@@ -41,6 +42,7 @@ __all__ = [
     "VoteNode",
     "frozen_url4",
     "fusion_node",
+    "lowered",
 ]
 
 _SURFACE_PARITY = Path(__file__).parent / "data" / "surface_parity.json"
@@ -60,6 +62,17 @@ def fusion_node(
     return FusionNode(
         members, name=name, signals=signals, synthesizer=reducer, quorum=quorum, optional=optional
     )
+
+
+def lowered(value: object) -> Any:
+    """The internal node a chain lowers to, typed ``Any`` for a field read (``.synthesizer``).
+
+    WHY: since the swap (7e) ``to_python()`` builds a chain; a test that checks the reducer a url4
+    is recovered as reads it on the lowered node.
+    """
+
+    assert isinstance(value, Recipe)
+    return lower(value)
 
 
 @cache

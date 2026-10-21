@@ -229,7 +229,7 @@ def test_a_filter_stores_a_plain_signal() -> None:
     assert isinstance(step.where, _Comparison)
     assert type(step.where.signal) is Signal
     assert isinstance(node, sf.Pipeline)
-    fusion = node.stages[0]
+    fusion = node._stage_values()[0]
     assert isinstance(fusion, FusionNode)
     synthesizer = fusion.synthesizer
     assert isinstance(synthesizer, FilterNode)
