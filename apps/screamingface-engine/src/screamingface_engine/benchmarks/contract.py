@@ -30,6 +30,9 @@ CANDIDATE_ROUTE = "/benchmarks/candidate"
 # resolves. Published in every Benchmark resource: a client cannot be expected to infer it.
 CANDIDATE_BINDING = "candidate"
 CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
+# FEATURE (OME-1678): v2 lets a user message carry pictures and PDFs as inline data: URIs.
+# A text-only Case stays v1, so each Case has exactly one valid encoding.
+CANDIDATE_INPUT_V2_SCHEMA = "screamingface.candidate-input.v2"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"})

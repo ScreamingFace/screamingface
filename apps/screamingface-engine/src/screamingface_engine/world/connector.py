@@ -7,7 +7,6 @@ resolves and runs an expression against.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
 import random
@@ -21,8 +20,11 @@ from weakref import WeakKeyDictionary
 import httpx
 
 from screamingface_engine import engine_version, job_env
+from screamingface_engine.benchmarks.candidate_input import (
+    CandidateInputError,
+    parse_candidate_input,
+)
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
-from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -1475,8 +1477,8 @@ def _frozen_tool_results(
     return FrozenToolResults(http_client, headers, target[1], replay=False)
 
 
-def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
+def _messages(context: str | None, intent: str | None) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
     if intent:
         messages.append({"role": "system", "content": intent})
     native = _native_messages(context)
@@ -1487,53 +1489,17 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
     return messages
 
 
-def _native_messages(context: str | None) -> list[dict[str, str]] | None:
-    envelope = _candidate_input_envelope(context)
-    if envelope is None:
-        return None
-    return _candidate_messages(envelope["messages"])
+def _native_messages(context: str | None) -> list[dict[str, Any]] | None:
+    """The Case's own chat messages, or ``None`` when its input is a plain prompt.
 
-
-def _candidate_input_envelope(context: str | None) -> dict[str, object] | None:
-    value = _json_object(context)
-    if value is None:
-        return None
-    schema = value.get("schema")
-    if schema == CANDIDATE_INPUT_SCHEMA:
-        if set(value) != {"schema", "messages"}:
-            _invalid_candidate_input("the chat envelope must contain only schema and messages")
-        return value
-    if isinstance(schema, str) and schema.startswith("screamingface.candidate-input."):
-        _invalid_candidate_input(f"unsupported schema {schema!r}")
-    return None
-
-
-def _json_object(context: str | None) -> dict[str, object] | None:
-    if not context:
-        return None
+    FEATURE (OME-1678): the candidate-input envelope module owns the rules, so this connector and
+    the inspect plugin read one rule. A v2 Case's pictures come back as content parts and travel
+    to the gateway verbatim.
+    """
     try:
-        value = json.loads(context)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    return value if isinstance(value, dict) else None
-
-
-def _candidate_messages(raw_messages: object) -> list[dict[str, str]]:
-    if not isinstance(raw_messages, list) or not raw_messages:
-        _invalid_candidate_input("messages must be a non-empty array")
-    return [_candidate_message(index, value) for index, value in enumerate(raw_messages)]
-
-
-def _candidate_message(index: int, value: object) -> dict[str, str]:
-    if not isinstance(value, dict) or set(value) != {"role", "content"}:
-        _invalid_candidate_input(f"message {index} must contain exactly role and content")
-    role = value.get("role")
-    content = value.get("content")
-    if not isinstance(role, str) or role not in CANDIDATE_MESSAGE_ROLES:
-        _invalid_candidate_input(f"message {index} has unsupported role {role!r}")
-    if not isinstance(content, str):
-        _invalid_candidate_input(f"message {index} content must be text")
-    return {"role": role, "content": content}
+        return parse_candidate_input(context)
+    except CandidateInputError as exc:
+        _invalid_candidate_input(str(exc))
 
 
 def _invalid_candidate_input(detail: str) -> NoReturn:
