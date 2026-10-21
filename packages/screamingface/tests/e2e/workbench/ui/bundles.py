@@ -3,18 +3,27 @@
 A bundle is any directory under the root holding ``trace.json`` or ``executed.ipynb``
 (``write_bundle`` lays them out as ``<root>/<target>/<notebook>/``; UI-launched runs add a
 ``runs/<id>/`` prefix). Bundles may come from an unzipped CI artifact, so every file is
-untrusted: odd shapes degrade to "unreadable", and symlinks — directories or files — are
-never followed, so nothing outside the root is ever read.
+untrusted: odd shapes degrade to "unreadable", filesystem errors degrade to "not a bundle"
+(or a marked log), logs are capped at ``LOG_CAP_BYTES``, and symlinks — directories or files,
+at any depth of a key — are never followed, so nothing outside the root is ever read and
+``load`` serves exactly the keys ``discover`` lists.
+
+Not defended: a file swapped for a symlink between the ``_regular`` check and the read
+(TOCTOU). Acceptable for a loopback dev tool reading the user's own disk.
 """
 
 from __future__ import annotations
 
 import json
+import posixpath
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 _MARKERS = ("trace.json", "executed.ipynb")
+LOG_CAP_BYTES = 1 << 20  # per log; an unzipped artifact can carry anything
+TRUNCATED_MARK = "\n[... truncated by the workbench UI ...]"
+UNREADABLE_LOG = "[log unreadable]"
 
 
 class BundleNotFound(LookupError):
@@ -41,7 +50,10 @@ class BundleDetail:
 
 
 def _regular(path: Path) -> bool:
-    return not path.is_symlink() and path.is_file()
+    try:
+        return not path.is_symlink() and path.is_file()
+    except (OSError, ValueError):
+        return False
 
 
 def _is_bundle(directory: Path) -> bool:
@@ -67,9 +79,16 @@ def _strings(trace: dict[str, Any], field: str) -> tuple[str, ...]:
     return tuple(item for item in items if isinstance(item, str))
 
 
-def _summary(root: Path, directory: Path, trace: dict[str, Any] | None) -> BundleSummary:
+def _mtime(directory: Path) -> float:
     marker = directory / "trace.json"
-    modified = (marker if _regular(marker) else directory).stat().st_mtime
+    try:
+        return (marker if _regular(marker) else directory).stat().st_mtime
+    except OSError:  # vanished between the bundle check and now
+        return 0.0
+
+
+def _summary(root: Path, directory: Path, trace: dict[str, Any] | None) -> BundleSummary:
+    modified = _mtime(directory)
     data = trace or {}
     passed = data.get("passed")
     return BundleSummary(
@@ -88,7 +107,14 @@ def _subdirs(directory: Path) -> list[Path]:
         children = list(directory.iterdir())
     except OSError:
         return []
-    return [c for c in children if not c.is_symlink() and c.is_dir()]
+    return [c for c in children if _plain_dir(c)]
+
+
+def _plain_dir(path: Path) -> bool:
+    try:
+        return not path.is_symlink() and path.is_dir()
+    except (OSError, ValueError):
+        return False
 
 
 def discover(root: Path, *, max_depth: int = 4) -> list[BundleSummary]:
@@ -106,19 +132,41 @@ def discover(root: Path, *, max_depth: int = 4) -> list[BundleSummary]:
 
 
 def _resolve(root: Path, key: str) -> Path:
-    candidate = (root / key).resolve()  # resolves ".." and symlinks before the containment check
-    if root not in candidate.parents or not candidate.is_dir() or not _is_bundle(candidate):
+    # Lexical normalization first, then a resolve that must change nothing: any symlink on the
+    # way (even one pointing back inside the root) makes them differ, so the key is refused.
+    normalized = posixpath.normpath(key) if key else ""
+    if not normalized or normalized.startswith(("/", "..")) or normalized == ".":
+        raise BundleNotFound(key)
+    expected = root / normalized
+    try:
+        candidate = expected.resolve(strict=True)
+        found = candidate == expected and _plain_dir(candidate) and _is_bundle(candidate)
+    except (OSError, ValueError, RuntimeError):  # NUL byte, ENAMETOOLONG, EACCES, loops
+        found = False
+    if not found:
         raise BundleNotFound(key)
     return candidate
 
 
+def _read_log(path: Path) -> str:
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(LOG_CAP_BYTES + 1)
+    except OSError:
+        return UNREADABLE_LOG
+    text = data[:LOG_CAP_BYTES].decode(errors="replace")
+    return text + TRUNCATED_MARK if len(data) > LOG_CAP_BYTES else text
+
+
 def _logs(directory: Path) -> dict[str, str]:
     logs_dir = directory / "logs"
-    if logs_dir.is_symlink() or not logs_dir.is_dir():
+    if not _plain_dir(logs_dir):
         return {}
-    return {
-        p.stem: p.read_text(errors="replace") for p in sorted(logs_dir.glob("*.txt")) if _regular(p)
-    }
+    try:
+        paths = sorted(logs_dir.glob("*.txt"))
+    except OSError:
+        return {}
+    return {p.stem: _read_log(p) for p in paths if _regular(p)}
 
 
 def load(root: Path, key: str) -> BundleDetail:
