@@ -126,3 +126,16 @@ Verified: workbench unit + UI suites; `SCREAMINGFACE_TEST_E2E=1` keyless runs of
 a scripted smoke of the real UI on :9112 (progress `running quickstart… 00:06`, PASS, 409 on a
 finished cancel, spend `$0` with cache-saved `unknown`, Ctrl-C mid-run → UI exit 130, no
 pytest left, 9105/9106/9108/9112 free). Not run: a paid `local` run.
+
+## Follow-ups found in the final smoke (2026-10-21)
+
+- **Cancel during replay-stack boot can orphan the Postgres testcontainer briefly.** `replay_stack`
+  (`tests/e2e/harness/stack.py`) calls `backend.start()` outside its `try`, and
+  `CacheSeededGateway` assigns `self._container` only after `container.start()` returns, so an
+  interrupt mid-boot skips `backend.stop()`. Testcontainers' Ryuk reaper removes the container once
+  the run's process exits (verified: none left afterwards), so the leak is transient. The proper fix
+  lives in the shared harness (core branch, pre-existing file); it needs its own test-change
+  approval, so it's tracked separately rather than reopening PR #1455.
+- No paid `local` run yet: the cancel guidance for a real local runtime and real `cost_usd`
+  rendering are verified only with fakes and on replay.
+- `just` is not installed on the dev machine; the documented no-`just` command was smoked instead.
