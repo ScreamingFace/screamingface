@@ -73,3 +73,15 @@ Decisions S1–S9 are on the ticket; the spec is
   against the copy (`apps/aigateway/.../frozen_copy/models.py`); n is written in several places of
   the url4 (`benchmarks/protocol.py:243-296`), so the SDK rebuilds rather than edits it.
 - Follow-up filed: `OME-1699` (per-case results on the board); its mirror rides with this unit's docs.
+
+## Breaking rename (owner, 2026-10-21)
+
+- Row 2 showed that deprecating `frozen_copy_id` with a warning meant a hand-written ~25-field
+  `LeaderboardScore` constructor and about 90 prior-test wraps (the suite turns this package's
+  `DeprecationWarning`s into errors). The feature is one week old (0.1.3, 2026-10-14) and the SDK is
+  pre-1.0, so the owner chose a hard rename and removing `sf.reproduce` now (spec Q12, Q13; ticket
+  S7, S8 and acceptance updated). Plan rows 2 and 4 and its prior-test section amended. Option A's
+  warning wraps are no longer needed; prior tests are renamed or migrated instead, listed in
+  `.claude/test-change-approvals/OME-1613.json`.
+- Public docs: four `public-docs` pages teach `sf.reproduce` or `frozen_copy_id`; `OME-1614` rewrites
+  them (ticket updated the same day).

@@ -252,7 +252,7 @@ class Client:
         """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
 
         `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
         `capture=False` turns it off. An Engine that did not capture a run is reported with an
         `EvaluationWarning`.
         """
@@ -627,7 +627,7 @@ class AsyncClient:
         """Asynchronously evaluate Recipes, or replay one complete evaluation URL4.
 
         `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
         `capture=False` turns it off. An Engine that did not capture a run is reported with an
         `EvaluationWarning`.
         """

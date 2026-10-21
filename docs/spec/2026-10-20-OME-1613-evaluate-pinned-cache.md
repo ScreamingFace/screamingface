@@ -20,15 +20,17 @@ sf.evaluate(*, score_id: str, pinned_cache: str | None = None, url4: str | None 
   module-level `sf.evaluate`.
 - A replay call takes no `candidates`, no `benchmark=` and no `capture=True` (S6: a replay records
   nothing; an explicit `capture=True` with a replay id is an error).
-- `CandidateResult` gains `pinned_cache: str | None` and `reproduction: Reproduction | None`.
-  `LeaderboardScore` gains `pinned_cache`. `frozen_copy_id` stays on both as a property returning
-  the same value with a `DeprecationWarning` (S7).
+- `CandidateResult` gains `reproduction: Reproduction | None`. On `CandidateResult` and
+  `LeaderboardScore` the field `frozen_copy_id` is **renamed** to `pinned_cache`, with no alias
+  (owner, 2026-10-21, Q12). Saved-report JSON and every wire name keep `frozen_copy_id`, so old
+  report files still load.
 - `submit(..., authors_metadata=None, paper_metadata=None)` and
   `leaderboards.edit(score_id, ..., authors_metadata=..., paper_metadata=...)` send both fields as
   plain JSON objects (S9). The scoreboard (OME-1596) owns keys, bounds and matching; the SDK checks
   only the types (mapping of str → mapping or scalar), so a typo fails before the request.
-- `sf.reproduce(score)` keeps working through the same code path and warns
-  `DeprecationWarning: use sf.evaluate(pinned_cache=…)` (S8).
+- `sf.reproduce` and `Client.reproduce` / `AsyncClient.reproduce` are **removed** (owner,
+  2026-10-21, Q13). `sf.evaluate(score_id=…)` replaces them; `record=` becomes
+  `record_reproduction=`. The CHANGELOG lists both under Breaking, with the replacement.
 
 ## 2. Finding the published score
 
@@ -38,8 +40,9 @@ sf.evaluate(*, score_id: str, pinned_cache: str | None = None, url4: str | None 
 | `score_id` (with or without `pinned_cache`) | `GET /v1/public/scores/{id}`; on 404, the gated `GET /v1/scores/{id}` | only for a private score (Q3, R2) |
 
 - With `score_id`, the public lookup by cache id is skipped (Q8).
-- With both ids, the score's `frozen_copy_id` must equal `pinned_cache`, else `ValueError` before any
-  run (Q8). With `score_id` alone, `pinned_cache` is the score's `frozen_copy_id`.
+- With both ids, the score's copy id (`frozen_copy_id` on the wire, `pinned_cache` in the SDK) must
+  equal `pinned_cache`, else `ValueError` before any run (Q8). With `score_id` alone, `pinned_cache`
+  is the score's copy id.
 - Both public reads answer the same 404 for unknown, malformed, private and never-submitted ids, by
   design. The error text names all four.
 - Checked on production 2026-10-21: the public score read returns `frozen_copy_id`, `capture_status`,
@@ -100,7 +103,7 @@ seed is part of the request, so it is part of the request digest the copy is key
 with another seed, or with one where the capture had none, misses every call. The board omits a
 null seed from its JSON. `0` is a seed: the code tests `is None`, never truthiness.
 
-**With a published score** (`pinned_cache` lookup, `score_id`, deprecated `sf.reproduce`):
+**With a published score** (`pinned_cache` lookup, `score_id`):
 
 | # | Board seed | Caller passes | Result |
 |---|---|---|---|
@@ -175,6 +178,8 @@ one fact for a copy without returning stored requests (E14 B1 rule), so it is a 
 | R4 | Overloads | One per required id (`pinned_cache` or `score_id`). |
 | — | No seed | A score without a seed replays with none; passing one is a mismatch (§3). On S4, `answer_seed` is needed only if the run had one. |
 | Q11 | S4 seed mismatch (§4a rows 9–11) | Hint and warning when every case misses on the S4 path; an up-front check is a later gateway change. |
+| Q12 | Old field name | Hard rename `frozen_copy_id` → `pinned_cache` in the Python API, no alias (feature one week old, SDK pre-1.0). Wire and JSON keep `frozen_copy_id`. Replaces S7's deprecated alias. |
+| Q13 | `sf.reproduce` | Removed now; `sf.evaluate(score_id=…)` replaces it. Replaces S8's deprecation. |
 
 ## 7. Invariants
 
@@ -186,5 +191,10 @@ one fact for a copy without returning stored requests (E14 B1 rule), so it is a 
 ## 8. Release
 
 - OME-1596 (PR #1440) is live in production (smoke-checked 2026-10-20).
+- The release is a **breaking** minor version (Q12, Q13): `frozen_copy_id` is `pinned_cache` in the
+  Python API and `sf.reproduce` is gone. The CHANGELOG lists both under Breaking with the
+  replacement (`sf.evaluate(score_id=…)`, `record_reproduction=`). The public docs that teach
+  `sf.reproduce` or `frozen_copy_id` (four pages under `public-docs/src/pages/`) are rewritten in
+  `OME-1614`, which ships with or right after this release.
 - The release must also contain PR #1486 (OME-1649), or recording and submit hang on the production
   login. SDK 0.1.5 (released 2026-10-20 from `0fb6f20be`) does not.

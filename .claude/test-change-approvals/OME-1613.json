@@ -1,0 +1,34 @@
+{
+  "issue": "OME-1613",
+  "branch": "OME-1613-evaluate-pinned-cache",
+  "approver": "owner (Filip), explicit approval in conversation on 2026-10-21 (plan option A, then the hard rename and the removal of sf.reproduce, spec Q12 and Q13)",
+  "date": "2026-10-21",
+  "scope": "Row 2 (rename): attribute reads and constructor keywords of CandidateResult and LeaderboardScore change from frozen_copy_id to pinned_cache in test_capture_submission.py, test_capture_summary.py, test_frozen_copy_evaluate.py, test_reproduce.py and test_reproduce_review.py; the pytest.raises match strings that name the field follow the renamed error message. public_surface_snapshot.json is regenerated with the renamed field and keyword.",
+  "reason": "The owner-approved OME-1613 spec renames frozen_copy_id to pinned_cache in the Python API with no alias (Q12) and removes sf.reproduce in favour of sf.evaluate(score_id=...) (Q13). Prior tests are renamed or migrated to the new names; no assertion is removed or loosened, and wire and JSON keys named frozen_copy_id stay as they are.",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "dfaa04c2487082fcc75221375a8f4134bb40be8d",
+      "approved_blob": "6e348624f9dee7cda246af337ccf8af6eff7c93a"
+    },
+    "packages/screamingface/tests/test_capture_submission.py": {
+      "base_blob": "06962ad07e4021be323726796e289f2dd7826205",
+      "approved_blob": "2f3fa14dd988f91e4685fde6b59df132650436b3"
+    },
+    "packages/screamingface/tests/test_capture_summary.py": {
+      "base_blob": "50ed4a05078754e333358f4127cdb3dbdff2ca1a",
+      "approved_blob": "d9270f892e87809795f00ad05030c74038c45bcd"
+    },
+    "packages/screamingface/tests/test_frozen_copy_evaluate.py": {
+      "base_blob": "d4a19f54cd55ac9e1f369523571e5f3134f71f57",
+      "approved_blob": "fa18bf22fdeebae16c5ccbc6f84494b95ad9fca2"
+    },
+    "packages/screamingface/tests/test_reproduce.py": {
+      "base_blob": "7a479ca7fdd8facc4d530c55e174c32dac5fb918",
+      "approved_blob": "84522aea094485811a2ecf056cc4f5cd8328765c"
+    },
+    "packages/screamingface/tests/test_reproduce_review.py": {
+      "base_blob": "fb5e6d769315c36a4d4760308da089920f73ad4a",
+      "approved_blob": "f6c9678958f1457956e1114723d1593c5d1b8a30"
+    }
+  }
+}

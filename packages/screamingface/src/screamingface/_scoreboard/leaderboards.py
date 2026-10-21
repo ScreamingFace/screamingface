@@ -616,7 +616,7 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             metadata_updated_at=_optional_timestamp(
                 root.get("metadata_updated_at"), "Leaderboard score metadata_updated_at"
             ),
-            frozen_copy_id=_optional_text(
+            pinned_cache=_optional_text(
                 root.get("frozen_copy_id"), "Leaderboard score frozen_copy_id"
             ),
             capture_status=capture_status_value(root.get("capture_status")),
@@ -836,7 +836,7 @@ def _capture_fields(candidate_result: CandidateResult) -> dict[str, object]:
     nothing a run without capture data submits. A zero seed is a sitting and is sent.
     """
     known = {
-        "frozen_copy_id": candidate_result.frozen_copy_id,
+        "frozen_copy_id": candidate_result.pinned_cache,
         "capture_status": candidate_result.capture_status,
         "answer_seed": candidate_result.answer_seed,
     }

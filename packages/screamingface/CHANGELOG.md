@@ -9,6 +9,12 @@
   back to the hosted leaderboard, so a local or preview run could publish there.
   `sf.Client(...)` is unchanged.
 
+* **screamingface:** the frozen copy is called a **pinned cache** in the Python API (`OME-1613`).
+  `CandidateResult.frozen_copy_id` and `LeaderboardScore.frozen_copy_id` are renamed to
+  `pinned_cache`, with no alias; the constructor keyword changes the same way. The report JSON
+  (`to_json()` / `to_dict()`) and the Scoreboard wire keep the key `frozen_copy_id`, so exported
+  reports are unchanged.
+
 ### Fixes
 
 * `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.

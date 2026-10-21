@@ -68,7 +68,7 @@ class PublishedScore:
 def published_from_score(score: LeaderboardScore) -> PublishedScore:
     return PublishedScore(
         score_id=score.id,
-        pinned_cache=score.frozen_copy_id,
+        pinned_cache=score.pinned_cache,
         capture_status=score.capture_status,
         url4=str(score.url4),
         answer_seed=score.answer_seed,

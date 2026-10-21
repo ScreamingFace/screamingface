@@ -148,7 +148,7 @@ class LeaderboardScore:
     metadata_updated_at: datetime | None = None
     # FEATURE: OME-1307 — the frozen copy of the run and its reproductions. An older board leaves
     # them absent: None, and a count of 0. A null `capture_status` means "unknown".
-    frozen_copy_id: str | None = None
+    pinned_cache: str | None = None
     capture_status: Literal["complete", "partial"] | None = None
     # FEATURE (Q29): the digest of the run's graded cases: 64 lower-case hex, with `capture_status`.
     case_digest: str | None = None
@@ -395,7 +395,7 @@ def _reproduction_fields(score: LeaderboardScore) -> None:
     INVARIANT: a copy id is normalised as the board does (`str(UUID(value))`) and an invalid one is
     refused here, so `reproduce` never sends a malformed `X-Replay-Frozen-Copy` header.
     """
-    object.__setattr__(score, "frozen_copy_id", _frozen_copy_id(score.frozen_copy_id))
+    object.__setattr__(score, "pinned_cache", _pinned_cache(score.pinned_cache))
     _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
     capture_status_value(score.capture_status)
     _case_digest(score.case_digest, score.capture_status)
@@ -418,15 +418,15 @@ def _case_digest(value: object, capture_status: object) -> None:
         raise ValueError("Leaderboard score case_digest requires capture_status")
 
 
-def _frozen_copy_id(value: object) -> str | None:
+def _pinned_cache(value: object) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise TypeError("Leaderboard score frozen_copy_id must be a string or None")
+        raise TypeError("Leaderboard score pinned_cache must be a string or None")
     try:
         return str(UUID(value))
     except ValueError:
-        raise ValueError("Leaderboard score frozen_copy_id must be a UUID") from None
+        raise ValueError("Leaderboard score pinned_cache must be a UUID") from None
 
 
 def _names(values: object, label: str) -> tuple[str, ...]:

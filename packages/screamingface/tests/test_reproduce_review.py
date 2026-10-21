@@ -465,7 +465,7 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
 
     # The original run asked to be captured, named its frozen copy, and the board stored it.
     assert len(captures) == 1
-    assert (result.frozen_copy_id, result.capture_status) == (COPY, "complete")
+    assert (result.pinned_cache, result.capture_status) == (COPY, "complete")
     assert board.stored is not None
     stored = board.stored
     assert (stored["frozen_copy_id"], stored["capture_status"], stored["answer_seed"]) == (
@@ -473,7 +473,7 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
         "complete",
         7,
     )
-    assert (fetched.frozen_copy_id, fetched.answer_seed, fetched.reproduction_count) == (
+    assert (fetched.pinned_cache, fetched.answer_seed, fetched.reproduction_count) == (
         COPY,
         7,
         0,
@@ -493,7 +493,7 @@ def test_submit_then_get_score_then_reproduce_is_exact_and_recorded() -> None:
     replayed = reproduction.result
     assert replayed is not None
     assert recorded["run_id"] == replayed.run_id != result.run_id
-    assert (replayed.frozen_copy_id, replayed.capture_status) == (None, None)
+    assert (replayed.pinned_cache, replayed.capture_status) == (None, None)
     assert after.reproduction_count == 1
 
 
@@ -536,7 +536,7 @@ def test_an_unavailable_copy_outranks_a_run_failure_and_lists_no_missed_cases() 
 def test_a_complete_score_without_a_copy_id_starts_no_run() -> None:
     transport = _Replayer()
     with _client(transport) as client:
-        reproduction = client.reproduce(_score(capture_status="complete", frozen_copy_id=None))
+        reproduction = client.reproduce(_score(capture_status="complete", pinned_cache=None))
 
     assert reproduction == sf.Reproduction(outcome="not_reproducible", reason="unknown")
     assert transport.runs == 0
@@ -600,9 +600,9 @@ def test_classify_judges_candidate_level_codes_without_a_run() -> None:
 
 
 def test_a_score_normalises_its_copy_id_like_the_board() -> None:
-    assert _score(frozen_copy_id=COPY.upper()).frozen_copy_id == COPY
-    assert _score(frozen_copy_id="{" + COPY + "}").frozen_copy_id == COPY
-    assert _score(frozen_copy_id=COPY.replace("-", "")).frozen_copy_id == COPY
+    assert _score(pinned_cache=COPY.upper()).pinned_cache == COPY
+    assert _score(pinned_cache="{" + COPY + "}").pinned_cache == COPY
+    assert _score(pinned_cache=COPY.replace("-", "")).pinned_cache == COPY
 
 
 @pytest.mark.parametrize(
@@ -610,14 +610,14 @@ def test_a_score_normalises_its_copy_id_like_the_board() -> None:
     [("not-a-uuid", ValueError), ("", ValueError), (COPY + "\n", ValueError), (7, TypeError)],
 )
 def test_a_score_refuses_an_invalid_copy_id_at_construction(bad: object, error: type) -> None:
-    with pytest.raises(error, match="frozen_copy_id"):
-        _score(frozen_copy_id=bad)
+    with pytest.raises(error, match="pinned_cache"):
+        _score(pinned_cache=bad)
 
 
 def test_reproduce_never_sends_a_malformed_copy_id_header() -> None:
     transport = _Replayer()
     with _client(transport) as client:
-        client.reproduce(_score(frozen_copy_id=COPY.upper()))
+        client.reproduce(_score(pinned_cache=COPY.upper()))
 
     assert transport.candidate is not None
     assert transport.candidate.replay_frozen_copy == COPY

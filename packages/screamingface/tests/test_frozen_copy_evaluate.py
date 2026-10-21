@@ -97,7 +97,7 @@ def test_the_client_threads_capture_to_the_transport() -> None:
 
     assert transport.candidate is not None
     assert transport.candidate.capture is True
-    assert (result.frozen_copy_id, result.capture_status) == (COPY, "complete")
+    assert (result.pinned_cache, result.capture_status) == (COPY, "complete")
 
 
 def test_the_client_captures_by_default() -> None:
@@ -262,7 +262,7 @@ def test_capture_without_a_capture_status_warns_and_keeps_the_fields_none() -> N
         report = evaluate_url4_sync(_ReplayTransport(), REPLAY_URL4, None, False, capture=True)
 
     (result,) = report.candidates
-    assert (result.frozen_copy_id, result.capture_status) == (None, None)
+    assert (result.pinned_cache, result.capture_status) == (None, None)
     assert "it cannot be reproduced" in str(caught[0].message)
     assert result.name in str(caught[0].message)
 

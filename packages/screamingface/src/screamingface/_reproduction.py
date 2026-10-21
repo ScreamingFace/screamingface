@@ -104,7 +104,7 @@ def _not_reproducible(score: LeaderboardScore) -> Reproduction | None:
         return Reproduction(outcome="not_reproducible", reason="partial")
     if (
         score.capture_status is None
-        or score.frozen_copy_id is None
+        or score.pinned_cache is None
         or score.benchmark_revision is None
     ):
         return Reproduction(outcome="not_reproducible", reason="unknown")
@@ -146,7 +146,7 @@ def _replayed_sync(client: Client, score: LeaderboardScore) -> Reproduction:
             answer_seed=score.answer_seed,
             # The Engine refuses X-Capture with X-Replay-Frozen-Copy.
             capture=False,
-            replay_frozen_copy=score.frozen_copy_id,
+            replay_frozen_copy=score.pinned_cache,
         )
     except ExecutionError as exc:
         if exc.code != "replay_unsupported":
@@ -171,7 +171,7 @@ def _record_sync(
             # The replay's own numbers. The board compares them with the stored score exactly.
             score=cast(float, result.score),
             total_questions=len(result.cases),
-            frozen_copy_id=score.frozen_copy_id,
+            frozen_copy_id=score.pinned_cache,
             # The replay's own cases, for the board to compare with the stored digest (Q29).
             case_digest=case_digest(result.cases),
             client=_client_info(),
@@ -204,7 +204,7 @@ async def _replayed_async(client: AsyncClient, score: LeaderboardScore) -> Repro
             answer_seed=score.answer_seed,
             # The Engine refuses X-Capture with X-Replay-Frozen-Copy.
             capture=False,
-            replay_frozen_copy=score.frozen_copy_id,
+            replay_frozen_copy=score.pinned_cache,
         )
     except ExecutionError as exc:
         if exc.code != "replay_unsupported":
@@ -228,7 +228,7 @@ async def _record_async(
             run_id=result.run_id,
             score=cast(float, result.score),
             total_questions=len(result.cases),
-            frozen_copy_id=score.frozen_copy_id,
+            frozen_copy_id=score.pinned_cache,
             # The replay's own cases, for the board to compare with the stored digest (Q29).
             case_digest=case_digest(result.cases),
             client=_client_info(),

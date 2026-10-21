@@ -64,7 +64,7 @@ def _score(**overrides: object) -> sf.LeaderboardScore:
         "client_platform": "darwin",
         "verified_by_screamingface": False,
         "metadata": None,
-        "frozen_copy_id": COPY,
+        "pinned_cache": COPY,
         "capture_status": "complete",
         "answer_seed": 7,
         "benchmark_revision": "fixture-revision",
@@ -275,12 +275,12 @@ def test_two_runs_of_one_complete_url4_load_the_same_case_ids() -> None:
 @pytest.mark.parametrize(
     ("overrides", "reason"),
     [
-        ({"capture_status": "partial", "frozen_copy_id": None}, "partial"),
+        ({"capture_status": "partial", "pinned_cache": None}, "partial"),
         ({"capture_status": "partial"}, "partial"),
-        ({"capture_status": None, "frozen_copy_id": None}, "unknown"),
+        ({"capture_status": None, "pinned_cache": None}, "unknown"),
         # A `complete` score with no copy id names nothing to replay from, and a run without the
         # header would be a paid run. It therefore reads as unknown.
-        ({"capture_status": "complete", "frozen_copy_id": None}, "unknown"),
+        ({"capture_status": "complete", "pinned_cache": None}, "unknown"),
     ],
 )
 def test_a_partial_or_unknown_score_is_not_reproducible_and_starts_no_run(
@@ -329,7 +329,7 @@ def test_an_old_copy_id_is_sent_verbatim() -> None:
     # The replay uses the copy id stored with the score.
     transport = _Replayer()
     with _client(transport) as client:
-        reproduction = client.reproduce(_score(frozen_copy_id=OLD_COPY))
+        reproduction = client.reproduce(_score(pinned_cache=OLD_COPY))
 
     assert reproduction.outcome == "exact"
     assert transport.candidate is not None
@@ -460,7 +460,7 @@ def test_a_case_digest_is_64_lower_hex_and_needs_a_capture_status() -> None:
     with pytest.raises(TypeError, match="case_digest must be a string"):
         _score(case_digest=7)
     with pytest.raises(ValueError, match="requires capture_status"):
-        _score(case_digest="ab" * 32, capture_status=None, frozen_copy_id=None)
+        _score(case_digest="ab" * 32, capture_status=None, pinned_cache=None)
 
 
 def test_a_stored_score_without_a_benchmark_revision_cannot_match() -> None:
