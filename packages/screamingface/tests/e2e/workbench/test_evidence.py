@@ -168,7 +168,9 @@ def test_reasons_join_missing_and_unattributed_lines(tmp_path: Path) -> None:
     gateway = _src(
         tmp_path,
         "aigateway",
-        f"gateway_call_id=c1 trace_id={TID} a\nanonymous mid-request\ngateway_call_id=c1 b\n",
+        f"INFO: gateway_call_id=c1 trace_id={TID} a\n"
+        "INFO: anonymous mid-request\n"
+        "INFO: gateway_call_id=c1 b\n",
     )
     chain = collect([TID, OTHER], [engine, gateway])
     assert chain.reasons(["engine", "aigateway"]) == [
@@ -243,3 +245,33 @@ def test_trace_id_tokens_parses_every_exact_token_on_a_line() -> None:
     assert trace_id_tokens(line) == frozenset({TID, OTHER})
     assert trace_id_tokens(f"trace_id={TID}") == frozenset({TID})
     assert trace_id_tokens("") == frozenset()
+
+
+def test_non_record_output_in_the_request_window_is_not_an_anonymous_log_line(
+    tmp_path: Path,
+) -> None:
+    """LiteLLM `print()`s a "Provider List" banner (and blank lines) to stdout mid-request on
+    a real provider call; the runtime captures it as `[gateway]` text. It is not a log record,
+    so it cannot carry a call id — rung 3's scope excludes it (OME-938). Seen on the first
+    paid local run, 2026-10-21."""
+    gateway = _src(
+        tmp_path,
+        "aigateway",
+        f"2026 [gateway] INFO:     aigw gateway_call_id=call_a trace_id={TID} start\n"
+        "2026 [gateway] \n"
+        "2026 [gateway] \x1b[1;31mProvider List: https://docs.litellm.ai/docs/providers\x1b[0m\n"
+        f"2026 [gateway] INFO:     aigw gateway_call_id=call_a trace_id={TID} done\n",
+    )
+    assert collect([TID], [gateway]).unattributed == []
+
+
+def test_an_anonymous_log_record_inside_the_window_still_fails(tmp_path: Path) -> None:
+    gateway = _src(
+        tmp_path,
+        "aigateway",
+        f"2026 [gateway] INFO:     aigw gateway_call_id=call_a trace_id={TID} start\n"
+        "2026 [gateway] WARNING:  aigw.cache miss without a call id\n"
+        f"2026 [gateway] INFO:     aigw gateway_call_id=call_a trace_id={TID} done\n",
+    )
+    (anonymous,) = collect([TID], [gateway]).unattributed
+    assert "cache miss" in anonymous

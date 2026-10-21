@@ -6,7 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from harness.trace_evidence import CALL_ID_MARK, unattributed_gateway_lines
 
@@ -160,6 +160,17 @@ def _has_event(lines: Sequence[str], event: str) -> bool:
     return any(ln.startswith(event) or f" {event} " in ln for ln in lines)
 
 
+# A gateway LOG RECORD carries a level (`INFO:`, `WARNING:` …). Anything else captured from the
+# process — LiteLLM's stdout `print()` "Provider List" banner and its blank lines, a stderr
+# warning — is not a record and cannot carry a call id; rung 3 scopes it out (OME-938). Seen
+# inside the request window on the first paid local run (2026-10-21).
+_LOG_RECORD: Final = re.compile(r"\b(?:DEBUG|INFO|WARNING|ERROR|CRITICAL):")
+
+
+def _log_records(text: str) -> str:
+    return "\n".join(ln for ln in text.splitlines() if _LOG_RECORD.search(ln))
+
+
 def collect(trace_ids: Sequence[str], sources: Sequence[LogSource]) -> TraceChain:
     hops: list[Hop] = []
     lifecycle = {"scheduled": False, "terminated": False}
@@ -179,5 +190,5 @@ def collect(trace_ids: Sequence[str], sources: Sequence[LogSource]) -> TraceChai
         lifecycle["scheduled"] |= _has_event(lines, _SCHEDULED)
         lifecycle["terminated"] |= _has_event(lines, _TERMINATED)
         if source.name == _GATEWAY:
-            unattributed += unattributed_gateway_lines(text)[1]
+            unattributed += unattributed_gateway_lines(_log_records(text))[1]
     return TraceChain(tuple(trace_ids), tuple(hops), lifecycle, unattributed)

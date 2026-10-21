@@ -41,7 +41,26 @@ an Engine that lists ifeval; one paid local quickstart run recorded here before 
 - **Gates (2026-10-17):** `pytest -n auto --cov` 4267 passed, 35 skipped, coverage 97.02%; ruff,
   format, pyright clean; `check_notebooks.py` ok. Real replay lane (`TEST_E2E=1`, `REQUIRE_ALL=1`,
   no keys): 75 passed, incl. `test_notebook[replay-quickstart]` and `test_local_boot`.
-- **Not yet run:** the quickstart on the `local` target with a paid key (OpenRouter) or a Codex
-  subscription — two Codex sign-in windows expired before approval.
 - **Deviations:** location under `tests/e2e/workbench/` (spec §3); local target uses an
   inspect-capable `EngineProcess` beside `screamingface up`; deferred items listed in spec §3.4.1.
+
+## Paid local acceptance run (2026-10-21)
+
+- **Run 1 (head `3ba94d3b3`) — FAIL, a real finding.** The notebook passed against live OpenRouter
+  (`best_open_source` fusion, score 1.0, 0 cache hits) and the trace id was found in both hops, but
+  the verdict failed: "9 aigateway lines lack gateway_call_id". The 9 lines were LiteLLM's stdout
+  `print()` "Provider List: https://docs.litellm.ai/docs/providers" banner and its blank lines,
+  captured by the runtime as `[gateway]` text inside the request window. They are not log records,
+  so they cannot carry a call id; rung 3's own scope (OME-938) excludes such text. Replay never
+  calls a provider, so it never showed this.
+- **Fix:** the workbench call-id check now considers only gateway log records (lines with a level:
+  `INFO:`, `WARNING:` …). An anonymous record inside the window still fails (test added).
+- **Run 2 (fixed head) — PASS.** `test_notebook[local-quickstart] PASSED` in 73 s; trace
+  `e859210b7065770008b0d5a1a619399e` found in engine (4 lines) and aigateway (7 lines), 0 anonymous
+  gateway records, lifecycle scheduled + terminated both true, score 1.0, 0 cache hits. The key was
+  read from the repo `.env` (`OPENROUTER_KEY` → `OPENROUTER_API_KEY`) and passed through the
+  notebook's own `client.connect("openrouter", api_key=…)` path; its value appears nowhere in the
+  bundle. Ports 9105/9106/9108 free afterwards.
+- **Observation (follow-up, not a workbench defect):** the LiteLLM "Provider List" banner is printed
+  when LiteLLM fails a provider lookup mid-request on the real path (likely a cost/model-map lookup
+  for one of the OpenRouter models); worth a look in aigateway.
