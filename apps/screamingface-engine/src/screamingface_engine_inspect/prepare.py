@@ -1793,12 +1793,12 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_digest="2454ce86e6fd87f9887f6c4849dd01d20e1ce7cb161d945ff141dabbf5c6a291",
         case_set_digest="47715c5caf16c50680a48d84eb3004cb426ac3f9dccd0a4520c958095fc02948",
         keep_sample_metadata=True,
-        # NAMED DEVIATION: one question of upstream's 6,509 cannot be answered right. The
+        # NAMED DEVIATION: one question of inspect_evals' 6,509 cannot be answered right. The
         # authors' own data splits its answer, "Monsters, Inc", into two options ("Monsters"
         # and "Inc") and keeps the movie name as the key, so the key is neither a letter nor an
         # option and every reply is marked wrong. The paper counts it, as always wrong (Codex
         # answered "(B)"): github.com/suzgunmirac/BIG-Bench-Hard at 9ee07bd,
-        # bbh/movie_recommendation.json, question 164. Upstream already drops the two
+        # bbh/movie_recommendation.json, question 164. inspect_evals already drops the two
         # ruin_names questions broken the same way; this is the third. 6,508 of 6,509.
         excluded_sample_ids=("movie_recommendation_164",),
         source_pins={

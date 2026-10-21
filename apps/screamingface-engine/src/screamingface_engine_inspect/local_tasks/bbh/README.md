@@ -7,13 +7,13 @@ Cases.
 
 This is a **local Task** (OME-1696) built from
 [inspect_evals' `bbh`](https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/bbh).
-It reuses upstream's loader, its 3-shot chain-of-thought examples and its dataset pin, so the
-questions are upstream's own. Three things differ.
+It reuses inspect_evals' loader, its 3-shot chain-of-thought examples and its dataset pin, so the
+questions are inspect_evals' own. Three things differ.
 
 ## Why a local Task
 
-Upstream tags each question with the kind of answer it expects as a Python enum. Case
-Preparation seals Sample metadata as JSON, so the importer refuses upstream's Task. Here the
+inspect_evals tags each question with the kind of answer it expects as a Python enum. Case
+Preparation seals Sample metadata as JSON, so the importer refuses inspect_evals' Task. Here the
 tag is the enum's name, a string.
 
 ## Where we follow the paper, not inspect_evals
@@ -23,7 +23,7 @@ tag is the enum's name, a string.
 | Multiple-choice instruction (17 subsets, 4,071 Cases) | "The entire content of your response should be … 'ANSWER: $LETTER'", above worked examples that reason step by step | inspect's `multiple_choice(cot=True)`: "Think step by step before answering", answer on the last line | the paper's headline setting is chain of thought; the answer-only instruction contradicts the examples |
 | Free-form grading (Dyck languages, multistep arithmetic, object counting, word sorting; 1,000 Cases) | `match(location="end")`: lowercase, trim punctuation off both ends, then "does the reply end with the key?" | exact match on the final answer (after the last `ANSWER:`, else the paper's "the answer is"; either label in any case), with spaces, `**` and backticks trimmed and one trailing period dropped | the paper grades by exact match (§3, "Evaluation protocol") |
 
-What upstream's free-form grading marks correct:
+What inspect_evals' free-form grading marks correct:
 
 - Dyck languages: the key `ANSWER: ] ]` trims to `answer`, so any reply ending on an `ANSWER:` line of
   brackets is right, a bracket missing (`ANSWER: ]`) or extra (`ANSWER: ] ] ]`), and so is "I do not
@@ -39,8 +39,8 @@ numbers (Dyck 56.8, multistep 47.6, object counting 93.2, word sorting 40.4).
 `tests/unit/inspect/test_local_task_bbh.py` pins this on those replies, kept in
 `tests/unit/data/bbh_codex_cot_free_form_replies.json` (MIT).
 
-Unchanged from upstream: the multiple-choice subsets grade the chosen letter (`choice()`), the 6
-yes/no-style subsets the word after `ANSWER:` (`answer(pattern="word")`). No judge.
+Unchanged from inspect_evals: the multiple-choice subsets grade the chosen letter (`choice()`),
+the 6 yes/no-style subsets the word after `ANSWER:` (`answer(pattern="word")`). No judge.
 
 ## Score
 
@@ -53,5 +53,5 @@ point (73.97 against 73.9). Each Case keeps its subset name, so both can be regr
 `Joschka/big_bench_hard` at commit `76eaa8c2`, MIT. Its targets and options match the authors'
 `bbh/` files on all 6,511 questions. One question is left out by id
 (`movie_recommendation_164`): the authors' data splits its answer "Monsters, Inc" into two
-options, so no reply can be right. The paper counts it, always wrong. Upstream already drops
+options, so no reply can be right. The paper counts it, always wrong. inspect_evals already drops
 two `ruin_names` questions broken the same way.

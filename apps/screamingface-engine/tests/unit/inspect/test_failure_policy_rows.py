@@ -87,7 +87,7 @@ _WITHHOLD: frozenset[str] = frozenset(
         "cyse4_malware_analysis",
         "drop",
         "cyse4_threat_intelligence",
-        # OME-1696: BIG-Bench Hard, a per-Case mean over upstream's own marking — Group A.
+        # OME-1696: BIG-Bench Hard, a per-Case mean over inspect_evals' own marking — Group A.
         "bbh",
     }
 )
