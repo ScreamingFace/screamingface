@@ -26,6 +26,8 @@ with the 2026-10-16 live evidence. Docs only.
 - Every file:line cited re-checked against `origin/main` at `637594595` (40 citations, 37 unique; 0 wrong).
 - url4 parse behaviour reproduced with `url4.core.grammar.parse`.
 - Diagram rendered with `rsvg-convert` and inspected.
+- Review round 1 (HupBaHa, 2026-10-21): every citation refreshed to `ec4b632b2` and rewritten as a
+  commit-qualified link; each link's line range checked against `git show ec4b632b2:<path>`.
 
 ## Acceptance
 
@@ -39,3 +41,14 @@ with the 2026-10-16 live evidence. Docs only.
 - **Deviations:** rebased on `637594595` and updated for OME-1541 (#1431), the Ollama file-part
   refusal (OME-1641, #1447), the 2026-10-16 live provider results, the Gemini CLI deprecation (I-26) and
   the stale Codex catalog (OME-1634). Items marked UNVERIFIED in the spec were not re-run.
+- **Review round 1 (2026-10-21):** rebased on `ec4b632b2` (#1447 merged). Owner decisions F1–F4
+  (locked by Sergey 2026-10-21) written in as normative §2: remote blobs deferred
+  (`remote_blob_unsupported`, bar for a remote-blob spec), the `attachments[]` side-channel, the
+  canonical content-part request identity with tenant + run blob scope and sha256 verification, and
+  the TODAY snapshot. Added the error-ownership table (§4), separate Case and url4 ingress paths,
+  the `ResultArtifact`/`ResultData` and `RelUrl` corrections, and dated-observation labels. The
+  diagram was regenerated (title/desc, ≥ 12 px labels, embedded in the spec).
+- **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
+  attachments under `OME-1271` v1; a remote nested expression (C6) does not receive the outer run's
+  attachments; a request with no attachments keeps today's key; new codes travel with the url4 `x.`
+  prefix until Spec C adopts them.
