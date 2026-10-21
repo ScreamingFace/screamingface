@@ -129,8 +129,8 @@ def test_a_file_whose_sha256_is_not_the_pin_is_refused(
 def test_the_question_is_shown_under_inspects_standard_instruction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Options A) to D) in dataset order, under the letter-only instruction every
-    multiple-choice Benchmark here uses (owner decision, OME-1696)."""
+    """Options A) to D) in dataset order, under the letter-only instruction most
+    multiple-choice Benchmarks here use (owner decision, OME-1696)."""
 
     sample = record_to_sample(_ROWS[3])
     monkeypatch.setattr(

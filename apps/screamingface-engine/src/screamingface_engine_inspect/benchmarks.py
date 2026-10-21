@@ -6308,7 +6308,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         focus="Medical entrance exam questions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/openlifescienceai/medmcqa",
-        # Professional-exam medicine like medqa; the best published dev score is about 0.79,
+        # Professional-exam medicine like medqa; the best published dev score is about 0.84,
         #  so frontier models pass comfortably but not at ceiling (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
@@ -6349,15 +6349,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
                 "measures no human accuracy on these questions"
             ),
         ),
-        # Frontier score: GPT-4 with Medprompt (5-shot nearest-neighbour examples, its own
-        # chain of thought, a 5-way choice-shuffle ensemble), MedMCQA Dev in the paper's
-        # Table 1. Not this Benchmark's zero-shot setting; the best zero-shot figure we found
-        # is GPT-4-base at 0.734 (arXiv 2303.13375, Table 5).
+        # Frontier score: o1-preview, zero-shot, MedMCQA Dev in Table 1 of "From Medprompt to
+        # o1" (Nori et al., 2024); the same table puts GPT-4 Turbo with Medprompt at 0.791 and
+        # GPT-4o zero-shot at 0.764.
         frontier_score=FrontierScore(
-            score=0.791,
-            model="GPT-4 (Medprompt)",
-            source_url="https://arxiv.org/abs/2311.16452",
-            as_of="2023-11",
+            score=0.839,
+            model="o1-preview",
+            source_url="https://arxiv.org/abs/2411.03590",
+            as_of="2024-11",
         ),
         notebook="12_inspect_evals_benchmarks",
     ),

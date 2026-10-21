@@ -27,9 +27,10 @@ non-myelinated fibers"). A reply ending `ANSWER: A` scores 1; `ANSWER: B` scores
 WHY the validation split: the test split's answers are withheld (its `cop` is -1), so the
 validation ("dev") split is what LLM papers report on (Med-PaLM 2, Medprompt).
 
-WHY inspect's standard template, no chain of thought: it is the one every multiple-choice
-Benchmark here uses, and the widely cited zero-shot LLM numbers on this split were measured
-that way (owner decision, OME-1696). Options are served in the dataset's order, unshuffled.
+WHY inspect's standard template, no chain of thought: it is the one most multiple-choice
+Benchmarks here use, and the zero-shot LLM numbers reported on this split ask for the answer
+without worked examples too (owner decision, OME-1696). Options are served in the dataset's
+order, unshuffled.
 
 INVARIANT: the pins and the row-to-Sample mapping are Benchmark identity: they decide the bytes
 inside the Case Digest, so an edit is a new Benchmark, not a tweak. `tests/unit/inspect/
@@ -83,6 +84,10 @@ def load_medmcqa_validation() -> MemoryDataset:
 def record_to_sample(row: dict[str, Any]) -> Sample:
     """One validation row → the question, its four options in dataset order, the key letter."""
 
+    # WHY 0..3: the Hub file counts cop from 0 (its schema labels 0..3 as a..d), although the
+    # dataset card's prose says "1,2,3,4". The file has no 4 and 1,348 zeros, and row 3ea8bac5
+    # ("Ammonia from brain is removed as:") has cop 3 on its fourth option, Glutamine, the
+    # textbook answer; counted from 1 it would be Glutamate.
     cop: object = row["cop"]
     # WHY refuse: a withheld (-1) or out-of-range key has no letter, and a Sample without a
     # real key would be marked wrong whatever the model answers.
