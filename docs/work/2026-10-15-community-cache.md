@@ -182,3 +182,29 @@ All seven findings were valid; the owner chose skip-and-count for invalid rows. 
   by the owner's decision); new tests for every validation, the same-key repair, NULL metadata,
   the lookalike table, the byte bound, the end-of-table cut, the look-ahead and the negotiation
   table. All are in files this PR added, so no approval manifest changes.
+
+## Review round 3 (PR #1433 re-review by HupBaHa, 2026-10-21)
+
+Finding 1 (who may export responses and their usage metadata) waits on a product/security
+decision and is not part of this commit. The rest, one commit:
+
+- **Race between the two batch queries (blocking 2):** the row query now reads exactly the rows the
+  size query selected — same `key_hash`, `updated_at` and `response_size_bytes` (`_exactly`) — so
+  a row rewritten in between is neither read at its new size nor sent out of order; it comes later
+  at its new `updated_at`. `iter_page` keeps a `PageScan` at the last key read, and the route builds
+  `next` from it, so rows rewritten or deleted in between cannot end a page with `next: null`.
+- **Stated size (blocking 3):** the loader stores `len(response_json.encode())` and ignores the
+  page's `response_size_bytes`, so an understated value cannot reach this database's own export
+  batching, and a mismatch skips nothing.
+- **Partial unique index (blocking 4):** `check_database` requires a non-partial unique index on
+  `key_hash`, read with the parameterised `pragma_index_list(?)` / `pragma_index_info(?)` forms
+  (a quoted index name no longer breaks the SQL).
+- **`load_page` connection:** the same `mode=rw` connection as `check_database` (`_connect`), so a
+  database deleted after the check is refused, not recreated empty.
+- **406:** `_coding` picks gzip, else identity unless refused; a caller refusing both gets a private
+  406.
+- **Tests (files this PR added):** rewrite and delete between the queries (through the new
+  `_next_keys` seam), measured size (understated, overstated, non-integer, multibyte), partial and
+  quoted indexes, a deleted database not recreated, the identity table and the 406. The three
+  stated-size skip cases are removed (the size is no longer read). The new tests fail against the
+  previous code.

@@ -41,6 +41,7 @@ from ..core.request_cache.community_pages import (
     PAGE_SCHEMA,
     InvalidCursor,
     PageCursor,
+    PageScan,
     count_rows,
     has_rows_after,
     iter_page,
@@ -69,15 +70,23 @@ def _rows(batch: list[dict[str, Any]]) -> bytes:
     return b"".join(_line(_wire(row)) for row in batch)
 
 
-def _accepts_gzip(request: Request) -> bool:
-    # RFC 9110 §12.5.3: codings are case-insensitive, `q=0` refuses one, and `*` stands for every
-    # coding not listed by name. A malformed weight refuses, so the safe answer is identity.
+def _coding(request: Request) -> str | None:
+    """``gzip`` or ``identity``, whichever the caller accepts (gzip first), or None for neither.
+
+    RFC 9110 §12.5.3: codings are case-insensitive, `q=0` refuses one, and `*` stands for every
+    coding not listed by name. A malformed weight refuses. Identity is acceptable unless refused
+    by name or by `*;q=0`; gzip only when asked for, by name or by `*`.
+    """
     weights: dict[str, float] = {}
     for part in request.headers.get("accept-encoding", "").split(","):
         coding, *params = (piece.strip() for piece in part.split(";"))
         if coding:
             weights[coding.lower()] = _weight(params)
-    return weights.get("gzip", weights.get("*", 0.0)) > 0
+    if weights.get("gzip", weights.get("*", 0.0)) > 0:
+        return "gzip"
+    if weights.get("identity", weights.get("*", 1.0)) > 0:
+        return "identity"
+    return None
 
 
 def _weight(params: list[str]) -> float:
@@ -110,6 +119,13 @@ async def community_cache_entries(
     count: bool = False,
     model: Annotated[list[ModelName], Query()] = [],  # noqa: B006 — FastAPI copies defaults
 ) -> StreamingResponse:
+    coding = _coding(request)
+    if coding is None:
+        raise HTTPException(
+            status_code=406,
+            detail="no acceptable content coding: accept gzip or identity",
+            headers={"Cache-Control": "private, no-store", "Vary": "Accept-Encoding"},
+        )
     try:
         cursor = PageCursor.decode(after) if after is not None else None
     except InvalidCursor as exc:
@@ -125,21 +141,23 @@ async def community_cache_entries(
 
     async def lines() -> AsyncIterator[bytes]:
         yield _line(header)
-        last: PageCursor | None = None
-        async for batch in iter_page(after=cursor, limit=limit, models=models, now=now):
+        scan = PageScan()
+        async for batch in iter_page(after=cursor, limit=limit, models=models, now=now, scan=scan):
             # WHY a worker thread: a batch is up to ``BATCH_BYTES`` of rows, and encoding it
             # (then gzip, ~57 ms per 1,000 rows) on the loop would stall every other request on
             # the pod, cache hits included.
             yield await run_in_threadpool(_rows, batch)
-            last = PageCursor(updated_at=batch[-1]["updated_at"], key_hash=batch[-1]["key_hash"])
+        # WHY the scan, not the last row sent: a row rewritten or deleted mid-page was scanned but
+        # not sent, and the next page must still start after it.
         # WHY look ahead rather than compare the row count with ``limit``: a page of exactly
         # ``limit`` rows that ends the cache must say so, or the client asks for an empty page.
+        last = scan.cursor
         more = last is not None and await has_rows_after(after=last, models=models, now=now)
         yield _line({"next": last.encode() if more and last is not None else None})
 
     headers = {"Cache-Control": "private, no-store", "Vary": "Accept-Encoding"}
     body = lines()
-    if _accepts_gzip(request):
+    if coding == "gzip":
         headers["Content-Encoding"] = "gzip"
         body = _gzip(body)
     return StreamingResponse(body, media_type="application/x-ndjson", headers=headers)

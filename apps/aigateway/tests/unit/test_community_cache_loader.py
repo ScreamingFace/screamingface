@@ -141,9 +141,6 @@ async def test_an_empty_page_is_a_no_op(database: Path) -> None:
         {"response_json": "not-json"},
         {"response_json": "[1, 2]"},
         {"response_json": '{"x": NaN}'},
-        {"response_size_bytes": "12"},
-        {"response_size_bytes": True},
-        {"response_size_bytes": -7},
         {"created_at": "yesterday"},
         {"updated_at": "2026-10-02T08:30:00"},  # naive: no place on the UTC timeline
         {"created_at": "0001-01-01T00:00:00+14:00"},  # valid ISO, outside the UTC range
@@ -194,6 +191,22 @@ async def test_unreadable_or_oversized_metadata_is_stored_as_null(
     # the body, so NULL is what it would read anyway.
     assert load_page([_row("a", metadata_json=metadata)], database).inserted == 1
     assert (await RequestCacheEntry.get(key_hash="a".ljust(64, "0"))).metadata_json is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response_json", "stated"),
+    [(_TEXT, 0), (_TEXT, 10**9), (_TEXT, "12"), ('{"text": "żółw 🐢"}', 3)],
+)
+async def test_the_stored_size_is_measured_not_taken_from_the_page(
+    database: Path, response_json: str, stated: object
+) -> None:
+    # WHY (PR #1433 review round 2): this column bounds the gateway's own export batches, so a
+    # page that understated it could make a later export of this database outgrow the bound.
+    load_page([_row("a", response_json=response_json, response_size_bytes=stated)], database)
+
+    stored = await RequestCacheEntry.get(key_hash="a".ljust(64, "0"))
+    assert stored.response_size_bytes == len(response_json.encode("utf-8"))
 
 
 def test_a_file_that_is_not_a_gateway_database_is_refused(tmp_path: Path) -> None:
@@ -284,6 +297,52 @@ def test_the_check_refuses_a_lookalike_table_without_a_unique_key_hash(tmp_path:
 
     assert refused.value.reason == "not_a_gateway_database"
     assert "unique key" in str(refused.value)
+
+
+@pytest.mark.asyncio
+async def test_a_partial_unique_index_on_key_hash_is_refused(database: Path) -> None:
+    # WHY: a conflict target cannot use a partial index, so every insert would fail with a raw
+    # OperationalError after the download had started.
+    with sqlite3.connect(database) as conn:
+        _replace_key_hash_index(conn, "CREATE UNIQUE INDEX k ON request_cache_entries(key_hash) "
+                                "WHERE provider = 'openrouter'")  # fmt: skip
+
+    with pytest.raises(PageRejected) as refused:
+        check_database(database)
+
+    assert "unique key" in str(refused.value)
+
+
+@pytest.mark.asyncio
+async def test_a_unique_index_with_a_quoted_name_is_read(database: Path) -> None:
+    with sqlite3.connect(database) as conn:
+        _replace_key_hash_index(
+            conn, 'CREATE UNIQUE INDEX "it\'s ""odd""" ON request_cache_entries(key_hash)'
+        )
+
+    check_database(database)
+
+
+def _replace_key_hash_index(conn: sqlite3.Connection, create: str) -> None:
+    """Rebuild the table without its own unique key, then add ``create``'s index."""
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(request_cache_entries)")]
+    listed = ", ".join(columns)
+    conn.execute(f"CREATE TABLE copy AS SELECT {listed} FROM request_cache_entries")
+    conn.execute("DROP TABLE request_cache_entries")
+    conn.execute("ALTER TABLE copy RENAME TO request_cache_entries")
+    conn.execute(create)
+
+
+def test_a_load_into_a_database_deleted_after_the_check_does_not_recreate_it(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "aigateway.sqlite3"
+
+    with pytest.raises(PageRejected) as refused:
+        load_page([_row("a")], missing)
+
+    assert refused.value.reason == "not_a_gateway_database"
+    assert not missing.exists()
 
 
 def test_the_check_refuses_a_missing_database_without_creating_it(tmp_path: Path) -> None:
