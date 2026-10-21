@@ -6198,6 +6198,99 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # per-Case score (chosen at import, OME-1527), which is that accuracy.
         multiple_correct=True,
     ),
+    BenchmarkSpec(
+        key="bbh",
+        title="BIG-Bench Hard (BBH)",
+        description=(
+            "6,508 questions from all 23 BIG-Bench Hard tasks (27 subsets: two tasks come in three "
+            "sizes each), the BIG-Bench tasks where language models trailed average human "
+            "raters, such as date arithmetic, logical deduction, boolean expressions and word "
+            "sorting. Served as a local Task built from the inspect_evals eval, with that eval's "
+            "questions and its 3-shot chain-of-thought examples, the setting of the paper's "
+            "headline numbers: the model reasons step by step and ends on an 'ANSWER:' line. "
+            "Two choices follow the paper (arXiv 2210.09261) where the inspect_evals eval "
+            "differs. First, the 17 multiple-choice subsets ask the model to think step by step; "
+            "the eval's instruction asks for the letter alone, which contradicts its own worked "
+            "examples. Second, the 4 free-form subsets (Dyck languages, multistep arithmetic, "
+            "object counting, word sorting) are graded by exact match on the final answer, as "
+            "the paper grades them; the eval's scorer only checks that the reply ends with the "
+            "answer after trimming punctuation, which lets wrong answers through on all 1,000 "
+            "free-form Cases: 'ANSWER: 25' is right for -25, 'ANSWER: 12' for 2, and a Dyck "
+            "reply with a bracket missing or extra is right. On the authors' published Codex "
+            "replies this grading reproduces the paper's numbers on all four subsets (Dyck "
+            "languages 56.8, multistep arithmetic 47.6, object counting 93.2, word sorting "
+            "40.4). The multiple-choice "
+            "subsets grade the chosen letter and the 6 yes/no-style subsets the word after "
+            "'ANSWER:', as the eval does, so no judge tokens are spent. One question is left "
+            "out: its answer key matches none of its options, in the authors' own data. "
+            "Benchmark score = plain accuracy over the cases run, the overall figure inspect "
+            "reports beside its per-task accuracies; the paper's headline is the unweighted "
+            "mean of the 23 per-task accuracies, within 0.1 point of it on the authors' Codex "
+            "replies. Each Case keeps its subset name, so both can be regrouped from a full run."
+        ),
+        focus="Hard multi-step reasoning across 23 BIG-Bench tasks (chain of thought)",
+        dataset_url="https://huggingface.co/datasets/Joschka/big_bench_hard",
+        # Frontier models score above 0.9 with chain of thought, but not at ceiling, like MMLU
+        #  (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.bbh.bbh:bbh,
+        #   a LOCAL Task built from inspect_evals' bbh: its answer-kind tag is retyped from a
+        #   Python enum to the enum's name, because Case Preparation seals Sample metadata as
+        #   JSON, and two Named Deviations below follow the paper (OME-1696). Its code lives
+        #   here, so its origin is ours; it reuses inspect_evals' loader and prompts, and the
+        #   harness link names that eval.
+        # License: mit, the Joschka/big_bench_hard card at the pinned revision.
+        scorer="screamingface_engine_inspect.local_tasks.bbh.bbh:bbh_scorer",
+        # NAMED DEVIATIONS from the inspect_evals eval, each following the paper (OME-1696);
+        #  the local Task's docstring has the worked examples and the evidence:
+        # 1. multiple choice asks for step-by-step reasoning, multiple_choice(cot=True); the
+        #    eval's answer-only instruction contradicts its own chain-of-thought examples.
+        # 2. the 4 free-form subsets grade by exact match on the final answer, as the paper
+        #    does (https://arxiv.org/abs/2210.09261, section 3, "Evaluation protocol"); the
+        #    eval's match(location="end") lets wrong answers through on all 1,000. The rule
+        #    reproduces the authors' accuracies on their Codex replies
+        #    (https://github.com/suzgunmirac/BIG-Bench-Hard/tree/9ee07bd481feebf959a6b59d61ea57bdcf30964d),
+        #    pinned by tests/unit/inspect/test_local_task_bbh.py.
+        # 3. the eval scores the whole run with grouped accuracy, one accuracy per subset
+        #    beside the overall accuracy; this Benchmark reports the mean per-Case score
+        #    (chosen at import), which is that overall figure.
+        paper_url="https://arxiv.org/abs/2210.09261",
+        authors="Suzgun et al., 2022",
+        citation=(
+            "@misc{suzgun2022challengingbigbenchtaskschainofthought,\n"
+            "      title={Challenging BIG-Bench Tasks and Whether Chain-of-Thought Can Solve "
+            "Them}, \n"
+            "      author={Mirac Suzgun and Nathan Scales and Nathanael Schärli and Sebastian "
+            "Gehrmann and Yi Tay and Hyung Won Chung and Aakanksha Chowdhery and Quoc V. Le "
+            "and Ed H. Chi and Denny Zhou and Jason Wei},\n"
+            "      year={2022},\n"
+            "      eprint={2210.09261},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2210.09261}, \n"
+            "}"
+        ),
+        origin="screamingface",
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/bbh",
+        license="MIT",
+        # Human baseline: the paper's average human-rater over all 23 tasks (Table 2, "BBH
+        # all"); the best human rater reached 0.944.
+        human_baseline=HumanBaseline(
+            score=0.677,
+            source_url="https://arxiv.org/abs/2210.09261",
+        ),
+        # Frontier score: 3-shot chain of thought, the Claude 3.5 Sonnet model card addendum,
+        # Table 1, "BIG-Bench Hard, 3-shot CoT". The paper's own best was Codex at 0.739.
+        frontier_score=FrontierScore(
+            score=0.931,
+            model="Claude 3.5 Sonnet",
+            source_url="https://www-cdn.anthropic.com/fed9cc193a14b84131812372d8d5857f8f304c52/Model_Card_Claude_3_Addendum.pdf",
+            as_of="2024-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

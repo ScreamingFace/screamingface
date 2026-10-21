@@ -1728,6 +1728,86 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #  CrowdStrike reports, the strictest, served verbatim.
         license="cc-by-nd-4.0",
     ),
+    # bbh — imported by Task replay on 2026-10-21 from
+    #   screamingface_engine_inspect.local_tasks.bbh.bbh:bbh.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face Joschka/big_bench_hard/few_shot_prompts
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/date_understanding
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/disambiguation_qa
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/geometric_shapes
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/hyperbaton
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/logical_deduction_five_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/logical_deduction_seven_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/logical_deduction_three_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/movie_recommendation
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/penguins_in_a_table
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/reasoning_about_colored_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/ruin_names
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/salient_translation_error_detection
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/snarks
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/temporal_sequences
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/tracking_shuffled_objects_five_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/tracking_shuffled_objects_seven_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/tracking_shuffled_objects_three_objects
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/boolean_expressions
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/causal_judgement
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/formal_fallacies
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/navigate
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/sports_understanding
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/web_of_lies
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/multistep_arithmetic_two
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/object_counting
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/word_sorting
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    #   hugging-face Joschka/big_bench_hard/dyck_languages
+    #     pin revision 76eaa8c29ad448752cd44201a1246618e2454cac
+    "bbh": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.bbh.bbh:bbh",
+        case_count=6508,
+        case_digest="2454ce86e6fd87f9887f6c4849dd01d20e1ce7cb161d945ff141dabbf5c6a291",
+        case_set_digest="47715c5caf16c50680a48d84eb3004cb426ac3f9dccd0a4520c958095fc02948",
+        keep_sample_metadata=True,
+        # NAMED DEVIATION: one question of inspect_evals' 6,509 cannot be answered right. The
+        # authors' own data splits its answer, "Monsters, Inc", into two options ("Monsters"
+        # and "Inc") and keeps the movie name as the key, so the key is neither a letter nor an
+        # option and every reply is marked wrong. The paper counts it, as always wrong (Codex
+        # answered "(B)"): github.com/suzgunmirac/BIG-Bench-Hard at 9ee07bd,
+        # bbh/movie_recommendation.json, question 164. inspect_evals already drops the two
+        # ruin_names questions broken the same way; this is the third. 6,508 of 6,509.
+        excluded_sample_ids=("movie_recommendation_164",),
+        source_pins={
+            "Joschka/big_bench_hard": "76eaa8c29ad448752cd44201a1246618e2454cac",
+        },
+        # License: MIT, the Joschka/big_bench_hard card at the pinned revision (header and
+        #  License section).
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
