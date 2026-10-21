@@ -39,7 +39,9 @@ def test_default_metadata_cannot_hide_executable_fusion_policy(
 ) -> None:
     # WHY: checking only policy declared in the rider lets removal of its fields
     # silently export a stricter Recipe than the expression actually executes.
-    recipe = sf.Fusion(["a", sf.Model("b", optional=optional)], synthesizer="synth", quorum=quorum)
+    recipe = sf.Fanout(["a", sf.Model("b", optional=optional)], quorum=quorum) >> sf.Synthesize(
+        "synth"
+    )
     value = _reset_metadata(compile_candidate(recipe).url4, mode)
     with pytest.raises(ValueError, match="metadata"):
         if entrypoint == "python":

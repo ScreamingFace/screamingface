@@ -35,7 +35,7 @@ async def test_pipeline_quorum_members_receive_the_previous_answer(
     recipe = sf.Pipeline(
         [
             "draft",
-            sf.Fusion(["a", sf.Model("b", optional=True)], synthesizer="synth", quorum=quorum),
+            sf.Fanout(["a", sf.Model("b", optional=True)], quorum=quorum) >> sf.Synthesize("synth"),
         ]
     )
     ctx = ExecutionContext(
@@ -54,10 +54,8 @@ async def test_quorum_fusion_synthesizer_receives_resolved_outer_panel() -> None
         seen.append(json.loads(context))
         return "B"
 
-    recipe = sf.Fusion(
-        ["a"],
-        synthesizer=sf.Fusion([sf.Model("b", optional=True)], synthesizer="inner", quorum=1),
-        quorum=1,
+    recipe = sf.Fanout(["a"], quorum=1) >> sf.Synthesize(
+        sf.Fanout([sf.Model("b", optional=True)], quorum=1) >> sf.Synthesize("inner")
     )
     routes: dict[str, RouteHandler] = {
         "/a": lambda c, i: "A",
@@ -84,7 +82,8 @@ async def test_captured_pipeline_input_does_not_satisfy_member_quorum() -> None:
     recipe = sf.Pipeline(
         [
             "draft",
-            sf.Fusion(["a", sf.Model("missing", optional=True)], synthesizer="synth", quorum=2),
+            sf.Fanout(["a", sf.Model("missing", optional=True)], quorum=2)
+            >> sf.Synthesize("synth"),
         ]
     )
     routes: dict[str, RouteHandler] = {

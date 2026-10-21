@@ -8,7 +8,7 @@ import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from url4 import (
     Binding,
@@ -49,13 +49,21 @@ from screamingface._operation_bindings import (
     OPERATION_BINDING,
     OPERATION_BINDING_PARAM,
 )
-from screamingface.blocks import Reduce
-from screamingface.reducer import Reducer, _ModelSignal
+from screamingface._signals import JUDGE_SIGNAL
+from screamingface.blocks import ReduceNode
+from screamingface.reducer import (
+    _JUDGE_CALL_KEYS,
+    _JUDGE_KEY,
+    _NARROW_SELECTS,
+    Reducer,
+    _ModelSignal,
+    _narrowed,
+    _op_name,
+)
 from screamingface.signal_sources import (
     SignalSource,
     declared_from_spec,
     injected_member_params,
-    python_signals,
 )
 from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
@@ -80,14 +88,15 @@ _NESTED_RECIPE_ROUTES = frozenset(
 )
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
-# WHY the optional sources tail: the combine context is {input, outputs or panel, signals,
-# sources}, and `signals` holds only '$judge_N'/'$writer_N' values (no braces), so the first `}`
-# ends it.
+# The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
+_PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
+# WHY the optional sources tail: the combine context is {input, outputs or panel, samples,
+# signals, sources} (E4b part 7 writes `samples` before `signals`), and `signals` holds only
+# '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
 _CONTEXT_SIGNALS = re.compile(r"signals: \{([^{}]*)\}(?:, sources: \{.*\})?\}\Z", re.DOTALL)
 _SIGNAL_KEY = re.compile(r"([A-Za-z0-9_]+): '")
 # A call that reads a quorum Fusion's broadcast panel (OME-1289 unit 13).
 _PANEL_CONTEXT = re.compile(r"\bpanel: '\$panel_\d+'")
-_JUDGE_CALL = "judge"  # the _ModelSignal key of a judge call
 
 
 class Url4(str):
@@ -117,7 +126,21 @@ class _Call:
     raw_intent: str
 
 
-def _to_python(value: str) -> str:
+@dataclass(frozen=True, slots=True)
+class _DecodedCandidate:
+    """A checked url4: its root, its Candidate expression, its calls and its Recipe topology."""
+
+    root: Node
+    candidate: Expression
+    linked: bool
+    calls: dict[str, _Call]
+    topology: _RecipeTopology
+
+
+def _decode_candidate(value: str) -> _DecodedCandidate:
+    """Decode and check a url4: the ONE decode path of ``to_python`` and the new-surface rebuild
+    (``S/_surface/rebuild.py``)."""
+
     try:
         root = build(value)
     except Url4Error as exc:
@@ -127,10 +150,18 @@ def _to_python(value: str) -> str:
     topology = _topology_from_expression(candidate)
     final = _final_binding(candidate, calls, topology)
     _validate_topology(candidate, topology, calls, final)
-    lines = _render_topology(topology, calls, indent=0)
-    lines[0] = f"candidate = {lines[0]}"
-    source = ["import screamingface as sf", "", *lines]
-    if linked:
+    return _DecodedCandidate(root, candidate, linked, calls, topology)
+
+
+def _to_python(value: str) -> str:
+    # WHY lazy: the rebuild imports the recipe surface, which imports the compiler and this module
+    from screamingface._surface.rebuild import rebuild_decoded
+    from screamingface._surface.render import code
+
+    decoded = _decode_candidate(value)
+    source = ["import screamingface as sf", "", code(rebuild_decoded(decoded).value, "candidate")]
+    if decoded.linked:
+        root = decoded.root
         benchmark = _benchmark_id(root)
         if benchmark is not None:
             source.extend(["", *_evaluation_call(benchmark, _limit(root))])
@@ -267,145 +298,10 @@ def _has_binding(value: Expression, name: str) -> bool:
     return any(isinstance(node, Source) and node.name == name for node in value.sources)
 
 
-def _render_model(
-    call: _Call,
-    *,
-    role: str,
-    explicit_name: str | None,
-    indent: int,
-    force_name: bool = False,
-    drop_params: frozenset[str] = frozenset(),
-) -> list[str]:
-    prefix = " " * indent
-    lines = [f"{prefix}sf.Model(", f"{prefix}    {call.model!r},"]
-    inferred_name = call.model.rsplit("/", 1)[-1]
-    if explicit_name is not None and (force_name or explicit_name != inferred_name):
-        lines.append(f"{prefix}    name={explicit_name!r},")
-    default_prompt = DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
-    if call.prompt != default_prompt:
-        lines.append(f"{prefix}    prompt={call.prompt!r},")
-    params = _editable_params(call, drop_params)
-    if params:
-        lines.append(f"{prefix}    params={params!r},")
-    lines.append(f"{prefix})")
-    return lines
+def _role_default_prompt(role: str | None) -> str:
+    """The prompt the compiler gives a model call of this topology role when it has none."""
 
-
-def _render_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-    drop_params: frozenset[str] = frozenset(),
-) -> list[str]:
-    if value.kind == "model":
-        assert value.role is not None
-        lines = _render_model(
-            calls[value.binding],
-            role=value.role,
-            explicit_name=value.name,
-            indent=indent,
-            force_name=value.named,
-            drop_params=drop_params,
-        )
-    elif value.kind == "pipeline":
-        lines = _render_pipeline_topology(value, calls, indent=indent)
-    elif value.kind in {"corrective_loop", "self_corrective"}:
-        lines = _render_corrective_topology(value, calls, indent=indent)
-    elif value.kind == "reducer":
-        lines = [f"{' ' * indent}{_reducer_from_topology(value, calls)._python()}"]
-    else:
-        lines = _render_fusion_topology(value, calls, indent=indent)
-    if value.optional:
-        lines.insert(-1, f"{' ' * indent}    optional=True,")
-    return lines
-
-
-def _render_corrective_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-) -> list[str]:
-    prefix = " " * indent
-    if value.kind == "self_corrective":
-        member = value.members[0]
-        lines = [f"{prefix}sf.SelfCorrective("]
-        rendered = _render_topology(member, calls, indent=indent + 4)
-        rendered[-1] += ","
-        lines.extend(rendered)
-        if value.name != member.name:
-            lines.append(f"{prefix}    name={value.name!r},")
-    else:
-        assert value.judge is not None
-        lines = [f"{prefix}sf.CorrectiveLoop(", f"{prefix}    ["]
-        for member in value.members:
-            rendered = _render_topology(member, calls, indent=indent + 8)
-            rendered[-1] += ","
-            lines.extend(rendered)
-        lines.append(f"{prefix}    ],")
-        inferred_name = "+".join(member.name for member in value.members)
-        if value.name != inferred_name:
-            lines.append(f"{prefix}    name={value.name!r},")
-        judge = _render_topology(value.judge, calls, indent=indent + 4)
-        judge[0] = f"{prefix}    judge={judge[0].lstrip()}"
-        judge[-1] += ","
-        lines.extend(judge)
-    if value.max_rounds != _DEFAULT_CORRECTIVE_ROUNDS:
-        lines.append(f"{prefix}    max_rounds={value.max_rounds!r},")
-    lines.append(f"{prefix})")
-    return lines
-
-
-def _render_pipeline_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-) -> list[str]:
-    prefix = " " * indent
-    lines = [f"{prefix}sf.Pipeline(", f"{prefix}    ["]
-    for stage in value.stages:
-        rendered = _render_topology(stage, calls, indent=indent + 8)
-        rendered[-1] += ","
-        lines.extend(rendered)
-    lines.append(f"{prefix}    ],")
-    inferred_name = "->".join(stage.name for stage in value.stages)
-    if value.named or value.name != inferred_name:
-        lines.append(f"{prefix}    name={value.name!r},")
-    lines.append(f"{prefix})")
-    return lines
-
-
-def _render_fusion_topology(
-    value: _RecipeTopology,
-    calls: dict[str, _Call],
-    *,
-    indent: int,
-) -> list[str]:
-    assert value.synthesizer is not None
-    prefix = " " * indent
-    declared = _fusion_signals(value, calls)
-    drop = _injected_names(declared)
-    lines = [f"{prefix}sf.Fusion(", f"{prefix}    ["]
-    for member in value.members:
-        rendered = _render_topology(member, calls, indent=indent + 8, drop_params=drop)
-        rendered[-1] += ","
-        lines.extend(rendered)
-    lines.append(f"{prefix}    ],")
-    inferred_name = "+".join(member.name for member in value.members)
-    if value.name != inferred_name:
-        lines.append(f"{prefix}    name={value.name!r},")
-    if declared is not None:
-        lines.append(f"{prefix}    signals={python_signals(declared)},")
-    synthesizer = _render_topology(value.synthesizer, calls, indent=indent + 4)
-    synthesizer[0] = f"{prefix}    synthesizer={synthesizer[0].lstrip()}"
-    synthesizer[-1] += ","
-    lines.extend(synthesizer)
-    if value.quorum != "all":
-        lines.append(f"{prefix}    quorum={value.quorum!r},")
-    lines.append(f"{prefix})")
-    return lines
+    return DEFAULT_SYNTHESIS_PROMPT if role == "synthesis" else DEFAULT_ANSWER_PROMPT
 
 
 def _validate_topology(
@@ -427,7 +323,23 @@ def _validate_topology(
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
         _require_call_kind(binding.node, calls[name])
     # INVARIANT: default-valued metadata cannot conceal executable policy.
-    if _has_fusion_policy(value) or _has_executable_fusion_policy(candidate):
+    # WHY the signals clause (E4b part 7 unit 5): a declared source adds calls, so it must prove
+    # its bytes. Hand edit: add a consistency entry to the spec of a plain Median url4; without
+    # this clause it rebuilds as a sf.Consistency recipe and replays with no sample calls.
+    # WHY not every combine call (review P7 #5): a replay with an unpinned or wrong-stage operator
+    # must fail with its operator error, which the recompile would hide behind a metadata error.
+    # WHY the narrow clause (E4b narrow): a narrow item changes which members the reduce reads, so
+    # a spec with ``narrow`` proves its bytes too. The cost: an unpinned or wrong-stage operator
+    # in a narrow spec shows as this recompile's metadata error, not as its operator error.
+    if (
+        _has_fusion_policy(value)
+        or _has_executable_fusion_policy(candidate)
+        or any(
+            not _PROVED_SPEC_KEYS.isdisjoint(decode_combine_spec(call.raw_intent))
+            for call in calls.values()
+            if call.model == COMBINE_MODEL
+        )
+    ):
         # WHY the pinned catalog (OME-1289 unit 13): a quorum Fusion may end in a reducer.
         _require_recompiles(candidate, _recipe_from_topology(value, calls), calls)
 
@@ -448,6 +360,22 @@ def _require_recompiles(
     runs far from their code.
     """
 
+    if not _recompiles(candidate, recipe, calls, check_surface=check_surface):
+        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+
+
+def _recompiles(
+    candidate: Expression,
+    recipe: Recipe,
+    calls: Mapping[str, _Call],
+    *,
+    check_surface: _CheckSurface | None = None,
+) -> bool:
+    """Whether ``recipe`` compiles to ``candidate`` byte for byte (see ``_require_recompiles``).
+
+    A compile error is not a mismatch: it raises, so a programming error never reads as one.
+    """
+
     from screamingface._evaluation.candidate import compile_candidate
 
     operators = _OperatorCatalog.from_pinned(_combine_operator_pairs(calls))
@@ -455,8 +383,7 @@ def _require_recompiles(
         warnings.simplefilter("ignore", DuplicateMembersWarning)
         warnings.simplefilter("ignore", JudgeWriterWarning)
         expected = compile_candidate(recipe, check_surface=check_surface, operators=operators).url4
-    if render(candidate) != expected:
-        raise ValueError("URL4 Candidate does not match its Recipe metadata")
+    return render(candidate) == expected
 
 
 def _has_executable_fusion_policy(candidate: Expression) -> bool:
@@ -471,7 +398,11 @@ def _has_executable_fusion_policy(candidate: Expression) -> bool:
 
 
 def _has_fusion_policy(value: _RecipeTopology) -> bool:
-    if value.quorum != "all" or value.optional:
+    # WHY samples (E4b part 7): a sample slot is optional and a panel quorum is policy, so a node
+    # with samples is policy even when its markers are hand-removed (the recompile must run).
+    # The signals clause of _validate_topology does not cover it: a hand edit can drop the spec's
+    # signals and the markers but keep the samples rider (review P7 #5).
+    if value.quorum != "all" or value.optional or value.samples:
         return True
     children = (*value.members, *value.stages)
     if value.synthesizer is not None:
@@ -490,8 +421,9 @@ def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
         raise ValueError(_MODEL_CALLS)
     if node.kind == "reducer":
         _require_reducer_call(node, call)
-    elif node.role in _SIGNAL_ROLES:
-        # INVARIANT: the binding param also keeps a signal call apart from a same-route member.
+    elif node.role in _SIGNAL_ROLES or node.role == "sample":
+        # INVARIANT: the binding param also keeps a signal or a sample call apart from a
+        # same-route member (a sample repeats its member's route and prompt; E4b part 7 SC-I1).
         if not _binding_first(call):
             raise ValueError(_MODEL_CALLS)
     elif any(name == OPERATION_BINDING_PARAM for name, _ in call.params):
@@ -535,24 +467,93 @@ def _reducer_from_topology(node: _RecipeTopology, calls: dict[str, _Call]) -> Re
     return _rebuilt_reducer(spec, tuple(_model_signal(signal, calls) for signal in node.signals))
 
 
-def _rebuilt_reducer(spec: dict[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
+def _rebuilt_reducer(  # noqa: PLR0911
+    spec: dict[str, object], signals: tuple[_ModelSignal, ...]
+) -> Reducer:
     """The named reducer when its own _rebuild accepts the spec exactly (BK-D2), else sf.Reduce.
 
     WHY suppress: a named class refusing a spec (step args, weights it cannot hold) means only
     "not this named form"; sf.Reduce then rebuilds it. When both refuse, the named class's error
     is the one raised, because it says what the spec was meant to be.
+
+    A spec with ``gate`` rebuilds only through sf.Vote (P17): sf.Reduce has no gate and would drop
+    it, so there is no sf.Reduce fallback, and a gate on another reducer is that reducer's
+    "cannot rebuild" error.
     """
 
+    if "narrow" in spec:
+        return _rebuilt_narrowed(spec, signals)
     # WHY through the module: the registry may be replaced as a whole (tests do).
     named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
+    if "gate" in spec:
+        if named is None or spec["reducer"] != "vote":
+            raise reducer_module._cannot_rebuild(str(spec["reducer"]))
+        return named._rebuild(spec, signals)
     if named is None:
-        return Reduce._rebuild(spec, signals)
+        return ReduceNode._rebuild(spec, signals)
     try:
         return named._rebuild(spec, signals)
     except (TypeError, ValueError):
         with contextlib.suppress(TypeError, ValueError):
-            return Reduce._rebuild(spec, signals)
+            return ReduceNode._rebuild(spec, signals)
         raise
+
+
+def _rebuilt_narrowed(spec: dict[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
+    """The main reducer of a spec with ``narrow``, carrying its narrow steps (narrow.md §2).
+
+    Each narrow item rebuilds as the sf.Filter or sf.Rank spec it is, and the main step as the spec
+    with no ``narrow`` key. The judge call goes to each step that reads ``score:judge``; every other
+    call (a gate fallback) is the main step's. The url4 recompile then proves the bytes.
+    """
+
+    judge = tuple(signal for signal in signals if signal.key == _JUDGE_KEY)
+    others = tuple(signal for signal in signals if signal.key != _JUDGE_KEY)
+    main = {key: value for key, value in spec.items() if key != "narrow"}
+    steps = tuple(
+        _rebuilt_narrow_step(cast("dict[str, object]", item), main, judge)
+        for item in cast("list[object]", spec["narrow"])
+    )
+    reducer = _rebuilt_reducer(main, (*(judge if _reads_judge(main) else ()), *others))
+    try:
+        return _narrowed(reducer, steps)
+    except ValueError as exc:
+        raise reducer_module._cannot_rebuild(str(spec["reducer"])) from exc
+
+
+def _rebuilt_narrow_step(
+    item: dict[str, object], main: dict[str, object], judge: tuple[_ModelSignal, ...]
+) -> Reducer:
+    """One narrow item as the spec of its own reducer: the main spec's schema and members, the
+    item's four stages, and no weights."""
+
+    select = cast("dict[str, object]", item["select"])
+    name = _NARROW_SELECTS.get(str(_op_name(str(select["op"]))))
+    if name is None:
+        raise reducer_module._cannot_rebuild(str(main["reducer"]))
+    step = {
+        "schema": main["schema"],
+        "reducer": name,
+        "members": main["members"],
+        **item,
+        "weights": None,
+    }
+    named = reducer_module._REDUCER_CLASSES[name]
+    return named._rebuild(step, judge if _reads_judge(step) else ())
+
+
+def _reads_judge(spec: Mapping[str, object]) -> bool:
+    """Whether a decoded step reads the judge reply: a judge pick, a judge score, a
+    ``score:judge`` filter, or ``score:judge`` weights."""
+
+    reduce = cast("Mapping[str, object]", spec["reduce"])
+    args = cast("Mapping[str, object]", reduce["args"])
+    return (
+        spec["reducer"] == "judge"
+        or (_op_name(str(reduce["op"])) == "scores" and args.get("source") == "judge")
+        or args.get("key") == JUDGE_SIGNAL
+        or spec["weights"] == {"signal": JUDGE_SIGNAL}
+    )
 
 
 def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSignal:
@@ -565,7 +566,7 @@ def _model_signal(signal: _SignalTopology, calls: dict[str, _Call]) -> _ModelSig
     )
     field = _projected_field(signal, calls, call)
     prompt = call.prompt
-    if signal.key == _JUDGE_CALL:
+    if signal.key in _JUDGE_CALL_KEYS:
         # Lazy: screamingface.judge imports the reducer registry that this module also feeds.
         from screamingface.judge import outputs_form_prompt
 
@@ -606,16 +607,24 @@ def _validate_compiled_corrective(
     require byte-identical canonical URL4 before showing editable Python.
     """
 
+    recipe = _recipe_from_topology(topology, calls)
+    check_surface = _replay_check_surface(topology)
+    assert check_surface is not None
+    _require_recompiles(candidate, recipe, calls, check_surface=check_surface)
+
+
+def _replay_check_surface(topology: _RecipeTopology) -> _CheckSurface | None:
+    """The check surface a corrective Candidate recompiles with; None for any other Candidate."""
+
     from screamingface._evaluation.benchmark import _CheckSurface
 
-    recipe = _recipe_from_topology(topology, calls)
-    assert topology.check_route is not None
-    check_surface = _CheckSurface(
+    if topology.check_route is None:
+        return None
+    return _CheckSurface(
         check_route=topology.check_route,
         feedback_intent="replay-validation",
         expected_check_cost="free",
     )
-    _require_recompiles(candidate, recipe, calls, check_surface=check_surface)
 
 
 def _recipe_from_topology(
@@ -623,10 +632,14 @@ def _recipe_from_topology(
     calls: dict[str, _Call],
     *,
     drop_params: frozenset[str] = frozenset(),
+    editable: bool = False,
 ) -> Recipe:
     """Reconstruct one inert public Recipe without evaluating generated Python.
 
     ``drop_params`` names the member params that the parent Fusion's declaration injected (P16).
+    ``editable=True`` (the new-surface rebuild, ``S/_surface/rebuild.py``) gives a model call whose
+    prompt is the default of its topology role no prompt, as ``to_python`` writes it; the url4
+    recompile check reads the default form (False), which compiles to the same bytes.
     """
 
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -637,24 +650,25 @@ def _recipe_from_topology(
         call = calls.get(value.binding)
         if call is None:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+        default = editable and call.prompt == _role_default_prompt(value.role)
         selected = Model(
             call.model,
             name=value.name if value.named else None,
-            prompt=call.prompt,
+            prompt=None if default else call.prompt,
             params=_editable_params(call, drop_params),
             optional=value.optional,
         )
     elif value.kind == "pipeline":
         selected = Pipeline(
-            [_recipe_from_topology(stage, calls) for stage in value.stages],
+            [_recipe_from_topology(stage, calls, editable=editable) for stage in value.stages],
             name=value.name if value.named else None,
             optional=value.optional,
         )
     elif value.kind == "fusion":
-        selected = _fusion_from_topology(value, calls)
+        selected = _fusion_from_topology(value, calls, editable=editable)
     elif value.kind == "self_corrective":
         assert value.max_rounds is not None
-        member = _recipe_from_topology(value.members[0], calls)
+        member = _recipe_from_topology(value.members[0], calls, editable=editable)
         selected = SelfCorrective(
             member,
             name=value.name if value.name != member.name else None,
@@ -665,28 +679,33 @@ def _recipe_from_topology(
         assert value.judge is not None
         inferred_name = "+".join(member.name for member in value.members)
         selected = CorrectiveLoop(
-            [_recipe_from_topology(member, calls) for member in value.members],
+            [_recipe_from_topology(member, calls, editable=editable) for member in value.members],
             name=value.name if value.name != inferred_name else None,
-            judge=_recipe_from_topology(value.judge, calls),
+            judge=_recipe_from_topology(value.judge, calls, editable=editable),
             max_rounds=value.max_rounds,
         )
     return selected
 
 
-def _fusion_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe:
+def _fusion_from_topology(
+    value: _RecipeTopology, calls: dict[str, _Call], *, editable: bool = False
+) -> Recipe:
     """One Fusion; its members show only the params the author wrote (P16, DS-D10)."""
 
-    from screamingface.fusion import Fusion
+    from screamingface.fusion import FusionNode
 
     assert value.synthesizer is not None
     inferred_name = "+".join(member.name for member in value.members)
     declared = _fusion_signals(value, calls)
     drop = _injected_names(declared)
-    return Fusion(
-        [_recipe_from_topology(member, calls, drop_params=drop) for member in value.members],
+    return FusionNode(
+        [
+            _recipe_from_topology(member, calls, drop_params=drop, editable=editable)
+            for member in value.members
+        ],
         name=value.name if value.name != inferred_name else None,
         signals=declared,
-        synthesizer=_synthesizer_from_topology(value.synthesizer, calls),
+        synthesizer=_synthesizer_from_topology(value.synthesizer, calls, editable=editable),
         quorum=value.quorum,
         optional=value.optional,
     )
@@ -710,9 +729,11 @@ def _injected_names(declared: Mapping[str, SignalSource] | None) -> frozenset[st
     return frozenset(injected_member_params(declared))
 
 
-def _synthesizer_from_topology(value: _RecipeTopology, calls: dict[str, _Call]) -> Recipe | Reducer:
+def _synthesizer_from_topology(
+    value: _RecipeTopology, calls: dict[str, _Call], *, editable: bool = False
+) -> Recipe | Reducer:
     if value.kind != "reducer":
-        return _recipe_from_topology(value, calls)
+        return _recipe_from_topology(value, calls, editable=editable)
     return _reducer_from_topology(value, calls)
 
 

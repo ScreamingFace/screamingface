@@ -25,11 +25,10 @@ FIXTURE = "verbalized_vote_candidate.url4"
 
 def verbalized_vote_url4() -> str:
     """Three members state a confidence; the vote weights each answer by it (VB-3)."""
-    recipe = sf.Fusion(
+    recipe = sf.Fanout(
         ["prov/alpha", "prov/beta", "prov/gamma"],
         signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")},
-        synthesizer=sf.Vote(weights=sf.signal("conf")),
-    )
+    ) >> sf.Vote(weights=sf.signal("conf"))
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 

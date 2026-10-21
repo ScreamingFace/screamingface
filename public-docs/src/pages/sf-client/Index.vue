@@ -16,7 +16,7 @@ const { isDark } = storeToRefs(useThemeStore())
 const localDiagram = (dark: boolean) =>
   `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
 
-// The smallest complete run: name the engine, compose a Fusion, evaluate it
+// The smallest complete run: name the engine, compose a fusion, evaluate it
 // beside its own member, read both scores. Every name here is shipped API.
 const smallestExample = `import screamingface as sf
 
@@ -27,7 +27,7 @@ sf.configure(
 
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 flash = sf.Model("openrouter/google/gemini-3-flash-preview")
-fusion = sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
+fusion = sf.Fanout([gpt, flash]) >> sf.Synthesize("openrouter/openai/gpt-5.5")
 
 # Score the solo model beside the fusion, on the same cases.
 report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)

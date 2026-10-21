@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import nbformat
@@ -27,7 +28,12 @@ _STORY_MARKERS = (
     "hosted.login(",
     "hosted.logout()",
     "sf.Model(",
-    "sf.Fusion(",
+    "sf.Fanout(",
+    ">> sf.Synthesize(",
+    ">> sf.Judge(",
+    ">> sf.Rank(",
+    ">> sf.Filter(",
+    ">> sf.Gate(",
     "on_event=",
     "progress=True",
     "limit=1",
@@ -40,6 +46,29 @@ _STORY_MARKERS = (
     ".to_json()",
     "report.export()",
     "sf.ScreamingFaceError",
+)
+# The recipe names and parameters that the map/select/reduce surface removed (E4b). A notebook
+# that still writes one would raise on the user's machine; ``sf.Fusion`` stays as a shortcut.
+_RETIRED_MARKERS = (
+    "sf.Pick(",
+    "sf.Reduce(",
+    ".then(",
+    'returns="label"',
+    'returns="scores"',
+    "by_field=",
+    "by_signal=",
+    "extract=",
+    "abstain_band=",
+    "gate=sf.Gate(",
+)
+# The removed forms that a plain substring cannot catch. WHY no ``.members``: the public
+# ``CombineEvidence.members`` and ``sf.Fanout(...).members`` keep that name, so it would refuse
+# valid code.
+_RETIRED_PATTERNS = (
+    re.compile(r'sf\.Gate\(\s*["\']'),  # the positional sf.Gate(observe, cmp, threshold) form
+    re.compile(r"sf\.Judge\([^)]*\border="),  # sf.Judge(..., order="min"): use sf.ArgMin
+    re.compile(r"\.stages\b"),  # Pipeline.stages: use .steps
+    re.compile(r"\.synthesizer\b"),  # the Fusion attribute: a chain has .steps
 )
 
 
@@ -73,6 +102,10 @@ def _check_public_story(values: dict[str, NotebookNode]) -> None:
     missing = [marker for marker in _STORY_MARKERS if marker not in authored]
     if missing:
         raise SystemExit(f"notebook story is missing public surface markers: {missing}")
+    retired = [marker for marker in _RETIRED_MARKERS if marker in authored]
+    retired += [pattern.pattern for pattern in _RETIRED_PATTERNS if pattern.search(authored)]
+    if retired:
+        raise SystemExit(f"notebook story still uses removed recipe names: {retired}")
     code = "\n".join(
         cell.source
         for notebook in values.values()

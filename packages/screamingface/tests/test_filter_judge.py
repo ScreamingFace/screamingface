@@ -12,35 +12,42 @@ judge rubric never appears in an error message.
 from __future__ import annotations
 
 import json
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Literal
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
+from _nodes import FilterNode, FusionNode, JudgeNode, lowered
 from url4 import Expression, build
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 RUBRIC = "Score each draft."
 SECRET = "SECRET-RUBRIC-TEXT"
-J = sf.Judge("provider/j", returns="scores", rubric=RUBRIC)
+J = sf.Judge("provider/j", rubric=RUBRIC)
 JUDGED = sf.signal("score:judge") >= 7
 
 
-def _filter_by_judge() -> sf.Filter:
+def _filter_by_judge() -> FilterNode:
     # WHY a function: the Filter is built inside each test, so a refusal fails that test and not
-    # the whole module at import.
-    return sf.Filter(where=JUDGED, judge=J)
+    # the whole module at import. WHY the node: it is the value that the judge filter chain lowers
+    # to, and the url4 rebuild lowers back to.
+    return FilterNode(where=JUDGED, judge=JudgeNode("provider/j", returns="scores", rubric=RUBRIC))
 
 
-def _wrapped(reducer: Reducer) -> sf.Pipeline:
-    return sf.Pipeline([sf.Fusion(members3(), synthesizer=reducer), "provider/next"])
+def _judge_filter(
+    members: Sequence[str | sf.Recipe], quorum: int | Literal["all"] = "all"
+) -> sf.Recipe:
+    """Fanout >> Judge >> Filter(score:judge) >> Synthesize: the judge filter and its writer."""
 
-
-def _url4(reducer: Reducer) -> str:
-    return compile_candidate(_wrapped(reducer), operators=flow_operators()).url4
+    return (
+        sf.Fanout(members, quorum=quorum)
+        >> J
+        >> sf.Filter(where=JUDGED)
+        >> sf.Synthesize("provider/next")
+    )
 
 
 def _recovered(url4: str) -> sf.Recipe:
@@ -55,7 +62,7 @@ def _recovered(url4: str) -> sf.Recipe:
 
 
 def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
-    url4 = _url4(_filter_by_judge())
+    url4 = compile_candidate(_judge_filter(members3()), operators=flow_operators()).url4
     root = build(url4)
     assert isinstance(root, Expression)
     calls = _calls(root)
@@ -63,9 +70,9 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
 
     assert "judge_1" in calls
     assert calls["judge_1"].context == "{input: '$input', " + outs + "}"
-    assert calls["judge_1"].prompt.splitlines()[0] == "judge-template@1 returns=scores"
+    assert calls["judge_1"].prompt.splitlines()[0] == "judge-template@2 returns=scores"
     assert calls["judge_1"].prompt.endswith("Rubric:\nScore each draft.")
-    assert "A higher number means a better answer." in calls["judge_1"].prompt
+    assert "Score each member as the rubric says." in calls["judge_1"].prompt
     assert (
         calls["synthesis_1"].context
         == "{input: '$input', " + outs + ", signals: {judge: '$judge_1'}}"
@@ -81,7 +88,7 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
         "weights": None,
     }
     # WHY one judge call for the whole panel: Q10 defers the one-call-per-member form
-    assert url4.count("judge-template@1") == 1
+    assert url4.count("judge-template@2") == 1
     assert '"role":"judge"' in url4
 
 
@@ -89,74 +96,36 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
 
 
 def test_sdk_filter_score_judge_without_judge_is_refused() -> None:
-    message = (
-        r"Filter where=sf\.signal\('score:judge'\) needs a judge on the same reducer: "
-        r"add judge=sf\.Judge\(\.\.\., returns='scores'\)"
-    )
+    message = r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     with pytest.raises(ValueError, match=message):
-        sf.Filter(where=JUDGED)
+        _ = sf.Fanout(members3()) >> sf.Filter(where=JUDGED) >> sf.Synthesize("provider/next")
     with pytest.raises(ValueError, match=message):
-        sf.Filter(where=sf.signal("score:judge") < 3)
-    with pytest.raises(
-        ValueError, match=r"^sf\.Reduce\('filter'\): Filter where=.*add judge=sf\.Judge"
-    ):
-        sf.Reduce("filter", where=JUDGED)
+        _ = (
+            sf.Fanout(members3())
+            >> sf.Filter(where=sf.signal("score:judge") < 3)
+            >> sf.Synthesize("provider/next")
+        )
 
 
 # --- FJ-E4: a judge needs a score:judge comparison ----------------------------------------------
 
 
 def test_sdk_filter_judge_without_score_judge_where_is_refused() -> None:
-    secret = sf.Judge("provider/j", returns="scores", rubric=SECRET)
-    refusal = r"Filter judge is read only by a where=sf\.signal\('score:judge'\) comparison"
+    secret = sf.Judge("provider/j", rubric=SECRET)
+    unread = r"^sf\.Judge scores the members, but no step reads score:judge$"
     for where in (
         sf.signal("field:confidence") >= 0.6,
         sf.matches("yes"),
         sf.signal("cost_usd") <= 0.01,
     ):
-        with pytest.raises(ValueError, match=refusal) as caught:
-            sf.Filter(where=where, judge=secret)
+        with pytest.raises(ValueError, match=unread) as caught:
+            _ = (
+                sf.Fanout(members3())
+                >> secret
+                >> sf.Filter(where=where)
+                >> sf.Synthesize("provider/next")
+            )
         assert SECRET not in str(caught.value)
-
-    with pytest.raises(ValueError, match=r"^sf\.Reduce\('filter'\): " + refusal) as caught:
-        sf.Reduce("filter", where=sf.matches("yes"), judge=secret)
-    assert SECRET not in str(caught.value)
-
-    with pytest.raises(TypeError, match=r"Filter judge must be an sf\.Judge"):
-        sf.Filter(where=JUDGED, judge="provider/j")  # type: ignore[arg-type]
-    with pytest.raises(
-        TypeError, match=r"sf\.Reduce\('filter'\) option 'judge' must be an sf\.Judge"
-    ):
-        sf.Reduce("filter", where=JUDGED, judge="provider/j")
-
-
-# --- FJ-D2: a label judge or an order="min" judge is refused ------------------------------------
-
-
-def test_sdk_filter_refuses_a_label_or_min_judge() -> None:
-    label = sf.Judge("provider/j", returns="label", rubric=SECRET)
-    low = sf.Judge("provider/j", returns="scores", rubric=SECRET, order="min")
-
-    with pytest.raises(
-        ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
-    ) as caught:
-        sf.Filter(where=JUDGED, judge=label)
-    assert SECRET not in str(caught.value)
-
-    with pytest.raises(ValueError) as caught:
-        sf.Filter(where=JUDGED, judge=low)
-    assert "order" in str(caught.value)
-    assert SECRET not in str(caught.value)
-
-    with pytest.raises(
-        ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
-    ) as caught:
-        sf.Reduce("filter", where=JUDGED, judge=label)
-    assert SECRET not in str(caught.value)
-    with pytest.raises(ValueError) as caught:
-        sf.Reduce("filter", where=JUDGED, judge=low)
-    assert "order" in str(caught.value)
-    assert SECRET not in str(caught.value)
 
 
 # --- FJ#11: the url4 round trip rebuilds a judge Filter and the filter block --------------------
@@ -165,50 +134,37 @@ def test_sdk_filter_refuses_a_label_or_min_judge() -> None:
 @pytest.mark.parametrize("shape", ["plain", "quorum"])
 def test_url4_round_trip_rebuilds_a_judge_filter_and_filter_block(shape: str) -> None:
     if shape == "plain":
-        fusion = sf.Fusion(members3(), synthesizer=_filter_by_judge())
+        chain = _judge_filter(members3())
     else:
         # WHY a quorum panel: the judge reads the panel, and the rebuild must still find its call
-        fusion = sf.Fusion(
-            ["provider/a", "provider/b", sf.Model("provider/c", optional=True)],
-            synthesizer=_filter_by_judge(),
-            quorum=2,
+        chain = _judge_filter(
+            ["provider/a", "provider/b", sf.Model("provider/c", optional=True)], quorum=2
         )
-    url4 = compile_candidate(
-        sf.Pipeline([fusion, "provider/next"]), operators=flow_operators()
-    ).url4
+    url4 = compile_candidate(chain, operators=flow_operators()).url4
 
-    assert (
-        "synthesizer=sf.Filter(where=sf.signal('score:judge') >= 7.0, judge=sf.Judge('provider/j', "
-        "returns='scores', rubric='Score each draft.'))," in sf.Url4(url4).to_python()
-    )
+    assert sf.Url4(url4).to_python().splitlines()[-4:] == [
+        "    >> sf.Judge('provider/j', rubric='Score each draft.')",
+        "    >> sf.Filter(where=sf.signal('score:judge') >= 7.0)",
+        "    >> sf.Synthesize('provider/next')",
+        ")",
+    ]
     recovered = _recovered(url4)
+    assert recovered == chain
     assert isinstance(recovered, sf.Pipeline)
-    stage = recovered.stages[0]
-    assert isinstance(stage, sf.Fusion)
-    assert type(stage.synthesizer) is sf.Filter
+    stage = lowered(recovered)._stage_values()[0]
+    assert isinstance(stage, FusionNode)
+    assert type(stage.synthesizer) is FilterNode
     assert stage.synthesizer == _filter_by_judge()
     assert compile_candidate(recovered, operators=flow_operators()).url4 == url4
 
 
-def test_filter_block_and_repr_rebuild_the_judge_filter() -> None:
-    # WHY a separate test: the round-trip test above is already at the statement limit
-    block = sf.Reduce("filter", where=JUDGED, judge=J)
-    assert dict(block.options) == {"where": JUDGED, "judge": J}
-    assert _url4(block) == _url4(_filter_by_judge())
-    assert eval(block._python(), {"sf": sf}) == block  # noqa: S307
-    recovered_block = _recovered(_url4(block))
-    assert isinstance(recovered_block, sf.Pipeline)
-    recovered_stage = recovered_block.stages[0]
-    assert isinstance(recovered_stage, sf.Fusion)
-    assert type(recovered_stage.synthesizer) is sf.Filter
-
-    assert repr(_filter_by_judge()) == (
-        "Filter(where=sf.signal('score:judge') >= 7.0, "
-        "judge=Judge('provider/j', returns='scores', rubric='Score each draft.'))"
-    )
-    assert eval(_filter_by_judge()._python(), {"sf": sf}) == _filter_by_judge()  # noqa: S307
-
+def test_a_judge_filter_whose_where_no_longer_reads_the_judge_does_not_rebuild() -> None:
     # WHY a hand edit: the judge call is there, but the where no longer reads score:judge
-    bad = _url4(_filter_by_judge()).replace('"key":"score:judge"', '"key":"field:confidence"')
-    with pytest.raises(ValueError, match="filter spec this SDK version cannot rebuild"):
+    url4 = compile_candidate(_judge_filter(members3()), operators=flow_operators()).url4
+    bad = url4.replace('"key":"score:judge"', '"key":"field:confidence"')
+    assert bad != url4
+
+    with pytest.raises(
+        ValueError, match=r"^URL4 Candidate has a filter spec this SDK version cannot rebuild$"
+    ):
         sf.Url4(bad).to_python()

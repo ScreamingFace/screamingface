@@ -24,19 +24,11 @@ FIXTURE = "filter_judge_candidate.url4"
 def filter_judge_url4() -> str:
     """Three members, a judge Filter at >= 7, then a writer that sees only the kept members."""
 
-    recipe = sf.Pipeline(
-        [
-            sf.Fusion(
-                ["prov/alpha", "prov/beta", "prov/gamma"],
-                synthesizer=sf.Filter(
-                    where=sf.signal("score:judge") >= 7,
-                    judge=sf.Judge(
-                        "prov/judge", returns="scores", rubric="Score each draft from 0 to 10."
-                    ),
-                ),
-            ),
-            "prov/writer",
-        ]
+    recipe = (
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
+        >> sf.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
+        >> sf.Filter(where=sf.signal("score:judge") >= 7)
+        >> sf.Synthesize("prov/writer")
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 

@@ -15,7 +15,10 @@ from screamingface._report_export import inline_json
 from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
+from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
+from screamingface._ui.combine_view import CombineSummary, combine_sections_html
 from screamingface._ui.style import FUSION_GRADIENT_Y, NO_MATH, STYLE
+from screamingface._ui.text import short
 from screamingface.report import _candidate_failures
 
 if TYPE_CHECKING:
@@ -34,6 +37,7 @@ _REASONING_PREVIEW = 400
 _STYLE = (
     STYLE
     + ACCOUNTING_STYLE
+    + COMBINE_STYLE
     + f"""<style>
 .sf-report{{padding:4px 14px 14px}}
 .sf-report__head-row{{display:flex;align-items:flex-start;gap:12px}}
@@ -329,8 +333,7 @@ def _strip_html(report: Report) -> str:
     )
 
 
-def _abstained_text(candidate: CandidateResult) -> str:
-    count = candidate.abstained_count
+def _abstained_text(count: int) -> str:
     return f" · {count} abstained" if count > 0 else ""
 
 
@@ -353,10 +356,16 @@ def _card_html(
         state = "complete with warnings"
     else:
         state = "complete"
+    # WHY one pass (E7): the abstained count and the run summary share it; see CombineSummary.
+    abstained = 0
+    summary = CombineSummary()
+    for case in candidate.cases:
+        abstained += case.abstained
+        summary.add(case)
     runs = _metric(metrics, "n_runs")
     # Repeat count belongs in the context line: a 7th figure would orphan a grid row.
     repeats = f" · {int(runs)} runs" if runs and runs > 1 else ""
-    ctx = f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(candidate)}"
+    ctx = f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(abstained)}"
     # The fusion edge marks a rankable result. Any finite benchmark-native score —
     # including zero and negative (HealthBench worst-30 is all-negative) — is a real
     # outcome worth highlighting; only an unscored candidate stays neutral (OME-866:
@@ -381,7 +390,7 @@ def _card_html(
         f"<span class='sf-report__name'{' aria-hidden=true' if linked else ''}>"
         f"{escape(candidate.name)}</span>"
         f"<span class='sf-report__ctx'>{escape(ctx)}</span>"
-        f"<span class='sf-report__run'>{escape(_short(candidate.run_id))}</span></div>"
+        f"<span class='sf-report__run'>{escape(short(candidate.run_id))}</span></div>"
         f"{_models_html(candidate)}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         f"{_coverage_notice_html(candidate)}"
@@ -389,6 +398,7 @@ def _card_html(
         f"{_axes_html(metrics)}"
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
+        f"{summary.html(candidate)}"
         f"{run_accounting_note(candidate, context=context)}"
         f"{_recipe_html(candidate)}</div>"
     )
@@ -541,8 +551,13 @@ def _grading_html(metrics: Any) -> str:
     )
 
 
+# The label a reader sees for a wire kind: a fanout block is "fusion" on the wire (it stays, the
+# report schema pins it) and "fanout" on the page (O13).
+_KIND_LABELS: Mapping[str, str] = {"fusion": "fanout"}
+
+
 def _members_html(candidate: CandidateResult) -> str:
-    """A Fusion's direct members — the participants behind a fused answer."""
+    """A fanout block's direct members — the participants behind a fused answer."""
 
     if not candidate.members:
         return ""
@@ -554,7 +569,7 @@ def _members_html(candidate: CandidateResult) -> str:
     rows = "".join(
         "<div class='sf-member'>"
         f"<span class='sf-member__n'>{escape(_member_display_name(member, duplicated))}</span>"
-        f"<span class='sf-member__k'>{escape(member.kind)}</span>"
+        f"<span class='sf-member__k'>{escape(_KIND_LABELS.get(member.kind, member.kind))}</span>"
         f"<span class='sf-member__m'>{escape(', '.join(member.models))}</span>"
         f"<span class='sf-member__d'>"
         f"{'—' if member.duration_ms is None else _duration(member.duration_ms)}</span>"
@@ -941,7 +956,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> 
         )
     body = (
         f"{answer_html}{refusal_html}{_attempts_html(case)}{_case_failures_html(case)}"
-        f"{checks_head}{checks}"
+        f"{combine_sections_html(candidate, case)}{checks_head}{checks}"
     )
     return (
         "<div class='sf-pane'><div class='sf-pane__h'>"
@@ -1154,10 +1169,6 @@ def _metric(metrics: Any, name: str) -> float | None:
 
 def _number(value: object) -> float | None:
     return value if isinstance(value, int | float) and not isinstance(value, bool) else None
-
-
-def _short(value: str, keep: int = 12) -> str:
-    return value if len(value) <= keep else f"{value[:keep]}…"
 
 
 def _percent(value: float | None) -> str:

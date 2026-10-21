@@ -26,8 +26,8 @@ from screamingface._report_primitives import _optional_number
 ANSWER_SCHEMA = "screamingface.answer.v1"
 type AnswerStatus = Literal["answered", "abstain", "fail", "excluded"]
 type MemberStatus = Literal["answered", "fail", "excluded"]
-type AbstainReason = Literal["no_votes", "cut_not_met", "output_missing"]
-type ExcludeReason = Literal["no_signal", "no_weight"]
+type AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
+type ExcludeReason = Literal["no_signal", "no_weight", "not_selected"]
 type AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -40,9 +40,13 @@ type AnswerReason = Literal[
     "no_votes",
     "cut_not_met",
     "output_missing",
+    "gate_not_met",
+    "in_band",
     # A rule of the combine step left an answered member out (E4b part 2): no signal, no weight.
     "no_signal",
     "no_weight",
+    # A narrow step before the reducer did not choose the member (E4b map-reduce surface).
+    "not_selected",
 ]
 type SignalOrder = Literal["max", "min"]
 
@@ -78,7 +82,7 @@ class Answer:
     text is the member's original output joined through the Candidate operation DAG; None when the
     Engine could not attribute it. A computed Answer has member_id None unless a select chose one.
     An excluded Answer (status "excluded") names its member, keeps its value, and has the reason
-    no_signal or no_weight.
+    no_signal, no_weight or not_selected (a narrow step before the reducer did not choose it).
     """
 
     member_id: str | None

@@ -18,20 +18,22 @@ from test_pick_output_url4_fixtures import BUILDERS as PICK_OUTPUT_BUILDERS
 
 # SHA-256 of each part 1 recipe fixture at base 0f4b9e292
 # (git show 0f4b9e292:<path> | shasum -a 256). The oracle is the base commit, not today's
-# compiler. Never update these values.
+# compiler. Never update these values, except S10 and S11 max (the judge-template@2 bytes of
+# unit 7b, overview §4.3) and S5, S5 pick output and S7 (a field pick reads a signal since 7d-1,
+# overview §4 change 4: S5 now equals S8).
 _PART1_FIXTURE_SHA256: dict[str, str] = {
     "recipe_s1.url4": "acf8c07b98c0bb3d0e1bc92e97ceaf552107b656b68b59e01f2f662fe1e27097",
-    "recipe_s10.url4": "f2919c62ad78fa0703d03814f79642deea34476b1def079ced74bd9d0a9155e2",
-    "recipe_s11_max.url4": "ee0ca3234411110514b8f4bec1569971b40a41851225ab07f409d42f2065a13a",
+    "recipe_s10.url4": "772d7f30080d877c9e53e2678b8d7d99bffb05f7caa48fe448236e6db660fef2",
+    "recipe_s11_max.url4": "3dc99ebe14dee3e15dedd88e0873e40d548b9a2ff94e504e4eaa07162f98f19b",
     "recipe_s2.url4": "ecb1a2a974974f0a47a5947f60dec7845cf5393781bab9a22c1ff7700db5508c",
     "recipe_s3.url4": "cd41189b501ce7f4729abe71f044dd6e6dbb7f34614fe2d0d50c7188176e772d",
     "recipe_s4.url4": "192d37444364b4a8c72e71d75fb0a313860943a940033c8e009ba663b76a4988",
     "recipe_s4_median.url4": "063c205c0cef0bfa82aaa1540102a5b13b8ace11af1a32671cb8e0140880724f",
-    "recipe_s5.url4": "049b77b2e2a9f07a2bb76ff88861e4a0186ed0a7e33573b8f17edefea5635099",
+    "recipe_s5.url4": "ea786d01e5a922c68f5a679c2437c2b779239bb4cfba581e983709ce42e87e2a",
     "recipe_s5_pick_output.url4": (
-        "6ef6e0ec04951d3ec31db4b64145c6e25237b6f4135d762b825e9d273495e7b0"
+        "57ca02ae94ed458f578b253924fc6847a2fa3d5e466551032ebeda4d5188a7d9"
     ),
-    "recipe_s7.url4": "ba626e376a7673e3ba303a7d67138500fcc994b154a6e9c6f635217b09a95704",
+    "recipe_s7.url4": "95fe7267a1e3aae60256c80d4ec702ba1569c0789ffdaa25abbeeac1552d1cd3",
     "recipe_s8.url4": "ea786d01e5a922c68f5a679c2437c2b779239bb4cfba581e983709ce42e87e2a",
     "recipe_s8_pick_output.url4": (
         "57ca02ae94ed458f578b253924fc6847a2fa3d5e466551032ebeda4d5188a7d9"

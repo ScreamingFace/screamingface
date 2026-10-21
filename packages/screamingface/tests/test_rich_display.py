@@ -214,14 +214,12 @@ def test_model_details_card_renders_only_real_escaped_profile_fields() -> None:
 def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None:
     opus = sf.Model("provider/opus", name="opus")
     gpt = sf.Model("provider/gpt", name="gpt")
-    fusion = sf.Fusion(
-        [opus, gpt],
-        name="frontier <pair>",
-        synthesizer=sf.Model(
+    fusion = sf.Fanout([opus, gpt], name="frontier <pair>") >> sf.Synthesize(
+        sf.Model(
             "provider/synth",
             prompt="Resolve <conflicts>.",
             params={"reasoning": "high"},
-        ),
+        )
     )
 
     html = cast(Any, fusion)._repr_html_()
@@ -230,10 +228,11 @@ def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None
     assert ">members<" in html
     assert "provider/opus" in html
     assert "provider/gpt" in html
-    assert ">synthesis<" in html
+    # the block card labels its last step "write" and shows the step's repr (DS-1)
+    assert ">write<" in html
     assert "provider/synth" in html
     assert "Resolve &lt;conflicts&gt;." in html
-    assert "reasoning=high" in html
+    assert "&#x27;reasoning&#x27;: &#x27;high&#x27;" in html
     assert "sf-card__accent" in html
     assert "sf-gain-grad" in html
 
@@ -242,11 +241,11 @@ def test_pipeline_card_shows_ordered_topology_in_light_and_dark_themes() -> None
     pipeline = sf.Pipeline(
         [
             sf.Model("provider/draft", name="draft <one>"),
-            sf.Fusion(
+            sf.Fanout(
                 [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
                 name="review panel",
-                synthesizer="provider/reconciler",
-            ),
+            )
+            >> sf.Synthesize("provider/reconciler"),
             sf.Model("provider/final"),
         ],
         name="draft → review → final",
@@ -254,7 +253,7 @@ def test_pipeline_card_shows_ordered_topology_in_light_and_dark_themes() -> None
 
     html = cast(Any, pipeline)._repr_html_()
 
-    assert "ScreamingFace pipeline" in html
+    assert "ScreamingFace chain" in html
     assert "draft → review → final" in html
     assert ">stages<" in html
     assert "stage 1" in html
@@ -262,7 +261,7 @@ def test_pipeline_card_shows_ordered_topology_in_light_and_dark_themes() -> None
     assert "stage 3" in html
     assert "draft &lt;one&gt;" in html
     assert "review panel" in html
-    assert "nested fusion" in html
+    assert "fanout block" in html
     assert "provider/final" in html
     assert "sf-card__accent--pipeline" in html
     assert "@media (prefers-color-scheme:dark)" in html
@@ -274,16 +273,15 @@ def test_fusion_card_renders_a_complete_recipe_synthesizer_without_model_assumpt
         [sf.Model("provider/judge"), sf.Model("provider/writer")],
         name="judge → writer",
     )
-    fusion = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        synthesizer=synthesizer,
+    fusion = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
+        synthesizer
     )
 
     html = cast(Any, fusion)._repr_html_()
 
-    assert ">synthesis<" in html
+    assert ">write<" in html
     assert "judge → writer" in html
-    assert "nested pipeline" in html
+    assert "Synthesize(Pipeline([" in html
 
 
 def test_catalogue_surface_has_no_duplicate_view_operation() -> None:
@@ -332,36 +330,29 @@ def test_catalogue_sequence_edges_and_empty_search_results(
 def test_cards_cover_provider_fallback_and_nested_fusions() -> None:
     model_html = cast(Any, sf.Model("model-without-provider"))._repr_html_()
     assert "—" in model_html
-    inner = sf.Fusion(
-        [sf.Model("provider/a"), sf.Model("provider/b")],
-        name="inner",
-        synthesizer="provider/inner-synth",
-    )
-    outer = sf.Fusion(
-        [inner, sf.Model("provider/c")],
-        name="outer",
-        synthesizer="provider/outer-synth",
+    inner = sf.Fanout(
+        [sf.Model("provider/a"), sf.Model("provider/b")], name="inner"
+    ) >> sf.Synthesize("provider/inner-synth")
+    outer = sf.Fanout([inner, sf.Model("provider/c")], name="outer") >> sf.Synthesize(
+        "provider/outer-synth"
     )
     fusion_html = cast(Any, outer)._repr_html_()
-    assert "nested fusion" in fusion_html
+    assert "nested chain" in fusion_html
 
 
 def test_nested_recipe_kind_reflects_the_recipe_type_not_the_class_name() -> None:
-    class RenamedFusion(sf.Fusion):
+    class RenamedChain(sf.Pipeline):
         pass
 
-    nested = RenamedFusion(["provider/a"], synthesizer="provider/inner-synth")
-    outer = sf.Fusion(
-        [nested, sf.Model("provider/c")],
-        synthesizer="provider/outer-synth",
-    )
+    nested = RenamedChain([sf.Fanout(["provider/a"]), sf.Synthesize("provider/inner-synth")])
+    outer = sf.Fanout([nested, sf.Model("provider/c")]) >> sf.Synthesize("provider/outer-synth")
 
     html = cast(Any, outer)._repr_html_()
 
     # WHY: the nested kind is the Recipe's type, never its Python class name —
-    # a renamed subclass must still read as a fusion.
-    assert "nested fusion" in html
-    assert "renamedfusion" not in html
+    # a renamed subclass must still read as a chain.
+    assert "nested chain" in html
+    assert "renamedchain" not in html
 
 
 # FEATURE: connection card — a configured Client renders which Engine + Scoreboard it targets.

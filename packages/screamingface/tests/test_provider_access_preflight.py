@@ -140,7 +140,9 @@ async def test_missing_access_stops_before_any_dispatch_or_events(mode: str, sha
         access = {_MODEL: "configured", _OTHER: "missing"}
         recipe = [sf.Model(_MODEL), sf.Model(_OTHER)]
     if shape == "fusion":
-        recipe = sf.Fusion([sf.Model(_MODEL), sf.Model(_MODEL, name="repeat")], synthesizer=_OTHER)
+        recipe = sf.Fanout([sf.Model(_MODEL), sf.Model(_MODEL, name="repeat")]) >> sf.Synthesize(
+            _OTHER
+        )
     engine = _Engine(access)
     runs = _Run() if mode == "sync" else _AsyncRun()
     events: list[Any] = []

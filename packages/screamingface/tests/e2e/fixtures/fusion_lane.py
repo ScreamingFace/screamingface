@@ -7,11 +7,8 @@ imported board ``inspect-gsm8k`` and replayed from a recorded cache (``test_fusi
     recipe_synthesizer    sf.Fusion(members, synthesizer=<a named two-stage Pipeline>)
 
 The replay must repeat the recording exactly: the same url4, the same Case outputs, and the same
-canonical JSON digest of the request body of every call the Engine sends to the gateway. It also
-runs the BLOCK form of each shape
-(``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce("context")), S])``) against the same
-cache and demands the same url4, outputs and bodies (FR-2). Two fixture files make the lane
-go green, and until they exist the lane SKIPS loudly:
+canonical JSON digest of the request body of every call the Engine sends to the gateway. Two fixture
+files make the lane go green, and until they exist the lane SKIPS loudly:
 
     fixtures/snapshots/inspect-gsm8k-fusion.snapshot.gz         the sliced response cache
     fixtures/snapshots/inspect-gsm8k-fusion.manifest.json       its revision-guard sidecar
@@ -35,8 +32,7 @@ MONEY and is run by the user, never by an agent.
 ``bless`` (free, docker, keyless)
     Replays the recording with NO key, with a capture proxy between the Engine and the gateway. For
     each shape it runs the named form and refuses unless the replay reproduces the saved report
-    (board, url4, statuses, score, coverage, failure codes, Case outputs), then runs the block form
-    and refuses unless it gives the same url4, outputs and request bodies (FR-2). WHY capture only
+    (board, url4, statuses, score, coverage, failure codes, Case outputs). WHY capture only
     on replay: the replay gateway is keyless, so a body whose cache key drifted is a miss and fails
     the Case. The golden pins the digest of every body anyway, a superset of the synthesizer bodies.
 
@@ -222,25 +218,6 @@ def _refuse_unless_reproduced(
     return statuses
 
 
-def _refuse_unless_block_matches(
-    named: Any, block: Any, named_digests: tuple[str, ...], block_digests: tuple[str, ...]
-) -> None:
-    """FR-2 at the request level: the block form is the named Fusion (url4, outputs, digests)."""
-    left, right = named.candidates.only, block.candidates.only
-    rl._refuse(
-        str(left.url4) != str(right.url4),
-        "the block form compiled a different url4 than sf.Fusion (FR-2)",
-    )
-    rl._refuse(
-        case_outputs(left.cases) != case_outputs(right.cases),
-        "the block form answered differently than sf.Fusion (FR-2)",
-    )
-    rl._refuse(
-        named_digests != block_digests,
-        "the block form sent other request bodies than sf.Fusion (FR-2)",
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class _Replay:
     """One shape's named-form replay: its report and the digests of the bodies it sent."""
@@ -252,15 +229,12 @@ class _Replay:
 def _replay_recipe(
     engine_url: str, proxy: Any, recording: _Recording, recipe: FusionRecipe
 ) -> _Replay:
-    """The named form, then the block form, against the same cache; both must hold."""
+    """The shape's run against the cache; it must reproduce the recording."""
     saved = recording.reports[recipe]
     start = len(proxy.records)
     report = ss._evaluate(engine_url, recording.spec.build(recipe), BOARD, recording.limit)
     digests = body_digests(proxy.records[start:])
     _refuse_unless_reproduced(report, saved.facts, saved.outputs, saved.failures)
-    start = len(proxy.records)
-    block = ss._evaluate(engine_url, recording.spec.build_block(recipe), BOARD, recording.limit)
-    _refuse_unless_block_matches(report, block, digests, body_digests(proxy.records[start:]))
     return _Replay(report=report, digests=digests)
 
 
@@ -349,7 +323,7 @@ def bless(args: argparse.Namespace) -> None:
         f"-- (cache content sha256 {ss._dump_content_sha(recording.cache)}), so the keys are",
         "-- already this protocol's. The bless proved the replay reproduces the saved SDK reports",
         f"-- (content sha256 {report_shas}): expression, statuses, score, coverage, failures and",
-        "-- Case outputs, and that the block form of each shape sends the same requests.",
+        "-- Case outputs.",
         "--",
         "",
     ]

@@ -52,10 +52,8 @@ def test_member_usage_and_live_events_come_from_separate_authorities():
     events = []
     with sf.Client(http_transport=httpx.MockTransport(_engine), run_transport=transport) as client:
         report = client.evaluate(
-            sf.Fusion(
-                [sf.Model("provider/opus", name="A"), sf.Model("provider/opus", name="B")],
-                synthesizer="provider/opus",
-            ),
+            sf.Fanout([sf.Model("provider/opus", name="A"), sf.Model("provider/opus", name="B")])
+            >> sf.Synthesize("provider/opus"),
             benchmark="draco",
             on_event=events.append,
             progress=False,

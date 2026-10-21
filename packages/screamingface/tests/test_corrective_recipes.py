@@ -58,18 +58,18 @@ def test_loops_are_root_only_recipes() -> None:
     # undefined, so a nested loop is rejected at CONSTRUCTION — the earliest
     # possible fail-before-spend point.
     loop = sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j")
-    with pytest.raises(TypeError, match="must be a model route or sf.Model"):
-        sf.Fusion([loop], synthesizer="prov/s")
-    with pytest.raises(TypeError, match="must be a model route or sf.Model"):
+    with pytest.raises(TypeError, match="must be a model route, a sf.Model"):
+        _ = sf.Fanout([loop]) >> sf.Synthesize("prov/s")
+    with pytest.raises(TypeError, match="must be a model route, a sf.Model"):
         sf.Pipeline(("prov/a", loop))
-    with pytest.raises(TypeError, match="must be a model route or sf.Model"):
+    with pytest.raises(TypeError, match="must be a model route, a sf.Model"):
         sf.CorrectiveLoop([loop, "prov/b"], judge="prov/j")
-    with pytest.raises(TypeError, match="must be a model route or sf.Model"):
+    with pytest.raises(TypeError, match="must be a model route, a sf.Model"):
         sf.SelfCorrective(loop)  # type: ignore[arg-type]
 
 
 def test_corrective_loop_accepts_composite_members() -> None:
-    fusion = sf.Fusion(["prov/a", "prov/b"], synthesizer="prov/s")
+    fusion = sf.Fanout(["prov/a", "prov/b"]) >> sf.Synthesize("prov/s")
     loop = sf.CorrectiveLoop([fusion, "prov/c"], judge="prov/j")
     assert loop.members[0] is fusion
 

@@ -87,7 +87,9 @@ def _output(case: CaseResult, operation_id: str | None) -> str | None:
 # --- the trace -----------------------------------------------------------------------------------
 
 _EMPTY_FIELDS = ("provider", "model", "cost_usd", "latency_ms", "tokens_in", "tokens_out")
-_UNTRACED_KINDS = frozenset({"judge", "writer"})  # not members: never part of a member's closure
+# not members: never part of a member's closure. A sample call is a step row with no member (N8):
+# an outer combine that reads its Fusion must not give it that Fusion's label (review P7 #1).
+_UNTRACED_KINDS = frozenset({"judge", "writer", "sample"})
 _REDUCE_MODES = MappingProxyType(
     {
         "vote": "select",
@@ -110,17 +112,18 @@ def case_trace(
     if case.operations is None:
         return ()
     member_of = _member_ids(case.operations, graph)
-    accounting_of = _accounting_index(case.operations)
+    accounting_of = accounting_index(case.operations)
     entries: list[TraceEntry] = []
     for operation in case.operations:
         entries.extend(_operation_entries(operation, graph, member_of, accounting_of))
     return tuple(entries)
 
 
-def _accounting_index(
+def accounting_index(
     operations: Sequence[CaseOperation],
 ) -> dict[str, OperationAccounting | None]:
-    """Operation id -> its accounting, built once per trace; the first operation of an id wins."""
+    """Operation id -> its accounting, built once per trace or Case pane; the first operation of
+    an id wins. ``judge_link`` reads it."""
 
     index: dict[str, OperationAccounting | None] = {}
     for operation in operations:
@@ -135,7 +138,7 @@ def _operation_entries(
     accounting_of: Mapping[str, OperationAccounting | None],
 ) -> list[TraceEntry]:
     if operation.combine is not None:
-        link = _judge_link(operation.operation_id, operation.combine, graph, accounting_of)
+        link = judge_link(operation.operation_id, operation.combine, graph, accounting_of)
         return _combine_entries(operation.operation_id, operation.combine, link)
     node = None if graph is None else graph.get(operation.operation_id)
     if node is not None and node.kind == "combine":
@@ -144,7 +147,7 @@ def _operation_entries(
 
 
 def _combine_entries(
-    operation_id: str, evidence: CombineEvidence, judge_link: Mapping[str, str | None]
+    operation_id: str, evidence: CombineEvidence, link: Mapping[str, str | None]
 ) -> list[TraceEntry]:
     rule = list(evidence.operators[:-2])
     entries = [
@@ -162,12 +165,12 @@ def _combine_entries(
         )
         for row in evidence.members
     ]
-    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence, judge_link)))
+    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence, link)))
     return entries
 
 
 def _reduce_data(
-    operation_id: str, evidence: CombineEvidence, judge_link: Mapping[str, str | None]
+    operation_id: str, evidence: CombineEvidence, link: Mapping[str, str | None]
 ) -> dict[str, object]:
     return {
         "operation_id": operation_id,
@@ -179,8 +182,8 @@ def _reduce_data(
         "signal": _signal_data(evidence),
         "result": evidence.result.to_dict(),
         "dropped": evidence.dropped,
-        "judge_operation_id": judge_link["judge_operation_id"],
-        "judge_model": judge_link["judge_model"],
+        "judge_operation_id": link["judge_operation_id"],
+        "judge_model": link["judge_model"],
     }
 
 
@@ -197,20 +200,26 @@ def _reduce_mode(evidence: CombineEvidence) -> str:
 
 
 def _reads_judge(evidence: CombineEvidence) -> bool:
-    """Rule J1-J3 (judge-model PRD, P9): the evidence shows that the step read a judge.
+    """Rule J1-J4 (judge-model PRD, P9; E4b part 5 P16): the evidence shows the step read a judge.
 
     J1 the judge reducer; J2 scores@1 with a judge reading (source="values" writes none);
-    J3 a signal read of score:judge (Vote, Filter or Pick by the judge score).
+    J3 a signal read of score:judge (Vote, Filter or Pick by the judge score);
+    J4 a gate that took its fallback judge (the judge reply was read only on that branch).
     """
 
     return (
         evidence.reducer == "judge"
         or ("scores@1" in evidence.operators and evidence.judge is not None)
         or (evidence.signal is not None and evidence.signal.key == JUDGE_SIGNAL)
+        or (
+            evidence.gate is not None
+            and evidence.gate.branch == "fallback"
+            and evidence.gate.otherwise == "judge"
+        )
     )
 
 
-def _judge_link(
+def judge_link(
     operation_id: str,
     evidence: CombineEvidence,
     graph: Mapping[str, OperationInfo] | None,
@@ -304,7 +313,7 @@ def _label_members(
 
 
 def _closure(graph: Mapping[str, OperationInfo], producer: str) -> set[str]:
-    """The producer plus its ancestors; judge and writer operations are never entered."""
+    """The producer plus its ancestors; judge, writer and sample operations are never entered."""
 
     seen = {producer}
     pending = [producer]

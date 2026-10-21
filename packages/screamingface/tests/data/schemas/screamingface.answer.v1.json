@@ -1,6 +1,8 @@
 {
   "abstain_reason": [
     "cut_not_met",
+    "gate_not_met",
+    "in_band",
     "no_votes",
     "output_missing"
   ],
@@ -22,6 +24,8 @@
     "cut_not_met",
     "empty",
     "field_missing",
+    "gate_not_met",
+    "in_band",
     "missing",
     "no_match",
     "no_signal",
@@ -29,6 +33,7 @@
     "no_weight",
     "not_json",
     "not_numeric",
+    "not_selected",
     "output_missing",
     "too_large"
   ],

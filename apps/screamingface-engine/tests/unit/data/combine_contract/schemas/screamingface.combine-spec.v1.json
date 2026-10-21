@@ -1,5 +1,63 @@
 {
   "$defs": {
+    "ConsistencyMatch": {
+      "additionalProperties": false,
+      "description": "How a sample is compared with the member's answer (E4b part 7): the E4a stages.\n\nBoth are pinned operator ids, as in the spec's own steps; ``normalize`` may be null.",
+      "properties": {
+        "extract": {
+          "$ref": "#/$defs/StepSpec"
+        },
+        "normalize": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "extract",
+        "normalize"
+      ],
+      "title": "ConsistencyMatch",
+      "type": "object"
+    },
+    "ConsistencySource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"consistency\", \"n\": 1..32, \"temperature\": >= 0, \"match\": {...}}`` (E4b part 7).\n\nThe value is the fraction of a member's ``n`` extra calls (the context ``samples``) whose\nanswer matches the member's answer after ``match``. Every key is required.",
+      "properties": {
+        "match": {
+          "$ref": "#/$defs/ConsistencyMatch"
+        },
+        "n": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "N",
+          "type": "integer"
+        },
+        "source": {
+          "const": "consistency",
+          "title": "Source",
+          "type": "string"
+        },
+        "temperature": {
+          "minimum": 0,
+          "title": "Temperature",
+          "type": "number"
+        }
+      },
+      "required": [
+        "source",
+        "n",
+        "temperature",
+        "match"
+      ],
+      "title": "ConsistencySource",
+      "type": "object"
+    },
     "EntropySource": {
       "additionalProperties": false,
       "description": "``{\"source\": \"entropy\", \"top_logprobs\": 1..20}`` (E4b part 3).\n\nThe value is the mean token entropy of each member's reply, in nats (the member reader).",
@@ -21,6 +79,64 @@
         "top_logprobs"
       ],
       "title": "EntropySource",
+      "type": "object"
+    },
+    "GateSpec": {
+      "additionalProperties": false,
+      "description": "``gate``: keep the majority when ``observe cmp threshold`` holds (E4b part 5).\n\n``otherwise`` names the fallback that answers when the comparison is false. The fallback call\nitself is in the url4, not in the spec.",
+      "properties": {
+        "abstain_band": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstain Band"
+        },
+        "cmp": {
+          "enum": [
+            ">=",
+            ">",
+            "<=",
+            "<"
+          ],
+          "title": "Cmp",
+          "type": "string"
+        },
+        "observe": {
+          "title": "Observe",
+          "type": "string"
+        },
+        "otherwise": {
+          "enum": [
+            "abstain",
+            "judge",
+            "writer"
+          ],
+          "title": "Otherwise",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observe",
+        "cmp",
+        "threshold",
+        "otherwise"
+      ],
+      "title": "GateSpec",
       "type": "object"
     },
     "LogprobSource": {
@@ -47,6 +163,46 @@
         "form"
       ],
       "title": "LogprobSource",
+      "type": "object"
+    },
+    "NarrowSpec": {
+      "additionalProperties": false,
+      "description": "One narrow step before the main step: every key required, ``null`` only where typed.",
+      "properties": {
+        "extract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "normalize": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reduce": {
+          "$ref": "#/$defs/StepSpec"
+        },
+        "select": {
+          "$ref": "#/$defs/StepSpec"
+        }
+      },
+      "required": [
+        "extract",
+        "normalize",
+        "reduce",
+        "select"
+      ],
+      "title": "NarrowSpec",
       "type": "object"
     },
     "SignalWeights": {
@@ -84,6 +240,32 @@
         "args"
       ],
       "title": "StepSpec",
+      "type": "object"
+    },
+    "SumSource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"sum\", \"coefficients\": {name: number}}`` (E4b part 6, ans:Q1).\n\nThe value is sum(coefficient x value) over the components, per member. The core computes it\n(``combine/signal_sum.py``), so it has no source plugin.",
+      "properties": {
+        "coefficients": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "maxProperties": 7,
+          "minProperties": 1,
+          "title": "Coefficients",
+          "type": "object"
+        },
+        "source": {
+          "const": "sum",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "coefficients"
+      ],
+      "title": "SumSource",
       "type": "object"
     },
     "VerbalizedSource": {
@@ -126,6 +308,17 @@
         }
       ]
     },
+    "gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GateSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "members": {
       "items": {
         "type": "string"
@@ -133,6 +326,21 @@
       "minItems": 1,
       "title": "Members",
       "type": "array"
+    },
+    "narrow": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/NarrowSpec"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrow"
     },
     "normalize": {
       "anyOf": [
@@ -177,8 +385,10 @@
           "additionalProperties": {
             "discriminator": {
               "mapping": {
+                "consistency": "#/$defs/ConsistencySource",
                 "entropy": "#/$defs/EntropySource",
                 "logprob": "#/$defs/LogprobSource",
+                "sum": "#/$defs/SumSource",
                 "verbalized": "#/$defs/VerbalizedSource"
               },
               "propertyName": "source"
@@ -192,6 +402,12 @@
               },
               {
                 "$ref": "#/$defs/EntropySource"
+              },
+              {
+                "$ref": "#/$defs/SumSource"
+              },
+              {
+                "$ref": "#/$defs/ConsistencySource"
               }
             ]
           },

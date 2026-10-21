@@ -1795,7 +1795,7 @@ def test_a_fusion_declares_its_synthesizer_as_well_as_its_members() -> None:
     member_b = "openrouter/qwen/qwen3.6-plus"
     synthesizer = "anthropic/claude-opus-4.8"
 
-    compiled = compile_candidate(sf.Fusion([member_a, member_b], synthesizer=synthesizer))
+    compiled = compile_candidate(sf.Fanout([member_a, member_b]) >> sf.Synthesize(synthesizer))
 
     assert set(compiled.models) == {member_a, member_b, synthesizer}
 

@@ -4,8 +4,7 @@ DEFAULT lane: no docker, no subprocesses, no key. They pin what the GSM8K Fusion
 (``test_fusion_replay.py``) stands on, so a mistake in the models or in the replay checks
 shows up now and not after the user's paid recording:
 
-- ``FusionLaneSpec`` builds the two recorded shapes, and their block forms compile to the same url4
-  (FR-2);
+- ``FusionLaneSpec`` builds the two recorded shapes;
 - ``FusionGolden`` validates on read, and ``outcome()`` maps to a ``GoldenReport`` so that the five
   locks of ``compare_outcome`` run unchanged;
 - ``body_digests`` and ``assert_fusion_replay`` hold a replay to the recorded outputs and requests.
@@ -84,16 +83,20 @@ def test_build_uses_seeded_samples_and_the_recipe_synthesizer() -> None:
     model = spec.build("model_synthesizer")
     recipe = spec.build("recipe_synthesizer")
 
-    assert isinstance(model, sf.Fusion) and isinstance(recipe, sf.Fusion)
-    for fusion in (model, recipe):
-        members = [member for member in fusion.members if isinstance(member, sf.Model)]
+    assert isinstance(model, sf.Pipeline) and isinstance(recipe, sf.Pipeline)
+    for chain in (model, recipe):
+        fanout = chain.steps[0]
+        assert isinstance(fanout, sf.Fanout)
+        members = [member for member in fanout.members if isinstance(member, sf.Model)]
         assert [member.params for member in members] == [
             {"temperature": 0.7, "seed": seed} for seed in range(3)
         ]
-    assert model.synthesizer == sf.Model(_MODEL)
-    synthesizer = recipe.synthesizer
+    assert model.steps[1:] == (sf.Synthesize(sf.Model(_MODEL)),)
+    writer = recipe.steps[1]
+    assert isinstance(writer, sf.Synthesize)
+    synthesizer = writer.model
     assert isinstance(synthesizer, sf.Pipeline)
-    assert list(synthesizer.stages) == [sf.Model(_MODEL), sf.Model(_MODEL, prompt=CHECK_PROMPT)]
+    assert list(synthesizer.steps) == [sf.Model(_MODEL), sf.Model(_MODEL, prompt=CHECK_PROMPT)]
 
 
 # -- body digests and the replay check ----------------------------------------

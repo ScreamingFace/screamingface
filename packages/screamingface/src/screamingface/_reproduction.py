@@ -113,7 +113,7 @@ def _not_reproducible(score: LeaderboardScore) -> Reproduction | None:
 
 def _score_argument(score: object) -> LeaderboardScore | UUID | str:
     if not isinstance(score, LeaderboardScore | UUID | str):
-        raise TypeError("score must be an sf.LeaderboardScore, a UUID or a score id string")
+        raise TypeError("score must be a sf.LeaderboardScore, a UUID or a score id string")
     return score
 
 

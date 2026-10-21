@@ -50,7 +50,10 @@ ReadingStatus = Literal[
 ]
 AnswerStatus = Literal["answered", "abstain", "fail"]
 MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
-AbstainReason = Literal["no_votes", "cut_not_met", "output_missing"]
+# E4b part 5 (P13): gate_not_met = the vote gate took the abstain fallback. E4b part 6 (P12):
+# in_band = the gate number was inside the abstain band. Both are scored declines, never a failure
+# code (E4c's fail_closed will be a failure code, so they never share a status).
+AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
 AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -63,14 +66,29 @@ AnswerReason = Literal[
     "no_votes",
     "cut_not_met",
     "output_missing",
+    "gate_not_met",
+    "in_band",
 ]
-ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met", "output_missing")
+ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
+)
+# E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
+# ``observed cmp threshold`` holds, the step keeps the majority (P4).
+GateCmp = Literal[">=", ">", "<=", "<"]
+GateOtherwise = Literal["abstain", "judge", "writer"]
+# E4b part 6 (P10): "band" = the number was inside the abstain band; no comparison was made.
+GateBranch = Literal["majority", "fallback", "band"]
 SignalOrder = Literal["max", "min"]
 # E4b part 2 (ans:Q3, P2): the status of an evidence record. "excluded" exists only in the
 # record: the core Answer keeps MemberStatus (I-A3), so no operator ever sees it.
 RecordStatus = Literal["answered", "fail", "excluded"]
-# Why a rule of the step left an answered member out (erd §6, X1 and X2).
-ExcludeReason = Literal["no_signal", "no_weight"]
+# Why a rule of the step left an answered member out (erd §6, X1 and X2). "not_selected" (E4b
+# map-reduce surface, narrow.md §4.1): a narrow step before the main step did not choose it.
+ExcludeReason = Literal["no_signal", "no_weight", "not_selected"]
 EXCLUDE_REASONS = cast("tuple[ExcludeReason, ...]", get_args(ExcludeReason))
 OpArgs = Mapping[str, object]
 
@@ -230,12 +248,21 @@ class CombineInput:
 
     ``input`` is the combine context ``input``, verbatim (E4b CI-I1). The endpoint always sets it;
     ``None`` means a test built the value without a context.
+    ``judged`` (narrow.md §3.2): the members a judge reply scores, the ``present`` set of the call
+    BEFORE any narrow step, the same for every step. A narrow step makes ``answers`` smaller, but
+    the judge saw every answered member, so ``scores@1`` parses the reply over ``judged``. When it
+    is not given (empty), it is filled from ``present``: with no narrow step the two are the same.
     """
 
     answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
     input: str | None = None
+    judged: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.judged:
+            object.__setattr__(self, "judged", self.present)
 
     @property
     def members(self) -> tuple[str, ...]:
@@ -487,6 +514,12 @@ JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU confor
 DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
 MAX_DECLARED_SIGNALS = 8
+# E4b map-reduce surface (narrow.md §2 NR-S1, O10): the most narrow steps of one spec, and so the
+# most narrow records of one evidence. The spec and the evidence both read it from here.
+MAX_NARROW_STEPS = 4
+# E4b part 5: what a gate reads: the agreement, or a declared name of the chosen member or of the
+# mean over the members. The name part is DECLARED_NAME; the spec checks the name is declared.
+GATE_OBSERVE = re.compile(r"agreement|(chosen|mean):[a-z][a-z0-9_]{0,31}")
 
 
 def is_signal_key(key: object) -> bool:
@@ -606,19 +639,33 @@ MAX_JUDGE_REPLY_BYTES = 64 * 1024
 _SCORES_INVALID = "the judge reply is not one JSON object with a finite score for each member"
 _JUDGE_REPLY_TOO_LARGE = "the judge reply exceeds 64 KiB"
 _JUDGE_FENCE = "```"  # the strict rule; decode_json_reply keeps its own loose _FENCE_CLOSE
+_LABEL_INVALID = "the judge reply is not exactly one member id"
 
 
-def judge_reply(signals: Mapping[str, str], owner: str) -> str:
-    """The context's ``judge`` text that ``owner`` (an op id, or score:judge) reads.
+def judge_reply(signals: Mapping[str, str], owner: str, *, key: str = "judge") -> str:
+    """The context's ``key`` text (``judge`` by default) that ``owner`` reads.
 
-    SpecInvalid(f"{owner} needs the judge signal") when absent; JudgeReplyInvalid over 64 KiB.
+    ``key`` is ``fallback_judge`` for the gate fallback (E4b part 5). SpecInvalid(f"{owner} needs
+    the {key} signal") when absent; JudgeReplyInvalid over 64 KiB.
     """
-    raw = signals.get("judge")
+    raw = signals.get(key)
     if raw is None:
-        raise SpecInvalid(f"{owner} needs the judge signal")
+        raise SpecInvalid(f"{owner} needs the {key} signal")
     if utf8_exceeds(raw, MAX_JUDGE_REPLY_BYTES):
         raise JudgeReplyInvalid(_JUDGE_REPLY_TOO_LARGE)
     return raw
+
+
+def parse_label(raw: str, members: Sequence[str]) -> str:
+    """The one member id ``raw`` names. Only surrounding whitespace is trimmed (``str.strip``).
+
+    WHY in ports (E4b part 5): the core reads the gate fallback label with it, and the core never
+    imports a plugin (part 3 erratum E1). ``operators/judge.py`` re-exports it.
+    """
+    label = raw.strip()
+    if label not in members:
+        raise JudgeReplyInvalid(_LABEL_INVALID)
+    return label
 
 
 def _unfenced_judge_reply(text: str) -> str:
@@ -791,10 +838,12 @@ __all__ = [
     "EXCLUDE_REASONS",
     "FIELD_PATH",
     "FIELD_SIGNAL_PREFIX",
+    "GATE_OBSERVE",
     "JUDGE_SIGNAL",
     "MAX_DECLARED_SIGNALS",
     "MAX_JSON_DEPTH",
     "MAX_JUDGE_REPLY_BYTES",
+    "MAX_NARROW_STEPS",
     "MAX_OUTPUT_READ_BYTES",
     "OUTPUT_FIELD",
     "READING_TO_ANSWER",
@@ -818,6 +867,9 @@ __all__ = [
     "ExcludeReason",
     "Extractor",
     "FieldReading",
+    "GateBranch",
+    "GateCmp",
+    "GateOtherwise",
     "InputTooLarge",
     "JudgeReading",
     "JudgeReplyInvalid",
@@ -860,6 +912,7 @@ __all__ = [
     "loads_bounded",
     "no_args",
     "output_field_text",
+    "parse_label",
     "parse_scores",
     "rejected",
     "selection_envelope",

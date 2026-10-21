@@ -10,8 +10,16 @@ from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule, resolve_
 from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
 from screamingface._signals import ACCOUNTING_SIGNALS, Signal
-from screamingface.reducer import REDUCER_NAMES, Reducer, _read_signal, _Step
-from screamingface.signal_sources import SignalSource
+from screamingface.reducer import (
+    REDUCER_NAMES,
+    Reducer,
+    _read_signal,
+    _ReducerPlan,
+    _Step,
+    _step_plans,
+    _Steps,
+)
+from screamingface.signal_sources import Consistency, SignalSource
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
 COMBINE_MODEL = COMBINE_ROUTE.removeprefix("/")  # how url4._calls sees the route
@@ -20,7 +28,11 @@ _MAX_SPEC_BYTES = 64 * 1024
 _SPEC_KEYS = frozenset(
     {"schema", "reducer", "members", "extract", "normalize", "reduce", "select", "weights"}
 )
-_OPTIONAL_SPEC_KEYS = frozenset({"signals"})  # E4b part 3: written only when a Fusion declares
+# E4b part 3 signals: written only when a Fusion declares; E4b part 5 gate: only a gated vote;
+# E4b narrow (narrow.md §2): only when a narrow step comes before the main step.
+_OPTIONAL_SPEC_KEYS = frozenset({"signals", "gate", "narrow"})
+# The keys of one narrow item: every one present, ``null`` only for extract and normalize.
+_NARROW_ITEM_KEYS = frozenset({"extract", "normalize", "reduce", "select"})
 _INVALID_SPEC = "URL4 Candidate has an invalid combine spec"
 
 
@@ -52,16 +64,21 @@ def combine_spec_text(
 ) -> str:
     """Build the canonical combine spec for ``reducer`` with every operator pinned.
 
-    ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1).
+    ``benchmark_rule`` is read only by ``extract='benchmark'`` (GP-1). An ``sf.Consistency`` entry
+    also holds the step's ``match`` (E4b part 7 P3); every other source writes ``_spec()``. The
+    narrow steps the reducer carries go in the ``narrow`` list, in order; a reducer with none
+    writes no ``narrow`` key, so its bytes do not change (narrow.md §2).
     """
 
-    plan = resolve_benchmark_rule(reducer._plan(), benchmark_rule, operators)
+    plan = resolve_benchmark_rule(reducer._combine_plan(), benchmark_rule, operators)
     if plan.reducer not in REDUCER_NAMES:
         raise ValueError(f"{plan.reducer!r} is not a known reducer")
     steps = plan.steps
     weights = plan.weights
     if isinstance(weights, tuple) and len(weights) != member_count:
-        raise ValueError(f"{reducer.name} has {len(weights)} weights for {member_count} members")
+        raise ValueError(
+            f"sf.{reducer._step_name()} has {len(weights)} weights for {member_count} members"
+        )
     members = [f"member_{index}" for index in range(1, member_count + 1)]
     spec: dict[str, object] = {
         "schema": COMBINE_SPEC_SCHEMA,
@@ -74,12 +91,33 @@ def combine_spec_text(
         "weights": _spec_weights(weights, members),
     }
     if signals:
-        spec["signals"] = {name: source._spec() for name, source in signals.items()}
+        spec["signals"] = {
+            name: (
+                source._entry(_consistency_match(steps, operators))
+                if isinstance(source, Consistency)
+                else source._spec()
+            )
+            for name, source in signals.items()
+        }
+    if plan.gate is not None:
+        spec["gate"] = plan.gate._spec()
+    if plan.narrow:
+        spec["narrow"] = [
+            _narrow_item(resolve_benchmark_rule(step, benchmark_rule, operators), operators)
+            for step in plan.narrow
+        ]
     text = canonical_json(spec)
     size = len(text.encode("utf-8"))
     if size > _MAX_SPEC_BYTES:
         raise ValueError(f"combine spec is {size} bytes; the limit is {_MAX_SPEC_BYTES}")
     return text
+
+
+def _narrow_item(plan: _ReducerPlan, operators: _OperatorCatalog) -> dict[str, object]:
+    """One spec ``narrow`` item: the four stages of a narrow step's plan, every op pinned."""
+
+    steps = plan.steps
+    return {stage: _pinned_step(stage, getattr(steps, stage), operators) for stage in STAGES}
 
 
 def _spec_weights(
@@ -100,16 +138,37 @@ def _pinned_step(
     return {"op": operators.pin(stage, step.op), "args": thaw_mapping(step.args)}
 
 
+def _consistency_match(steps: _Steps, operators: _OperatorCatalog) -> dict[str, object]:
+    """The ``match`` of a sf.Consistency entry (E4b part 7 P3): the step's own pinned extract and
+    normalize when the step has an extract, else the E4a vote default ``last_line`` and ``text``.
+
+    WHY in the spec: a Pick or Rank by a signal has no extract of its own, and the pinned ids make
+    a replay compare the samples exactly as the first run did.
+    """
+
+    if steps.extract is not None:
+        return {
+            "extract": _pinned_step("extract", steps.extract, operators),
+            "normalize": _pinned_step("normalize", steps.normalize, operators),
+        }
+    return {
+        "extract": _pinned_step("extract", _Step("last_line"), operators),
+        "normalize": _pinned_step("normalize", _Step("text"), operators),
+    }
+
+
 def accounting_signal(reducer: Reducer) -> str | None:
-    """The accounting key (cost_usd, latency_ms, tokens_in, tokens_out) the reducer's plan reads.
+    """The first accounting key (cost_usd, latency_ms, tokens_in, tokens_out) that a step of the
+    reducer's combine call reads: a narrow step's or the main step's (narrow.md §5).
 
     SEAM (9S/10S): a plan reads a signal through its weights or its ``reads``; 10S adds Rank and
     Filter to the second.
     """
 
-    signal = _read_signal(reducer._plan())
-    if signal is not None and signal.key in ACCOUNTING_SIGNALS:
-        return signal.key
+    for plan in _step_plans(reducer._combine_plan()):
+        signal = _read_signal(plan)
+        if signal is not None and signal.key in ACCOUNTING_SIGNALS:
+            return signal.key
     return None
 
 
@@ -154,6 +213,8 @@ def _is_spec(spec: object) -> bool:
     return (
         spec["schema"] == COMBINE_SPEC_SCHEMA
         and ("signals" not in spec or _is_signals(spec["signals"]))
+        and ("gate" not in spec or isinstance(spec["gate"], dict))
+        and ("narrow" not in spec or _is_narrow(spec["narrow"]))
         and isinstance(spec["reducer"], str)
         and isinstance(members, list)
         and bool(members)
@@ -174,6 +235,27 @@ def _is_step(step: object) -> bool:
     )
 
 
+def _is_narrow(value: object) -> bool:
+    """A non-empty list of narrow items, each with its four stages and a reduce and a select.
+
+    The Engine checks the rest (the item count, NARROW_RULES, the stage rules); the url4 recompile
+    refuses any item this SDK does not write.
+    """
+
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(item, dict)
+            and set(item) == _NARROW_ITEM_KEYS
+            and all(_is_step(item[stage]) for stage in STAGES)
+            and item["reduce"] is not None
+            and item["select"] is not None
+            for item in value
+        )
+    )
+
+
 def _is_signals(value: object) -> bool:
     return (
         isinstance(value, dict)
@@ -182,15 +264,55 @@ def _is_signals(value: object) -> bool:
     )
 
 
-def spec_operator_pairs(spec: Mapping[str, object]) -> tuple[tuple[Stage, str], ...]:
-    """The (stage, pinned id) pairs a decoded spec uses, in step order."""
+# The two stages a consistency ``match`` pins (E4b part 7, P3).
+_MATCH_STAGES: tuple[Stage, ...] = ("extract", "normalize")
 
-    pairs: list[tuple[Stage, str]] = []
-    for stage in STAGES:
-        step = spec[stage]
-        if step is not None:
-            pairs.append((stage, str(cast(Mapping[str, object], step)["op"])))
-    return tuple(pairs)
+
+def spec_operator_pairs(spec: Mapping[str, object]) -> tuple[tuple[Stage, str], ...]:
+    """The (stage, pinned id) pairs a decoded spec uses: its steps in step order, then the steps
+    of each ``narrow`` item in order (narrow.md §5), then the ``match`` steps of each ``signals``
+    entry that has one, in name order; each pair once.
+
+    WHY the match steps (E4b part 7, P16): the url4 recompile builds its operator catalog only
+    from these pairs, and a replay pins them against the Engine before it spends. A match can
+    name ids that no step uses: ``sf.Pick`` has no extract, so its match is ``last_line@1`` and
+    ``text@1``.
+    """
+
+    pairs = _step_pairs(spec)
+    narrow = spec.get("narrow")
+    if isinstance(narrow, list):
+        for item in narrow:
+            pairs.extend(_step_pairs(cast(Mapping[str, object], item)))
+    signals = spec.get("signals")
+    if isinstance(signals, Mapping):
+        for name in sorted(signals):
+            entry = signals[name]
+            match = entry.get("match") if isinstance(entry, Mapping) else None
+            if isinstance(match, Mapping):
+                pairs.extend(_match_pairs(match))
+    return tuple(dict.fromkeys(pairs))
+
+
+def _step_pairs(steps: Mapping[str, object]) -> list[tuple[Stage, str]]:
+    """The pinned steps of a spec or of one ``narrow`` item, in step order."""
+
+    return [
+        (stage, str(cast(Mapping[str, object], step)["op"]))
+        for stage in STAGES
+        if (step := steps[stage]) is not None
+    ]
+
+
+def _match_pairs(match: Mapping[str, object]) -> list[tuple[Stage, str]]:
+    """A match's pinned steps. A value that is not a step is skipped: ``_from_spec`` refuses a
+    bad match, and the recompile refuses any other change."""
+
+    return [
+        (stage, str(cast(Mapping[str, object], step)["op"]))
+        for stage in _MATCH_STAGES
+        if (step := match.get(stage)) is not None and _is_step(step)
+    ]
 
 
 __all__: list[str] = []

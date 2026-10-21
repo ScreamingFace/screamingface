@@ -224,7 +224,7 @@ class Usage(Event):
                 _nonblank(getattr(self, name), f"Usage Event {name}"),
             )
         if not isinstance(self.usage, AccountingUsage):
-            raise TypeError("Usage Event usage must be an sf.Usage value")
+            raise TypeError("Usage Event usage must be a sf.Usage value")
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,7 +255,7 @@ class Terminated(Event):
         if self.status not in {"succeeded", "failed", "stopped", "timed_out"}:
             raise ValueError("Terminated status is invalid")
         if self.error is not None and not isinstance(self.error, TerminationError):
-            raise TypeError("Terminated error must be an sf.events.TerminationError")
+            raise TypeError("Terminated error must be a sf.events.TerminationError")
         if self.status == "succeeded" and self.error is not None:
             raise ValueError("a succeeded termination cannot contain an error")
 

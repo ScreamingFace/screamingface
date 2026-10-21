@@ -189,7 +189,8 @@ class _Replay:
     candidate: Candidate
     # The (stage, pinned id) pairs of the combine calls: the Engine's catalog must hold them.
     pinned: tuple[tuple[Stage, str], ...]
-    # Own-seed model calls as ``op_id (label)``, for the fixed-seed warning (U1).
+    # Own-seed model calls as ``op_id (label)``, for the fixed-seed warning (U1); never a sample
+    # call (P18).
     seeded: tuple[str, ...]
 
 
@@ -236,11 +237,14 @@ def _replayed_url4(value: str) -> _Replay:
     _OperatorCatalog.from_pinned(pinned)
     recovered = _candidate_from_topology(url4, topology, calls, selected)
     labels = {operation.id: operation.label for operation in recovered.operations}
+    kinds = {operation.id: operation.kind for operation in recovered.operations}
     seeded = tuple(
         f"{operation_id} ({labels[operation_id]})"
         for binding, call in parsed_calls.items()
         if call.model != COMBINE_MODEL
         and (operation_id := f"op_{binding}") in labels
+        # P18: a sample seed is part of the method (sf.Consistency); the author cannot drop it.
+        and kinds[operation_id] != "sample"
         and any(name == _SEED_PARAM for name, _ in call.params)
     )
     return _Replay(recovered, pinned, seeded)

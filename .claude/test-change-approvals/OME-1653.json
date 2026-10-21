@@ -1,0 +1,606 @@
+{
+  "approver": "owner",
+  "date": "2026-10-21",
+  "issue": "OME-1653",
+  "branch": "OME-1653-e4b-display-gate-sums-consistency",
+  "scope": "Combined approvals for one PR. OME-E4B-P4: E4b part 4 (show signals), unit 1 (export-trace, P1/P4): report.v1 gets an additive optional 'trace' key as the last key of each exported Case that has combine evidence; the schema id stays screamingface.report.v1. The two report.v1 byte goldens are regenerated (only the new 'trace' keys change), and test_e4b_schema_pins.py lines 29 and 33 pin their new SHA-256 values. No assertion is removed or weakened. | OME-E4B-P5: E4b part 5 (gate record and verifier slot). Unit 1: the combine-spec v1 schema gains the optional gate; the combine-evidence v1 schema gains the optional gate record and the reserved null-only verifier; the public-surface snapshot adds CombineGate and CombineEvidence.gate. Unit 2: the new abstain reason gate_not_met in the combine-evidence v1 and answer v1 schemas and in the word lists of test_combine_evidence_words, test_combine_pick_output, test_evidence_words and test_pick_output; evidence_cases.json gains 5 gate cases (the 32 old cases keep their bytes), so the case-count literal in test_frozen_record_fields goes from 32 to 37. Unit 3: the public-surface snapshot adds sf.Gate and the gate and verify arguments of sf.Vote. No assertion is removed or weakened. | OME-E4B-P6: E4b part 6 (signal sums and the abstain band). The combine-spec v1 schema gains the sum source entry and the optional gate abstain_band; the combine-evidence v1 and answer v1 schemas gain the band record and the new abstain reason in_band; evidence_cases.json gains pick_sum_min and vote_gate_band (old cases keep their bytes), so the case-count literal in test_frozen_record_fields goes from 37 to 39 and the part 5 gate case set in test_combine_gate gains the new cases; the public-surface snapshot adds sf.Sum and the abstain_band argument of sf.Gate (test_gate_api parameter list); the abstain-reason and gate word lists in test_combine_gate_words, test_combine_pick_output, test_combine_evidence_words, test_gate_words, test_evidence_words and test_pick_output gain in_band. No assertion is removed or weakened. | OME-E4B-P7: E4b part 7 (consistency@N), stacked on part 6. The combine-spec v1 schema gains the consistency source entry (n, temperature, match); the combine-evidence v1 schema gains the optional consistency record (sample and failed counts); the public-surface snapshot adds sf.Consistency; test_sum_band_docs (part 6) pins the README sections between Fusion and Install as [Fusion, Sum, Consistency] instead of [Fusion, Sum], still an exact list. No assertion is removed or weakened. | OME-1653 map/select/reduce surface (spec docs/spec/2026-10-20-e4b-mapreduce-surface): unit 1 (Engine narrow step) changed the combine-spec v1, combine-evidence v1 and answer v1 schema snapshots, the public-surface snapshot and the literals of 6 word-list/key-order tests (reason count 14 to 15, key order cut, narrow, consistency); unit 7 (the swap) changed 147 pre-existing test and data files (145 edited; test_fusion_recipe.py and test_fusion_block_quorum.py kept as docstring-only stubs because they tested only removed API): judge-template@2 bytes and sha pins, the field-pick bytes, the migration of the tests to the new surface (a per-function audit found no lost assertion), reworded message pins, and the group F test deletions listed by id in docs/work/2026-10-20-e4b-mapreduce-surface-owner-list-unit7.md.",
+  "reason": "The owner chose on 2026-10-18 to ship these parts as one PR (option A); this file joins the per-part approvals, with base_blob at the PR base and approved_blob at the PR tip. No new test change. OME-E4B-P4: Owner approved these 3 pinned test edits and P1 (same id, additive) in chat on 2026-10-15 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sources; approved_blob is the blob at the part 4 tip. | OME-E4B-P5: Owner approved these 10 pinned test edits in chat on 2026-10-16 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-show-signals (4e622af75); approved_blob is the blob at the part 5 tip. | OME-E4B-P6: Owner approved these 14 pinned test edits in chat on 2026-10-16 after the build reported them (plan section 6). Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-gate-record (633fec3a1); approved_blob is the blob at the part 6 tip. | OME-E4B-P7: Owner approved the 3 build pinned edits and the restack edit of test_sum_band_docs.py in chat on 2026-10-16. Rename this file, its issue and its branch to the real OME leaf under epic OME-1290 at PR-open. base_blob is the blob at e4b-signal-sums (part 6 tip 642d385d1); approved_blob is the blob at the restacked part 7 tip. Owner approved on 2026-10-17 (simplify H): declares_consistency is dead production code and is removed; test_combine_consistency_words.py keeps its parse and refusal tests and drops only the calls to that helper. base_blob for that file is its pre-change part 7 blob, because the file is new in part 7. | OME-1653 surface: the owner approved the unit 1 pinned edits in chat on 2026-10-20 and all 147 unit 7 pinned files (and the group F deletions) on 2026-10-21; the owner chose docstring-only stubs for the 2 removed test modules and approved extending the approval helper to url4 fixtures on 2026-10-21. base_blob is the blob at the PR base b174f9bb4; approved_blob is the blob at the PR tip.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "22d54b15b8c5d8f312b1a962ef6f590b61aa4791",
+      "approved_blob": "b29ab54d6ceae96ce6725f1b4355092c537380fb"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/filter_judge_candidate.url4": {
+      "base_blob": "24a3ecde993ff6a3614a9feba47d05b019885f3e",
+      "approved_blob": "3bae83506d067cdb48031fe022086d5e10b5c166"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/judge_order_min_candidate.url4": {
+      "base_blob": "87632458a2e0c1a7acc5578e2e7c3fab4320e2e2",
+      "approved_blob": "efa2c787b06a30b583ced2303fbb52360b7a1d9b"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/judge_vote_candidate.url4": {
+      "base_blob": "58c2977e61c226faa38968a6acdc03efef4d88ac",
+      "approved_blob": "e712f9e14e6cf25369facc3257c68bb3ee3de8d8"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/quorum_judge_vote_candidate.url4": {
+      "base_blob": "36a4c8bd508769e29fd90c2cd02b519a3b9203a4",
+      "approved_blob": "4f4db270d7cdeb07ab48d17de831ccdc65e84e04"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s10.url4": {
+      "base_blob": "ab1c966a5be413a65da40aafddd9bb4cde07e72e",
+      "approved_blob": "8435a8de16ed906fb50822806c390f2a446eff56"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s11_max.url4": {
+      "base_blob": "a08e7b22d0deb517a5ce2463fca1865b79988e38",
+      "approved_blob": "0390bac5a8ce5ee15970c51fa1cc6672886134a7"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s5.url4": {
+      "base_blob": "8e14a2dd3cbd9f7f2f0b8fd16f8c30bd75be6e28",
+      "approved_blob": "b8f86688d459f1629a0539a5ac0d29b7bd287950"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s5_pick_output.url4": {
+      "base_blob": "8d469ec85105ffdb4d0b7a6c8501c6ef7e226a64",
+      "approved_blob": "1c83a7b4c1d3da26c2fa3f82b02b1a2b03adf08e"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/recipe_s7.url4": {
+      "base_blob": "439f4786f5f9c54c7a041fdca0a7e71943b03e6c",
+      "approved_blob": "c40c9098b7aad381d760f9280c079b465dd525e2"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "406747a92a4c44d05aff27f0922e7582250cc31a",
+      "approved_blob": "526ad7ac85979b4af062605c104a6f484b5dcd01"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "b3acb2a5cd5c489c570a57384cd40fa5c9f30273",
+      "approved_blob": "0573a8b545bc4524fd37dae41eae940efd6bfe3d"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_consistency_words.py": {
+      "base_blob": "b174f9bb4:apps/screamingface-engine/tests/unit/test_combine_consistency_words.py",
+      "approved_blob": "20a2571216f13bc8c3867fb80e8f8c1f6d48b235"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_words.py": {
+      "base_blob": "a8abea4cf427116c897af10aa23874cc8ba35570",
+      "approved_blob": "19577b4c3ff126edac939b3b8314d804b48076a2"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_gate.py": {
+      "base_blob": "b174f9bb4:apps/screamingface-engine/tests/unit/test_combine_gate.py",
+      "approved_blob": "40771cdee3bd8f2290817265e86118e9483e9cc7"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_gate_words.py": {
+      "base_blob": "b174f9bb4:apps/screamingface-engine/tests/unit/test_combine_gate_words.py",
+      "approved_blob": "8adbd5dbc5b62fd2f45d964392525b6f1087bf92"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_pick_output.py": {
+      "base_blob": "261838c2846433a27196cd8a7d7ef724221229b1",
+      "approved_blob": "c9043c2da00ec8ac68eb9568bdd3a75770a94f0a"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_recipes.py": {
+      "base_blob": "2f22df501ccee382a963f8a50bc18aa5e528a2fc",
+      "approved_blob": "058a2519683f02b71954a95406e22ba2f0fec326"
+    },
+    "apps/screamingface-engine/tests/unit/test_sdk_candidate_contracts.py": {
+      "base_blob": "c4fbc6cd886564a9b1f5112a199ec9ee63d47627",
+      "approved_blob": "3e6668b5d34380750b9cd2561ceb53d23488ce08"
+    },
+    "apps/screamingface-engine/tests/unit/test_sdk_filter_judge_contract.py": {
+      "base_blob": "a925867040d844630879582b036d36e18128b5ae",
+      "approved_blob": "eca189d702af3df12f7081501d827619f8ed44db"
+    },
+    "apps/screamingface-engine/tests/unit/test_sdk_judge_order_contracts.py": {
+      "base_blob": "3ebc2754cf26bcc64a111b5195e2fce4829b43ff",
+      "approved_blob": "c8d941e2749c91bacc0c65abedb2a418cdad6254"
+    },
+    "apps/screamingface-engine/tests/unit/test_sdk_quorum_contracts.py": {
+      "base_blob": "39e9f3b3c8f3cfc335810431e9ff2ccd0a62f744",
+      "approved_blob": "3087af63c0d433bbf3e516b7d32d0e3d0e632805"
+    },
+    "packages/screamingface/tests/_combine_flow_fixtures.py": {
+      "base_blob": "b0e2e536aaadc374c67f7ae441a946c32cd7d64a",
+      "approved_blob": "0e82e03656fdbbfad061d0c6e7665b8fecc83adc"
+    },
+    "packages/screamingface/tests/_combine_recipes.py": {
+      "base_blob": "c950eea54ed54c60edca53e9838e713f6054c11b",
+      "approved_blob": "2b0ef0695aade6b7208fd1f52986f12434f728e3"
+    },
+    "packages/screamingface/tests/_fusion_doc_examples.py": {
+      "base_blob": "48256958bb003f53b47742c9aaf23fe7cec6e529",
+      "approved_blob": "b217a7427e03383ab21f90713e355139d870ae6a"
+    },
+    "packages/screamingface/tests/_reducer_fixtures.py": {
+      "base_blob": "b0afdad251c960ae4cb285296fcd72bba6ebe5bf",
+      "approved_blob": "154fda248086f1e7c630210a25fb6c05d4459ee9"
+    },
+    "packages/screamingface/tests/_signal_recipes.py": {
+      "base_blob": "b44abc329fbf164cd802523efa04370e95bcf0c5",
+      "approved_blob": "e3cac9815733cdbb7ca639bf785c466d1f3afc8d"
+    },
+    "packages/screamingface/tests/data/fusion_docs/readme-345-by-scores.url4": {
+      "base_blob": "272ac3561b70d23fa65ca235821fb6a1f52f96fa",
+      "approved_blob": "601f57f2a2efbd24c2e67cf250afef4cfe1f1b73"
+    },
+    "packages/screamingface/tests/data/fusion_docs/readme-387-judge-weighted.url4": {
+      "base_blob": "61408b4200c23d7b1609e7b8ac6fce838b92e76b",
+      "approved_blob": "020d6cd4763d1dc1e56fdc838ad839adef42f0ce"
+    },
+    "packages/screamingface/tests/data/fusion_docs/readme-397-judge-weighted-block.url4": {
+      "base_blob": "61408b4200c23d7b1609e7b8ac6fce838b92e76b",
+      "approved_blob": "020d6cd4763d1dc1e56fdc838ad839adef42f0ce"
+    },
+    "packages/screamingface/tests/data/fusion_docs/readme-418-pick-confidence.url4": {
+      "base_blob": "7a408a42286dc38bfb1c0ce5703034f5bfe485bd",
+      "approved_blob": "2f6c5fd2a04b90025148ce00fa383ce8f87c1013"
+    },
+    "packages/screamingface/tests/data/fusion_docs/readme-514-ranked.url4": {
+      "base_blob": "e3393e0f144ad497c8acb94bd4a613194a0f0f8d",
+      "approved_blob": "a29b857e5f5bc2ea7d95508046ec3bbb702bdd9a"
+    },
+    "packages/screamingface/tests/data/fusion_docs/readme-528-rank-by-field.url4": {
+      "base_blob": "a62b1afa09f0b17a85f3284cde7e0a583d1cb00a",
+      "approved_blob": "50c74c4e686f8632184a11676d0ce3d6a097c0b3"
+    },
+    "packages/screamingface/tests/data/report_v1_combine_report.json": {
+      "base_blob": "3115e68f9f70c1ee16cc9fd772626ca45dd2d74a",
+      "approved_blob": "390ca9ed5abf3ea512593a59c3ee0757e76e9e08"
+    },
+    "packages/screamingface/tests/data/report_v1_vote_median_report.json": {
+      "base_blob": "10f3247c926236629c8ece7ad05a07bf5c2e5bdb",
+      "approved_blob": "cbd5d1db7c7d912b0c9b1719442da94027a35002"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "6524c2d068967d7f3455329323aa9dbd02ca5065",
+      "approved_blob": "6e5c54fe80c0966abdf1674305af63e6305814ae"
+    },
+    "packages/screamingface/tests/e2e/fixtures/fusion_lane.py": {
+      "base_blob": "9e8c736a463865698adb72fe9fe8ec361165491e",
+      "approved_blob": "36d5a8418eb45d7c64cdb00411024a72f0882e2d"
+    },
+    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
+      "base_blob": "b1cfcfddfef6e7b334b76b281d28d53b16a9fcfd",
+      "approved_blob": "6cc6fcef031cd82f3b0921aa715d16d165878474"
+    },
+    "packages/screamingface/tests/e2e/harness/fusion_golden.py": {
+      "base_blob": "5eba6ea5ba12c2dfb39226fd1a012027b3a09d48",
+      "approved_blob": "dad63c6b279fde3fb44c97df3eddb7cad77faaa2"
+    },
+    "packages/screamingface/tests/e2e/harness/goldens.py": {
+      "base_blob": "97c596c2cd8c23c5b120ed8b90deff3fc9939862",
+      "approved_blob": "d75b7e3cece6409eb699738bff16bf13153014a0"
+    },
+    "packages/screamingface/tests/e2e/harness/reducer_golden.py": {
+      "base_blob": "e92201a696e784ec2df2fe69055c4d6aa93cc154",
+      "approved_blob": "f0c392ba13991f8979b1eb79a27158bb71e8eb7d"
+    },
+    "packages/screamingface/tests/e2e/test_fusion_golden_contracts.py": {
+      "base_blob": "0d0338724b10944e6733271584ecd34f6f16ff69",
+      "approved_blob": "4d3836a80a4472b13c229e8265ad98fd4ac0aadd"
+    },
+    "packages/screamingface/tests/e2e/test_fusion_lane_contracts.py": {
+      "base_blob": "402b4ec5fd268745fd7f3869ab564829c7f90270",
+      "approved_blob": "bb3eb82766137ebdf18f320d2b87f73efac6cafe"
+    },
+    "packages/screamingface/tests/e2e/test_fusion_replay.py": {
+      "base_blob": "99d000c2a95a803a5d4a09c7066603b00c43ab46",
+      "approved_blob": "762f55b414ce1fa723c7bd9429b4a5f16f39f8df"
+    },
+    "packages/screamingface/tests/e2e/test_local_provider_full_stack.py": {
+      "base_blob": "40837eb2ecdc3d30bd711e15983071cec3745c89",
+      "approved_blob": "635fd46bab8148797fa63f6049a9a92d80e6c81e"
+    },
+    "packages/screamingface/tests/e2e/test_reducer_golden_contracts.py": {
+      "base_blob": "bda279a22cb50c9d187f3d8e58ebc1f3cc989484",
+      "approved_blob": "118fa79c3810b19a96b9dc22093601840858f076"
+    },
+    "packages/screamingface/tests/e2e/test_reducer_lane_contracts.py": {
+      "base_blob": "8bdcf9332ec7171531799bc36caae537516fa381",
+      "approved_blob": "5415c7e89529ea060a175ebf2bbccdcac94f8bdc"
+    },
+    "packages/screamingface/tests/e2e/test_report_tape.py": {
+      "base_blob": "a183c7fe679a8dc074a3af59be7bdca6c1bbff60",
+      "approved_blob": "58351003c2c712c649618141939fa5d5a8b6b95a"
+    },
+    "packages/screamingface/tests/paid/_panel.py": {
+      "base_blob": "dc2f567078690767857e258d4959ee8c7a3acd87",
+      "approved_blob": "45c9ff3ba0e3ce50f104d6e8321f0444f2866070"
+    },
+    "packages/screamingface/tests/paid/test_panel_models.py": {
+      "base_blob": "fd0132765cdb4bab50a04dae97c74cb9ceae0617",
+      "approved_blob": "438c7bc1d02a4a78e0389f421a1f3dab90def826"
+    },
+    "packages/screamingface/tests/paid/test_signal_sources_paid.py": {
+      "base_blob": "f4c05261ed6afff55dadbac4ce953a91d44a7eea",
+      "approved_blob": "0e400530a45a4669fd632600c9b824bb04019cbc"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "b94d62bb8199dd53c1c9ea320184b4ebc8e5968b",
+      "approved_blob": "d9e5a7de746a0e7dfde2923c1efe0f526dc76161"
+    },
+    "packages/screamingface/tests/test_accounting_evaluation.py": {
+      "base_blob": "fc9c50774143a05bd173519a8153203e71e6262e",
+      "approved_blob": "09b86395ea8fcd7d86b963af16ad94317cd9cd79"
+    },
+    "packages/screamingface/tests/test_accounting_token_unknowns.py": {
+      "base_blob": "29b2fe7702b463d7d1f213a8394851904e379a8b",
+      "approved_blob": "c787a4358d2de6913e5c284dee0c2ab7d775066b"
+    },
+    "packages/screamingface/tests/test_benchmark_answer_rule.py": {
+      "base_blob": "0d2e3ca217bc634c12de6614ec1125c23b0bd191",
+      "approved_blob": "a5bcaa8caf741cd922269b8eb77765260f57059e"
+    },
+    "packages/screamingface/tests/test_benchmark_compilation.py": {
+      "base_blob": "9b48ea91c2afbf8ad13bfa55392d5b3eb9b38eca",
+      "approved_blob": "8b76d6537bebedc63d707e44da8e888d5540356b"
+    },
+    "packages/screamingface/tests/test_benchmark_extract_evaluation.py": {
+      "base_blob": "e69a8a7f1b9428a8d22c19b23d05c4aa4e0a755e",
+      "approved_blob": "b56ea80487933f175b584c9a365280c03833d45a"
+    },
+    "packages/screamingface/tests/test_blocks_extract.py": {
+      "base_blob": "ce8703356e2d82a9e0fa9dae31558b45852f2465",
+      "approved_blob": "88cedab4fa9413553cffe632d20d4345fea4a93a"
+    },
+    "packages/screamingface/tests/test_blocks_reduce.py": {
+      "base_blob": "839288828f8c2d82c65846444810584a34778c09",
+      "approved_blob": "ebdcbe6b32c241034668d843e05b5ba5a4e43584"
+    },
+    "packages/screamingface/tests/test_check_surface_preflight.py": {
+      "base_blob": "4ea3ca37df2167ff3fc133b110558ccc79289777",
+      "approved_blob": "bfe8ad244e07b1154ba8fd8f6d0630e3e85f81eb"
+    },
+    "packages/screamingface/tests/test_client_run.py": {
+      "base_blob": "cc360f7979cdde80bff68cc2a4437b46c3289165",
+      "approved_blob": "c1f620ae889ab4bbd52c6e56b473a3e854a84181"
+    },
+    "packages/screamingface/tests/test_combine_evidence.py": {
+      "base_blob": "9df356721c77ec2f14f4167bca5ccd9754d6b284",
+      "approved_blob": "124cc276227398a842068744dd8a9b2965a90935"
+    },
+    "packages/screamingface/tests/test_combine_sources.py": {
+      "base_blob": "4e6dba57d55ed06e95e15883d8ffe1eb765fae28",
+      "approved_blob": "360a336145f4e37586b8ba75b65144f8b868e001"
+    },
+    "packages/screamingface/tests/test_corrective_recipes.py": {
+      "base_blob": "e4b248b6918b84b3ace81de1d5e73acab75302d9",
+      "approved_blob": "2a82d0f7a4ce6c578fc21e21513876077fddbe38"
+    },
+    "packages/screamingface/tests/test_declared_signals.py": {
+      "base_blob": "3119f84b11cd39f6fa55fe7c33fdb6afe72a2e3b",
+      "approved_blob": "ea276ba3bbe2e748297e147b0c79c35ad572bb1f"
+    },
+    "packages/screamingface/tests/test_draco_vertical_slice.py": {
+      "base_blob": "107f99b29745142554afce9d150804dce3e2d299",
+      "approved_blob": "87fea9f23692906cad2e300a684347cc7a1f3ab9"
+    },
+    "packages/screamingface/tests/test_duplicate_members_warning.py": {
+      "base_blob": "06ab8ed9e8be9f592611c0b6f0941a9fb6372ab4",
+      "approved_blob": "63f8a43e6037c101f5fb7d89155019d6e61bc6c9"
+    },
+    "packages/screamingface/tests/test_e4b_schema_pins.py": {
+      "base_blob": "8a32a2c2f6ba4a7f8f0581e722139415e784b39b",
+      "approved_blob": "e4e39af0e327d7d63f9e7d8134cb67dde359c70c"
+    },
+    "packages/screamingface/tests/test_engine_url4_contract_fixtures.py": {
+      "base_blob": "c2865339bcc263205a004d0ab0fa9537ffc36ccf",
+      "approved_blob": "7350a52e014bf635f178f5e136271acb267e1754"
+    },
+    "packages/screamingface/tests/test_entropy_source.py": {
+      "base_blob": "228fa4752b2f71e482b9410d100b7b466e068123",
+      "approved_blob": "9f998d15ade789a51cf8e6a32e05c0a9ce31792b"
+    },
+    "packages/screamingface/tests/test_evidence_words.py": {
+      "base_blob": "370c43c4377cc9e8726ea85aca7ceab9f07ac114",
+      "approved_blob": "19e711d4fd7bfe50797229b2f98fdbbe0e047d86"
+    },
+    "packages/screamingface/tests/test_filter.py": {
+      "base_blob": "789fa1f4c9880c4c7659b68b4425279c52fc56a8",
+      "approved_blob": "7e99b88b8c3afd2bde72ada3910cb0def2afa002"
+    },
+    "packages/screamingface/tests/test_filter_judge.py": {
+      "base_blob": "89b57991cdcd2e394e1b5c54366974c170544355",
+      "approved_blob": "de9a2d418659ba6423e0a637e7bdb09c9b990e3d"
+    },
+    "packages/screamingface/tests/test_filter_judge_url4_fixture.py": {
+      "base_blob": "a4a0c94615af3f7fa474385ad33917bda483f59f",
+      "approved_blob": "1b11cdf51b0b06ae82ac88ffc767cea2b34cd275"
+    },
+    "packages/screamingface/tests/test_fixed_seed_sitting_warning.py": {
+      "base_blob": "68d6703d38c7d1d8858f39b6d8cd40149b8d025f",
+      "approved_blob": "3aa5e3845abf64d92bbf0e930e2282cc5492bd0b"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "b0f1493ec8e1616c733b193f14b7c8ef280234b8",
+      "approved_blob": "97028b4ad90eb1b88ec733a42841bcb06b8498e3"
+    },
+    "packages/screamingface/tests/test_fusion_block_quorum.py": {
+      "base_blob": "d7b293b6a7f49bc592c174497e85fa9ed8201783",
+      "approved_blob": "42f93ef500cd703309bfeee5948342caecb66ac2"
+    },
+    "packages/screamingface/tests/test_fusion_message.py": {
+      "base_blob": "e82539d0227e53223373d305c9676ab02fab2502",
+      "approved_blob": "c739fac01c969dba145a6a5ca9c766a02860d1e1"
+    },
+    "packages/screamingface/tests/test_fusion_quorum.py": {
+      "base_blob": "4cc167587c96f2db798339622ca1847900b06056",
+      "approved_blob": "28e80853bc59c7047ea85a15afc11fbb27aa612c"
+    },
+    "packages/screamingface/tests/test_fusion_quorum_metadata.py": {
+      "base_blob": "2728f3c61012193ad7b89cccddb5473f278b4fc1",
+      "approved_blob": "fd6cf0b701cbd7373df12b60b50b4c97c7e326ec"
+    },
+    "packages/screamingface/tests/test_fusion_quorum_scope.py": {
+      "base_blob": "888997899d08bcdccd5d333d25ab6d27c438054d",
+      "approved_blob": "84d97cb1494c7181860a5dd39f176095016b1d64"
+    },
+    "packages/screamingface/tests/test_fusion_recipe.py": {
+      "base_blob": "c5c309a6f9258ee23311f94cb032035b492a46fe",
+      "approved_blob": "18e692145a11377023b20dd2a6e0524c6045142f"
+    },
+    "packages/screamingface/tests/test_fusion_retrieval_scope.py": {
+      "base_blob": "ea24602f7a2af820f26c796354f7b5fe57406372",
+      "approved_blob": "5202c265e570af6adec36554f27412714fc4c272"
+    },
+    "packages/screamingface/tests/test_gate_api.py": {
+      "base_blob": "b174f9bb4:packages/screamingface/tests/test_gate_api.py",
+      "approved_blob": "686f474fd3e513eafe5dae96184be47efa8426f9"
+    },
+    "packages/screamingface/tests/test_gate_words.py": {
+      "base_blob": "b174f9bb4:packages/screamingface/tests/test_gate_words.py",
+      "approved_blob": "356620d6c6a3dc7260068a9138317f711c5970a1"
+    },
+    "packages/screamingface/tests/test_judge_blocks.py": {
+      "base_blob": "d289e6f10ec7b1791b1f13dc42a8a5f0db2c051c",
+      "approved_blob": "d1136b6d7e95c0e6990d2cd674a4a5a0d2f08203"
+    },
+    "packages/screamingface/tests/test_judge_link_trace.py": {
+      "base_blob": "5204ee5ecc77196876c995b8ab6e882f07bd24f7",
+      "approved_blob": "c9e6300e192d06502713a4769b667b380210fd38"
+    },
+    "packages/screamingface/tests/test_judge_order.py": {
+      "base_blob": "6091df97d0a5b3fb465e076ed509260a12e7ec8a",
+      "approved_blob": "90e1330e3cd4522b6c1a68b03278a6383cd903bb"
+    },
+    "packages/screamingface/tests/test_judge_order_url4_contract_fixtures.py": {
+      "base_blob": "f65bb0044a9d3bab2c18af6d22b65bb2ab84077b",
+      "approved_blob": "cd5fa171f9eb2c952a57212e5d8a7fa9db6c30c1"
+    },
+    "packages/screamingface/tests/test_judge_quorum.py": {
+      "base_blob": "2cd858c987ad2b0c63de6e78b0a4db36f9fbad7e",
+      "approved_blob": "b17bde50ef0ab4b64b4466103822dfe0e1b9ccab"
+    },
+    "packages/screamingface/tests/test_judge_reducer.py": {
+      "base_blob": "31f4d8236cd146ecc968303b54638f1f9cc16af3",
+      "approved_blob": "f2b6a4cb49179613c03c2a7d2fd5912a1c3f601d"
+    },
+    "packages/screamingface/tests/test_judge_url4_round_trip.py": {
+      "base_blob": "10ce33c0231520e3e3f63046a84afb2739339c64",
+      "approved_blob": "421ed1bd8d97d74163ad935519988dea8515c5e1"
+    },
+    "packages/screamingface/tests/test_judge_weighted_vote.py": {
+      "base_blob": "2b5a5d0a859183c750ac8ee6a2614af74afb6163",
+      "approved_blob": "9c8d3259c19fa4a4cc6c61af6d540d9d3f9d7e23"
+    },
+    "packages/screamingface/tests/test_judge_writer_warning.py": {
+      "base_blob": "77f6b524c7638ccfb499cf290ba081676b918174",
+      "approved_blob": "a0b776b20200423c7b34c89e260d887c52c0711d"
+    },
+    "packages/screamingface/tests/test_judge_writer_warning_stages.py": {
+      "base_blob": "3ed1ab32df0f5d3333fe1a5eecfede467243e96e",
+      "approved_blob": "5fb71eb4b4704b288996b4a42b587a1cf6c2874a"
+    },
+    "packages/screamingface/tests/test_leaderboards.py": {
+      "base_blob": "9cd1cec8f6a6219470605cefffc82d6a5b761e0c",
+      "approved_blob": "15972c322366be19c4c30f72f9c66a23b2d5a165"
+    },
+    "packages/screamingface/tests/test_logprob_entropy_url4_fixtures.py": {
+      "base_blob": "f14c12ff51e13db3aab4cc255d7758c1550ffb15",
+      "approved_blob": "0b72877cf3b1f280c5231a67ebcf95e2f97ad84f"
+    },
+    "packages/screamingface/tests/test_logprob_source.py": {
+      "base_blob": "5d06d5ea49571234a31d3b83ecd8e1107326d566",
+      "approved_blob": "dd9cd7d8578975a1752805ef200cf83b0f2fe2d1"
+    },
+    "packages/screamingface/tests/test_mean.py": {
+      "base_blob": "3b884ec0926a44364f0034dfa41847a95f1f145d",
+      "approved_blob": "6d0f6c72add27f69f0a1ed17e51f59039f3551d4"
+    },
+    "packages/screamingface/tests/test_merge_writer_compile.py": {
+      "base_blob": "32249567ccf3364593909e4d6edde16f1262fb37",
+      "approved_blob": "d119d4700e8b40c881a5aa1f626431d2bf66c2e2"
+    },
+    "packages/screamingface/tests/test_model_parameter_preflight.py": {
+      "base_blob": "f1c4bf8f1143f7d981dc5b04578bd02de0044769",
+      "approved_blob": "0b27d99c1801f89a22bacf6e6d06cb7d198e6730"
+    },
+    "packages/screamingface/tests/test_paid_check_spend.py": {
+      "base_blob": "915b8b63a3d60963fe26c5ccf328e1c5984f0fc0",
+      "approved_blob": "43222bd503716db5dc34b6d04427fc2d682c8cd9"
+    },
+    "packages/screamingface/tests/test_panels_opt_out_of_maths.py": {
+      "base_blob": "30037e1983486c9a8cc2de7c2ff14d5b1726d63a",
+      "approved_blob": "6567987072779ea7e2f2c18c411810906c43264c"
+    },
+    "packages/screamingface/tests/test_pick_by_signal.py": {
+      "base_blob": "a69d4e2f691a3eb048be1726592341714a7192ae",
+      "approved_blob": "9396457230922216ba46c6f44b2f3b905ddab089"
+    },
+    "packages/screamingface/tests/test_pick_merge_blocks.py": {
+      "base_blob": "9084847522dc4c9512b420f39cc12da63fc8aa49",
+      "approved_blob": "5252dcbacbfa5d2bcb6fddbf93ec691f13fdae4f"
+    },
+    "packages/screamingface/tests/test_pick_merge_reducers.py": {
+      "base_blob": "a3c0e6757f59664bacf56805c6464eb58a68be50",
+      "approved_blob": "7d2bc7d68aa6051a2fc4460534adc2df43625bf7"
+    },
+    "packages/screamingface/tests/test_pick_merge_url4_round_trip.py": {
+      "base_blob": "00f87da7dd5677fcce2dfc5451ab08997ef6ace9",
+      "approved_blob": "a0c10ae0a3ca176c52a76aa1cfca8f4050b5d3cb"
+    },
+    "packages/screamingface/tests/test_pick_output.py": {
+      "base_blob": "03c12205ca6e56715e55f754c7f5e016ffbe6082",
+      "approved_blob": "5adb289eb9eee27f6ebaaecf46f8cc027bbcebb5"
+    },
+    "packages/screamingface/tests/test_pick_output_url4_fixtures.py": {
+      "base_blob": "4e8b0a99a4373ce4c76c1d96f7df52c22fbc8041",
+      "approved_blob": "e4ffb9780e6c7bedc5589e87b41583e32603df3a"
+    },
+    "packages/screamingface/tests/test_pipeline_compilation.py": {
+      "base_blob": "1b67dfbe4de55cb7b022245a03bce617e25a9717",
+      "approved_blob": "81a1e28c8eb57103337d756fb460f5c626ba10e9"
+    },
+    "packages/screamingface/tests/test_pipeline_recipes.py": {
+      "base_blob": "ffc8295f2a3258b6d71d736e915b9a01e7a870e7",
+      "approved_blob": "d994ef9cff0d1922841d3e48fced7bd5010cd3ce"
+    },
+    "packages/screamingface/tests/test_pipeline_results.py": {
+      "base_blob": "0db370dd6706c414b45fbd38e408e4b5b68c2750",
+      "approved_blob": "47a7048d02e7c6525a4561d2b51fd7d626f9ef42"
+    },
+    "packages/screamingface/tests/test_provider_access_preflight.py": {
+      "base_blob": "4477c44e24f1823ba320c46f169a1ddfdc07a775",
+      "approved_blob": "c28daa0dd25d7880cfb38a3f2f5b2b26eac9038b"
+    },
+    "packages/screamingface/tests/test_quorum_url4_contract_fixtures.py": {
+      "base_blob": "255728d1f5c6747bb0c72e7386947788ca5d1671",
+      "approved_blob": "bf7ec7bb3cce4ac9f69348e181132d9233685d2a"
+    },
+    "packages/screamingface/tests/test_rank_by_signal.py": {
+      "base_blob": "23813f6339f5f5c5a0a41c14b504bee8d11b77a9",
+      "approved_blob": "45e6b773aafb98dec30159ac96e2bfc5799f4cea"
+    },
+    "packages/screamingface/tests/test_rank_concat_reducers.py": {
+      "base_blob": "a0215f23ed6842b3d245be065312e16617b8b2ea",
+      "approved_blob": "4c87a5d57f7199aa943c5cdc57b5aa21c6d83f70"
+    },
+    "packages/screamingface/tests/test_rank_concat_url4_round_trip.py": {
+      "base_blob": "10fe0f8fa30248e3a0ea6e8b1066e01ed5d9655f",
+      "approved_blob": "a6d13b29e4b574a11504b21928a3004fd5fe76a9"
+    },
+    "packages/screamingface/tests/test_recipes.py": {
+      "base_blob": "bf387726338759954713291d7b34df43c4bfd317",
+      "approved_blob": "954da0a44bbb39d29fea89bebafd96a09d614e73"
+    },
+    "packages/screamingface/tests/test_reduce_numeric_select.py": {
+      "base_blob": "6655f99a84ee8cdb8dde4ae6146887360f632e23",
+      "approved_blob": "761752fdf89161ce01668b8a6264e5230143603c"
+    },
+    "packages/screamingface/tests/test_reducer_characterization.py": {
+      "base_blob": "27231932453840271c19ac8cec7413dbc200128a",
+      "approved_blob": "c01514572c7808616d9d3c0eb2439b8c1f6f9a4b"
+    },
+    "packages/screamingface/tests/test_reducer_fusion_quorum.py": {
+      "base_blob": "7734741d6d2f7c15aedeb981ac862e66d171a004",
+      "approved_blob": "1e632229cce4b01c3d8a1d2a064be59fab940a4f"
+    },
+    "packages/screamingface/tests/test_reducer_operator_catalog.py": {
+      "base_blob": "ac61f4311ecb3780c959098f49128452e2c0c441",
+      "approved_blob": "079cdfd8f7975750f78aa0ae9bad629d3662bb1d"
+    },
+    "packages/screamingface/tests/test_reducer_recovery_preference.py": {
+      "base_blob": "a99550f1cfdcdd04863b60832c3d6b486933c516",
+      "approved_blob": "7ca6f0bd8624b222fc1bfcb034709a182e67afa0"
+    },
+    "packages/screamingface/tests/test_reducer_slot.py": {
+      "base_blob": "bbf919ea9971d54767ff76981feb4e8a9d311a41",
+      "approved_blob": "2b178ae5a8cbfacf7f29b7efd7d64fc6adbbd64a"
+    },
+    "packages/screamingface/tests/test_reducer_url4_round_trip.py": {
+      "base_blob": "4fa3fc4f3fdde885307331a10892406a91f0eeb7",
+      "approved_blob": "92c5b6dc2470c1def421178c6879e6c004328870"
+    },
+    "packages/screamingface/tests/test_report_v1_vote_identity.py": {
+      "base_blob": "fdd6fd4d4b45b6212dfd9519bf3565538a21acf3",
+      "approved_blob": "6e3058cb5b7d133e17851383dabd03a66e65738a"
+    },
+    "packages/screamingface/tests/test_rich_display.py": {
+      "base_blob": "e6ea99c9638a030df61418ea8b1f4ceb9fca8335",
+      "approved_blob": "698060f7dc14b355ca8bed90176af412fbb49892"
+    },
+    "packages/screamingface/tests/test_samples_preflight.py": {
+      "base_blob": "eccf6da872fa493027607b52e2adf51b6982d783",
+      "approved_blob": "e27bcfab290c968aca7c3778fa8b379c52b54a38"
+    },
+    "packages/screamingface/tests/test_selection_compile_checks.py": {
+      "base_blob": "a6bb36e2bc5911147921f5b585c6c07fc3067d51",
+      "approved_blob": "67b0c41a1ec23139ef6b18774d138757c530d285"
+    },
+    "packages/screamingface/tests/test_selection_input_bytes.py": {
+      "base_blob": "25134b3391aa8514ef8c66238869882f4bb12fbb",
+      "approved_blob": "6032691fd61ffa07d24bbc93545038de221e1f61"
+    },
+    "packages/screamingface/tests/test_shape_adaptive_linking.py": {
+      "base_blob": "7a9b5ee046e82411517134112e71ad7a816918c7",
+      "approved_blob": "65201a1bb3648c1c7fa5c4f73d739cd12b45c52b"
+    },
+    "packages/screamingface/tests/test_signal_recipe_fixtures.py": {
+      "base_blob": "e4f143062d1b60394394630a76c118524e7690ad",
+      "approved_blob": "8c38daa71c799ed323cd0843086d235d9a958571"
+    },
+    "packages/screamingface/tests/test_signal_vote_replay.py": {
+      "base_blob": "3ad6ca605e718646ae2fb982fe7a0c8f90930013",
+      "approved_blob": "b71f9bd06546a3728905791edd35217756f03cd8"
+    },
+    "packages/screamingface/tests/test_signal_weighted_vote.py": {
+      "base_blob": "5632e070c04efb43d14ba2f2f0b300d67ee39fa6",
+      "approved_blob": "9197c96f97d5a16e59bb0bf2d48745f3e9ebad87"
+    },
+    "packages/screamingface/tests/test_sum_band_docs.py": {
+      "base_blob": "b174f9bb4:packages/screamingface/tests/test_sum_band_docs.py",
+      "approved_blob": "5e95b2f66cdbb04097bd59020f95437160555659"
+    },
+    "packages/screamingface/tests/test_unsupported_provider_parameter_preflight.py": {
+      "base_blob": "c490064b8ad8d7c2d4d3a55f59ed479bd11c047f",
+      "approved_blob": "9e3507a5b6523e9534c09773bd47fae4061112d5"
+    },
+    "packages/screamingface/tests/test_url4.py": {
+      "base_blob": "3291d2ecb04953cf26d808f6a6d82ce237ab7f05",
+      "approved_blob": "1394f146c69e8b1ea913015b92b2909e92d35bed"
+    },
+    "packages/screamingface/tests/test_url4_replay_fixed_seed_warning.py": {
+      "base_blob": "0b31da57c444a1f641bd28d81d5ff599716b91aa",
+      "approved_blob": "500bf7f4626c71521ff34204bac688a60e3db2db"
+    },
+    "packages/screamingface/tests/test_verbalized.py": {
+      "base_blob": "6e59f6aebf838386d17ad269cd4462e34d8c72e0",
+      "approved_blob": "76da7066fc69b8b5567635d86f59e6583f68c42e"
+    },
+    "packages/screamingface/tests/test_verbalized_contract_fixture.py": {
+      "base_blob": "ad11de0add5e904233a0bc2df0897ff048836980",
+      "approved_blob": "6f170bdeb95a89bf1d4894cd505f8ee195cb8861"
+    },
+    "packages/screamingface/tests/test_vote_answers_trace.py": {
+      "base_blob": "7a2aeee5f6037458b2b64d31ae22e27c12b3325b",
+      "approved_blob": "c17e413c92b52ae303b0318be3f71aaa0e6eba82"
+    },
+    "packages/screamingface/tests/test_vote_median.py": {
+      "base_blob": "d7c07c9b371e04818ee65950f7b1ad451d23506d",
+      "approved_blob": "b44bc19f91305288c57ac441dddbccf73cd693c0"
+    },
+    "packages/screamingface/tests/test_vote_median_blocks.py": {
+      "base_blob": "aaf98e0956472167c2805b7e6a4c5467417cefd8",
+      "approved_blob": "7cfe919cefe6e480fafd510ad5d276d4a32a0479"
+    },
+    "packages/screamingface/tests/test_vote_median_contract_fixtures.py": {
+      "base_blob": "922c7f1255500be1b2a0635b5993456a18cf4a8c",
+      "approved_blob": "50d11a059793400cfd2b915db2e2cb16a455636b"
+    },
+    "packages/screamingface/tests/test_weighted_median.py": {
+      "base_blob": "fbef929463a1ed996cb77989e4168669f8158b97",
+      "approved_blob": "24fc19f5935fd103d8beb8e6a094a05a7483e0c7"
+    },
+    "packages/screamingface/tests/test_weighted_median_url4_fixture.py": {
+      "base_blob": "0b04f6da439f87d9cf974a345c85454139bddb6e",
+      "approved_blob": "06eb39363f0908c7c06da408d0fed9dbbd474466"
+    },
+    "packages/screamingface/tests/test_weighted_vote.py": {
+      "base_blob": "211ef2d35a251c357d87f28a4d15e6b6deac4591",
+      "approved_blob": "4b439d021a3d0f2531028ef5c489cebd8e67bade"
+    },
+    "packages/screamingface/tests/test_weighted_vote_contract_fixture.py": {
+      "base_blob": "f30f05dfb8e5543a4276dd85dfebf9494a6fdb64",
+      "approved_blob": "2f30b4d5d8391c35c5da198b3451ef811cc805f5"
+    },
+    "packages/screamingface/tests/unit/test_signal_key_conformance.py": {
+      "base_blob": "507a8f677e0e3fe848c7379b5d04a79337fafff0",
+      "approved_blob": "5d5b933fbe60f020d9030c9cbde1a0d581beced9"
+    }
+  }
+}

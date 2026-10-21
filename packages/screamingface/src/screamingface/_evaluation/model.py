@@ -221,9 +221,9 @@ def _candidate_members(
     if kind == "model" and selected:
         raise ValueError("a planned Model Candidate cannot contain members")
     if kind == "pipeline" and selected:
-        raise ValueError("a planned Pipeline Candidate cannot contain direct Fusion members")
+        raise ValueError("a planned Pipeline Candidate cannot contain direct fanout members")
     if kind == "fusion" and not selected:
-        raise ValueError("a planned Fusion Candidate requires at least one direct member")
+        raise ValueError("a planned fanout Candidate requires at least one direct member")
     return selected
 
 
@@ -283,7 +283,7 @@ def _compiled_evaluation(
     """Build one validated private Evaluation after no-spend compilation."""
 
     if not isinstance(benchmark, BenchmarkInfo):
-        raise TypeError("Evaluation benchmark must be an sf.BenchmarkInfo")
+        raise TypeError("Evaluation benchmark must be a sf.BenchmarkInfo")
     _validate_limit(limit)
     selected_count = _positive_count(case_count, "Evaluation case_count")
     expected_count = benchmark.case_count if limit is None else min(limit, benchmark.case_count)
@@ -310,29 +310,44 @@ def _reject_reducers(value: object) -> None:
         value if isinstance(value, Sequence) and not isinstance(value, str | bytes) else (value,)
     )
     if any(isinstance(item, Reducer) for item in items):
-        raise TypeError(
-            "a reducer is not a complete Candidate: a reducer must be a Fusion synthesizer"
-        )
+        raise TypeError("a reducer is not a complete Candidate: it closes a sf.Fanout block")
 
 
 def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
+    """The Candidates of an Evaluation, checked and lowered: the first compile entry.
+
+    WHY the lowering runs here (E4b surface lowering §2.4): the operator check, the check-surface
+    check and the compile all read these values, so each one reads the lowered value. The
+    judge-writer warning reads the user's own values (``entry_recipe``).
+    """
+
+    # WHY lazy: candidate.py imports this module
+    from screamingface._evaluation.candidate import entry_recipe
+    from screamingface._surface.chain import refuse_step
+
     _reject_reducers(value)
+    refuse_step(value)  # a step or an open chain names its own rule (CH-8, CH-11)
     if isinstance(value, Recipe):
-        values = (value,)
+        given = (value,)
     elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        values = tuple(value)
+        given = tuple(value)
     else:
         raise TypeError("candidates must be a complete sf.Recipe or an ordered sequence of Recipes")
-    if not values:
+    if not given:
         raise ValueError("an Evaluation requires at least one Candidate")
+    values = tuple(entry_recipe(candidate) for candidate in given)
     if any(not isinstance(candidate, Recipe) for candidate in values):
         raise TypeError("candidates must contain only complete sf.Recipe values")
+    _check_candidate_names(values)
+    return values
+
+
+def _check_candidate_names(values: tuple[Recipe, ...]) -> None:
     names: set[str] = set()
     for candidate in values:
         if candidate.name in names:
             raise ValueError(f"duplicate Candidate name {candidate.name!r}")
         names.add(candidate.name)
-    return values
 
 
 def _validate_limit(limit: int | None) -> None:

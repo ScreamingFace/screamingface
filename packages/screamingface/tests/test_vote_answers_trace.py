@@ -23,7 +23,7 @@ import screamingface as sf
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
 _MODELS = ("op_model_1", "op_model_2", "op_model_3")
-_VOTE = sf.Vote(extract="last_number", normalize="numeric")
+_VOTE = sf.Vote(over="last_number", normalize="numeric")
 _VOTE_TEXTS = ["The answer is 42", "no idea", "So 42"]
 
 
@@ -42,7 +42,7 @@ def _vote_report(*, models: tuple[str, ...] = ()) -> sf.Report:
     case = vote_case(
         _VOTE_TEXTS, "vote_one_failed", model_ops=_MODELS, output=_VOTE_TEXTS[0], models=models
     )
-    return _run(sf.Fusion(_MEMBERS, synthesizer=_VOTE), case)
+    return _run(sf.Fanout(_MEMBERS) >> _VOTE, case)
 
 
 def test_case_answers_join_text_through_depends_on() -> None:

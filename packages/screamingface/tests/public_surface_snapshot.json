@@ -2,6 +2,8 @@
   "screamingface": {
     "__all__": [
       "Answer",
+      "ArgMax",
+      "ArgMin",
       "AsyncClient",
       "AsyncOAuthFlow",
       "AuthenticationError",
@@ -15,6 +17,7 @@
       "Concat",
       "Connection",
       "ConnectionPanel",
+      "Consistency",
       "CorrectiveLoop",
       "DuplicateMembersWarning",
       "EngineCapabilityError",
@@ -27,11 +30,15 @@
       "ExecutionError",
       "Extract",
       "Failure",
+      "Fanout",
       "FieldRule",
       "Filter",
+      "First",
       "FixedSeedSittingWarning",
       "Fusion",
+      "Gate",
       "Judge",
+      "JudgePick",
       "JudgeWriterWarning",
       "Leaderboard",
       "LeaderboardBaseline",
@@ -55,24 +62,25 @@
       "OperationAccounting",
       "OperationCache",
       "OperationInfo",
-      "Pick",
       "Pipeline",
       "PlanningError",
       "ProviderConnectionError",
       "Rank",
       "Recipe",
-      "Reduce",
       "Report",
       "Reproduction",
       "ReproductionOutcome",
       "ScoreMetadataEvent",
       "ScreamingFaceError",
       "SelfCorrective",
+      "Sum",
+      "Synthesize",
       "Url4",
       "Usage",
       "Verbalized",
       "Vote",
       "__version__",
+      "agreement",
       "benchmarks",
       "close",
       "configure",
@@ -81,6 +89,7 @@
       "disconnect",
       "evaluate",
       "events",
+      "field",
       "leaderboards",
       "matches",
       "models",
@@ -103,6 +112,22 @@
           "text": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "value": "field"
+        }
+      },
+      "ArgMax": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, by: 'str | Signal', *, output: 'str | None' = None) -> 'None'",
+          "by": "field",
+          "output": "field"
+        }
+      },
+      "ArgMin": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, by: 'str | Signal', *, output: 'str | None' = None) -> 'None'",
+          "by": "field",
+          "output": "field"
         }
       },
       "AsyncClient": {
@@ -292,7 +317,6 @@
         "members": {
           "__init__": "method (self, separator: 'str' = '\\n\\n---\\n\\n', *, label: 'bool' = True) -> 'None'",
           "label": "field",
-          "name": "field",
           "separator": "field"
         }
       },
@@ -320,6 +344,15 @@
           "widget": "method (self) -> 'Widget'"
         }
       },
+      "Consistency": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, n: 'int', *, temperature: 'float' = 1.0) -> 'None'",
+          "n": "field",
+          "source": "attribute",
+          "temperature": "field"
+        }
+      },
       "CorrectiveLoop": {
         "kind": "class",
         "members": {
@@ -327,8 +360,7 @@
           "judge": "field",
           "max_rounds": "field",
           "members": "field",
-          "name": "field",
-          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+          "name": "field"
         }
       },
       "DuplicateMembersWarning": {
@@ -456,6 +488,17 @@
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },
+      "Fanout": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, signals: 'Mapping[str, SignalSource] | None' = None, quorum: \"int | Literal['all']\" = 'all', name: 'str | None' = None, prompt: 'str | None' = None) -> 'None'",
+          "members": "field",
+          "name": "field",
+          "prompt": "field",
+          "quorum": "field",
+          "signals": "field"
+        }
+      },
       "FieldRule": {
         "kind": "class",
         "members": {
@@ -476,10 +519,16 @@
       "Filter": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, where: 'Matches | _Comparison', extract: 'Extract | None' = None, judge: 'Judge | None' = None) -> 'None'",
-          "extract": "field",
-          "judge": "field",
-          "name": "field",
+          "__init__": "method (self, *, where: 'Matches | _Comparison', over: 'str | Extract | None' = None) -> 'None'",
+          "over": "field",
+          "where": "field"
+        }
+      },
+      "First": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, where: 'FieldEquals', output: 'str | None' = None) -> 'None'",
+          "output": "field",
           "where": "field"
         }
       },
@@ -494,27 +543,34 @@
         "members": {}
       },
       "Fusion": {
+        "kind": "function",
+        "signature": "(members: 'Sequence[str | Recipe]', *, synthesizer: 'str | Recipe | Step', signals: 'Mapping[str, SignalSource] | None' = None, quorum: \"int | Literal['all']\" = 'all', name: 'str | None' = None, prompt: 'str | None' = None, optional: 'bool' = False) -> 'Pipeline'"
+      },
+      "Gate": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, members: 'Sequence[str | Recipe]', *, name: 'str | None' = None, signals: 'Mapping[str, SignalSource] | None' = None, synthesizer: 'str | Recipe | Reducer', quorum: \"int | Literal['all']\" = 'all', optional: 'bool' = False) -> 'None'",
-          "members": "field",
-          "name": "field",
-          "optional": "field",
-          "quorum": "field",
-          "signals": "field",
-          "synthesizer": "field",
-          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+          "__init__": "method (self, *, when: 'GateCondition', then: 'Vote', otherwise: 'Fallback' = 'abstain', abstain_if: 'GateBand | None' = None) -> 'None'",
+          "abstain_if": "field",
+          "otherwise": "field",
+          "then": "field",
+          "when": "field"
         }
       },
       "Judge": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, model: 'str', *, returns: 'JudgeReturns', rubric: 'str', params: 'Mapping[str, str | int | float | bool] | None' = None, order: \"Literal['max', 'min']\" = 'max') -> 'None'",
+          "__init__": "method (self, model: 'str', *, rubric: 'str', params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'None'",
           "model": "field",
-          "name": "field",
-          "order": "field",
           "params": "field",
-          "returns": "field",
+          "rubric": "field"
+        }
+      },
+      "JudgePick": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str', *, rubric: 'str', params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'None'",
+          "model": "field",
+          "params": "field",
           "rubric": "field"
         }
       },
@@ -645,9 +701,8 @@
       "Mean": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'value', weights: 'Sequence[float] | Signal | None' = None) -> 'None'",
-          "extract": "field",
-          "name": "field",
+          "__init__": "method (self, *, over: 'str | Extract' = 'last_number', select: 'str' = 'value', weights: 'Sequence[float] | Signal | str | None' = None) -> 'None'",
+          "over": "field",
           "select": "field",
           "weights": "field"
         }
@@ -655,9 +710,8 @@
       "Median": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_number', select: 'str' = 'nearest', weights: 'Sequence[float] | Signal | None' = None) -> 'None'",
-          "extract": "field",
-          "name": "field",
+          "__init__": "method (self, *, over: 'str | Extract' = 'last_number', select: 'str' = 'nearest', weights: 'Sequence[float] | Signal | str | None' = None) -> 'None'",
+          "over": "field",
           "select": "field",
           "weights": "field"
         }
@@ -680,8 +734,7 @@
         "kind": "class",
         "members": {
           "__init__": "method (self, fields: 'Mapping[str, FieldRule]') -> 'None'",
-          "fields": "field",
-          "name": "field"
+          "fields": "field"
         }
       },
       "Model": {
@@ -692,8 +745,7 @@
           "name": "field",
           "optional": "field",
           "params": "property",
-          "prompt": "field",
-          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+          "prompt": "field"
         }
       },
       "ModelCapability": {
@@ -818,27 +870,13 @@
           "label": "field"
         }
       },
-      "Pick": {
-        "kind": "class",
-        "members": {
-          "__init__": "method (self, field: 'str | None' = None, *, by_signal: 'Signal | None' = None, order: \"Literal['max', 'min'] | None\" = None, equals: 'str | int | float | bool | None' = None, normalize: 'FieldNormalizer | None' = None, output: 'str | None' = None) -> 'None'",
-          "by_signal": "field",
-          "equals": "field",
-          "field": "field",
-          "name": "field",
-          "normalize": "field",
-          "order": "field",
-          "output": "field"
-        }
-      },
       "Pipeline": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, stages: 'Sequence[str | Recipe]', *, name: 'str | None' = None, optional: 'bool' = False) -> 'None'",
+          "__init__": "method (self, steps: 'Sequence[str | Recipe | Step]', *, name: 'str | None' = None, optional: 'bool' = False) -> 'None'",
           "name": "field",
           "optional": "field",
-          "stages": "field",
-          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+          "steps": "field"
         }
       },
       "PlanningError": {
@@ -868,30 +906,15 @@
       "Rank": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, k: 'int', *, by: 'Judge | None' = None, by_field: 'str | None' = None, by_signal: 'Signal | None' = None, order: \"Literal['max', 'min']\" = 'max') -> 'None'",
+          "__init__": "method (self, k: 'int', *, by: 'str | Signal', order: \"Literal['max', 'min']\" = 'max') -> 'None'",
           "by": "field",
-          "by_field": "field",
-          "by_signal": "field",
           "k": "field",
-          "name": "field",
           "order": "field"
         }
       },
       "Recipe": {
         "kind": "class",
-        "members": {
-          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
-        }
-      },
-      "Reduce": {
-        "kind": "class",
-        "members": {
-          "__init__": "method (self, op: 'str', mode: 'ReduceMode | None' = None, **options: 'object') -> 'None'",
-          "mode": "field",
-          "name": "field",
-          "op": "field",
-          "options": "field"
-        }
+        "members": {}
       },
       "Report": {
         "kind": "class",
@@ -959,8 +982,23 @@
           "__init__": "method (self, model: 'str | Recipe', *, max_rounds: 'int' = 3, name: 'str | None' = None) -> 'None'",
           "max_rounds": "field",
           "member": "field",
-          "name": "field",
-          "then": "method (self, next_recipe: 'str | Recipe') -> 'Pipeline'"
+          "name": "field"
+        }
+      },
+      "Sum": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, coefficients: 'Mapping[str, float]') -> 'None'",
+          "coefficients": "field",
+          "source": "attribute"
+        }
+      },
+      "Synthesize": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str | Recipe', *, prompt: 'str | None' = None) -> 'None'",
+          "model": "field",
+          "prompt": "field"
         }
       },
       "Url4": {
@@ -994,17 +1032,20 @@
       "Vote": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, extract: 'str' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | Signal | None' = None, judge: 'Judge | None' = None) -> 'None'",
-          "extract": "field",
-          "judge": "field",
-          "name": "field",
+          "__init__": "method (self, *, over: 'str | Extract' = 'last_line', normalize: 'str | None' = 'text', weights: 'Sequence[float] | Signal | str | None' = None, verify: 'None' = None) -> 'None'",
           "normalize": "field",
+          "over": "field",
+          "verify": "field",
           "weights": "field"
         }
       },
       "__version__": {
         "kind": "value",
         "type": "str"
+      },
+      "agreement": {
+        "kind": "function",
+        "signature": "() -> 'GateRef'"
       },
       "benchmarks": {
         "kind": "module",
@@ -1037,6 +1078,10 @@
       "events": {
         "kind": "module",
         "module": "screamingface.events"
+      },
+      "field": {
+        "kind": "function",
+        "signature": "(path: 'str', *, normalize: 'FieldNormalizer | None' = None) -> 'FieldRef'"
       },
       "leaderboards": {
         "kind": "module",
@@ -1341,6 +1386,9 @@
       "Check",
       "CombineCut",
       "CombineEvidence",
+      "CombineGate",
+      "CombineNarrow",
+      "CombineSampleCount",
       "Evidence",
       "EvidenceProducer",
       "Failure",
@@ -1456,20 +1504,23 @@
       "CombineEvidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None) -> 'None'",
+          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None, consistency: 'Mapping[str, Sequence[CombineSampleCount]] | None' = None, narrow: 'Sequence[CombineNarrow] | None' = None) -> 'None'",
           "agreement": "field",
           "built": "field",
           "chosen": "field",
+          "consistency": "field",
           "cut": "field",
           "declared": "field",
           "dropped": "field",
           "fields": "field",
           "finish_reason": "field",
+          "gate": "field",
           "judge": "field",
           "kind": "field",
           "mean": "field",
           "median": "field",
           "members": "field",
+          "narrow": "field",
           "operators": "field",
           "presentation_order": "field",
           "reducer": "field",
@@ -1478,6 +1529,46 @@
           "signal": "field",
           "tally": "field",
           "tie": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "CombineGate": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, observe: 'str', observed: 'float | None', cmp: 'GateCmp', threshold: 'float', passed: 'bool | None', branch: 'GateBranch | None', otherwise: 'GateOtherwise', abstain_band: 'tuple[float, float] | None' = None) -> None",
+          "abstain_band": "field",
+          "branch": "field",
+          "cmp": "field",
+          "observe": "field",
+          "observed": "field",
+          "otherwise": "field",
+          "passed": "field",
+          "threshold": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "CombineNarrow": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, *, reduce: 'str | None' = None, select: 'str', signal: 'str | None' = None, kept: 'tuple[str, ...]', cut: 'CombineCut | None' = None, scores: 'Mapping[str, float] | None' = None, ranks: 'Mapping[str, int] | None' = None) -> None",
+          "cut": "field",
+          "kept": "field",
+          "ranks": "field",
+          "reduce": "field",
+          "scores": "field",
+          "select": "field",
+          "signal": "field",
+          "to_dict": "method (self) -> 'dict[str, object]'"
+        }
+      },
+      "CombineSampleCount": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, member_id: 'str', matched: 'int | None', succeeded: 'int', failed: 'int') -> None",
+          "failed": "field",
+          "matched": "field",
+          "member_id": "field",
+          "succeeded": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
         }
       },

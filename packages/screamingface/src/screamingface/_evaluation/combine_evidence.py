@@ -28,11 +28,17 @@ from screamingface.combine_evidence import (
     CombineCut,
     CombineEvidence,
     CombineFieldReading,
+    CombineGate,
     CombineJudgeReading,
     CombineKind,
+    CombineNarrow,
     CombineResult,
+    CombineSampleCount,
     CombineSignal,
     CombineTallyRow,
+    GateBranch,
+    GateCmp,
+    GateOtherwise,
     JudgeReturns,
     ResultStatus,
 )
@@ -61,10 +67,21 @@ _EVIDENCE_KEYS = {
 }
 # E4b P8 mean (mean reducer only); E4b part 2 cut (top_k@1 only); E4b part 3 P11 declared
 # (written only by a Fusion that declares signals).
-_OPTIONAL_EVIDENCE_KEYS = frozenset({"mean", "cut", "declared"})
+# E4b part 5: gate (written only by a gated vote) and verifier (reserved, null only, never kept).
+# E4b part 7: consistency (written only by a Fusion that declares sf.Consistency).
+# E4b map-reduce surface: narrow (written only by a block with narrow steps before the reducer).
+_OPTIONAL_EVIDENCE_KEYS = frozenset(
+    {"mean", "cut", "narrow", "consistency", "declared", "gate", "verifier"}
+)
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
 _CUT_KEYS = {"k", "order"}
+_NARROW_KEYS = {"select", "kept"}
+# Absent when not set; the Engine always writes reduce.
+_OPTIONAL_NARROW_KEYS = frozenset({"reduce", "signal", "cut", "scores", "ranks"})
+_GATE_KEYS = {"observe", "observed", "cmp", "threshold", "passed", "branch", "otherwise"}
+_OPTIONAL_GATE_KEYS = frozenset({"abstain_band"})  # E4b part 6: written only with a spec band
+_SAMPLE_COUNT_KEYS = {"member_id", "matched", "succeeded", "failed"}
 _RESULT_KEYS = {"member_id", "value", "status", "reason"}
 _SIGNAL_KEYS = {"key", "order"}
 _RESULT_STATUSES = frozenset({"answered", "abstain"})
@@ -86,6 +103,9 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
     _exact_keys(raw, _EVIDENCE_KEYS | {key for key in _OPTIONAL_EVIDENCE_KEYS if key in raw}, label)
     if raw["schema"] != COMBINE_EVIDENCE_SCHEMA:
         raise ExecutionError(f"{label} schema must be {COMBINE_EVIDENCE_SCHEMA!r}")
+    # E4b part 5 (P15): a later part writes the verifier; this SDK accepts only the reserved null.
+    if raw.get("verifier") is not None:
+        raise ExecutionError(f"{label} verifier is reserved and must be null")
     declared = _declared(raw.get("declared"), f"{label} declared")
     try:
         return CombineEvidence(
@@ -114,7 +134,10 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
             ),
             signal=_signal(raw["signal"], f"{label} signal", declared),
             cut=_cut(raw.get("cut"), f"{label} cut"),
+            narrow=_optional_list(raw.get("narrow"), f"{label} narrow", _narrow_record),
             declared=declared,
+            gate=_gate(raw.get("gate"), f"{label} gate"),
+            consistency=_consistency(raw.get("consistency"), f"{label} consistency"),
             result=_result(raw["result"], f"{label} result"),
             dropped=_integer(raw["dropped"], f"{label} dropped"),
             finish_reason=_text(raw["finish_reason"], f"{label} finish_reason"),
@@ -184,6 +207,91 @@ def _cut(value: object, label: str) -> CombineCut | None:
     return CombineCut(
         k=_integer(raw["k"], f"{label} k"),
         order=cast(SignalOrder, _word(raw["order"], SIGNAL_ORDERS, f"{label} order")),
+    )
+
+
+def _narrow_record(value: object, label: str) -> CombineNarrow:
+    """One narrow step record; ``CombineNarrow`` checks its ranks, ``CombineEvidence`` NR-I*."""
+    raw = _mapping(value, label)
+    _exact_keys(raw, _NARROW_KEYS | {key for key in _OPTIONAL_NARROW_KEYS if key in raw}, label)
+    scores = raw.get("scores")
+    ranks = raw.get("ranks")
+    return CombineNarrow(
+        reduce=_optional_text(raw.get("reduce"), f"{label} reduce"),
+        select=_text(raw["select"], f"{label} select"),
+        signal=_optional_text(raw.get("signal"), f"{label} signal"),
+        kept=_texts(raw["kept"], f"{label} kept"),
+        cut=_cut(raw.get("cut"), f"{label} cut"),
+        scores=None
+        if scores is None
+        else {
+            key: _number(item, f"{label} scores")
+            for key, item in _mapping(scores, f"{label} scores").items()
+        },
+        ranks=None
+        if ranks is None
+        else {
+            key: _integer(item, f"{label} ranks")
+            for key, item in _mapping(ranks, f"{label} ranks").items()
+        },
+    )
+
+
+def _gate(value: object, label: str) -> CombineGate | None:
+    if value is None:
+        return None
+    raw = _mapping(value, label)
+    _exact_keys(raw, _GATE_KEYS | {key for key in _OPTIONAL_GATE_KEYS if key in raw}, label)
+    band = (
+        _abstain_band(raw["abstain_band"], f"{label} abstain_band")
+        if "abstain_band" in raw
+        else None
+    )
+    return CombineGate(
+        observe=_text(raw["observe"], f"{label} observe"),
+        observed=_optional_number(raw["observed"], f"{label} observed"),
+        cmp=cast(GateCmp, _text(raw["cmp"], f"{label} cmp")),
+        threshold=_number(raw["threshold"], f"{label} threshold"),
+        passed=_optional_boolean(raw["passed"], f"{label} passed"),
+        branch=cast(GateBranch | None, _optional_text(raw["branch"], f"{label} branch")),
+        otherwise=cast(GateOtherwise, _text(raw["otherwise"], f"{label} otherwise")),
+        abstain_band=band,
+    )
+
+
+def _abstain_band(value: object, label: str) -> tuple[float, float]:
+    """E4b part 6: a list of exactly two numbers (a bool is not a number; null is refused).
+
+    ``CombineGate`` checks that both are finite and that ``lo <= hi``.
+    """
+    items = _list(value, label)
+    if len(items) != 2:
+        raise ExecutionError(f"{label} must be two numbers")
+    return (_number(items[0], label), _number(items[1], label))
+
+
+def _consistency(value: object, label: str) -> dict[str, list[CombineSampleCount]] | None:
+    """``{name: [{member_id, matched, succeeded, failed}, ...]}``; CombineEvidence checks CS-I*."""
+    if value is None:
+        return None
+    raw = _mapping(value, label)
+    return {
+        name: [
+            _sample_count(item, f"{label} {name!r}[{index}]")
+            for index, item in enumerate(_list(records, f"{label} {name!r}"))
+        ]
+        for name, records in raw.items()
+    }
+
+
+def _sample_count(value: object, label: str) -> CombineSampleCount:
+    raw = _mapping(value, label)
+    _exact_keys(raw, _SAMPLE_COUNT_KEYS, label)
+    return CombineSampleCount(
+        member_id=_text(raw["member_id"], f"{label} member_id"),
+        matched=_optional_integer(raw["matched"], f"{label} matched"),
+        succeeded=_integer(raw["succeeded"], f"{label} succeeded"),
+        failed=_integer(raw["failed"], f"{label} failed"),
     )
 
 

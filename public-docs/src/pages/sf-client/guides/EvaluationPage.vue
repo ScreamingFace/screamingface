@@ -30,7 +30,7 @@ const many = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
 sf.evaluate(
-    [opus, gpt, sf.Fusion([opus, gpt], synthesizer="openrouter/openai/gpt-5.5")],
+    [opus, gpt, sf.Fanout([opus, gpt]) >> sf.Synthesize("openrouter/openai/gpt-5.5")],
     benchmark="draco",
     limit=1,
 )`

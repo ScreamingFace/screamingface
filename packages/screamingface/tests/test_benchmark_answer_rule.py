@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from _combine_contract import GSM8K_RULE_WIRE, engine_operators
+from _nodes import VoteNode
 from _vote_run_fixtures import benchmark_resource
 
 import screamingface as sf
@@ -85,25 +86,29 @@ def test_malformed_answer_rule_is_an_invalid_benchmark_resource(name: str) -> No
 @pytest.mark.parametrize("normalize", ["text", None])
 def test_benchmark_extract_with_normalize_raises(normalize: str | None) -> None:
     with pytest.raises(ValueError, match="benchmark's own normalizer"):
-        sf.Vote(extract="benchmark", normalize=normalize)
+        sf.Vote(over="benchmark", normalize=normalize)
 
 
 def test_benchmark_extract_takes_no_version_and_no_median() -> None:
     # GP#11: the rule name is "benchmark" alone; a Median needs the numeric normalizer.
     with pytest.raises(ValueError, match="takes no version"):
-        sf.Vote(extract="benchmark@1")
-    for extract in ("benchmark", "benchmark@1"):
-        with pytest.raises(ValueError, match="numeric normalizer"):
-            sf.Median(extract=extract)
+        sf.Vote(over="benchmark@1")
+    # WHY two messages: the surface reads the over= key (no version) before the Median guard
+    for extract, message in (
+        ("benchmark", "numeric normalizer"),
+        ("benchmark@1", "takes no version"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            sf.Median(over=extract)
     with pytest.raises(ValueError, match="benchmark's own normalizer"):
-        sf.Reduce("plurality", extract=sf.Extract("benchmark", normalize="text"))
+        sf.Vote(over=sf.Extract("benchmark", normalize="text"))
 
 
 def test_benchmark_vote_value_semantics() -> None:
-    vote = sf.Vote(extract="benchmark")
+    vote = sf.Vote(over="benchmark")
 
     assert vote.normalize is None
-    assert repr(vote) == "Vote(extract='benchmark')"
+    assert repr(vote) == "Vote(over='benchmark')"
     assert eval(repr(vote), {"Vote": sf.Vote}) == vote  # noqa: S307 - our own repr, no input
     # An explicit normalize='text' is the default, so it is the same Vote as sf.Vote().
     assert sf.Vote(normalize="text") == sf.Vote()
@@ -111,10 +116,12 @@ def test_benchmark_vote_value_semantics() -> None:
 
 def test_vote_benchmark_extract_without_benchmark_raises() -> None:
     # BK#10: the compiler has no rule to read, so it refuses by name before any spend.
-    vote = sf.Vote(extract="benchmark")
-    fusion = sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=vote)
+    vote = sf.Vote(over="benchmark")
+    fusion = sf.Fanout(["provider/a", "provider/b", "provider/c"]) >> vote
 
-    with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
+    with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
         compile_candidate(fusion, operators=engine_operators())
-    with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
-        combine_spec_text(vote, member_count=3, operators=engine_operators())
+    with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
+        combine_spec_text(
+            VoteNode(extract="benchmark"), member_count=3, operators=engine_operators()
+        )

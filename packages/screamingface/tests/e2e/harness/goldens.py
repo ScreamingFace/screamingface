@@ -330,10 +330,9 @@ def build_candidate(golden: GoldenReport):  # -> sf.Model | sf.Fusion | sf.Corre
         return loop_candidate(golden.member_specs, golden.judge_spec, golden.max_rounds)
     if golden.kind == "fusion":
         # The validator guarantees recipe + synthesizer + ≥2 members on this branch.
-        return sf.Fusion(
-            list(golden.models),
-            name=golden.recipe,
-            synthesizer=golden.synthesizer or "",
+
+        return sf.Fanout(list(golden.models), name=golden.recipe) >> sf.Synthesize(
+            golden.synthesizer or ""
         )
     if len(golden.models) != 1:
         raise ValueError(

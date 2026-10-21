@@ -84,10 +84,8 @@ def test_url4_is_a_string_compatible_immutable_value() -> None:
 def test_every_complete_recipe_url4_has_one_canonical_recipe_descriptor() -> None:
     model = _url4(sf.Model("provider/model"))
     fusion = _url4(
-        sf.Fusion(
-            [sf.Model("provider/a"), sf.Model("provider/b")],
-            synthesizer="provider/synthesizer",
-        )
+        sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")])
+        >> sf.Synthesize("provider/synthesizer")
     )
     pipeline = _url4(sf.Pipeline([sf.Model("provider/draft"), sf.Model("provider/review")]))
 
@@ -105,46 +103,41 @@ def test_model_url4_produces_editable_python() -> None:
         )
     )
 
-    assert (
-        value.to_python()
-        == """import screamingface as sf
-
-candidate = sf.Model(
-    'provider/model',
-    prompt='Cost is $5\\nExplain it.',
-    params={'temperature': 0.2, 'seed': 1},
-)"""
+    assert value.to_python() == (
+        "import screamingface as sf\n\n"
+        "candidate = sf.Model('provider/model', prompt='Cost is $5\\nExplain it.', "
+        "params={'temperature': 0.2, 'seed': 1})"
     )
 
 
 def test_fusion_url4_recovers_editable_topology_names_and_policy() -> None:
     value = _url4(
-        sf.Fusion(
+        sf.Fanout(
             [
                 sf.Model("provider/a", name="left", prompt="Answer A"),
                 sf.Model("provider/b", name="right"),
             ],
             name="panel",
-            synthesizer=sf.Model(
+        )
+        >> sf.Synthesize(
+            sf.Model(
                 "provider/synthesizer",
                 prompt="Blend the answers",
                 params={"temperature": 0.1},
-            ),
+            )
         )
     )
 
     python = value.to_python()
 
-    assert "candidate = sf.Fusion(" in python
-    assert "'provider/a'" in python
-    assert "name='left'" in python
-    assert "prompt='Answer A'" in python
-    assert "'provider/b'" in python
-    assert "name='right'" in python
-    assert "synthesizer=sf.Model(" in python
-    assert "        'provider/synthesizer'," in python
-    assert "        prompt='Blend the answers'," in python
-    assert "        params={'temperature': 0.1}," in python
+    assert python.splitlines()[2:] == [
+        "candidate = (",
+        "    sf.Fanout([sf.Model('provider/a', name='left', prompt='Answer A'), "
+        "sf.Model('provider/b', name='right')], name='panel')",
+        "    >> sf.Synthesize(sf.Model('provider/synthesizer', prompt='Blend the answers', "
+        "params={'temperature': 0.1}))",
+        ")",
+    ]
     assert "web_search" not in python
 
 
@@ -153,11 +146,11 @@ def test_pipeline_url4_recovers_serial_and_nested_parallel_topology() -> None:
         sf.Pipeline(
             [
                 sf.Model("provider/draft", name="draft"),
-                sf.Fusion(
+                sf.Fanout(
                     [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
                     name="review-panel",
-                    synthesizer="provider/reconciler",
-                ),
+                )
+                >> sf.Synthesize("provider/reconciler"),
                 sf.Model("provider/final", prompt="Return only the final answer."),
             ],
             name="draft-review-final",
@@ -167,34 +160,36 @@ def test_pipeline_url4_recovers_serial_and_nested_parallel_topology() -> None:
     python = value.to_python()
 
     assert "candidate = sf.Pipeline(" in python
-    assert "name='draft-review-final'" in python
-    assert "name='draft'" in python
-    assert "        sf.Fusion(" in python
-    assert "            name='review-panel'," in python
-    assert "'provider/reconciler'" in python
-    assert "prompt='Return only the final answer.'" in python
+    assert "    name='draft-review-final'," in python
+    assert "        sf.Model('provider/draft', name='draft')," in python
+    assert (
+        "        sf.Fanout(['provider/reviewer-a', 'provider/reviewer-b'], name='review-panel'),"
+        in python
+    )
+    assert "        sf.Synthesize('provider/reconciler')," in python
+    assert "        sf.Model('provider/final', prompt='Return only the final answer.')," in python
     assert python.index("'provider/draft'") < python.index("'provider/reviewer-a'")
     assert python.index("'provider/reconciler'") < python.index("'provider/final'")
 
 
 def test_fusion_url4_recovers_a_pipeline_synthesizer() -> None:
     value = _url4(
-        sf.Fusion(
-            [sf.Model("provider/a"), sf.Model("provider/b")],
-            synthesizer=sf.Pipeline(
+        sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")])
+        >> sf.Synthesize(
+            sf.Pipeline(
                 [
                     sf.Model("provider/judge", prompt="Choose one answer."),
                     sf.Model("provider/writer", prompt="Polish it."),
                 ],
                 name="judge-writer",
-            ),
+            )
         )
     )
 
     python = value.to_python()
 
-    assert "candidate = sf.Fusion(" in python
-    assert "    synthesizer=sf.Pipeline(" in python
+    assert "    sf.Fanout(['provider/a', 'provider/b'])" in python
+    assert "    >> sf.Synthesize(sf.Pipeline(" in python
     assert "name='judge-writer'" in python
     assert "'provider/judge'" in python
     assert "'provider/writer'" in python
@@ -202,10 +197,8 @@ def test_fusion_url4_recovers_a_pipeline_synthesizer() -> None:
 
 def test_pipeline_synthesizer_role_defaults_are_not_rendered_as_explicit_prompts() -> None:
     value = _url4(
-        sf.Fusion(
-            ["provider/a"],
-            synthesizer=sf.Pipeline(["provider/judge", "provider/writer"]),
-        )
+        sf.Fanout(["provider/a"])
+        >> sf.Synthesize(sf.Pipeline(["provider/judge", "provider/writer"]))
     )
 
     python = value.to_python()
@@ -219,7 +212,7 @@ def test_corrective_loop_url4_recovers_recursive_recipes_and_configuration() -> 
         sf.CorrectiveLoop(
             [
                 sf.Pipeline(["provider/draft", "provider/revise"], name="chain"),
-                sf.Fusion(["provider/c"], synthesizer="provider/d"),
+                sf.Fanout(["provider/c"]) >> sf.Synthesize("provider/d"),
             ],
             judge=sf.Pipeline(["provider/judge", "provider/writer"]),
             max_rounds=2,
@@ -232,7 +225,7 @@ def test_corrective_loop_url4_recovers_recursive_recipes_and_configuration() -> 
     assert "candidate = sf.CorrectiveLoop(" in python
     assert "name='research-loop'" in python
     assert "name='chain'" in python
-    assert "sf.Fusion(" in python
+    assert "sf.Fanout(['provider/c']) >> sf.Synthesize('provider/d')" in python
     assert "judge=sf.Pipeline(" in python
     assert "max_rounds=2" in python
     assert python.index("'provider/draft'") < python.index("'provider/revise'")
@@ -540,11 +533,9 @@ def test_topology_bindings_separate_context_references_from_operation_edges() ->
 
 @pytest.mark.parametrize("quorum", [0, 1, 2, "all"])
 def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
-    recipe = sf.Fusion(
-        [sf.Model("provider/a", optional=True), "provider/b"],
-        synthesizer="provider/synth",
-        quorum=quorum,
-    )
+    recipe = sf.Fanout(
+        [sf.Model("provider/a", optional=True), "provider/b"], quorum=quorum
+    ) >> sf.Synthesize("provider/synth")
     value = _url4(recipe)
     emitted = 2 if quorum == "all" else quorum
     assert f";quorum={emitted}" in value
@@ -560,20 +551,18 @@ def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
 
 
 def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
-    inner = sf.Fusion(
-        [sf.Model("provider/a", optional=True), "provider/b"],
-        synthesizer="provider/inner",
-        quorum=1,
+    inner = sf.Pipeline(
+        [
+            sf.Fanout([sf.Model("provider/a", optional=True), "provider/b"], quorum=1),
+            sf.Synthesize("provider/inner"),
+        ],
         optional=True,
     )
     recipe = sf.Pipeline(
         [
             "provider/draft",
-            sf.Fusion(
-                [inner, sf.Pipeline(["provider/c", "provider/d"], optional=True)],
-                synthesizer=sf.Pipeline(["provider/judge", "provider/writer"]),
-                quorum=1,
-            ),
+            sf.Fanout([inner, sf.Pipeline(["provider/c", "provider/d"], optional=True)], quorum=1)
+            >> sf.Synthesize(sf.Pipeline(["provider/judge", "provider/writer"])),
         ]
     )
     value = _url4(recipe)
@@ -588,11 +577,8 @@ def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
 @pytest.mark.parametrize("change", ["quorum", "optional"])
 def test_quorum_replay_rejects_executable_policy_that_disagrees_with_metadata(change: str) -> None:
     value = _url4(
-        sf.Fusion(
-            [sf.Model("provider/a", optional=True), "provider/b"],
-            synthesizer="provider/synth",
-            quorum=1,
-        )
+        sf.Fanout([sf.Model("provider/a", optional=True), "provider/b"], quorum=1)
+        >> sf.Synthesize("provider/synth")
     )
     altered = (
         value.replace(";quorum=1", ";quorum=2")
