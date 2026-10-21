@@ -2,7 +2,7 @@
 
 FEATURE: a reduce step closes a block with one combine call. ``over=`` says what each member
 answer the step reads (``refs.extractor``); ``weights=`` is one number per member or a signal key.
-A step checks its options when it is built, through the reducer of today that it lowers to, so a
+A step checks its options when it is built, through the reducer node that it lowers to, so a
 bad option raises here and never after a model call.
 """
 

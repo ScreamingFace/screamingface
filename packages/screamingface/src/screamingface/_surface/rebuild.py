@@ -71,7 +71,7 @@ _FIELD_PREFIX = "field:"
 
 
 class _Unexpressible(Exception):
-    """A value of today that has no new-surface form; ``_converted`` names it "cannot rebuild".
+    """A node value that has no new-surface form; ``_converted`` names it "cannot rebuild".
 
     WHY a dedicated exception: only these refusals become "cannot rebuild", so a programming error
     in a converter surfaces as itself.
@@ -102,8 +102,8 @@ def rebuild_decoded(decoded: _DecodedCandidate) -> Rebuilt:
     from screamingface.url4 import _recipe_from_topology, _recompiles, _replay_check_surface
 
     # editable: a model call whose prompt is its role's default comes back with no prompt
-    today = _recipe_from_topology(decoded.topology, decoded.calls, editable=True)
-    value = surface_value(today)
+    node = _recipe_from_topology(decoded.topology, decoded.calls, editable=True)
+    value = surface_value(node)
     check_surface = _replay_check_surface(decoded.topology)
     if not _recompiles(decoded.candidate, value, decoded.calls, check_surface=check_surface):
         raise ValueError(_CANNOT_REBUILD)
@@ -165,9 +165,9 @@ def _chain(pipeline: Pipeline) -> Pipeline:
 
 
 def _writer_of(stages: list[Recipe]) -> Recipe:
-    """The stage after a selection, taken from ``stages``. A selection Fusion there takes its own
-    writer with it: ``Synthesize(Fanout >> Concat >> Synthesize(w))`` lowers to the flat stages
-    ``[Fusion(concat), w]`` (an unnamed Pipeline is flattened), so the rebuild groups them again.
+    """The stage after a selection, taken from ``stages``. A selection FusionNode there takes its
+    own writer with it: ``Synthesize(Fanout >> Concat >> Synthesize(w))`` lowers to the flat stages
+    ``[FusionNode(concat), w]`` (an unnamed Pipeline is flattened), so the rebuild groups them.
     """
 
     stage = stages.pop(0)
@@ -176,7 +176,7 @@ def _writer_of(stages: list[Recipe]) -> Recipe:
     return stage
 
 
-# The recipe kinds of today and their new-surface form.
+# The recipe kinds of the node values and their new-surface form.
 _RECIPES: tuple[tuple[type, Callable[[Any], Recipe]], ...] = (
     (Model, _model),
     (FusionNode, _fusion),
@@ -192,7 +192,7 @@ def _is_selection(fusion: FusionNode) -> bool:
 
 
 def _block(fusion: FusionNode, writer: Recipe | None = None) -> list[Recipe | Step]:
-    """One Fusion as the steps of one block: the Fanout, then the steps of its synthesizer; a
+    """One FusionNode as the steps of one block: the Fanout, then the steps of its synthesizer; a
     ``writer`` (the Pipeline stage after a selection) closes it with ``Synthesize``."""
 
     fanout = Fanout(
@@ -248,7 +248,7 @@ def _judge_step(judges: list[JudgeNode]) -> list[Step]:
 
 
 def _converted(reducer: Reducer, judges: list[JudgeNode]) -> Step:
-    """One reducer of today as its step; a value with no new-surface form is "cannot rebuild"."""
+    """One reducer node as its step; a value with no new-surface form is "cannot rebuild"."""
 
     convert = dispatch(_CONVERSIONS, reducer)
     if convert is None:
@@ -411,7 +411,7 @@ def _merge(node: MergeNode, _judges: list[JudgeNode]) -> Merge:
     return _built(Merge, node.fields)
 
 
-# Each internal reducer of today and its step (the inverse of the lowering table, lowering §2.2).
+# Each internal reducer node and its step (the inverse of the lowering table, lowering §2.2).
 _CONVERSIONS: tuple[tuple[type, Callable[[Any, list[JudgeNode]], Step]], ...] = (
     (VoteNode, _gated),
     (MedianNode, _statistic),

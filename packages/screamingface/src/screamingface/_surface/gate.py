@@ -74,7 +74,7 @@ class Gate(Step):
         return self.then._reads_judge()
 
     def _sees_every_member(self) -> bool:
-        # WHY: a judge or writer fallback makes its own call over the whole Fusion context (O11).
+        # WHY: a judge or writer fallback makes its own call over the whole fanout context (O11).
         return not isinstance(self.otherwise, str)
 
     def _recipes(self) -> tuple[Recipe, ...]:
