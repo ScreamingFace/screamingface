@@ -63,22 +63,158 @@ grade counts 0). "Case diffs" compares every Case's status and score with the pr
 
 ## 4. Expressions
 
-Before (ContractEval, 3 Cases):
+### ContractEval (3 Cases) — before (`origin/main`)
 
 ```
-(case_evaluations:0.0:(selected_case_evaluations:0.0:/benchmarks/contracteval/890889e5b2863be4/cases()!'3'*(evaluated:0.0:(preserved_case:0.0:(candidate_invocation:0.0:(candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=({input: '$item.input', case_id: '$item.id', case_index: '$index', case_count: '3'})!'$candidate')!'$candidate_invocation', protected_grading:0.0:({candidate_invocation: '$candidate_invocation', case_id: '$item.id'})*(grading:0.0:(record:0.0:/benchmarks/contracteval/890889e5b2863be4/check($candidate_invocation)!'$item.case_id', case_evaluation:0.0:/benchmarks/contracteval/890889e5b2863be4/case-evaluation({attempt_1: '$record'})!'$item.case_id')!'$case_evaluation')!'$grading', case_execution:0.0:/benchmarks/case-execution({case_id: '$item.id', candidate_invocation: '$candidate_invocation', grading: '$protected_grading'})!'')!'$case_execution')!'$preserved_case')!'$evaluated';iteration.concurrency=1;iteration.slice=0:3)!'$selected_case_evaluations', result:0.0:/benchmarks/contracteval/890889e5b2863be4/aggregate($case_evaluations)!'aggregate:3')!'$result'
+(
+  case_evaluations:0.0:(
+    selected_case_evaluations:0.0:/benchmarks/contracteval/890889e5b2863be4/cases()!'3'*(
+      evaluated:0.0:(
+        preserved_case:0.0:(
+          candidate_invocation:0.0:(
+            candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=(
+              {
+                input: '$item.input',
+                case_id: '$item.id',
+                case_index: '$index',
+                case_count: '3'
+              }
+            )!'$candidate'
+          )!'$candidate_invocation',
+          protected_grading:0.0:(
+            {
+              candidate_invocation: '$candidate_invocation',
+              case_id: '$item.id'
+            }
+          )*(
+            grading:0.0:(
+              record:0.0:/benchmarks/contracteval/890889e5b2863be4/check($candidate_invocation)!'$item.case_id',
+              case_evaluation:0.0:/benchmarks/contracteval/890889e5b2863be4/case-evaluation({attempt_1: '$record'})!'$item.case_id'
+            )!'$case_evaluation'
+          )!'$grading',
+          case_execution:0.0:/benchmarks/case-execution(
+            {
+              case_id: '$item.id',
+              candidate_invocation: '$candidate_invocation',
+              grading: '$protected_grading'
+            }
+          )!''
+        )!'$case_execution'
+      )!'$preserved_case'
+    )!'$evaluated';iteration.concurrency=1;iteration.slice=0:3
+  )!'$selected_case_evaluations',
+  result:0.0:/benchmarks/contracteval/890889e5b2863be4/aggregate($case_evaluations)!'aggregate:3'
+)!'$result'
 ```
 
-After:
+### ContractEval (3 Cases) — after (this branch)
 
 ```
-(evaluations:0.0:/benchmarks/contracteval/890889e5b2863be4/cases*(case:0.0:$item, attempt_1:0.0:/benchmarks/candidate?web_search=false&q=(case_id=$item.id, case_index=$index, case_count='3', recipe=$candidate)!'$item.input')!/benchmarks/contracteval/890889e5b2863be4/case-evaluation;iteration.concurrency=1;iteration.slice=0:3, selected:0.0:'3')!/benchmarks/contracteval/890889e5b2863be4/aggregate
+(
+  evaluations:0.0:/benchmarks/contracteval/890889e5b2863be4/cases*(
+    case:0.0:$item,
+    attempt_1:0.0:/benchmarks/candidate?web_search=false&q=(
+      case_id=$item.id,
+      case_index=$index,
+      case_count='3',
+      recipe=$candidate
+    )!'$item.input'
+  )!/benchmarks/contracteval/890889e5b2863be4/case-evaluation;iteration.concurrency=1;iteration.slice=0:3,
+  selected:0.0:'3'
+)!/benchmarks/contracteval/890889e5b2863be4/aggregate
 ```
 
-After (MedXpertQA, 3 Cases):
+### MedXpertQA (3 Cases, two turns) — before
 
 ```
-(evaluations:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/cases*(case:0.0:$item, reasoning:0.0:/benchmarks/candidate?web_search=false&q=(case_id=$item.id, case_index=$index, case_count='3', recipe=$candidate)!'$item.cot_prompt', commit_prompt:0.0:(question=$item.input, reasoning=$reasoning, trigger=$item.trigger)!/benchmarks/medxpert/1e5a3b8a461a52f7/commit-prompt, attempt_1:0.0:/benchmarks/candidate?web_search=false&q=(case_id=$item.id, case_index=$index, case_count='3', recipe=$candidate)!'$commit_prompt', execution:0.0:(case:0.0:$item, reasoning=$reasoning, attempt_1=$attempt_1)!/benchmarks/medxpert/1e5a3b8a461a52f7/case-evaluation, case_index:0.0:$index, case_count:0.0:'3')!/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate/case-result;iteration.concurrency=1;iteration.slice=0:3, selected:0.0:'3')!/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate/graded
+(
+  case_evaluations:0.0:(
+    selected_case_evaluations:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/cases()!'3'*(
+      evaluated:0.0:(
+        execution:0.0:(
+          preserved_case:0.0:(
+            reasoning:0.0:(
+              candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=(
+                {
+                  input: '$item.cot_prompt',
+                  case_id: '$item.id',
+                  case_index: '$index',
+                  case_count: '3'
+                }
+              )!'$candidate'
+            )!'$candidate_invocation',
+            candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=(
+              {
+                input: {
+                  question: '$item.input',
+                  reasoning: '$reasoning',
+                  trigger: '$item.trigger'
+                },
+                case_id: '$item.id',
+                case_index: '$index',
+                case_count: '3'
+              }
+            )!'$candidate',
+            protected_grading:0.0:(
+              {
+                candidate_invocation: '$candidate_invocation',
+                case_id: '$item.id'
+              }
+            )*(
+              grading:0.0:(
+                record:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/check(
+                  {
+                    reasoning: '$reasoning',
+                    commit: '$candidate_invocation'
+                  }
+                )!'$item.case_id',
+                case_evaluation:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/case-evaluation({attempt_1: '$record'})!'$item.case_id'
+              )!'$case_evaluation'
+            )!'$grading',
+            case_execution:0.0:/benchmarks/case-execution(
+              {
+                case_id: '$item.id',
+                candidate_invocation: '$candidate_invocation',
+                grading: '$protected_grading'
+              }
+            )!''
+          )!'$case_execution'
+        )!'$preserved_case',
+        graded:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate/case-result($execution)!'$index:3'
+      )!'$graded'
+    )!'$evaluated';iteration.concurrency=1;iteration.slice=0:3
+  )!'$selected_case_evaluations',
+  result:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate/graded($case_evaluations)!'aggregate:3'
+)!'$result'
 ```
+
+### MedXpertQA (3 Cases, two turns) — after
+
+```
+(
+  evaluations:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/cases*(
+    case:0.0:$item,
+    reasoning:0.0:/benchmarks/candidate?web_search=false&q=(
+      case_id=$item.id,
+      case_index=$index,
+      case_count='3',
+      recipe=$candidate
+    )!'$item.cot_prompt',
+    commit_prompt:0.0:(question=$item.input, reasoning=$reasoning, trigger=$item.trigger)!/benchmarks/medxpert/1e5a3b8a461a52f7/commit-prompt,
+    attempt_1:0.0:/benchmarks/candidate?web_search=false&q=(
+      case_id=$item.id,
+      case_index=$index,
+      case_count='3',
+      recipe=$candidate
+    )!'$commit_prompt',
+    execution:0.0:(case:0.0:$item, reasoning=$reasoning, attempt_1=$attempt_1)!/benchmarks/medxpert/1e5a3b8a461a52f7/case-evaluation,
+    case_index:0.0:$index,
+    case_count:0.0:'3'
+  )!/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate/case-result;iteration.concurrency=1;iteration.slice=0:3,
+  selected:0.0:'3'
+)!/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate/graded
+```
+
+Reading the "after" form: the outer group is the run (`evaluations` + `selected` → `aggregate`, a code step); `cases*(…)` iterates the case set (a data route); the body sources are the per-Case steps (`case`, the Candidate call whose quoted intent is the prompt, and — for MedXpertQA — the `commit-prompt` code and the `case-evaluation` code); the body's intent is the per-Case terminal code step.
 
 All 84 boards changed shape; their revision ids did not change: `air_bench`, `arc_agi_2`, `contracteval`, `draco`, `draco-3pass`, `frames_oracle`, `gdpval-text`, `healthbench-professional`, `healthbench-worst30`, `ifeval`, `infinite_bench_math_find`, `inspect-agieval_aqua_rat`, `inspect-agieval_logiqa_en`, `inspect-agieval_lsat_ar`, `inspect-agieval_lsat_lr`, `inspect-agieval_lsat_rc`, `inspect-agieval_sat_en`, `inspect-agieval_sat_en_without_passage`, `inspect-agieval_sat_math`, `inspect-aime24`, `inspect-aime25`, `inspect-aime26`, `inspect-arc_challenge`, `inspect-arc_easy`, `inspect-bbeh`, `inspect-bbq`, `inspect-boolq`, `inspect-chembench`, `inspect-coconot_contrast`, `inspect-coconot_original`, `inspect-commonsense_qa`, `inspect-cybermetric_10000`, `inspect-cybermetric_2000`, `inspect-cybermetric_500`, `inspect-cybermetric_80`, `inspect-cyse4_malware_analysis`, `inspect-cyse4_mitre_frr`, `inspect-cyse4_threat_intelligence`, `inspect-drop`, `inspect-fortress_benign`, `inspect-frontierscience`, `inspect-gsm8k`, `inspect-hellaswag`, `inspect-lab_bench_cloning_scenarios`, `inspect-lab_bench_dbqa`, `inspect-lab_bench_litqa`, `inspect-lab_bench_protocolqa`, `inspect-lab_bench_seqqa`, `inspect-lab_bench_suppqa`, `inspect-math`, `inspect-medqa`, `inspect-mgsm_en`, `inspect-mmlu`, `inspect-mmlu_pro`, `inspect-musr`, `inspect-onet_m6`, `inspect-paws`, `inspect-piqa`, `inspect-pre_flight`, `inspect-pubmedqa`, `inspect-race_h`, `inspect-sad_facts_human_defaults`, `inspect-sad_facts_llms`, `inspect-sad_influence`, `inspect-sad_stages_full`, `inspect-sad_stages_oversight`, `inspect-sevenllm_mcq_en`, `inspect-sevenllm_mcq_zh`, `inspect-simpleqa`, `inspect-simpleqa_verified`, `inspect-squad`, `inspect-stereoset`, `inspect-strong_reject`, `inspect-truthfulqa_mc1`, `inspect-uccb`, `inspect-winogrande`, `inspect-wmdp_bio`, `inspect-wmdp_chem`, `inspect-wmdp_cyber`, `inspect-worldsense`, `inspect-xstest_safe`, `inspect-xstest_unsafe`, `medxpert`, `musique`.
