@@ -19,7 +19,7 @@ Verified live 2026-10-16:
 
 ### 1. Typed refusal `codex_model_unsupported`
 
-When the Codex upstream answers **400** and its text contains
+When the Codex upstream answers **400** and its **top-level `detail`** (a short string) contains
 `not supported when using Codex with a ChatGPT account`, the plugin raises:
 
     403 {"code": "codex_model_unsupported",
@@ -38,6 +38,13 @@ When the Codex upstream answers **400** and its text contains
 - `available_models` comes from the account's live list (section 2), fetched with the **caller's own
   credential** on this error path. Unknown (no account id, fetch failed, empty) → key omitted; the
   403 itself never depends on discovery succeeding.
+- **Trusted carrier only (PR #1441 review, 2026-10-20):** the top-level `detail` is the one
+  refusal carrier. `chat_handler` reads it before `error.message` and relays it in its own
+  `{"detail": ...}` shape; the plugin classifies only that shape. The marker inside an
+  `error.message` (plain, or mimicking the detail shape — the latter is withheld) never re-types
+  an ordinary 400 and triggers no model-list read.
+- **Plan bound:** the unsigned claim is named only when it is a short lowercase identifier
+  (`[a-z][a-z0-9_-]{0,31}`); anything else → `unknown`.
 - Every other error keeps today's mapping exactly.
 - Renamed from the earlier draft `codex_plan_unsupported`: a plus plan is refused per model too, so
   "plan unsupported" mis-names the common case.
@@ -79,11 +86,12 @@ credential and serve one process-wide snapshot. Resolution:
 
 ### 3. Static fallback
 
-The static `register_models()` slugs are dead and should become the four live slugs. **Blocked:**
-`tests/unit/test_codex_provider.py` (exact set) and `tests/unit/test_plugin_loader.py`
-(`codex/gpt-5.4-mini` present) pin the old slugs, and prior tests are append-only. The swap waits for
-an owner decision; the live list (section 2) replaces the seeds in `/v1/models` as soon as one
-refresh succeeds.
+The static `register_models()` slugs were dead; they are now the four live slugs (`gpt-6-astra`,
+`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`). **Owner-approved 2026-10-17** (Sergey, working
+session): the seed swap and the matching edits to the two `main` tests that pinned the old slugs
+(`tests/unit/test_codex_provider.py` exact set, `tests/unit/test_plugin_loader.py`
+`codex/gpt-5.4-mini`). `/v1/models` is process-wide and always serves these seeds; no account's
+live list ever enters it (section 2).
 
 ## Out of scope
 

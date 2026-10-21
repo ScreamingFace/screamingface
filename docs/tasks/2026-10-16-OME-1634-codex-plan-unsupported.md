@@ -16,4 +16,5 @@ every model for it ("not supported when using Codex with a ChatGPT account"), wh
 CLI on a **plus** account works. A plus plan is also refused for every static catalog slug
 (retired upstream). Fix: the refusal reaches the caller as a typed 403 `codex_model_unsupported`
 naming the model and the plan, plus `available_models` from the account's live list
-(`GET /backend-api/codex/models`), which also feeds `/v1/models`. Ledger: `../work/2026-10-16-codex-plan-unsupported.md`.
+(`GET /backend-api/codex/models`), returned only to that account's own refusal; `/v1/models`
+serves the static seeds, swapped to the four current models (owner-approved 2026-10-17). Ledger: `../work/2026-10-16-codex-plan-unsupported.md`.

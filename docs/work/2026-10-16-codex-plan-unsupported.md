@@ -62,10 +62,16 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
   `plan: plus`, `available_models` = gpt-6-astra, gpt-5.6-sol/terra/luna; `/v1/models` then lists exactly
   those four Codex rows (before: the five dead seeds); runner on `codex/gpt-6-astra`: text READY,
   PNG 4827, PDF ZEBRA-4127 — all 200 and correct.
-- **Deviations:** static seed swap NOT done — `tests/unit/test_codex_provider.py` (exact set) and
-  `tests/unit/test_plugin_loader.py` (`codex/gpt-5.4-mini`) pin the old slugs; changing them is an
-  append-only conflict left to the owner. Until then a cold process lists the dead seeds until the first
-  refresh (any refusal) succeeds.
+- **Deviations:** (superseded 2026-10-17, see the security-fix entry) the static seed swap was first
+  left undone — `tests/unit/test_codex_provider.py` (exact set) and `tests/unit/test_plugin_loader.py`
+  (`codex/gpt-5.4-mini`) pin the old slugs, an append-only conflict.
+- **Deviation — owner approval record (append-only exception):** on 2026-10-17, in the working
+  session, the owner (Sergey) explicitly approved (a) swapping the static Codex seeds in
+  `plugins/codex_provider/models.py` to `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`,
+  `gpt-5.6-luna`, and (b) the matching edits to the two `main` tests that pinned the old slugs,
+  `tests/unit/test_codex_provider.py` and `tests/unit/test_plugin_loader.py`. This is the only
+  prior-test change in the PR; the append-only gate is expected to flag exactly those two files
+  against `origin/main`. The seeds are not re-changed by later review rounds.
 - **Review fix (blocking, kill switch):** the refusal path's account-list read ignored
   `AIGW_DISCOVERY_ENABLED=false`. Now `create_app` passes the setting to every plugin via the new
   `configure_discovery(enabled=...)` contract hook (default no-op; a plugin without it is skipped, so
@@ -84,3 +90,18 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
   approved by the owner; gates run with `--skip-append-only` for that change only. Live: listing
   identical before/after a refusal; `gpt-5.4` → 403 `codex_model_unsupported` (plan plus, 4
   available); `gpt-6-astra` → 200.
+- **Review 2026-10-20 (HupBaHa, CHANGES_REQUESTED):**
+  1. *Refusal provenance (fixed):* `chat_handler` read the allowlisted `error.message` before the
+     top-level `detail` and the plugin rescanned the flattened text, so an ordinary 400 quoting the
+     marker became the typed 403 (and spent a credentialed list read). Now the handler reads `detail`
+     first and relays it in its own `{"detail": ...}` shape (both the stream and the
+     `HTTPStatusError` paths), and withholds an `error.message` that mimics that shape;
+     `plugin._is_model_refusal` classifies only that shape. 5 new tests (+ 11 plan-bound cases) in
+     `tests/unit/codex/test_codex_refusal_provenance.py`. No existing test touched.
+  2. *Seed-swap approval record (process):* recorded above and in the PR body/comment; spec §3,
+     plan step 6 and the `docs/tasks` mirror now describe the shipped behaviour (seeds swapped,
+     `/v1/models` process-wide static, account lists only on that account's refusal).
+  3. *Plan claim bound (fixed, non-blocking):* `plan_type_from_token` names only
+     `[a-z][a-z0-9_-]{0,31}`, else `unknown`.
+  4. *Plan doc (fixed, non-blocking):* the superseded shared-`latest()` listing step is struck
+     through and replaced with the per-account refusal-only directory.
