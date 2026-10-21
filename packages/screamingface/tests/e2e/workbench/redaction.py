@@ -8,12 +8,14 @@ INVARIANT: redaction runs on values, never on serialised JSON. ``bearer\\s+\\S+`
 JSON document would swallow the closing quote of the string it sits in and corrupt the file.
 
 SHAPES. Token-shaped secrets are masked whole (``sk-…``, JWTs, ``Bearer``/``Basic`` credentials,
-GitHub ``ghp_…``/``github_pat_…``, Google ``AIza…``, Hugging Face ``hf_…``, AWS ``AKIA…``,
-Slack ``xox?-…``). Opaque secrets are found by the NAME they are bound to and only the value is
-masked, so the reader still sees what was there: URL userinfo passwords, query parameters
-(``?api_key=…&token=…``), and assignments / mapping entries whose name ends in key, token,
-secret, password, credential(s), auth or sig (``OPENROUTER_API_KEY=…``, ``api_key='…'``,
-``"client_secret": "…"``). See the pattern comments for what is deliberately left readable.
+GitHub ``ghp_…``/``github_pat_…``, GitLab ``glpat-…``, Google ``AIza…``, Hugging Face ``hf_…``,
+AWS ``AKIA…``, Slack ``xox?-…``, PEM private keys). Opaque secrets are found by the NAME they are
+bound to and only the value is masked, so the reader still sees what was there: URL userinfo
+passwords, query parameters (``?api_key=…&token=…``), ``Authorization`` with any scheme, and
+assignments / headers / mapping entries whose name ends in key, token, secret, password,
+credential(s), auth or sig (``OPENROUTER_API_KEY=…``, ``x-api-key: …``, ``api_key=b'…'``,
+``"client_secret": "…"``, also in escaped JSON and reprs). See the pattern comments for what
+is deliberately left readable.
 
 WHY fail closed on names: a false positive costs one masked word in a failure message; a
 false negative publishes a key in CI output.
@@ -33,30 +35,48 @@ _TOKENS: Final = (
     re.compile(r"(?i)bearer\s+\S+"),
     re.compile(r"\bBasic\s+[A-Za-z0-9+/]{8,}={0,2}"),
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})"),
+    re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{20,}"),
     re.compile(r"\bhf_[A-Za-z0-9]{20,}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
+    # A PEM private key, header to footer; a truncated one (no footer) to the end of the text.
+    re.compile(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)"),
 )
-# The name must END in the secret word: `max_tokens` (a count) is not a token.
+# The name must END in the secret word: `max_tokens` (a count) is not a token. Names may hold
+# `-` so HTTP headers (`x-api-key`, `X-Goog-Api-Key`) match like identifiers.
 _SECRET_NAME: Final = r"(?:key|token|secret|password|passwd|pwd|credentials?|auth|sig|signature)"
 # WHY bare `key` is excluded from assignments (but not from `?key=` queries, Google's API-key
 # parameter): the gateway logs `key=<cache key>` on every cache hit, and masking it would blur
-# the evidence. A compound name (`api_key`, `SECRET_KEY`, `apikey`) still matches.
+# the evidence. A compound name (`api_key`, `SECRET_KEY`, `apikey`, `x-api-key`) still matches.
 _ASSIGNED_NAME: Final = (
-    r"(?:\w*(?:token|secret|password|passwd|pwd|credentials?|auth|sig|signature)|\w+key)"
+    r"(?:[\w-]*(?:token|secret|password|passwd|pwd|credentials?|auth|sig|signature)|[\w-]+key)"
 )
 _NOT_MASKED: Final = rf"(?!{re.escape(MASK)})"
-# scheme://user:<password>@host
-_USERINFO: Final = re.compile(rf"(://[^/\s:@]+:){_NOT_MASKED}[^/\s@]+@")
+# `"name": `, `name=`, `\"name\": ` (JSON inside a JSON string), `'name': ` (a repr).
+_SEPARATOR: Final = r"((?:\\*['\"])?\s*[=:]\s*)"
+# A quoted value, masked whole: an optional bytes/str prefix, then the opening quote with any
+# backslashes before it (`\"v\"` in escaped JSON, `\'v\'` in a repr), up to the same quote.
+_QUOTED: Final = r"[bBrRuUfF]{0,2}(?P<q>\\*['\"])(?:(?!(?P=q))[^\n])*(?P=q)?"
+# Code in a notebook's source, not a secret, so left readable: a call with no arguments or a
+# quoted first argument, or a subscript by a quoted key (`load_key()`, `os.getenv("K")`,
+# `os.environ["K"]`). Any other value shaped like a call (`opaque(len)`) is masked.
+_CODE: Final = r"[A-Za-z_][\w.]*[(\[](?:\)|\\*['\"])"
+# scheme://user:<password>@host — the password runs to the LAST `@` of the authority, so a
+# password holding `@` is masked whole.
+_USERINFO: Final = re.compile(rf"(://[^/\s:@]+:){_NOT_MASKED}[^/\s?#]*@")
 # ?api_key=…&token=… — the value runs to the next URL delimiter or quote.
 _QUERY: Final = re.compile(rf"(?i)([?&][\w.-]*{_SECRET_NAME}=){_NOT_MASKED}[^&#\s'\"]+")
-# NAME=value, NAME: value, 'name': 'value', "name": "value", name='value'. An unquoted value
-# that is a Python call or subscript (`api_key=os.environ["K"]`, `load_key()`) is code in a
-# notebook's source, not a secret, and is left readable.
+# `Authorization: <scheme> <credential>` with any scheme (Token, ApiKey, Key, Digest, …): a
+# quoted value is masked whole; an unquoted one to the end of the line, because a Digest
+# credential is a comma-separated list. Bearer/Basic are already masked by _TOKENS.
+_AUTHORIZATION: Final = re.compile(
+    rf"(?i)\b((?:proxy-)?authorization){_SEPARATOR}{_NOT_MASKED}(?:{_QUOTED}|\S[^\r\n]*)"
+)
+# NAME=value, NAME: value, 'name': 'value', "name": "value", name='value', name=b"value".
 _ASSIGNMENT: Final = re.compile(
-    rf"(?i)\b({_ASSIGNED_NAME})(['\"]?\s*[=:]\s*){_NOT_MASKED}"
-    r"(?:'[^'\n]*'?|\"[^\"\n]*\"?|(?![\w.]*[(\[])[^\s'\",;&)}\]]+)"
+    rf"(?i)\b({_ASSIGNED_NAME}){_SEPARATOR}{_NOT_MASKED}"
+    rf"(?:{_QUOTED}|(?!{_CODE})[^\s'\",;&)}}\]]+)"
 )
 
 
@@ -66,6 +86,7 @@ def redact(text: str) -> str:
         text = pattern.sub(MASK, text)
     text = _USERINFO.sub(rf"\g<1>{MASK}@", text)
     text = _QUERY.sub(rf"\g<1>{MASK}", text)
+    text = _AUTHORIZATION.sub(rf"\g<1>\g<2>{MASK}", text)
     return _ASSIGNMENT.sub(rf"\g<1>\g<2>{MASK}", text)
 
 

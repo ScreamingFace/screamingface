@@ -28,10 +28,13 @@ GHP = "ghp_" + "a1B2" * 9
 AIZA = "AIza" + "Sy" + "Q7x_" * 9
 QUERY_KEY = "qk3y-0paque-77"
 QUERY_TOKEN = "qt0k-0paque-88"
-SECRETS = (OPAQUE, GHP, AIZA, QUERY_KEY, QUERY_TOKEN)
+HEADER_KEY = "hdrK3y0paque99"
+AUTHZ_TOKEN = "authzT0k0paque11"
+SECRETS = (OPAQUE, GHP, AIZA, QUERY_KEY, QUERY_TOKEN, HEADER_KEY, AUTHZ_TOKEN)
 LEAK = (
     f"OPENROUTER_API_KEY={OPAQUE} {GHP} {AIZA} "
-    f"https://h.test/v1?api_key={QUERY_KEY}&token={QUERY_TOKEN}"
+    f"https://h.test/v1?api_key={QUERY_KEY}&token={QUERY_TOKEN} "
+    f'{{"x-api-key": "{HEADER_KEY}", "Authorization": "Token {AUTHZ_TOKEN}"}}'
 )
 
 

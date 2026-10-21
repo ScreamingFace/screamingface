@@ -17,6 +17,9 @@ OPAQUE = "op4que-V4lue-zz9"
 JWT = "eyJhbGciOi.eyJleHAiOjF9.c2ln"
 SK = "sk-or-v1-abcdefghijklmnop0123"
 TID = "4bf92f3577b34da6a3ce929d0e0e4736"
+GLPAT = "glpat-" + "Xy7_" * 5
+PEM_BODY = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC"
+PEM = f"-----BEGIN {'PRIVATE'} KEY-----\\n{PEM_BODY}\\n-----END {'PRIVATE'} KEY-----"
 
 
 @pytest.mark.parametrize(
@@ -39,6 +42,29 @@ TID = "4bf92f3577b34da6a3ce929d0e0e4736"
         (f"GET https://h.test/v1?x=1&token={OPAQUE}#frag", OPAQUE),
         (f"GET https://h.test/v1?key={OPAQUE}", OPAQUE),
         (f"https://user:{OPAQUE}@h.test/db", OPAQUE),
+        # Review of R1, major: hyphenated header names and non-Bearer auth schemes.
+        (f"x-api-key: {OPAQUE}", OPAQUE),
+        (f"X-Goog-Api-Key: {OPAQUE}", OPAQUE),
+        (f'{{"x-api-key": "{OPAQUE}"}}', OPAQUE),
+        (f"api-key={OPAQUE}", OPAQUE),
+        (f"Authorization: Token {OPAQUE}", OPAQUE),
+        (f'{{"Authorization": "Token {OPAQUE}"}}', OPAQUE),
+        (f"authorization={OPAQUE}", OPAQUE),
+        (f"Authorization: ApiKey {OPAQUE}", OPAQUE),
+        (f"Authorization: Key {OPAQUE}", OPAQUE),
+        (f'Authorization: Digest username="u", response="{OPAQUE}"', OPAQUE),
+        (f"Proxy-Authorization: Token {OPAQUE}", OPAQUE),
+        # Review of R1, minor: escaped, prefixed, punctuated and un-named shapes.
+        (f'{{\\"api_key\\": \\"{OPAQUE}\\"}}', OPAQUE),
+        (f"""'{{"api_key": \\'{OPAQUE}\\'}}'""", OPAQUE),
+        (f'api_key=b"{OPAQUE}"', OPAQUE),
+        ("postgres://user:p@ss-0paque@h.test/db", "ss-0paque"),
+        ("api_key=opaqueABC123zz(len)", "opaqueABC123zz"),
+        (f"API_KEY=({OPAQUE})", OPAQUE),
+        (f"api_key=[{OPAQUE}]", OPAQUE),
+        ("api_key=v", "=v"),
+        (f"gitlab {GLPAT}", GLPAT),
+        (f"pem {PEM}", PEM_BODY),
     ],
     ids=[
         "sk",
@@ -58,6 +84,27 @@ TID = "4bf92f3577b34da6a3ce929d0e0e4736"
         "query-token",
         "query-key",
         "userinfo",
+        "header-hyphen",
+        "header-goog",
+        "json-hyphen",
+        "assign-hyphen",
+        "authz-token",
+        "authz-json",
+        "authz-assign",
+        "authz-apikey",
+        "authz-key",
+        "authz-digest",
+        "proxy-authz",
+        "json-escaped",
+        "repr-escaped",
+        "bytes",
+        "userinfo-at",
+        "value-call-shape",
+        "value-paren",
+        "value-bracket",
+        "one-char",
+        "glpat",
+        "pem",
     ],
 )
 def test_every_secret_shape_is_masked(text: str, secret: str) -> None:
@@ -86,6 +133,9 @@ def test_names_survive_so_the_reader_knows_what_was_masked() -> None:
         f"global cache hit provider=openrouter model='openrouter/x' key={TID}",
         'sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])',
         "client = Client(api_key=load_key())",
+        'key = os.environ.get("OPENROUTER_API_KEY")',
+        'api_key=os.getenv("OPENROUTER_API_KEY")',
+        "--max-tokens=256",
     ],
     ids=[
         "trace-and-call-id",
@@ -99,6 +149,9 @@ def test_names_survive_so_the_reader_knows_what_was_masked() -> None:
         "cache-key",
         "env-lookup",
         "call",
+        "env-get",
+        "getenv",
+        "flag-count",
     ],
 )
 def test_non_secrets_are_left_alone(text: str) -> None:
@@ -111,3 +164,19 @@ def test_redact_tree_masks_keys_and_values_in_nested_containers() -> None:
     for secret in (GHP, AIZA, OPAQUE):
         assert secret not in flat
     assert "'n': 1" in flat
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"x-api-key: {OPAQUE}",
+        f"Authorization: Token {OPAQUE}",
+        f'{{\\"api_key\\": \\"{OPAQUE}\\"}}',
+        f"api_key=[{OPAQUE}]",
+        "postgres://user:p@ss-0paque@h.test/db",
+        f"pem {PEM}",
+    ],
+)
+def test_redact_is_idempotent(text: str) -> None:
+    once = redact(text)
+    assert redact(once) == once

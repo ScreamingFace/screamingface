@@ -113,12 +113,18 @@ the bundle, the failure reasons (`verdict.py` raises them without a traceback, s
 re-print the raw error), the JUnit properties, and, through the lane's report hook in
 `conftest.py`, every report's traceback, captured output and properties on the terminal and in
 JUnit. Masked whole: `sk-…`, JWT-shaped tokens, `Bearer …`/`Basic …`, `ghp_…`/`github_pat_…`,
-`AIza…`, `hf_…`, `AKIA…`, `xox?-…`. Masked by name, keeping the name: URL userinfo passwords,
-query parameters such as `?api_key=…&token=…`, and assignments or mapping entries whose name
-ends in key, token, secret, password, credential(s), auth or sig (`OPENROUTER_API_KEY=…`,
-`api_key='…'`, `"client_secret": "…"`). Left readable on purpose: a bare `key=` (the gateway's
-cache key), counts such as `max_tokens=`, and code such as `api_key=os.environ[...]`. Free text
-with no recognisable shape or name is not detected.
+`glpat-…`, `AIza…`, `hf_…`, `AKIA…`, `xox?-…`, PEM private keys. Masked by name, keeping the
+name: URL userinfo passwords, query parameters such as `?api_key=…&token=…`, `Authorization` /
+`Proxy-Authorization` with any scheme (`Token …`, `ApiKey …`, `Digest …`), and assignments,
+headers or mapping entries whose name ends in key, token, secret, password, credential(s), auth
+or sig (`OPENROUTER_API_KEY=…`, `x-api-key: …`, `api_key=b'…'`, `"client_secret": "…"`, also
+inside escaped JSON or a repr). Left readable on purpose: a bare `key=` (the gateway's cache
+key), counts such as `max_tokens=`, and code such as `api_key=os.environ["K"]` or
+`load_key()`. Free text with no recognisable shape or name is not detected.
+
+Not redacted: live logging (`log_cli`, off by default and in CI) and the pytest warnings
+summary are written outside the report hook. Do not turn on `log_cli` (`-o log_cli=true`) for
+this lane where the output is published, and do not put secrets in warning messages.
 
 ## Adding a notebook
 
