@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import urllib.parse
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -41,14 +42,18 @@ _NARROW_BEFORE_REDUCER = ("confident_mean", "best_two_vote")
 _SCORING_JUDGE = ("s10", "s10_threshold", "s11", "s11_min", "best_two_vote")
 
 
-@pytest.fixture(scope="module")
-def namespace() -> dict[str, Any]:
+def _run_notebook() -> dict[str, Any]:
     cells = json.loads(_NOTEBOOK.read_text(encoding="utf-8"))["cells"]
     names: dict[str, Any] = {}
     for cell in cells:
         if cell["cell_type"] == "code":
             exec("".join(cell["source"]), names)  # the notebook is ours; its cells are offline
     return names
+
+
+@pytest.fixture(scope="module")
+def namespace() -> dict[str, Any]:
+    return _run_notebook()
 
 
 def _url4(recipe: sf.Recipe) -> str:
@@ -66,6 +71,17 @@ def test_every_recipe_of_notebook_18_compiles_offline(namespace: dict[str, Any],
 
     assert isinstance(recipe, sf.Recipe)
     assert "/ensemble/combine/v1" in _url4(recipe)
+
+
+def test_no_recipe_of_notebook_18_warns_that_the_judge_writes() -> None:
+    # WHY: the notebook teaches the epic rule "the writer is not the scorer", so its judge and
+    # writer routes differ and no recipe may raise sf.JudgeWriterWarning. WHY a fresh run: the
+    # SDK warns once per Pipeline object, so a recipe that another test compiled stays silent.
+    fresh = _run_notebook()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", sf.JudgeWriterWarning)
+        for name in _CASES + _NEW:
+            compile_candidate(fresh[name], operators=flow_operators())
 
 
 def test_the_evaluation_cell_names_each_recipe_once_and_runs_s5_only_once(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import nbformat
@@ -60,6 +61,15 @@ _RETIRED_MARKERS = (
     "abstain_band=",
     "gate=sf.Gate(",
 )
+# The removed forms that a plain substring cannot catch. WHY no ``.members``: the public
+# ``CombineEvidence.members`` and ``sf.Fanout(...).members`` keep that name, so it would refuse
+# valid code.
+_RETIRED_PATTERNS = (
+    re.compile(r'sf\.Gate\(\s*["\']'),  # the positional sf.Gate(observe, cmp, threshold) form
+    re.compile(r"sf\.Judge\([^)]*\border="),  # sf.Judge(..., order="min"): use sf.ArgMin
+    re.compile(r"\.stages\b"),  # Pipeline.stages: use .steps
+    re.compile(r"\.synthesizer\b"),  # the Fusion attribute: a chain has .steps
+)
 
 
 def main() -> None:
@@ -93,6 +103,7 @@ def _check_public_story(values: dict[str, NotebookNode]) -> None:
     if missing:
         raise SystemExit(f"notebook story is missing public surface markers: {missing}")
     retired = [marker for marker in _RETIRED_MARKERS if marker in authored]
+    retired += [pattern.pattern for pattern in _RETIRED_PATTERNS if pattern.search(authored)]
     if retired:
         raise SystemExit(f"notebook story still uses removed recipe names: {retired}")
     code = "\n".join(
