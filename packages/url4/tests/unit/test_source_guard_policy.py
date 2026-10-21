@@ -133,3 +133,34 @@ def test_check_url_refuses_a_spelling_httpx_cannot_parse() -> None:
 
 def test_check_url_leaves_malformed_urls_to_the_transport() -> None:
     check_url("https://[::1/", SourceGuard())  # urlsplit raises; not this layer's report
+
+
+# --- review hardening: reserved IPv6 and embedded IPv4 forms (OME-1544) ----------------------
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "::7f00:1",  # IPv4-compatible ::/96 form of 127.0.0.1; ipaddress calls it global
+        "::a9fe:a9fe",  # IPv4-compatible form of the 169.254.169.254 metadata address
+        "::a00:1",  # IPv4-compatible form of 10.0.0.1
+        "::ffff:0:7f00:1",  # SIIT ::ffff:0:0/96 form of 127.0.0.1
+        "::ffff:0:a9fe:a9fe",  # SIIT form of the metadata address
+        "::c058:6301",  # IPv4-compatible form of a 6to4 relay address
+        "192.88.99.1",  # deprecated 6to4 relay anycast (RFC 7526); ipaddress calls it global
+        "100::1",  # RFC 6666 discard-only prefix
+    ],
+)
+def test_reserved_and_embedded_ipv4_forms_are_refused(address: str) -> None:
+    with pytest.raises(ResolutionError) as caught:
+        vet_address(ipaddress.ip_address(address), SourceGuard())
+    assert caught.value.code == ErrorCode.SOURCE_DESTINATION_BLOCKED
+
+
+def test_embedded_loopback_forms_follow_the_escape_hatch() -> None:
+    hatch = SourceGuard(allow_loopback=True)
+    vet_address(ipaddress.ip_address("::7f00:1"), hatch)
+    vet_address(ipaddress.ip_address("::ffff:0:7f00:1"), hatch)
+    vet_address(ipaddress.ip_address("::1"), hatch)  # plain IPv6 loopback is not unwrapped
+    with pytest.raises(ResolutionError):
+        vet_address(ipaddress.ip_address("::a9fe:a9fe"), hatch)

@@ -24,6 +24,16 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 # `ipaddress` reports 64:ff9b::7f00:1 as global although it reaches 127.0.0.1 through NAT64.
 _NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
 
+# WHY: the deprecated IPv4-compatible ``::/96`` and SIIT ``::ffff:0:0:0/96`` forms also embed an
+# IPv4 address in their last 32 bits (``::7f00:1``, ``::ffff:0:7f00:1``) and are judged as it.
+_EMBEDS_IPV4 = (_NAT64, ipaddress.IPv6Network("::/96"), ipaddress.IPv6Network("::ffff:0:0:0/96"))
+
+# WHY: ``ipaddress`` reports these as global although no source fetch may target them.
+_ALSO_REFUSED = (ipaddress.IPv4Network("192.88.99.0/24"),)  # deprecated 6to4 relay (RFC 7526)
+
+# ``::`` and ``::1`` sit inside ``::/96`` but are IPv6's own unspecified and loopback addresses.
+_NOT_EMBEDDED = (ipaddress.IPv6Address("::"), ipaddress.IPv6Address("::1"))
+
 # One inet_aton part: hex (``0x``, digits optional), octal (leading ``0``) or decimal. ASCII only.
 _ATON_PART = re.compile(r"0[xX][0-9a-fA-F]*|0[0-7]*|[1-9][0-9]*")
 
@@ -113,13 +123,13 @@ def check_url(url: str, guard: SourceGuard, *, peer: bool = False) -> None:
 def vet_address(address: IPAddress, guard: SourceGuard) -> None:
     """Refuse loopback, private, link-local, CGNAT, unspecified, multicast and reserved.
 
-    INVARIANT: an IPv4 address embedded in IPv6 (mapped ``::ffff:a.b.c.d`` or NAT64) is
-    judged as the IPv4 address it reaches.
+    INVARIANT: an IPv4 address embedded in IPv6 (mapped ``::ffff:a.b.c.d``, IPv4-compatible
+    ``::a.b.c.d``, SIIT ``::ffff:0:a.b.c.d`` or NAT64) is judged as the IPv4 address it reaches.
     """
     effective = _unwrap(address)
     if guard.allow_loopback and effective.is_loopback:
         return
-    if effective.is_multicast or not effective.is_global:
+    if _refused(effective):
         raise destination_blocked(f"address {address} is in a refused range")
 
 
@@ -162,13 +172,20 @@ def _aton_value(part: str) -> int:
     return int(part, 8) if part.startswith("0") else int(part)
 
 
+def _refused(address: IPAddress) -> bool:
+    return (
+        address.is_multicast
+        or address.is_reserved
+        or not address.is_global
+        or any(address in network for network in _ALSO_REFUSED)
+    )
+
+
 def _unwrap(address: IPAddress) -> IPAddress:
-    if isinstance(address, ipaddress.IPv6Address):
-        if address.ipv4_mapped is not None:
-            return address.ipv4_mapped
-        if address in _NAT64:
-            return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
-    return address
+    if not isinstance(address, ipaddress.IPv6Address) or address in _NOT_EMBEDDED:
+        return address
+    embeds = address.ipv4_mapped is not None or any(address in net for net in _EMBEDS_IPV4)
+    return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF) if embeds else address
 
 
 def _normal_host(host: str) -> str:
