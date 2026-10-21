@@ -49,6 +49,7 @@ from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .middleware import CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
+from .provider_composition import compose_providers
 from .routes import (
     accounts,
     admin,
@@ -405,7 +406,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     registry = ProviderRegistry()
     load_plugins(registry)
+    # FEATURE (hosted BYOM): configured remote endpoints join here, before any auth router mounts.
+    endpoint_access = compose_providers(registry, config_path=settings.remote_endpoints_config)
     app.state.providers = registry
+    app.state.endpoint_access = endpoint_access
     app.state.api_key_validation_service = ApiKeyValidationService()
 
     # Test-only OAuth endpoint hooks are gated by env vars so they only activate

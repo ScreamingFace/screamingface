@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ipaddress import IPv4Network, IPv6Network, ip_network
+from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
@@ -153,6 +154,11 @@ class Settings(BaseSettings):
     )
     request_cache_max_response_bytes: int = Field(
         default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
+    )
+
+    # FEATURE: hosted BYOM — private endpoint TOML read at startup; unset is none, unusable fails.
+    remote_endpoints_config: Path | None = Field(
+        default=None, validation_alias="AIGW_REMOTE_ENDPOINTS_CONFIG"
     )
 
     # FEATURE: OME-1307 — one frozen-copy entry (request plus response JSON) is at most this many
