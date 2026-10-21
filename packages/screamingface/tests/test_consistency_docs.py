@@ -51,8 +51,8 @@ _RECIPES = {
 }
 # Verbatim sentences of PRD docs §2.1.
 _COST = (
-    "Each member makes n more calls on every Case: a Fusion of M members makes M × n extra calls,"
-    " and you pay for them. The extra calls run also when the member call fails."
+    "Each member makes n more calls on every Case: a `sf.Fanout` of M members makes M × n extra"
+    " calls, and you pay for them. The extra calls run also when the member call fails."
 )
 _FAILURE = (
     "A failed extra call does not fail the Case: the value is the share of matches over the extra"
@@ -67,7 +67,7 @@ _PREFLIGHT = (
     " call."
 )
 _WEIGHT = (
-    '`sf.Vote(weights=sf.signal("cons"))` weights each member by its value; a member with the'
+    '`sf.Vote(weights="cons")` weights each member by its value; a member with the'
     " value 0 has no weight and does not vote."
 )
 _REPORT = (
@@ -133,10 +133,10 @@ def test_readme_consistency_section_sits_before_install_and_states_the_rules() -
         "`temperature`",
         "its other params do not change",
         "the step's own extract and normalize",
-        "`sf.Pick(by_signal=...)`",
+        '`sf.ArgMax("cons")`',
         "the `text` normalizer",
         "never vote",
-        "one `sf.Consistency` per Fusion",
+        "one `sf.Consistency` per `sf.Fanout`",
         "one `sf.Model`",
         "1 to 32",
         "1024",
