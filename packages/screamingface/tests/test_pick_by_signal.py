@@ -137,10 +137,8 @@ def test_pick_by_signal_value_equality_repr_and_python() -> None:
     assert pick == sx.ArgMin("cost_usd")
     assert pick != sx.ArgMax("cost_usd")
     assert pick != sx.ArgMin("latency_ms")
-    # AIDEV-NOTE: sx.ArgMax/sx.ArgMin are hashable (the subclass dataclass adds __hash__), unlike
-    # the other steps, so this row still reads today's Pick until that is settled.
     with pytest.raises(TypeError):
-        hash(PickNode(by_signal=sf.signal("cost_usd"), order="min"))
+        hash(pick)
     # group F (7f): the field order form (deleted in 7f)
     assert repr(PickNode("c", order="max")) == "Pick('c', order='max')"
     assert PickNode("c", order="max")._python() == "sf.Pick('c', order='max')"

@@ -256,6 +256,8 @@ class ArgMax(_ArgBest):
     """
 
     _order: ClassVar[Literal["max", "min"]] = "max"
+    # WHY again: a frozen dataclass subclass adds __hash__; a step is unhashable like any recipe
+    __hash__: ClassVar[Any] = None
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -263,6 +265,8 @@ class ArgMin(_ArgBest):
     """Copy the member with the lowest value of one signal, unchanged (see ``sf.ArgMax``)."""
 
     _order: ClassVar[Literal["max", "min"]] = "min"
+    # WHY again: a frozen dataclass subclass adds __hash__; a step is unhashable like any recipe
+    __hash__: ClassVar[Any] = None
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
