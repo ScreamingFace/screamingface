@@ -378,6 +378,39 @@ def test_a_cancel_that_ends_on_the_interrupt_is_not_killed(tmp_path: Path) -> No
     assert done.cancelled and not done.killed
 
 
+def test_shutdown_cancels_the_active_run_and_waits_for_its_end(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="import time; print('up', flush=True); time.sleep(30)")
+    run = m.start(RunRequest("replay", ()))
+    next(m.follow(run.id, 0))
+    m.shutdown()
+    done = m.get(run.id)
+    assert done.cancelled and done.returncode is not None and not done.killed
+    m.shutdown()  # nothing active: a no-op
+
+
+def test_kill_active_ends_a_run_that_ignores_signals_at_once(tmp_path: Path) -> None:
+    marker = f"stubborn-{uuid.uuid4().hex}"
+    script = (
+        "import signal, subprocess, sys, time; "
+        "signal.signal(signal.SIGINT, signal.SIG_IGN); "
+        f"subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', '{marker}']); "
+        "print('up', flush=True); time.sleep(60)"
+    )
+    m = _manager(tmp_path, script=script, interrupt_grace=30.0)
+    run = m.start(RunRequest("replay", ()))
+    next(m.follow(run.id, 0))
+    waiter = threading.Thread(target=m.shutdown)
+    waiter.start()  # stuck in the 30 s interrupt grace
+    time.sleep(0.5)
+    started = time.monotonic()
+    m.kill_active()
+    waiter.join(10)
+    assert not waiter.is_alive() and time.monotonic() - started < 10
+    done = m.get(run.id)
+    assert done.killed and done.returncode == -9
+    assert _no_process_matches(marker)
+
+
 def test_cancelling_a_finished_run_changes_nothing(tmp_path: Path) -> None:
     m = _manager(tmp_path)
     run = m.start(RunRequest("replay", ()))

@@ -322,7 +322,10 @@ class _Workbench:
         """On shutdown: a run lives in its own session, so Ctrl-C on the UI never reaches it."""
         for run_id in list(self.run_ids):
             if self.manager.get(run_id).returncode is None:
-                print(f"workbench UI: cancelling run {run_id} before exit…", file=sys.stderr)
+                try:
+                    print(f"workbench UI: cancelling run {run_id} before exit…", file=sys.stderr)
+                except OSError:
+                    pass  # the terminal is gone (SIGHUP): cancel all the same
                 self.manager.cancel(run_id)
 
 

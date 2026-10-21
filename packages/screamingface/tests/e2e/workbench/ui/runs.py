@@ -229,6 +229,24 @@ class RunManager:
         live.ended(None)
         return live.run
 
+    def shutdown(self) -> None:
+        """Cancel every active run and wait for it to end (the UI is exiting)."""
+        for live in list(self._runs.values()):
+            if live.run.returncode is None:
+                self.cancel(live.run.id)
+
+    def kill_active(self) -> None:
+        """SIGKILL every active run's group at once: the tester insisted on exiting now.
+
+        Safe from a signal handler: no lock is taken, and waiters in ``cancel``/``shutdown``
+        return as soon as the reaper sees the group gone.
+        """
+        for live in list(self._runs.values()):
+            if live.process.poll() is None:
+                live.run.cancelled = True
+                live.run.killed = True
+                _signal_group(live.process.pid, signal.SIGKILL)
+
     def follow(self, run_id: str, start: int) -> Iterator[str]:
         """Lines from absolute index ``start`` (clamped to the oldest held); ends with the run."""
         return self._follow(self._runs[run_id], start)
