@@ -211,8 +211,10 @@ class _Chunks(httpx.SyncByteStream):
             yield chunk
 
 
-def _serving(stream: httpx.SyncByteStream, status: int = 200, **headers: str) -> HostedPages:
-    source, _ = _source(lambda _r: httpx.Response(status, stream=stream, headers=headers))
+def _serving(
+    stream: httpx.SyncByteStream, status: int = 200, headers: dict[str, str] | None = None
+) -> HostedPages:
+    source, _ = _source(lambda _r: httpx.Response(status, stream=stream, headers=headers or {}))
     return source
 
 
@@ -308,7 +310,9 @@ def test_a_gzip_bomb_line_is_refused_without_decoding_it_whole(
             yield piece
 
     monkeypatch.setattr(remote, "_decompressed", counting)
-    source = _serving(_Chunks([gzip.compress(b"x" * 40_000_000)]), **{"content-encoding": "gzip"})
+    source = _serving(
+        _Chunks([gzip.compress(b"x" * 40_000_000)]), headers={"content-encoding": "gzip"}
+    )
 
     with (
         pytest.raises(MalformedPage, match="longer than"),
@@ -331,9 +335,7 @@ def test_a_gzip_refusal_decodes_only_its_bounded_prefix(monkeypatch: pytest.Monk
             yield piece
 
     monkeypatch.setattr(remote, "_decompressed", counting)
-    source = _serving(
-        _Chunks([gzip.compress(b"x" * 1_000_000)]), 422, **{"content-encoding": "gzip"}
-    )
+    source = _serving(_Chunks([gzip.compress(b"x" * 1_000_000)]), 422, {"content-encoding": "gzip"})
 
     with pytest.raises(PlanningError), source.open(after=None, count=False):
         pass
