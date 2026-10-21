@@ -146,3 +146,30 @@ All five findings were valid. One commit; the gateway's fixes (#1433 round 2) ar
   router-level 405 carries no caller data. No middleware added.
 - **Tests:** a close that fails, a close under cancellation (fails without the shield), the
   `Retry-After` bounds, the qvalue rows and the OpenAPI 200. All are in files this PR added.
+
+## Review round 3 (PR #1439 re-review by HupBaHa, 2026-10-21)
+
+One commit, after merging the gateway's round 3 (#1433).
+
+- **An unusable 200 (blocking 1):** `open_page` checks a 200 before handing it on (`_unusable`): the
+  media type must be `application/x-ndjson` (parameters ignored), and a content encoding is allowed
+  only as `gzip` when gzip was asked for. Otherwise the response is closed under the shield and
+  `CommunityCacheBadResponse` raised. The page reports the fixed values, never the upstream's
+  spelling, so a header the response cannot encode never reaches it.
+- **Close failure in `_body` (blocking 2):** the shielded close logs a failure instead of raising,
+  so a complete body stays complete and a stream failure is not replaced.
+- **Validation before authentication (blocking 3):** the route no longer declares typed query
+  parameters. It forwards `after`, `limit`, `count` and each `model` raw from the query string
+  (`CachePageRequest.limit` / `count` are now `str | None`), so the gateway authenticates first
+  and validates second. Supersedes round 1's "FastAPI's coercion answers 422 as problem+json": the
+  route class keeps the selector refusal only, as nothing it declares can fail validation.
+- **OpenAPI constraints (non-blocking):** the four query parameters are declared through
+  `openapi_extra` with the gateway's rules (`after` ≤ 256, `limit` 1..5000, `model` 1..255),
+  documented, not enforced.
+- **406:** the same negotiation as the gateway (`_coding`); a caller refusing gzip and identity
+  gets a private 406 without a gateway request.
+- **Tests (files this PR added):** unusable 200s closed and refused, header normalisation (the
+  review's `x=€`), close failure after a complete body and during a stream failure, raw values
+  reaching the port signed in and anonymous, the 406, and the documented query constraints. The
+  422 test for typed parameters is replaced by the raw-forwarding test; `*;q=0` moves from the gzip
+  table to the 406 test. The new tests fail against the previous code.

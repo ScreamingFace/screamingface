@@ -19,11 +19,16 @@ from screamingface_engine.connections.port import Caller
 
 @dataclass(frozen=True, slots=True)
 class CachePageRequest:
-    """One page's query, as the caller stated it; the gateway validates the values."""
+    """One page's query, as the caller stated it; the gateway validates the values.
+
+    INVARIANT: the values are the caller's raw query strings. The gateway authenticates the caller
+    before it validates them, so an Engine that parsed them first would answer an anonymous
+    caller's bad value 422 where the gateway answers 401.
+    """
 
     after: str | None = None
-    limit: int | None = None
-    count: bool = False
+    limit: str | None = None
+    count: str | None = None
     models: tuple[str, ...] = ()
     # Whether the caller accepts a gzip body. The Engine asks the gateway for exactly that, so it
     # never has to decode or re-encode the page itself.
