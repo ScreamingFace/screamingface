@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from typing import Any
 
@@ -167,6 +168,10 @@ def test_optional_requires_a_boolean_on_every_member_kind(value: Any) -> None:
 def test_optional_members_flag_is_removed() -> None:
     with pytest.raises(TypeError, match="optional_members"):
         sx.Fanout(["a"], optional_members=True)  # type: ignore[call-arg]
+    # a block has no member flag at all: the way to make a block optional is its Pipeline
+    assert "optional_members" not in inspect.signature(sx.Fanout).parameters
+    assert "optional" not in inspect.signature(sx.Fanout).parameters
+    assert sx.Pipeline([sx.Fanout(["a"]), sx.Synthesize("synth")], optional=True).optional is True
 
 
 @pytest.mark.parametrize("kind", ["model", "pipeline", "fusion"])

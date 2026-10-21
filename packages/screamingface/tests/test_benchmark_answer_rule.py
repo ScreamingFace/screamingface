@@ -94,6 +94,7 @@ def test_benchmark_extract_takes_no_version_and_no_median() -> None:
     # GP#11: the rule name is "benchmark" alone; a Median needs the numeric normalizer.
     with pytest.raises(ValueError, match="takes no version"):
         sx.Vote(over="benchmark@1")
+    # WHY two messages: the surface reads the over= key (no version) before the Median guard
     for extract, message in (
         ("benchmark", "numeric normalizer"),
         ("benchmark@1", "takes no version"),

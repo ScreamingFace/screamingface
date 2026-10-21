@@ -103,9 +103,19 @@ def _linked(candidate: str) -> str:
             MESSAGE_PANEL,
         ),
         (
-            # WHY the block's stages 1 and 2: the writer is inside the block (E6)
-            sx.Pipeline(["provider/x", _ranked(name="panel")], name="judged"),
-            MESSAGE_PANEL,
+            # the judge block is stage 2 and the same model writes in stage 3
+            sx.Pipeline(
+                [
+                    "provider/x",
+                    sx.Fanout(MEMBERS) >> _judge() >> sx.ArgMax("score:judge"),
+                    JUDGE_ROUTE,
+                ],
+                name="judged",
+            ),
+            "Pipeline 'judged': stages 2 and 3 use the same model 'openrouter/a/b': stage 2 "
+            "scores the members as the judge, and stage 3 writes the answer, so the writer is "
+            "also the scorer. Give one of the two stages another model, or keep both and ignore "
+            "this warning.",
         ),
         (
             sx.Pipeline(
