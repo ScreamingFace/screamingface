@@ -23,7 +23,6 @@ from _vote_run_fixtures import spec_of
 from test_gate_contract_fixtures import assert_fixture_matches
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
 
@@ -53,8 +52,8 @@ _PART5_GATE_FIXTURES: tuple[str, ...] = (
 )
 
 
-def _judge() -> sx.JudgePick:
-    return sx.JudgePick("prov/judge", rubric=_RUBRIC)
+def _judge() -> sf.JudgePick:
+    return sf.JudgePick("prov/judge", rubric=_RUBRIC)
 
 
 def _judge_node() -> JudgeNode:
@@ -64,8 +63,8 @@ def _judge_node() -> JudgeNode:
 def _recipe_g(otherwise: Any = "abstain") -> sf.Recipe:
     """Recipe G of band-api §3; ``otherwise`` is the gate fallback (BA-3)."""
 
-    risk = sx.signal("risk").mean()
-    return sx.Fanout(
+    risk = sf.signal("risk").mean()
+    return sf.Fanout(
         _MEMBERS,
         name="vote",
         signals={
@@ -73,8 +72,8 @@ def _recipe_g(otherwise: Any = "abstain") -> sf.Recipe:
             "sev_a": sf.Verbalized("A: ([0-9]+)"),
             "sev_b": sf.Verbalized("B: ([0-9]+)"),
         },
-    ) >> sx.Gate(
-        when=risk <= 3.0, then=sx.Vote(), otherwise=otherwise, abstain_if=risk.between(2.5, 3.5)
+    ) >> sf.Gate(
+        when=risk <= 3.0, then=sf.Vote(), otherwise=otherwise, abstain_if=risk.between(2.5, 3.5)
     )
 
 
@@ -251,14 +250,14 @@ def test_rebuild_refuses_a_hand_edited_band(edited: str) -> None:
 
 
 def test_a_band_keeps_the_declared_name_rule() -> None:
-    vote = sx.Gate(
-        when=sx.signal("zzz").mean() <= 3.0,
-        then=sx.Vote(),
-        abstain_if=sx.signal("zzz").mean().between(2.5, 3.5),
+    vote = sf.Gate(
+        when=sf.signal("zzz").mean() <= 3.0,
+        then=sf.Vote(),
+        abstain_if=sf.signal("zzz").mean().between(2.5, 3.5),
     )
     with pytest.raises(ValueError) as caught:
         _ = (
-            sx.Fanout(
+            sf.Fanout(
                 _MEMBERS, signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")}, name="vote"
             )
             >> vote

@@ -16,7 +16,6 @@ from _nodes import FusionNode, JudgeNode, fusion_node
 from test_pipeline_compilation import _whole_candidate_benchmark
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.compilation import compile_evaluation
 from screamingface._evaluation.model import _candidate_values
@@ -42,13 +41,13 @@ def _judge_block() -> FusionNode:
     return fusion_node(_MEMBERS, JudgeNode(_JUDGE_ROUTE, returns="label", rubric=RUBRIC))
 
 
-def _chain() -> sx.Pipeline:
+def _chain() -> sf.Pipeline:
     """Stage 1 is a closed block, stage 2 the judge, stage 3 the writer on the judge's model."""
 
-    return sx.Pipeline(
+    return sf.Pipeline(
         [
-            sx.Fanout(["provider/a", "provider/b"]),
-            sx.Synthesize("provider/s"),
+            sf.Fanout(["provider/a", "provider/b"]),
+            sf.Synthesize("provider/s"),
             _judge_block(),
             sf.Model(_JUDGE_ROUTE),
         ],
@@ -72,7 +71,7 @@ def test_wj1_compile_names_the_users_chain_positions() -> None:
 def test_wj1_an_unnamed_chain_names_its_inferred_name() -> None:
     chain = (
         "provider/x"
-        >> (sx.Fanout(["provider/a", "provider/b"]) >> sx.Vote())
+        >> (sf.Fanout(["provider/a", "provider/b"]) >> sf.Vote())
         >> _judge_block()
         >> sf.Model(_JUDGE_ROUTE)
     )
@@ -98,8 +97,8 @@ def test_wj1_the_evaluation_entry_warns_once_with_the_users_positions() -> None:
 
 
 def test_wj1_a_chain_with_another_writer_model_is_quiet() -> None:
-    chain = sx.Pipeline(
-        [sx.Fanout(["provider/a", "provider/b"]), sx.Vote(), _judge_block(), "provider/w"],
+    chain = sf.Pipeline(
+        [sf.Fanout(["provider/a", "provider/b"]), sf.Vote(), _judge_block(), "provider/w"],
         name="judged",
     )
 
@@ -108,22 +107,22 @@ def test_wj1_a_chain_with_another_writer_model_is_quiet() -> None:
         compile_candidate(chain, operators=flow_operators())
 
 
-def _narrowed_writer_block(writer: str) -> sx.Pipeline:
+def _narrowed_writer_block(writer: str) -> sf.Pipeline:
     """One user stage that lowers to two: Pipeline([Fusion(Rank by judge), writer])."""
 
     return (
-        sx.Fanout(["provider/a", "provider/b"])
-        >> sx.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
-        >> sx.Rank(1, by="score:judge")
-        >> sx.Synthesize(writer)
+        sf.Fanout(["provider/a", "provider/b"])
+        >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+        >> sf.Rank(1, by="score:judge")
+        >> sf.Synthesize(writer)
     )
 
 
 def test_e6_the_warning_numbers_the_users_stages_when_a_block_lowers_to_two() -> None:
-    chain = sx.Pipeline(
+    chain = sf.Pipeline(
         [
             _narrowed_writer_block("provider/w"),
-            sx.Fanout(_MEMBERS) >> sx.JudgePick(_JUDGE_ROUTE, rubric=RUBRIC),
+            sf.Fanout(_MEMBERS) >> sf.JudgePick(_JUDGE_ROUTE, rubric=RUBRIC),
             sf.Model(_JUDGE_ROUTE),
         ],
         name="judged",
@@ -137,7 +136,7 @@ def test_e6_the_warning_numbers_the_users_stages_when_a_block_lowers_to_two() ->
 
 
 def test_e6_the_judge_and_writer_inside_one_block_still_warn() -> None:
-    chain = sx.Pipeline(
+    chain = sf.Pipeline(
         [sf.Model("provider/x"), _narrowed_writer_block(_JUDGE_ROUTE)], name="judged"
     )
 

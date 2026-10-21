@@ -24,7 +24,6 @@ from _model_parameter_fixtures import SUMMARY as _SUMMARY
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._signals import Signal
 from screamingface._surface.lowering import lower
@@ -36,14 +35,14 @@ _GAMMA = "openrouter/acme/gamma"
 _MEMBERS = [_ALPHA, _BETA, _GAMMA]
 _WRITER = "openrouter/acme/writer"
 _WEIGHTED: list[Any] = [
-    pytest.param(lambda s: sx.Vote(weights=s), id="vote"),
-    pytest.param(lambda s: sx.Median(weights=s), id="median"),
-    pytest.param(lambda s: sx.Mean(weights=s), id="mean"),
+    pytest.param(lambda s: sf.Vote(weights=s), id="vote"),
+    pytest.param(lambda s: sf.Median(weights=s), id="median"),
+    pytest.param(lambda s: sf.Mean(weights=s), id="mean"),
 ]
 
 
-def _pick(name: str, order: Literal["max", "min"] = "max") -> sx.ArgMax | sx.ArgMin:
-    return sx.ArgMax(name) if order == "max" else sx.ArgMin(name)
+def _pick(name: str, order: Literal["max", "min"] = "max") -> sf.ArgMax | sf.ArgMin:
+    return sf.ArgMax(name) if order == "max" else sf.ArgMin(name)
 
 
 def _compiled(recipe: sf.Recipe) -> str:
@@ -154,19 +153,19 @@ class _ForbiddenTransport:
 @pytest.mark.parametrize("form", ["mean", "sum"])
 @pytest.mark.parametrize("reducer", _WEIGHTED)
 def test_vote_weight_refuses_logprob_mean_and_sum_with_a_prob_hint(
-    form: Literal["mean", "sum"], reducer: Callable[[Signal], sx.Vote | sx.Median | sx.Mean]
+    form: Literal["mean", "sum"], reducer: Callable[[Signal], sf.Vote | sf.Median | sf.Mean]
 ) -> None:
     with pytest.raises(ValueError, match=r"sf\.Logprob\('prob'\)"):
-        _ = sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob(form)}) >> reducer(sf.signal("lp"))
+        _ = sf.Fanout(_MEMBERS, signals={"lp": sf.Logprob(form)}) >> reducer(sf.signal("lp"))
 
 
 @pytest.mark.parametrize("reducer", _WEIGHTED)
 def test_vote_weight_accepts_logprob_prob(
-    reducer: Callable[[Signal], sx.Vote | sx.Median | sx.Mean],
+    reducer: Callable[[Signal], sf.Vote | sf.Median | sf.Mean],
 ) -> None:
-    fusion = sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")}) >> reducer(sf.signal("p"))
+    fusion = sf.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")}) >> reducer(sf.signal("p"))
 
-    assert isinstance(fusion, sx.Pipeline)
+    assert isinstance(fusion, sf.Pipeline)
 
 
 # --- LP#5: OpenRouter sf.Model members only ----------------------------------------------------
@@ -174,21 +173,21 @@ def test_vote_weight_accepts_logprob_prob(
 
 def test_logprob_refuses_non_openrouter_and_recipe_members() -> None:
     with pytest.raises(ValueError, match=re.escape("sf.Logprob supports OpenRouter models in v1")):
-        _ = sx.Fanout([_ALPHA, "prov/beta"], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
+        _ = sf.Fanout([_ALPHA, "prov/beta"], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
     nested: list[sf.Recipe] = [
-        sx.Fanout([_ALPHA, _BETA]) >> sx.Vote(),
+        sf.Fanout([_ALPHA, _BETA]) >> sf.Vote(),
         sf.Pipeline([_ALPHA, _BETA]),
     ]
     for member in nested:
         with pytest.raises(ValueError, match="one sf.Model call"):
-            _ = sx.Fanout([member, _GAMMA], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
+            _ = sf.Fanout([member, _GAMMA], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
     with pytest.raises(ValueError, match="remove it from member 1"):
-        _ = sx.Fanout(
+        _ = sf.Fanout(
             [sf.Model(_ALPHA, params={"logprobs": False}), _BETA],
             signals={"lp": sf.Logprob("mean")},
         ) >> _pick("lp")
     # Control: without a declaration there is no member check.
-    assert isinstance(sx.Fanout([_ALPHA, "prov/beta"]) >> sx.Vote(), sx.Pipeline)
+    assert isinstance(sf.Fanout([_ALPHA, "prov/beta"]) >> sf.Vote(), sf.Pipeline)
 
 
 # --- LP#6: logprobs=true on each member call, and the preflight sees it ------------------------
@@ -196,7 +195,7 @@ def test_logprob_refuses_non_openrouter_and_recipe_members() -> None:
 
 def test_logprob_compiles_logprobs_true_on_each_member_call() -> None:
     compiled = compile_candidate(
-        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")}) >> _pick("lp"),
+        sf.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")}) >> _pick("lp"),
         operators=engine_operators(),
     )
     url4 = compiled.url4
@@ -211,7 +210,7 @@ def test_logprob_compiles_logprobs_true_on_each_member_call() -> None:
         ("op_model_3", _GAMMA, {"logprobs": True}),
     ]
     # Control (DS-2): no declaration, no injected param, no sources.
-    plain = compile_candidate(sx.Fanout(_MEMBERS) >> sx.Vote(), operators=engine_operators())
+    plain = compile_candidate(sf.Fanout(_MEMBERS) >> sf.Vote(), operators=engine_operators())
     assert "logprobs" not in plain.url4
     assert "sources:" not in plain.url4
     assert plain.parameter_assignments == ()
@@ -230,7 +229,7 @@ def test_logprob_preflight_refuses_a_model_the_catalog_marks_without_logprobs(
         http_transport=_engine(support),
         run_transport=transport,
     )
-    candidate = sx.Fanout([_ALPHA], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
+    candidate = sf.Fanout([_ALPHA], signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
 
     with client, pytest.raises(sf.PlanningError) as caught:
         client.evaluate(candidate, benchmark="fixture")
@@ -246,12 +245,12 @@ def test_logprob_preflight_refuses_a_model_the_catalog_marks_without_logprobs(
 
 def test_pick_and_filter_accept_sum_and_prob() -> None:
     url4_sum = _compiled(
-        sx.Fanout([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}) >> _pick("lp")
+        sf.Fanout([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}) >> _pick("lp")
     )
     url4_prob = _compiled(
-        sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")})
-        >> sx.Filter(where=sf.signal("p") >= 0.8)
-        >> sx.Synthesize(_WRITER)
+        sf.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")})
+        >> sf.Filter(where=sf.signal("p") >= 0.8)
+        >> sf.Synthesize(_WRITER)
     )
 
     assert '"signals":{"lp":{"form":"sum","source":"logprob"}}' in url4_sum
@@ -265,7 +264,7 @@ def test_pick_and_filter_accept_sum_and_prob() -> None:
 def test_logprob_fusion_rebuilds_from_url4_without_injected_params(
     quorum: int | Literal["all"],
 ) -> None:
-    fusion = sx.Fanout(
+    fusion = sf.Fanout(
         [sf.Model(_ALPHA, params={"temperature": 0.5}), _BETA],
         signals={"lp": sf.Logprob("mean")},
         quorum=quorum,

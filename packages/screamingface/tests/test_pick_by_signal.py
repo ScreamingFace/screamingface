@@ -20,7 +20,6 @@ from test_combine_sources import _call, _context, context_of
 from url4 import Expression, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface._surface.chain import Step
@@ -44,7 +43,7 @@ def _fusion(synthesizer: Reducer) -> FusionNode:
 
 
 def _block(step: Step) -> sf.Recipe:
-    return sx.Fanout(members3()) >> step
+    return sf.Fanout(members3()) >> step
 
 
 def _reducer(step: Step) -> Reducer:
@@ -61,7 +60,7 @@ def _spec(reducer: Reducer) -> dict[str, Any]:
 
 
 def test_pick_by_signal_compiles_by_signal_and_best_holder() -> None:
-    pick = _reducer(sx.ArgMin("field:confidence"))
+    pick = _reducer(sf.ArgMin("field:confidence"))
     text = combine_spec_text(pick, member_count=3, operators=flow_operators())
     spec = json.loads(text)
 
@@ -78,7 +77,7 @@ def test_pick_by_signal_compiles_by_signal_and_best_holder() -> None:
     )
     assert '"select":{"args":{"order":"min"},"op":"best_holder@1"}' in text
     # the default order is "max" in both steps
-    default = _spec(_reducer(sx.ArgMax("cost_usd")))
+    default = _spec(_reducer(sf.ArgMax("cost_usd")))
     assert default["reduce"]["args"] == {"key": "cost_usd", "order": "max"}
     assert default["select"]["args"] == {"order": "max"}
     # it is an answer, so it can be the last stage of a candidate
@@ -88,7 +87,7 @@ def test_pick_by_signal_compiles_by_signal_and_best_holder() -> None:
         reduce=_Step("by_signal", {"key": "field:confidence", "order": "min"}),
         select=_Step("best_holder", {"order": "min"}),
     )
-    assert _url4(sx.Pipeline(["provider/q", _block(sx.ArgMin("field:confidence"))]))
+    assert _url4(sf.Pipeline(["provider/q", _block(sf.ArgMin("field:confidence"))]))
 
 
 def test_pick_by_signal_validation() -> None:
@@ -117,7 +116,7 @@ def test_pick_by_signal_validation() -> None:
     with pytest.raises(
         ValueError, match=r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     ):
-        _ = _block(sx.ArgMax("score:judge"))
+        _ = _block(sf.ArgMax("score:judge"))
     message = (
         r"Pick cannot read sf\.signal\('score:judge'\): it has no judge; "
         r"use sf\.Judge\(\.\.\., returns='scores'\), which picks the highest judge score"
@@ -127,16 +126,16 @@ def test_pick_by_signal_validation() -> None:
 
 
 def test_pick_by_signal_value_equality_repr_and_python() -> None:
-    pick = sx.ArgMin("cost_usd")
+    pick = sf.ArgMin("cost_usd")
 
     assert (pick.by, pick.output, pick._order) == (sf.signal("cost_usd"), None, "min")
-    assert sx.ArgMax("cost_usd")._order == "max"
+    assert sf.ArgMax("cost_usd")._order == "max"
     assert repr(pick) == "ArgMin('cost_usd')"
     assert render(pick, "sf.") == "sf.ArgMin('cost_usd')"
-    assert eval(render(pick, "sf."), {"sf": sx}) == pick  # noqa: S307 - our own generated code
-    assert pick == sx.ArgMin("cost_usd")
-    assert pick != sx.ArgMax("cost_usd")
-    assert pick != sx.ArgMin("latency_ms")
+    assert eval(render(pick, "sf."), {"sf": sf}) == pick  # noqa: S307 - our own generated code
+    assert pick == sf.ArgMin("cost_usd")
+    assert pick != sf.ArgMax("cost_usd")
+    assert pick != sf.ArgMin("latency_ms")
     with pytest.raises(TypeError):
         hash(pick)
     # group F (7f): the field order form (deleted in 7f)
@@ -146,7 +145,7 @@ def test_pick_by_signal_value_equality_repr_and_python() -> None:
 
 def _argmax(key: str = "cost_usd") -> sf.Recipe:
     members: list[Any] = [sf.Model("p/a", params={"temperature": 0.5}), "p/b", "p/c"]
-    return sx.Fanout(members) >> sx.ArgMin(key)
+    return sf.Fanout(members) >> sf.ArgMin(key)
 
 
 _OUTPUTS = {"member_1": "$model_1", "member_2": "$model_2", "member_3": "$model_3"}
@@ -167,7 +166,7 @@ def test_argmax_by_accounting_signal_emits_sources() -> None:
     assert context_of(_url4(_argmax("field:confidence")), "synthesis_1") == _context(_OUTPUTS)
     assert "sources:" not in _url4(_argmax("field:confidence"))
 
-    duplicates = sx.Fanout(["p/a", "p/a", "p/b"]) >> sx.ArgMin("cost_usd")
+    duplicates = sf.Fanout(["p/a", "p/a", "p/b"]) >> sf.ArgMin("cost_usd")
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         url4 = _url4(duplicates)
@@ -215,7 +214,7 @@ def _recovered(url4: str) -> Reducer:
 
 
 def test_argmax_round_trips_through_url4_and_recovers_as_pick() -> None:
-    pick = sx.ArgMin("cost_usd")
+    pick = sf.ArgMin("cost_usd")
     url4 = _url4(_block(pick))
 
     source = sf.Url4(url4).to_python()
@@ -258,7 +257,7 @@ def _recover_from(spec: dict[str, Any]) -> Reducer:
 )
 def test_a_tampered_argmax_spec_cannot_be_rebuilt(change: dict[str, Any]) -> None:
     spec = {
-        **_synthesis_spec(_url4(_block(sx.ArgMin("cost_usd")))),
+        **_synthesis_spec(_url4(_block(sf.ArgMin("cost_usd")))),
         **change,
     }
 

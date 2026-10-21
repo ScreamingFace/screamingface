@@ -16,7 +16,6 @@ from url4 import Expression, build
 
 import screamingface as sf
 import screamingface.reducer as reducer_module
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import canonical_json, decode_combine_spec
 from screamingface.reducer import Reducer
@@ -125,7 +124,7 @@ def test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses(
 @pytest.mark.parametrize("op", ["benchmark", "benchmark@1"])
 def test_benchmark_extract_op_in_a_hand_edited_url4_is_refused(op: str) -> None:
     # A hand-edited url4 cannot name the benchmark's rule: Vote refuses it, so does sf.Reduce.
-    vote = sx.Fanout(_MEMBERS) >> sx.Vote(over="last_number", normalize="numeric")
+    vote = sf.Fanout(_MEMBERS) >> sf.Vote(over="last_number", normalize="numeric")
     vote_url4 = compile_candidate(vote, operators=engine_operators()).url4
     spec = decode_combine_spec(_synthesis_call(vote_url4).raw_intent)
 

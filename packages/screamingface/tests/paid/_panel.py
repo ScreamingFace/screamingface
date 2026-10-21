@@ -89,11 +89,10 @@ def fusion_panel() -> _sf.Recipe:
     """Assemble the pinned Fusion panel (imported lazily so free tests never need sf)."""
 
     import screamingface as sf
-    from screamingface import _surface as sx
 
     members = [sf.Model(model=model, params=MEMBER_PARAMS[model]) for model in MEMBER_MODELS]
     synthesizer = sf.Model(model=SYNTHESIZER_MODEL, params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT)
-    return sx.Fanout(members, name="paid_smoke_panel") >> sx.Synthesize(synthesizer)
+    return sf.Fanout(members, name="paid_smoke_panel") >> sf.Synthesize(synthesizer)
 
 
 # --- The Corrective Loop entry (OME-1527 row 15b) ---------------------------------------

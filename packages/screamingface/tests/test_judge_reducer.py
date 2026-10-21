@@ -14,7 +14,6 @@ from test_client_run import _engine
 from url4 import Expression, RelExpr, Source, Text, build, expr, render, src, struct
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import _url4_text, compile_candidate
 from screamingface.judge import (
     JUDGE_TEMPLATES,
@@ -72,19 +71,19 @@ def test_judge_validates_its_arguments() -> None:
     with pytest.raises(ValueError, match="Judge returns must be 'label' or 'scores', not 'best'"):
         JudgeNode("provider/j", returns="best", rubric=RUBRIC)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge rubric must be a string"):
-        sx.JudgePick("provider/j", rubric=None)  # type: ignore[arg-type]
+        sf.JudgePick("provider/j", rubric=None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge rubric must be a string"):
-        sx.JudgePick("provider/j", rubric=3)  # type: ignore[arg-type]
+        sf.JudgePick("provider/j", rubric=3)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="judge rubric must not be empty"):
-        sx.JudgePick("provider/j", rubric=" ")
+        sf.JudgePick("provider/j", rubric=" ")
     with pytest.raises(ValueError, match="model route must not be empty"):
-        sx.JudgePick("", rubric=RUBRIC)
+        sf.JudgePick("", rubric=RUBRIC)
     with pytest.raises(TypeError, match="model route must be a string"):
-        sx.JudgePick(3, rubric=RUBRIC)  # type: ignore[arg-type]
+        sf.JudgePick(3, rubric=RUBRIC)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="judge params must be a mapping or None"):
-        sx.JudgePick("provider/j", rubric=RUBRIC, params=[1])  # type: ignore[arg-type]
+        sf.JudgePick("provider/j", rubric=RUBRIC, params=[1])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="'binding' is reserved"):
-        sx.JudgePick("provider/j", rubric=RUBRIC, params={"binding": "x"})
+        sf.JudgePick("provider/j", rubric=RUBRIC, params={"binding": "x"})
     with pytest.raises(ValueError, match="'binding' is reserved"):
         sf.Model("provider/a", params={"binding": "x"})
 
@@ -209,7 +208,7 @@ def test_judge_compiles_to_judge_and_combine_sources() -> None:
 
 
 def test_judge_fingerprint_differs_from_a_same_model_member() -> None:
-    fusion = sx.Fanout(["provider/j", "provider/b"]) >> sx.JudgePick("provider/j", rubric=RUBRIC)
+    fusion = sf.Fanout(["provider/j", "provider/b"]) >> sf.JudgePick("provider/j", rubric=RUBRIC)
     calls = _calls_by_name(_compile(fusion).url4)
 
     member, judge = calls["model_1"], calls["judge_1"]
@@ -222,9 +221,9 @@ def test_two_judge_fusions_number_bindings_per_prefix() -> None:
     pipeline = sf.Pipeline(
         [
             judge_fusion(),
-            sx.Fanout(["provider/d", "provider/e"])
-            >> sx.Judge("provider/k", rubric=RUBRIC)
-            >> sx.ArgMax("score:judge"),
+            sf.Fanout(["provider/d", "provider/e"])
+            >> sf.Judge("provider/k", rubric=RUBRIC)
+            >> sf.ArgMax("score:judge"),
         ]
     )
     compiled = _compile(pipeline)
@@ -248,7 +247,7 @@ def test_two_judge_fusions_number_bindings_per_prefix() -> None:
 
 
 def _judge() -> Any:
-    return sx.JudgePick("provider/j", rubric=RUBRIC)
+    return sf.JudgePick("provider/j", rubric=RUBRIC)
 
 
 _NOT_A_RECIPE = "sf.JudgePick is a step, not a recipe: put it after a sf.Fanout"
@@ -263,7 +262,7 @@ def test_a_judge_is_only_a_fusion_synthesizer() -> None:
     misplaced: list[tuple[Any, type[Exception], str]] = [
         (lambda: sf.CorrectiveLoop(["p/a", "p/b"], judge=_judge()), TypeError, _NOT_A_RECIPE),
         (lambda: sf.Pipeline([_judge()]), TypeError, _NOT_A_RECIPE),
-        (lambda: sx.Fanout([_judge(), "p/a"]) >> sx.Synthesize("p/s"), TypeError, _NOT_A_RECIPE),
+        (lambda: sf.Fanout([_judge(), "p/a"]) >> sf.Synthesize("p/s"), TypeError, _NOT_A_RECIPE),
         (lambda: sf.Model("p/a") >> _judge(), ValueError, _NO_FANOUT),
         (lambda: client.evaluate(_judge(), benchmark="draco"), TypeError, _NOT_A_RECIPE),
     ]

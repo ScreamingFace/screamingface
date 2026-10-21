@@ -17,7 +17,6 @@ from _nodes import FusionNode, JudgeNode, ReduceNode, VoteNode
 from test_pipeline_compilation import _whole_candidate_benchmark
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.compilation import compile_evaluation
 from screamingface.warnings import JudgeWriterWarning
@@ -63,19 +62,19 @@ def _after_context_writer() -> sf.Pipeline:
     )
 
 
-def _after_chain_writer() -> sx.Pipeline:
+def _after_chain_writer() -> sf.Pipeline:
     """The review repro on the surface: the user's stages 2 (judge) and 3 (writer).
 
     WHY 2, not 3: the context block form has one spelling since R11, ``sf.Fanout(m) >>
     sf.Synthesize(w)``, so the context Fusion and its writer are one stage of the chain.
     """
 
-    return sx.Pipeline(
+    return sf.Pipeline(
         [
-            sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize(sf.Model("provider/w")),
-            sx.Fanout(_MEMBERS)
-            >> sx.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
-            >> sx.Vote(over="last_number", normalize="numeric", weights="score:judge"),
+            sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize(sf.Model("provider/w")),
+            sf.Fanout(_MEMBERS)
+            >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+            >> sf.Vote(over="last_number", normalize="numeric", weights="score:judge"),
             sf.Model(_JUDGE_ROUTE),
         ],
         name="judged",

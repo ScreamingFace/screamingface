@@ -9,7 +9,6 @@ from _combine_flow_fixtures import RUBRIC, flow_operators, members3
 from _nodes import ConcatNode, JudgeNode, RankNode
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.reducer import Reducer
 
@@ -29,19 +28,19 @@ def _spec(extract: str, normalize: str, reduce: str, select: str, reducer: str) 
 
 def test_k_bounds_are_enforced() -> None:
     with pytest.raises(ValueError, match="Rank k must be between 1 and 256"):
-        sx.Rank(0, by="field:score")
+        sf.Rank(0, by="field:score")
     with pytest.raises(ValueError, match="Rank k must be between 1 and 256"):
-        sx.Rank(257, by="field:score")
+        sf.Rank(257, by="field:score")
     with pytest.raises(TypeError, match="Rank k must be an integer"):
-        sx.Rank(True, by="field:score")  # type: ignore[arg-type]
+        sf.Rank(True, by="field:score")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Rank k must be an integer"):
-        sx.Rank(2.0, by="field:score")  # type: ignore[arg-type]
-    assert sx.Rank(1, by="field:score").k == 1
-    assert sx.Rank(256, by="field:score").k == 256
+        sf.Rank(2.0, by="field:score")  # type: ignore[arg-type]
+    assert sf.Rank(1, by="field:score").k == 1
+    assert sf.Rank(256, by="field:score").k == 256
 
     with pytest.raises(ValueError, match="k=4"):
-        _ = sx.Fanout(members3()) >> sx.Rank(4, by="field:s") >> sx.Synthesize("provider/w")
-    assert (sx.Fanout(members3()) >> sx.Rank(3, by="field:s") >> sx.Synthesize("provider/w")).steps
+        _ = sf.Fanout(members3()) >> sf.Rank(4, by="field:s") >> sf.Synthesize("provider/w")
+    assert (sf.Fanout(members3()) >> sf.Rank(3, by="field:s") >> sf.Synthesize("provider/w")).steps
 
 
 def test_rank_needs_exactly_one_ranking_source() -> None:
@@ -65,10 +64,10 @@ def test_rank_needs_exactly_one_ranking_source() -> None:
 
 
 def test_rank_fields_and_repr_round_trip() -> None:
-    judge = sx.Judge("provider/j", rubric=RUBRIC, params={"temperature": 0})
-    by_judge = sx.Rank(2, by="score:judge")
-    by_field = sx.Rank(2, by="field:score")
-    judged = sx.Fanout(members3()) >> judge >> by_judge >> sx.Synthesize("provider/w")
+    judge = sf.Judge("provider/j", rubric=RUBRIC, params={"temperature": 0})
+    by_judge = sf.Rank(2, by="score:judge")
+    by_field = sf.Rank(2, by="field:score")
+    judged = sf.Fanout(members3()) >> judge >> by_judge >> sf.Synthesize("provider/w")
 
     assert (by_judge.k, by_judge.by, by_judge.order) == (2, sf.signal("score:judge"), "max")
     assert (by_field.k, by_field.by, by_field.order) == (2, sf.signal("field:score"), "max")
@@ -77,43 +76,43 @@ def test_rank_fields_and_repr_round_trip() -> None:
         f">> {judge!r} >> Rank(2, by='score:judge') >> Synthesize('provider/w')"
     )
     for rank in (by_judge, by_field):
-        rebuilt = eval(repr(rank), {"Rank": sx.Rank})  # noqa: S307
+        rebuilt = eval(repr(rank), {"Rank": sf.Rank})  # noqa: S307
         assert rebuilt == rank
     assert by_judge != by_field
-    assert sx.Rank(2, by="field:score") == by_field
-    assert sx.Rank(3, by="field:score") != by_field
+    assert sf.Rank(2, by="field:score") == by_field
+    assert sf.Rank(3, by="field:score") != by_field
     with pytest.raises(TypeError):
         hash(by_field)
-    fusion = sx.Fanout(members3()) >> by_field >> sx.Synthesize("provider/w")
+    fusion = sf.Fanout(members3()) >> by_field >> sf.Synthesize("provider/w")
     assert repr(fusion).endswith(f">> {by_field!r} >> Synthesize('provider/w')")
 
 
 def test_empty_separator_raises() -> None:
     with pytest.raises(ValueError, match="Concat separator must not be empty"):
-        sx.Concat("")
+        sf.Concat("")
     with pytest.raises(ValueError, match="Concat separator must be at most 1024 characters"):
-        sx.Concat("x" * 1025)
+        sf.Concat("x" * 1025)
     with pytest.raises(TypeError, match="Concat separator must be a string"):
-        sx.Concat(3)  # type: ignore[arg-type]
+        sf.Concat(3)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Concat label must be a bool"):
-        sx.Concat(label="yes")  # type: ignore[arg-type]
+        sf.Concat(label="yes")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Concat label must be a bool"):
-        sx.Concat(label=1)  # type: ignore[arg-type]
-    assert sx.Concat("x" * 1024).separator == "x" * 1024
+        sf.Concat(label=1)  # type: ignore[arg-type]
+    assert sf.Concat("x" * 1024).separator == "x" * 1024
 
 
 def test_concat_defaults_fields_and_repr_round_trip() -> None:
-    concat = sx.Concat()
+    concat = sf.Concat()
 
     assert (concat.separator, concat.label) == ("\n\n---\n\n", True)
     assert repr(concat) == "Concat()"
-    odd = sx.Concat("  \"$\" 'é'", label=False)
+    odd = sf.Concat("  \"$\" 'é'", label=False)
     for item in (concat, odd):
-        assert eval(repr(item), {"Concat": sx.Concat}) == item  # noqa: S307
+        assert eval(repr(item), {"Concat": sf.Concat}) == item  # noqa: S307
     assert concat != odd
     with pytest.raises(TypeError):
         hash(concat)
-    chain = sx.Fanout(members3()) >> concat >> sx.Synthesize("provider/w")
+    chain = sf.Fanout(members3()) >> concat >> sf.Synthesize("provider/w")
     assert repr(chain).endswith(f">> {concat!r} >> Synthesize('provider/w')")
 
 

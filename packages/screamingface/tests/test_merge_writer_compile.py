@@ -17,7 +17,6 @@ from test_judge_reducer import _calls_by_name, _context, _sources, _wrap
 from url4 import RelExpr, Source, Text, src
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import _url4_text, compile_candidate
 from screamingface._evaluation.topology import _signal_field, _writer_field, _writer_key
 from screamingface.fields import writer_intent
@@ -28,8 +27,8 @@ _COMBINE_PATH = "/ensemble/combine/v1"
 _WRITE = "Write one summary."
 
 
-def _merge(**extra: sf.FieldRule) -> sx.Merge:
-    return sx.Merge(
+def _merge(**extra: sf.FieldRule) -> sf.Merge:
+    return sf.Merge(
         {
             "answer": sf.FieldRule.majority(normalize="text"),
             "summary": sf.FieldRule.model("provider/w", prompt=_WRITE),
@@ -38,8 +37,8 @@ def _merge(**extra: sf.FieldRule) -> sx.Merge:
     )
 
 
-def _compile(merge: sx.Merge | None = None) -> Any:
-    fusion = sx.Fanout(members3()) >> (merge or _merge())
+def _compile(merge: sf.Merge | None = None) -> Any:
+    fusion = sf.Fanout(members3()) >> (merge or _merge())
     return compile_candidate(fusion, operators=flow_operators())
 
 
@@ -168,7 +167,7 @@ def test_the_writer_intent_is_the_versioned_template_then_the_author_prompt() ->
 
 
 def test_writer_params_follow_the_binding_and_are_recorded() -> None:
-    merge = sx.Merge(
+    merge = sf.Merge(
         {"s": sf.FieldRule.model("provider/w", prompt=_WRITE, params={"temperature": 0})}
     )
     compiled = _compile(merge)
@@ -182,7 +181,7 @@ def test_writer_params_follow_the_binding_and_are_recorded() -> None:
 
 
 def test_two_model_fields_are_numbered_in_declared_order() -> None:
-    merge = sx.Merge(
+    merge = sf.Merge(
         {
             "b": sf.FieldRule.model("provider/w", prompt="Write b."),
             "plain": sf.FieldRule.max(),

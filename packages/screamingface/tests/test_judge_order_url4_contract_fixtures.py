@@ -17,7 +17,7 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, requires_engine_app
 from _combine_flow_fixtures import flow_operators
 
-from screamingface import _surface as sx
+import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 
 
@@ -25,9 +25,9 @@ def judge_order_min_url4() -> str:
     """S11 min: three members; the judge scores the factual errors, and the lowest score wins."""
 
     recipe = (
-        sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
-        >> sx.Judge("prov/judge", rubric="Count the factual errors.")
-        >> sx.ArgMin("score:judge")
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
+        >> sf.Judge("prov/judge", rubric="Count the factual errors.")
+        >> sf.ArgMin("score:judge")
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 

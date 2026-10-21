@@ -12,7 +12,6 @@ import pytest
 from _nodes import FusionNode, VoteNode, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._surface.lowering import lower
 
 _PAIR = ["provider/a", "provider/b"]
@@ -20,7 +19,7 @@ _PROMPT = "Answer with one number."
 
 
 def test_members_are_normalized_and_named_as_a_fusion() -> None:
-    fanout = sx.Fanout(["provider/a", sf.Model("provider/b", optional=True)])
+    fanout = sf.Fanout(["provider/a", sf.Model("provider/b", optional=True)])
 
     assert fanout.members == (sf.Model("provider/a"), sf.Model("provider/b", optional=True))
     assert fanout.name == "a+b"
@@ -31,7 +30,7 @@ def test_members_are_normalized_and_named_as_a_fusion() -> None:
 
 def test_name_quorum_and_signals_go_to_the_fusion_node() -> None:
     signals = {"conf": sf.Verbalized("C: ([0-9]+)")}
-    chain = sx.Fanout(_PAIR, name="panel", quorum=1, signals=signals) >> sx.Vote(weights="conf")
+    chain = sf.Fanout(_PAIR, name="panel", quorum=1, signals=signals) >> sf.Vote(weights="conf")
 
     assert lower(chain) == fusion_node(
         _PAIR,
@@ -54,24 +53,24 @@ def test_members_must_be_a_non_empty_sequence(
     members: object, error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
-        sx.Fanout(members)  # type: ignore[arg-type]
+        sf.Fanout(members)  # type: ignore[arg-type]
 
 
 def test_quorum_is_checked_against_the_member_count() -> None:
     with pytest.raises(ValueError, match="quorum must be between zero and the member count"):
-        sx.Fanout(_PAIR, quorum=3)
+        sf.Fanout(_PAIR, quorum=3)
 
 
 def test_signals_are_checked_when_the_fanout_is_built() -> None:
     with pytest.raises(ValueError, match="is an E4a signal key"):
-        sx.Fanout(_PAIR, signals={"cost_usd": sf.Verbalized("C: ([0-9]+)")})
+        sf.Fanout(_PAIR, signals={"cost_usd": sf.Verbalized("C: ([0-9]+)")})
 
 
 def test_prompt_sets_each_route_member_and_each_model_with_no_prompt() -> None:
-    chain = sx.Fanout(
+    chain = sf.Fanout(
         ["provider/a", sf.Model("provider/b", name="bee", params={"temperature": 0.2})],
         prompt=_PROMPT,
-    ) >> sx.Synthesize("provider/w")
+    ) >> sf.Synthesize("provider/w")
 
     assert lower(chain) == fusion_node(
         [
@@ -84,8 +83,8 @@ def test_prompt_sets_each_route_member_and_each_model_with_no_prompt() -> None:
 
 def test_prompt_keeps_an_optional_member_optional() -> None:
     chain = (
-        sx.Fanout(["provider/a", sf.Model("provider/b", optional=True)], prompt=_PROMPT)
-        >> sx.Vote()
+        sf.Fanout(["provider/a", sf.Model("provider/b", optional=True)], prompt=_PROMPT)
+        >> sf.Vote()
     )
 
     node = lower(chain)
@@ -96,13 +95,13 @@ def test_prompt_keeps_an_optional_member_optional() -> None:
 def test_fa1_a_member_with_its_own_prompt_is_refused() -> None:
     message = r"^Fanout prompt= sets the member prompts: member 2 already has one$"
     with pytest.raises(ValueError, match=message):
-        sx.Fanout(["provider/a", sf.Model("provider/b", prompt="Mine.")], prompt=_PROMPT)
+        sf.Fanout(["provider/a", sf.Model("provider/b", prompt="Mine.")], prompt=_PROMPT)
 
 
 @pytest.mark.parametrize(
     "member",
     [
-        sx.Fanout(_PAIR) >> sx.Vote(),
+        sf.Fanout(_PAIR) >> sf.Vote(),
         sf.Pipeline(["provider/x", "provider/y"]),
         fusion_node(_PAIR, "provider/s"),
     ],
@@ -111,26 +110,26 @@ def test_fa1_a_member_with_its_own_prompt_is_refused() -> None:
 def test_fa1_a_member_that_is_not_a_model_is_refused(member: sf.Recipe) -> None:
     message = r"^Fanout prompt= sets the member prompts: member 1 is not a model$"
     with pytest.raises(ValueError, match=message):
-        sx.Fanout([member, "provider/c"], prompt=_PROMPT)
+        sf.Fanout([member, "provider/c"], prompt=_PROMPT)
 
 
 def test_fa1_a_blank_prompt_is_refused() -> None:
     with pytest.raises(ValueError, match="fanout prompt must not be empty"):
-        sx.Fanout(_PAIR, prompt="  ")
+        sf.Fanout(_PAIR, prompt="  ")
 
 
 def test_fa2_signals_with_a_bare_synthesize_are_refused() -> None:
-    fanout = sx.Fanout(_PAIR, signals={"conf": sf.Verbalized("C: ([0-9]+)")})
+    fanout = sf.Fanout(_PAIR, signals={"conf": sf.Verbalized("C: ([0-9]+)")})
 
     with pytest.raises(
         ValueError, match=r"^sf\.Fanout signals= needs a reducer: sf\.Synthesize reads no signal$"
     ):
-        _ = fanout >> sx.Synthesize("provider/w")
+        _ = fanout >> sf.Synthesize("provider/w")
 
 
 def test_a_closed_chain_member_lowers_to_its_node() -> None:
-    inner = sx.Fanout(_PAIR) >> sx.Synthesize("provider/s")
-    chain = sx.Fanout([inner, "provider/c"], name="nested") >> sx.Synthesize("provider/w")
+    inner = sf.Fanout(_PAIR) >> sf.Synthesize("provider/s")
+    chain = sf.Fanout([inner, "provider/c"], name="nested") >> sf.Synthesize("provider/w")
 
     assert lower(chain) == fusion_node(
         [fusion_node(_PAIR, "provider/s"), "provider/c"],
@@ -140,8 +139,8 @@ def test_a_closed_chain_member_lowers_to_its_node() -> None:
 
 
 def test_an_optional_closed_chain_member_lowers_to_an_optional_node() -> None:
-    inner = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], optional=True)
-    chain = sx.Fanout([inner, "provider/c"]) >> sx.Synthesize("provider/w")
+    inner = sf.Pipeline([sf.Fanout(_PAIR), sf.Vote()], optional=True)
+    chain = sf.Fanout([inner, "provider/c"]) >> sf.Synthesize("provider/w")
 
     assert lower(chain) == fusion_node(
         [fusion_node(_PAIR, VoteNode(), optional=True), "provider/c"],

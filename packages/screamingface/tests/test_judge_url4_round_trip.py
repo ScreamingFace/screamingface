@@ -11,7 +11,6 @@ from _nodes import FusionNode, JudgeNode, MedianNode, VoteNode
 from url4 import Expression, build, expr, render, src, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
@@ -82,12 +81,12 @@ def test_judge_round_trips_through_url4() -> None:
 
 
 def test_judge_round_trip_keeps_params_and_scores() -> None:
-    original = sx.Judge(
+    original = sf.Judge(
         "provider/j",
         rubric="Score each.\nLine two costs $5 and \"quotes\" and 'single'.",
         params={"temperature": 0, "seed": 7, "top_p": 0.5, "flag": True},
     )
-    chain = sx.Fanout(members3()) >> original >> sx.ArgMax("score:judge")
+    chain = sf.Fanout(members3()) >> original >> sf.ArgMax("score:judge")
     compiled = _compiled(chain)
     # WHY the lowered node: until the swap (7e) the rebuild gives back today's value of the chain.
     lowered = lower(chain)
@@ -235,11 +234,11 @@ def test_corrective_replay_recompiles_a_judge_member() -> None:
 
 
 def _nested_shapes() -> dict[str, sf.Recipe]:
-    scores = sx.Judge("provider/k", rubric="Score each member.")
+    scores = sf.Judge("provider/k", rubric="Score each member.")
     return {
-        "judge inside judge": sx.Fanout([judge_fusion(), "provider/d"])
+        "judge inside judge": sf.Fanout([judge_fusion(), "provider/d"])
         >> scores
-        >> sx.ArgMax("score:judge"),
+        >> sf.ArgMax("score:judge"),
     }
 
 

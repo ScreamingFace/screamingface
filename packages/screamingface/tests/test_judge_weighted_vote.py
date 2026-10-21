@@ -15,7 +15,6 @@ from _nodes import JudgeNode, ReduceNode, VoteNode, fusion_node
 from url4 import Expression, RelExpr, Source, build, render, struct
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 
@@ -56,11 +55,11 @@ def _by_name(url4: str) -> dict[str, RelExpr]:
 
 def test_a_nested_vote_judge_call_is_never_a_claimant_of_the_outer_sources() -> None:
     inner = (
-        sx.Fanout(["p/a", "p/b"])
-        >> sx.Judge("p/a", rubric=RUBRIC)
-        >> sx.Vote(over="last_number", normalize="numeric", weights=JUDGE_SIGNAL)
+        sf.Fanout(["p/a", "p/b"])
+        >> sf.Judge("p/a", rubric=RUBRIC)
+        >> sf.Vote(over="last_number", normalize="numeric", weights=JUDGE_SIGNAL)
     )
-    outer = sx.Fanout([inner, "p/c"]) >> sx.Vote(weights=sf.signal("cost_usd"))
+    outer = sf.Fanout([inner, "p/c"]) >> sf.Vote(weights=sf.signal("cost_usd"))
 
     url4 = _compiled(outer).url4
 
@@ -122,9 +121,9 @@ def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
 @pytest.mark.parametrize("rule", ["last_number"])
 def test_weighted_judge_block_matches_vote(rule: Any, normalize: Any) -> None:
     vote = (
-        sx.Fanout(members3())
-        >> sx.Judge("provider/j", rubric=RUBRIC)
-        >> sx.Vote(over=rule, normalize=normalize, weights=JUDGE_SIGNAL)
+        sf.Fanout(members3())
+        >> sf.Judge("provider/j", rubric=RUBRIC)
+        >> sf.Vote(over=rule, normalize=normalize, weights=JUDGE_SIGNAL)
     )
     block = ReduceNode(
         "weighted",

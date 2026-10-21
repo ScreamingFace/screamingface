@@ -10,7 +10,6 @@ from _nodes import ConcatNode, FusionNode, JudgeNode, RankNode, fusion_node
 from url4 import Expression, RelExpr, Source, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 
@@ -70,7 +69,7 @@ def test_selection_at_end_of_candidate_raises_at_compile() -> None:
     # a Fusion whose Recipe synthesizer ends in a selection ends the candidate with it
     with pytest.raises(ValueError, match="a Rank must be followed by another stage"):
         _compile(
-            sx.Fanout(members3()) >> sx.Synthesize(sf.Pipeline(["provider/y", _rank()])),
+            sf.Fanout(members3()) >> sf.Synthesize(sf.Pipeline(["provider/y", _rank()])),
         )
     message = r"'a\+b\+c' ends the candidate with a selection"
     with pytest.raises(ValueError, match=message):
@@ -80,18 +79,18 @@ def test_selection_at_end_of_candidate_raises_at_compile() -> None:
 def test_selection_as_fusion_or_loop_member_raises_at_compile() -> None:
     member = "a Rank Fusion cannot be a Fusion member"
     with pytest.raises(ValueError, match=member):
-        _compile(sx.Fanout([_rank(), "provider/d"]) >> sx.Synthesize("provider/s"))
+        _compile(sf.Fanout([_rank(), "provider/d"]) >> sf.Synthesize("provider/s"))
     with pytest.raises(ValueError, match="a Concat Fusion cannot be a Fusion member"):
-        _compile(sx.Fanout(["provider/d", _concat()]) >> sx.Vote())
+        _compile(sf.Fanout(["provider/d", _concat()]) >> sf.Vote())
     # also through a Pipeline that ends in a selection
     with pytest.raises(ValueError, match="a Concat Fusion cannot be a Fusion member"):
         _compile(
-            sx.Fanout([sf.Pipeline(["provider/x", _concat()]), "provider/d"])
-            >> sx.Synthesize("p/s")
+            sf.Fanout([sf.Pipeline(["provider/x", _concat()]), "provider/d"])
+            >> sf.Synthesize("p/s")
         )
     # the check does not depend on the synthesizer kind
     with pytest.raises(ValueError, match=member):
-        _compile(sx.Fanout([_rank_by_judge(), "provider/d"]) >> sx.Vote())
+        _compile(sf.Fanout([_rank_by_judge(), "provider/d"]) >> sf.Vote())
 
     feed = "a Rank cannot feed a corrective loop"
     with pytest.raises(ValueError, match=feed):
@@ -103,21 +102,21 @@ def test_selection_as_fusion_or_loop_member_raises_at_compile() -> None:
 
 
 def test_a_fusion_whose_recipe_synthesizer_ends_in_a_selection_is_not_a_member() -> None:
-    ends_in_rank = sx.Fanout(members3()) >> sx.Synthesize(sf.Pipeline(["provider/y", _rank()]))
+    ends_in_rank = sf.Fanout(members3()) >> sf.Synthesize(sf.Pipeline(["provider/y", _rank()]))
 
     with pytest.raises(ValueError, match="a Rank Fusion cannot be a Fusion member"):
-        _compile(sx.Fanout([ends_in_rank, "provider/d"]) >> sx.Synthesize("provider/s"))
+        _compile(sf.Fanout([ends_in_rank, "provider/d"]) >> sf.Synthesize("provider/s"))
     # followed by a stage, the same Fusion is an ordinary member
     followed = sf.Pipeline([ends_in_rank, _writer()])
-    assert _compile(sx.Fanout([followed, "provider/d"]) >> sx.Synthesize("provider/s")).operations
+    assert _compile(sf.Fanout([followed, "provider/d"]) >> sf.Synthesize("provider/s")).operations
 
 
 def test_a_selection_that_is_followed_compiles_everywhere_it_may_stand() -> None:
-    followed = sx.Fanout(members3()) >> sx.Rank(2, by="field:score") >> sx.Synthesize(_writer())
+    followed = sf.Fanout(members3()) >> sf.Rank(2, by="field:score") >> sf.Synthesize(_writer())
     # a selection inside a Pipeline's first stage, followed by a Fusion
-    again = sf.Pipeline([_concat(), sx.Fanout(["provider/d", "provider/e"]) >> sx.Vote()])
+    again = sf.Pipeline([_concat(), sf.Fanout(["provider/d", "provider/e"]) >> sf.Vote()])
     # a followed selection may be a member, and a corrective loop member, once a stage follows it
-    nested = sx.Fanout([followed, "provider/d"]) >> sx.Synthesize("provider/s")
+    nested = sf.Fanout([followed, "provider/d"]) >> sf.Synthesize("provider/s")
     loop = sf.CorrectiveLoop([followed, "provider/d"], judge="provider/j", max_rounds=2)
     solo = sf.SelfCorrective(followed, max_rounds=2)
 
@@ -128,10 +127,10 @@ def test_a_selection_that_is_followed_compiles_everywhere_it_may_stand() -> None
 
 def test_next_stage_context_is_selection_only() -> None:
     compiled = _compile(
-        sx.Fanout(members3())
-        >> sx.Judge("provider/j", rubric=RUBRIC)
-        >> sx.Rank(2, by="score:judge")
-        >> sx.Synthesize(_writer())
+        sf.Fanout(members3())
+        >> sf.Judge("provider/j", rubric=RUBRIC)
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Synthesize(_writer())
     )
     calls = _calls(compiled.url4)
 
@@ -144,5 +143,5 @@ def test_next_stage_context_is_selection_only() -> None:
     ]
     assert compiled.operations[-1].depends_on == ("op_synthesis_1",)
 
-    concat = _calls(_compile(sx.Fanout(members3()) >> sx.Concat() >> sx.Synthesize(_writer())).url4)
+    concat = _calls(_compile(sf.Fanout(members3()) >> sf.Concat() >> sf.Synthesize(_writer())).url4)
     assert concat["model_4"].context == "$synthesis_1"

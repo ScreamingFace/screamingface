@@ -16,7 +16,6 @@ from test_judge_url4_round_trip import (
 )
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface._surface.chain import Step
@@ -29,8 +28,8 @@ _CANNOT_REBUILD_MERGE = "merge spec this SDK version cannot rebuild"
 _CANNOT_REBUILD_PICK = "pick spec this SDK version cannot rebuild"
 
 
-def _merge() -> sx.Merge:
-    return sx.Merge(
+def _merge() -> sf.Merge:
+    return sf.Merge(
         {
             "answer": sf.FieldRule.majority(normalize="text"),
             "summary": sf.FieldRule.model("provider/w", prompt="Write one summary."),
@@ -39,7 +38,7 @@ def _merge() -> sx.Merge:
 
 
 def _block(step: Step) -> sf.Recipe:
-    return sx.Fanout(members3()) >> step
+    return sf.Fanout(members3()) >> step
 
 
 def _node(step: Step) -> Reducer:
@@ -53,10 +52,10 @@ def _node(step: Step) -> Reducer:
 
 def _shapes() -> dict[str, sf.Recipe]:
     return {
-        "pick max": _block(sx.ArgMax("field:confidence")),
-        "pick equals text": _block(sx.First(where=sx.field("answer", normalize="text") == "Yes.")),
+        "pick max": _block(sf.ArgMax("field:confidence")),
+        "pick equals text": _block(sf.First(where=sf.field("answer", normalize="text") == "Yes.")),
         "merge with two model fields": _block(
-            sx.Merge(
+            sf.Merge(
                 {
                     "b": sf.FieldRule.model("provider/w", prompt="Write b.", params={"seed": 7}),
                     "a": sf.FieldRule.model("provider/x", prompt='Write "a" for $5.\nLine two.'),
@@ -65,7 +64,7 @@ def _shapes() -> dict[str, sf.Recipe]:
             )
         ),
         "merge as a recipe synthesizer": _block(
-            sx.Synthesize(sx.Fanout(members3()) >> _merge() >> "provider/s")
+            sf.Synthesize(sf.Fanout(members3()) >> _merge() >> "provider/s")
         ),
     }
 
@@ -86,10 +85,10 @@ def test_pick_and_merge_round_trip(shape: str) -> None:
     ]
 
 
-def _originals() -> dict[str, sx.First | sx.Merge]:
+def _originals() -> dict[str, sf.First | sf.Merge]:
     return {
-        "pick equals number": sx.First(where=sx.field("n") == 7),
-        "merge": sx.Merge(
+        "pick equals number": sf.First(where=sf.field("n") == 7),
+        "merge": sf.Merge(
             {
                 "z": sf.FieldRule.model(
                     "provider/w", prompt="Write.\n'x' $5", params={"temperature": 0, "seed": 7}
@@ -112,7 +111,7 @@ def test_the_recovered_reducers_equal_the_originals_field_by_field(name: str) ->
     assert isinstance(rebuilt, FusionNode)
     assert rebuilt.synthesizer == node
     assert type(rebuilt.synthesizer) is type(node)
-    if isinstance(original, sx.Merge):
+    if isinstance(original, sf.Merge):
         assert isinstance(rebuilt.synthesizer, MergeNode)
         assert list(rebuilt.synthesizer.fields) == list(original.fields)
 
@@ -212,7 +211,7 @@ _TEMPLATE_LINE = "writer-template@1 field=summary"
 def test_to_python_shows_only_the_author_prompt_of_each_model_field() -> None:
     for merge in (
         _merge(),
-        sx.Merge(
+        sf.Merge(
             {
                 "b": sf.FieldRule.model("provider/w", prompt="Write b.", params={"seed": 7}),
                 "a": sf.FieldRule.model("provider/x", prompt='Write "a" for $5.\nLine two.'),
@@ -309,7 +308,7 @@ def _merge_edits() -> dict[str, tuple[dict[str, Any], str]]:
 @pytest.mark.parametrize("name", sorted(_merge_edits()))
 def test_a_merge_spec_edited_by_hand_is_refused(name: str) -> None:
     merge = _node(
-        sx.Merge({"a": sf.FieldRule.from_member(2), "b": sf.FieldRule.majority(normalize="text")})
+        sf.Merge({"a": sf.FieldRule.from_member(2), "b": sf.FieldRule.majority(normalize="text")})
     )
     spec = _spec_of(merge)
     assert MergeNode._from_spec(spec) == merge

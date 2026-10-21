@@ -17,7 +17,6 @@ from _combine_flow_fixtures import RUBRIC, flow_operators
 from url4 import expr, render, src, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import _CompiledCandidate, compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
@@ -48,8 +47,8 @@ _SURFACE = _CheckSurface(
 )
 
 
-def _judge(route: str = JUDGE_ROUTE) -> sx.Judge:
-    return sx.Judge(route, rubric=RUBRIC)
+def _judge(route: str = JUDGE_ROUTE) -> sf.Judge:
+    return sf.Judge(route, rubric=RUBRIC)
 
 
 def _ranked(
@@ -62,15 +61,15 @@ def _ranked(
     """The judge block: Rank by the judge's scores, then ``writer`` writes from the kept two."""
 
     return (
-        sx.Fanout(MEMBERS, quorum=quorum, name=name)
+        sf.Fanout(MEMBERS, quorum=quorum, name=name)
         >> _judge(route)
-        >> sx.Rank(2, by="score:judge")
-        >> sx.Synthesize(writer)
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Synthesize(writer)
     )
 
 
-def _judged(writer: str | sf.Recipe = JUDGE_ROUTE, judge: str = JUDGE_ROUTE) -> sx.Pipeline:
-    return sx.Pipeline([_ranked(judge, writer=writer)], name="judged")
+def _judged(writer: str | sf.Recipe = JUDGE_ROUTE, judge: str = JUDGE_ROUTE) -> sf.Pipeline:
+    return sf.Pipeline([_ranked(judge, writer=writer)], name="judged")
 
 
 def _compile(recipe: sf.Recipe) -> _CompiledCandidate:
@@ -99,15 +98,15 @@ def _linked(candidate: str) -> str:
     ("recipe", "expected"),
     [
         (
-            sx.Pipeline([_ranked(name="panel")], name="judged"),
+            sf.Pipeline([_ranked(name="panel")], name="judged"),
             MESSAGE_PANEL,
         ),
         (
             # the judge block is stage 2 and the same model writes in stage 3
-            sx.Pipeline(
+            sf.Pipeline(
                 [
                     "provider/x",
-                    sx.Fanout(MEMBERS) >> _judge() >> sx.ArgMax("score:judge"),
+                    sf.Fanout(MEMBERS) >> _judge() >> sf.ArgMax("score:judge"),
                     JUDGE_ROUTE,
                 ],
                 name="judged",
@@ -118,7 +117,7 @@ def _linked(candidate: str) -> str:
             "this warning.",
         ),
         (
-            sx.Pipeline(
+            sf.Pipeline(
                 [
                     _ranked(
                         writer=sf.Model(JUDGE_ROUTE, prompt="Write.", params={"temperature": 0}),
@@ -198,12 +197,12 @@ def _loop() -> sf.Recipe:
 
 def _twice() -> sf.Recipe:
     pipeline = _judged()
-    return sx.Fanout([pipeline, pipeline]) >> sx.Synthesize("provider/s")
+    return sf.Fanout([pipeline, pipeline]) >> sf.Synthesize("provider/s")
 
 
 def _two_passes() -> sf.Recipe:
     # Pick by cost_usd reads an accounting signal, so compile_candidate runs a second pass.
-    return sx.Fanout([_judged(), "provider/z"]) >> sx.ArgMin("cost_usd")
+    return sf.Fanout([_judged(), "provider/z"]) >> sf.ArgMin("cost_usd")
 
 
 @pytest.mark.parametrize(
@@ -222,7 +221,7 @@ def test_one_pipeline_compiled_twice_warns_once(build: Callable[[], sf.Recipe]) 
 
 
 def test_url4_rebuild_silences_the_warning() -> None:
-    pipeline = sx.Pipeline([_ranked(quorum=2)], name="judged")
+    pipeline = sf.Pipeline([_ranked(quorum=2)], name="judged")
     with pytest.warns(JudgeWriterWarning) as recorded:
         compiled = _compile(pipeline).url4
 
@@ -242,19 +241,19 @@ def test_url4_rebuild_silences_the_warning() -> None:
     "recipe",
     [
         # the judge Fusion is the LAST stage; the same model writes BEFORE it
-        sx.Pipeline(
-            [JUDGE_ROUTE, sx.Fanout(MEMBERS) >> _judge() >> sx.ArgMax("score:judge")],
+        sf.Pipeline(
+            [JUDGE_ROUTE, sf.Fanout(MEMBERS) >> _judge() >> sf.ArgMax("score:judge")],
             name="judged",
         ),
         # the next stage is a Fusion (its synthesizer is even the judge's model)
-        sx.Pipeline(
-            [_ranked(writer=sx.Fanout([JUDGE_ROUTE, "provider/x"]) >> sx.Synthesize(JUDGE_ROUTE))],
+        sf.Pipeline(
+            [_ranked(writer=sf.Fanout([JUDGE_ROUTE, "provider/x"]) >> sf.Synthesize(JUDGE_ROUTE))],
             name="judged",
         ),
         # not adjacent: another model sits between the judge Fusion and the same model
-        sx.Pipeline([_ranked(writer="provider/x"), JUDGE_ROUTE], name="judged"),
+        sf.Pipeline([_ranked(writer="provider/x"), JUDGE_ROUTE], name="judged"),
         # a judge Fusion alone (not in a Pipeline)
-        sx.Fanout(MEMBERS) >> _judge() >> sx.ArgMax("score:judge"),
+        sf.Fanout(MEMBERS) >> _judge() >> sf.ArgMax("score:judge"),
     ],
     ids=["judge-last", "fusion-next", "not-adjacent", "no-pipeline"],
 )
@@ -268,7 +267,7 @@ def test_judge_as_last_stage_or_before_a_fusion_does_not_warn(recipe: sf.Recipe)
         (
             (
                 _judge(),
-                sx.Vote(over="last_number", normalize="numeric", weights="score:judge"),
+                sf.Vote(over="last_number", normalize="numeric", weights="score:judge"),
                 JUDGE_ROUTE,
             ),
             MESSAGE_1_2,
@@ -277,20 +276,20 @@ def test_judge_as_last_stage_or_before_a_fusion_does_not_warn(recipe: sf.Recipe)
         (
             (
                 _judge(),
-                sx.Filter(where=sf.signal("score:judge") >= 7),
-                sx.Synthesize(JUDGE_ROUTE),
+                sf.Filter(where=sf.signal("score:judge") >= 7),
+                sf.Synthesize(JUDGE_ROUTE),
             ),
             MESSAGE_BLOCK,
         ),
-        ((_judge(), sx.ArgMax("score:judge"), JUDGE_ROUTE), MESSAGE_1_2),
-        ((_judge(), sx.Rank(2, by="score:judge"), sx.Synthesize(JUDGE_ROUTE)), MESSAGE_BLOCK),
+        ((_judge(), sf.ArgMax("score:judge"), JUDGE_ROUTE), MESSAGE_1_2),
+        ((_judge(), sf.Rank(2, by="score:judge"), sf.Synthesize(JUDGE_ROUTE)), MESSAGE_BLOCK),
     ],
     ids=["vote-by-judge-score", "filter-by-judge-score", "judge-reducer", "rank-block"],
 )
 def test_vote_and_filter_by_judge_score_warn_too(
     steps: tuple[Step | str, ...], expected: str
 ) -> None:
-    pipeline = sx.Pipeline([sx.Fanout(MEMBERS), *steps], name="judged")
+    pipeline = sf.Pipeline([sf.Fanout(MEMBERS), *steps], name="judged")
     with pytest.warns(JudgeWriterWarning) as recorded:
         _compile(pipeline)
 
@@ -303,19 +302,19 @@ def test_vote_and_filter_by_judge_score_warn_too(
     "synthesizer",
     [
         # a merge writer (key "writer_summary") on the same model is not a judge
-        sx.Merge(
+        sf.Merge(
             {
                 "answer": sf.FieldRule.majority(normalize="text"),
                 "summary": sf.FieldRule.model(JUDGE_ROUTE, prompt="Write."),
             }
         ),
         # a Model synthesizer is not a reducer, so it is not a judge
-        sx.Synthesize(JUDGE_ROUTE),
+        sf.Synthesize(JUDGE_ROUTE),
     ],
     ids=["merge-writer", "model-synthesizer"],
 )
 def test_merge_writer_does_not_warn(synthesizer: Step) -> None:
-    _quiet(sx.Pipeline([sx.Fanout(MEMBERS), synthesizer, JUDGE_ROUTE], name="judged"))
+    _quiet(sf.Pipeline([sf.Fanout(MEMBERS), synthesizer, JUDGE_ROUTE], name="judged"))
 
 
 def test_judge_writer_warning_is_public() -> None:
@@ -328,33 +327,33 @@ def test_judge_writer_warning_is_public() -> None:
 # --- review fix P5 #2: a gate's fallback judge is a judge too ------------------------------------
 
 
-def _label_judge(route: str = JUDGE_ROUTE) -> sx.JudgePick:
-    return sx.JudgePick(route, rubric=RUBRIC)
+def _label_judge(route: str = JUDGE_ROUTE) -> sf.JudgePick:
+    return sf.JudgePick(route, rubric=RUBRIC)
 
 
-def _judge_vote() -> sx.Vote:
-    return sx.Vote(over="last_number", normalize="numeric", weights="score:judge")
+def _judge_vote() -> sf.Vote:
+    return sf.Vote(over="last_number", normalize="numeric", weights="score:judge")
 
 
 @pytest.mark.parametrize(
     "steps",
     [
-        (sx.Gate(when=sx.agreement() >= 0.9, then=sx.Vote(), otherwise=_label_judge()),),
+        (sf.Gate(when=sf.agreement() >= 0.9, then=sf.Vote(), otherwise=_label_judge()),),
         # the scores judge uses another model; the fallback judge uses the writer's model
         (
             _judge("openrouter/c/d"),
-            sx.Gate(when=sx.agreement() >= 0.9, then=_judge_vote(), otherwise=_label_judge()),
+            sf.Gate(when=sf.agreement() >= 0.9, then=_judge_vote(), otherwise=_label_judge()),
         ),
         # both judges use the writer's model: still one warning
         (
             _judge(),
-            sx.Gate(when=sx.agreement() >= 0.9, then=_judge_vote(), otherwise=_label_judge()),
+            sf.Gate(when=sf.agreement() >= 0.9, then=_judge_vote(), otherwise=_label_judge()),
         ),
     ],
     ids=["gate-fallback-judge", "scores-judge-and-gate-fallback-judge", "both-judges-same-route"],
 )
 def test_gate_fallback_judge_then_same_model_writer_warns(steps: tuple[Step, ...]) -> None:
-    pipeline = sx.Pipeline([sx.Fanout(MEMBERS), *steps, JUDGE_ROUTE], name="judged")
+    pipeline = sf.Pipeline([sf.Fanout(MEMBERS), *steps, JUDGE_ROUTE], name="judged")
     with pytest.warns(JudgeWriterWarning) as recorded:
         _compile(pipeline)
 
@@ -364,8 +363,8 @@ def test_gate_fallback_judge_then_same_model_writer_warns(steps: tuple[Step, ...
 
 
 def test_gate_fallback_writer_on_the_same_model_does_not_warn() -> None:
-    vote = sx.Gate(
-        when=sx.agreement() >= 0.9, then=sx.Vote(), otherwise=sx.Synthesize(sf.Model(JUDGE_ROUTE))
+    vote = sf.Gate(
+        when=sf.agreement() >= 0.9, then=sf.Vote(), otherwise=sf.Synthesize(sf.Model(JUDGE_ROUTE))
     )
     # WHY sx.Pipeline: before the swap, today's sf.Pipeline does not read a chain stage's judge
-    _quiet(sx.Pipeline([sx.Fanout(MEMBERS) >> vote, JUDGE_ROUTE], name="judged"))
+    _quiet(sf.Pipeline([sf.Fanout(MEMBERS) >> vote, JUDGE_ROUTE], name="judged"))

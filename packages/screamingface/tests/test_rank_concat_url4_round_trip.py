@@ -10,7 +10,6 @@ from _nodes import FusionNode, RankNode, fusion_node
 from url4 import expr, render, src, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
@@ -52,8 +51,8 @@ def _after(*steps: Step, members: int = 3) -> sf.Recipe:
     """A block of ``steps`` after a Fanout, closed by the writer that reads the selection."""
 
     routes = [f"provider/{name}" for name in "abcdef"[:members]]
-    writer = sx.Synthesize(sf.Model("provider/w", prompt="Write."))
-    return sx.Pipeline([sx.Fanout(routes), *steps, writer])
+    writer = sf.Synthesize(sf.Model("provider/w", prompt="Write."))
+    return sf.Pipeline([sf.Fanout(routes), *steps, writer])
 
 
 def _after_node(synthesizer: Reducer, *, members: int = 3) -> sf.Pipeline:
@@ -62,39 +61,39 @@ def _after_node(synthesizer: Reducer, *, members: int = 3) -> sf.Pipeline:
     return sf.Pipeline([fusion_node(routes, synthesizer), sf.Model("provider/w", prompt="Write.")])
 
 
-def _scores_judge() -> sx.Judge:
-    return sx.Judge("provider/j", rubric=RUBRIC)
+def _scores_judge() -> sf.Judge:
+    return sf.Judge("provider/j", rubric=RUBRIC)
 
 
-def _by_judge(k: int) -> sx.Rank:
-    return sx.Rank(k, by="score:judge")
+def _by_judge(k: int) -> sf.Rank:
+    return sf.Rank(k, by="score:judge")
 
 
 def _shapes() -> dict[str, sf.Recipe]:
     return {
         "rank by judge": _after(_scores_judge(), _by_judge(2)),
         "rank by judge with params": _after(
-            sx.Judge("provider/j", rubric="Score.\nCosts $5.", params={"seed": 7}), _by_judge(1)
+            sf.Judge("provider/j", rubric="Score.\nCosts $5.", params={"seed": 7}), _by_judge(1)
         ),
         # group F (7f): the two by_field rows
         "rank by field": _after_node(RankNode(k=2, by_field="result.score[0]")),
         "rank by field min": _after_node(RankNode(k=2, by_field="score", order="min")),
-        "rank by signal": _after(sx.Rank(2, by="field:score")),
-        "rank by signal min": _after(sx.Rank(2, by="field:score", order="min")),
-        "rank by accounting signal": _after(sx.Rank(2, by="cost_usd", order="min")),
-        "concat": _after(sx.Concat()),
-        "concat without labels": _after(sx.Concat("<<$|>>", label=False)),
-        "concat with an odd separator": _after(sx.Concat(" \x7f\t\"'\\é💥")),
+        "rank by signal": _after(sf.Rank(2, by="field:score")),
+        "rank by signal min": _after(sf.Rank(2, by="field:score", order="min")),
+        "rank by accounting signal": _after(sf.Rank(2, by="cost_usd", order="min")),
+        "concat": _after(sf.Concat()),
+        "concat without labels": _after(sf.Concat("<<$|>>", label=False)),
+        "concat with an odd separator": _after(sf.Concat(" \x7f\t\"'\\é💥")),
         # WHY a recipe writer: the second selection reads the first one's envelope, and its own
         # writer closes it
-        "two selections in a row": sx.Fanout(members3())
+        "two selections in a row": sf.Fanout(members3())
         >> _scores_judge()
         >> _by_judge(2)
-        >> sx.Synthesize(
-            sx.Fanout(["provider/d", "provider/e"]) >> sx.Concat() >> sx.Synthesize("provider/w")
+        >> sf.Synthesize(
+            sf.Fanout(["provider/d", "provider/e"]) >> sf.Concat() >> sf.Synthesize("provider/w")
         ),
-        "selection as a recipe synthesizer": sx.Fanout(members3())
-        >> sx.Synthesize(sx.Fanout(members3()) >> sx.Concat() >> sx.Synthesize("provider/s")),
+        "selection as a recipe synthesizer": sf.Fanout(members3())
+        >> sf.Synthesize(sf.Fanout(members3()) >> sf.Concat() >> sf.Synthesize("provider/s")),
     }
 
 
@@ -213,7 +212,7 @@ def test_rank_and_concat_tampering_is_refused(case: str) -> None:
 
 def test_a_followed_selection_inside_a_corrective_loop_round_trips() -> None:
     loop = sf.CorrectiveLoop(
-        [_after(sx.Concat()), _after(_scores_judge(), _by_judge(1))],
+        [_after(sf.Concat()), _after(_scores_judge(), _by_judge(1))],
         judge="provider/x",
         max_rounds=2,
     )

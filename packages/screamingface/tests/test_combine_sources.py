@@ -16,7 +16,6 @@ from _combine_contract import engine_operators
 from url4 import Expression, RelExpr, Source, build, render, struct
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.chain import Step
@@ -59,7 +58,7 @@ def _context(outputs: dict[str, str], sources: dict[str, Any] | None = None) -> 
 
 def _mixed(synthesizer: Step) -> sf.Recipe:
     members = [sf.Model("p/a", params={"temperature": 0.5}), "p/b", sf.Pipeline(["p/c", "p/d"])]
-    return sx.Fanout(members) >> synthesizer
+    return sf.Fanout(members) >> synthesizer
 
 
 _MIXED_OUTPUTS = {"member_1": "$model_1", "member_2": "$model_2", "member_3": "$model_4"}
@@ -72,7 +71,7 @@ def test_compile_emits_sources_only_when_accounting_signal_is_read(key: str) -> 
         "member_2": {"model_2": _call("/p/b")},
         "member_3": {"model_3": _call("/p/c"), "model_4": _call("/p/d")},
     }
-    url4 = _url4(_mixed(sx.Vote(weights=sf.signal(key))))
+    url4 = _url4(_mixed(sf.Vote(weights=sf.signal(key))))
 
     assert context_of(url4, "synthesis_1") == _context(_MIXED_OUTPUTS, sources)
 
@@ -80,10 +79,10 @@ def test_compile_emits_sources_only_when_accounting_signal_is_read(key: str) -> 
 @pytest.mark.parametrize(
     "synthesizer",
     [
-        sx.Vote(weights=sf.signal("field:confidence")),
-        sx.Vote(weights=[1, 2, 3]),
-        sx.Vote(),
-        sx.Median(),
+        sf.Vote(weights=sf.signal("field:confidence")),
+        sf.Vote(weights=[1, 2, 3]),
+        sf.Vote(),
+        sf.Median(),
     ],
     ids=repr,
 )
@@ -94,37 +93,37 @@ def test_no_sources_when_no_accounting_signal_is_read(synthesizer: Step) -> None
 
 
 def _duplicates() -> sf.Recipe:
-    return sx.Fanout(["p/a", "p/a", "p/b"]) >> sx.Vote(weights=_COST)
+    return sf.Fanout(["p/a", "p/a", "p/b"]) >> sf.Vote(weights=_COST)
 
 
 def _nested() -> sf.Recipe:
-    inner_a = sx.Fanout(["p/a", "p/b"]) >> sx.Vote()
-    inner_b = sx.Fanout(["p/a", "p/c"]) >> sx.Vote()
-    return sx.Fanout([inner_a, inner_b, "p/d"]) >> sx.Vote(weights=_COST)
+    inner_a = sf.Fanout(["p/a", "p/b"]) >> sf.Vote()
+    inner_b = sf.Fanout(["p/a", "p/c"]) >> sf.Vote()
+    return sf.Fanout([inner_a, inner_b, "p/d"]) >> sf.Vote(weights=_COST)
 
 
 def _reuse_after() -> sf.Recipe:
-    fusion = sx.Fanout(["p/a", "p/b"]) >> sx.Vote(weights=_COST)
+    fusion = sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=_COST)
     return sf.Pipeline([fusion, "p/a"])
 
 
 def _prompts() -> sf.Recipe:
     members = [sf.Model("p/a", prompt="x"), sf.Model("p/a", prompt="y")]
-    return sx.Fanout(members) >> sx.Vote(weights=_COST)
+    return sf.Fanout(members) >> sf.Vote(weights=_COST)
 
 
 def _samples() -> sf.Recipe:
-    return sx.Fanout(sf.samples("p/a", 3)) >> sx.Vote(weights=_COST)
+    return sf.Fanout(sf.samples("p/a", 3)) >> sf.Vote(weights=_COST)
 
 
 def _model_synthesizer_member() -> sf.Recipe:
-    inner = sx.Fanout(["p/a", "p/b"]) >> sx.Synthesize("p/s")
-    return sx.Fanout([inner, "p/c"]) >> sx.Vote(weights=_COST)
+    inner = sf.Fanout(["p/a", "p/b"]) >> sf.Synthesize("p/s")
+    return sf.Fanout([inner, "p/c"]) >> sf.Vote(weights=_COST)
 
 
 def _reducer_member() -> sf.Recipe:
-    inner = sx.Fanout(["p/a", "p/b"]) >> sx.Vote()
-    return sx.Fanout([inner, "p/c"]) >> sx.Vote(weights=_COST)
+    inner = sf.Fanout(["p/a", "p/b"]) >> sf.Vote()
+    return sf.Fanout([inner, "p/c"]) >> sf.Vote(weights=_COST)
 
 
 _AB = {"member_1": "$model_1", "member_2": "$model_2"}
@@ -221,7 +220,7 @@ def test_fingerprint_claimed_twice_in_expression_is_left_out_of_sources(
 
 
 def test_a_corrective_round_claims_every_member_call_again() -> None:
-    fusion = sx.Fanout(["p/a", "p/b"]) >> sx.Vote(weights=_COST)
+    fusion = sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=_COST)
     loop = sf.CorrectiveLoop([fusion, "p/d"], judge="p/j", max_rounds=2)
 
     url4 = _url4(loop)
@@ -231,7 +230,7 @@ def test_a_corrective_round_claims_every_member_call_again() -> None:
 
 def test_dotted_param_key_compiles_in_sources() -> None:
     model = sf.Model("p/a", params={"x.y": 1, "stop": "a:b/c"})
-    url4 = _url4(sx.Fanout([model, "p/b"]) >> sx.Vote(weights=_COST))
+    url4 = _url4(sf.Fanout([model, "p/b"]) >> sf.Vote(weights=_COST))
 
     sources = {
         "member_1": {"model_1": _call("/p/a", "stop=a%3Ab%2Fc&x.y=1")},

@@ -7,7 +7,6 @@ import httpx
 import pytest
 
 import screamingface as sf
-from screamingface import _surface as sx
 
 _FABRICATED = ("context window", "ability", "tok/s", "tokens/s", "$/m", "price")
 
@@ -215,7 +214,7 @@ def test_model_details_card_renders_only_real_escaped_profile_fields() -> None:
 def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None:
     opus = sf.Model("provider/opus", name="opus")
     gpt = sf.Model("provider/gpt", name="gpt")
-    fusion = sx.Fanout([opus, gpt], name="frontier <pair>") >> sx.Synthesize(
+    fusion = sf.Fanout([opus, gpt], name="frontier <pair>") >> sf.Synthesize(
         sf.Model(
             "provider/synth",
             prompt="Resolve <conflicts>.",
@@ -239,14 +238,14 @@ def test_fusion_card_keeps_only_benchmark_independent_topology_visible() -> None
 
 
 def test_pipeline_card_shows_ordered_topology_in_light_and_dark_themes() -> None:
-    pipeline = sx.Pipeline(
+    pipeline = sf.Pipeline(
         [
             sf.Model("provider/draft", name="draft <one>"),
-            sx.Fanout(
+            sf.Fanout(
                 [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
                 name="review panel",
             )
-            >> sx.Synthesize("provider/reconciler"),
+            >> sf.Synthesize("provider/reconciler"),
             sf.Model("provider/final"),
         ],
         name="draft → review → final",
@@ -274,7 +273,7 @@ def test_fusion_card_renders_a_complete_recipe_synthesizer_without_model_assumpt
         [sf.Model("provider/judge"), sf.Model("provider/writer")],
         name="judge → writer",
     )
-    fusion = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+    fusion = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
         synthesizer
     )
 
@@ -331,10 +330,10 @@ def test_catalogue_sequence_edges_and_empty_search_results(
 def test_cards_cover_provider_fallback_and_nested_fusions() -> None:
     model_html = cast(Any, sf.Model("model-without-provider"))._repr_html_()
     assert "—" in model_html
-    inner = sx.Fanout(
+    inner = sf.Fanout(
         [sf.Model("provider/a"), sf.Model("provider/b")], name="inner"
-    ) >> sx.Synthesize("provider/inner-synth")
-    outer = sx.Fanout([inner, sf.Model("provider/c")], name="outer") >> sx.Synthesize(
+    ) >> sf.Synthesize("provider/inner-synth")
+    outer = sf.Fanout([inner, sf.Model("provider/c")], name="outer") >> sf.Synthesize(
         "provider/outer-synth"
     )
     fusion_html = cast(Any, outer)._repr_html_()
@@ -342,11 +341,11 @@ def test_cards_cover_provider_fallback_and_nested_fusions() -> None:
 
 
 def test_nested_recipe_kind_reflects_the_recipe_type_not_the_class_name() -> None:
-    class RenamedChain(sx.Pipeline):
+    class RenamedChain(sf.Pipeline):
         pass
 
-    nested = RenamedChain([sx.Fanout(["provider/a"]), sx.Synthesize("provider/inner-synth")])
-    outer = sx.Fanout([nested, sf.Model("provider/c")]) >> sx.Synthesize("provider/outer-synth")
+    nested = RenamedChain([sf.Fanout(["provider/a"]), sf.Synthesize("provider/inner-synth")])
+    outer = sf.Fanout([nested, sf.Model("provider/c")]) >> sf.Synthesize("provider/outer-synth")
 
     html = cast(Any, outer)._repr_html_()
 

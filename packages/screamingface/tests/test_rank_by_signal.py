@@ -17,7 +17,6 @@ from _nodes import JudgeNode, RankNode, ReduceNode, fusion_node
 from url4 import Expression, RelExpr, Source, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface.reducer import Reducer
@@ -36,13 +35,13 @@ def _spec(reducer: Reducer, members: int = 3) -> dict[str, Any]:
     return json.loads(text)
 
 
-def _wrapped(reducer: Reducer | sx.Rank) -> sf.Recipe:
-    if isinstance(reducer, sx.Rank):
-        return sx.Fanout(members3()) >> reducer >> sx.Synthesize("provider/next")
+def _wrapped(reducer: Reducer | sf.Rank) -> sf.Recipe:
+    if isinstance(reducer, sf.Rank):
+        return sf.Fanout(members3()) >> reducer >> sf.Synthesize("provider/next")
     return sf.Pipeline([fusion_node(members3(), reducer), "provider/next"])
 
 
-def _url4(reducer: Reducer | sx.Rank) -> str:
+def _url4(reducer: Reducer | sf.Rank) -> str:
     return compile_candidate(_wrapped(reducer), operators=flow_operators()).url4
 
 
@@ -103,11 +102,11 @@ def test_the_order_option_of_by_field_and_by_judge_writes_the_order_into_top_k_o
 
 @pytest.mark.parametrize("key", ["cost_usd"])
 def test_an_accounting_key_emits_sources_through_the_signal_seam(key: str) -> None:
-    named = _url4(sx.Rank(2, by=key, order="min"))
+    named = _url4(sf.Rank(2, by=key, order="min"))
 
     assert "sources:" in _combine_context(named)
     # a field signal needs no accounting sources
-    assert "sources:" not in _combine_context(_url4(sx.Rank(2, by="field:score")))
+    assert "sources:" not in _combine_context(_url4(sf.Rank(2, by="field:score")))
     # the block form reads the same plan
     block = _url4(ReduceNode("top_k", k=2, by_signal=sf.signal(key), order="min"))
     assert "sources:" in _combine_context(block)
@@ -117,23 +116,23 @@ def test_rank_by_signal_validation() -> None:
     with pytest.raises(TypeError, match="Rank by_signal must be an sf.signal"):
         RankNode(2, by_signal="field:score")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Rank order must be 'max' or 'min'"):
-        sx.Rank(2, by="cost_usd", order="avg")  # type: ignore[arg-type]
+        sf.Rank(2, by="cost_usd", order="avg")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Rank order must be 'max' or 'min'"):
         RankNode(2, by_field="s", order=True)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Rank order must be 'max' or 'min'"):
-        sx.Rank(2, by="score:judge", order=None)  # type: ignore[arg-type]
+        sf.Rank(2, by="score:judge", order=None)  # type: ignore[arg-type]
     # score:judge has no judge here: the message names the step that writes it
     with pytest.raises(
         ValueError, match=r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     ) as hint:
-        _ = sx.Fanout(members3()) >> sx.Rank(2, by="score:judge") >> sx.Synthesize("provider/next")
+        _ = sf.Fanout(members3()) >> sf.Rank(2, by="score:judge") >> sf.Synthesize("provider/next")
     assert "sf.Judge(...) after sf.Fanout" in str(hint.value)
     with pytest.raises(ValueError, match="score:judge"):
         ReduceNode("top_k", k=2, by_signal=sf.signal("score:judge"))
     with pytest.raises(ValueError, match="Rank k must be between 1 and 256"):
-        sx.Rank(0, by="cost_usd")
+        sf.Rank(0, by="cost_usd")
     with pytest.raises(ValueError, match="k=4"):
-        _ = sx.Fanout(members3()) >> sx.Rank(4, by="cost_usd") >> sx.Synthesize("provider/next")
+        _ = sf.Fanout(members3()) >> sf.Rank(4, by="cost_usd") >> sf.Synthesize("provider/next")
 
 
 def test_rank_by_signal_fields_repr_and_equality() -> None:

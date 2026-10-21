@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Literal
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _BenchmarkResource, _CheckSurface
 from screamingface._evaluation.runner import _validate_check_surface
 from screamingface.discovery import BenchmarkInfo
@@ -68,5 +67,5 @@ def test_a_free_surface_stays_silent() -> None:
 
 
 def test_a_non_loop_candidate_is_never_billed_for_checks() -> None:
-    fusion = sx.Fanout(["prov/a", "prov/b"]) >> sx.Synthesize("prov/s")
+    fusion = sf.Fanout(["prov/a", "prov/b"]) >> sf.Synthesize("prov/s")
     assert _validate_check_surface((fusion,), "draco", _resource("paid")) is None

@@ -28,7 +28,6 @@ from _vote_run_fixtures import spec_of
 from url4 import Expression, RelExpr, Source, Text, build, expr, render, src, struct, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
@@ -123,8 +122,8 @@ def _compiled(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
-def _fusion(step: Step, **options: Any) -> sx.Pipeline:
-    return sx.Fanout(MEMBERS, name="vote", **options) >> step
+def _fusion(step: Step, **options: Any) -> sf.Pipeline:
+    return sf.Fanout(MEMBERS, name="vote", **options) >> step
 
 
 def _sources(url4: str) -> list[Any]:
@@ -175,7 +174,7 @@ def _recompiled(url4: str) -> str:
 
 @requires_engine_app
 def test_vote_without_gate_keeps_its_bytes_repr_and_rebuild() -> None:
-    assert repr(sx.Vote()) == "Vote()"
+    assert repr(sf.Vote()) == "Vote()"
     assert VoteNode()._python() == "sf.Vote(extract='last_line', normalize='text')"
     for name in _L43:
         assert _recompiled(read_contract(name)) == read_contract(name), name
@@ -197,7 +196,7 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
     assert vote._plan().gate is gate
     assert vote._plan().signal_calls == ()
     assert combine_spec_text(vote, member_count=3, operators=engine_operators()) == _GATED_SPEC
-    url4 = _compiled(_fusion(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())))
+    url4 = _compiled(_fusion(sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())))
     sources = _sources(url4)
     assert len(sources) == 5
     assert [source.name for source in sources] == [
@@ -210,7 +209,7 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
     context = _by_name(url4)["synthesis_1"].context
     assert context == render(struct({"input": "$input", "outputs": _OUTPUTS}))
     assert context is not None and "signals" not in context
-    ungated = _compiled(_fusion(sx.Vote()))
+    ungated = _compiled(_fusion(sf.Vote()))
     assert {k: v for k, v in spec_of(url4).items() if k != "gate"} == spec_of(ungated)
 
 
@@ -219,7 +218,7 @@ def test_gate_abstain_compiles_the_spec_gate_and_no_extra_call() -> None:
 
 def test_gate_reads_a_declared_signal() -> None:
     fusion = _fusion(
-        sx.Gate(when=sx.signal("conf").chosen() >= 80, then=sx.Vote()),
+        sf.Gate(when=sf.signal("conf").chosen() >= 80, then=sf.Vote()),
         signals={"conf": sf.Verbalized(CONF_PATTERN)},
     )
     url4 = _compiled(fusion)
@@ -340,7 +339,7 @@ def test_gate_otherwise_refuses_a_scores_judge_a_named_model_and_a_recipe() -> N
 
 
 def test_fusion_refuses_a_gate_that_reads_an_undeclared_name() -> None:
-    vote = sx.Gate(when=sx.signal("lp").mean() >= 0.5, then=sx.Vote())
+    vote = sf.Gate(when=sf.signal("lp").mean() >= 0.5, then=sf.Vote())
     with pytest.raises(ValueError) as caught:
         _fusion(vote)
     assert str(caught.value) == (
@@ -352,10 +351,10 @@ def test_fusion_refuses_a_gate_that_reads_an_undeclared_name() -> None:
         "the gate reads 'mean:lp', but this Fusion does not declare 'lp' (declared: conf)"
     )
     _fusion(
-        sx.Gate(when=sx.signal("conf").mean() >= 50, then=sx.Vote()),
+        sf.Gate(when=sf.signal("conf").mean() >= 50, then=sf.Vote()),
         signals={"conf": sf.Verbalized(CONF_PATTERN)},
     )
-    _fusion(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote()))
+    _fusion(sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote()))
 
 
 # --- GA#9: sf.Vote refuses a gate= that is not an sf.Gate ---
@@ -381,7 +380,7 @@ def test_gated_votes_round_trip_through_to_python() -> None:
     verbalized_gate = GateNode("chosen:conf", ">=", 80)
     cases: list[tuple[sf.Recipe, GateNode, str, str]] = [
         (
-            _fusion(sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())),
+            _fusion(sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())),
             abstain_gate,
             "    synthesizer=sf.Vote(extract='last_line@1', normalize='text@1', "
             "gate=sf.Gate('agreement', '>=', 0.7)),",
@@ -391,7 +390,7 @@ def test_gated_votes_round_trip_through_to_python() -> None:
         ),
         (
             _fusion(
-                sx.Gate(when=sx.signal("conf").chosen() >= 80, then=sx.Vote()),
+                sf.Gate(when=sf.signal("conf").chosen() >= 80, then=sf.Vote()),
                 signals={"conf": sf.Verbalized(CONF_PATTERN)},
             ),
             verbalized_gate,
@@ -478,8 +477,8 @@ def test_public_surface_lists_gate_and_the_vote_parameters() -> None:
 
 
 def test_vote_accepts_verify_none_and_keeps_its_bytes() -> None:
-    plain = sx.Vote()
-    slot = sx.Vote(verify=None)
+    plain = sf.Vote()
+    slot = sf.Vote(verify=None)
     plain_node = VoteNode()
     slot_node = VoteNode(verify=None, gate=None)
     assert slot == plain
@@ -500,7 +499,7 @@ def test_vote_refuses_any_verify_value_but_none() -> None:
     values: list[Any] = [lambda answer: True, "model", False, 0, {}]
     for value in values:
         with pytest.raises(ValueError) as caught:
-            sx.Vote(verify=value)
+            sf.Vote(verify=value)
         assert str(caught.value) == _VERIFY_RULE
 
 
@@ -508,8 +507,8 @@ def test_vote_refuses_any_verify_value_but_none() -> None:
 
 
 def test_vote_repr_and_rebuild_leave_verify_out() -> None:
-    assert repr(sx.Vote(verify=None)) == "Vote()"
-    vote = sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote(verify=None))
+    assert repr(sf.Vote(verify=None)) == "Vote()"
+    vote = sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(verify=None))
     assert "verify" not in repr(vote)
     assert "verify" not in VoteNode(verify=None, gate=GateNode("agreement", ">=", 0.7))._python()
     url4 = _compiled(_fusion(vote))
@@ -531,24 +530,24 @@ _FB_MEMBER_OPS = ("op_model_1", "op_model_2", "op_model_3")
 _FB_ENGINE_SPEC = ENGINE_APP / "src" / "screamingface_engine" / "combine" / "spec.py"
 
 
-def _fb_judge(params: dict[str, Any] | None = None) -> sx.JudgePick:
-    return sx.JudgePick("prov/judge", rubric=_FB_RUBRIC, params=params)
+def _fb_judge(params: dict[str, Any] | None = None) -> sf.JudgePick:
+    return sf.JudgePick("prov/judge", rubric=_FB_RUBRIC, params=params)
 
 
-def _fb_writer(params: dict[str, Any] | None = None) -> sx.Synthesize:
-    return sx.Synthesize(sf.Model("prov/writer", prompt=_FB_WRITE, params=params))
+def _fb_writer(params: dict[str, Any] | None = None) -> sf.Synthesize:
+    return sf.Synthesize(sf.Model("prov/writer", prompt=_FB_WRITE, params=params))
 
 
 def _fb_fusion(
     otherwise: Any,
     *,
-    judge: sx.Judge | None = None,
+    judge: sf.Judge | None = None,
     weights: Any = None,
     members: list[Any] | None = None,
     quorum: Any = "all",
-) -> sx.Pipeline:
-    fanout = sx.Fanout(_FB_MEMBERS if members is None else members, name="vote", quorum=quorum)
-    gate = sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote(weights=weights), otherwise=otherwise)
+) -> sf.Pipeline:
+    fanout = sf.Fanout(_FB_MEMBERS if members is None else members, name="vote", quorum=quorum)
+    gate = sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(weights=weights), otherwise=otherwise)
     return fanout >> gate if judge is None else fanout >> judge >> gate
 
 
@@ -752,12 +751,12 @@ def test_fallback_params_go_to_the_preflight(fallback: str) -> None:
     )
 
 
-def _fb_round_trip_recipes() -> dict[str, sx.Pipeline]:
+def _fb_round_trip_recipes() -> dict[str, sf.Pipeline]:
     return {
         "judge": _fb_fusion(_fb_judge()),
         "judge_weighted": _fb_fusion(
             _fb_judge(),
-            judge=sx.Judge("prov/scorer", rubric="Score."),
+            judge=sf.Judge("prov/scorer", rubric="Score."),
             weights=sf.signal("score:judge"),
         ),
         "writer": _fb_fusion(_fb_writer()),
@@ -802,7 +801,7 @@ def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Recipe], str, str]]:
 
     return {
         "gate_on_a_median": (
-            lambda: sx.Fanout(_FB_MEMBERS, name="vote") >> sx.Median(),
+            lambda: sf.Fanout(_FB_MEMBERS, name="vote") >> sf.Median(),
             _FB_SPEC_MEMBERS,
             _FB_GATE_ABSTAIN + _FB_SPEC_MEMBERS,
         ),
@@ -813,8 +812,8 @@ def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Recipe], str, str]]:
         ),
         "judge_gate_without_its_call": (
             lambda: (
-                sx.Fanout(_FB_MEMBERS, name="vote")
-                >> sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())
+                sf.Fanout(_FB_MEMBERS, name="vote")
+                >> sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())
             ),
             '"otherwise":"abstain"',
             '"otherwise":"judge"',
@@ -862,7 +861,7 @@ def test_hand_edited_gate_vote_with_two_fallback_calls_cannot_rebuild() -> None:
 
 
 def test_writer_default_prompt_rebuilds_without_prompt() -> None:
-    recipe = _fb_fusion(sx.Synthesize("prov/writer"))
+    recipe = _fb_fusion(sf.Synthesize("prov/writer"))
     url4 = _fb_compiled(recipe).url4
 
     assert _fb_calls(url4)["writer_1"].prompt == DEFAULT_SYNTHESIS_PROMPT

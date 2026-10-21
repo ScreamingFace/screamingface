@@ -38,7 +38,6 @@ from _vote_run_fixtures import spec_of
 from url4 import build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import (
     accounting_signal,
@@ -88,8 +87,8 @@ def _step(op: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"op": op, "args": {} if args is None else args}
 
 
-def _judge() -> sx.Judge:
-    return sx.Judge(_JUDGE, rubric=_RUBRIC)
+def _judge() -> sf.Judge:
+    return sf.Judge(_JUDGE, rubric=_RUBRIC)
 
 
 def _combine_call(url4: str, binding: str = "synthesis_1") -> Any:
@@ -107,9 +106,9 @@ def _judge_calls(url4: str) -> list[str]:
 
 def test_nc1_filter_then_mean_writes_one_narrow_item() -> None:
     chain = (
-        sx.Fanout(_json_members())
-        >> sx.Filter(where=sx.signal("field:confidence") > 0.7)
-        >> sx.Mean(over="field:answer")
+        sf.Fanout(_json_members())
+        >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+        >> sf.Mean(over="field:answer")
     )
     spec = _spec(chain)
 
@@ -126,9 +125,9 @@ def test_nc1_filter_then_mean_writes_one_narrow_item() -> None:
 
 def test_nc1_the_spec_text_stays_canonical() -> None:
     chain = (
-        sx.Fanout(_json_members())
-        >> sx.Filter(where=sx.signal("field:confidence") > 0.7)
-        >> sx.Mean(over="field:answer")
+        sf.Fanout(_json_members())
+        >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+        >> sf.Mean(over="field:answer")
     )
 
     raw = _combine_call(_url4(chain)).raw_intent
@@ -137,19 +136,19 @@ def test_nc1_the_spec_text_stays_canonical() -> None:
 
 
 def test_nc1_no_narrow_step_writes_no_key() -> None:
-    chain = sx.Fanout(_json_members()) >> sx.Mean(over="field:answer")
+    chain = sf.Fanout(_json_members()) >> sf.Mean(over="field:answer")
 
     assert "narrow" not in _spec(chain)
 
 
 def test_nc1_rank_then_vote_writes_a_by_signal_item() -> None:
     chain = (
-        sx.Fanout(_json_members())
-        >> sx.Rank(2, by="field:confidence")
-        >> sx.Vote(over="field:answer")
+        sf.Fanout(_json_members())
+        >> sf.Rank(2, by="field:confidence")
+        >> sf.Vote(over="field:answer")
     )
     # the same block with no narrow step (the parity tests tie it to today's bytes)
-    plain = sx.Fanout(_json_members()) >> sx.Vote(over="field:answer")
+    plain = sf.Fanout(_json_members()) >> sf.Vote(over="field:answer")
 
     spec = _spec(chain)
 
@@ -163,7 +162,7 @@ def test_nc1_rank_then_vote_writes_a_by_signal_item() -> None:
 
 
 def test_nc1_a_pattern_filter_keeps_its_extract() -> None:
-    chain = sx.Fanout(_ROUTES) >> sx.Filter(where=sx.matches("^A"), over="last_line") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> sf.Filter(where=sf.matches("^A"), over="last_line") >> sf.Vote()
 
     (item,) = _spec(chain)["narrow"]
 
@@ -173,7 +172,7 @@ def test_nc1_a_pattern_filter_keeps_its_extract() -> None:
 
 
 def test_nc1_a_judge_rank_writes_the_judge_scores_item() -> None:
-    chain = sx.Fanout(_ROUTES) >> _judge() >> sx.Rank(2, by="score:judge") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> _judge() >> sf.Rank(2, by="score:judge") >> sf.Vote()
 
     spec = _spec(chain)
 
@@ -186,10 +185,10 @@ def test_nc1_a_judge_rank_writes_the_judge_scores_item() -> None:
 
 def test_nc1_narrow_steps_keep_their_chain_order() -> None:
     chain = (
-        sx.Fanout(_json_members())
-        >> sx.Filter(where=sx.signal("field:confidence") > 0.2)
-        >> sx.Rank(2, by="field:confidence")
-        >> sx.Median(over="field:answer", select="value")
+        sf.Fanout(_json_members())
+        >> sf.Filter(where=sf.signal("field:confidence") > 0.2)
+        >> sf.Rank(2, by="field:confidence")
+        >> sf.Median(over="field:answer", select="value")
     )
 
     narrow = _spec(chain)["narrow"]
@@ -198,8 +197,8 @@ def test_nc1_narrow_steps_keep_their_chain_order() -> None:
 
 
 def test_nc1_an_abstain_gate_after_a_narrow_step_compiles() -> None:
-    gate = sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())
-    chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> gate
+    gate = sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())
+    chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> gate
 
     spec = _spec(chain)
 
@@ -212,10 +211,10 @@ def test_nc1_an_abstain_gate_after_a_narrow_step_compiles() -> None:
 
 def test_nc2_the_last_of_two_narrow_steps_is_the_main_selection() -> None:
     chain = (
-        sx.Fanout(_ROUTES)
-        >> sx.Rank(2, by="cost_usd")
-        >> sx.Filter(where=sx.matches("x"))
-        >> sx.Synthesize("prov/writer")
+        sf.Fanout(_ROUTES)
+        >> sf.Rank(2, by="cost_usd")
+        >> sf.Filter(where=sf.matches("x"))
+        >> sf.Synthesize("prov/writer")
     )
 
     lowered = lower(chain)
@@ -241,10 +240,10 @@ def test_nc2_the_last_of_two_narrow_steps_is_the_main_selection() -> None:
 
 def test_nc2_a_concat_after_a_narrow_step_is_the_main_step() -> None:
     chain = (
-        sx.Fanout(_ROUTES)
-        >> sx.Rank(2, by="cost_usd")
-        >> sx.Concat()
-        >> sx.Synthesize("prov/writer")
+        sf.Fanout(_ROUTES)
+        >> sf.Rank(2, by="cost_usd")
+        >> sf.Concat()
+        >> sf.Synthesize("prov/writer")
     )
 
     spec = _spec(chain)
@@ -254,14 +253,14 @@ def test_nc2_a_concat_after_a_narrow_step_is_the_main_step() -> None:
 
 
 def test_nc2_one_narrow_step_before_a_writer_writes_no_narrow_key() -> None:
-    chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> sx.Synthesize("prov/writer")
+    chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> sf.Synthesize("prov/writer")
 
     assert "narrow" not in _spec(chain)
 
 
 def test_nc2_a_narrow_accounting_read_puts_the_sources_in_the_context() -> None:
     # narrow §5: accounting_signal is true when ANY step reads an accounting key
-    chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> sf.Vote()
 
     lowered = lower(chain)
 
@@ -276,10 +275,10 @@ def test_nc2_a_narrow_accounting_read_puts_the_sources_in_the_context() -> None:
 
 def test_nc3_a_judge_with_two_readers_is_one_call() -> None:
     chain = (
-        sx.Fanout(_ROUTES)
+        sf.Fanout(_ROUTES)
         >> _judge()
-        >> sx.Rank(2, by="score:judge")
-        >> sx.Vote(weights="score:judge")
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote(weights="score:judge")
     )
 
     url4 = _url4(chain)
@@ -291,7 +290,7 @@ def test_nc3_a_judge_with_two_readers_is_one_call() -> None:
 
 
 def test_nc3_a_judge_read_only_by_a_narrow_step_is_one_call() -> None:
-    chain = sx.Fanout(_ROUTES) >> _judge() >> sx.Rank(2, by="score:judge") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> _judge() >> sf.Rank(2, by="score:judge") >> sf.Vote()
 
     url4 = _url4(chain)
 
@@ -302,10 +301,10 @@ def test_nc3_a_judge_read_only_by_a_narrow_step_is_one_call() -> None:
 def test_nc3_an_argmax_by_the_judge_after_a_filter_leaves_the_judge_step_as_it_is() -> None:
     judge = _judge()
     chain = (
-        sx.Fanout(_ROUTES)
+        sf.Fanout(_ROUTES)
         >> judge
-        >> sx.Filter(where=sx.signal("score:judge") >= 5)
-        >> sx.ArgMax("score:judge")
+        >> sf.Filter(where=sf.signal("score:judge") >= 5)
+        >> sf.ArgMax("score:judge")
     )
 
     lowered = lower(chain)
@@ -323,19 +322,19 @@ def test_nc3_an_argmax_by_the_judge_after_a_filter_leaves_the_judge_step_as_it_i
 
 def test_a_narrow_step_that_reads_an_undeclared_name_is_refused() -> None:
     with pytest.raises(ValueError, match=r"reads sf\.signal\('p'\), which this Fusion does not"):
-        _ = sx.Fanout(_ROUTES) >> sx.Filter(where=sx.signal("p") > 0.5) >> sx.Vote()
+        _ = sf.Fanout(_ROUTES) >> sf.Filter(where=sf.signal("p") > 0.5) >> sf.Vote()
 
 
 def test_a_narrow_rank_over_the_member_count_is_refused() -> None:
     with pytest.raises(ValueError, match=r"^Rank keeps k=3 members but the Fusion has 2$"):
-        _ = sx.Fanout(_ROUTES[:2]) >> sx.Rank(3, by="cost_usd") >> sx.Vote()
+        _ = sf.Fanout(_ROUTES[:2]) >> sf.Rank(3, by="cost_usd") >> sf.Vote()
 
 
 def test_a_declared_narrow_read_compiles() -> None:
     chain = (
-        sx.Fanout(_ROUTES, signals={"p": sf.Verbalized("Confidence: ([0-9.]+)")})
-        >> sx.Filter(where=sx.signal("p") >= 0.5)
-        >> sx.Vote()
+        sf.Fanout(_ROUTES, signals={"p": sf.Verbalized("Confidence: ([0-9.]+)")})
+        >> sf.Filter(where=sf.signal("p") >= 0.5)
+        >> sf.Vote()
     )
 
     spec = _spec(chain)
@@ -349,9 +348,9 @@ def test_a_declared_narrow_read_compiles() -> None:
 
 def test_a_narrow_spec_decodes_and_names_its_narrow_operators() -> None:
     chain = (
-        sx.Fanout(_json_members())
-        >> sx.Filter(where=sx.signal("field:confidence") > 0.7)
-        >> sx.Mean(over="field:answer")
+        sf.Fanout(_json_members())
+        >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+        >> sf.Mean(over="field:answer")
     )
     raw = _combine_call(_url4(chain)).raw_intent
 
@@ -363,7 +362,7 @@ def test_a_narrow_spec_decodes_and_names_its_narrow_operators() -> None:
 
 
 def test_to_python_of_a_narrow_url4_names_the_new_surface() -> None:
-    chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> sf.Vote()
 
     with pytest.raises(ValueError, match=r"narrow steps"):
         sf.Url4(_url4(chain)).to_python()
@@ -378,7 +377,7 @@ def test_to_python_of_a_narrow_url4_names_the_new_surface() -> None:
     ids=["unknown-select", "scores-then-kept"],
 )
 def test_a_hand_edited_narrow_item_cannot_rebuild(edit: tuple[str, str], message: str) -> None:
-    chain = sx.Fanout(_ROUTES) >> _judge() >> sx.Rank(2, by="score:judge") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> _judge() >> sf.Rank(2, by="score:judge") >> sf.Vote()
     url4 = _url4(chain)
     edited = url4.replace(*edit)
     assert edited != url4
@@ -402,7 +401,7 @@ def test_the_carrier_moves_no_public_signature_or_repr() -> None:
         ConcatNode,
     ):
         assert "_narrow" not in inspect.signature(cls).parameters
-    chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> sf.Vote()
     lowered = lower(chain)
 
     assert isinstance(lowered, FusionNode)
@@ -413,12 +412,12 @@ def test_the_carrier_moves_no_public_signature_or_repr() -> None:
 
 
 def test_the_block_record_keeps_its_narrow_steps() -> None:
-    chain = sx.Fanout(_ROUTES) >> sx.Rank(2, by="cost_usd") >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> sf.Rank(2, by="cost_usd") >> sf.Vote()
 
     (block,) = chain._stages
 
     assert isinstance(block, _Block)
-    assert block.narrow == (sx.Rank(2, by="cost_usd"),)
+    assert block.narrow == (sf.Rank(2, by="cost_usd"),)
 
 
 # ---------------------------------------------------------------- equality follows the bytes
@@ -453,12 +452,12 @@ def test_a_narrowed_value_differs_from_the_plain_one(plain: Reducer) -> None:
 
 
 def test_an_argmax_by_the_judge_after_a_narrow_step_is_not_the_plain_argmax() -> None:
-    plain = lower(sx.Fanout(_ROUTES) >> _judge() >> sx.ArgMax("score:judge"))
+    plain = lower(sf.Fanout(_ROUTES) >> _judge() >> sf.ArgMax("score:judge"))
     narrowed = lower(
-        sx.Fanout(_ROUTES)
+        sf.Fanout(_ROUTES)
         >> _judge()
-        >> sx.Filter(where=sx.signal("field:confidence") > 0.5)
-        >> sx.ArgMax("score:judge")
+        >> sf.Filter(where=sf.signal("field:confidence") > 0.5)
+        >> sf.ArgMax("score:judge")
     )
 
     assert isinstance(plain, FusionNode)
@@ -492,7 +491,7 @@ def _rebuild_refusal(url4: str, message: str) -> ValueError:
 
 
 def test_the_rebuild_refuses_five_narrow_items() -> None:
-    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+    url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
 
     error = _rebuild_refusal(
         _with_narrow_items(url4, 5),
@@ -503,7 +502,7 @@ def test_the_rebuild_refuses_five_narrow_items() -> None:
 
 
 def test_the_rebuild_takes_four_narrow_items_as_far_as_to_python() -> None:
-    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+    url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
 
     # the url4 rebuilds and recompiles, then to_python names the surface that can spell it
     _rebuild_refusal(_with_narrow_items(url4, 4), r"narrow steps before its reducer")

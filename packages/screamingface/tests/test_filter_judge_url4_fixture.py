@@ -16,7 +16,6 @@ from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, requires_engine_app
 from _combine_flow_fixtures import flow_operators
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 FIXTURE = "filter_judge_candidate.url4"
@@ -26,10 +25,10 @@ def filter_judge_url4() -> str:
     """Three members, a judge Filter at >= 7, then a writer that sees only the kept members."""
 
     recipe = (
-        sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
-        >> sx.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
-        >> sx.Filter(where=sf.signal("score:judge") >= 7)
-        >> sx.Synthesize("prov/writer")
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
+        >> sf.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
+        >> sf.Filter(where=sf.signal("score:judge") >= 7)
+        >> sf.Synthesize("prov/writer")
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 

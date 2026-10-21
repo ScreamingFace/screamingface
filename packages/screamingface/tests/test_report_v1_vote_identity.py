@@ -16,7 +16,6 @@ import httpx
 from _vote_run_fixtures import ScriptedTransport, benchmark_resource, engine_handler, vote_case
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.model import Candidate
 
 GOLDEN = Path(__file__).parent / "data" / "report_v1_vote_median_report.json"
@@ -47,12 +46,12 @@ def _cases_for(candidate: Candidate) -> list[dict[str, object]]:
 
 
 def vote_median_report() -> sf.Report:
-    vote = sx.Fanout(["provider/a", "provider/b", "provider/c"], name="vote") >> sx.Vote(
+    vote = sf.Fanout(["provider/a", "provider/b", "provider/c"], name="vote") >> sf.Vote(
         over="last_number", normalize="numeric"
     )
-    median = sx.Fanout(
+    median = sf.Fanout(
         ["provider/a", "provider/b", "provider/c", "provider/d"], name="median"
-    ) >> sx.Median(over="last_number")
+    ) >> sf.Median(over="last_number")
     transport = ScriptedTransport("draco", "fixture-revision", _cases_for)
     resources = {"draco": benchmark_resource("draco")}
     with sf.Client(

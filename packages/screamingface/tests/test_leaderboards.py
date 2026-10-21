@@ -14,7 +14,6 @@ from url4 import expr, render, src, text
 
 import screamingface as sf
 from screamingface import _default_client
-from screamingface import _surface as sx
 from screamingface._access import auth as auth_module
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._evaluation.candidate import compile_candidate
@@ -1796,7 +1795,7 @@ def test_a_fusion_declares_its_synthesizer_as_well_as_its_members() -> None:
     member_b = "openrouter/qwen/qwen3.6-plus"
     synthesizer = "anthropic/claude-opus-4.8"
 
-    compiled = compile_candidate(sx.Fanout([member_a, member_b]) >> sx.Synthesize(synthesizer))
+    compiled = compile_candidate(sf.Fanout([member_a, member_b]) >> sf.Synthesize(synthesizer))
 
     assert set(compiled.models) == {member_a, member_b, synthesizer}
 

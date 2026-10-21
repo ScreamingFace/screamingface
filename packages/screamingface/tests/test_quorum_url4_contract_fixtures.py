@@ -18,16 +18,15 @@ from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, re
 from _combine_flow_fixtures import flow_operators
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 
 def quorum_vote_url4() -> str:
     """Three members, the third optional, voting with a quorum of two."""
 
-    recipe = sx.Fanout(
+    recipe = sf.Fanout(
         ["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)], quorum=2
-    ) >> sx.Vote(over="last_line", normalize="text")
+    ) >> sf.Vote(over="last_line", normalize="text")
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
@@ -35,9 +34,9 @@ def quorum_judge_vote_url4() -> str:
     """The judge-weighted vote over a quorum panel: the judge scores the members that answered."""
 
     recipe = (
-        sx.Fanout(["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)], quorum=2)
-        >> sx.Judge("prov/judge", rubric="Score each answer.")
-        >> sx.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
+        sf.Fanout(["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)], quorum=2)
+        >> sf.Judge("prov/judge", rubric="Score each answer.")
+        >> sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 

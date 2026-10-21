@@ -15,7 +15,6 @@ from _combine_flow_fixtures import flow_operators, members3
 from _nodes import MergeNode, PickNode, ReduceNode, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.fields import _FieldRules
 from screamingface.reducer import Reducer
@@ -25,9 +24,9 @@ _WRITER = sf.FieldRule.model("provider/w", prompt="Write.")
 
 # WHY the internal nodes: the pick_field and merge blocks go in 7f (swap D7-8), so these rows
 # compare them with the nodes they name; the surface Merge is ``sx.Merge``.
-def _url4(synthesizer: Reducer | sx.Merge) -> str:
-    if isinstance(synthesizer, sx.Merge):
-        recipe: sf.Recipe = sx.Fanout(members3()) >> synthesizer
+def _url4(synthesizer: Reducer | sf.Merge) -> str:
+    if isinstance(synthesizer, sf.Merge):
+        recipe: sf.Recipe = sf.Fanout(members3()) >> synthesizer
     else:
         recipe = fusion_node(members3(), synthesizer)
     return compile_candidate(recipe, operators=flow_operators()).url4
@@ -153,14 +152,14 @@ def test_field_rule_params_are_compared_by_type_and_value() -> None:
     blocks = [ReduceNode("merge", fields={"a": rule}) for rule in rules]
     assert len(set(blocks)) == 3
     assert blocks[0] != blocks[1] != blocks[2]
-    merges = [sx.Merge({"a": rule}) for rule in rules]
+    merges = [sf.Merge({"a": rule}) for rule in rules]
     assert merges[0] != merges[1] != merges[2]
     assert len({_url4(merge) for merge in merges}) == 3
 
     same = sf.FieldRule.model("provider/w", prompt="Write.", params={"seed": 1})
     assert same == rules[1]
     assert hash(same) == hash(rules[1])
-    assert _url4(sx.Merge({"a": same})) == _url4(merges[1])
+    assert _url4(sf.Merge({"a": same})) == _url4(merges[1])
     assert _FieldRules((("a", rules[0]),)) != _FieldRules((("a", rules[1]),))
     assert _FieldRules((("a", rules[1]),)) == _FieldRules((("a", same),))
     assert hash(_FieldRules((("a", rules[1]),))) == hash(_FieldRules((("a", same),)))

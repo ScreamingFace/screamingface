@@ -16,17 +16,16 @@ from typing import Any, cast
 from _combine_contract import engine_operators
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._case_views import _member_ids
 from screamingface._evaluation.candidate import compile_candidate
 
 
 def _nested_graph() -> dict[str, Any]:
-    inner_a = sx.Fanout(
+    inner_a = sf.Fanout(
         ["prov/alpha", "prov/beta"], signals={"cons": sf.Consistency(n=2)}, name="ia"
-    ) >> sx.ArgMax("cons")
-    inner_b = sx.Fanout(["prov/gamma", "prov/delta"], name="ib") >> sx.Vote()
-    outer = sx.Fanout([inner_a, inner_b], name="outer") >> sx.Vote()
+    ) >> sf.ArgMax("cons")
+    inner_b = sf.Fanout(["prov/gamma", "prov/delta"], name="ib") >> sf.Vote()
+    outer = sf.Fanout([inner_a, inner_b], name="outer") >> sf.Vote()
     compiled = compile_candidate(outer, operators=engine_operators())
     return {operation.id: operation for operation in compiled.operations}
 

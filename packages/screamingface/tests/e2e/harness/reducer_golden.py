@@ -72,12 +72,11 @@ class ReducerCandidateSpec(BaseModel):
         ``weights="cost_usd"`` makes it the cost-weighted vote of the SG#15 claim.
         """
         import screamingface as sf
-        from screamingface import _surface as sx
 
         weights = None if self.weights is None else sf.signal(self.weights)
-        return sx.Fanout(
+        return sf.Fanout(
             list(sf.samples(self.model, self.samples, temperature=self.temperature))
-        ) >> sx.Vote(over=self.extract, normalize=self.normalize, weights=weights)
+        ) >> sf.Vote(over=self.extract, normalize=self.normalize, weights=weights)
 
 
 class EvidenceLock(BaseModel):

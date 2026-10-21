@@ -22,7 +22,6 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -31,15 +30,15 @@ CONF_PATTERN = "Confidence: ([0-9]+)"
 
 def gate_abstain_vote_url4() -> str:
     """GA-1: the vote keeps its majority when the agreement is at least 0.7; else it abstains."""
-    recipe = sx.Fanout(_MEMBERS, name="vote") >> sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote())
+    recipe = sf.Fanout(_MEMBERS, name="vote") >> sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
 def gate_verbalized_vote_url4() -> str:
     """GA-4: the vote keeps its majority when the chosen member states a confidence of 80+."""
-    recipe = sx.Fanout(
+    recipe = sf.Fanout(
         _MEMBERS, signals={"conf": sf.Verbalized(CONF_PATTERN)}, name="vote"
-    ) >> sx.Gate(when=sx.signal("conf").chosen() >= 80, then=sx.Vote())
+    ) >> sf.Gate(when=sf.signal("conf").chosen() >= 80, then=sf.Vote())
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
@@ -79,10 +78,10 @@ def test_gate_url4_fixtures_match_the_sdk_compile(name: str) -> None:
 def gate_judge_vote_url4() -> str:
     """GA-2: an agreement gate whose fallback is a label judge (GA-D6)."""
 
-    recipe = sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma"], name="vote") >> sx.Gate(
-        when=sx.agreement() >= 0.7,
-        then=sx.Vote(),
-        otherwise=sx.JudgePick("prov/judge", rubric="Pick the best answer."),
+    recipe = sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"], name="vote") >> sf.Gate(
+        when=sf.agreement() >= 0.7,
+        then=sf.Vote(),
+        otherwise=sf.JudgePick("prov/judge", rubric="Pick the best answer."),
     )
     return compile_candidate(recipe, operators=engine_operators()).url4
 
@@ -90,10 +89,10 @@ def gate_judge_vote_url4() -> str:
 def gate_writer_vote_url4() -> str:
     """GA-3: an agreement gate whose fallback is a writing model (GA-D6)."""
 
-    recipe = sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma"], name="vote") >> sx.Gate(
-        when=sx.agreement() >= 0.7,
-        then=sx.Vote(),
-        otherwise=sx.Synthesize(sf.Model("prov/writer", prompt="Write one answer.")),
+    recipe = sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"], name="vote") >> sf.Gate(
+        when=sf.agreement() >= 0.7,
+        then=sf.Vote(),
+        otherwise=sf.Synthesize(sf.Model("prov/writer", prompt="Write one answer.")),
     )
     return compile_candidate(recipe, operators=engine_operators()).url4
 

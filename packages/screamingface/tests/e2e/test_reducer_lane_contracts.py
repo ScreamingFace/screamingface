@@ -38,7 +38,6 @@ from test_reducer_golden_contracts import (
 )
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface.combine_evidence import CombineEvidence
 
 _URL4 = "(rendered expression)"
@@ -453,8 +452,8 @@ def test_record_runs_the_signal_vote_first_and_the_plain_vote_second(
 
     reports = reducer_lane._record_run("http://engine.invalid", _SPEC, 2)
 
-    signal_vote = sx.Vote(over="last_number", normalize="numeric", weights=sf.signal("cost_usd"))
-    plain_vote = sx.Vote(over="last_number", normalize="numeric")
+    signal_vote = sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("cost_usd"))
+    plain_vote = sf.Vote(over="last_number", normalize="numeric")
     assert [candidate.steps[1] for candidate in fake.candidates] == [signal_vote, plain_vote]
     # Same members, so the plain vote's requests are the signal vote's, served from the live cache.
     assert fake.candidates[0].steps[0].members == fake.candidates[1].steps[0].members

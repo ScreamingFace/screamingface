@@ -22,14 +22,13 @@ from _nodes import FilterNode, FusionNode, JudgeNode, ReduceNode, fusion_node
 from url4 import Expression, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 RUBRIC = "Score each draft."
 SECRET = "SECRET-RUBRIC-TEXT"
-J = sx.Judge("provider/j", rubric=RUBRIC)
+J = sf.Judge("provider/j", rubric=RUBRIC)
 JUDGED = sf.signal("score:judge") >= 7
 # group F (7f): the old renderer (_python) writes ``sf.<today's class>``; these rows read it with
 # the node classes, so they keep working after the swap until 7f deletes them.
@@ -51,10 +50,10 @@ def _judge_filter(
     """Fanout >> Judge >> Filter(score:judge) >> Synthesize: the judge filter and its writer."""
 
     return (
-        sx.Fanout(members, quorum=quorum)
+        sf.Fanout(members, quorum=quorum)
         >> J
-        >> sx.Filter(where=JUDGED)
-        >> sx.Synthesize("provider/next")
+        >> sf.Filter(where=JUDGED)
+        >> sf.Synthesize("provider/next")
     )
 
 
@@ -114,12 +113,12 @@ def test_sdk_filter_with_judge_compiles_the_judge_call_and_signal() -> None:
 def test_sdk_filter_score_judge_without_judge_is_refused() -> None:
     message = r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
     with pytest.raises(ValueError, match=message):
-        _ = sx.Fanout(members3()) >> sx.Filter(where=JUDGED) >> sx.Synthesize("provider/next")
+        _ = sf.Fanout(members3()) >> sf.Filter(where=JUDGED) >> sf.Synthesize("provider/next")
     with pytest.raises(ValueError, match=message):
         _ = (
-            sx.Fanout(members3())
-            >> sx.Filter(where=sf.signal("score:judge") < 3)
-            >> sx.Synthesize("provider/next")
+            sf.Fanout(members3())
+            >> sf.Filter(where=sf.signal("score:judge") < 3)
+            >> sf.Synthesize("provider/next")
         )
     # group F (7f): the filter block form is deleted code (D7-8)
     with pytest.raises(
@@ -132,7 +131,7 @@ def test_sdk_filter_score_judge_without_judge_is_refused() -> None:
 
 
 def test_sdk_filter_judge_without_score_judge_where_is_refused() -> None:
-    secret = sx.Judge("provider/j", rubric=SECRET)
+    secret = sf.Judge("provider/j", rubric=SECRET)
     unread = r"^sf\.Judge scores the members, but no step reads score:judge$"
     for where in (
         sf.signal("field:confidence") >= 0.6,
@@ -141,10 +140,10 @@ def test_sdk_filter_judge_without_score_judge_where_is_refused() -> None:
     ):
         with pytest.raises(ValueError, match=unread) as caught:
             _ = (
-                sx.Fanout(members3())
+                sf.Fanout(members3())
                 >> secret
-                >> sx.Filter(where=where)
-                >> sx.Synthesize("provider/next")
+                >> sf.Filter(where=where)
+                >> sf.Synthesize("provider/next")
             )
         assert SECRET not in str(caught.value)
 

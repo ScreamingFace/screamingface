@@ -9,7 +9,6 @@ from test_accounting_evaluation import AccountingTransport
 from test_client_run import _engine
 
 import screamingface as sf
-from screamingface import _surface as sx
 
 
 class PartialTokenTransport(AccountingTransport):
@@ -55,8 +54,8 @@ def test_partial_member_tokens_remain_explicit_after_evaluation(
     transport = PartialTokenTransport(input_tokens, output_tokens)
     with sf.Client(http_transport=httpx.MockTransport(_engine), run_transport=transport) as client:
         report = client.evaluate(
-            sx.Fanout([sf.Model("provider/opus", name="A"), sf.Model("provider/opus", name="B")])
-            >> sx.Synthesize("provider/opus"),
+            sf.Fanout([sf.Model("provider/opus", name="A"), sf.Model("provider/opus", name="B")])
+            >> sf.Synthesize("provider/opus"),
             benchmark="draco",
             on_event=lambda event: None,
             progress=False,

@@ -24,7 +24,6 @@ from _combine_flow_fixtures import flow_operators
 from url4 import build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.operators import _OperatorCatalog
 from screamingface.url4 import (
@@ -41,39 +40,39 @@ _JSON = "Reply with JSON: {'answer': <number>, 'confidence': <0..1>}."
 _RUBRIC = "Score each draft from 0 to 10."
 
 
-def filter_mean_chain() -> sx.Pipeline:
+def filter_mean_chain() -> sf.Pipeline:
     """Four JSON members; keep the confident ones, then the mean of their answers."""
 
     return (
-        sx.Fanout([sf.Model(route, prompt=_JSON) for route in _ROUTES])
-        >> sx.Filter(where=sx.signal("field:confidence") > 0.7)
-        >> sx.Mean(over="field:answer")
+        sf.Fanout([sf.Model(route, prompt=_JSON) for route in _ROUTES])
+        >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+        >> sf.Mean(over="field:answer")
     )
 
 
-def rank_vote_chain() -> sx.Pipeline:
+def rank_vote_chain() -> sf.Pipeline:
     """Four members, one judge; the top two by the judge, then a judge-weighted vote."""
 
     return (
-        sx.Fanout(_ROUTES)
-        >> sx.Judge("prov/judge", rubric=_RUBRIC)
-        >> sx.Rank(2, by="score:judge")
-        >> sx.Vote(weights="score:judge")
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric=_RUBRIC)
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote(weights="score:judge")
     )
 
 
-def judge_rank_vote_chain() -> sx.Pipeline:
+def judge_rank_vote_chain() -> sf.Pipeline:
     """Four members, one judge that only the narrow rank reads; then a plain vote."""
 
     return (
-        sx.Fanout(_ROUTES)
-        >> sx.Judge("prov/judge", rubric=_RUBRIC)
-        >> sx.Rank(2, by="score:judge")
-        >> sx.Vote()
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric=_RUBRIC)
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote()
     )
 
 
-FIXTURES: dict[str, Callable[[], sx.Pipeline]] = {
+FIXTURES: dict[str, Callable[[], sf.Pipeline]] = {
     "narrow_filter_mean_candidate.url4": filter_mean_chain,
     "narrow_rank_vote_candidate.url4": rank_vote_chain,
     "narrow_judge_rank_vote_candidate.url4": judge_rank_vote_chain,

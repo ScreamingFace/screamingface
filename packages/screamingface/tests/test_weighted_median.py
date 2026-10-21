@@ -18,7 +18,6 @@ from _combine_flow_fixtures import flow_operators
 from _nodes import MedianNode, ReduceNode, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 
@@ -120,7 +119,7 @@ def test_sdk_reduce_block_median_accepts_weights_and_round_trips() -> None:
 
 
 def test_sdk_median_with_weights_round_trips_through_url4() -> None:
-    fusion = sx.Fanout(_MEMBERS3) >> sx.Median(weights=(1, 1, 3))
+    fusion = sf.Fanout(_MEMBERS3) >> sf.Median(weights=(1, 1, 3))
     url4 = compile_candidate(fusion, operators=engine_operators()).url4
     code = sf.Url4(url4).to_python()
     assert "weights=(1.0, 1.0, 3.0)" in code
@@ -135,19 +134,19 @@ def test_sdk_median_with_weights_round_trips_through_url4() -> None:
 
 def test_sdk_median_weights_refuse_bad_input() -> None:
     with pytest.raises(ValueError, match="has 2 weights for 3 members"):
-        _ = sx.Fanout(_MEMBERS3) >> sx.Median(weights=(1, 2))
+        _ = sf.Fanout(_MEMBERS3) >> sf.Median(weights=(1, 2))
     with pytest.raises(ValueError, match="has no judge"):
-        sx.Median(weights=sf.signal("score:judge"))
+        sf.Median(weights=sf.signal("score:judge"))
     with pytest.raises(ValueError, match="has no judge"):
-        sx.Median(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
+        sf.Median(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
     with pytest.raises(TypeError, match="must be a sequence of numbers"):
-        sx.Median(weights=("a", "b", "c"))  # type: ignore[arg-type]
+        sf.Median(weights=("a", "b", "c"))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="greater than zero"):
-        sx.Median(weights=(1, 0, 1))
+        sf.Median(weights=(1, 0, 1))
     # a string is a signal key on the surface, so the block refuses a key it does not declare
     undeclared = (
         "the synthesizer reads sf.signal('abc'), which this Fusion does not declare "
         "(declared: none)"
     )
     with pytest.raises(ValueError, match=f"^{re.escape(undeclared)}$"):
-        _ = sx.Fanout(_MEMBERS3) >> sx.Median(weights="abc")
+        _ = sf.Fanout(_MEMBERS3) >> sf.Median(weights="abc")

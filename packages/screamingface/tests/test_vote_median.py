@@ -13,7 +13,6 @@ from _nodes import MedianNode, VoteNode
 from url4 import Expression, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface._surface.chain import Step
@@ -21,8 +20,8 @@ from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 
-def _fusion(step: Step) -> sx.Pipeline:
-    return sx.Fanout(["provider/a", "provider/b", "provider/c"]) >> step
+def _fusion(step: Step) -> sf.Pipeline:
+    return sf.Fanout(["provider/a", "provider/b", "provider/c"]) >> step
 
 
 def _url4(recipe: sf.Recipe, **kwargs: Any) -> str:
@@ -42,16 +41,16 @@ def _spec(reducer: Reducer, members: int = 3) -> dict[str, Any]:
 
 
 def test_vote_compiles_to_pinned_spec() -> None:
-    assert _raw_intent(sx.Vote(over="last_number", normalize="numeric")) == (
+    assert _raw_intent(sf.Vote(over="last_number", normalize="numeric")) == (
         '{"extract":{"args":{},"op":"last_number@1"},"members":["member_1","member_2","member_3"],'
         '"normalize":{"args":{},"op":"numeric@1"},"reduce":{"args":{},"op":"mode@1"},'
         '"reducer":"vote","schema":"screamingface.combine-spec.v1",'
         '"select":{"args":{},"op":"first_holder@1"},"weights":null}'
     )
-    defaults = json.loads(_raw_intent(sx.Vote()))
+    defaults = json.loads(_raw_intent(sf.Vote()))
     assert defaults["extract"]["op"] == "last_line@1"
     assert defaults["normalize"]["op"] == "text@1"
-    median = _raw_intent(sx.Median(select="value"))
+    median = _raw_intent(sf.Median(select="value"))
     assert '"normalize":{"args":{},"op":"numeric@1"}' in median
     assert '"reduce":{"args":{},"op":"median@1"}' in median
     assert '"reducer":"median"' in median
@@ -60,21 +59,21 @@ def test_vote_compiles_to_pinned_spec() -> None:
 
 def test_median_rejects_a_normalize_argument() -> None:
     with pytest.raises(TypeError):
-        sx.Median(normalize="text")  # type: ignore[call-arg]
+        sf.Median(normalize="text")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="'nearest' or 'value'"):
-        sx.Median(select="mode")
-    assert sx.Median(select="nearest@1").select == "nearest@1"
+        sf.Median(select="mode")
+    assert sf.Median(select="nearest@1").select == "nearest@1"
 
 
 def test_reprs_are_constructor_calls_that_rebuild_equal_values() -> None:
-    assert repr(sx.Vote()) == "Vote()"
-    assert repr(sx.Vote(normalize=None)).endswith("normalize=None)")
-    assert repr(sx.Median()) == "Median()"
-    namespace = {"Vote": sx.Vote, "Median": sx.Median}
-    for value in (sx.Vote(), sx.Vote(normalize=None), sx.Median(select="value")):
+    assert repr(sf.Vote()) == "Vote()"
+    assert repr(sf.Vote(normalize=None)).endswith("normalize=None)")
+    assert repr(sf.Median()) == "Median()"
+    namespace = {"Vote": sf.Vote, "Median": sf.Median}
+    for value in (sf.Vote(), sf.Vote(normalize=None), sf.Median(select="value")):
         assert eval(repr(value), namespace) == value  # noqa: S307 - our own repr, no input
-    assert sx.Vote() != sx.Vote(over="boxed")
-    for value in (sx.Vote(), sx.Median()):
+    assert sf.Vote() != sf.Vote(over="boxed")
+    for value in (sf.Vote(), sf.Median()):
         with pytest.raises(TypeError):
             hash(value)
 
