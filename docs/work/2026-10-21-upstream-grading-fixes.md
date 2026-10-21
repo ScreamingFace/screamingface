@@ -215,11 +215,21 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Balance (all 87,048):** Infer TRUE = FALSE (10,044 normal, 3,348 trivial), Consist POSSIBLE
   = IMPOSSIBLE (10,044 each grade), Compl "1" = "2" = "3" (3,348 each grade). Best constant
   answer per family: 0.917 on the 40,176, 0.462 on the 87,048.
-- **Revisions:** worldsense a2f8699ca22f49e5 → c6ed2a98cd4ff1ca; no other moved.
-- **Gates:** relevant tests only (owner rule): `test_local_task_worldsense.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 687 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split, on worldsense and stereoset together): dropping the id override fails 4 of their 14 new tests.
+- **Revisions:** worldsense a2f8699ca22f49e5 → a9ea4fd817d0f54b; no other moved.
+- **Review fixes:** the frontier score is GPT4's own published replies scored on our headline
+  metric (the plain mean over all 87,048 trials): 0.730 (63,551 right), from the authors'
+  `basic___GPT4___results.jsonl` at the pinned commit. The paper's 0.756 ("WS avg.") weights
+  trials per tuple and grades the Compl questions know/don't-know ("1" and "2" both KNOW in
+  the authors' `compute_acc_table`); re-implementing it on the same files reproduces 0.756
+  (GPT4) and 0.556 (GPT3.5). The provenance change alone keeps the revision; the Task
+  docstring's correction (the Sample id is not inside the Case Digest: served Cases are
+  numbered, the id only decides which trials survive the duplicate filter) moved it once more
+  (c6ed2a98cd4ff1ca → a9ea4fd817d0f54b).
+- **Gates:** relevant tests only (owner rule): `test_local_task_worldsense.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 689 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split, on worldsense and stereoset together): dropping the id override fails 4 of their 14 new tests.
 - **Deviations:** the existing invariant "a Task under `local_tasks/` is origin `screamingface`"
   (test_inspect_imported_benchmarks) holds, as for infinite_bench and bbh, so the row is now
   ours: catalogue id `worldsense` (was `inspect-worldsense`), and `inspect_contributors` moves to
-  a comment (the provenance rule allows it only on inspect_evals-origin rows). The bundle grows
-  about 2.2× (cases.json 57.8 MB at 87,048 Cases); OME-1675 already lists it as an unmeasured
-  large bundle under the per-run memory budget.
+  a comment (the provenance rule allows it only on inspect_evals-origin rows). The on-disk
+  bundle grows about 2.2×, 174 MiB → 376 MiB (cases.json 17.5 MB → 38.2 MB, i.e. 36.4 MiB, plus
+  one ~170-byte target file per Case, each taking a whole disk block); OME-1675 already lists
+  it as an unmeasured large bundle under the per-run memory budget.

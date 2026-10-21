@@ -3194,18 +3194,27 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "OME-1273, 2026-10-01)"
         ),
         human_baseline=NotPublished(reason="the WorldSense paper reports no human study"),
-        # Frontier score: the paper's Table 2, "WS avg.", GPT4. That is the paper's
-        # bias-corrected accuracy (section 4.2: averaged per tuple, each answer weighted so a
-        # constant answer scores the 0.5 chance level), which the eval reports as ws_accuracy.
-        # Our score is the plain mean over the same 87,048 trials, weighted differently, so
-        # comparable in kind but not the same number: a constant answer per family scores
-        # 0.462 here (1/3 on the three-way questions) where the paper's metric gives 0.5.
-        # Before the fix the plain mean was not comparable at all: the same trick scored
-        # 0.917 on the 40,176 kept trials.
+        # Frontier score: GPT4's own published replies scored on OUR headline metric, the plain
+        # mean over all 87,048 trials (reply equals the gold answer): 0.730. Derived from the
+        # authors' basic___GPT4___results.jsonl at the pinned commit, joined to
+        # trials.jsonl.bz2 by Key: 63,551 of 87,048 right = 0.7301.
+        # NOT the paper's number. The paper's Table 2 "WS avg." for GPT4 is 0.756, a different
+        # metric in two ways: (1) trial weighting: it averages per tuple, each answer weighted
+        # so a constant answer scores the 0.5 chance level (section 4.2), where we weight every
+        # trial equally (a constant answer per family scores 0.462 here); (2) the Compl
+        # questions are graded know/don't-know: answers "1" and "2" both map to KNOW
+        # (compute_acc_table in the authors' analysis.py), where we need the exact option.
+        # Re-implementing the authors' metric on the same files reproduces 0.756 for GPT4 and
+        # 0.556 for GPT3.5, so the 0.730 is the same replies, our arithmetic. inspect_evals'
+        # ws_accuracy differs again (it weights by the model's reply, on exact match).
         frontier_score=FrontierScore(
-            score=0.756,
+            score=0.730,
             model="GPT4",
-            source_url="https://arxiv.org/abs/2311.15930",
+            source_url=(
+                "https://github.com/facebookresearch/worldsense/blob/"
+                "bd81d945077f169cf95ff39207f788f86e4645e9/data/worldsense/test_set/results/"
+                "basic___GPT4___results.jsonl"
+            ),
             as_of="2023-11",
         ),
         notebook="12_inspect_evals_benchmarks",

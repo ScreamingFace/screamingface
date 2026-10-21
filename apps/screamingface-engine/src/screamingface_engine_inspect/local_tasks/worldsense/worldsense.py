@@ -27,18 +27,19 @@ NAMED DEVIATION — the Sample id. Adopted from inspect_evals PR #2507 (merged 2
 https://github.com/UKGovernmentBEIS/inspect_evals/pull/2507), which uses the dataset's own
 per-trial `Key`, unique over all 87,048 rows. Worked example, tuple `..._6109` (Compl.trivial)
 has three trials about Alice's courses whose answers are "1", "2" and "3"; v0.20.0 names all
-three `create_stable_id(tuple_ID, problemname)` and keeps only the "1" trial, so ours serves
-`worldsense_-276741083417243227`, `worldsense_2747235547611487721` and
-`worldsense_2917042815647934077`. What the loss did: no Case ever had the answer FALSE,
-IMPOSSIBLE or "2", and a model answering TRUE, POSSIBLE or "1" to every question of its kind
-scored 0.917 (best constant per family, measured 2026-10-21). On all 87,048 the same trick
-scores 0.462.
+three `create_stable_id(tuple_ID, problemname)` and keeps only the "1" trial, while ours names
+them `worldsense_-276741083417243227`, `worldsense_2747235547611487721` and
+`worldsense_2917042815647934077` and keeps all three. What the loss did: no Case ever had the
+answer FALSE, IMPOSSIBLE or "2", and a model answering TRUE, POSSIBLE or "1" to every question
+of its kind scored 0.917 (best constant per family, measured 2026-10-21). On all 87,048 the
+same trick scores 0.462.
 
 INVARIANT: everything except the id is inspect_evals', built by inspect_evals' own functions,
-so a question reads exactly as inspect_evals sends it. The id is Benchmark identity (it is
-inside the Case Digest); `tests/unit/inspect/test_local_task_worldsense.py` pins it, and its
-TRIPWIRE fails when the inspect_evals pin reaches the fix, saying to point the row back at
-inspect_evals' Task.
+so a question reads exactly as inspect_evals sends it. The id itself is never served (served
+Cases are numbered 1, 2, …, so it is not inside the Case Digest): it only decides which trials
+survive inspect_evals' duplicate-id filter, and the Case Digest seals the trials that survive.
+`tests/unit/inspect/test_local_task_worldsense.py` pins it, and its TRIPWIRE fails when the
+inspect_evals pin reaches the fix, saying to point the row back at inspect_evals' Task.
 
 References:
     - Paper: https://arxiv.org/abs/2311.15930
