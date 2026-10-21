@@ -13,6 +13,7 @@ import socket
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -138,6 +139,10 @@ def test_a_confirmed_local_run_with_a_key_is_paid(tmp_path: Path) -> None:
         (RunRequest("replay", ("x or y",)), {}, "notebook"),
         (RunRequest("replay", ("Quickstart",)), {}, "notebook"),
         (RunRequest("replay", ("",)), {}, "notebook"),
+        # -k keywords pass the stem pattern but break the expression (a pytest usage error).
+        (RunRequest("replay", ("not",)), {}, "notebook"),
+        (RunRequest("replay", ("and",)), {}, "notebook"),
+        (RunRequest("replay", ("quickstart", "or")), {}, "notebook"),
     ],
 )
 def test_invalid_or_ungated_requests_are_rejected_with_the_reason(
@@ -261,6 +266,8 @@ def test_a_failed_spawn_frees_the_slot(tmp_path: Path) -> None:
         m.start(RunRequest("replay", ()))
     with pytest.raises(OSError):  # not RunBusy
         m.start(RunRequest("replay", ()))
+    # No empty runs/<id> is left behind for the bundle list to show as a run.
+    assert list((tmp_path / "runs").glob("*")) == []
 
 
 # --- ends and cancels (Review Focus 1, 2) ------------------------------------------------------
@@ -368,6 +375,51 @@ def test_cancel_runs_pytest_teardown(tmp_path: Path) -> None:
     assert any("booted" in line for line in m.follow(run.id, 0))
     done = m.cancel(run.id)
     assert done.cancelled
+    assert torn_down.read_text() == "down"
+
+
+def test_a_second_cancel_does_not_interrupt_the_teardown(tmp_path: Path) -> None:
+    # A double-clicked Cancel (or a retried POST) must not send a second SIGINT: pytest treats
+    # it as an abort of fixture teardown, and the local target's `down` would never run.
+    torn_down = tmp_path / "torn_down"
+    test_file = tmp_path / "test_slow_teardown.py"
+    test_file.write_text(
+        textwrap.dedent(
+            f"""
+            import pathlib, time
+            import pytest
+
+            @pytest.fixture(scope="session")
+            def stack():
+                try:
+                    yield
+                finally:
+                    time.sleep(3)
+                    pathlib.Path({str(torn_down)!r}).write_text("down")
+
+            def test_slow(stack):
+                print("booted", flush=True)
+                time.sleep(60)
+            """
+        )
+    )
+
+    def spawn(_argv: list[str], env: dict[str, str], cwd: Path) -> subprocess.Popen[str]:
+        argv = [sys.executable, "-m", "pytest", "-s", "-q", "-p", "no:cacheprovider"]
+        return runs._spawn([*argv, str(test_file)], env, cwd)
+
+    m = RunManager(tmp_path, workdir=tmp_path, environ=dict(os.environ), spawn=spawn)
+    run = m.start(RunRequest("replay", ()))
+    assert any("booted" in line for line in m.follow(run.id, 0))
+    results: list[Run] = []
+    first = threading.Thread(target=lambda: results.append(m.cancel(run.id)))
+    second = threading.Thread(target=lambda: results.append(m.cancel(run.id)))
+    first.start()
+    time.sleep(1)  # the first cancel's SIGINT is in, the teardown is sleeping
+    second.start()
+    first.join(60)
+    second.join(60)
+    assert len(results) == 2 and all(r.cancelled and r.returncode is not None for r in results)
     assert torn_down.read_text() == "down"
 
 

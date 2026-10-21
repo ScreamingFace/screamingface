@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -38,6 +39,8 @@ LINE_CAP = 20_000  # per run, held in memory; read at append time so tests can l
 
 _TEST_FILE = "tests/e2e/workbench/test_notebooks.py"
 _STEM = re.compile(r"^[a-z0-9_-]+$")
+# Stems that match _STEM but are pytest -k operators: they would break the expression.
+_K_KEYWORDS = frozenset({"and", "or", "not"})
 _KEY_ENV = "OPENROUTER_API_KEY"
 _PAID_ENV = "SCREAMINGFACE_TEST_PAID"
 
@@ -112,8 +115,10 @@ def _validate(request: RunRequest, environ: Mapping[str, str]) -> None:
             f"unknown target {request.target!r}; choose one of {', '.join(KNOWN_UI_TARGETS)}"
         )
     for stem in request.notebooks:
-        if not _STEM.fullmatch(stem):
-            raise RunRejected(f"invalid notebook name {stem!r} (expected [a-z0-9_-]+)")
+        if not _STEM.fullmatch(stem) or stem in _K_KEYWORDS:
+            raise RunRejected(
+                f"invalid notebook name {stem!r} (expected [a-z0-9_-]+, not and/or/not)"
+            )
     if request.target == "local" and not request.confirm_paid:
         raise RunRejected("the local target spends real tokens; confirm it to start the run")
     if request.target == "local" and not environ.get(_KEY_ENV):
@@ -172,8 +177,14 @@ class RunManager:
             run_id, out_dir = self._new_id()
             argv, env = self.command(request, out_dir)
             out_dir.mkdir(parents=True)
-            # A failed spawn raises here, before the run is registered: the slot stays free.
-            live = _Live(Run(run_id, request, out_dir), self._spawn(argv, env, self._workdir))
+            try:
+                process = self._spawn(argv, env, self._workdir)
+            except BaseException:
+                # Not registered, so the slot stays free; drop the empty dir so the bundle
+                # list does not show a run that never started.
+                shutil.rmtree(out_dir, ignore_errors=True)
+                raise
+            live = _Live(Run(run_id, request, out_dir), process)
             self._runs[run_id] = live
         threading.Thread(target=self._read, args=(live,), daemon=True).start()
         threading.Thread(target=self._reap, args=(live,), daemon=True).start()
@@ -185,9 +196,14 @@ class RunManager:
     def cancel(self, run_id: str) -> Run:
         """Interrupt, then terminate, then kill the run's process group; returns once it ended."""
         live = self._runs[run_id]
-        if live.process.poll() is None:
-            with live.cond:
+        with live.cond:
+            # WHY only the first caller escalates: a second SIGINT while pytest is in fixture
+            # teardown aborts it, and `down` (the only thing that stops a local runtime) never
+            # runs. A repeated cancel (double click, retried POST) just waits for the end.
+            first = not live.run.cancelled and live.process.poll() is None
+            if first:
                 live.run.cancelled = True
+        if first:
             for sig, grace in zip((signal.SIGINT, signal.SIGTERM), self._graces, strict=True):
                 _signal_group(live.process.pid, sig)
                 if live.ended(grace):
