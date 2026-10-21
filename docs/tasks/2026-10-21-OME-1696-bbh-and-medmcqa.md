@@ -19,7 +19,7 @@ MedMCQA. Both are local Tasks fed to the same importer.
   from inspect_evals' `bbh`, because upstream's Samples carry a Python enum the Case Digest
   cannot seal. Two Named Deviations follow the paper where upstream differs: multiple choice
   asks the model to think step by step, and the 4 free-form subsets grade by exact match
-  (upstream's suffix match gives free points on all 750 of them).
+  (upstream's suffix match lets wrong answers through on all 1,000 of them).
 - PR 2: MedMCQA, a local Task we wrote in inspect's shape: the full validation split (4,183
   questions; the test split's answers are withheld), file pinned by Hub commit and sha256,
   inspect's standard multiple-choice instruction and choice scorer.

@@ -6214,10 +6214,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "examples. Second, the 4 free-form subsets (Dyck languages, multistep arithmetic, "
             "object counting, word sorting) are graded by exact match on the final answer, as "
             "the paper grades them; the eval's scorer only checks that the reply ends with the "
-            "answer after trimming punctuation, which marks 'ANSWER: 25' right for -25, "
-            "'ANSWER: 12' right for 2, and any Dyck reply ending in the word 'answer' right. On "
-            "the authors' published Codex replies this grading reproduces the paper's numbers "
-            "(Dyck languages 56.8, where the eval's scorer gives 100.0). The multiple-choice "
+            "answer after trimming punctuation, which lets wrong answers through on all 1,000 "
+            "free-form Cases: 'ANSWER: 25' is right for -25, 'ANSWER: 12' for 2, and a Dyck "
+            "reply with a bracket missing or extra is right. On the authors' published Codex "
+            "replies this grading reproduces the paper's numbers on all four subsets (Dyck "
+            "languages 56.8, multistep arithmetic 47.6, object counting 93.2, word sorting "
+            "40.4). The multiple-choice "
             "subsets grade the chosen letter and the 6 yes/no-style subsets the word after "
             "'ANSWER:', as the eval does, so no judge tokens are spent. One question is left "
             "out: its answer key matches none of its options, in the authors' own data. "
@@ -6247,7 +6249,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #    eval's answer-only instruction contradicts its own chain-of-thought examples.
         # 2. the 4 free-form subsets grade by exact match on the final answer, as the paper
         #    does (https://arxiv.org/abs/2210.09261, section 3, "Evaluation protocol"); the
-        #    eval's match(location="end") gives free points on all 750 of them. The rule
+        #    eval's match(location="end") lets wrong answers through on all 1,000. The rule
         #    reproduces the authors' accuracies on their Codex replies
         #    (https://github.com/suzgunmirac/BIG-Bench-Hard/tree/9ee07bd481feebf959a6b59d61ea57bdcf30964d),
         #    pinned by tests/unit/inspect/test_local_task_bbh.py.

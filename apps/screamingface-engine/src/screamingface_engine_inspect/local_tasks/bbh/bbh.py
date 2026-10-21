@@ -42,21 +42,23 @@ last line of your response should be ... Think step by step before answering." 4
 
 NAMED DEVIATION 2 — free-form marking. Upstream marks these with `match(location="end")`: it
 lowercases, trims punctuation off both ends, then asks whether the reply ENDS WITH the key.
-That gives free points on all 750 free-form Cases:
+That lets wrong answers through on all four free-form subsets (1,000 Cases, 250 each):
 
-    - Dyck languages: the key `ANSWER: ] ]` trims to `answer`, so "I do not know the answer."
-      is correct;
+    - Dyck languages: the key `ANSWER: ] ]` trims to `answer`, so any reply ending on an
+      `ANSWER:` line of brackets is correct, a bracket missing (`ANSWER: ]`) or extra
+      (`ANSWER: ] ] ]`), and so is "I do not know the answer.";
     - multistep arithmetic: the key `-25` trims to `25`, so `ANSWER: 25` is correct, and so is
       `ANSWER: 125` (it ends with 25);
     - object counting: `ANSWER: 12` is correct for the key `2`;
-    - word sorting: `ANSWER: elizabeth kenya` is correct for the key `beth kenya`.
+    - word sorting: `ANSWER: elizabeth kenya`, or any extra word in front, is correct for the
+      key `beth kenya`.
 
 The paper (https://arxiv.org/abs/2210.09261, §3 "Evaluation protocol") extracts the final
 answer after "the answer is" and grades by exact match. Its authors publish no grading code,
 but they publish Codex's replies with their accuracy per subset
 (https://github.com/suzgunmirac/BIG-Bench-Hard/tree/9ee07bd481feebf959a6b59d61ea57bdcf30964d,
 `code-davinci-002-outputs/`). `exact_answer_score` reproduces those numbers on all four
-subsets; upstream's rule gives Dyck 100.0 where the authors report 56.8.
+subsets (Dyck 56.8, multistep 47.6, object counting 93.2, word sorting 40.4).
 
 Worked example: an `object_counting` question with the key `2`. The reply "A car and a
 toaster.\\nANSWER: 2" reads `2` after `ANSWER:` and is correct; "ANSWER: 12" reads `12` and is
@@ -85,6 +87,8 @@ References:
 
 from __future__ import annotations
 
+import re
+import string
 from typing import Any
 
 from inspect_ai import Task, task
@@ -112,6 +116,9 @@ PROMPT_TYPE = "chain_of_thought"
 #: The tag values, upstream's `DatasetType` member names.
 MULTIPLE_CHOICE = DatasetType.MULTIPLE_CHOICE.name
 BINARY_CHOICE = DatasetType.BINARY_CHOICE.name
+#: The tags marked by exact match: multistep arithmetic, object counting and word sorting
+#: (EXACT_MATCH), Dyck languages (DYCK).
+FREE_FORM: tuple[str, ...] = (DatasetType.EXACT_MATCH.name, DatasetType.DYCK.name)
 
 #: The line upstream's prompts ask the model to end on, and the prefix upstream's Dyck converter
 #: puts on every Dyck key (`ANSWER: ] ]`).
@@ -119,6 +126,16 @@ ANSWER_LABEL = "ANSWER:"
 #: The paper's answer keyword (§3), read when a reply has no `ANSWER:` line. The worked
 #: examples write both, "So the answer is ] ]." and then "ANSWER: ] ]".
 PAPER_KEYWORD = "the answer is "
+#: The two committing labels, in the order they are looked for, matched ignoring case so that
+#: `Answer: 25` commits like `ANSWER: 25` (inspect's multiple-choice parser reads both too).
+_COMMITTING_LABELS: tuple[re.Pattern[str], ...] = (
+    re.compile(re.escape(ANSWER_LABEL), re.IGNORECASE),
+    re.compile(re.escape(PAPER_KEYWORD), re.IGNORECASE),
+)
+#: What is trimmed off both ends of the committed text: spaces, and the markdown emphasis a
+#: model may wrap around it (`**ANSWER: 25**`, `` `] ]` ``). No BBH key contains `*` or a
+#: backtick, so this never trims part of a real answer.
+_TRIMMED: str = string.whitespace + "*`"
 
 
 def _with_text_tag(sample: Sample) -> Sample:
@@ -137,21 +154,28 @@ def _with_text_tag(sample: Sample) -> Sample:
 
 
 def final_answer(reply: str) -> str:
-    """The reply's final answer, read the paper's way: the rest of the committing line.
+    """The reply's final answer, read the paper's way: the text the reply commits to.
 
-    The committing line is the last `ANSWER:` line, else the last "the answer is". Surrounding
-    spaces and one trailing period are dropped; nothing else is normalised, because the paper
-    compares the exact string. A reply with neither keeps its whole (stripped) text, so it
-    matches only a key it equals.
+    The committing line is the last `ANSWER:` line, else the last "the answer is" (both found
+    ignoring case). The answer is the rest of that line, or the next non-empty line when the
+    label ends its line (`ANSWER:` then `25` below it). Spaces and markdown emphasis are
+    trimmed off both ends and one trailing period is dropped; nothing inside the answer is
+    normalised, because the paper compares the exact string. A reply with neither label keeps
+    its whole (trimmed) text, so it matches only a key it equals.
+
+    Worked example: `**ANSWER: -25**.` reads `-25`; `Answer:` then `-25` on the next line
+    reads `-25`; `ANSWER: 25` reads `25`, which is not the key `-25`.
     """
 
-    for keyword in (ANSWER_LABEL, PAPER_KEYWORD):
-        index: int = reply.rfind(keyword)
-        if index >= 0:
-            reply = reply[index + len(keyword) :].split("\n", 1)[0]
+    for label in _COMMITTING_LABELS:
+        hits: list[re.Match[str]] = list(label.finditer(reply))
+        if hits:
+            first, _, rest = reply[hits[-1].end() :].partition("\n")
+            following: list[str] = [line for line in rest.splitlines() if line.strip(_TRIMMED)]
+            reply = first if first.strip(_TRIMMED) or not following else following[0]
             break
-    text: str = reply.strip()
-    return text[:-1] if text.endswith(".") else text
+    text: str = reply.strip(_TRIMMED)
+    return text[:-1].strip(_TRIMMED) if text.endswith(".") else text
 
 
 async def exact_answer_score(state: TaskState, target: Target) -> Score:
@@ -193,8 +217,12 @@ def bbh_scorer() -> Scorer:
             return await choice_score(state, target)
         if dataset_type == BINARY_CHOICE:
             return await answer_score(state, target)
-        # NAMED DEVIATION 2: upstream calls match(location="end") here (EXACT_MATCH and DYCK).
-        return await exact_answer_score(state, target)
+        if dataset_type in FREE_FORM:
+            # NAMED DEVIATION 2: upstream calls match(location="end") here.
+            return await exact_answer_score(state, target)
+        # WHY raise: upstream falls through to its last scorer for any tag; a tag we have not
+        # read would be marked by a rule nobody chose for it.
+        raise ValueError(f"dataset_type {dataset_type!r} is not one of upstream's four kinds")
 
     return score
 
