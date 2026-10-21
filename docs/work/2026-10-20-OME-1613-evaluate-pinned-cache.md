@@ -1,9 +1,9 @@
 ---
 ticket: OME-1613
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-20
-finished:
+finished: 2026-10-21
 ---
 
 # OME-1613 — replay a published run with `evaluate(pinned_cache=…)` and send author and paper metadata
@@ -51,10 +51,22 @@ Decisions S1–S9 are on the ticket; the spec is
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** new `_scoreboard/replay_reads.py`, `_replay.py`, `_replay_partial.py`,
+  `_scoreboard/credit_metadata.py`; changed `client.py`, `_default_client.py`, `__init__.py`,
+  `errors.py` (`ReproductionError`), `report.py`, `leaderboard.py`, `_reproduction.py`,
+  `_scoreboard/leaderboards.py`, `_evaluation/results.py`, `README.md`, `CHANGELOG.md`. New tests
+  `test_replay_reads.py`, `test_pinned_cache_name.py`, `test_replay.py`, `test_evaluate_doors.py`,
+  `test_evaluate_overload_types.py`, `test_replay_partial.py`, `test_submission_credit_metadata.py`;
+  prior tests changed under `.claude/test-change-approvals/OME-1613.json`.
+- **Commits:** `b5c362b62` score reads; `86d1c7504` rename (breaking); `cfb81ca9e` replay and
+  removal of `sf.reproduce` (breaking); `dd220cf6d` partial replay; `f78275a82` metadata; plus the
+  docs commit with this outcome.
+- **Gates:** `run_gates.py screamingface --base origin/main` ALL GATES GREEN at every commit
+  (pytest 4,303+ passed, 33 skipped, 97% coverage); `run_gates.py repo` green before the PR.
+- **Deviations:** see the dated sections above: rows 3 and 4 in one commit; Q14 (raise when no run);
+  `capture` default `None` with one prior test updated; the S4 hint is a warning; `url4.build` as
+  the parser; `limit=` refused on the S4 path (pending owner review); `CandidateResult` gained a
+  `reproduction=` keyword for the report store.
 
 ## Design review (owner, 2026-10-21)
 
