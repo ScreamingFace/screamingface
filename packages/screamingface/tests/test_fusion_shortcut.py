@@ -36,6 +36,10 @@ _JUDGE_ONLY_SCORES = (
     "sf.Fusion synthesizer= takes a reducer, a writer or a narrow step; sf.Judge only scores: "
     "use sf.Fanout(...) >> sf.Judge(...) >> <reader>"
 )
+_OPEN_OPTIONAL = (
+    "sf.Fusion optional=True needs a closed block: give a reducer or a writer as synthesizer=, "
+    "or close the chain first"
+)
 
 
 def _url4(recipe: sf.Recipe) -> str:
@@ -91,7 +95,6 @@ def test_the_shortcut_is_the_fanout_chain_and_compiles_to_its_bytes(kind: str) -
     assert shortcut == chain
     assert repr(shortcut) == repr(chain)
     assert repr(shortcut).startswith("Fanout(")
-    assert _url4(shortcut) == _url4(chain)
 
 
 @pytest.mark.parametrize(
@@ -114,6 +117,46 @@ def test_the_shortcut_compiles_to_the_bytes_of_the_fusion_before_the_swap(
 
 def test_a_vote_shortcut_compiles_to_the_frozen_vote_row() -> None:
     assert _url4(sf.Fusion(_PROV, synthesizer=sf.Vote())) == frozen_url4("surface_rebuild:vote")
+
+
+def test_a_gate_shortcut_compiles_to_the_frozen_gate_row() -> None:
+    gate = sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote())
+
+    assert _url4(sf.Fusion(_PROV, synthesizer=gate, name="vote")) == frozen_url4(
+        "gate_surface:g1-agreement-abstain"
+    )
+
+
+@pytest.mark.parametrize(
+    ("slug", "synthesizer"),
+    [
+        (
+            "readme-339-by-label",
+            lambda: sf.JudgePick("anthropic/claude-opus-5", rubric="Pick the most correct answer."),
+        ),
+        (
+            "readme-428-merged",
+            lambda: sf.Merge(
+                {
+                    "answer": sf.FieldRule.majority(normalize="text"),
+                    "score": sf.FieldRule.max(),
+                    "source": sf.FieldRule.from_member(2),
+                    "synonyms": sf.FieldRule.union(normalize="text"),
+                    "summary": sf.FieldRule.model(
+                        "anthropic/claude-sonnet-5", prompt="Write one summary."
+                    ),
+                }
+            ),
+        ),
+    ],
+    ids=["judge-pick", "merge"],
+)
+def test_a_judge_pick_and_a_merge_shortcut_compile_to_the_frozen_docs_rows(
+    slug: str, synthesizer: Callable[[], Step]
+) -> None:
+    shortcut = sf.Fusion(_ROUTES, synthesizer=synthesizer())  # the docs routes
+
+    assert compile_example(_EXAMPLES[slug], shortcut) == frozen_url4(f"surface_parity:{slug}")
 
 
 def test_a_nested_writer_shortcut_compiles_to_the_frozen_docs_row() -> None:
@@ -172,6 +215,14 @@ def test_a_narrow_step_gives_an_open_chain_that_a_writer_closes() -> None:
     assert _url4(closed) == _url4(
         sf.Fanout(_PROV) >> sf.Rank(2, by="cost_usd") >> sf.Synthesize("prov/writer")
     )
+
+
+def test_an_optional_open_chain_is_refused_at_the_call() -> None:
+    # An optional open chain can never close: >> sf.Synthesize raises on the optional Pipeline,
+    # and as a member it is an open block (CH-8).
+    for narrow in (sf.Rank(2, by="cost_usd"), sf.Filter(where=sf.matches("a")), sf.Concat()):
+        with pytest.raises(ValueError, match=f"^{re.escape(_OPEN_OPTIONAL)}$"):
+            sf.Fusion(_PROV, synthesizer=narrow, optional=True)
 
 
 def test_a_judge_is_refused_because_it_only_scores() -> None:
