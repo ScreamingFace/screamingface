@@ -373,6 +373,26 @@ def test_running_page_streams_and_offers_cancel(rig_factory: Callable[..., _Rig]
     assert "running" in page
 
 
+def test_a_running_notebook_shows_an_elapsed_time_indicator(
+    rig_factory: Callable[..., _Rig],
+) -> None:
+    # The tester must see the run is alive between pytest's collection and the result,
+    # without log_cli (which would print around the redaction hook).
+    script = "import time; print('collecting ... collected 1 item', flush=True); time.sleep(30)"
+    rig = rig_factory(script=script)
+    run_id = rig.start(notebooks="quickstart")
+    assert next(rig.manager.follow(run_id, 0)).endswith("collected 1 item")
+    page = rig.client.get(f"/runs/{run_id}", params={"token": TOKEN}).text
+    assert re.search(r'id="progress"[^>]*>running quickstart… 00:0\d<', page)
+    assert "setInterval" in page
+    with rig.client.stream("GET", f"/runs/{run_id}/events") as response:
+        lines = response.iter_lines()
+        progress = next(ln for ln in lines if ln.startswith("event: progress"))
+        data = json.loads(next(lines).removeprefix("data: "))
+    assert progress == "event: progress"
+    assert data["running"] == "quickstart" and data["since"] > 0
+
+
 def test_cancel_with_token_ends_the_run_and_redirects(rig_factory: Callable[..., _Rig]) -> None:
     rig = rig_factory(script="import time; print('up', flush=True); time.sleep(30)")
     run_id = rig.start()

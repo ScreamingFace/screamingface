@@ -30,7 +30,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +42,9 @@ _TEST_FILE = "tests/e2e/workbench/test_notebooks.py"
 # data dir, <work>/data) is tmp_path_factory.mktemp("workbench-target") inside it.
 BASETEMP = "pytest-tmp"
 _TARGET_WORK = "workbench-target*"
+# pytest -v lines that move the progress indicator (spec: no log_cli, it bypasses redaction).
+_COLLECTED = re.compile(r"\bcollected \d+ items?\b")
+_RESULT = re.compile(r"::test_notebook\[([^\]]+)\] (?:PASSED|FAILED|SKIPPED|ERROR|XFAIL|XPASS)\b")
 _STEM = re.compile(r"^[a-z0-9_-]+$")
 _KEY_ENV = "OPENROUTER_API_KEY"
 _PAID_ENV = "SCREAMINGFACE_TEST_PAID"
@@ -74,6 +77,9 @@ class Run:
     returncode: int | None = None  # None while running
     cancelled: bool = False
     killed: bool = False  # the cancel had to SIGKILL the group: fixture teardown may not have run
+    stems: tuple[str, ...] = ()  # the notebooks this run executes, in pytest's order
+    running: str | None = None  # the notebook in progress (between collection and its result)
+    running_since: float | None = None  # epoch seconds it started
 
 
 @dataclass
@@ -126,6 +132,28 @@ def _validate(request: RunRequest, environ: Mapping[str, str]) -> None:
         raise RunRejected(f"{_KEY_ENV} is not set in the UI's environment; the local run needs it")
 
 
+def track_progress(run: Run, line: str, *, now: float) -> None:
+    """Advance ``run.running`` from one pytest -v output line.
+
+    The first notebook starts at "collected N items" (its target boot included); each next one
+    starts when the previous one reports a result. The result names its node, so a second
+    outcome line for the same node (a teardown ERROR after PASSED) changes nothing.
+    """
+    if run.running is None and run.running_since is None and _COLLECTED.search(line):
+        run.running = run.stems[0] if run.stems else "notebooks"
+        run.running_since = now
+        return
+    result = _RESULT.search(line)
+    if result is None or run.running not in run.stems:  # none left, or no list: until the end
+        return
+    stem = result.group(1).removeprefix(f"{run.request.target}-")
+    if stem != run.running:
+        return
+    after = run.stems.index(stem) + 1
+    run.running = run.stems[after] if after < len(run.stems) else None
+    run.running_since = now
+
+
 def runtime_data_dir(run: Run) -> Path | None:
     """The local target's runtime data dir for ``run``, or None unless exactly one exists."""
     found = [
@@ -147,8 +175,10 @@ class RunManager:
         interrupt_grace: float = 30.0,
         terminate_grace: float = 15.0,
         drain_grace: float = 2.0,
+        notebooks: Sequence[str] = (),
     ) -> None:
         self._root = root
+        self._notebooks = tuple(notebooks)  # what an empty request (= all) runs, in order
         self._workdir = workdir
         self._environ = dict(environ)
         self._spawn = spawn
@@ -200,7 +230,8 @@ class RunManager:
                 # list does not show a run that never started.
                 shutil.rmtree(out_dir, ignore_errors=True)
                 raise
-            live = _Live(Run(run_id, request, out_dir), process)
+            stems = request.notebooks or self._notebooks
+            live = _Live(Run(run_id, request, out_dir, stems=stems), process)
             self._runs[run_id] = live
         threading.Thread(target=self._read, args=(live,), daemon=True).start()
         threading.Thread(target=self._reap, args=(live,), daemon=True).start()
@@ -281,6 +312,7 @@ class RunManager:
             for raw in stdout if stdout is not None else ():
                 with live.cond:
                     run.lines.append(raw.rstrip("\r\n"))
+                    track_progress(run, run.lines[-1], now=time.time())
                     excess = len(run.lines) - LINE_CAP
                     if excess > 0:
                         del run.lines[:excess]
@@ -301,4 +333,5 @@ class RunManager:
             live.eof.wait(self._drain_grace)
         with live.cond:
             live.run.returncode = returncode
+            live.run.running = None
             live.cond.notify_all()

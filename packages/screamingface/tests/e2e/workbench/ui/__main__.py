@@ -103,10 +103,9 @@ def main(argv: Sequence[str] | None = None, *, serve: Serve = uvicorn.run) -> No
     root = Path(args.out).resolve()
     root.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
-    manager = RunManager(root, workdir=PACKAGE_DIR, environ=os.environ)
-    app = create_app(
-        root=root, manager=manager, token=token, port=args.port, notebooks=notebook_stems()
-    )
+    stems = notebook_stems()
+    manager = RunManager(root, workdir=PACKAGE_DIR, environ=os.environ, notebooks=stems)
+    app = create_app(root=root, manager=manager, token=token, port=args.port, notebooks=stems)
     url = f"http://{HOST}:{args.port}/?token={token}"
     print(f"e2e workbench UI: bundles under {root}")
     print("Open this URL (it carries the launch token; keep it to yourself):")

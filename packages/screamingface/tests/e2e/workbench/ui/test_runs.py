@@ -31,6 +31,7 @@ from workbench.ui.runs import (
     RunRejected,
     RunRequest,
     runtime_data_dir,
+    track_progress,
 )
 
 Spawn = Callable[[list[str], dict[str, str], Path], "subprocess.Popen[str]"]
@@ -58,14 +59,19 @@ def _manager(
     tmp_path: Path,
     script: str = "print('a'); print('b')",
     environ: Mapping[str, str] | None = None,
-    **kwargs: float,
+    *,
+    interrupt_grace: float = 30.0,
+    terminate_grace: float = 15.0,
+    drain_grace: float = 2.0,
 ) -> RunManager:
     return RunManager(
         tmp_path,
         workdir=tmp_path,
         environ=environ or {},
         spawn=_script_spawn(script),
-        **kwargs,
+        interrupt_grace=interrupt_grace,
+        terminate_grace=terminate_grace,
+        drain_grace=drain_grace,
     )
 
 
@@ -278,6 +284,59 @@ def test_undecodable_output_does_not_stall_the_run(tmp_path: Path) -> None:
     lines = list(m.follow(run.id, 0))
     assert lines[-1] == "after" and lines[0].startswith("bad ")
     assert m.get(run.id).returncode == 0
+
+
+# --- live progress ---------------------------------------------------------------------------
+
+
+def _progress_run(stems: tuple[str, ...] = ("quickstart", "judge-panel")) -> Run:
+    return Run("r", RunRequest("replay", ()), Path("/o"), stems=stems)
+
+
+_NODE = "tests/e2e/workbench/test_notebooks.py::test_notebook"
+
+
+def test_progress_starts_at_collection_and_follows_the_result_lines() -> None:
+    run = _progress_run()
+    track_progress(run, "platform darwin -- Python 3.13", now=1.0)
+    assert run.running is None
+    track_progress(run, "collecting ... collected 2 items", now=2.0)
+    assert (run.running, run.running_since) == ("quickstart", 2.0)
+    track_progress(run, f"{_NODE}[replay-quickstart] PASSED   [ 50%]", now=9.0)
+    assert (run.running, run.running_since) == ("judge-panel", 9.0)
+    # A teardown ERROR for the same node after its PASSED does not skip a notebook.
+    track_progress(run, f"{_NODE}[replay-quickstart] ERROR    [ 50%]", now=9.5)
+    assert (run.running, run.running_since) == ("judge-panel", 9.0)
+    track_progress(run, f"{_NODE}[replay-judge-panel] FAILED   [100%]", now=20.0)
+    assert run.running is None
+
+
+def test_progress_without_known_stems_says_notebooks() -> None:
+    run = _progress_run(stems=())
+    track_progress(run, "collected 1 item", now=3.0)
+    assert (run.running, run.running_since) == ("notebooks", 3.0)
+    track_progress(run, f"{_NODE}[replay-quickstart] PASSED   [100%]", now=5.0)
+    assert (run.running, run.running_since) == ("notebooks", 3.0)  # until the run ends
+
+
+def test_a_run_tracks_progress_live_and_clears_it_at_the_end(tmp_path: Path) -> None:
+    script = "import time; print('collected 1 item', flush=True); time.sleep(30)"
+    m = RunManager(
+        tmp_path,
+        workdir=tmp_path,
+        environ={},
+        spawn=_script_spawn(script),
+        notebooks=("quickstart", "judge-panel"),
+    )
+    run = m.start(RunRequest("replay", ("judge-panel",)))
+    assert run.stems == ("judge-panel",)  # the request's own selection wins
+    next(m.follow(run.id, 0))
+    assert run.running == "judge-panel" and run.running_since is not None
+    m.cancel(run.id)
+    assert m.get(run.id).running is None
+    everything = m.start(RunRequest("replay", ()))
+    assert everything.stems == ("quickstart", "judge-panel")
+    m.cancel(everything.id)
 
 
 # --- one at a time ---------------------------------------------------------------------------

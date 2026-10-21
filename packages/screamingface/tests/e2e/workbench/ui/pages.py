@@ -94,7 +94,25 @@ _LIVE_SCRIPT = """
     follow.checked = log.scrollTop + log.clientHeight >= log.scrollHeight - 8;
   });
   follow.addEventListener("change", () => { if (follow.checked) stick(); });
+  const progress = document.getElementById("progress");
+  const pad = (n) => String(n).padStart(2, "0");
+  const tick = () => {
+    const since = Number(progress.dataset.since);
+    if (!progress.dataset.label || !since) { progress.textContent = ""; return; }
+    const s = Math.max(0, Math.floor(Date.now() / 1000 - since));
+    const clock = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+    progress.textContent = `running ${progress.dataset.label}… ${clock}`;
+  };
+  const timer = setInterval(tick, 1000);
+  es.addEventListener("progress", (e) => {
+    const p = JSON.parse(e.data);
+    progress.dataset.label = p.running || "";
+    progress.dataset.since = p.since || "";
+    tick();
+  });
   es.addEventListener("end", () => {
+    clearInterval(timer);
+    progress.textContent = "";
     es.close();
     status.textContent = "finished: loading the result";
     setTimeout(() => location.reload(), 300);
@@ -312,6 +330,24 @@ def _cancel_form(run: Run, token: str | None) -> str:
     )
 
 
+def elapsed(seconds: float) -> str:
+    """``mm:ss`` (minutes keep counting past 59), as the live script renders it."""
+    whole = max(0, int(seconds))
+    return f"{whole // 60:02d}:{whole % 60:02d}"
+
+
+def _progress(run: Run, now: float) -> str:
+    """The "running <notebook>… mm:ss" line; the live script ticks it every second."""
+    if run.returncode is not None:
+        return ""
+    label, since = run.running, run.running_since
+    text = f"running {label}… {elapsed(now - since)}" if label and since else ""
+    return (
+        f'<p id="progress" class="mono" data-label="{_e(label or "")}" '
+        f'data-since="{_e(since or "")}">{_e(text)}</p>'
+    )
+
+
 def _log_block(run: Run) -> str:
     if run.returncode is None:
         events = f"/runs/{run.id}/events?from=0"
@@ -369,7 +405,7 @@ def run_page(
     )
     body = (
         f"<section><h2>Run <span class='mono'>{_e(run.id)}</span> {run_pill(run)}</h2>"
-        f"<p id='status'>{_e(_exit_text(run))}</p>"
+        f"<p id='status'>{_e(_exit_text(run))}</p>{_progress(run, time.time())}"
         f"<p>Target <b>{_e(run.request.target)}</b> · notebooks {_e(notebooks)} · output "
         f"<code>{_e(run.out_dir)}</code></p>{_cancel_form(run, token)}"
         f"{_stop_note(run, stop_command)}</section>"

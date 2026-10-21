@@ -299,10 +299,16 @@ class _Workbench:
 
     def _stream(self, run: Run, first: int) -> Iterator[str]:
         yield "retry: 2000\n\n"
-        index = first
+        index: int = first
+        shown: dict[str, object] = {"running": None, "since": None}  # nothing to show yet
         for line in self.manager.follow(run.id, first):
             index += 1
             yield f"id: {index}\ndata: {_sse_line(line)}\n\n"
+            # The CURRENT state (not as of this line): a resumed stream jumps straight to it.
+            progress = {"running": run.running, "since": run.running_since}
+            if progress != shown:
+                shown = progress
+                yield f"event: progress\ndata: {json.dumps(progress)}\n\n"
         end = {"returncode": run.returncode, "cancelled": run.cancelled}
         yield f"event: end\ndata: {json.dumps(end)}\n\n"
 
