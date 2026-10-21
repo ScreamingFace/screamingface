@@ -1,4 +1,4 @@
-"""sf.Pick(by_signal=..., order=...) picks the member with the best named signal (OME-1289, 9S).
+"""sf.ArgMax(key) and sf.ArgMin(key) pick the member with the best named signal (OME-1289, 9S).
 
 FEATURE: argmax. The reducer compiles to ``by_signal@1`` and ``best_holder@1`` (reducer ``pick``,
 no extract and no normalize) and the Engine returns the best member's text byte for byte.

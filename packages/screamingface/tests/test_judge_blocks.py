@@ -1,6 +1,6 @@
 """sf.Judge params keep their value types: a bool, an int and a float are three judges (GE21).
 
-The sf.Reduce("judge", judge=...) block form was deleted in unit 7f (swap D7-8).
+The judge block form (ReduceNode("judge")) was deleted in unit 7f (swap D7-8).
 """
 
 from __future__ import annotations

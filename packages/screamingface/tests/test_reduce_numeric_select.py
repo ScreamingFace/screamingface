@@ -1,4 +1,4 @@
-"""sf.Reduce("median"|"mean") takes select= as sf.Median and sf.Mean do (E4b playground fix).
+"""The median and mean blocks take select= as sf.Median and sf.Mean do (E4b playground fix).
 
 FEATURE: an author who copies select="value" from sf.Median to the median block gets the number,
 not the nearest member's whole reply. select is a second name for the block mode: "value" is

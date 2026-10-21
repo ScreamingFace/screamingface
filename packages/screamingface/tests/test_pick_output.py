@@ -1,4 +1,4 @@
-"""sf.Pick(..., output=...) makes the answer one field of the winner's reply (E4b pick-output).
+"""sf.ArgMax(..., output=...) makes the answer one field of the winner's reply (E4b pick-output).
 
 FEATURE: ``output="answer"`` on a field Pick or on ``by_signal=`` compiles to an ``output`` arg of
 the select step (``by_field@1`` or ``best_holder@1``). A Pick without ``output`` compiles to the

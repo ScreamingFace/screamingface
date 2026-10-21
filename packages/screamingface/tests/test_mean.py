@@ -1,4 +1,4 @@
-"""sf.Mean and sf.Reduce("mean"): compile, refusals, url4 recovery and evidence (E4b unit 3)."""
+"""sf.Mean and its block form: compile, refusals, url4 recovery and evidence (E4b unit 3)."""
 
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ def test_sdk_reduce_block_mean_compiles_to_the_same_bytes_as_sf_mean() -> None:
         sf.Mean(over=sf.Extract("last_number", normalize="text"))
 
 
-# WHY factories: sf.Reduce("mean") raises at import time in RED, so a module-level value would
+# WHY factories: the mean block raised at import time in RED, so a module-level value would
 # fail the whole module at collection instead of each row at run time.
 @pytest.mark.parametrize(
     ("make", "expected"),

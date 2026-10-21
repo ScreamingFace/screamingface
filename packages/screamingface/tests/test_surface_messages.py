@@ -1,6 +1,6 @@
 """MSG-1: every user-facing message and public docstring names the new surface only (O13, swap §6).
 
-FEATURE: a message that says "use sf.Pick" after ``sf.Pick`` is gone is a bug, so this test finds
+FEATURE: a message that names a deleted class after the class is gone is a bug, so this test finds
 the messages by a scan, not by a list. It reads, with ``ast``, every string under ``S/`` that a
 ``raise`` holds, that a call of an ``*Error`` / ``*Exception`` / ``*Warning`` class or of
 ``warnings.warn`` holds (this covers ``return ValueError(...)`` helpers such as
@@ -53,7 +53,7 @@ _FORBIDDEN: dict[str, str] = {
     r"by_signal(?!@)": "by= replaces by_signal= (by_signal@1 is a wire op id)",
     r"\.then\(": "Recipe.then is gone: use >>",
     r"\bPick\b": "sf.ArgMax / sf.ArgMin / sf.First replace Pick",
-    r"\bReduce\b": "the steps replace sf.Reduce",
+    r"\bReduce\b": "the steps replace the Reduce block",
     r"abstain_band=": "abstain_if= replaces the gate's abstain_band=",
     r"extract=": "over= replaces extract=",
 }
