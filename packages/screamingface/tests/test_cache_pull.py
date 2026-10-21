@@ -458,3 +458,63 @@ def test_no_warning_without_a_filter_or_with_rows(
     _run(_Source({None: [_page(keys, None)]}), _Gateway(), models=models)
 
     assert not [w for w in recwarn if issubclass(w.category, UserWarning)]
+
+
+# --- PR #1446 review round 3 ----------------------------------------------------------------------
+
+
+def test_a_failed_calls_counts_include_the_rows_read_of_the_page_it_stopped_in() -> None:
+    # INVARIANT: a result never reports more rows added than read; the rows of a cut page were
+    # loaded, so they are read rows too.
+    source = _Source({None: [_page(["a"], "c1")], "c1": [_page(["b", "c"], None, trailer=False)]})
+
+    with pytest.raises(CachePullError) as raised:
+        _run(source, _Gateway())
+
+    assert raised.value.result == PullResult(3, 3, 1, False, False)
+
+
+def test_a_row_after_the_trailer_loads_nothing_of_its_page() -> None:
+    source = _Source({None: [[*_page(["a"], None), json.dumps({"key_hash": "b"})]]})
+    gateway = _Gateway()
+
+    with pytest.raises(CachePullError) as raised:
+        _run(source, gateway)
+
+    assert raised.value.code == "malformed_page"
+    assert gateway.loaded == []
+    assert raised.value.result == PullResult(0, 0, 0, False, False)
+
+
+def test_a_second_concurrent_pull_of_the_same_filter_is_refused() -> None:
+    # WHY: two walks of one cursor would share and race its counts.
+    import threading
+
+    opened, release = threading.Event(), threading.Event()
+
+    class _Blocking(_Source):
+        @contextmanager
+        def open(self, *, after: str | None, count: bool):  # type: ignore[override]
+            opened.set()
+            release.wait(5)
+            with super().open(after=after, count=count) as page:
+                yield page
+
+    first: list[PullResult] = []
+    runner = threading.Thread(
+        target=lambda: first.append(_run(_Blocking({None: [_page(["a"], None)]}), _Gateway()))
+    )
+    runner.start()
+    assert opened.wait(5)
+    try:
+        with pytest.raises(CachePullError) as raised:
+            _run(_Source({None: [_page(["b"], None)]}), _Gateway())
+        other = _run(_Source({None: [_page(["b"], None)]}), _Gateway(), models=("m1",))
+    finally:
+        release.set()
+        runner.join(5)
+
+    assert raised.value.code == "pull_in_progress"
+    assert other.complete
+    assert first[0].complete
+    assert _run(_Source({None: [_page(["c"], None)]}), _Gateway()).complete

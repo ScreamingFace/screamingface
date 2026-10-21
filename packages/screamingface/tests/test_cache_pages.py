@@ -134,3 +134,38 @@ def test_a_page_without_its_trailer_is_cut(lines: list[str]) -> None:
 def test_anything_but_a_community_cache_page_is_malformed(lines: list[str]) -> None:
     with pytest.raises(MalformedPage):
         walk_page(lines, on_header=lambda _h: None, on_rows=lambda _r: None)
+
+
+# --- PR #1446 review round 3 ----------------------------------------------------------------------
+
+
+def test_a_line_after_the_trailer_refuses_the_page_before_its_last_batch_is_handed_on() -> None:
+    # INVARIANT: a page whose framing is wrong hands on none of its unflushed rows.
+    loaded: list[Any] = []
+
+    with pytest.raises(MalformedPage):
+        walk_page(
+            [_header(), _row("a"), '{"next": null}', _row("b")],
+            on_header=lambda _h: None,
+            on_rows=loaded.extend,
+        )
+
+    assert loaded == []
+
+
+def test_the_byte_bound_counts_utf8_bytes_not_characters() -> None:
+    # WHY: a row of emoji is four bytes a character; counted in characters, a batch would hold
+    # several times its byte bound.
+    row = json.dumps({"key_hash": "a", "response_json": "\U0001f600" * 10}, ensure_ascii=False)
+    assert len(row.encode()) > len(row)
+    seen: list[object] = []
+
+    walk_page(
+        [_header(), row, row, row, '{"next": null}'],
+        on_header=seen.append,
+        on_rows=lambda rows: seen.append(rows),
+        batch_rows=500,
+        batch_bytes=len(row.encode()) * 2 - 1,
+    )
+
+    assert [len(batch) for batch in seen[1:] if isinstance(batch, list)] == [2, 1]

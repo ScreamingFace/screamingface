@@ -2,7 +2,11 @@
 
 One streamed `GET /v1/cache/entries` per page, through a `Client`'s own engine session, so the
 caller's Cloudflare Access sign-in is the one every other SDK call uses (spec decision 14). The
-body is decoded by httpx as it arrives and handed on line by line.
+body is decompressed by httpx as it arrives, split into lines here, and handed on line by line.
+
+INVARIANT (PR #1446 review): no response is held whole. A line is refused past `_MAX_LINE_BYTES`
+before it is decoded, a retryable status is classified from its headers alone, and any other
+refusal reads at most `_PROBLEM_MAX_BYTES` of its problem detail.
 
 WHY the replay-safe extension: a page request is a GET with no side effects, so the Access flow
 may send it again after a browser sign-in (`_core/wire.py`).
@@ -10,10 +14,11 @@ may send it again after a browser sign-in (`_core/wire.py`).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Final
 
+from screamingface._cache.pages import MalformedPage
 from screamingface._core.retry import _RETRYABLE_STATUS, _retry_after_seconds
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface.errors import AuthenticationError, PlanningError
@@ -22,6 +27,10 @@ if TYPE_CHECKING:
     import httpx
 
 _ENTRIES_PATH: Final = "/v1/cache/entries"
+# WHY 32 MiB: a hosted response is capped at 1 MB and JSON escaping at most sextuples it, so no row
+# the hosted gateway wrote comes near; a longer line is not a page this client can read.
+_MAX_LINE_BYTES: Final = 32 * 1024 * 1024
+_PROBLEM_MAX_BYTES: Final = 64 * 1024
 
 
 class TransientPageError(Exception):
@@ -66,14 +75,39 @@ class HostedPages:
                 extensions={_REPLAY_SAFE: True},
             ) as response:
                 if response.status_code != 200:
-                    response.read()
                     _raise_for(response)
-                yield response.iter_lines(), lambda: response.num_bytes_downloaded
+                yield _lines(response.iter_bytes()), lambda: response.num_bytes_downloaded
         # WHY DecodingError: a gzip stream cut or garbled in transit reads as corrupt, not dropped.
         except (httpx.TransportError, httpx.DecodingError) as exc:
             raise TransientPageError(
                 f"the Engine could not be reached ({type(exc).__name__})"
             ) from exc
+
+
+def _lines(chunks: Iterable[bytes]) -> Iterator[str]:
+    buffer = bytearray()
+    for chunk in chunks:
+        # WHY from the new chunk only: rescanning a long line's earlier chunks would be quadratic.
+        searched = len(buffer)
+        buffer += chunk
+        start = 0
+        while (end := buffer.find(b"\n", searched)) != -1:
+            yield _decoded(buffer[start:end])
+            start = searched = end + 1
+        del buffer[:start]
+        if len(buffer) > _MAX_LINE_BYTES:
+            raise MalformedPage(f"a page line is longer than {_MAX_LINE_BYTES} bytes")
+    if buffer:
+        yield _decoded(buffer)
+
+
+def _decoded(line: bytearray) -> str:
+    if len(line) > _MAX_LINE_BYTES:
+        raise MalformedPage(f"a page line is longer than {_MAX_LINE_BYTES} bytes")
+    try:
+        return line.decode()
+    except UnicodeDecodeError as exc:
+        raise MalformedPage("a page line is not UTF-8") from exc
 
 
 def _raise_for(response: httpx.Response) -> None:
@@ -87,7 +121,7 @@ def _raise_for(response: httpx.Response) -> None:
         raise TransientPageError(
             f"the Engine answered {status}", retry_after=_retry_after_seconds(response)
         )
-    detail, code, details = _problem_parts(response)
+    detail, code, details = _problem_parts(_prefix(response))
     if status in {401, 403}:
         raise AuthenticationError(
             f"The Engine refused the community-cache request: {detail}",
@@ -110,6 +144,23 @@ def _raise_for(response: httpx.Response) -> None:
         status=status,
         permanent=True,
         details=details,
+    )
+
+
+def _prefix(response: httpx.Response) -> httpx.Response:
+    """The refusal with at most `_PROBLEM_MAX_BYTES` of its (decompressed) body."""
+    import httpx
+
+    body = bytearray()
+    for chunk in response.iter_bytes():
+        body += chunk
+        if len(body) >= _PROBLEM_MAX_BYTES:
+            break
+    return httpx.Response(
+        response.status_code,
+        headers={"content-type": response.headers.get("content-type", "")},
+        content=bytes(body[:_PROBLEM_MAX_BYTES]),
+        request=response.request,
     )
 
 

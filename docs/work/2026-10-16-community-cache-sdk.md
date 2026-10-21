@@ -245,3 +245,33 @@ Four findings; the owner chose the approach for 1 and 3. One commit.
 - **Tests (files this PR added):** the warning with a filter and zero rows; none without a filter
   or with rows; the existing session-sharing test now expects the warning for its empty filtered
   page.
+
+## Review round 3 (PR #1446 review by HupBaHa at `41b67342a`, 2026-10-21)
+
+Status: DONE. Weighed against latency (owner's call): every fix here is free on the hot
+path — once per call, error path only, or the same per-row work — and no per-page check is added.
+
+1. **Line and body bounds:** `HostedPages` splits the decompressed bytes into lines itself and
+   refuses a line over 32 MiB as malformed before it is decoded; lines are handed on as bytes, so
+   the batch's byte bound counts UTF-8 bytes. A retryable status (429/5xx) is classified before
+   any of its body is read, and other refusals read at most 64 KiB of problem detail.
+2. **Rows before the trailer:** a line after the trailer is caught before the page's last batch is
+   handed on. A failed call's `rows_read` includes the rows read of the page it stopped in, so it
+   is never below `rows_added`.
+3. **Database identity:** not changed. A file overwritten in place keeps counting as the same
+   database (round 2), and a database replaced during a pull is not detected: a per-page check
+   for a case nothing in the SDK or runtime causes is not worth its cost.
+4. **Session preference:** this module's own signed-in client is used before the default
+   client; the default is used only when the module has none for that origin.
+5. **Concurrent pulls:** one pull at a time per `(url, models)`; a second concurrent call is
+   refused with `pull_in_progress` instead of sharing the cursor.
+6. **Pull clients never closed:** not changed; one per origin for the process, by design.
+- **Spec:** decision 12 now says what the code does: a cut page does not advance the cursor (its
+  loaded rows stay), a line is at most 32 MiB, and a line after the trailer refuses the page
+  before its last batch loads.
+- **Tests (files this PR added):** a row after the trailer hands on nothing; the batch bound in
+  UTF-8 bytes; a character split across chunks; a line over the cap and a non-UTF-8 line are
+  malformed; a retryable status's body is never read; a refusal reads one 64 KiB chunk of ten; a
+  failed call counts the rows of the page it stopped in; a concurrent pull of the same filter is
+  refused while another filter runs; a later default client does not replace the pull's own.
+  Each failed against `655b3ea06`. Gates green.

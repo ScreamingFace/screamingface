@@ -152,9 +152,11 @@ the same.
 12. **Newline-delimited JSON, gzip'd.** A page is NDJSON: a header line (`schema`,
     `revisions`, and `remaining` when asked), one line per row, and a trailer line carrying
     `next`. Each line parses on its own, so neither the gateway nor the client holds a whole
-    page; a page without its trailer was cut off and the client discards it. The gateway
-    gzip-compresses the body when the client accepts it, and the Engine passes the encoding
-    through.
+    page; a page without its trailer was cut off, and the client does not advance its cursor
+    past it (rows of it already loaded are valid entries, and loading them again adds nothing).
+    A line is at most 32 MiB, and a line after the trailer refuses the page before its last
+    batch loads. The gateway gzip-compresses the body when the client accepts it, and the
+    Engine passes the encoding through.
 13. **What a pull promises.** Every eligible row written before the pull reaches the end is
     included, apart from a row whose write commits after the cursor has passed its timestamp:
     `updated_at` is set when the write starts, not when it commits. For a live write that window

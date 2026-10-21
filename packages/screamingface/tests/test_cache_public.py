@@ -209,3 +209,16 @@ def test_a_blank_url_is_refused_rather_than_read_as_production(
         pull_module.pull_into((), url="", data_dir=tmp_path, progress=False)
 
     assert built == []
+
+
+def test_a_default_client_opened_after_a_pull_does_not_replace_its_signed_in_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # INVARIANT (spec decision 14): one browser sign-in per process. The pull's own client holds
+    # the Access token; a default client the app opens later on the same engine has none yet.
+    built = _counting_clients(monkeypatch, tmp_path)
+    pull_module.pull_into((), url=None, data_dir=tmp_path, progress=False)
+    later = sf.Client(engine_url=DEFAULT_ENGINE_URL)
+    monkeypatch.setattr("screamingface._default_client._client", later)
+
+    assert pull_module._session(DEFAULT_ENGINE_URL) is built[0]

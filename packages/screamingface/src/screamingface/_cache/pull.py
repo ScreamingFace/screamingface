@@ -93,6 +93,11 @@ _CURSORS: dict[tuple[str, tuple[str, ...]], _Cursor] = {}
 _SESSIONS: dict[tuple[str, str, int], Client] = {}
 _SESSIONS_LOCK = Lock()
 
+# INVARIANT: one walk at a time per cursor key. A second call while one runs is refused rather
+# than share the cursor, whose counts two walks would race.
+_RUNNING: set[tuple[str, tuple[str, ...]]] = set()
+_RUNNING_LOCK = Lock()
+
 
 def pull_into(
     models: tuple[str, ...], *, url: str | None, data_dir: Path, progress: bool | None
@@ -111,9 +116,12 @@ def pull_into(
 
 
 def _session(url: str) -> Client:
-    """The process's signed-in Client for `url`'s origin: the default Client when it is already
-    open on that origin, else this module's own, kept for the process.
+    """The process's signed-in Client for `url`'s origin: this module's own once it has one,
+    else the default Client when it is already open on that origin, else a new one of this
+    module's, kept for the process.
 
+    WHY the module's own first: it holds the Access token of an earlier pull, and a default
+    Client the app opens later on the same origin has none yet (PR #1446 review).
     WHY the default Client only when it already exists: creating it would follow
     `SCREAMINGFACE_ENGINE_URL` or a local stack, which is where runs go, not where the cache
     comes from (spec decision 14).
@@ -122,18 +130,19 @@ def _session(url: str) -> Client:
     from screamingface.client import Client
 
     origin = _default_client._comparable_origin(url)  # noqa: SLF001 — one origin rule
-    shared = _default_client._client  # noqa: SLF001 — read, never created here
-    if (
-        shared is not None
-        and not shared.closed
-        and _default_client._comparable_origin(shared.engine_url) == origin  # noqa: SLF001
-    ):
-        return shared
     with _SESSIONS_LOCK:
-        client = _SESSIONS.get(origin)
-        if client is None or client.closed:
-            client = Client(engine_url=url)
-            _SESSIONS[origin] = client
+        own = _SESSIONS.get(origin)
+        if own is not None and not own.closed:
+            return own
+        shared = _default_client._client  # noqa: SLF001 — read, never created here
+        if (
+            shared is not None
+            and not shared.closed
+            and _default_client._comparable_origin(shared.engine_url) == origin  # noqa: SLF001
+        ):
+            return shared
+        client = Client(engine_url=url)
+        _SESSIONS[origin] = client
         return client
 
 
@@ -146,7 +155,34 @@ def run_pull(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> PullResult:
-    loop = _Loop(source, destination, (source.origin, models), report, clock=clock)
+    key = (source.origin, models)
+    with _RUNNING_LOCK:
+        if key in _RUNNING:
+            raise CachePullError(
+                "A pull of the same url and models is already running in this process",
+                code="pull_in_progress",
+                hint="Wait for it to finish; it loads the same rows.",
+                result=PullResult(0, 0, 0, resumed=False, complete=False),
+            )
+        _RUNNING.add(key)
+    try:
+        return _walk(source, destination, key, report, sleep=sleep, clock=clock)
+    finally:
+        with _RUNNING_LOCK:
+            _RUNNING.discard(key)
+
+
+def _walk(
+    source: PageSource,
+    destination: Destination,
+    key: tuple[str, tuple[str, ...]],
+    report: Reporter,
+    *,
+    sleep: Callable[[float], None],
+    clock: Callable[[], float],
+) -> PullResult:
+    models = key[1]
+    loop = _Loop(source, destination, key, report, clock=clock)
     report.preparing(source.origin)
     try:
         destination.prepare()
@@ -207,6 +243,9 @@ class _Loop:
         self._started = clock()
         self._rows_at_start = self._cursor.rows_read
         self._total: int | None = None
+        # WHY the most rows any attempt read of the page in progress: a failed call reports them
+        # as read, since they were loaded, so its rows_read is never below its rows_added.
+        self._in_page = 0
         self._bytes_before = 0
         self._bytes: Callable[[], int] = lambda: 0
 
@@ -237,6 +276,7 @@ class _Loop:
             self._cursor.rows_added += added
             skipped[0] += skips
             read[0] += len(batch)
+            self._in_page = max(self._in_page, read[0])
             self._report.update(self.snapshot(extra_rows=read[0]))
 
         with self._source.open(after=self._cursor.after, count=count) as (lines, received):
@@ -250,11 +290,12 @@ class _Loop:
         # its first attempt too would count those rows twice.
         self._cursor.rows_read += read[0]
         self._cursor.rows_skipped += skipped[0]
+        self._in_page = 0
         return after
 
     def result(self, *, complete: bool) -> PullResult:
         return PullResult(
-            rows_read=self._cursor.rows_read,
+            rows_read=self._cursor.rows_read + (0 if complete else self._in_page),
             rows_added=self._cursor.rows_added,
             pages=self._cursor.pages,
             resumed=self._resumed,

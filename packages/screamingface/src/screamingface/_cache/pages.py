@@ -4,7 +4,7 @@ A page is NDJSON: a header line (`schema`, `revisions`, and `remaining` when the
 `count=true`), one line per row, and a trailer line carrying only `next`. The reader never holds
 the page: rows are handed on in batches as they arrive, so a page of the heaviest model (~235 MB
 of rows) costs one batch of memory. A batch ends at `BATCH_ROWS` rows or `BATCH_BYTES` of line
-text, whichever comes first, so a page of large responses is bounded too (PR #1433 review).
+bytes (UTF-8), whichever comes first, so a page of large responses is bounded too (PR #1433 review).
 
 INVARIANT: the header is handed on before any row, so a revision mismatch refuses the page before
 anything is written locally.
@@ -58,12 +58,16 @@ def walk_page(
     for line in stream:
         value = _object(line)
         if set(value) == {"next"}:
-            _flush(batch, on_rows)
+            # WHY before the flush: a page whose framing is wrong hands on none of its last batch.
             if next(stream, None) is not None:
                 raise MalformedPage("a line followed the page trailer")
-            return _cursor(value["next"])
+            cursor = _cursor(value["next"])
+            _flush(batch, on_rows)
+            return cursor
         batch.append(value)
-        size += len(line)
+        # WHY `isascii()` first: it is a flag read, so only a line with non-ASCII text pays for
+        # the encode that measures its UTF-8 bytes.
+        size += len(line) if line.isascii() else len(line.encode())
         if len(batch) >= batch_rows or size >= batch_bytes:
             _flush(batch, on_rows)
             size = 0
