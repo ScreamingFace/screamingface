@@ -92,8 +92,8 @@ _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
 # The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
 _PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
-# AIDEV-NOTE: the editable Python of a narrow block is the new surface's chain (rebuild-display
-# §1, unit 6); today's classes have no spelling for it, so to_python refuses it until then.
+# AIDEV-NOTE: only the old renderer (``_render_topology``, deleted in unit 7f) reads this;
+# ``to_python`` renders a narrow block through the chain rebuild since unit 7e.
 _NARROW_PYTHON = (
     "URL4 Candidate has narrow steps before its reducer; their editable Python comes with the "
     "map, select, reduce surface"
@@ -162,12 +162,14 @@ def _decode_candidate(value: str) -> _DecodedCandidate:
 
 
 def _to_python(value: str) -> str:
+    # WHY lazy: the rebuild imports the recipe surface, which imports the compiler and this module
+    from screamingface._surface.rebuild import rebuild_decoded
+    from screamingface._surface.render import code
+
     decoded = _decode_candidate(value)
-    root, calls, topology = decoded.root, decoded.calls, decoded.topology
-    lines = _render_topology(topology, calls, indent=0)
-    lines[0] = f"candidate = {lines[0]}"
-    source = ["import screamingface as sf", "", *lines]
+    source = ["import screamingface as sf", "", code(rebuild_decoded(decoded).value, "candidate")]
     if decoded.linked:
+        root = decoded.root
         benchmark = _benchmark_id(root)
         if benchmark is not None:
             source.extend(["", *_evaluation_call(benchmark, _limit(root))])

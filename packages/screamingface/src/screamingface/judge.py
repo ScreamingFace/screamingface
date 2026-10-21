@@ -313,8 +313,4 @@ _BLOCK_FORMS["judge"] = _BlockForm(
     options=lambda named: {"judge": named},
 )
 
-__all__ = ["Judge"]
-
-
-# The public name until the swap (unit 7e) exports the new surface.
-Judge = JudgeNode
+__all__ = ["JudgeNode"]

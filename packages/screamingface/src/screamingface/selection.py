@@ -26,8 +26,7 @@ from screamingface.blocks import (
     _matches_args,
     _normalize_from_spec,
 )
-from screamingface.judge import (  # Judge: the public name in the Rank/Filter signatures until 7e
-    Judge,
+from screamingface.judge import (
     JudgeNode,
     judge_from_signals,
 )
@@ -102,7 +101,7 @@ class RankNode(Reducer):
         self,
         k: int,
         *,
-        by: Judge | None = None,
+        by: JudgeNode | None = None,
         by_field: str | None = None,
         by_signal: Signal | None = None,
         order: Literal["max", "min"] = "max",
@@ -348,7 +347,7 @@ class FilterNode(Reducer):
         *,
         where: Matches | _Comparison,
         extract: Extract | None = None,
-        judge: Judge | None = None,
+        judge: JudgeNode | None = None,
     ) -> None:
         _check_filter_where(where)
         if extract is not None and not isinstance(extract, Extract):
@@ -470,10 +469,4 @@ _BLOCK_FORMS["top_k"] = _BlockForm(build=_top_k_from_options, options=_top_k_opt
 _BLOCK_FORMS["concat"] = _BlockForm(build=_concat_from_options, options=_concat_options)
 _BLOCK_FORMS["filter"] = _BlockForm(build=_filter_from_options, options=_filter_options)
 
-__all__ = ["Concat", "Filter", "Rank"]
-
-
-# The public names until the swap (unit 7e) exports the new surface.
-Rank = RankNode
-Filter = FilterNode
-Concat = ConcatNode
+__all__ = ["ConcatNode", "FilterNode", "RankNode"]

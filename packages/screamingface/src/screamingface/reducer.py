@@ -16,9 +16,8 @@ from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
 
 if TYPE_CHECKING:
-    # Gate, Judge: the public names in the sf.Vote signature until the swap (unit 7e)
-    from screamingface.gate import Gate, GateNode
-    from screamingface.judge import Judge, JudgeNode
+    from screamingface.gate import GateNode
+    from screamingface.judge import JudgeNode
     from screamingface.model import Model
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
@@ -725,8 +724,8 @@ class VoteNode(Reducer):
         extract: str = "last_line",
         normalize: str | None = _DEFAULT_NORMALIZE,
         weights: Sequence[float] | Signal | None = None,
-        judge: Judge | None = None,
-        gate: Gate | None = None,
+        judge: JudgeNode | None = None,
+        gate: GateNode | None = None,
         verify: None = None,
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
@@ -1032,10 +1031,4 @@ class MeanNode(Reducer):
 
 _REDUCER_CLASSES.update(vote=VoteNode, median=MedianNode, mean=MeanNode)
 
-__all__ = ["Mean", "Median", "Reducer", "Vote"]
-
-
-# The public names until the swap (unit 7e) exports the new surface.
-Vote = VoteNode
-Median = MedianNode
-Mean = MeanNode
+__all__ = ["MeanNode", "MedianNode", "Reducer", "VoteNode"]

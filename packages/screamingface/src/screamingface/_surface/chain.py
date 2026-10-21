@@ -4,8 +4,8 @@ FEATURE (E4b surface, surface §2): ``a >> b`` is ``Pipeline([a, b])``. A chain 
 right. A ``Fanout`` opens a block, and a reducer or ``Synthesize`` closes it. A closed block is one
 ``_Block`` record that holds its lowered node, so every rule of today's Fusion raises at the ``>>``
 that closes the block (CH-9).
-INVARIANT: until the swap (unit 7) this package is private: only new tests import it, and
-``lower()`` (``lowering.py``) is the only way from a chain to the compiler.
+INVARIANT: ``lower()`` (``lowering.py``) is the only way from a chain to the compiler; a lowered
+chain holds only recipes (D7-2: one ``Pipeline`` class, ``S/pipeline.py`` re-exports it).
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
-from screamingface.pipeline import Pipeline as TodayPipeline
 from screamingface.recipe import (
     OPTIONAL_MEMBERS_ONLY,
     Recipe,
@@ -230,14 +229,14 @@ class Pipeline(Recipe):
 
         return tuple(stage.node if isinstance(stage, _Block) else stage for stage in self._stages)
 
-    def _block_pipelines(self) -> tuple[TodayPipeline, ...]:
-        """The lowered values of the blocks that lower to two stages, ``Pipeline([Fusion,
+    def _block_pipelines(self) -> tuple[Pipeline, ...]:
+        """The lowered values of the blocks that lower to two stages, ``Pipeline([FusionNode,
         writer])``: a judge and a writer inside one block (WJ-1, erratum E6)."""
 
         return tuple(
             stage.node
             for stage in self._stages
-            if isinstance(stage, _Block) and isinstance(stage.node, TodayPipeline)
+            if isinstance(stage, _Block) and isinstance(stage.node, Pipeline)
         )
 
     def _held_recipes(self) -> tuple[Recipe, ...]:
@@ -262,7 +261,7 @@ class _Chain:
         self.open: list[Step] = []
 
     def add(self, item: str | Recipe | Step) -> None:
-        if isinstance(item, Pipeline | TodayPipeline) and not item._is_named:
+        if isinstance(item, Pipeline) and not item._is_named:
             self._flatten(item)
         elif isinstance(item, Step):
             self.steps.append(item)
@@ -272,17 +271,12 @@ class _Chain:
             self.steps.append(recipe)
             self._add_stage(recipe)
 
-    def _flatten(self, item: Pipeline | TodayPipeline) -> None:
-        """An unnamed nested Pipeline, a chain or one of today, is flattened (today's rule,
-        S/pipeline.py), so both spellings give equal chains. A chain's closed blocks are taken as
-        they are, and its open block continues here."""
+    def _flatten(self, item: Pipeline) -> None:
+        """An unnamed nested Pipeline is flattened, so both spellings give equal chains. Its
+        closed blocks are taken as they are, and its open block continues here."""
 
         if item.optional:
             raise ValueError(OPTIONAL_MEMBERS_ONLY)
-        if isinstance(item, TodayPipeline):
-            for stage in item.stages:
-                self.add(stage)
-            return
         self.steps.extend(item.steps)
         for stage in item._stages:
             self._add_stage(stage)

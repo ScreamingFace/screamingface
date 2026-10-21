@@ -805,7 +805,3 @@ def _rebuilt_block(spec: Mapping[str, object], rebuild: Callable[[], ReduceNode]
 
 
 __all__: list[str] = []
-
-
-# The public name until the swap (unit 7e) exports the new surface.
-Reduce = ReduceNode

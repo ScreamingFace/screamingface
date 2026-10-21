@@ -435,8 +435,4 @@ def _members(values: object, kind: str = "Fusion") -> tuple[Recipe, ...]:
     return selected
 
 
-__all__ = ["Fusion"]
-
-
-# The public name until the swap (unit 7e) exports the new surface.
-Fusion = FusionNode
+__all__ = ["FusionNode"]
