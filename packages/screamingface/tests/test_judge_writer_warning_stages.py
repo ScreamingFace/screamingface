@@ -50,8 +50,21 @@ def _judged_vote() -> FusionNode:
     return FusionNode(_MEMBERS, synthesizer=vote)
 
 
-def _after_context_writer() -> sx.Pipeline:
-    """The review repro: the user's stages 2 (judge) and 3 (writer).
+def _after_context_writer() -> sf.Pipeline:
+    """The review repro: the user's stages 3 (judge) and 4 (writer).
+
+    Group F (swap §5, deleted in 7f): the context Fusion and its writer are two stages that the
+    context rewrite (``fusion_recipe.py``) joins; the new surface spells them as one stage.
+    """
+
+    return sf.Pipeline(
+        [_context(), sf.Model("provider/w"), _judged_vote(), sf.Model(_JUDGE_ROUTE)],
+        name="judged",
+    )
+
+
+def _after_chain_writer() -> sx.Pipeline:
+    """The review repro on the surface: the user's stages 2 (judge) and 3 (writer).
 
     WHY 2, not 3: the context block form has one spelling since R11, ``sf.Fanout(m) >>
     sf.Synthesize(w)``, so the context Fusion and its writer are one stage of the chain.
@@ -85,8 +98,9 @@ def _judge_writer_messages(recorded: pytest.WarningsRecorder) -> list[str]:
 
 @pytest.mark.parametrize(
     ("build", "first"),
-    [(_after_context_writer, 2), (_after_context, 2)],
-    ids=["context-then-writer", "context-then-judge"],
+    # group F (7f): the two context rows (the context rewrite is deleted, D7-8)
+    [(_after_context_writer, 3), (_after_context, 2), (_after_chain_writer, 2)],
+    ids=["context-then-writer", "context-then-judge", "chain-then-judge"],
 )
 def test_compile_names_the_users_stage_numbers(build: Callable[[], sf.Recipe], first: int) -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
@@ -100,7 +114,7 @@ def test_compile_names_the_users_stage_numbers(build: Callable[[], sf.Recipe], f
 def test_evaluation_compile_names_the_users_stage_numbers() -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         compile_evaluation(
-            (_after_context_writer(),),
+            (_after_chain_writer(),),
             _whole_candidate_benchmark(),
             1,
             operators=flow_operators(),

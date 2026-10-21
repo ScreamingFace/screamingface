@@ -69,6 +69,9 @@ _FIXTURES_DIR = Path(__file__).resolve().parent
 _E2E_DIR = _FIXTURES_DIR.parent
 if str(_E2E_DIR) not in sys.path:
     sys.path.insert(0, str(_E2E_DIR))
+# WHY the tests dir: FusionLaneSpec.build_block reads the nodes of tests/_nodes.py (group F).
+if str(_E2E_DIR.parent) not in sys.path:
+    sys.path.append(str(_E2E_DIR.parent))
 
 # WHY the package path: the same module objects the contract tests import.
 from fixtures import reducer_lane as rl  # noqa: E402

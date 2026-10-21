@@ -7,8 +7,12 @@ INVARIANT defended: the block form never drops a failure policy, so it never tur
 member into a required one.
 """
 
+# group F (7f): the context block form (an internal ReduceNode("context") then a writer stage) is
+# deleted code (D7-8); the block side builds it from the internal nodes until then.
+
 from __future__ import annotations
 
+from _nodes import ReduceNode, fusion_node
 from _reducer_fixtures import fixture_operators
 
 import screamingface as sf
@@ -23,14 +27,18 @@ def _url4(recipe: sf.Recipe) -> str:
 
 
 def test_the_block_form_with_quorum_compiles_to_the_named_form() -> None:
-    block = sx.Fanout(_MEMBERS, quorum=2) >> sx.Synthesize(sf.Model("provider/s"))
+    block = sf.Pipeline(
+        [fusion_node(_MEMBERS, ReduceNode("context"), quorum=2), sf.Model("provider/s")]
+    )
     named = sx.Fanout(_MEMBERS, quorum=2) >> sx.Synthesize("provider/s")
 
     assert _url4(block) == _url4(named)
 
 
 def test_a_rewritten_fusion_member_keeps_its_quorum() -> None:
-    inner = sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/s")
+    inner = sf.Pipeline(
+        [fusion_node(["provider/a", "provider/b"], ReduceNode("context")), "provider/s"]
+    )
     outer = sx.Fanout([inner, sf.Model("provider/c", optional=True)], quorum=1) >> sx.Synthesize(
         "p/t"
     )
@@ -50,7 +58,7 @@ def test_an_optional_block_form_member_stays_optional() -> None:
     block = sx.Fanout(
         [
             "provider/x",
-            sx.Pipeline([sx.Fanout(pair), sx.Synthesize("provider/s")], optional=True),
+            sf.Pipeline([fusion_node(pair, ReduceNode("context")), "provider/s"], optional=True),
         ],
         quorum=1,
     ) >> sx.Synthesize("provider/t")

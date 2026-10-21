@@ -48,6 +48,7 @@ pytestmark = pytest.mark.e2e
 
 LANE = "inspect-gsm8k-fusion"
 BOARD = "inspect-gsm8k"
+# group F (7f): the "block" form is the context block of FusionLaneSpec.build_block (D7-8)
 FORMS: tuple[Literal["named", "block"], ...] = ("named", "block")
 
 
