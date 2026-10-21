@@ -77,7 +77,8 @@ _ASSIGNED_NAME: Final = (
 )
 _NOT_MASKED: Final = rf"(?!{re.escape(MASK)})"
 # `"name": `, `name=`, `\"name\": ` (JSON inside a JSON string), `'name': ` (a repr).
-_SEPARATOR: Final = r"((?:\\*['\"])?\s*[=:]\s*)"
+# An optional closing quote and `]` let a subscript assignment match: `env["X_API_KEY"] = "v"`.
+_SEPARATOR: Final = r"((?:\\*['\"])?\]?\s*[=:]\s*)"
 # A quoted value, masked whole: an optional bytes/str prefix, then the opening quote with any
 # backslashes before it (`\"v\"` in escaped JSON, `\'v\'` in a repr), up to the same quote.
 _QUOTED: Final = r"[bBrRuUfF]{0,2}(?P<q>\\*['\"])(?:(?!(?P=q))[^\n])*(?P=q)?"

@@ -228,3 +228,15 @@ def test_secret_names_of_any_length_are_masked(length: int, shape: str) -> None:
 def test_long_non_secret_names_are_left_alone(length: int) -> None:
     for text in (f"{'n' * length}_max_tokens=256", f"{'n' * length}_keys=3", f"{'n' * length}=1"):
         assert redact(text) == text
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'os.environ["ANTHROPIC_API_KEY"] = "opaque-value-123"',
+        "env['GH_TOKEN']='opaque-value-123'",
+        'os.environ["OPENROUTER_API_KEY"]=opaque-value-123',
+    ],
+)
+def test_a_secret_assigned_through_a_subscript_is_masked(line: str) -> None:
+    assert "opaque-value-123" not in redact(line)
