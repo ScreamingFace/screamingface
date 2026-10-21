@@ -37,3 +37,6 @@ class BaseRequestCacheEntry(Model):
 class RequestCacheEntry(BaseRequestCacheEntry):
     class Meta:
         table = "request_cache_entries"
+        # Migration 0015 (epic OME-1311): community-cache pages are read in write order, and
+        # this index makes each page a range read instead of a sort of the whole table.
+        indexes = (("updated_at", "key_hash"),)
