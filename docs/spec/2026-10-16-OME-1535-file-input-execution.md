@@ -128,6 +128,15 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
 - **Escape hatch:** loopback may be allowed only through explicit configuration for tests and dev; off
   by default.
 - **Errors and logs:** each refusal raises a typed `x.` error (see §4). Response bodies are never logged.
+- **Remote-node calls:** the same guard covers `url4://` remote-node calls, which `HttpIOLayer` rewrites to
+  `https://`, for example a nested remote expression (C6). The address rules apply, and only hosts on an
+  operator-configured **peer allowlist** may be called (default: empty, so no remote-node calls). Anything
+  else fails `x.source_destination_blocked`. This is separate from F1: blob transfer between nodes stays
+  deferred.
+- **Scope of attachments:** only an `https://` value in a `src=` binding is fetched at run start and
+  attached; other `https://` sources stay lazy text fetches. Attached bytes are also written through to
+  the tenant+run store (`OME-1540`). "Fetched once per run" belongs to the per-run cache in `OME-1543`;
+  `OME-1544` is the guard only. (Owner, 2026-10-21.)
 
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
