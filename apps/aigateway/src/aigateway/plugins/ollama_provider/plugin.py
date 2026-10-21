@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from aigateway.core.content_parts import check_messages
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 
 from .discovery import discover_ollama_models, resolve_ollama_host
@@ -20,6 +21,9 @@ if TYPE_CHECKING:
     )
 
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
+
+
+_OLLAMA_MEDIA_ROLES = frozenset({"system", "user", "assistant", "tool"})
 
 
 class OllamaProviderPlugin(ProviderPluginBase):
@@ -83,6 +87,16 @@ class OllamaProviderPlugin(ProviderPluginBase):
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Sanitize caller auth and adapt Ollama model/api_base for LiteLLM."""
+        # INVARIANT (OME-1529): LiteLLM's ollama_chat conversion keeps only `image_url` parts
+        # (base64, from any role) and discards `file` parts; a remote URL would be passed on as
+        # if it were base64. Refuse both with the typed 422 before dispatch — never a silent drop.
+        check_messages(
+            body.get("messages") or [],
+            provider="ollama",
+            media_roles=_OLLAMA_MEDIA_ROLES,
+            allow_remote_images=False,
+            allow_files=False,
+        )
         out = dict(body)
         out.pop("api_key", None)
         extra_headers = out.get("extra_headers")

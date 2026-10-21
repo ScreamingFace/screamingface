@@ -121,6 +121,7 @@ def check_messages(
     provider: str,
     media_roles: frozenset[str],
     allow_remote_images: bool,
+    allow_files: bool = True,
 ) -> None:
     """Refuse, before dispatch, every part this provider's adapter cannot carry.
 
@@ -139,6 +140,12 @@ def check_messages(
             if role not in media_roles:
                 raise UnsupportedContentPart(
                     provider=provider, part_type=part_type, reason=f"media in a {role} message"
+                )
+            if part_type == "file" and not allow_files:
+                # WHY: some adapters (Ollama via LiteLLM) carry images but discard file parts;
+                # refusing here is what keeps a PDF from vanishing behind a 200.
+                raise UnsupportedContentPart(
+                    provider=provider, part_type=part_type, reason="files_unsupported"
                 )
             if isinstance(part, RemoteImagePart) and not allow_remote_images:
                 raise UnsupportedContentPart(
