@@ -430,7 +430,7 @@ const pipelineSig = `sf.Pipeline(
         class="dg"
         viewBox="0 0 994 210"
         role="img"
-        aria-label="A Fusion whose members are a draft-to-review Pipeline and gemini, combined by a synthesizer that is itself a judge-to-writer Pipeline; grading the writer's answer produces the graded answer."
+        aria-label="A fanout block whose members are a draft-to-review Pipeline and gemini, combined by a synthesizer that is itself a judge-to-writer Pipeline; grading the writer's answer produces the graded answer."
       >
         <defs>
           <marker
@@ -445,7 +445,7 @@ const pipelineSig = `sf.Pipeline(
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <text x="16" y="18" class="sub">Fusion · members</text>
+        <text x="16" y="18" class="sub">Fanout · members</text>
         <g class="edge" marker-end="url(#pl-a5)">
           <path d="M152 70 H230" />
           <path d="M572 114 H600" />
@@ -474,8 +474,9 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        A Fusion of two members, the draft → review Pipeline and gemini, combined by a synthesizer
-        that is itself a judge → writer Pipeline; grading the writer's answer is the graded answer.
+        A fanout block of two members, the draft → review Pipeline and gemini, combined by a
+        synthesizer that is itself a judge → writer Pipeline; grading the writer's answer is the
+        graded answer.
       </figcaption>
     </figure>
 
@@ -498,7 +499,7 @@ const pipelineSig = `sf.Pipeline(
         class="dg"
         viewBox="0 0 860 152"
         role="img"
-        aria-label="One Pipeline whose stages are a Model, a Fusion and a nested Pipeline; grading the last stage's answer produces the graded answer."
+        aria-label="One Pipeline whose stages are a Model, a fanout block and a nested Pipeline; grading the last stage's answer produces the graded answer."
       >
         <defs>
           <marker
@@ -533,13 +534,13 @@ const pipelineSig = `sf.Pipeline(
         </g>
         <g class="sub" text-anchor="middle">
           <text x="105" y="124">Model</text>
-          <text x="311" y="124">Fusion</text>
+          <text x="311" y="124">Fanout</text>
           <text x="517" y="124">Pipeline</text>
         </g>
       </svg>
       <figcaption class="dgcap">
-        A stage is any recipe: here a Model, a Fusion and a nested Pipeline chained in one Pipeline;
-        only the last stage's answer is graded.
+        A stage is any recipe: here a Model, a fanout block and a nested Pipeline chained in one
+        Pipeline; only the last stage's answer is graded.
       </figcaption>
     </figure>
 

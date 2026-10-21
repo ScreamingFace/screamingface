@@ -82,8 +82,14 @@ about 30 test files and the goldens. So:
 
 ## 5. Acceptance
 
-- After unit 8, `rg "sf\.(Fusion|Pick|Reduce)\b|synthesizer=|\.then\("` over
+- After unit 8, `rg "sf\.(Pick|Reduce)\b|\.then\("` over
   `packages/screamingface/tests`, `packages/screamingface/README.md`,
-  `packages/screamingface/examples` and `public-docs` finds nothing outside the CHANGELOG. (`src/`
+  `packages/screamingface/examples` and `public-docs` finds nothing outside the CHANGELOG and the
+  tests that pin CHANGELOG text. **Erratum (A4 revised, 2026-10-20):** `sf.Fusion` stays as the
+  public shortcut of surface §3b, so `sf.Fusion(` and `synthesizer=` are allowed where they show
+  that shortcut (the README sections "How a recipe reads" and "Fusion as a named recipe", one
+  public-docs mention, the client tour and notebook 18 of the examples, the CHANGELOG "Kept" note,
+  and the shortcut tests `ST/test_fusion_shortcut.py`), and in internal node code and tests
+  (`FusionNode.synthesizer`). They are not allowed as the main form of a recipe example. (`src/`
   is out of the check: the internal `FusionNode` keeps its `synthesizer` field, O7.)
 - All gates green on the tip, with the append-only check passing on the owner-approved manifest.
