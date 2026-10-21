@@ -1,6 +1,12 @@
-"""`sf.reproduce`: run a submitted score again from its frozen copy (E14 B5, design §7).
+"""Replay a submitted score from its pinned cache and judge it (E14 B5, design §7; OME-1613).
 
-FEATURE: OME-1307 — `Client.reproduce(score)` runs the score's own url4 with its answer seed from
+OME-1613 (Q13): `Client.reproduce` was removed and `evaluate(score_id=…)` replaces it. These tests
+keep exercising the same replay, verdict and record path through `_replay.replay_published_*`,
+which takes the score object the old call took. A replay that cannot start now raises
+`ReproductionError`; the `_reproduce` helpers return the `Reproduction` it carries, so the
+verdict assertions stay as they were.
+
+FEATURE: OME-1307 — a replay runs the score's own url4 with its answer seed from
 the frozen copy stored with it, judges the result against the stored numbers, and records an exact
 reproduction on the board.
 STORY: as someone who reads a leaderboard result, I rerun exactly that submission at no provider
@@ -33,12 +39,13 @@ from test_client_run import (
 from test_leaderboards import SCORE_ID, SCOREBOARD_URL, _score_response
 
 import screamingface as sf
-from screamingface import _default_client
 from screamingface._case_digest import case_digest
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.url4 import evaluate_url4_sync
+from screamingface._replay import replay_published_async, replay_published_sync
 from screamingface._reproduction import Reproduction, _classify
-from screamingface.errors import EngineUnavailableError
+from screamingface._scoreboard.replay_reads import PublishedScore, published_from_score
+from screamingface.errors import EngineUnavailableError, ReproductionError
 
 COPY = "0b1f6d3a-5c0e-4a8e-9a3f-2f6f8f4c7d11"
 OLD_COPY = "5e2a9c47-1d3b-4f60-8a7e-9c1b2d3e4f50"
@@ -249,6 +256,40 @@ def _result(**changes: Any) -> sf.CandidateResult:
     return report.candidates[0]
 
 
+def _published(**overrides: object) -> PublishedScore:
+    return published_from_score(_score(**overrides))
+
+
+def _replayed(
+    client: sf.Client, score: sf.LeaderboardScore, *, record: bool = True
+) -> tuple[Reproduction, sf.CandidateResult | None]:
+    try:
+        report = replay_published_sync(client, published_from_score(score), record=record)
+    except ReproductionError as exc:
+        return exc.reproduction, None
+    result = report.candidates[0]
+    assert result.reproduction is not None
+    return result.reproduction, result
+
+
+def _reproduce(
+    client: sf.Client, score: sf.LeaderboardScore, *, record: bool = True
+) -> Reproduction:
+    return _replayed(client, score, record=record)[0]
+
+
+async def _reproduce_async(
+    client: sf.AsyncClient, score: sf.LeaderboardScore, *, record: bool = True
+) -> Reproduction:
+    try:
+        report = await replay_published_async(client, published_from_score(score), record=record)
+    except ReproductionError as exc:
+        return exc.reproduction
+    reproduction = report.candidates[0].reproduction
+    assert reproduction is not None
+    return reproduction
+
+
 # --- CHAR: one complete url4 loads the same cases -------------------------------------------
 
 
@@ -288,7 +329,7 @@ def test_a_partial_or_unknown_score_is_not_reproducible_and_starts_no_run(
 ) -> None:
     board = _Board()
     with _client(_ForbiddenTransport(), board) as client:
-        reproduction = client.reproduce(_score(**overrides))
+        reproduction = _reproduce(client, _score(**overrides))
 
     assert reproduction == Reproduction(outcome="not_reproducible", reason=reason)
     assert board.requests == []
@@ -304,7 +345,7 @@ async def test_the_async_client_refuses_a_partial_score_without_running() -> Non
         run_transport=_AsyncForbidden(),
     )
     async with client:
-        reproduction = await client.reproduce(_score(capture_status="partial"))
+        reproduction = await _reproduce_async(client, _score(capture_status="partial"))
 
     assert (reproduction.outcome, reproduction.reason) == ("not_reproducible", "partial")
 
@@ -315,7 +356,7 @@ async def test_the_async_client_refuses_a_partial_score_without_running() -> Non
 def test_reproduce_runs_the_score_url4_with_its_seed_and_copy_and_no_benchmark_or_limit() -> None:
     transport = _Replayer()
     with _client(transport) as client:
-        reproduction = client.reproduce(_score())
+        reproduction = _reproduce(client, _score())
 
     assert reproduction.outcome == "exact"
     candidate = transport.candidate
@@ -329,7 +370,7 @@ def test_an_old_copy_id_is_sent_verbatim() -> None:
     # The replay uses the copy id stored with the score.
     transport = _Replayer()
     with _client(transport) as client:
-        reproduction = client.reproduce(_score(pinned_cache=OLD_COPY))
+        reproduction = _reproduce(client, _score(pinned_cache=OLD_COPY))
 
     assert reproduction.outcome == "exact"
     assert transport.candidate is not None
@@ -339,7 +380,7 @@ def test_an_old_copy_id_is_sent_verbatim() -> None:
 def test_a_score_without_a_seed_replays_unseeded() -> None:
     transport = _Replayer()
     with _client(transport) as client:
-        client.reproduce(_score(answer_seed=None))
+        _reproduce(client, _score(answer_seed=None))
 
     assert transport.candidate is not None
     assert transport.candidate.answer_seed is None
@@ -351,11 +392,12 @@ def test_a_score_id_is_fetched_from_the_board_first(how: str) -> None:
     transport = _Replayer()
     selected: UUID | str = UUID(SCORE_ID) if how == "uuid" else SCORE_ID
     with _client(transport, board) as client:
-        reproduction = client.reproduce(selected)
+        reproduction = client.evaluate(score_id=selected, progress=False).candidates[0].reproduction
 
-    assert reproduction.outcome == "exact"
+    assert reproduction is not None and reproduction.outcome == "exact"
     assert board.requests[0].method == "GET"
-    assert board.requests[0].url.path == f"/v1/scores/{SCORE_ID}"
+    # OME-1613 (R2): the public read first; the gated read only when that answers 404.
+    assert board.requests[0].url.path == f"/v1/public/scores/{SCORE_ID}"
 
 
 def test_an_unknown_score_id_raises_as_get_score_does() -> None:
@@ -369,7 +411,7 @@ def test_an_unknown_score_id_raises_as_get_score_does() -> None:
     )
 
     with client, pytest.raises(sf.LeaderboardError) as raised:
-        client.reproduce(SCORE_ID)
+        client.evaluate(score_id=SCORE_ID)
 
     assert raised.value.code == "unknown_score"
 
@@ -378,25 +420,29 @@ def test_an_unknown_score_id_raises_as_get_score_does() -> None:
 
 
 def test_an_exact_replay_is_exact() -> None:
-    assert _classify(_score(), _result()) == ("exact", None, ())
+    assert _classify(_published(), _result()) == ("exact", None, ())
 
 
 def test_a_replay_miss_names_the_cases_that_missed() -> None:
     result = _result(cases=((1, None), (2, "frozen_copy_miss"), (3, "frozen_copy_miss")), score=0.5)
 
-    assert _classify(_score(total_questions=3), result) == ("failed", "frozen_copy_miss", (2, 3))
+    assert _classify(_published(total_questions=3), result) == (
+        "failed",
+        "frozen_copy_miss",
+        (2, 3),
+    )
 
 
 def test_an_unavailable_copy_is_its_own_reason() -> None:
     result = _result(cases=((1, "frozen_copy_unavailable"),), score=None)
 
-    assert _classify(_score(), result) == ("failed", "frozen_copy_unavailable", ())
+    assert _classify(_published(), result) == ("failed", "frozen_copy_unavailable", ())
 
 
 def test_a_candidate_level_failure_is_run_failed() -> None:
     result = _result(failures=[_failure("candidate_failed")])
 
-    assert _classify(_score(), result) == ("failed", "run_failed", ())
+    assert _classify(_published(), result) == ("failed", "run_failed", ())
 
 
 def test_a_replay_code_outranks_a_run_failure() -> None:
@@ -404,13 +450,13 @@ def test_a_replay_code_outranks_a_run_failure() -> None:
         cases=((1, "frozen_copy_miss"),), score=None, failures=[_failure("candidate_failed")]
     )
 
-    assert _classify(_score(), result)[:2] == ("failed", "frozen_copy_miss")
+    assert _classify(_published(), result)[:2] == ("failed", "frozen_copy_miss")
 
 
 def test_a_changed_benchmark_revision_fails_before_the_score_is_compared() -> None:
     result = _result(benchmark_revision="newer-revision", score=0.25)
 
-    assert _classify(_score(), result) == ("failed", "benchmark_revision_changed", ())
+    assert _classify(_published(), result) == ("failed", "benchmark_revision_changed", ())
 
 
 @pytest.mark.parametrize(
@@ -424,12 +470,16 @@ def test_a_changed_benchmark_revision_fails_before_the_score_is_compared() -> No
 def test_a_different_score_or_case_count_is_score_differs(
     result_changes: dict[str, Any], stored: dict[str, Any]
 ) -> None:
-    assert _classify(_score(**stored), _result(**result_changes)) == ("failed", "score_differs", ())
+    assert _classify(_published(**stored), _result(**result_changes)) == (
+        "failed",
+        "score_differs",
+        (),
+    )
 
 
 def test_the_score_is_compared_exactly() -> None:
     # One ulp is a different result. The board never rounds it into agreement.
-    assert _classify(_score(score=1.0), _result(score=1.0000000000000002))[1] == "score_differs"
+    assert _classify(_published(score=1.0), _result(score=1.0000000000000002))[1] == "score_differs"
 
 
 def test_cases_differ_when_digests_differ_but_score_is_equal() -> None:
@@ -437,19 +487,23 @@ def test_cases_differ_when_digests_differ_but_score_is_equal() -> None:
     replay = _result(cases=((1, None),), score=1.0)
     other = _result(cases=((2, None),), score=1.0)
 
-    assert _classify(_score(case_digest=case_digest(other.cases)), replay) == (
+    assert _classify(_published(case_digest=case_digest(other.cases)), replay) == (
         "failed",
         "cases_differ",
         (),
     )
-    assert _classify(_score(case_digest=case_digest(replay.cases)), replay) == ("exact", None, ())
+    assert _classify(_published(case_digest=case_digest(replay.cases)), replay) == (
+        "exact",
+        None,
+        (),
+    )
 
 
 def test_score_without_digest_reproduces_on_three_fields() -> None:
     # A score with no digest is judged on the score, the count and the benchmark revision alone.
     replay = _result(cases=((2, None),), score=1.0)
 
-    assert _classify(_score(case_digest=None), replay) == ("exact", None, ())
+    assert _classify(_published(case_digest=None), replay) == ("exact", None, ())
 
 
 def test_a_case_digest_is_64_lower_hex_and_needs_a_capture_status() -> None:
@@ -465,18 +519,20 @@ def test_a_case_digest_is_64_lower_hex_and_needs_a_capture_status() -> None:
 
 def test_a_stored_score_without_a_benchmark_revision_cannot_match() -> None:
     # Compared literally. `reproduce` never gets here with such a score: it refuses it first.
-    assert _classify(_score(benchmark_revision=None), _result())[1] == "benchmark_revision_changed"
+    assert (
+        _classify(_published(benchmark_revision=None), _result())[1] == "benchmark_revision_changed"
+    )
 
 
 def test_the_client_returns_the_classified_failure_with_its_result_and_records_nothing() -> None:
     board = _Board()
     transport = _Replayer(cases=((1, "frozen_copy_miss"),), score=None)
     with _client(transport, board) as client:
-        reproduction = client.reproduce(_score())
+        reproduction, result = _replayed(client, _score())
 
     assert (reproduction.outcome, reproduction.reason) == ("failed", "frozen_copy_miss")
     assert reproduction.missed_cases == (1,)
-    assert reproduction.result is not None
+    assert result is not None
     assert (reproduction.recorded, reproduction.record_error) == (False, None)
     assert board.posts == []
 
@@ -487,7 +543,7 @@ def test_the_client_returns_the_classified_failure_with_its_result_and_records_n
 def test_a_summary_that_does_not_state_the_replay_is_replay_unsupported() -> None:
     board = _Board()
     with _client(_Replayer(honoured=False), board) as client:
-        reproduction = client.reproduce(_score())
+        reproduction = _reproduce(client, _score())
 
     assert reproduction == Reproduction(outcome="failed", reason="replay_unsupported")
     assert board.posts == []
@@ -505,7 +561,7 @@ def test_a_missing_start_echo_stops_the_run_and_is_replay_unsupported() -> None:
             scoreboard_transport=httpx.MockTransport(board),
         )
         with client:
-            reproduction = client.reproduce(_score())
+            reproduction = _reproduce(client, _score())
 
         assert reproduction == Reproduction(outcome="failed", reason="replay_unsupported")
         assert len(engine.state.deleted) == 1, "the unacknowledged run was stopped"
@@ -518,7 +574,7 @@ def test_other_run_errors_propagate_as_they_do_from_evaluate() -> None:
             raise EngineUnavailableError("down", engine_url="https://engine.example")
 
     with _client(_Down()) as client, pytest.raises(EngineUnavailableError):
-        client.reproduce(_score())
+        _reproduce(client, _score())
 
 
 # --- an exact replay is recorded once --------------------------------------------------
@@ -527,11 +583,11 @@ def test_other_run_errors_propagate_as_they_do_from_evaluate() -> None:
 def test_an_exact_replay_is_recorded_once() -> None:
     board = _Board()
     with _client(_Replayer(), board) as client:
-        reproduction = client.reproduce(_score())
+        reproduction, result = _replayed(client, _score())
 
     assert reproduction.outcome == "exact"
     assert (reproduction.recorded, reproduction.record_error) == (True, None)
-    assert reproduction.result is not None
+    assert result is not None
     (post,) = board.posts
     assert post.url.path == f"/v1/scores/{SCORE_ID}/reproductions"
     body = json.loads(post.read())
@@ -548,17 +604,17 @@ def test_reproduce_sends_the_replay_case_digest() -> None:
     # Q29: the record carries the digest of the replay's own cases, for the board to compare.
     board = _Board()
     with _client(_Replayer(), board) as client:
-        reproduction = client.reproduce(_score())
+        _, result = _replayed(client, _score())
 
-    assert reproduction.result is not None
+    assert result is not None
     (post,) = board.posts
-    assert json.loads(post.read())["case_digest"] == case_digest(reproduction.result.cases)
+    assert json.loads(post.read())["case_digest"] == case_digest(result.cases)
 
 
 def test_record_false_runs_and_judges_but_posts_nothing() -> None:
     board = _Board()
     with _client(_Replayer(), board) as client:
-        reproduction = client.reproduce(_score(), record=False)
+        reproduction = _reproduce(client, _score(), record=False)
 
     assert reproduction.outcome == "exact"
     assert (reproduction.recorded, reproduction.record_error) == (False, None)
@@ -594,7 +650,7 @@ def test_a_refused_record_keeps_exact_and_sets_record_error(
 ) -> None:
     board = _Board(record=lambda _: response)
     with _client(_Replayer(), board) as client:
-        reproduction = client.reproduce(_score())
+        reproduction = _reproduce(client, _score())
 
     assert reproduction.outcome == "exact"
     assert reproduction.recorded is False
@@ -608,7 +664,7 @@ def test_an_unreachable_board_keeps_exact_and_does_not_raise() -> None:
 
     board = _Board(record=down)
     with _client(_Replayer(), board) as client:
-        reproduction = client.reproduce(_score())
+        reproduction = _reproduce(client, _score())
 
     assert (reproduction.outcome, reproduction.recorded) == ("exact", False)
     assert reproduction.record_error
@@ -629,9 +685,12 @@ async def test_the_async_client_reproduces_judges_and_records() -> None:
         run_transport=transport,  # type: ignore[arg-type]
     )
     async with client:
-        exact = await client.reproduce(SCORE_ID)
-        missed = await client.reproduce(_score(), record=False)
+        exact = (
+            (await client.evaluate(score_id=SCORE_ID, progress=False)).candidates[0].reproduction
+        )
+        missed = await _reproduce_async(client, _score(), record=False)
 
+    assert exact is not None
     assert (exact.outcome, exact.recorded) == ("exact", True)
     assert missed.outcome == "exact"
     assert transport.candidate is not None
@@ -649,7 +708,7 @@ async def test_the_async_client_classifies_a_miss_and_survives_a_refused_record(
         run_transport=_AsyncReplayer(cases=((4, "frozen_copy_miss"),), score=None),  # type: ignore[arg-type]
     )
     async with missing:
-        miss = await missing.reproduce(_score())
+        miss = await _reproduce_async(missing, _score())
     refused = sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
@@ -660,7 +719,7 @@ async def test_the_async_client_classifies_a_miss_and_survives_a_refused_record(
         run_transport=_AsyncReplayer(),  # type: ignore[arg-type]
     )
     async with refused:
-        kept = await refused.reproduce(_score())
+        kept = await _reproduce_async(refused, _score())
     unsupported = sf.AsyncClient(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
@@ -669,7 +728,7 @@ async def test_the_async_client_classifies_a_miss_and_survives_a_refused_record(
         run_transport=_AsyncReplayer(honoured=False),  # type: ignore[arg-type]
     )
     async with unsupported:
-        old = await unsupported.reproduce(_score())
+        old = await _reproduce_async(unsupported, _score())
 
     assert (miss.reason, miss.missed_cases) == ("frozen_copy_miss", (4,))
     assert (kept.outcome, kept.recorded) == ("exact", False)
@@ -680,33 +739,11 @@ async def test_the_async_client_classifies_a_miss_and_survives_a_refused_record(
 # --- the public face ----------------------------------------------------------------------------
 
 
-def test_sf_reproduce_is_the_function_not_the_module() -> None:
-    # The module is `_reproduction` so that loading it can never replace `sf.reproduce`.
-    assert callable(sf.reproduce)
-    assert not hasattr(sf.reproduce, "__path__")
-
-
-def test_sf_reproduce_passes_through_to_the_default_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[tuple[object, bool]] = []
-    sentinel = Reproduction(outcome="not_reproducible", reason="unknown")
-
-    class _Fake:
-        def reproduce(self, score: object, *, record: bool = True) -> Reproduction:
-            seen.append((score, record))
-            return sentinel
-
-    monkeypatch.setattr(_default_client, "default_client", lambda: _Fake())
-
-    assert sf.reproduce("score-id") is sentinel
-    assert sf.reproduce("score-id", record=False) is sentinel
-    assert seen == [("score-id", True), ("score-id", False)]
-
-
 def test_reproduction_is_exported_frozen_with_defaults() -> None:
     reproduction = sf.Reproduction(outcome="exact")
 
     assert reproduction == Reproduction(outcome="exact")
-    assert (reproduction.reason, reproduction.missed_cases, reproduction.result) == (None, (), None)
+    assert (reproduction.reason, reproduction.missed_cases) == (None, ())
     assert (reproduction.recorded, reproduction.record_error) == (False, None)
     with pytest.raises(dataclasses.FrozenInstanceError):
         reproduction.outcome = "failed"  # type: ignore[misc]

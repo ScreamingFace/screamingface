@@ -85,3 +85,29 @@ Decisions S1–S9 are on the ticket; the spec is
   `.claude/test-change-approvals/OME-1613.json`.
 - Public docs: four `public-docs` pages teach `sf.reproduce` or `frozen_copy_id`; `OME-1614` rewrites
   them (ticket updated the same day).
+
+## Rows 3 and 4 (2026-10-21)
+
+- **Deviation: plan rows 3 and 4 are one commit.** Removing `Reproduction.result` and the replay
+  core touch the same prior tests; splitting them would migrate those tests twice.
+- **Owner decision Q14:** a replay that cannot start (capture `partial` / unknown, or an Engine that
+  refuses replay) raises `sf.ReproductionError` carrying the `Reproduction`; a `Report` always
+  means a run happened. Spec §3 and §6 updated.
+- **Owner decision on `capture`:** its default is `None` (meaning on), so an explicit `capture=True`
+  on a replay can be refused (S6). The prior test that pinned the default `is True`
+  (`test_frozen_copy_evaluate.py`) now pins `is None`, with a note; `test_evaluate_doors.py` proves
+  a normal run still captures by default.
+- **Deviation:** the S4 all-cases-missed hint is one `EvaluationWarning`, not a field on the result:
+  that path has no verdict to carry it. Spec §4a updated.
+- `Reproduction.result` removed (the result carries the verdict, `CandidateResult.reproduction`).
+  `CandidateResult` gained a `reproduction=` keyword: the report store rebuilds results from their
+  fields.
+- `url4` equality uses `url4.build` (the url4 package's public parser; it has no top-level
+  `parse`). Spec wording updated.
+- `_replay.py` calls `_reproduction._classify` through the module, so the prior test that forces
+  the verdict with `monkeypatch` still reaches it unchanged.
+- Prior tests migrated (approval file): `test_reproduce.py` and `test_reproduce_review.py` drive the
+  same replay through `replay_published_*` via `_reproduce` helpers; calls by id use
+  `evaluate(score_id=…)`, and the one path assertion now expects the public read first (R2). The
+  two tests of the removed `sf.reproduce` delegation are deleted; `test_evaluate_doors.py` checks
+  that `reproduce` is gone from every door.

@@ -1,31 +1,25 @@
-"""Reproduce a submitted score from its frozen copy and record that it reproduced (OME-1307).
+"""Judge a pinned-cache replay and record an exact one on the board (OME-1307, OME-1613).
 
-FEATURE: E14 B5 (spec `02-frozen-copy-design.md` §7). The score's own url4 and answer seed run
-again with the frozen copy stored with the score. The Engine answers every model and web-tool call
-from the copy or fails the case, so a replay costs no provider spend. The result is judged against
-the stored numbers by one pure function, and an exact one is recorded on the board.
+FEATURE: E14 B5 (spec `02-frozen-copy-design.md` §7) and OME-1613 (spec §5). A replay of a
+published score is judged against the published numbers by one pure function, `_classify`, and an
+exact replay is recorded on the board. `_replay.py` runs the replay; this module only judges and
+records it.
 
-INVARIANT: this module never starts a normal, paid run. A score that cannot name a complete frozen
-copy starts no run at all, and a run the Engine did not acknowledge as a replay is stopped (the
-transport) or refused (`evaluate_url4_*`) before it is judged.
+The `Reproduction` value is what `CandidateResult.reproduction` carries, and what
+`sf.ReproductionError` carries when a replay cannot start.
 """
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal, cast
-from uuid import UUID
 
 from screamingface._case_digest import case_digest
-from screamingface._evaluation.url4 import evaluate_url4_async, evaluate_url4_sync
 from screamingface._report_primitives import CaseId
 from screamingface._scoreboard.leaderboards import _client_info
-from screamingface.errors import ExecutionError
-from screamingface.leaderboard import LeaderboardScore
-from screamingface.warnings import EvaluationWarning
 
 if TYPE_CHECKING:
+    from screamingface._scoreboard.replay_reads import PublishedScore
     from screamingface.client import AsyncClient, Client
     from screamingface.report import CandidateResult
 
@@ -34,27 +28,26 @@ type ReproductionOutcome = Literal["exact", "failed", "not_reproducible"]
 
 @dataclass(frozen=True, slots=True)
 class Reproduction:
-    """What `reproduce` found when it ran a score again from its frozen copy.
+    """The verdict of a replay from a pinned cache, against the published score.
 
-    `outcome` is `exact` (the replay gave the stored score and case count on the same benchmark
+    `outcome` is `exact` (the replay gave the published score and case count on the same benchmark
     revision), `failed` (it ran or tried to, with `reason` saying why) or `not_reproducible` (the
-    score has no complete frozen copy, so no run started). `missed_cases` lists the cases the
-    frozen copy could not answer. `recorded` says whether the board stored an exact reproduction,
-    and `record_error` says why not when an exact replay could not be recorded.
+    published capture is partial or unknown, so no run started). `missed_cases` lists the cases
+    the pinned cache could not answer. `recorded` says whether the board stored an exact
+    reproduction, and `record_error` says why not when an exact replay could not be recorded.
     """
 
     outcome: ReproductionOutcome
     reason: str | None = None
     missed_cases: tuple[CaseId, ...] = ()
-    result: CandidateResult | None = None
     recorded: bool = False
     record_error: str | None = None
 
 
 def _classify(
-    score: LeaderboardScore, result: CandidateResult
+    published: PublishedScore, result: CandidateResult
 ) -> tuple[ReproductionOutcome, str | None, tuple[CaseId, ...]]:
-    """Judge one replay against the stored score; a pure function of the two.
+    """Judge one replay against the published score; a pure function of the two.
 
     INVARIANT: the order of `checks` is the contract (spec §7). A replay code outranks everything,
     since a run that missed the copy has nothing to compare. Then a run failure, then the benchmark
@@ -74,15 +67,16 @@ def _classify(
         ("frozen_copy_miss", bool(missed)),
         ("frozen_copy_unavailable", any(f.code == "frozen_copy_unavailable" for f in failures)),
         ("run_failed", bool(result.failures)),
-        ("benchmark_revision_changed", result.benchmark.revision != score.benchmark_revision),
+        ("benchmark_revision_changed", result.benchmark.revision != published.benchmark_revision),
         (
             "score_differs",
-            result.score != score.score or len(result.cases) != score.total_questions,
+            result.score != published.score or len(result.cases) != published.total_questions,
         ),
         # Q29: the same score over other cases is not exact. Only a score with a digest is checked.
         (
             "cases_differ",
-            score.case_digest is not None and case_digest(result.cases) != score.case_digest,
+            published.case_digest is not None
+            and case_digest(result.cases) != published.case_digest,
         ),
     )
     reason = next((name for name, failed in checks if failed), None)
@@ -93,85 +87,23 @@ def _classify(
     )
 
 
-def _not_reproducible(score: LeaderboardScore) -> Reproduction | None:
-    """The refusal for a score with no complete frozen copy, before any run.
-
-    INVARIANT: a score that cannot name everything a replay needs is `unknown`. A `complete` score
-    with no copy id would run without `X-Replay-Frozen-Copy`, which is a normal, paid run, and a
-    score with no benchmark revision could never match one.
-    """
-    if score.capture_status == "partial":
-        return Reproduction(outcome="not_reproducible", reason="partial")
-    if (
-        score.capture_status is None
-        or score.pinned_cache is None
-        or score.benchmark_revision is None
-    ):
-        return Reproduction(outcome="not_reproducible", reason="unknown")
-    return None
-
-
-def _score_argument(score: object) -> LeaderboardScore | UUID | str:
-    if not isinstance(score, LeaderboardScore | UUID | str):
-        raise TypeError("score must be an sf.LeaderboardScore, a UUID or a score id string")
-    return score
-
-
-def _warn_if_still_running(exc: ExecutionError) -> None:
-    """Tell the user when the stop of an unacknowledged replay failed (its run may still go on)."""
-    if exc.hint is not None:
-        warnings.warn(exc.user_message, EvaluationWarning, stacklevel=4)
-
-
-def reproduce_sync(
-    client: Client, score: LeaderboardScore | UUID | str, record: bool
-) -> Reproduction:
-    selected = _score_argument(score)
-    if not isinstance(selected, LeaderboardScore):
-        selected = client.leaderboards.get_score(selected)
-    reproduction = _not_reproducible(selected) or _replayed_sync(client, selected)
-    result = reproduction.result
-    if record and reproduction.outcome == "exact" and result is not None:
-        reproduction = _record_sync(client, selected, result, reproduction)
-    return reproduction
-
-
-def _replayed_sync(client: Client, score: LeaderboardScore) -> Reproduction:
-    try:
-        report = evaluate_url4_sync(
-            client._transport,
-            score.url4,
-            None,
-            None,
-            answer_seed=score.answer_seed,
-            # The Engine refuses X-Capture with X-Replay-Frozen-Copy.
-            capture=False,
-            replay_frozen_copy=score.pinned_cache,
-        )
-    except ExecutionError as exc:
-        if exc.code != "replay_unsupported":
-            raise
-        _warn_if_still_running(exc)
-        return Reproduction(outcome="failed", reason="replay_unsupported")
-    result = report.candidates[0]
-    outcome, reason, missed = _classify(score, result)
-    return Reproduction(outcome=outcome, reason=reason, missed_cases=missed, result=result)
-
-
 def _record_sync(
     client: Client,
-    score: LeaderboardScore,
+    published: PublishedScore,
     result: CandidateResult,
     reproduction: Reproduction,
 ) -> Reproduction:
+    # WHY the login happens here and nowhere earlier (Q1): recording posts to the gated
+    # `/v1/scores/{id}/reproductions`, so an exact verdict is the only point a replay of a public
+    # score asks for a leaderboard login.
     try:
         client.leaderboards._record_reproduction(
-            score.id,
+            published.score_id,
             run_id=result.run_id,
             # The replay's own numbers. The board compares them with the stored score exactly.
             score=cast(float, result.score),
             total_questions=len(result.cases),
-            frozen_copy_id=score.pinned_cache,
+            frozen_copy_id=published.pinned_cache,
             # The replay's own cases, for the board to compare with the stored digest (Q29).
             case_digest=case_digest(result.cases),
             client=_client_info(),
@@ -181,54 +113,19 @@ def _record_sync(
     return replace(reproduction, recorded=True)
 
 
-async def reproduce_async(
-    client: AsyncClient, score: LeaderboardScore | UUID | str, record: bool
-) -> Reproduction:
-    selected = _score_argument(score)
-    if not isinstance(selected, LeaderboardScore):
-        selected = await client.leaderboards.get_score(selected)
-    reproduction = _not_reproducible(selected) or await _replayed_async(client, selected)
-    result = reproduction.result
-    if record and reproduction.outcome == "exact" and result is not None:
-        reproduction = await _record_async(client, selected, result, reproduction)
-    return reproduction
-
-
-async def _replayed_async(client: AsyncClient, score: LeaderboardScore) -> Reproduction:
-    try:
-        report = await evaluate_url4_async(
-            client._transport,
-            score.url4,
-            None,
-            None,
-            answer_seed=score.answer_seed,
-            # The Engine refuses X-Capture with X-Replay-Frozen-Copy.
-            capture=False,
-            replay_frozen_copy=score.pinned_cache,
-        )
-    except ExecutionError as exc:
-        if exc.code != "replay_unsupported":
-            raise
-        _warn_if_still_running(exc)
-        return Reproduction(outcome="failed", reason="replay_unsupported")
-    result = report.candidates[0]
-    outcome, reason, missed = _classify(score, result)
-    return Reproduction(outcome=outcome, reason=reason, missed_cases=missed, result=result)
-
-
 async def _record_async(
     client: AsyncClient,
-    score: LeaderboardScore,
+    published: PublishedScore,
     result: CandidateResult,
     reproduction: Reproduction,
 ) -> Reproduction:
     try:
         await client.leaderboards._record_reproduction(
-            score.id,
+            published.score_id,
             run_id=result.run_id,
             score=cast(float, result.score),
             total_questions=len(result.cases),
-            frozen_copy_id=score.pinned_cache,
+            frozen_copy_id=published.pinned_cache,
             # The replay's own cases, for the board to compare with the stored digest (Q29).
             case_digest=case_digest(result.cases),
             client=_client_info(),

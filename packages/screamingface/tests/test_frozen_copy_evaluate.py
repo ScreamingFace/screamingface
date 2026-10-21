@@ -212,7 +212,9 @@ async def test_the_async_recipe_path_stamps_capture_on_every_compiled_candidate(
 def test_every_evaluate_door_takes_capture_and_none_takes_a_replay(target: object) -> None:
     parameters = inspect.signature(target).parameters  # type: ignore[arg-type]
 
-    assert parameters["capture"].default is True
+    # OME-1613 (S6, owner 2026-10-21): None means "on" (see test_evaluate_doors.py); only an
+    # explicit capture=True can be refused on a pinned-cache replay.
+    assert parameters["capture"].default is None
     assert "replay_frozen_copy" not in parameters
     assert "frozen_copy_id" not in parameters
 

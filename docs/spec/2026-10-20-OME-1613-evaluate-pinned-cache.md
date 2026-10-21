@@ -57,14 +57,16 @@ caller must pass `url4`. The replay then runs with the given `url4` and `answer_
 
 All of these run before a token is minted or a run is scheduled.
 
-1. `capture_status == "partial"` → no run; `reproduction.outcome = "not_reproducible"`, reason
-   `partial`. A score with no copy id, status or revision → `not_reproducible`, reason `unknown`
-   (today's behaviour).
+1. `capture_status == "partial"` → no run; raises `sf.ReproductionError` with code
+   `not_reproducible`, reason `partial`. A score with no copy id, status or revision → the same
+   error with reason `unknown`. An Engine that refuses replay raises it with code
+   `replay_unsupported`. The error carries the `Reproduction` (Q14): a `Report` always means a run
+   happened.
 2. **Seed (S2):** a passed `answer_seed` must equal the score's. A score with no seed means the run
    had none; passing one is then a mismatch error, because a stamped seed changes every request.
 3. **Recipe (S3, Q2):** a passed `url4` must be the same parsed recipe:
-   `url4.parse(passed) == url4.parse(published)`. The AST is frozen dataclasses, so equality is
-   structural. A `url4` that does not parse is a `ValueError`. Limit (Q6, accepted): the parser
+   `url4.build(passed) == url4.build(published)`. `url4.build` is the url4 package's public parser; its AST is frozen dataclasses, so
+   equality is structural. A `url4` that does not parse is a `ValueError`. Limit (Q6, accepted): the parser
    keeps an inline `{…}` object as raw text (`StructObject.raw`), so key order or spacing inside one
    still counts as a different recipe. The docs say so. Omitted → the published url4.
 
@@ -86,7 +88,7 @@ The SDK rebuilds it:
 1. Take the candidate text out of the reference url4 (`_candidate_text(build(url4))`). The reference
    is the published url4, or the caller's `url4` on the S4 path (R3).
 2. **Guard:** fetch `GET /v1/benchmarks/{id}` with no limit, bind the candidate, and require
-   `url4.parse(rebuilt) == url4.parse(reference)`. The revision is in every route path, so this
+   `url4.build(rebuilt) == url4.build(reference)`. The revision is in every route path, so this
    also checks the revision. On a mismatch, refuse before any run: "this Engine can no longer
    rebuild that run; use a full replay".
 3. Fetch `?limit=n`, bind the same candidate, and run it as a full replay would.
@@ -126,7 +128,8 @@ before the run:
 | 11 | 42 | 7 | Same as 9 |
 
 **Hint for rows 9–11 (owner, 2026-10-21):** on the S4 path only, when every case of the replay
-failed with the error code `frozen_copy_miss`, the SDK adds a hint to the result and a warning:
+failed with the error code `frozen_copy_miss`, the SDK raises one `EvaluationWarning` (there is
+no verdict on this path to carry a hint, so the warning is the hint):
 "no case was found in the pinned cache; check that `answer_seed` and `url4` are exactly the
 captured run's (a run captured without a seed must be replayed without one)". The condition is
 structural (no published score, and the code of every case's failure), never a match on error
@@ -180,6 +183,7 @@ one fact for a copy without returning stored requests (E14 B1 rule), so it is a 
 | Q11 | S4 seed mismatch (§4a rows 9–11) | Hint and warning when every case misses on the S4 path; an up-front check is a later gateway change. |
 | Q12 | Old field name | Hard rename `frozen_copy_id` → `pinned_cache` in the Python API, no alias (feature one week old, SDK pre-1.0). Wire and JSON keep `frozen_copy_id`. Replaces S7's deprecated alias. |
 | Q13 | `sf.reproduce` | Removed now; `sf.evaluate(score_id=…)` replaces it. Replaces S8's deprecation. |
+| Q14 | No run, no Report | A replay that cannot start (capture `partial` / unknown, or an Engine that refuses replay) raises `sf.ReproductionError` carrying the `Reproduction`, like the other pre-run refusals. |
 
 ## 7. Invariants
 

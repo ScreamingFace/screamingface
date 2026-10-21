@@ -15,6 +15,13 @@
   (`to_json()` / `to_dict()`) and the Scoreboard wire keep the key `frozen_copy_id`, so exported
   reports are unchanged.
 
+* **screamingface:** `sf.reproduce`, `Client.reproduce` and `AsyncClient.reproduce` are removed
+  (`OME-1613`). Replay a published run with `sf.evaluate(pinned_cache="<id>")`, or a score you
+  submitted with `sf.evaluate(score_id="<id>")`; `record=` is now `record_reproduction=`. The
+  verdict is on `CandidateResult.reproduction`, and `Reproduction.result` is gone (the result is
+  the object that carries the verdict). A replay that cannot start raises `sf.ReproductionError`
+  instead of returning a `not_reproducible` or `replay_unsupported` verdict.
+
 ### Fixes
 
 * `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.
@@ -28,6 +35,18 @@
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** replay a published leaderboard run at $0 from its pinned cache (`OME-1613`).
+  `sf.evaluate(pinned_cache="<id>")` reads the run's recipe and answer seed from the public board,
+  replays every call from the answers the run captured, and judges the result against the
+  published score: `CandidateResult.reproduction` is `exact`, or `failed` with a `reason` and the
+  cases the pinned cache could not answer. An exact replay is recorded on the board (a leaderboard
+  login is asked for only then) unless `record_reproduction=False`. `score_id=` replays a private
+  score for its submitter. `url4=` must be the same parsed recipe as the published one, and a
+  passed `answer_seed` must equal the captured run's; both fail before any run otherwise. A
+  capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and has
+  no verdict. `capture` now defaults to `None`, which still means on; `capture=True` is refused on
+  a replay. Needs a board with the pinned-cache lookup (`OME-1596`).
 
 * `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
   started can reach a hosted Engine without a browser window. A malformed or expired token fails
