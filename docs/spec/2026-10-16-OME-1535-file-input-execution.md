@@ -161,9 +161,10 @@ Case envelope), never from the contents of a payload, a member output or a JSON 
 
 **Content layout.** Every model-calling node — ensemble members, model and recipe synthesizers
 (fusion), reducers, and the judge — builds the OpenAI `content` of its user message as
-`[attachment parts in attachments[] order…, then the text]`. In a multi-message candidate envelope
-the attachment parts go on the **last user message** only; earlier messages keep their text content
-unchanged (D3). Each attachment becomes `image_url` (for
+`[attachment parts in attachments[] order…, then the text]`. When url4 `attachments[]` are merged into
+a multi-message candidate envelope, their parts go on the **last user message** only; earlier messages
+keep their text content unchanged (D3). D3 covers only those url4 attachments: parts already written in a
+v2 Case envelope (§2.7) keep their position. Each attachment becomes `image_url` (for
 `image/*`) or `file` (otherwise) with a `data:` URI built from the verified bytes. A node with no
 attachments sends `content` as a plain string, exactly as today.
 
@@ -176,8 +177,8 @@ attachments.
 collection text set ([`U/dag/semantics/collection.py:140-142`][u-coll]) is used as text and is **not**
 added to `attachments[]`. Any other type there stays `unsupported_content_type` (C8).
 
-**Propagation (v1).** Attachments are fixed at run start (Case ingress, plus the url4 refs resolved for
-that run) and are **inherited unchanged** by every node: pipelines, nested local sub-expressions,
+**Propagation (v1).** Attachments are fixed at run start (the url4 refs resolved for that run; Case
+parts travel in the v2 envelope instead, §2.7) and are **inherited unchanged** by every node: pipelines, nested local sub-expressions,
 reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1. Because the list is fixed before execution, a
 blob source marked `;optional` that fails to resolve **fails the whole run** with its own code (§4); it
 is never dropped from the list (D5).
@@ -213,13 +214,62 @@ read that builds a part). A mismatch is `x.blob_digest_mismatch`, permanent.
 returns 422 for file parts. Earlier behaviour (the silent drop at `637594595`) appears only as dated
 history.
 
+### 2.7 Case ingress: the v2 candidate-input envelope (`OME-1678`, #1507)
+
+**Decision.** Adopted from khoaguin's proposal on #1450 ([comment 6286823021][khoa-v2]) and accepted in
+Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's pictures and PDFs are
+**typed content parts inside the candidate-input envelope** `screamingface.candidate-input.v2`
+([`E/benchmarks/candidate_input.py`][pr-cin] in #1507):
+
+- Parts are only `text`, `image_url` (`url`, optional `detail` of `auto` \| `low` \| `high`) and `file`
+  (`file_data`, optional `filename`, `application/pdf` only): the set the gateway already accepts
+  ([`G/core/content_parts.py`][g-parts]), so nothing in between translates.
+- Picture and file parts go in **user** messages only (Anthropic OAuth drops non-text parts from system
+  messages, §1). Text-only Cases stay v1, and a v2 envelope holds at least one non-text part, so every
+  Case has exactly one valid encoding.
+- **Structure, not scanning.** The connector reads parts from the typed envelope, never from string
+  contents, so F2's no-scanning rule holds.
+- **Position.** Parts keep the position the importer wrote them in; D3 does not move them (F2).
+- **Identity.** `model_request_key` hashes the raw `context` string
+  ([`E/request_identity.py:13-33`][e-key]), which carries the envelope verbatim, so a v2 Case's parts and
+  their order are in the key and F3 holds without a separate part list.
+- **Only `data:` URIs.** Media parts carry inline `data:` URIs and nothing else; the gateway refuses
+  any other form before its cache stage (`OME-1542`, #1479, open at this revision).
+- **Limits.** The gateway's 8 MiB request-body cap (#1479) bounds one request: a larger body gets 413
+  `request_too_large`, permanent, before any upstream spend. Per-Case limits (5 MB per picture after
+  base64, 8 MB per Case, at most 20 pictures) belong to the `OME-1271` importer, which refuses an
+  oversized Case by name; the values are confirmed per route there.
+
+**v1 gates before any v2 board ships** (from the #1507 review; read from code, not end-to-end runs):
+
+1. **Fusion and inspect never re-serialise a v2 envelope as text.** Today a Fusion synthesizer gets
+   `{"input": <v2 envelope string>, …}` ([`P/_evaluation/candidate.py:769-787`][p-fctx]), which
+   `_native_messages` ([`E/world/connector.py:1495`][pr-native]) does not read as an envelope, and
+   `conversation_messages` ([`I/conversation_input.py:62`][pr-conv]) re-wraps a v2 Case as v1 text; both
+   would send the base64 as prompt tokens. Either `OME-1679` and `OME-1271` PR1 block the v2 importer
+   (`OME-1271` PR2), or Fusion candidates on v2 Cases are refused at admission.
+2. **The judge is text-only by an explicit refusal, not by accident (D6).** `_messages`
+   ([`E/world/connector.py:1481`][pr-msgs]) builds parts for any v2 context; pictures are dropped today
+   only because [`I/judge_provider.py:432`][i-judge] writes v1 from `message.text`. A parts message under
+   `current_grading_case()` ([`E/grading_call_scope.py:43`][pr-grade]) raises `invalid_candidate_input`,
+   pinned by a test.
+3. **Reports show a placeholder, never base64** (`OME-1680`). `_decode_candidate_envelope`
+   ([`P/case_result.py:653-680`][pr-report]) accepts only v1; the SDK `CaseResult.conversation` and the
+   Report show each part as one placeholder line (type, size, sha256, filename when present). A
+   placeholder never reaches a model or a scorer.
+4. **One `data:` URI pattern.** A conformance test, in both projects, pins the engine's `_DATA_URI_RE`
+   ([`E/benchmarks/candidate_input.py:40-42`][pr-dre]) to the gateway's
+   ([`G/core/content_parts.py:23-25`][g-dre]).
+
 ## 3. Execution contract
 
 1. **Two separate ingress paths, one representation out** (see the diagram).
-   - **Case ingress (engine).** Benchmark Case parts arrive as inline `data:` in `$input` of the run spec
-     (`OME-1271` v1), within the **1 MiB** `RUN_SPEC` cap, never in the URL (8 KiB cap) and never in a url4
-     expression. The engine decodes each part, hashes it, stores it in the run blob store and appends it to
-     `attachments[]`. This path does not go through url4.
+   - **Case ingress (engine).** Benchmark Cases never travel in `RUN_SPEC`: it carries only `env` and
+     `io_concurrency` ([`E/child_protocol.py:94-99`][e-spec94]), and the run reads Cases from the image's
+     `cases.json` through the cases route ([`I/single_shot.py:799-818`][i-cases]). A Case's pictures and
+     PDFs are typed parts of a v2 candidate-input envelope (§2.7) that reach the connector in place; they
+     are not appended to `attachments[]`, never sit in the URL and never in a url4 expression. This path
+     does not go through url4.
    - **url4 ingress.** A `src=` binding carrying `/blob/sha256/<hex>` or `blob:sha256/<hex>` is resolved
      at the evaluating node against the local run store (§5) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1).
@@ -227,7 +277,8 @@ history.
      returns a non-text type, is hashed into the run store and appended to `attachments[]` like a local blob.
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
-   `data:` URI); that is the only shape the gateway sees. The gateway never fetches.
+   `data:` URI); v2 envelope parts already have that shape. It is the only shape the gateway sees. The
+   gateway never fetches.
 2. **Run-scoped, verified bytes.** Every node, retry and nested local expression in the run reads the same
    stored bytes, verified on every read (F3).
 3. **Who sees the file.** Every model-calling node, per F2. That replaces the text re-serialisation at
@@ -361,3 +412,15 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [g-anth]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/aigateway/src/aigateway/plugins/anthropic_provider/chat_handler.py#L180-L197
 [g-hf74]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/aigateway/src/aigateway/plugins/huggingface_provider/discovery.py#L74
 [g-hf129]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/aigateway/src/aigateway/plugins/huggingface_provider/discovery.py#L129
+[e-spec94]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/child_protocol.py#L94-L99
+[i-cases]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine_inspect/single_shot.py#L799-L818
+[g-dre]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/aigateway/src/aigateway/core/content_parts.py#L23-L25
+[khoa-v2]: https://github.com/ScreamingFace/screamingface/pull/1450#issuecomment-6286823021
+[pr1507]: https://github.com/ScreamingFace/screamingface/pull/1507/commits/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8
+[pr-cin]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine/benchmarks/candidate_input.py
+[pr-dre]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine/benchmarks/candidate_input.py#L40-L42
+[pr-native]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine/world/connector.py#L1495
+[pr-msgs]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine/world/connector.py#L1481
+[pr-conv]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine_inspect/conversation_input.py#L62
+[pr-grade]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine/grading_call_scope.py#L43
+[pr-report]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/packages/screamingface/src/screamingface/case_result.py#L653-L680
