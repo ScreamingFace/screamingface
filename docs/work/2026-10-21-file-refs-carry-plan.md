@@ -38,3 +38,9 @@ Plan only: no code, no PR, no sub-issues filed.
 - **Deviations:** the ticket body ("refs stay text tokens, recognised") and open PR #1482
   (`ResolvedBlob` str subclass; allow-listed `url4://` blob fetch) contradict owner-locked F2/F1.
   The plan follows F1–F3 and lists the required deltas as open decisions.
+- **Revision (2026-10-21):** owner decisions D1–D6 resolve Q1–Q5. #1482 is amended before merge, so
+  U0 is a rebase plus a check (no `ResolvedBlob` / remote-fetch undo); every `url4://` blob ref is
+  `x.remote_blob_unsupported` (D1); envelope attachments go on the last user message (D3); C8 blob
+  is text only (D4); failed `;optional` blob fails the run (D5); judge text-only (D6). Added U3
+  tests for D1 self-authority, D4 and D5. Q6 (ticket body rewrite at PR-open) and the `OME-1540`
+  dependency stay open.

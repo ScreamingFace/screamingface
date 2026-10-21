@@ -7,6 +7,7 @@ Code read at `origin/main` `ec4b632b2`, plus open PRs #1482 (`OME-1539`), #1478 
 #1507 (`OME-1678`).
 
 **Status: plan, not approved for implementation.** Implementation starts only on explicit approval.
+Open questions Q1–Q5 are resolved by owner decisions D1–D6 (Sergey, 2026-10-21, §6); Q6 stays open.
 
 ## 0. What this plan changes versus the ticket text
 
@@ -16,7 +17,7 @@ The ticket body predates F2. Where they disagree, F2 wins:
 |---|---|---|
 | Refs "stay text tokens … recognised and kept intact" through joins | Nothing scans strings; a ref becomes an attachment only from AST structure | No recognition in `_as_text`, `JoinNode`, `build_reducer_input` or `$var`. Refs ride a run-scoped side-channel |
 | Reducer input "keeps the original refs alongside member outputs" | Reducer gets `[attachments…, text]`; member outputs add none | Reducer text is unchanged; the reducer call carries the same attachments |
-| Recognise `/blob/…`, `url4://…/blob/…`, `blob:sha256/…` | F1: `url4://<other>/blob/…` is `remote_blob_unsupported` before any I/O | Only local forms resolve; the remote form fails early |
+| Recognise `/blob/…`, `url4://…/blob/…`, `blob:sha256/…` | F1 + D1: every `url4://…/blob/…` (any authority, self included) is `remote_blob_unsupported` before any I/O | Only the bare local forms resolve; every `url4://` blob ref fails early |
 
 The ticket's two acceptance lines survive unchanged: a ref fanned out to 3 members reaches every
 member and the reducer; text-only DAGs are byte-identical.
@@ -60,8 +61,12 @@ member and the reducer; text-only DAGs are byte-identical.
    collects file-ref leaves (`BlobRef`, `/blob/sha256/<hex>` `RelUrl`, `url4://…/blob/…` `Url`),
    skips `RemoteExpr` subtrees (C6) and quoted text (C4), dedupes by digest (first position wins),
    resolves them through `fetch_bytes` under the run's bounded io, verifies sha256, and builds the
-   `Attachment` list. Any failure fails the run before the first model call. A remote authority is
-   `x.remote_blob_unsupported`, permanent, with zero io calls (F1).
+   `Attachment` list. Any failure fails the run before the first model call, including a failed
+   `;optional` blob source (D5: the list is fixed before execution). Every `url4://…/blob/…` ref,
+   whatever its authority (the node's own name included), is `x.remote_blob_unsupported`,
+   permanent, with zero io calls (F1, D1); only the bare `/blob/sha256/<hex>` path and its
+   `blob:sha256/<hex>` token (same node's store) are local. A blob read as a collection (C8) is
+   consumed as text and is not attached (D4).
 4. **Nodes cannot add, drop or reorder.** The tuple is immutable; a nested `run()` (local eval
    path, spawned fragment) inherits the bound tuple verbatim; a nested `run()` that would bind a
    *different* tuple raises (`ValueError`, programming error). `BlobRefNode.resolve` returns the ref
@@ -73,7 +78,8 @@ member and the reducer; text-only DAGs are byte-identical.
    `content` (`[image_url|file parts in order…, {"type":"text"}]`, or the plain string when empty),
    reading bytes through a tenant+run-scoped reader that re-verifies sha256. The request key hashes
    the canonical part list and adapter revision only when parts exist, so text-only keys are
-   unchanged. Grading calls get `()` (OME-1271 v1).
+   unchanged (D6). Grading calls get `()`: the judge is text-only in v1 (OME-1271, D6). With a
+   multi-message candidate envelope the parts go on the **last** user message (D3).
 
 Nothing in `_shared.py`, `group.py`, `broadcast.py`, `reduce.py`, `iteration.py` or
 `semantics/ensemble.py` changes: that is the point of F2, and the tests in U4 pin it.
@@ -83,11 +89,13 @@ Nothing in `_shared.py`, `group.py`, `broadcast.py`, `reduce.py`, `iteration.py`
 Prefix `P/` = `packages/url4/`. Every task: write the failing tests, see RED, implement, GREEN,
 `run_gates.py url4`. Tests are appended; no existing test is edited.
 
-**U0 — rebase onto #1482 and land its F1/F2 deltas.** Precondition: `OME-1539` (#1482) merged. If
-it merges as it is today, U2/U3 below carry the deltas: `BlobRefNode` returns a plain `str` (drop
-`ResolvedBlob`); a `url4://` blob ref is `x.remote_blob_unsupported` before I/O instead of the
-`blob_peers` allowlist fetch. `collection_body` (C8, ref in collection position) stays: a blob
-read as a collection is consumed as text and is **not** an attachment (see Q2).
+**U0 — rebase onto the amended #1482.** Precondition: `OME-1539` (#1482) merged **after** it is
+amended to D1/D2 (owner decision on Q1): no `ResolvedBlob` `str` subclass (`BlobRefNode` yields a
+plain `str`), no `blob_peers` allowlist fetch, every `url4://` blob ref already
+`x.remote_blob_unsupported` before I/O. This unit therefore undoes nothing: U0 is the rebase plus a
+check that `main` carries those three facts. If #1482 lands without them, STOP and report rather
+than reworking it here. `collection_body` (C8) stays as #1482 has it: a blob read as a collection
+is text and is **not** an attachment (D4).
 
 **U1 — `Attachment` value type.** New `P/src/url4/core/attachment.py`.
 New `P/tests/unit/test_attachments.py`:
@@ -112,17 +120,20 @@ New `P/tests/unit/test_attachments.py`:
 **U3 — collect and resolve url4 refs at run start.** `P/src/url4/dag/attachments.py`
 (`collect_file_refs(ast)`, `resolve_attachments(addresses, io)`), `P/src/url4/dag/_run.py`,
 `P/src/url4/dag/nodes/blob.py` (plain-`str` result, no re-fetch), `P/src/url4/core/errors.py`
-(`x.remote_blob_unsupported` if #1482 has not added it). Append to `P/tests/unit/test_attachments.py`:
+(only if the amended #1482 lacks `x.remote_blob_unsupported`). Append to `P/tests/unit/test_attachments.py`:
 1. `test_collects_refs_in_source_order_across_sources_and_iteration_bodies`
-2. `test_collects_all_three_local_forms` (`/blob/sha256/…`, `blob:sha256/…`, `url4://<self>/blob/…` — see Q3)
+2. `test_collects_both_local_forms` (`/blob/sha256/…`, `blob:sha256/…`; D1)
 3. `test_quoted_blob_text_is_not_collected` (C4)
 4. `test_refs_inside_a_remote_nested_expression_are_not_collected` (C6)
 5. `test_duplicate_digest_is_collected_once_at_its_first_position`
 6. `test_case_attachments_precede_url4_refs`
 7. `test_remote_blob_ref_fails_remote_blob_unsupported_with_no_io` (io spy: zero calls)
-8. `test_digest_mismatch_fails_blob_digest_mismatch_permanent`
-9. `test_missing_blob_fails_source_not_found_before_any_process_call`
-10. `test_blob_ref_payload_is_the_plain_ref_text_and_fetches_once`
+8. `test_url4_blob_ref_naming_the_own_node_is_also_remote_blob_unsupported` (D1)
+9. `test_digest_mismatch_fails_blob_digest_mismatch_permanent`
+10. `test_missing_blob_fails_source_not_found_before_any_process_call`
+11. `test_failed_optional_blob_source_fails_the_whole_run` (D5)
+12. `test_blob_in_collection_position_is_text_and_not_attached` (D4)
+13. `test_blob_ref_payload_is_the_plain_ref_text_and_fetches_once`
 
 **U4 — inheritance through every node family (the ticket's acceptance).** No source change
 expected; these pin it. New `P/tests/unit/test_attachment_propagation.py`, using a `Url4Node` with
@@ -183,7 +194,7 @@ attachments)`; `_ModelEndpoint.__call__` passes `request.attachments` (or `()` f
 2. `test_call_without_attachments_sends_byte_identical_body`
 3. `test_reducer_and_synthesizer_calls_in_one_run_receive_the_same_parts` (url4 fan-out + reduce over the fake world)
 4. `test_judge_call_inside_a_run_with_attachments_sends_none`
-5. `test_envelope_case_attachments_go_to_the_user_message` (see Q4)
+5. `test_envelope_attachments_go_on_the_last_user_message` (D3)
 
 **E4 — request identity (F3).** `E/request_identity.py` gains keyword-only `parts=()` and
 `adapter_rev=None`, added to the hashed payload only when `parts` is non-empty;
@@ -215,22 +226,24 @@ connector"). Recommended: fold B into `OME-1545` (widen it with E4 and the judge
 file a new leaf. `OME-1547` (`client-sf`) needs no new leaf: under F2 the fusion text is unchanged
 and its synthesizer receives the parts through E3; `OME-1547` shrinks to an SDK-level assertion.
 
-## 6. Open decisions (need the owner before implementation)
+## 6. Decisions (owner-locked, Sergey, 2026-10-21) and what stays open
 
-- **Q1 — #1482 vs F1/F2.** #1482 carries bytes on a `str` subclass and fetches allow-listed
-  `url4://` blobs. Amend #1482 before merge (preferred: one contract on `main`), or merge it and let
-  U0 undo both?
-- **Q2 — a blob in collection position** (C8 text blob iterated as rows): consumed as text and not
-  an attachment (this plan), or also attached?
-- **Q3 — `url4://<self>/blob/…`.** The spec allows the self authority; #1482 has no notion of
-  "self" (any authority is remote). Name the self check (the node's own name / base URL) or treat
-  every `url4://` blob as remote in v1?
-- **Q4 — envelope Cases.** With a multi-message candidate envelope, attachments go to the first or
-  the last user message? (#1507 currently inlines Case pictures inside the envelope instead of the
-  side-channel; reconciling that is Case-ingress work.)
-- **Q5 — `;optional` blob source.** A failed optional ref fails the whole run in this plan, because
-  attachments are fixed before execution. Acceptable for v1?
-- **Q6 — ticket body.** Rewrite `OME-1543`'s description to F2 when the PR opens.
+| Q | Decision | Where it lands |
+|---|---|---|
+| Q1 #1482 vs F1/F2 | #1482 is **amended before merge** to D1/D2; this unit undoes nothing | U0 |
+| Q3 `url4://<self>/blob/…` | **D1** — remote blobs deferred from v1: every `url4://` blob ref, any authority, is `x.remote_blob_unsupported` (permanent) before any network I/O; only the bare local forms resolve | §2.3, U3.2, U3.7–8 |
+| — | **D2** — no bytes on `str` subclasses: a typed `Attachment` (digest, media type, optional filename/detail) rides the run's ordered `attachments[]`; `Payload` stays `str`; no string scanning | §2.1–2.5, U4.9 |
+| Q4 envelope Cases | **D3** — attachments go on the **last** user message | §2.6, E3.5 |
+| Q2 blob in collection position | **D4** — a text blob read as a collection (C8) is text, not attached | §2.3, U0, U3.12 |
+| Q5 `;optional` blob source | **D5** — a failed optional blob source fails the whole run (list fixed before execution) | §2.3, U3.11 |
+| — | **D6** — judge is text-only in v1; nested expressions on remote nodes get no attachments; no-attachment requests keep today's key | §2.5–2.6, U5.2–3, E3.4, E4.1 |
+
+Still open:
+
+- **Q6 — ticket body.** Rewrite `OME-1543`'s description to F2/D1–D6 when the PR opens.
+- **Dependency — `OME-1540`.** The engine's real tenant+run-scoped blob store; sub-issue B tests
+  run against a Protocol fake until it lands (§4 E1).
+- **Dependency — #1482 amendment (`OME-1539`).** U0 cannot start until #1482 merges amended.
 
 ## 7. Gates
 
