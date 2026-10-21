@@ -156,6 +156,18 @@ def _tamperings() -> dict[str, tuple[str, str, str, str]]:
     """name -> (shape, text to replace, replacement, expected error)."""
 
     return {
+        "k is a string": (
+            "rank by signal",
+            '"args":{"k":2,"order":"max"}',
+            '"args":{"k":"2","order":"max"}',
+            _CANNOT_REBUILD,
+        ),
+        "k above the member count": (
+            "rank by signal",
+            '"args":{"k":2,"order":"max"}',
+            '"args":{"k":5,"order":"max"}',
+            _CANNOT_REBUILD,
+        ),
         "by_signal: orders that differ": (
             "rank by signal",
             '"args":{"key":"field:score","order":"max"},"op":"by_signal@1"',
@@ -189,12 +201,20 @@ def test_a_followed_selection_inside_a_corrective_loop_round_trips() -> None:
         judge="provider/x",
         max_rounds=2,
     )
+    solo = sf.SelfCorrective(_after(sf.Rank(1, by="field:s")), max_rounds=2)
+    shown = {
+        "corrective_loop": (
+            ">> sf.Concat() >> sf.Synthesize(",
+            ">> sf.Rank(1, by='score:judge') >> sf.Synthesize(",
+        ),
+        "self_corrective": (">> sf.Rank(1, by='field:s') >> sf.Synthesize(",),
+    }
 
-    for recipe, kind in ((loop, "corrective_loop"),):
+    for recipe, kind in ((loop, "corrective_loop"), (solo, "self_corrective")):
         compiled = _compiled(recipe)
         source = sf.Url4(compiled.url4).to_python()
-        assert ">> sf.Concat() >> sf.Synthesize(" in source
-        assert ">> sf.Rank(1, by='score:judge') >> sf.Synthesize(" in source
+        for step in shown[kind]:
+            assert step in source
         assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
         replayed = _candidate_from_url4(_linked(compiled.url4))
         assert replayed.kind == kind
