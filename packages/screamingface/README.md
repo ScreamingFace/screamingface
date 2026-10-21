@@ -151,18 +151,21 @@ The chain rules:
 - A `sf.Fanout` block ends in one reducer or in one `sf.Synthesize`. Nothing else ends it.
 - A block has at most one `sf.Judge`, directly after the `sf.Fanout`. A `sf.Judge` needs a later
   step in its block that reads `"score:judge"`, and a step that reads `"score:judge"` needs a
-  `sf.Judge` in its block.
+  `sf.Judge` in its block. `sf.Judge` and `sf.JudgePick` use the same judge signal, so a block
+  with a `sf.Judge` cannot end in `sf.JudgePick`.
 - A narrow step never ends a recipe. After `sf.Rank` or `sf.Filter`, put another narrow step, a
   reducer or `sf.Synthesize`. After `sf.Concat`, put `sf.Synthesize`. A block has at most 4 narrow
   steps.
-- `sf.Merge`, `sf.JudgePick` and a `sf.Gate` with a judge or writer fallback make their own call
-  over all the members, so they cannot follow a narrow step.
+- `sf.Merge`, `sf.JudgePick` and a `sf.Gate` with a judge or writer fallback read every member
+  (`sf.JudgePick` and the fallback in their own model call), so they cannot follow a narrow step.
 - More stages can follow a closed block: `>> sf.Model(...)`, a new `sf.Fanout(...)` block, or a
   `sf.Pipeline`. A closed block is a recipe, so it can also be a `sf.Fanout` member or the model of
   a `sf.Synthesize`.
 - A step in the wrong place raises `ValueError` at the `>>` that adds it, or at the `>>` that
   closes its block. A chain that ends inside a block is a value that you can extend, but the
   compile, `sf.evaluate(...)` and `Url4` rendering refuse it before any call.
+- A named `sf.Pipeline` keeps its stages as one group, so a later `>>` cannot reach into it. It
+  cannot end in an open block: close the `sf.Fanout` block inside the named Pipeline.
 
 `sf.Synthesize` reads one of three inputs. The input depends on the step before it:
 
@@ -207,8 +210,10 @@ the same E4b release.
 
 `sf.Fusion(members, synthesizer=...)` is a shortcut for one block. A route, an `sf.Model` or a
 recipe as `synthesizer=` becomes `sf.Synthesize(...)`, and a reducer comes after the `sf.Fanout`
-as it is (see "Fusion as a named recipe"). The examples in this README use the `sf.Fanout(...) >>
-...` form.
+as it is (see "Fusion as a named recipe"). `optional=True` wraps the block as
+`sf.Pipeline([...], optional=True)`; it needs a closed block, so `sf.Fusion` refuses
+`optional=True` with a narrow step as `synthesizer=`, and it refuses a bare `sf.Judge`, which only
+scores. The examples in this README use the `sf.Fanout(...) >> ...` form.
 
 ### Candidate policy
 
@@ -1140,7 +1145,11 @@ the answer from the member answers. The shortcut `sf.Fusion(members, synthesizer
 same chain: a route, an `sf.Model` or a recipe as `synthesizer=` becomes `sf.Synthesize(...)`, and
 a step (a reducer, `sf.Synthesize`, or a narrow step that you then close with `>> sf.Synthesize(...)`)
 comes after the `sf.Fanout` as it is. The two give the same value and the same url4, byte for byte,
-and the value shows in the `sf.Fanout(...) >> ...` form.
+and the value shows in the `sf.Fanout(...) >> ...` form. `sf.Fusion` also takes `signals=`,
+`quorum=`, `name=` and `prompt=` (it gives them to the `sf.Fanout`) and `optional=True` (it gives
+`sf.Pipeline([chain], optional=True)`). `optional=True` with a narrow step as `synthesizer=` raises
+`ValueError`, because an optional chain must be a closed block, and a bare `sf.Judge` as
+`synthesizer=` raises `ValueError`, because a judge only scores.
 
 ```python
 writer = sf.Model("openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts.")

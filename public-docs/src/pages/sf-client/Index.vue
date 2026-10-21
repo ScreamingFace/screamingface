@@ -16,7 +16,7 @@ const { isDark } = storeToRefs(useThemeStore())
 const localDiagram = (dark: boolean) =>
   `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
 
-// The smallest complete run: name the engine, compose a Fusion, evaluate it
+// The smallest complete run: name the engine, compose a fusion, evaluate it
 // beside its own member, read both scores. Every name here is shipped API.
 const smallestExample = `import screamingface as sf
 

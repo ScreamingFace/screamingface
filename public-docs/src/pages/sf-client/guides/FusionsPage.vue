@@ -448,7 +448,13 @@ const synthesizeSig = `sf.Synthesize(
     <p>
       <code>sf.Fusion</code> is a shortcut for the same chain. It takes the members, then the
       synthesizer as a keyword. It returns an equal value with the same url4. The value shows in the
-      <code>Fanout(...) &gt;&gt; Synthesize(...)</code> form.
+      <code>Fanout(...) &gt;&gt; Synthesize(...)</code> form. It also takes <code>signals</code>,
+      <code>quorum</code>, <code>name</code> and <code>prompt</code> for the <code>sf.Fanout</code>,
+      and <code>optional=True</code>, which wraps the chain as
+      <code>sf.Pipeline([...], optional=True)</code>. It refuses <code>optional=True</code> with a
+      narrow step (<code>sf.Rank</code>, <code>sf.Filter</code>, <code>sf.Concat</code>) as the
+      synthesizer, because an optional chain must be a closed block. It refuses a bare
+      <code>sf.Judge</code> as the synthesizer, because a judge only scores.
     </p>
 
     <div class="not-prose">
