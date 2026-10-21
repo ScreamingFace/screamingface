@@ -1,8 +1,8 @@
 ---
 title: Plan — a spec-faithful URL4 expression for imported benchmarks and MedXpertQA
 spec: docs/spec/2026-10-20-url4-benchmark-expression-spec.md
-ticket: unfiled
-branch: url4-benchmark-expression
+ticket: OME-1692
+branch: OME-1692-url4-benchmark-expression
 created: 2026-10-20
 ---
 

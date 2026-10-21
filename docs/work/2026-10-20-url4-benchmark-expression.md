@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1692
 stack: screamingface-engine, client-sf, url4-sdk
 status: done
 started: 2026-10-20
