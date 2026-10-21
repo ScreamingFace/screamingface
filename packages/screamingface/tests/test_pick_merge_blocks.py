@@ -23,7 +23,7 @@ _WRITER = sf.FieldRule.model("provider/w", prompt="Write.")
 
 
 # WHY the internal nodes: the pick_field and merge blocks go in 7f (swap D7-8), so these rows
-# compare them with the nodes they name; the surface Merge is ``sx.Merge``.
+# compare them with the nodes they name; the surface Merge is ``sf.Merge``.
 def _url4(synthesizer: Reducer | sf.Merge) -> str:
     if isinstance(synthesizer, sf.Merge):
         recipe: sf.Recipe = sf.Fanout(members3()) >> synthesizer

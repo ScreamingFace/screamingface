@@ -366,5 +366,5 @@ def test_gate_fallback_writer_on_the_same_model_does_not_warn() -> None:
     vote = sf.Gate(
         when=sf.agreement() >= 0.9, then=sf.Vote(), otherwise=sf.Synthesize(sf.Model(JUDGE_ROUTE))
     )
-    # WHY sx.Pipeline: before the swap, today's sf.Pipeline does not read a chain stage's judge
+    # WHY a chain stage: the check reads the judge and the writer of a block inside sf.Pipeline
     _quiet(sf.Pipeline([sf.Fanout(MEMBERS) >> vote, JUDGE_ROUTE], name="judged"))

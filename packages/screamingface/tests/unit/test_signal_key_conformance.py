@@ -130,7 +130,7 @@ def _engine_signal_pattern() -> re.Pattern[str]:
 
 def _sdk_keys() -> list[str]:
     # WHY the internal nodes: the signal calls are planned by the reducer nodes that the surface
-    # steps ``sx.Merge`` and ``sx.JudgePick`` lower to.
+    # steps ``sf.Merge`` and ``sf.JudgePick`` lower to.
     merge = MergeNode(
         fields={
             "summary": sf.FieldRule.model("provider/w", prompt="Write."),

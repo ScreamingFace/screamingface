@@ -25,7 +25,7 @@ _KEYS = ["field:score", "cost_usd", "latency_ms"]
 
 
 # WHY the internal nodes: the combine spec, the reprs and the top_k block are checks on the Rank
-# node that the surface ``sx.Rank(k, by=...)`` lowers to (by_field and the block go in 7f).
+# node that the surface ``sf.Rank(k, by=...)`` lowers to (by_field and the block go in 7f).
 def _scores_judge() -> JudgeNode:
     return JudgeNode("provider/j", returns="scores", rubric=RUBRIC)
 

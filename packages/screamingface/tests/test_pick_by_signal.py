@@ -92,7 +92,7 @@ def test_pick_by_signal_compiles_by_signal_and_best_holder() -> None:
 
 def test_pick_by_signal_validation() -> None:
     # group F (7f): every row but the score:judge one reads a deleted Pick parameter or the
-    # argmax block (D7-8); sx.ArgMax and sx.ArgMin take one signal key and no other option.
+    # argmax block (D7-8); sf.ArgMax and sf.ArgMin take one signal key and no other option.
     cost = sf.signal("cost_usd")
 
     with pytest.raises(ValueError, match="Pick needs a field or by_signal=$"):
