@@ -81,7 +81,6 @@ def test_module_level_evaluate_refuses_options_a_replay_does_not_take(
     [
         {"pinned_cache": COPY, "capture": True},
         {"pinned_cache": COPY, "benchmark": "draco"},
-        {"pinned_cache": COPY, "limit": 1},
         {"candidates": REPLAY_URL4, "pinned_cache": COPY},
         {},
         {"candidates": REPLAY_URL4, "url4": REPLAY_URL4},
@@ -90,7 +89,6 @@ def test_module_level_evaluate_refuses_options_a_replay_does_not_take(
     ids=[
         "capture-on-a-replay",
         "benchmark-on-a-replay",
-        "limit-on-a-replay",
         "candidates-on-a-replay",
         "nothing-to-run",
         "url4-without-a-replay",

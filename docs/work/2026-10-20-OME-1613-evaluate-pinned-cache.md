@@ -111,3 +111,15 @@ Decisions S1–S9 are on the ticket; the spec is
   `evaluate(score_id=…)`, and the one path assertion now expects the public read first (R2). The
   two tests of the removed `sf.reproduce` delegation are deleted; `test_evaluate_doors.py` checks
   that `reproduce` is gone from every door.
+
+## Row 5: partial replay (2026-10-21)
+
+- New `_replay_partial.py`: `limit=n` (1 <= n < published case count) rebuilds the url4 through the
+  Engine catalog and the same `_prepare_benchmark(...).bind(candidate)` step the original run used.
+  Guard: the whole run rebuilt at `limit=total_questions` must equal the published url4 as a parsed
+  tree, else `PlanningError` `partial_replay_unavailable` before any run. Never judged or recorded.
+- **Deviation, needs owner review:** `limit=` on the S4 path (no published score) is refused. The
+  SDK knows no benchmark id there, and reading it from the url4's route text would be a text match.
+  Spec R3 narrowed and marked pending.
+- Tests: `tests/test_replay_partial.py` (fake catalog whose url4 depends on the asked limit: happy
+  path, revision drift, protocol drift, bounds, types, S4 refusal, seedless run, async).

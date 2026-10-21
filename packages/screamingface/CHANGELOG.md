@@ -46,7 +46,9 @@
   passed `answer_seed` must equal the captured run's; both fail before any run otherwise. A
   capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and has
   no verdict. `capture` now defaults to `None`, which still means on; `capture=True` is refused on
-  a replay. Needs a board with the pinned-cache lookup (`OME-1596`).
+  a replay. `limit=n` replays only the first n cases, for debugging: it is never judged or
+  recorded, and it is refused before any run if the Engine can no longer rebuild the published run
+  exactly (`partial_replay_unavailable`). Needs a board with the pinned-cache lookup (`OME-1596`).
 
 * `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
   started can reach a hosted Engine without a browser window. A malformed or expired token fails

@@ -245,6 +245,7 @@ class Client:
         url4: str | None = None,
         answer_seed: int | None = None,
         record_reproduction: bool = True,
+        limit: int | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -258,6 +259,7 @@ class Client:
         url4: str | None = None,
         answer_seed: int | None = None,
         record_reproduction: bool = True,
+        limit: int | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -359,7 +361,7 @@ class Client:
         from screamingface._replay import replay_sync
 
         self._require_open()
-        _replay_options(candidates, benchmark, limit, capture)
+        _replay_options(candidates, benchmark, capture)
         return replay_sync(
             self,
             pinned_cache=pinned_cache,
@@ -369,6 +371,7 @@ class Client:
             record_reproduction=record_reproduction,
             on_event=on_event,
             progress=progress,
+            limit=limit,
         )
 
     @overload
@@ -684,6 +687,7 @@ class AsyncClient:
         url4: str | None = None,
         answer_seed: int | None = None,
         record_reproduction: bool = True,
+        limit: int | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -697,6 +701,7 @@ class AsyncClient:
         url4: str | None = None,
         answer_seed: int | None = None,
         record_reproduction: bool = True,
+        limit: int | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -731,7 +736,7 @@ class AsyncClient:
         if pinned_cache is not None or score_id is not None:
             from screamingface._replay import replay_async
 
-            _replay_options(candidates, benchmark, limit, capture)
+            _replay_options(candidates, benchmark, capture)
             return await replay_async(
                 self,
                 pinned_cache=pinned_cache,
@@ -741,6 +746,7 @@ class AsyncClient:
                 record_reproduction=record_reproduction,
                 on_event=on_event,
                 progress=progress,
+                limit=limit,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
         capture = True if capture is None else capture
@@ -862,17 +868,13 @@ class AsyncClient:
         )
 
 
-def _replay_options(
-    candidates: object, benchmark: str | None, limit: int | None, capture: bool | None
-) -> None:
+def _replay_options(candidates: object, benchmark: str | None, capture: bool | None) -> None:
     """A replay is one complete published run (spec §1): nothing else selects what runs."""
 
     if candidates is not None:
         raise TypeError("candidates must not be passed with pinned_cache= or score_id=")
     if benchmark is not None:
         raise TypeError("benchmark must not be passed with pinned_cache= or score_id=")
-    if limit is not None:
-        raise TypeError("limit must not be passed with pinned_cache= or score_id=")
     # S6: a replay reads answers and records none; only an explicit request to capture is wrong.
     if capture:
         raise TypeError("capture=True cannot be combined with a replay; a replay captures nothing")

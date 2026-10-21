@@ -85,12 +85,15 @@ model input; nothing compares the url4 against the copy. So no Engine or gateway
 but the url4 cannot be edited in place (n appears in four or more places that vary by benchmark).
 The SDK rebuilds it:
 
-1. Take the candidate text out of the reference url4 (`_candidate_text(build(url4))`). The reference
-   is the published url4, or the caller's `url4` on the S4 path (R3).
-2. **Guard:** fetch `GET /v1/benchmarks/{id}` with no limit, bind the candidate, and require
+1. Take the candidate text out of the published url4 (`_candidate_text(build(url4))`).
+   **Built 2026-10-21, pending owner review:** a partial replay needs a published score. On the
+   S4 path the SDK knows no benchmark id, and reading it out of the url4's route text would be a
+   text match, so `limit=` with no published score raises `ValueError` (R3 narrowed).
+2. **Guard:** fetch `GET /v1/benchmarks/{id}` at the published case count (`limit=total_questions`,
+   so a run that was itself limited still matches), bind the candidate, and require
    `url4.build(rebuilt) == url4.build(reference)`. The revision is in every route path, so this
-   also checks the revision. On a mismatch, refuse before any run: "this Engine can no longer
-   rebuild that run; use a full replay".
+   also checks the revision. On a mismatch, refuse before any run with `sf.PlanningError`, code
+   `partial_replay_unavailable`: "this Engine can no longer rebuild that run; use a full replay".
 3. Fetch `?limit=n`, bind the same candidate, and run it as a full replay would.
 4. The result is never judged: `reproduction = None` ("subset, not judged"). Never `exact`, never
    recorded.

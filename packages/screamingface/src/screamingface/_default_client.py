@@ -174,6 +174,7 @@ def evaluate(
     url4: str | None = None,
     answer_seed: int | None = None,
     record_reproduction: bool = True,
+    limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
 ) -> Report: ...
@@ -187,6 +188,7 @@ def evaluate(
     url4: str | None = None,
     answer_seed: int | None = None,
     record_reproduction: bool = True,
+    limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
 ) -> Report: ...

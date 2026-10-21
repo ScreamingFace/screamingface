@@ -17,7 +17,7 @@ from __future__ import annotations
 import copy
 import warnings
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -26,6 +26,7 @@ from url4 import Url4Error, build
 from screamingface import _reproduction
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface._evaluation.url4 import evaluate_url4_async, evaluate_url4_sync
+from screamingface._replay_partial import partial_limit, partial_url4_async, partial_url4_sync
 from screamingface._reproduction import Reproduction, _record_async, _record_sync
 from screamingface._scoreboard.replay_reads import PublishedScore, pinned_cache_id
 from screamingface.errors import ExecutionError, LeaderboardError, ReproductionError
@@ -50,6 +51,7 @@ class _Request:
     score_id: UUID | str | None
     url4: str | None
     answer_seed: int | None
+    limit: object
     record: bool
 
 
@@ -61,6 +63,8 @@ class _Plan:
     answer_seed: int | None
     pinned_cache: str
     published: PublishedScore | None
+    # A partial replay (`limit=`) runs a rebuilt url4 and is never judged or recorded (Q4).
+    partial: bool = False
 
 
 def _request(
@@ -69,6 +73,7 @@ def _request(
     url4: object,
     answer_seed: object,
     record_reproduction: object,
+    limit: object = None,
 ) -> _Request:
     if pinned_cache is None and score_id is None:
         raise TypeError("a replay needs pinned_cache= or score_id=")
@@ -83,6 +88,7 @@ def _request(
         score_id=score_id,
         url4=url4,
         answer_seed=_answer_seed_value(answer_seed),
+        limit=limit,
         record=record_reproduction,
     )
 
@@ -239,6 +245,8 @@ def _run_sync(
         if exc.code != "replay_unsupported":
             raise
         raise _replay_unsupported(exc) from exc
+    if plan.partial:
+        return _with_reproduction(report, None)
     if plan.published is None:
         return _unjudged(report)
     result, reproduction = _judged(report, plan.published)
@@ -268,6 +276,8 @@ async def _run_async(
         if exc.code != "replay_unsupported":
             raise
         raise _replay_unsupported(exc) from exc
+    if plan.partial:
+        return _with_reproduction(report, None)
     if plan.published is None:
         return _unjudged(report)
     result, reproduction = _judged(report, plan.published)
@@ -278,7 +288,12 @@ async def _run_async(
 
 def _published_request(published: PublishedScore, record: bool) -> _Request:
     return _Request(
-        pinned_cache=None, score_id=published.score_id, url4=None, answer_seed=None, record=record
+        pinned_cache=None,
+        score_id=published.score_id,
+        url4=None,
+        answer_seed=None,
+        limit=None,
+        record=record,
     )
 
 
@@ -320,9 +335,15 @@ def replay_sync(
     record_reproduction: bool,
     on_event: Callable[[Event], None] | None,
     progress: bool | None,
+    limit: int | None = None,
 ) -> Report:
-    request = _request(pinned_cache, score_id, url4, answer_seed, record_reproduction)
+    request = _request(pinned_cache, score_id, url4, answer_seed, record_reproduction, limit)
     plan = _plan(request, _found_sync(client, request))
+    selected = partial_limit(request.limit, plan.published)
+    if selected is not None:
+        assert plan.published is not None  # `partial_limit` refuses a replay with no score
+        rebuilt = partial_url4_sync(client._benchmark_resources, plan.published, selected)
+        plan = replace(plan, url4=rebuilt, partial=True)
     return _run_sync(client, plan, request.record, on_event, progress)
 
 
@@ -336,9 +357,15 @@ async def replay_async(
     record_reproduction: bool,
     on_event: Callable[[Event], None | Awaitable[None]] | None,
     progress: bool | None,
+    limit: int | None = None,
 ) -> Report:
-    request = _request(pinned_cache, score_id, url4, answer_seed, record_reproduction)
+    request = _request(pinned_cache, score_id, url4, answer_seed, record_reproduction, limit)
     plan = _plan(request, await _found_async(client, request))
+    selected = partial_limit(request.limit, plan.published)
+    if selected is not None:
+        assert plan.published is not None  # `partial_limit` refuses a replay with no score
+        rebuilt = await partial_url4_async(client._benchmark_resources, plan.published, selected)
+        plan = replace(plan, url4=rebuilt, partial=True)
     return await _run_async(client, plan, request.record, on_event, progress)
 
 
