@@ -33,10 +33,12 @@ Fanout(members, signals=...)  >>  [Judge]  >>  [Rank | Filter]*  >>  terminal
   `sf.Fanout(...)` block, a nested `sf.Pipeline`). `sf.CorrectiveLoop` and `sf.SelfCorrective`
   stay root recipes, as today (`S/recipe.py:83-84`); their members can be chains.
 
-There is **no backward compatibility** (owner, 2026-10-20: the SDK is experimental). `sf.Fusion`,
+There is **no backward compatibility** (owner, 2026-10-20: the SDK is experimental).
 `sf.Pick`, `sf.Reduce`, `Recipe.then`, `Judge(returns=, order=)`, `Rank(by_field=, by_signal=)`,
 `Filter(judge=, extract=)`, `Vote(extract=, judge=, gate=)` and the old `sf.Gate(observe, cmp,
-threshold)` signature go away. The new surface compiles to the **same url4 and the same combine
+threshold)` signature go away. `sf.Fusion` stays as a public shortcut (A4, revised 2026-10-20): a
+function that returns the `sf.Fanout(...) >> ...` chain ([prd/surface.md](prd/surface.md) §3b). The
+new surface compiles to the **same url4 and the same combine
 spec** as today, except for the four planned byte changes in §4.
 
 One new Engine capability comes with it (owner answer A2): **narrow steps before the reduce** in
@@ -55,7 +57,7 @@ Full signatures, rules and refusals: [prd/surface.md](prd/surface.md).
 |---|---|
 | Chain | `>>` on every step and recipe; `sf.Pipeline(steps, *, name=None, optional=False)` is the explicit form |
 | Recipes (stand alone) | `sf.Model`, `sf.Pipeline`, `sf.CorrectiveLoop`, `sf.SelfCorrective`; `sf.samples(...)` builds Models |
-| Map | `sf.Fanout(members, *, signals=None, quorum="all", name=None, prompt=None)` |
+| Map | `sf.Fanout(members, *, signals=None, quorum="all", name=None, prompt=None)`; the shortcut `sf.Fusion(members, *, synthesizer, signals=None, quorum="all", name=None, prompt=None, optional=False)` returns `sf.Fanout(...) >> S` |
 | Score | `sf.Judge(model, *, rubric, params=None)` → `score:judge` |
 | Narrow | `sf.Rank(k, *, by, order="max")`, `sf.Filter(*, where, over=None)`, `sf.Concat(separator=..., *, label=True)` |
 | Reduce | `sf.Vote(*, over="last_line", normalize="text", weights=None, verify=None)`, `sf.Median(*, over="last_number", select="nearest", weights=None)`, `sf.Mean(*, over="last_number", select="value", weights=None)`, `sf.ArgMax(by, *, output=None)`, `sf.ArgMin(by, *, output=None)`, `sf.First(*, where, output=None)`, `sf.Merge(fields)` + `sf.FieldRule`, `sf.JudgePick(model, *, rubric, params=None)`, `sf.Gate(*, when, then, otherwise="abstain", abstain_if=None)` |
@@ -141,7 +143,7 @@ lower to `by_signal` from unit 3; the old field form goes away at the swap.
 | A1 | Where the change lands | New commits on top of #1461 (OME-1653). The stack merges with the final surface. |
 | A2 | `Filter >> Mean`, `Rank >> Vote` | Add the Engine narrow step now. |
 | A3 | Rename `cost_usd` to `cost` | No. Keep `cost_usd` (DB-2). |
-| A4 | Keep `sf.Fusion` as a shortcut | No. Delete it. |
+| A4 | Keep `sf.Fusion` as a shortcut | No. Delete it. **Revised 2026-10-20: keep `sf.Fusion` as a public shortcut that returns the Fanout chain** (surface §3b). |
 | A5 | The recommendations of the 2026-10-20 review | Take all of them (D1–D10). |
 
 ### Design decisions (from the review, accepted under A5)

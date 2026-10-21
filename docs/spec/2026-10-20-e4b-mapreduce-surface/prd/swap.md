@@ -145,7 +145,9 @@ to the owner list (MG-3). After each step: the SDK suite; the Engine suite after
 
 ### 7e The swap (one commit; or two: src, then tests+README, the first one red)
 
-- `S/__init__.py` exports the `_surface` names; delete `Fusion`, `Pick`, `Reduce` from `sf`;
+- `S/__init__.py` exports the `_surface` names; delete `Pick`, `Reduce` from `sf`; `sf.Fusion` is
+  re-pointed, not deleted (owner 2026-10-20, A4 revised): the shortcut function of surface §3b in
+  `S/_surface/fusion.py`; the module alias `Fusion = FusionNode` still goes;
   `sf.Pipeline` is D7-2; `sf.Recipe`, `sf.Model`, `sf.CorrectiveLoop`, `sf.SelfCorrective`,
   `sf.Extract`, `sf.FieldRule`, `sf.matches`, `sf.signal`, `sf.samples`, the signal sources stay.
   Add `sf.Fanout`, `sf.Synthesize`, `sf.ArgMax`, `sf.ArgMin`, `sf.First`, `sf.JudgePick`,
