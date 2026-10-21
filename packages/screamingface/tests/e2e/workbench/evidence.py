@@ -138,11 +138,21 @@ class TraceChain:
         }
 
 
-def _matching(text: str, trace_ids: Sequence[str]) -> tuple[str, ...]:
-    if not trace_ids:
-        return ()
-    hits = [ln for ln in text.splitlines() if any(t in ln for t in trace_ids)]
-    return tuple(hits[:_MAX_LINES])
+# The `trace_id=<32 lowercase hex>` field both services render (engine `logs.RunContextFilter`,
+# `run_evidence`; aigateway `logs.CallContextFilter`): space-joined `key=value` parts, so a
+# token is bounded by whitespace or the line's ends.
+_TRACE_ID_TOKEN = re.compile(r"(?<!\S)trace_id=([0-9a-f]{32})(?!\S)")
+
+
+def trace_id_tokens(line: str) -> frozenset[str]:
+    """Every exact ``trace_id=<32 lowercase hex>`` value on one log line.
+
+    WHY a parser and not ``tid in line``: a substring check passes ``trace_id=aa<id>bb`` or a
+    ``parent_trace_id=<id>`` — a line that is not this run's evidence. The verdict
+    (``found_ids``/``identified_ids``) and the excerpt (``Hop.lines``) both go through this one
+    function, so the evidence shown can never disagree with the verdict it supports.
+    """
+    return frozenset(_TRACE_ID_TOKEN.findall(line))
 
 
 def _has_event(lines: Sequence[str], event: str) -> bool:
@@ -156,12 +166,14 @@ def collect(trace_ids: Sequence[str], sources: Sequence[LogSource]) -> TraceChai
     unattributed: list[str] = []
     for source in sources:
         text = source.read()
-        all_lines = text.splitlines()
-        found = tuple(t for t in trace_ids if any(t in ln for ln in all_lines))
-        identified = tuple(
-            t for t in found if any(t in ln and CALL_ID_MARK in ln for ln in all_lines)
-        )
-        lines = _matching(text, trace_ids)
+        wanted = frozenset(trace_ids)
+        # (line, the run's ids on it): only lines carrying an exact token for one of our ids.
+        hits = [(ln, ids) for ln in text.splitlines() if (ids := trace_id_tokens(ln) & wanted)]
+        seen = frozenset().union(*(ids for _, ids in hits))
+        called = frozenset().union(*(ids for ln, ids in hits if CALL_ID_MARK in ln))
+        found = tuple(t for t in trace_ids if t in seen)
+        identified = tuple(t for t in found if t in called)
+        lines = tuple(ln for ln, _ in hits[:_MAX_LINES])
         every = bool(trace_ids) and len(found) == len(trace_ids)
         hops.append(Hop(source.name, every, lines, found, identified))
         lifecycle["scheduled"] |= _has_event(lines, _SCHEDULED)

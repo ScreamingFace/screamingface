@@ -181,3 +181,65 @@ def test_reasons_skip_the_chain_when_no_id_was_reported(tmp_path: Path) -> None:
     # check_result already fails a run with no id; the chain must not double-report it.
     chain = collect([], [_engine_with(tmp_path, TID)])
     assert chain.reasons(["engine"]) == []
+
+
+# Finding 2 (PR #1455 review): an id is matched as the exact `trace_id=<32 hex>` token, never
+# as a substring of a longer value, and the excerpt shown is chosen by the same parser.
+
+
+def test_a_trace_id_embedded_in_a_longer_value_is_not_a_match(tmp_path: Path) -> None:
+    engine = _src(tmp_path, "engine", f"run scheduled trace_id=aa{TID}bb\n")
+    gateway = _src(tmp_path, "aigateway", f"gateway_call_id=x trace_id=aa{TID}bb POST\n")
+    chain = collect([TID], [engine, gateway])
+    assert chain.missing(["engine", "aigateway"]) == [
+        f"engine: trace {TID} absent",
+        f"aigateway: trace {TID} absent",
+    ]
+    assert all(h.lines == () for h in chain.hops)
+    assert chain.lifecycle == {"scheduled": False, "terminated": False}
+
+
+def test_a_bare_id_or_another_key_is_not_a_trace_id_token(tmp_path: Path) -> None:
+    engine = _src(
+        tmp_path,
+        "engine",
+        f"mentions {TID} in prose\nparent_trace_id={TID}\nrun scheduled trace_id={TID}x\n",
+    )
+    chain = collect([TID], [engine])
+    assert chain.missing(["engine"]) == [f"engine: trace {TID} absent"]
+    assert chain.hops[0].lines == ()
+
+
+def test_an_uppercase_trace_id_token_is_not_the_lowercase_id(tmp_path: Path) -> None:
+    engine = _src(tmp_path, "engine", f"run scheduled trace_id={TID.upper()}\n")
+    assert collect([TID], [engine]).missing(["engine"]) == [f"engine: trace {TID} absent"]
+
+
+def test_excerpt_lines_are_exactly_the_lines_the_verdict_counted(tmp_path: Path) -> None:
+    good = f"2026-10-16T10:00:00+00:00 INFO run scheduled topic=t trace_id={TID} job_name=j"
+    decoy = f"gateway_call_id=x trace_id=aa{TID}bb"
+    engine = _src(tmp_path, "engine", f"{decoy}\n{good}\n")
+    chain = collect([TID], [engine])
+    assert chain.hops[0].lines == (good,)
+    assert chain.hops[0].found_ids == (TID,)
+
+
+def test_a_call_id_line_with_a_lookalike_trace_does_not_identify_the_run(tmp_path: Path) -> None:
+    gateway = _src(
+        tmp_path,
+        "aigateway",
+        f"gateway_call_id=c1 trace_id=aa{TID}bb POST\nPOST trace_id={TID}\n",
+    )
+    chain = collect([TID], [_engine_with(tmp_path, TID), gateway])
+    assert chain.missing(["engine", "aigateway"]) == [
+        f"aigateway: trace {TID} on no line carrying gateway_call_id"
+    ]
+
+
+def test_trace_id_tokens_parses_every_exact_token_on_a_line() -> None:
+    from workbench.evidence import trace_id_tokens
+
+    line = f"a trace_id={TID} b trace_id={OTHER} trace_id=aa{TID} trace_id={TID[:-1]}"
+    assert trace_id_tokens(line) == frozenset({TID, OTHER})
+    assert trace_id_tokens(f"trace_id={TID}") == frozenset({TID})
+    assert trace_id_tokens("") == frozenset()
