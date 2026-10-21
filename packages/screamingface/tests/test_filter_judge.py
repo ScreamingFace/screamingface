@@ -40,7 +40,7 @@ _NODES_AS_SF = SimpleNamespace(
 def _filter_by_judge() -> FilterNode:
     # WHY a function: the Filter is built inside each test, so a refusal fails that test and not
     # the whole module at import. WHY the node: it is the value that the judge filter chain lowers
-    # to, and the url4 rebuild gives it back until the swap (7e).
+    # to, and the url4 rebuild lowers back to.
     return FilterNode(where=JUDGED, judge=JudgeNode("provider/j", returns="scores", rubric=RUBRIC))
 
 

@@ -25,7 +25,7 @@ def _compile(recipe: sf.Recipe) -> Any:
 
 
 # WHY internal nodes: a selection block with no stage after it is the value these compile checks
-# guard; the surface refuses it when the chain is built (``sx.Fanout(...) >> sx.Rank(...)`` alone).
+# guard; the surface refuses it when the chain is built (``sf.Fanout(...) >> sf.Rank(...)`` alone).
 def _rank() -> FusionNode:
     return fusion_node(members3(), RankNode(k=2, by_signal=sf.signal("field:score")))
 

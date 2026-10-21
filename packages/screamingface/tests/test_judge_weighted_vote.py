@@ -22,7 +22,7 @@ RUBRIC = "Score each answer."
 SECRET = "SECRET-RUBRIC-TEXT"
 JUDGE_SIGNAL = sf.signal("score:judge")
 # WHY the internal nodes: the surface spells a judge-weighted vote as two steps
-# (``sx.Judge(...) >> sx.Vote(weights="score:judge")``); these rows check the vote node that holds
+# (``sf.Judge(...) >> sf.Vote(weights="score:judge")``); these rows check the vote node that holds
 # its judge, which the lowering builds and a url4 rebuilds.
 J = JudgeNode("provider/j", returns="scores", rubric=RUBRIC)
 V = VoteNode(extract="last_number", normalize="numeric", weights=JUDGE_SIGNAL, judge=J)

@@ -29,7 +29,7 @@ CONFIDENCE = sf.signal("field:confidence")
 
 
 # WHY the internal node: these rows check the block form (``ReduceNode``) and its select option;
-# the surface spells the same reducers as ``sx.Median`` and ``sx.Mean``.
+# the surface spells the same reducers as ``sf.Median`` and ``sf.Mean``.
 def _url4(synthesizer: Reducer | sf.Median | sf.Mean) -> str:
     if isinstance(synthesizer, sf.Median | sf.Mean):
         recipe: sf.Recipe = sf.Fanout(members3()) >> synthesizer
