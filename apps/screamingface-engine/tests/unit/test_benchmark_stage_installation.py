@@ -16,7 +16,7 @@ from url4.peer.server import Request, Url4Node
 _PRIVATE = "private malformed input"
 
 
-def _code_call(path: str) -> CodeCall:
+def _code_call(path: str, *, selected: str = "1") -> CodeCall:
     """One call carrying every named source a Benchmark code mount reads (spec 2026-10-20 R1).
 
     WHY a well-formed Case beside private payloads: a code mount reads its sources by name, so
@@ -33,7 +33,7 @@ def _code_call(path: str) -> CodeCall:
         "case_index": "0",
         "case_count": "1",
         "evaluations": _PRIVATE,
-        "selected": "1",
+        "selected": selected,
     }
     inputs = tuple(
         CodeInput(position, name, value, 0.0)
@@ -220,10 +220,14 @@ async def test_imported_benchmark_stages_use_the_same_optional_port(monkeypatch,
             node._code[benchmark.case_evaluation_route](_code_call(benchmark.case_evaluation_route))
         assert [r["sf.activity.kind"] for r in records] == ["answering", "answering"]
         records.clear()
+        # WHY selected=0: the aggregate refuses the selection before its scorer loads, so the
+        # stage is observed without the optional `inspect` extra (as the retired intent did).
         with pytest.raises(ResolutionError):
             await cast(
                 Awaitable[str],
-                node._code[benchmark.aggregate_route](_code_call(benchmark.aggregate_route)),
+                node._code[benchmark.aggregate_route](
+                    _code_call(benchmark.aggregate_route, selected="0")
+                ),
             )
         assert [r["sf.activity.kind"] for r in records] == ["aggregation", "aggregation"]
     await run.aclose()

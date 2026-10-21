@@ -120,7 +120,7 @@
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_stage_installation.py": {
       "base_blob": "f9bdb82c3c2436bb85ba1b0b7067e54e2a47bf1e",
-      "approved_blob": "6a262bf299f6dbf5127b3e8642a3019599698c7c"
+      "approved_blob": "68643e56a01f9a48aa19788b077e8c084c0bbcd2"
     },
     "apps/screamingface-engine/tests/unit/test_benchmark_stage_ownership.py": {
       "base_blob": "197a43001b78c51fc7124a9eb913d27015d515a4",
