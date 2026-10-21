@@ -89,6 +89,8 @@ _WITHHOLD: frozenset[str] = frozenset(
         "cyse4_threat_intelligence",
         # OME-1696: BIG-Bench Hard, a per-Case mean over upstream's own marking — Group A.
         "bbh",
+        # OME-1696: MedMCQA, a per-Case mean over inspect's choice scorer — Group A.
+        "medmcqa",
     }
 )
 
@@ -136,10 +138,10 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 84 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 85 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
-    assert len(BENCHMARKS) == 84
-    assert len(_WITHHOLD) == 67
+    assert len(BENCHMARKS) == 85
+    assert len(_WITHHOLD) == 68
     assert len(_COVERAGE_DECLARE) == 17
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED

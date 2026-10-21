@@ -1808,6 +1808,21 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #  License section).
         license="mit",
     ),
+    # medmcqa — imported by Task replay on 2026-10-21 from
+    #   screamingface_engine_inspect.local_tasks.medmcqa.medmcqa:medmcqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face openlifescienceai/medmcqa/data/validation-00000-of-00001.parquet
+    #     pin revision 91c6572c454088bf71b679ad90aa8dffcd0d5868
+    "medmcqa": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.medmcqa.medmcqa:medmcqa",
+        case_count=4183,
+        case_digest="5af7adeee44324b1f829e3bc9b6f47770aff5afd4e884fc9569f0a6b0935c5a4",
+        case_set_digest="bd8b43d6df02129de52bc446c43a15490999a019b2587bd30a4707dc7cf05213",
+        source_pins={
+            "openlifescienceai/medmcqa": "91c6572c454088bf71b679ad90aa8dffcd0d5868",
+        },
+        license="apache-2.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

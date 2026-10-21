@@ -165,6 +165,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "cyse4_threat_intelligence": "mcq",
     # OME-1696: BIG-Bench Hard mixes multiple choice with yes/no and exact-match answers.
     "bbh": "mcq",
+    # OME-1696: MedMCQA, four lettered options graded by inspect's choice scorer.
+    "medmcqa": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))

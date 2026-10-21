@@ -6289,6 +6289,76 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
     ),
+    BenchmarkSpec(
+        key="medmcqa",
+        title="MedMCQA",
+        description=(
+            "4,183 four-option multiple-choice questions from Indian medical entrance exams "
+            "(AIIMS and NEET PG), across 21 subjects such as anatomy, pharmacology and "
+            "surgery: the full validation split, since the test split's answers are withheld. "
+            "Served as a local Task in inspect's shape: each question is shown with its "
+            "options lettered A to D, in the dataset's order, under inspect's standard "
+            "multiple-choice instruction, and graded by inspect's choice scorer against the "
+            "letter of the correct option, so no judge tokens are spent. Benchmark score = "
+            "plain accuracy over the cases run, comparable with papers that report on the "
+            "validation (dev) split. No mid-run check surface (elimination attack over four "
+            "options)."
+        ),
+        focus="Medical entrance exam questions (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/openlifescienceai/medmcqa",
+        # Professional-exam medicine like medqa; the best published dev score is about 0.79,
+        #  so frontier models pass comfortably but not at ceiling (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.medmcqa.medmcqa:medmcqa,
+        #   a LOCAL Task we wrote in inspect's shape (OME-1696): inspect_evals has no MedMCQA.
+        # License: apache-2.0, the openlifescienceai/medmcqa card header at the pinned revision
+        #   (owner decision on OME-1696, 2026-10-21).
+        scorer="inspect_ai.scorer:choice",
+        paper_url="https://arxiv.org/abs/2203.14371",
+        authors="Pal et al., 2022",
+        citation=(
+            "@misc{pal2022medmcqalargescalemultisubject,\n"
+            "      title={MedMCQA : A Large-scale Multi-Subject Multi-Choice Dataset for "
+            "Medical domain Question Answering}, \n"
+            "      author={Ankit Pal and Logesh Kumar Umapathi and Malaikannan "
+            "Sankarasubbu},\n"
+            "      year={2022},\n"
+            "      eprint={2203.14371},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2203.14371}, \n"
+            "}"
+        ),
+        origin="screamingface",
+        homepage_url="https://medmcqa.github.io",
+        # The authors' repository (their baselines; no LLM harness), at its last commit.
+        harness_url="https://github.com/medmcqa/medmcqa/tree/c59ef14ca1990266c4107c7864b45a20fd93e5e0",
+        license="Apache-2.0",
+        license_note=(
+            "openlifescienceai/medmcqa card header at the pinned revision; its Licensing "
+            "section is blank, and the authors' GitHub repository is MIT (owner decision on "
+            "OME-1696, 2026-10-21)"
+        ),
+        human_baseline=NotPublished(
+            reason=(
+                "the paper says merit candidates average 90% marks on the real exams, but "
+                "measures no human accuracy on these questions"
+            ),
+        ),
+        # Frontier score: GPT-4 with Medprompt (5-shot nearest-neighbour examples, its own
+        # chain of thought, a 5-way choice-shuffle ensemble), MedMCQA Dev in the paper's
+        # Table 1. Not this Benchmark's zero-shot setting; the best zero-shot figure we found
+        # is GPT-4-base at 0.734 (arXiv 2303.13375, Table 5).
+        frontier_score=FrontierScore(
+            score=0.791,
+            model="GPT-4 (Medprompt)",
+            source_url="https://arxiv.org/abs/2311.16452",
+            as_of="2023-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

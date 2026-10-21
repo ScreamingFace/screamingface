@@ -65,6 +65,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1696: BIG-Bench Hard, a local Task asked and graded the paper's way (two Named
     # Deviations from inspect_evals' bbh); its source is hashed, so a scorer edit moves this.
     "bbh": "40e861dd1810fd0a",
+    # OME-1696: MedMCQA, a local Task we wrote in inspect's shape (validation split).
+    "medmcqa": "8661f61ab8a9e823",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "0fb750cf19e00c11",
