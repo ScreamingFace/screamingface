@@ -1,0 +1,1741 @@
+import frames from "./__fixtures__/frames.json";
+import type { RunEvent } from "./run-types";
+import { RunError, type RunSocket, isRunError, startRun } from "./run";
+import { createHash } from "node:crypto";
+
+import { linkCandidate } from "./url4";
+
+vi.mock("../runtime", () => ({
+  getEngineUrl: vi.fn(async () => "http://127.0.0.1:9108"),
+}));
+
+const BASE = "http://127.0.0.1:9108";
+const TOPIC = "3f1c2a9e8b7d4c6f9a0b1c2d3e4f5a6b";
+const NOW = Date.UTC(2026, 9, 9, 12, 0, 0);
+// The fixtures' root `started` frame names exactly this linked run (scripts/gen-run-frames.py).
+const CANDIDATE = frames.candidate;
+const BENCHMARK = frames.benchmark;
+
+function base64url(value: string) {
+  return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// A capability JWT shaped like the Engine's (HS256, `sub` = the run's topic).
+const TOKEN = [
+  base64url(JSON.stringify({ alg: "HS256", typ: "JWT" })),
+  base64url(JSON.stringify({ sub: TOPIC, iat: 1791201600, exp: 1791260400 })),
+  "c2lnbmF0dXJlLW5vdC1jaGVja2VkLWJ5LXN0dWRpbw",
+].join(".");
+
+type Reply = {
+  ok: boolean;
+  status: number;
+  headers: Headers;
+  json: () => Promise<unknown>;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+  body: ReadableStream<Uint8Array> | null;
+};
+
+function streamOf(bytes: Uint8Array) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+function reply(
+  status: number,
+  body?: unknown,
+  type = "application/json",
+  extraHeaders: Record<string, string> = {},
+): Reply {
+  const raw = typeof body === "string" ? body : JSON.stringify(body ?? null);
+  const bytes = new TextEncoder().encode(raw);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers({ "content-type": type, ...extraHeaders }),
+    json: async () => JSON.parse(raw),
+    arrayBuffer: async () => bytes.buffer as ArrayBuffer,
+    body: streamOf(bytes),
+  };
+}
+
+// A request the Engine never answers: it only ends when the caller's signal aborts it.
+const HANG = "hang" as const;
+type Route = () => Reply | typeof HANG;
+
+function hang(signal: AbortSignal | null | undefined) {
+  return new Promise<never>((_resolve, reject) => {
+    signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+  });
+}
+
+function problem(status: number, detail: string) {
+  return reply(status, { type: "about:blank", title: "x", status, detail }, "application/problem+json");
+}
+
+const ATTACHING = () =>
+  problem(428, "attach a WebSocket to the topic before starting the run");
+
+type Call = {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  redirect?: RequestRedirect;
+};
+
+type EngineRoutes = {
+  benchmark?: Route;
+  // The answers to each `POST /token` in turn; any further mint returns TOKEN.
+  tokens?: Route[];
+  start?: (Route | (() => Promise<Reply>))[];
+  artifact?: Route | (() => Promise<Reply>);
+  remove?: Route | (() => Promise<Reply>);
+};
+
+function fakeEngine(routes: EngineRoutes = {}) {
+  const calls: Call[] = [];
+  const start = [...(routes.start ?? [])];
+  const tokens = [...(routes.tokens ?? [])];
+  const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input);
+    const method = init.method ?? "GET";
+    calls.push({
+      url,
+      method,
+      headers: (init.headers ?? {}) as Record<string, string>,
+      redirect: init.redirect,
+    });
+    const answer = (route: Route | (() => Promise<Reply>)) => {
+      const result = route();
+      return result === HANG ? hang(init.signal) : result;
+    };
+    if (url.startsWith(`${BASE}/v1/benchmarks/`)) {
+      return answer(routes.benchmark ?? (() => reply(200, { id: "ifeval", url4: BENCHMARK })));
+    }
+    if (url === `${BASE}/token` && method === "POST") {
+      return answer(tokens.shift() ?? (() => reply(200, { token: TOKEN })));
+    }
+    if (url.startsWith(`${BASE}/?q=`)) return answer(start.shift() ?? (() => reply(202, "")));
+    if (url.startsWith(`${BASE}/artifacts/`) && routes.artifact) return answer(routes.artifact);
+    if (method === "DELETE") return answer(routes.remove ?? (() => reply(204, "")));
+    throw new Error(`unexpected request ${method} ${url}`);
+  }) as unknown as typeof globalThis.fetch;
+  const startCalls = () => calls.filter((call) => call.url.startsWith(`${BASE}/?q=`));
+  return { fetch: fetchImpl, calls, startCalls };
+}
+
+class FakeSocket implements RunSocket {
+  static instances: FakeSocket[] = [];
+  sent: Record<string, unknown>[] = [];
+  closed = false;
+  onopen: RunSocket["onopen"] = null;
+  onmessage: RunSocket["onmessage"] = null;
+  onerror: RunSocket["onerror"] = null;
+  onclose: RunSocket["onclose"] = null;
+
+  constructor(
+    readonly url: string,
+    readonly protocols: string[],
+  ) {
+    FakeSocket.instances.push(this);
+  }
+
+  send(data: string) {
+    this.sent.push(JSON.parse(data));
+  }
+
+  close() {
+    this.closed = true;
+  }
+
+  open() {
+    this.onopen?.({});
+  }
+
+  receive(...items: unknown[]) {
+    for (const item of items) this.onmessage?.({ data: JSON.stringify(item) });
+  }
+}
+
+async function flush() {
+  for (let i = 0; i < 30; i += 1) await Promise.resolve();
+}
+
+const HAPPY = frames.happyPath;
+
+type LaunchOptions = {
+  routes?: EngineRoutes;
+  useCache?: boolean;
+  signal?: AbortSignal;
+};
+
+async function launch({ routes, useCache = true, signal }: LaunchOptions = {}) {
+  FakeSocket.instances = [];
+  const engine = fakeEngine(routes);
+  const events: RunEvent[] = [];
+  const run = startRun({
+    candidateUrl4: CANDIDATE,
+    benchmarkId: "ifeval",
+    limit: 1,
+    useCache,
+    onEvent: (event) => events.push(event),
+    signal,
+    deps: { fetch: engine.fetch, WebSocket: FakeSocket, now: () => NOW, engineUrl: `${BASE}/` },
+  });
+  // Observed here so a rejection a test inspects later is never "unhandled".
+  const outcome = run.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  await flush();
+  return { run, outcome, engine, events, socket: () => FakeSocket.instances.at(-1) as FakeSocket };
+}
+
+type Launched = Awaited<ReturnType<typeof launch>>;
+
+async function started(options: LaunchOptions = {}) {
+  const launched = await launch(options);
+  launched.socket().open();
+  await flush();
+  return launched;
+}
+
+async function rejection(outcome: Promise<{ value?: unknown; error?: unknown }>) {
+  const settled = await outcome;
+  if (!("error" in settled) || !isRunError(settled.error)) {
+    throw new Error(`expected a RunError, got ${JSON.stringify(settled)}`);
+  }
+  return settled.error;
+}
+
+const EXPECTED_EVENTS: RunEvent[] = [
+  { type: "started" },
+  { type: "activity", kind: "case_loading", state: "started", body: "Loading cases started" },
+  { type: "activity", kind: "case_loading", state: "completed", body: "Loading cases completed" },
+  { type: "activity", kind: "answering", state: "started", caseId: 1000, body: "Answering started" },
+  {
+    type: "activity",
+    kind: "model_call",
+    state: "started",
+    caseId: 1000,
+    modelId: "openai/gpt-4o",
+    body: "Model call started",
+  },
+  {
+    type: "activity",
+    kind: "model_call",
+    state: "completed",
+    caseId: 1000,
+    modelId: "openai/gpt-4o",
+    body: "Model call completed",
+  },
+  {
+    type: "activity",
+    kind: "answering",
+    state: "completed",
+    caseId: 1000,
+    body: "Answering completed",
+  },
+  { type: "progress", completed: 1, graded: 1, score: 1 },
+  { type: "cost", totalUsd: 0.0002675 },
+];
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("startRun", () => {
+  it("resolves the CandidateResult and reports events in stream order", async () => {
+    const { outcome, events, socket } = await started();
+
+    socket().receive(...HAPPY.slice(0, 5), frames.heartbeat, ...HAPPY.slice(5));
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(events).toEqual(EXPECTED_EVENTS);
+    expect(socket().closed).toBe(true);
+  });
+
+  it("fetches the benchmark, mints a token, attaches, then starts the linked run", async () => {
+    const { engine, socket } = await started();
+
+    expect(engine.calls[0].url).toBe(`${BASE}/v1/benchmarks/ifeval?limit=1`);
+    expect(engine.calls[1]).toMatchObject({ url: `${BASE}/token`, method: "POST" });
+    expect(socket().url).toBe(`ws://127.0.0.1:9108/ws?ticket=${encodeURIComponent(TOKEN)}`);
+    expect(socket().protocols).toEqual(["cloudevents.json"]);
+    expect(socket().sent[0]).toEqual({
+      specversion: "1.0",
+      id: expect.any(String),
+      source: "/screamingface/studio",
+      time: new Date(NOW).toISOString(),
+      type: "ai.url4.attach",
+      datacontenttype: "application/json",
+      data: { from_sequence: null, cache: { participate: true } },
+    });
+
+    const [startCall] = engine.startCalls();
+    expect(new URL(startCall.url).searchParams.get("q")).toBe(linkCandidate(CANDIDATE, BENCHMARK));
+    expect(startCall.headers).toEqual({ "URL4-Capability": TOKEN, Prefer: "respond-async" });
+  });
+
+  it("opts out of the cache with no-store and participate: false", async () => {
+    const { engine, socket } = await started({ useCache: false });
+
+    expect(socket().sent[0]).toMatchObject({ data: { cache: { participate: false } } });
+    expect(engine.startCalls()[0].headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("re-sends the start while the socket attach is still registering", async () => {
+    vi.useFakeTimers();
+    const { engine, outcome, socket } = await started({
+      routes: { start: [ATTACHING, ATTACHING, () => reply(202, "")] },
+    });
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.startCalls()).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.startCalls()).toHaveLength(3);
+
+    socket().receive(...HAPPY);
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+  });
+
+  it("gives up after five re-sends", async () => {
+    vi.useFakeTimers();
+    const { engine, outcome } = await started({ routes: { start: Array(6).fill(ATTACHING) } });
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    const error = await rejection(outcome);
+    expect(engine.startCalls()).toHaveLength(6);
+    expect(error).toMatchObject({ kind: "failed", code: "http_428" });
+  });
+
+  it("rejects any other 428 at once", async () => {
+    const { engine, outcome } = await started({
+      routes: { start: [() => problem(428, "precondition: something else")] },
+    });
+
+    const error = await rejection(outcome);
+    expect(engine.startCalls()).toHaveLength(1);
+    expect(error).toMatchObject({
+      kind: "failed",
+      code: "http_428",
+      message: "precondition: something else",
+    });
+  });
+
+  it("fetches an artifact result with the capability and verifies it", async () => {
+    const { outcome, engine, socket } = await started({
+      routes: { artifact: () => reply(200, frames.artifactBody) },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    const artifactCall = engine.calls.find((call) => call.url.includes("/artifacts/"));
+    expect(artifactCall?.url).toBe(
+      `${BASE}/artifacts/${frames.artifactResult.data.artifact?.id}`,
+    );
+    expect(artifactCall?.headers["URL4-Capability"]).toBe(TOKEN);
+  });
+
+  it("redeems an artifact with a token minted after the run, not the run's own", async () => {
+    const { outcome, engine, socket } = await started({
+      routes: {
+        tokens: [() => reply(200, { token: TOKEN }), () => reply(200, { token: "fresh-token" })],
+        artifact: () => reply(200, frames.artifactBody),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    const artifactCall = engine.calls.find((call) => call.url.includes("/artifacts/"));
+    expect(artifactCall?.headers["URL4-Capability"]).toBe("fresh-token");
+  });
+
+  it("retries a mint that cannot reach the Engine before fetching the artifact", async () => {
+    vi.useFakeTimers();
+    const { outcome, engine, socket } = await started({
+      routes: {
+        tokens: [
+          () => reply(200, { token: TOKEN }),
+          () => {
+            throw new TypeError("connection reset");
+          },
+        ],
+        artifact: () => reply(200, frames.artifactBody),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(engine.calls.filter((call) => call.url === `${BASE}/token`)).toHaveLength(3);
+  });
+
+  it("refuses an artifact that fails its integrity check", async () => {
+    const tampered = frames.artifactBody.replace('"score":1.0', '"score":0.9');
+    const { outcome, socket } = await started({
+      routes: { artifact: () => reply(200, tampered) },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+
+  it("rejects an artifact the Engine will not hand over", async () => {
+    const { outcome, socket } = await started({
+      routes: { artifact: () => problem(404, "no such artifact") },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      code: "http_404",
+      message: "no such artifact",
+    });
+  });
+
+  it("rejects a failed run with the Engine's code and message", async () => {
+    const { outcome, socket } = await started();
+
+    socket().receive(HAPPY[0], HAPPY[1], frames.terminatedBenchmarkUnavailable);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "failed",
+      code: "benchmark_unavailable",
+      message: "Benchmark 'ifeval' is not prepared on this Engine",
+    });
+  });
+
+  it("rejects a run the Engine timed out", async () => {
+    const { outcome, socket } = await started();
+    const timedOut = {
+      ...frames.terminatedStopped,
+      sequence: "2",
+      data: { status: "timed_out", error: { code: "run_timeout", message: "Too slow", permanent: false } },
+    };
+
+    socket().receive(HAPPY[0], timedOut);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "timed_out", code: "run_timeout" });
+  });
+
+  it("reorders frames, drops duplicates, and reports a gap that never fills", async () => {
+    const { outcome, events, socket } = await started();
+    const shuffled = [HAPPY[1], HAPPY[0], HAPPY[3], HAPPY[2], HAPPY[2], HAPPY[0]];
+
+    socket().receive(...shuffled, ...HAPPY.slice(4, 9), HAPPY[5], ...HAPPY.slice(9));
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(events).toEqual(EXPECTED_EVENTS);
+  });
+
+  it("waits for a missing frame, then reports stream_failed", async () => {
+    vi.useFakeTimers();
+    const { outcome, events, socket } = await started();
+
+    socket().receive(HAPPY[0], HAPPY[2]);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(events).toEqual([{ type: "started" }]);
+    // Filling the first gap restarts the wait for the next one (event 2 is a span: no event).
+    socket().receive(HAPPY[1], HAPPY[4]);
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(events).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The Engine's event stream skipped event 4.",
+    });
+  });
+
+  it("reports 120 seconds of silence as stream_failed, heartbeats included", async () => {
+    vi.useFakeTimers();
+    const { outcome, socket } = await started();
+
+    await vi.advanceTimersByTimeAsync(119_000);
+    socket().receive(frames.heartbeat);
+    await vi.advanceTimersByTimeAsync(119_000);
+    socket().receive(HAPPY[0]);
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(socket().closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+
+  it("stops on abort and settles on the Engine's terminated frame", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome, engine, socket } = await started({ signal: controller.signal });
+    socket().receive(HAPPY[0], HAPPY[1], HAPPY[2]);
+
+    controller.abort();
+
+    expect(socket().sent[1]).toMatchObject({
+      specversion: "1.0",
+      type: "ai.url4.stop",
+      data: { reason: "cancelled by user" },
+    });
+    socket().receive(frames.terminatedStopped);
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(engine.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("falls back to DELETE when no terminated frame arrives within 5 seconds", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome, engine } = await started({ signal: controller.signal });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(engine.calls.some((call) => call.method === "DELETE")).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    const remove = engine.calls.find((call) => call.method === "DELETE");
+    expect(remove?.url).toBe(`${BASE}/?topic=${TOPIC}`);
+    expect(remove?.headers["URL4-Capability"]).toBe(TOKEN);
+  });
+
+  it("deletes the run at once when the socket closes while stopping", async () => {
+    const controller = new AbortController();
+    const { outcome, engine, socket } = await started({ signal: controller.signal });
+
+    controller.abort();
+    socket().onclose?.({});
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.calls.at(-1)?.method).toBe("DELETE");
+  });
+
+  it.each([
+    ["the Engine sends an error frame", (socket: FakeSocket) => socket.receive(frames.errorInvalidFrame)],
+    ["the Engine sends an unreadable frame", (socket: FakeSocket) => socket.onmessage?.({ data: "{" })],
+    [
+      "a frame never arrives",
+      async (socket: FakeSocket) => {
+        socket.receive(HAPPY[0], HAPPY[2]);
+        await vi.advanceTimersByTimeAsync(2_000);
+      },
+    ],
+  ] as [string, (socket: FakeSocket) => unknown][])(
+    "deletes the run at once when %s while stopping",
+    async (_name, breakIt) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const { outcome, engine, socket } = await started({ signal: controller.signal });
+
+      controller.abort();
+      await breakIt(socket());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+      expect(engine.calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+    },
+  );
+
+  it("stops a run whose start was in flight when aborted", async () => {
+    const controller = new AbortController();
+    const { outcome, socket } = await launch({ signal: controller.signal });
+    socket().open();
+    controller.abort();
+    await flush();
+
+    expect(socket().sent[1]).toMatchObject({ type: "ai.url4.stop" });
+    socket().receive(HAPPY[0], HAPPY[1], HAPPY[2], frames.terminatedStopped);
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("stops before starting when aborted while the socket connects", async () => {
+    const controller = new AbortController();
+    const { outcome, engine } = await launch({ signal: controller.signal });
+
+    controller.abort();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.startCalls()).toHaveLength(0);
+  });
+
+  it("never starts when already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { outcome, engine } = await launch({ signal: controller.signal });
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.calls).toHaveLength(0);
+  });
+
+  it("keeps the token out of every error message", async () => {
+    const echoes = [
+      await started({ routes: { start: [() => problem(400, `bad capability ${TOKEN}`)] } }),
+      await started(),
+    ];
+    echoes[1].socket().receive({
+      ...frames.errorInvalidFrame,
+      data: { code: "invalid_frame", message: `rejected ${TOKEN}`, ref_id: null },
+    });
+
+    for (const { outcome } of echoes) {
+      const error = await rejection(outcome);
+      expect(error.message).not.toContain(TOKEN);
+      expect(error.detail).toContain("[redacted]");
+    }
+  });
+});
+
+describe("startRun failures", () => {
+  it("reports an Engine that cannot be reached", async () => {
+    const run = startRun({
+      candidateUrl4: CANDIDATE,
+      benchmarkId: "ifeval",
+      limit: 1,
+      useCache: true,
+      deps: {
+        fetch: (async () => {
+          throw new TypeError("Failed to fetch");
+        }) as unknown as typeof fetch,
+        WebSocket: FakeSocket,
+      },
+    });
+
+    await expect(run).rejects.toMatchObject({ kind: "unreachable" });
+  });
+
+  it("passes a refused benchmark request through with its detail", async () => {
+    const { outcome } = await launch({
+      routes: { benchmark: () => problem(422, "limit must be between 1 and 541 for 'ifeval'") },
+    });
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "failed",
+      code: "http_422",
+      message: "limit must be between 1 and 541 for 'ifeval'",
+    });
+  });
+
+  it("rejects a benchmark without url4", async () => {
+    const { outcome } = await launch({ routes: { benchmark: () => reply(200, { id: "x" }) } });
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed" });
+  });
+
+  it("rejects an unreadable Engine response", async () => {
+    const { outcome } = await launch({ routes: { benchmark: () => reply(200, "not json{") } });
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed" });
+  });
+
+  it("reports a socket that fails to connect as unreachable", async () => {
+    const { outcome, socket } = await launch();
+    socket().onerror?.({});
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable" });
+  });
+
+  it("reports a socket that drops mid-run as stream_failed", async () => {
+    const { outcome, socket } = await started();
+    socket().onerror?.({});
+    socket().onclose?.({});
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+
+  it("reports a start request that cannot reach the Engine", async () => {
+    const { outcome } = await started({
+      routes: {
+        start: [
+          () => {
+            throw new TypeError("Failed to fetch");
+          },
+        ],
+      },
+    });
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable" });
+  });
+
+  it.each([
+    ["an unreadable frame", "{not json"],
+    ["an Engine error frame", JSON.stringify(frames.errorInvalidFrame)],
+  ])("reports %s as stream_failed", async (_name, raw) => {
+    const { outcome, socket } = await started();
+    socket().onmessage?.({ data: raw });
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+
+  it("reports a run that succeeds without a result", async () => {
+    const { outcome, socket } = await started();
+    socket().receive(...HAPPY.slice(0, 10), { ...HAPPY[11], sequence: "11" });
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The run ended without a result.",
+    });
+  });
+
+  it.each([
+    ["an unreadable body", { body: "not json", media_type: "application/json" }, "invalid_result"],
+    [
+      "an artifact with an unsafe id",
+      { artifact: { id: "../x", size_bytes: 1, sha256: "x" } },
+      "stream_failed",
+    ],
+  ])("reports a result with %s", async (_name, data, kind) => {
+    const { outcome, socket } = await started();
+    socket().receive(...HAPPY.slice(0, 10), { ...HAPPY[10], data }, HAPPY[11]);
+    expect(await rejection(outcome)).toMatchObject({ kind });
+  });
+
+  it("reports a terminal state it does not know", async () => {
+    const { outcome, socket } = await started();
+    socket().receive({ ...HAPPY[11], sequence: "1", data: { status: "exploded" } });
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+});
+
+describe("startRun events", () => {
+  it("reports an ungraded score as null, plain logs and out-of-band logs", async () => {
+    const { events, socket } = await started();
+    const progress = HAPPY[8];
+    const ungraded = {
+      ...progress,
+      data: {
+        ...progress.data,
+        attributes: {
+          ...progress.data.attributes,
+          "sf.progress.graded": 0,
+          "sf.progress.score": null,
+        },
+      },
+    };
+    const plain = {
+      ...progress,
+      sequence: "2",
+      data: { severity_number: 13, severity_text: "WARN", body: "slow provider", attributes: {} },
+    };
+    const advisory = { ...plain, sequence: null, sequencetype: null };
+    const failedCall = {
+      ...HAPPY[6],
+      sequence: "3",
+      data: {
+        ...HAPPY[6].data,
+        attributes: {
+          ...HAPPY[6].data.attributes,
+          "sf.activity.state": "failed",
+          "sf.activity.failure_code": "provider_error",
+        },
+      },
+    };
+    const selfCost = { ...HAPPY[9], sequence: "4", data: { ...HAPPY[9].data, scope: "self" } };
+
+    socket().receive({ ...ungraded, sequence: "1" }, plain, advisory, failedCall, selfCost);
+
+    expect(events).toEqual([
+      { type: "progress", completed: 1, graded: 0, score: null },
+      { type: "log", severity: "WARN", body: "slow provider", attributes: {} },
+      { type: "log", severity: "WARN", body: "slow provider", attributes: {} },
+      expect.objectContaining({ type: "activity", state: "failed", failureCode: "provider_error" }),
+    ]);
+  });
+
+  it("uses the runtime's Engine when none is given", async () => {
+    FakeSocket.instances = [];
+    const engine = fakeEngine();
+    void startRun({
+      candidateUrl4: CANDIDATE,
+      benchmarkId: "ifeval",
+      limit: 1,
+      useCache: true,
+      deps: { fetch: engine.fetch, WebSocket: FakeSocket },
+    }).catch(() => undefined);
+    await flush();
+
+    expect(engine.calls[0].url).toBe(`${BASE}/v1/benchmarks/ifeval?limit=1`);
+  });
+
+  it("is a typed error", () => {
+    const error = new RunError("stopped");
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("The run was stopped.");
+    expect(isRunError(error)).toBe(true);
+    expect(isRunError(new Error("x"))).toBe(false);
+  });
+});
+
+// Give frames consecutive sequence numbers, in the order given.
+function sequenced(...items: Record<string, unknown>[]) {
+  return items.map((frame, index) => ({ ...frame, sequence: String(index + 1) }));
+}
+
+describe("startRun root node", () => {
+  it("takes the result and terminal state only from the root node", async () => {
+    const { outcome, events, socket } = await started();
+
+    socket().receive(
+      ...sequenced(
+        HAPPY[0],
+        frames.childStarted,
+        frames.childCost,
+        frames.childResult,
+        { ...frames.childTerminated, data: { status: "failed", error: { code: "x", message: "child", permanent: false } } },
+        frames.childTerminated,
+        ...HAPPY.slice(1),
+      ),
+    );
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(events).toEqual(EXPECTED_EVENTS);
+  });
+
+  it("fails a run whose root never started", async () => {
+    const { outcome, socket } = await started();
+
+    socket().receive(...sequenced(frames.childStarted, frames.childResult, frames.childTerminated));
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The Engine never started this run's root node.",
+    });
+  });
+
+  it("does not take a started frame for another url4 as the root", async () => {
+    const { outcome, socket } = await started();
+    const other = { ...HAPPY[0], data: { url4: "(x:0.0:'other')!'$x'" } };
+
+    socket().receive(other, ...HAPPY.slice(1));
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+});
+
+describe("startRun deadlines", () => {
+  it("gives up on a start the Engine never answers and deletes the run in case it began", async () => {
+    vi.useFakeTimers();
+    const { outcome, engine } = await started({ routes: { start: [() => HANG] } });
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(engine.calls.some((call) => call.method === "DELETE")).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "unreachable",
+      message: "The Engine did not answer the run's start within 30 seconds.",
+    });
+    expect(engine.calls.at(-1)).toMatchObject({ method: "DELETE", url: `${BASE}/?topic=${TOPIC}` });
+  });
+
+  it.each([
+    ["benchmark", { benchmark: () => HANG }],
+    ["token", { tokens: [() => HANG] }],
+  ] as [string, EngineRoutes][])(
+    "gives up on a %s request the Engine never answers",
+    async (_name, routes) => {
+      vi.useFakeTimers();
+      const { outcome } = await launch({ routes });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(await rejection(outcome)).toMatchObject({
+        kind: "unreachable",
+        message: "The Engine did not answer within 30 seconds.",
+      });
+      expect(FakeSocket.instances).toHaveLength(0);
+    },
+  );
+
+  it("stops a run the Engine accepts after the user aborted", async () => {
+    let accept: (value: Reply) => void = () => undefined;
+    const accepted = new Promise<Reply>((resolve) => {
+      accept = resolve;
+    });
+    const controller = new AbortController();
+    const { outcome, socket } = await started({
+      signal: controller.signal,
+      routes: { start: [() => accepted] },
+    });
+
+    controller.abort();
+    await flush();
+    expect(socket().sent).toHaveLength(1);
+    accept(reply(202, ""));
+    await flush();
+
+    expect(socket().sent[1]).toMatchObject({ type: "ai.url4.stop" });
+    socket().receive(...sequenced(HAPPY[0], frames.terminatedStopped));
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("settles an abort whose start never answers once the start deadline passes", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome, engine } = await started({
+      signal: controller.signal,
+      routes: { start: [() => HANG] },
+    });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.calls.at(-1)?.method).toBe("DELETE");
+  });
+
+  it.each([
+    ["refuses it", () => problem(500, "queue unavailable")],
+    ["never answers", () => HANG],
+  ] as [string, Route][])(
+    "reports a stop it could not confirm when the DELETE %s",
+    async (_name, remove) => {
+      vi.useFakeTimers();
+      const controller = new AbortController();
+      const { outcome } = await started({ signal: controller.signal, routes: { remove } });
+
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(5_000 + 5_000);
+
+      expect(await rejection(outcome)).toMatchObject({ kind: "stop_unconfirmed" });
+    },
+  );
+
+  it("treats a DELETE for a run that is already gone as stopped", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome } = await started({
+      signal: controller.signal,
+      routes: { remove: () => problem(404, "no such run") },
+    });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("does not wait forever on an artifact the Engine never sends", async () => {
+    vi.useFakeTimers();
+    const { outcome, socket } = await started({ routes: { artifact: () => HANG } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(3 * 30_000 + 1_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable" });
+  });
+});
+
+function artifactFrame(bytes: Uint8Array, sizeBytes = bytes.length) {
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  return {
+    ...frames.artifactResult,
+    data: { body: null, media_type: null, artifact: { id: sha, size_bytes: sizeBytes, sha256: sha } },
+  };
+}
+
+describe("startRun artifact limits", () => {
+  it("refuses an artifact above the browser-safe maximum without fetching it", async () => {
+    const { outcome, engine, socket } = await started({
+      routes: { artifact: () => reply(200, frames.artifactBody) },
+    });
+
+    socket().receive(
+      ...HAPPY.slice(0, 10),
+      artifactFrame(new TextEncoder().encode("x"), 256 * 1024 * 1024 + 1),
+      HAPPY[11],
+    );
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    expect(engine.calls.some((call) => call.url.includes("/artifacts/"))).toBe(false);
+  });
+
+  it("refuses a Content-Length that disagrees with the ticket before reading", async () => {
+    const pulls = vi.fn();
+    const response = {
+      ...reply(200, frames.artifactBody, "application/json", {
+        "content-length": String(frames.artifactBody.length + 10),
+      }),
+      // highWaterMark 0: the stream asks for data only when someone reads it.
+      body: new ReadableStream<Uint8Array>({ pull: pulls }, { highWaterMark: 0 }),
+    };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    expect(pulls).not.toHaveBeenCalled();
+  });
+
+  it("names a Content-Length below the ticket as a size mismatch, not an oversize", async () => {
+    const { outcome, socket } = await started({
+      routes: {
+        artifact: () =>
+          reply(200, frames.artifactBody, "application/json", {
+            "content-length": String(frames.artifactBody.length - 10),
+          }),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The run's result is not the size its claim ticket said.",
+    });
+  });
+
+  it("stops reading once the body passes the ticket's size", async () => {
+    const cancel = vi.fn();
+    let sent = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent += 1024;
+        controller.enqueue(new Uint8Array(1024).fill(32));
+      },
+      cancel,
+    });
+    const response = { ...reply(200, ""), headers: new Headers(), body: endless };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    expect(cancel).toHaveBeenCalled();
+    expect(sent).toBeLessThan(frames.artifactBody.length + 64 * 1024);
+  });
+
+  it("refuses an artifact that is not UTF-8", async () => {
+    const bytes = new Uint8Array([0x7b, 0xff, 0xfe, 0x7d]);
+    const response = { ...reply(200, ""), headers: new Headers(), body: streamOf(bytes) };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), artifactFrame(bytes), HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The run's result is not UTF-8 text.",
+    });
+  });
+});
+
+type Mutation = (result: Record<string, any>) => void; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+describe("startRun result contract", () => {
+  async function resultWith(mutate: Mutation) {
+    const result = structuredClone(frames.candidateResult) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mutate(result);
+    const { outcome, socket } = await started();
+    socket().receive(
+      ...HAPPY.slice(0, 10),
+      { ...HAPPY[10], data: { body: JSON.stringify(result), media_type: "application/json" } },
+      HAPPY[11],
+    );
+    return outcome;
+  }
+
+  it.each([
+    ["schema", (r) => (r.schema = "screamingface.candidate-result.v2")],
+    ["benchmark_id", (r) => delete r.benchmark_id],
+    ["benchmark_revision", (r) => (r.benchmark_revision = 3)],
+    ["case_count", (r) => (r.case_count = -1)],
+    ["score", (r) => (r.score = "0.5")],
+    ["coverage", (r) => (r.coverage = 1.5)],
+    ["metrics", (r) => (r.metrics = [])],
+    ["failures", (r) => (r.failures = {})],
+    ["cases", (r) => (r.cases = null)],
+    ["cases[0].status", (r) => (r.cases[0].status = "ok")],
+    ["cases[0].case_id", (r) => (r.cases[0].case_id = true)],
+    ["cases[0].input", (r) => (r.cases[0].input = "")],
+    ["cases[0].output", (r) => (r.cases[0].output = 5)],
+    ["cases[0].grade", (r) => (r.cases[0].grade = "A")],
+    ["cases[0].grade.score", (r) => (r.cases[0].grade.score = "x")],
+    ["cases[0].grade.method", (r) => (r.cases[0].grade.method = "")],
+    ["cases[0].grade.metrics", (r) => (r.cases[0].grade.metrics = null)],
+    ["cases[0].grade.checks", (r) => delete r.cases[0].grade.checks],
+    ["cases[0].failures", (r) => (r.cases[0].failures = "none")],
+    [
+      "cases[0].failures[0].code",
+      (r) =>
+        (r.cases[0].failures = [
+          { stage: "candidate", message: "m", retryable: null, case_id: 1000, metadata: {} },
+        ]),
+    ],
+    [
+      "failures[0].message",
+      (r) =>
+        (r.failures = [
+          { stage: "candidate", code: "upstream_error", retryable: null, case_id: null, metadata: {} },
+        ]),
+    ],
+    ["case_count", (r) => (r.case_count = 2)],
+    ["cases[1].case_id", (r) => r.cases.push(structuredClone(r.cases[0]))],
+    ["cases[0].finish_reason", (r) => (r.cases[0].finish_reason = 5)],
+    ["cases[0].refusal", (r) => (r.cases[0].refusal = " ")],
+    ["cases[0].metadata", (r) => delete r.cases[0].metadata],
+    ["cases[0].grade.checks[0].type", (r) => (r.cases[0].grade.checks[0].type = "")],
+    ["cases[0].grade.checks[0].id", (r) => delete r.cases[0].grade.checks[0].id],
+    ["cases[0].grade.checks[0].label", (r) => (r.cases[0].grade.checks[0].label = 1)],
+    ["cases[0].grade.checks[0].outcome", (r) => (r.cases[0].grade.checks[0].outcome = "YES")],
+    ["cases[0].grade.checks[0].score", (r) => (r.cases[0].grade.checks[0].score = 2)],
+    ["cases[0].grade.checks[0].evidence", (r) => (r.cases[0].grade.checks[0].evidence = {})],
+    ["cases[0].grade.checks[0].metadata", (r) => (r.cases[0].grade.checks[0].metadata = [])],
+    ["cases[0].operations", (r) => (r.cases[0].operations = {})],
+    ["cases[0].operations[0].operation_id", (r) => (r.cases[0].operations[0].operation_id = "")],
+    ["cases[0].operations[0].output", (r) => (r.cases[0].operations[0].output = 1)],
+    ["cases[0].operations[0].finish_reason", (r) => (r.cases[0].operations[0].finish_reason = 1)],
+    ["cases[0].operations[0].accounting", (r) => (r.cases[0].operations[0].accounting = "x")],
+    [
+      "cases[0].failures[0].stage",
+      (r) => (r.cases[0].failures = [{ code: "upstream_error", message: "m" }]),
+    ],
+    [
+      "cases[0].failures[0].retryable",
+      (r) => (r.cases[0].failures = [{ stage: "candidate", code: "upstream_error", message: "m" }]),
+    ],
+    [
+      "cases[0].failures[0].case_id",
+      (r) =>
+        (r.cases[0].failures = [
+          { stage: "candidate", code: "upstream_error", message: "m", retryable: false, case_id: 7, metadata: {} },
+        ]),
+    ],
+    [
+      "cases[0].failures[0].metadata",
+      (r) =>
+        (r.cases[0].failures = [
+          { stage: "candidate", code: "upstream_error", message: "m", retryable: null, case_id: 1000 },
+        ]),
+    ],
+    [
+      "failures[0].case_id",
+      (r) =>
+        (r.failures = [
+          { stage: "candidate", code: "upstream_error", message: "m", retryable: null, case_id: 1000, metadata: {} },
+        ]),
+    ],
+  ] as [string, Mutation][])("rejects a result with a bad %s, naming it", async (field, mutate) => {
+    const error = await rejection(resultWith(mutate));
+    expect(error).toMatchObject({ kind: "invalid_result", code: "invalid_result" });
+    expect(error.message).toContain(`\`${field}\``);
+  });
+
+  it("accepts a null score and an ungraded case", async () => {
+    const outcome = await resultWith((r) => {
+      r.score = null;
+      r.metrics = {};
+      r.coverage = 0;
+      r.cases[0].grade = null;
+      r.cases[0].output = null;
+      r.cases[0].status = "failed";
+      r.cases[0].failures = [
+        { stage: "candidate", code: "upstream_error", message: "no profile", retryable: false, case_id: 1000, metadata: {} },
+      ];
+    });
+    expect(outcome).toMatchObject({ value: { score: null } });
+  });
+});
+
+describe("startRun cleanup after a local failure", () => {
+  const deletes = (engine: ReturnType<typeof fakeEngine>) =>
+    engine.calls.filter((call) => call.method === "DELETE");
+
+  it.each([
+    ["the socket closes", async ({ socket }: Launched) => socket().onclose?.({})],
+    [
+      "the Engine sends an error frame",
+      async ({ socket }: Launched) => socket().receive(frames.errorInvalidFrame),
+    ],
+    [
+      "the root sends a second result",
+      async ({ socket }: Launched) =>
+        socket().receive(...sequenced(HAPPY[0], HAPPY[10], HAPPY[10])),
+    ],
+    [
+      "the root starts twice",
+      async ({ socket }: Launched) => socket().receive(...sequenced(HAPPY[0], HAPPY[0])),
+    ],
+    [
+      "a frame never arrives",
+      async ({ socket }: Launched) => {
+        socket().receive(HAPPY[0], HAPPY[2]);
+        await vi.advanceTimersByTimeAsync(2_000);
+      },
+    ],
+    ["the stream goes silent", async () => void (await vi.advanceTimersByTimeAsync(120_000))],
+  ] as [string, (launched: Launched) => Promise<void>][])(
+    "stops the Engine's run when %s after the start",
+    async (_name, breakIt) => {
+      vi.useFakeTimers();
+      const launched = await started();
+
+      await breakIt(launched);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const error = await rejection(launched.outcome);
+      expect(error).toMatchObject({ kind: "stream_failed", cleanup: "stopped" });
+      expect(deletes(launched.engine)).toEqual([
+        expect.objectContaining({ url: `${BASE}/?topic=${TOPIC}` }),
+      ]);
+    },
+  );
+
+  it("ignores a queued success once a local failure has started the cleanup", async () => {
+    vi.useFakeTimers();
+    const launched = await started();
+
+    const [root, result, again, terminated] = sequenced(HAPPY[0], HAPPY[10], HAPPY[10], HAPPY[11]);
+    // Queued behind a gap, so one drain dispatches all three.
+    launched.socket().receive(root, again, terminated, result);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await rejection(launched.outcome)).toMatchObject({
+      kind: "stream_failed",
+      message: "The Engine sent this run's result twice.",
+      cleanup: "stopped",
+    });
+  });
+
+  it("says when the Engine would not confirm the cleanup", async () => {
+    vi.useFakeTimers();
+    const launched = await started({ routes: { remove: () => problem(500, "queue unavailable") } });
+
+    launched.socket().onclose?.({});
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await rejection(launched.outcome)).toMatchObject({
+      kind: "stream_failed",
+      cleanup: "unconfirmed",
+    });
+  });
+
+  it("does not clean up a run the Engine never accepted", async () => {
+    const { outcome, engine, socket } = await launch();
+    socket().onerror?.({});
+
+    const error = await rejection(outcome);
+    expect(error).toMatchObject({ kind: "unreachable" });
+    expect(error.cleanup).toBeUndefined();
+    expect(deletes(engine)).toEqual([]);
+  });
+
+  it("stops a run the Engine accepts after the stream already failed", async () => {
+    let accept: (value: Reply) => void = () => undefined;
+    const accepted = new Promise<Reply>((resolve) => {
+      accept = resolve;
+    });
+    const { outcome, engine, socket } = await started({ routes: { start: [() => accepted] } });
+
+    socket().onclose?.({});
+    accept(reply(202, ""));
+    await flush();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+    await flush();
+    expect(deletes(engine)).toHaveLength(1);
+  });
+
+  it("does not clean up after the root has terminated", async () => {
+    const { outcome, engine, socket } = await started();
+    socket().receive(HAPPY[0], { ...frames.terminatedBenchmarkUnavailable, sequence: "2" });
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed" });
+    expect(deletes(engine)).toEqual([]);
+  });
+});
+
+describe("startRun after the root terminates", () => {
+  function deferredArtifact() {
+    let send: (value: Reply) => void = () => undefined;
+    const response = new Promise<Reply>((resolve) => {
+      send = resolve;
+    });
+    return { route: () => response, send: () => send(reply(200, frames.artifactBody)) };
+  }
+
+  it("keeps a successful result when a stop was pending", async () => {
+    vi.useFakeTimers();
+    const artifact = deferredArtifact();
+    const controller = new AbortController();
+    const { outcome, engine, socket } = await started({
+      signal: controller.signal,
+      routes: { artifact: artifact.route },
+    });
+
+    controller.abort();
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    artifact.send();
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+    expect(engine.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("cancels the download and rejects stopped, without a DELETE, on an abort after it ended", async () => {
+    const artifact = deferredArtifact();
+    const controller = new AbortController();
+    const { outcome, engine, socket } = await started({
+      signal: controller.signal,
+      routes: { artifact: artifact.route },
+    });
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await flush();
+
+    controller.abort();
+    artifact.send();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(socket().sent.some((frame) => frame.type === "ai.url4.stop")).toBe(false);
+    expect(engine.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+});
+
+describe("startRun artifact inactivity deadline", () => {
+  function chunked(bytes: Uint8Array, everyMs: number, pieces: number) {
+    const size = Math.ceil(bytes.length / pieces);
+    let index = 0;
+    return new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          await new Promise((wake) => setTimeout(wake, everyMs));
+          const chunk = bytes.slice(index * size, (index + 1) * size);
+          index += 1;
+          if (chunk.length) controller.enqueue(chunk);
+          if (index * size >= bytes.length) controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+  }
+
+  it("accepts a slow but steady download that takes longer than 30 seconds", async () => {
+    vi.useFakeTimers();
+    const bytes = new TextEncoder().encode(frames.artifactBody);
+    const response = { ...reply(200, ""), headers: new Headers(), body: chunked(bytes, 20_000, 4) };
+    const { outcome, socket } = await started({ routes: { artifact: () => response } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(100_000);
+
+    expect(await outcome).toEqual({ value: frames.candidateResult });
+  });
+
+  it("gives up on a download that stalls for 30 seconds mid-read", async () => {
+    vi.useFakeTimers();
+    const bytes = new TextEncoder().encode(frames.artifactBody);
+    const stalled = () => {
+      let sent = false;
+      return {
+        ...reply(200, ""),
+        headers: new Headers(),
+        body: new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              if (!sent) controller.enqueue(bytes.slice(0, 10));
+              sent = true;
+              return new Promise<void>(() => undefined);
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+      };
+    };
+    const { outcome, socket } = await started({ routes: { artifact: stalled } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(29_000);
+    let settled = false;
+    void outcome.then(() => (settled = true));
+    await flush();
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(200_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable" });
+  });
+});
+
+describe("startRun start transport failures", () => {
+  function resetLater() {
+    let reset: () => void = () => undefined;
+    const pending = new Promise<Reply>((_resolve, reject) => {
+      reset = () => reject(new TypeError("connection reset"));
+    });
+    return { route: () => pending, reset: () => reset() };
+  }
+
+  it("deletes a run whose start was sent but whose answer never arrived", async () => {
+    const { outcome, engine } = await started({
+      routes: { start: [() => Promise.reject(new TypeError("connection reset"))] },
+    });
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable", cleanup: "stopped" });
+    expect(engine.calls.at(-1)).toMatchObject({ method: "DELETE", url: `${BASE}/?topic=${TOPIC}` });
+  });
+
+  it("reports the cleanup of a start that never answered", async () => {
+    vi.useFakeTimers();
+    const { outcome } = await started({ routes: { start: [() => HANG] } });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await rejection(outcome)).toMatchObject({ kind: "unreachable", cleanup: "stopped" });
+  });
+
+  it("deletes the run and reports stopped when the user aborts and the start then resets", async () => {
+    const start = resetLater();
+    const controller = new AbortController();
+    const { outcome, engine } = await started({
+      signal: controller.signal,
+      routes: { start: [start.route] },
+    });
+
+    controller.abort();
+    start.reset();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+    expect(engine.calls.at(-1)?.method).toBe("DELETE");
+  });
+});
+
+describe("startRun capability safety", () => {
+  it("never follows a redirect with a capability", async () => {
+    const { engine, outcome, socket } = await started({
+      routes: { artifact: () => reply(200, frames.artifactBody) },
+    });
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await outcome;
+
+    const carrying = engine.calls.filter((call) => call.headers["URL4-Capability"]);
+    expect(carrying.length).toBeGreaterThan(0);
+    for (const call of carrying) expect(call.redirect).toBe("error");
+  });
+
+  it("refuses an artifact answered from another origin", async () => {
+    const moved = { ...reply(200, frames.artifactBody), url: "http://elsewhere.example/a", redirected: true };
+    const { outcome, socket } = await started({ routes: { artifact: () => moved } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed" });
+  });
+
+  it("redacts the fresh artifact token from an error the Engine echoes", async () => {
+    const fresh = "fresh-artifact-capability-123";
+    const { outcome, socket } = await started({
+      routes: {
+        tokens: [() => reply(200, { token: TOKEN }), () => reply(200, { token: fresh })],
+        artifact: () => problem(403, `capability ${fresh} is not valid here`),
+      },
+    });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+
+    const error = await rejection(outcome);
+    expect(error.message).not.toContain(fresh);
+    expect(error.message).toContain("[redacted]");
+  });
+});
+
+describe("startRun problem bodies", () => {
+  function endless(type = "application/problem+json") {
+    return (status: number) => ({
+      ...reply(status, ""),
+      headers: new Headers({ "content-type": type }),
+      // Headers arrived; the body never finishes, however it is read.
+      json: () => new Promise<never>(() => undefined),
+      body: new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            controller.enqueue(new TextEncoder().encode('{"detail":"'));
+            return new Promise<void>(() => undefined);
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    });
+  }
+
+  it("settles a refused start whose body never ends within the deadline", async () => {
+    vi.useFakeTimers();
+    const { outcome } = await started({ routes: { start: [() => endless()(500)] } });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed", code: "http_500" });
+  });
+
+  it("lets an abort cancel a refused start's body read", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const { outcome } = await started({
+      signal: controller.signal,
+      routes: { start: [() => endless()(500)] },
+    });
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+
+  it("settles a refused artifact whose body never ends within the deadline", async () => {
+    vi.useFakeTimers();
+    const { outcome, socket } = await started({ routes: { artifact: () => endless()(500) } });
+
+    socket().receive(...HAPPY.slice(0, 10), frames.artifactResult, HAPPY[11]);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stream_failed", code: "http_500" });
+  });
+
+  it("discards a problem body larger than 64 KiB", async () => {
+    const huge = problem(400, "x".repeat(70 * 1024));
+    const { outcome } = await started({ routes: { start: [() => huge] } });
+
+    const error = await rejection(outcome);
+    expect(error).toMatchObject({ kind: "failed", code: "http_400" });
+    expect(error.message.length).toBeLessThan(1024);
+  });
+});
+
+const FAILURE = {
+  stage: "candidate",
+  code: "upstream_error",
+  message: "no profile",
+  retryable: false,
+  case_id: 1000,
+  metadata: {},
+};
+
+describe("startRun result outcome rules (the Engine's producer invariants)", () => {
+  async function resultWith(mutate: Mutation, raw?: (json: string) => string) {
+    const result = structuredClone(frames.candidateResult) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mutate(result);
+    const body = JSON.stringify(result);
+    const { outcome, socket } = await started();
+    socket().receive(
+      ...HAPPY.slice(0, 10),
+      { ...HAPPY[10], data: { body: raw ? raw(body) : body, media_type: "application/json" } },
+      HAPPY[11],
+    );
+    return outcome;
+  }
+
+  function unscored(r: Record<string, any>) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    r.score = null;
+    r.metrics = {};
+    r.coverage = 0;
+    r.cases[0].status = "failed";
+    r.cases[0].grade = null;
+    r.cases[0].failures = [{ ...FAILURE }];
+  }
+
+  it.each([
+    ["a scored case with failures", "cases[0]", (r) => (r.cases[0].failures = [{ ...FAILURE }])],
+    ["a scored case with no grade", "cases[0]", (r) => (r.cases[0].grade = null)],
+    ["a scored case with a null grade score", "cases[0]", (r) => (r.cases[0].grade.score = null)],
+    ["a scored case with both output and refusal", "cases[0]", (r) => (r.cases[0].refusal = "no")],
+    [
+      "a scored case with neither output nor refusal",
+      "cases[0]",
+      (r) => (r.cases[0].output = null),
+    ],
+    [
+      "a failed case without failures",
+      "cases[0]",
+      (r) => {
+        unscored(r);
+        r.cases[0].failures = [];
+        r.failures = [{ ...FAILURE, case_id: null }];
+      },
+    ],
+    [
+      "a failed case with a numeric grade",
+      "cases[0]",
+      (r) => {
+        r.cases[0].status = "failed";
+        r.cases[0].failures = [{ ...FAILURE }];
+      },
+    ],
+    [
+      "a failed case with refusal text but no provider_refusal failure",
+      "cases[0]",
+      (r) => {
+        unscored(r);
+        r.cases[0].output = null;
+        r.cases[0].refusal = "I can't help with that.";
+      },
+    ],
+    ["a null score with a numeric case grade", "score", (r) => {
+      r.score = null;
+      r.metrics = {};
+    }],
+    ["a score with no numeric case grade", "score", (r) => {
+      unscored(r);
+      r.score = 0.5;
+    }],
+    ["an unscored result with metrics", "metrics", (r) => {
+      unscored(r);
+      r.metrics = { accuracy: 0 };
+    }],
+    ["an inconsistent coverage", "coverage", (r) => (r.coverage = 0.5)],
+    ["metrics.coverage", "metrics", (r) => (r.metrics.coverage = 1)],
+    ["a blank case id", "cases[0].case_id", (r) => {
+      r.cases[0].case_id = "  ";
+    }],
+    ["an undeclared failure code", "cases[0].failures[0].code", (r) => {
+      unscored(r);
+      r.cases[0].failures[0].code = "made_up_code";
+    }],
+    ["empty operation accounting", "cases[0].operations[0].accounting.provider", (r) => {
+      r.cases[0].operations[0].accounting = {};
+    }],
+    ["accounting with no cache response", "cases[0].operations[0].accounting.cache", (r) => {
+      r.cases[0].operations[0].accounting.cache = { hits: 0, misses: 0, bypasses: 0, unknown: 0 };
+    }],
+    ["a malformed cost", "cases[0].operations[0].accounting.usage.cost_usd", (r) => {
+      r.cases[0].operations[0].accounting.usage.cost_usd = "-1";
+    }],
+    ["an evidence item without a producer", "cases[0].grade.checks[0].evidence[0].producer", (r) => {
+      r.cases[0].grade.checks[0].evidence = [
+        { sequence: 1, valid: true, raw_output: null, metadata: {}, accounting: null },
+      ];
+    }],
+    ["invalid evidence that claims an outcome", "cases[0].grade.checks[0].evidence[0]", (r) => {
+      r.cases[0].grade.checks[0].evidence = [
+        {
+          sequence: 1,
+          producer: { type: "checker", id: "c1" },
+          valid: false,
+          outcome: "PASS",
+          raw_output: null,
+          metadata: {},
+          accounting: null,
+        },
+      ];
+    }],
+    ["a named score that is not a number", "scores.f1", (r) => (r.scores = { f1: "high" })],
+    ["a non-boolean inverted_grade", "inverted_grade", (r) => (r.inverted_grade = "yes")],
+    ["an unknown key", "result", (r) => (r.extra = 1)],
+    ["an abstained case that is not an empty answer", "cases[0]", (r) => (r.cases[0].abstained = true)],
+    [
+      "a single attempt",
+      "cases[0].attempts",
+      (r) => {
+        const { input, case_id, metadata, operations, ...rest } = r.cases[0];
+        void input; void case_id; void metadata; void operations;
+        delete r.cases[0].operations;
+        r.cases[0].attempts = [{ attempt: 1, ...rest }];
+      },
+    ],
+  ] as [string, string, Mutation][])("rejects %s, naming `%s`", async (_rule, field, mutate) => {
+    const error = await rejection(resultWith(mutate));
+    expect(error).toMatchObject({ kind: "invalid_result", code: "invalid_result" });
+    expect(error.message).toContain(`\`${field}\``);
+  });
+
+  it("rejects metadata holding a non-finite number", async () => {
+    const error = await rejection(
+      resultWith(
+        (r) => (r.cases[0].metadata = { latency: "__INFINITE__" }),
+        (json) => json.replace('"__INFINITE__"', "1e999"),
+      ),
+    );
+    expect(error.message).toContain("`cases[0].metadata`");
+  });
+
+  it("accepts attempts, named scores and the inverted-grade mark when they follow the rules", async () => {
+    const outcome = await resultWith((r) => {
+      const { input, case_id, metadata, operations, ...rest } = r.cases[0];
+      void input; void case_id; void metadata;
+      delete r.cases[0].operations;
+      r.cases[0].attempts = [
+        { attempt: 1, ...rest, operations },
+        { attempt: 2, ...rest },
+      ];
+      r.cases[0].grade.scores = { strict: 1, loose: null };
+      r.scores = { strict: 1 };
+      r.inverted_grade = true;
+    });
+    expect(outcome).toMatchObject({ value: { inverted_grade: true } });
+  });
+});
+
+describe("startRun uncertain-start cleanup", () => {
+  function deferredRemove() {
+    let answer: (value: Reply) => void = () => undefined;
+    const pending = new Promise<Reply>((resolve) => {
+      answer = resolve;
+    });
+    return { route: () => pending, answer: () => answer(reply(204, "")) };
+  }
+
+  it.each([
+    ["the start's connection broke", () => Promise.reject(new TypeError("reset")), 0],
+    ["the start never answered", () => HANG as never, 30_000],
+  ] as [string, () => Promise<Reply>, number][])(
+    "keeps the outcome until the DELETE answers when the socket closes after %s",
+    async (_name, startRoute, untilDelete) => {
+      vi.useFakeTimers();
+      const remove = deferredRemove();
+      const { outcome, engine, socket } = await started({
+        routes: { start: [startRoute], remove: remove.route },
+      });
+      await vi.advanceTimersByTimeAsync(untilDelete);
+      expect(engine.calls.at(-1)?.method).toBe("DELETE");
+
+      socket().onclose?.({});
+      let settled = false;
+      void outcome.then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+
+      remove.answer();
+      expect(await rejection(outcome)).toMatchObject({ kind: "unreachable", cleanup: "stopped" });
+    },
+  );
+
+  it("still lets an abort during that cleanup choose stopped", async () => {
+    const remove = deferredRemove();
+    const controller = new AbortController();
+    const { outcome, socket } = await started({
+      signal: controller.signal,
+      routes: { start: [() => Promise.reject(new TypeError("reset"))], remove: remove.route },
+    });
+    await flush();
+
+    controller.abort();
+    socket().onclose?.({});
+    remove.answer();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+});
+
+describe("startRun refused-start body budget", () => {
+  it("settles a refused start whose body trickles within the start's own deadline", async () => {
+    vi.useFakeTimers();
+    const trickle = {
+      ...reply(500, ""),
+      headers: new Headers({ "content-type": "application/problem+json" }),
+      json: () => new Promise<never>(() => undefined),
+      body: new ReadableStream<Uint8Array>(
+        {
+          async pull(controller) {
+            await new Promise((wake) => setTimeout(wake, 29_000));
+            controller.enqueue(new TextEncoder().encode(" "));
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    };
+    const { outcome } = await started({ routes: { start: [() => trickle] } });
+
+    let settled = false;
+    void outcome.then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+
+    expect(settled).toBe(true);
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed", code: "http_500" });
+  });
+});

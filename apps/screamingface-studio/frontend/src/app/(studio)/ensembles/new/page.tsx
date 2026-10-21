@@ -68,6 +68,7 @@ import {
   type FusionNode,
   type PipelineNode,
   type RecipeKind,
+  type RecipeIssue,
   type RecipeNode,
   type SoloNode,
   collectSolos,
@@ -77,7 +78,10 @@ import {
   describeRecipe,
   fusionFromSlots,
   memberSolos,
-  recipeToUrl4,
+  parseRecipe,
+  recipeName,
+  renderRecipe,
+  resolveModels,
   rootSynthesizerSolo,
 } from "@/lib/recipe";
 import { cn } from "@/lib/utils";
@@ -111,7 +115,8 @@ const PARAM_CATALOG: {
   { key: "presence_penalty", label: "presence_penalty", kind: "number", min: -2, max: 2, step: 0.1 },
   { key: "reasoning_effort", label: "reasoning_effort", kind: "select", options: ["low", "medium", "high"] },
   { key: "seed", label: "seed", kind: "int" },
-  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. \\n\\n" },
+  // url4 carries a parameter value only as letters, digits and . - _ : / (see recipe.ts).
+  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. END (letters, digits, . - _ : /)" },
 ];
 
 function defaultParamValue(
@@ -372,28 +377,6 @@ function ParamEditor({
       )}
     </div>
   );
-}
-
-function parseRecipe(raw: string, catalog: Model[]) {
-  const match = raw.match(/^url4:\/\/([^?]+)\?(.*)$/);
-  if (!match) return null;
-  const params = new URLSearchParams(match[2]);
-  const ids = (params.get("models") ?? "").split(/[+\s]+/).filter(Boolean);
-  const unknown = ids.filter((id) => !catalog.some((model) => model.id === id));
-  const slots = ids
-    .map((id) => catalog.find((model) => model.id === id))
-    .filter((model): model is Model => Boolean(model))
-    .map((model) => ({
-      id: createUuid(),
-      model,
-      systemPrompt: "",
-      weight: 0.5,
-    }));
-  return {
-    name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
-    slots,
-    unknown,
-  };
 }
 
 function scoreForModel(modelId: string) {
@@ -1021,6 +1004,7 @@ function RunsPanel({
   slots,
   judge,
   runs,
+  issues,
   onComplete,
   onPublish,
   ensembleName,
@@ -1029,6 +1013,8 @@ function RunsPanel({
   slots: Slot[];
   judge: Slot | null;
   runs: SavedRun[];
+  // What keeps the recipe from compiling; a run is not offered until it is empty.
+  issues: RecipeIssue[];
   onComplete: (run: SavedRun) => void;
   onPublish: (run: SavedRun) => void;
   ensembleName: string;
@@ -1199,7 +1185,7 @@ function RunsPanel({
             </div>
             <Button
               size="sm"
-              disabled={slots.length === 0}
+              disabled={slots.length === 0 || issues.length > 0}
               onClick={() => setMode("new")}
             >
               <Play className="size-3.5" />
@@ -1609,9 +1595,19 @@ function RunsPanel({
         </div>
 
         <div className="mt-8">
+          {issues.length > 0 && !running && (
+            <div role="alert" className="mb-3 text-xs text-destructive">
+              <p>Fix the recipe before running:</p>
+              <ul className="mt-1 list-disc pl-4">
+                {issues.map((issue, index) => (
+                  <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {!running ? (
             <Button
-              disabled={slots.length === 0 || !runnable || customEmpty}
+              disabled={slots.length === 0 || !runnable || customEmpty || issues.length > 0}
               className="rounded-xl"
               onClick={startRun}
             >
@@ -2266,6 +2262,7 @@ function EnsembleComposer() {
   // model. A retry that succeeds re-runs the import.
   const catalogReady = catalogLoad === "ready";
   const [droppedModels, setDroppedModels] = useState<string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const recipeWaiting =
     Boolean(importedRecipe) && !requestedId && loadedEnsembleId !== ensembleId;
@@ -2307,9 +2304,11 @@ function EnsembleComposer() {
         const view = providers.find((provider) => provider.id === model.owned_by);
         return toSavedModel(model, view?.name);
       });
-    const parsed = importedRecipe ? parseRecipe(importedRecipe, catalog) : null;
+    const parsedRecipe = importedRecipe && !saved ? parseRecipe(importedRecipe) : null;
+    const parsed = parsedRecipe?.ok ? resolveModels(parsedRecipe.root, catalog) : null;
     const frame = window.requestAnimationFrame(() => {
-      setDroppedModels(!saved && parsed ? parsed.unknown : []);
+      setDroppedModels(parsed ? parsed.unknown : []);
+      setImportError(parsedRecipe && !parsedRecipe.ok ? parsedRecipe.error : null);
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
         const nextRoot =
@@ -2326,8 +2325,8 @@ function EnsembleComposer() {
           JSON.stringify(buildDraft(ensembleId, saved.name, nextRoot, savedRunHistory)),
         );
       } else if (parsed) {
-        const nextRoot = fusionFromSlots(parsed.slots, null);
-        setName(parsed.name);
+        const nextRoot = parsed.root;
+        setName(recipeName(nextRoot));
         setRoot(nextRoot);
         addLibraryModels(
           collectSolos(nextRoot)
@@ -2363,7 +2362,7 @@ function EnsembleComposer() {
 
   const slots = useMemo(() => deriveSlots(root), [root]);
   const judge = useMemo(() => deriveJudge(root), [root]);
-  const recipe = useMemo(() => recipeToUrl4(root), [root]);
+  const rendered = useMemo(() => renderRecipe(root), [root]);
   const draft = useMemo<SavedEnsemble>(
     () => buildDraft(ensembleId, name, root, runHistory),
     [ensembleId, name, root, runHistory],
@@ -2440,7 +2439,8 @@ function EnsembleComposer() {
   }
 
   async function copyRecipe() {
-    await navigator.clipboard.writeText(recipe);
+    if (!rendered.ok) return;
+    await navigator.clipboard.writeText(rendered.url4);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   }
@@ -2520,7 +2520,12 @@ function EnsembleComposer() {
               )}
               {savedFlash ? "Saved" : "Save"}
             </Button>
-            <Button variant="outline" size="sm" onClick={copyRecipe}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyRecipe}
+              disabled={!rendered.ok}
+            >
               {copied ? (
                 <Check className="size-3.5 text-accent" />
               ) : (
@@ -2547,6 +2552,11 @@ function EnsembleComposer() {
               Retry
             </Button>
           </div>
+        )}
+        {importError && (
+          <p role="alert" className="mt-3 text-xs text-destructive">
+            {importError}
+          </p>
         )}
         {droppedModels.length > 0 && (
           <p role="status" className="mt-3 text-xs text-destructive">
@@ -2678,18 +2688,27 @@ function EnsembleComposer() {
                 url4 preview
               </p>
               <div className="rounded-lg border bg-card p-2">
-                <code className="block break-all font-mono text-[11px] text-primary/90">
-                  {recipe}
-                </code>
+                {rendered.ok ? (
+                  <code className="block break-all font-mono text-[11px] text-primary/90">
+                    {rendered.url4}
+                  </code>
+                ) : (
+                  <ul role="alert" className="space-y-1 text-[11px] text-destructive">
+                    {rendered.issues.map((issue, index) => (
+                      <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Structural preview — the engine emits the canonical url4 at run time.
+                The exact url4 the ScreamingFace SDK compiles for this recipe.
               </p>
             </div>
 
             <div>
               <Button
                 className="w-full rounded-xl"
+                disabled={!rendered.ok}
                 onClick={() => setTab("runs")}
               >
                 Next: Run
@@ -2706,6 +2725,7 @@ function EnsembleComposer() {
           slots={slots}
           judge={judge}
           runs={runHistory}
+          issues={rendered.ok ? [] : rendered.issues}
           ensembleName={name}
           onComplete={completeRun}
           onPublish={publishRun}
