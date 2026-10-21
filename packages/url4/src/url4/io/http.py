@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from email.utils import parsedate_to_datetime
 
 import httpx
@@ -38,7 +38,7 @@ from url4.io._source_policy import (
 from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
-from url4.io.media import FetchedBytes, bare_media_type, peer_set, require_text
+from url4.io.media import FetchedBytes, bare_media_type, require_text
 
 # Headers that describe the wire encoding of a body this adapter has already decoded.
 _DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})
@@ -97,10 +97,8 @@ class HttpIOLayer:
         client: httpx.AsyncClient | None = None,
         guard: SourceGuard | None = None,
         resolver: Resolver | None = None,
-        blob_peers: Iterable[str] = (),
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._blob_peers = peer_set(blob_peers)
         self._timeout = timeout
         self._client = client
         self._guard = guard if guard is not None else SourceGuard()
@@ -154,27 +152,20 @@ class HttpIOLayer:
         """``GET`` the target and return its body exactly as received, plus its media type.
 
         Goes through :meth:`_get`, so the destination guard, the size cap and the deadline apply.
-        A 404 / 410 is ``source_not_found`` (C5). A ``url4://`` target never follows a
-        redirect: the node the ref names is the node asked (``OME-1599`` interim rule).
+        A 404 / 410 is ``source_not_found`` (C5).
         """
-        url4 = request.kind == "url4" or request.target.startswith("url4://")
         response, body = await self._get(
             self._transport_url(request.target, request.relative),
             relative=request.relative,
             accept=request.accept,
             read=_raw_body,
             typed=True,
-            follow=not url4,
         )
         return FetchedBytes(body, media_type=_media_type(request.target, response))
 
     def _transport_url(self, target: str, relative: bool) -> str:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
         return f"{self._base_url}{target}" if relative else target
-
-    def blob_peer_allowed(self, authority: str) -> bool:
-        """Whether a ``url4://<authority>/blob/…`` ref may be fetched (``OME-1599`` interim)."""
-        return authority.lower() in self._blob_peers
 
     async def _get[T](
         self,
@@ -184,7 +175,6 @@ class HttpIOLayer:
         read: Callable[[httpx.Response], T],
         accept: str | None = None,
         typed: bool = False,
-        follow: bool = True,
     ) -> tuple[httpx.Response, T]:
         """The response and ``read(response)``, both produced within the fetch's deadline.
 
@@ -216,7 +206,6 @@ class HttpIOLayer:
                     relative=relative,
                     deadline=deadline,
                     typed=typed,
-                    follow=follow,
                 )
         except TimeoutError as exc:
             raise source_timeout(late) from exc
@@ -239,7 +228,6 @@ class HttpIOLayer:
         relative: bool,
         deadline: float | None,
         typed: bool = False,
-        follow: bool = True,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -252,10 +240,7 @@ class HttpIOLayer:
             state = FetchState(peer=peer, trusted_first_hop=trusted, deadline=deadline)
             extensions = {FETCH_STATE: state} if guarded else None
             request = client.build_request("GET", url, headers=headers, extensions=extensions)
-            # WHY only ever narrowed: the client's own redirect policy holds unless refused here.
-            response = await client.send(
-                request, stream=True, follow_redirects=client.follow_redirects and follow
-            )
+            response = await client.send(request, stream=True)
             # A reply came back (any status): the next request to url is a new one.
             mark_answered(url)
             try:
@@ -270,9 +255,7 @@ class HttpIOLayer:
                 code=ErrorCode.SOURCE_NOT_FOUND
                 if typed and exc.response.status_code in (404, 410)
                 else None,
-                # A refused redirect recurs on every retry: the named node is the one asked.
-                permanent=_permanent_status(exc.response)
-                or (not follow and exc.response.is_redirect),
+                permanent=_permanent_status(exc.response),
                 retry_after=_retry_after(exc.response),
             ) from exc
         except httpx.TooManyRedirects as exc:

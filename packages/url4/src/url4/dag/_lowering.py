@@ -85,7 +85,7 @@ from url4.dag._wiring import (  # isort: skip
     _slot_specs,
 )
 from url4.dag.node import DagNode, node_children  # isort: skip
-from url4.dag.nodes.blob import BlobRefNode  # isort: skip
+from url4.dag.nodes.blob import BlobRefNode, as_collection  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BindingNode,
     CollectNode,
@@ -374,7 +374,7 @@ def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     if isinstance(node, Expression) and node.intent is None and not node.broadcast:
         slots = [_slot_from_ast(source, registry) for source in node.sources]
         return _inline_collection(slots)
-    return registry.lower(node, edges)
+    return as_collection(registry.lower(node, edges))  # a blob ref here is text (D4)
 
 
 def default_registry() -> LoweringRegistry:
@@ -470,7 +470,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
     return (
         LazyExprNode(collection)
         if is_processed_group(collection)
-        else registry.lower(grammar_parse(collection), {})
+        else as_collection(registry.lower(grammar_parse(collection), {}))  # D4
     )
 
 

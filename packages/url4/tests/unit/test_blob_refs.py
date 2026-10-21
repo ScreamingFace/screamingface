@@ -2,8 +2,12 @@
 
 FEATURE: image and PDF inputs for url4 sources (epic ``OME-1529``, unit ``OME-1539``).
 STORY: as an ensemble author I name a file by its content address and the node evaluating
-that level resolves it through the bytes port, never as mangled text, and never on the
-outer node's behalf for a nested expression.
+that level resolves it through the bytes port into a typed attachment, never as mangled text,
+and never on the outer node's behalf for a nested expression.
+
+v1 (#1450 spec §2 F1/F2, owner decisions D1/D2 2026-10-21): every ``url4://…/blob`` ref is
+remote and refused before any I/O; a local ref resolves to an :class:`Attachment`, and the
+payload stays a plain ``str``.
 
 The conformance cases C1–C9 themselves, by name, are ``tests/spec/test_file_ref_conformance.py``;
 this file covers the edges behind them.
@@ -12,7 +16,7 @@ this file covers the edges behind them.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 import httpx
 import pytest
@@ -23,9 +27,10 @@ from url4.core.nodes import Binding, BlobRef, Expression, Source, Text, Url, chi
 from url4.core.render import render
 from url4.dag._lowering import compile_expression
 from url4.dag._run import run
+from url4.dag.attachment import Attachment
 from url4.dag.node import BoundedIOLayer, ExecutionContext
 from url4.dag.nodes import RelUrlNode, WebFetchNode
-from url4.dag.nodes.blob import BlobRefNode, ResolvedBlob
+from url4.dag.nodes.blob import BlobRefNode
 from url4.io.http import HttpIOLayer
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.io.media import FetchedBytes
@@ -41,9 +46,9 @@ TEXT_HEX = hashlib.sha256(TEXT.encode()).hexdigest()
 class _Store(StaticIOLayer):
     """A fake blob store: a ``StaticIOLayer`` that records every request it serves."""
 
-    def __init__(self, blobs: Mapping[str, bytes | str], *, blob_peers: Sequence[str] = ()) -> None:
+    def __init__(self, blobs: Mapping[str, bytes | str]) -> None:
         media = {path: "image/png" for path, body in blobs.items() if isinstance(body, bytes)}
-        super().__init__(dict(blobs), media_types=media, blob_peers=blob_peers)
+        super().__init__(dict(blobs), media_types=media)
         self.byte_requests: list[FetchRequest] = []
         self.text_targets: list[str] = []
 
@@ -55,15 +60,17 @@ class _Store(StaticIOLayer):
         self.text_targets.append(target)
         return await super().fetch(target, relative=relative)
 
+    async def fetch_ex(self, request: FetchRequest) -> FetchResult:
+        self.text_targets.append(request.target)
+        return await super().fetch_ex(request)
 
-def _store(*, blob_peers: Sequence[str] = ()) -> _Store:
-    return _Store({f"/blob/sha256/{HEX}": PNG}, blob_peers=blob_peers)
+
+def _store() -> _Store:
+    return _Store({f"/blob/sha256/{HEX}": PNG})
 
 
-async def _resolve(node: BlobRefNode, io: IOLayer) -> ResolvedBlob:
-    payload = await node.resolve({}, ExecutionContext(io))
-    assert isinstance(payload, ResolvedBlob)
-    return payload
+async def _resolve(node: BlobRefNode, io: IOLayer) -> Attachment:
+    return await node.attachment(ExecutionContext(io))
 
 
 # -- grammar: a bare token is a BlobRef, distinct from quoted text ------------------------
@@ -182,6 +189,9 @@ def _leaf_types(text: str) -> set[type]:
         f"(img:src=blob:sha256/{HEX})!'D'",
         f"(img:src=/blob/sha256/{HEX})!'D'",
         f"(img:src=url4://n2.example/blob/sha256/{HEX})!'D'",
+        f"(img:src=url4://n2.example/blob/sha256/{HEX}?x=1)!'D'",
+        "(img:src=url4://n2.example/blob/md5/abc)!'D'",
+        "(img:src=url4://n2.example/blob)!'D'",
         f"(img:0.5:src=/blob/sha256/{HEX.upper()})!'D'",
     ],
 )
@@ -199,8 +209,8 @@ def test_file_refs_lower_to_the_blob_node(text: str) -> None:
         (f"(img:src=/blob/sha256/{HEX}/x)!'D'", RelUrlNode),
         ("(img:src=/data/x)!'D'", RelUrlNode),
         (f"(img:src=https://n2.example/blob/sha256/{HEX})!'D'", WebFetchNode),
-        (f"(img:src=url4://n2.example/blob/sha256/{HEX}?x=1)!'D'", WebFetchNode),
         ("(img:src=url4://n2.example/data)!'D'", WebFetchNode),
+        ("(img:src=url4://n2.example/blobs/x)!'D'", WebFetchNode),
     ],
 )
 def test_other_uris_lower_exactly_as_before(text: str, kind: type) -> None:
@@ -209,34 +219,53 @@ def test_other_uris_lower_exactly_as_before(text: str, kind: type) -> None:
     assert BlobRefNode not in types
 
 
-# -- resolution through the bytes port ----------------------------------------------------
+# -- resolution at the evaluating node: a typed attachment (D2 / F2) ---------------------
 
 
 @pytest.mark.asyncio
-async def test_relative_path_resolves_to_bytes_with_the_ref_as_text() -> None:
+async def test_relative_path_resolves_to_a_typed_attachment() -> None:
     io = _store()
     got = await _resolve(BlobRefNode.relative_path(f"/blob/sha256/{HEX}"), io)
-    assert got == f"/blob/sha256/{HEX}"
-    assert (got.body, got.media_type, got.digest) == (PNG, "image/png", HEX)
+    assert got == Attachment(digest=f"sha256:{HEX}", media_type="image/png", body=PNG)
+    assert (got.filename, got.detail, got.body) == (None, None, PNG)
     assert io.byte_requests == [FetchRequest(f"/blob/sha256/{HEX}", relative=True, kind="relative")]
     assert io.text_targets == []
+
+
+def test_attachment_repr_never_carries_the_bytes() -> None:
+    got = Attachment(digest=f"sha256:{HEX}", media_type="image/png", body=PNG)
+    assert "IHDR" not in repr(got)
+    # INVARIANT: identity is the verified digest + metadata, not a second copy of the bytes.
+    assert got == Attachment(digest=f"sha256:{HEX}", media_type="image/png", body=b"")
+
+
+@pytest.mark.asyncio
+async def test_resolve_yields_the_ref_as_a_plain_str_payload() -> None:
+    # INVARIANT (D2): no bytes ride on a str subclass -- the payload is exactly ``str``.
+    io = _store()
+    ref = f"blob:sha256/{HEX}"
+    payload = await BlobRefNode.token(ref).resolve({}, ExecutionContext(io))
+    assert type(payload) is str
+    assert payload == ref
+    assert [r.target for r in io.byte_requests] == [f"/blob/sha256/{HEX}"]
 
 
 @pytest.mark.asyncio
 async def test_bare_token_resolves_from_the_node_own_store() -> None:
     io = _store()
     got = await _resolve(BlobRefNode.token(f"blob:sha256/{HEX}"), io)
-    assert got == f"blob:sha256/{HEX}"
-    assert got.body == PNG
+    assert (got.digest, got.body) == (f"sha256:{HEX}", PNG)
     assert [r.target for r in io.byte_requests] == [f"/blob/sha256/{HEX}"]
 
 
 @pytest.mark.asyncio
 async def test_upper_case_hex_is_looked_up_lower_case_and_kept_as_written() -> None:
     io = _store()
-    got = await _resolve(BlobRefNode.token(f"blob:sha256/{HEX.upper()}"), io)
-    assert got == f"blob:sha256/{HEX.upper()}"
-    assert [r.target for r in io.byte_requests] == [f"/blob/sha256/{HEX}"]
+    node = BlobRefNode.token(f"blob:sha256/{HEX.upper()}")
+    got = await _resolve(node, io)
+    assert got.digest == f"sha256:{HEX}"
+    assert await node.resolve({}, ExecutionContext(io)) == f"blob:sha256/{HEX.upper()}"
+    assert {r.target for r in io.byte_requests} == {f"/blob/sha256/{HEX}"}
 
 
 @pytest.mark.asyncio
@@ -292,7 +321,8 @@ async def test_an_adapter_without_fetch_bytes_falls_back_to_text() -> None:
 
     io = _TextNode()
     got = await _resolve(BlobRefNode.token(f"blob:sha256/{TEXT_HEX}"), io)
-    assert (got.body, got.media_type) == (TEXT.encode(), None)
+    # F2 requires a media type: an adapter that reports none gives the generic octet stream.
+    assert (got.body, got.media_type) == (TEXT.encode(), "application/octet-stream")
     assert io.seen == [f"/blob/sha256/{TEXT_HEX}"]
 
 
@@ -305,85 +335,93 @@ async def test_digest_mismatch_is_refused() -> None:
     assert (caught.value.code, caught.value.permanent) == (ErrorCode.BLOB_DIGEST_MISMATCH, True)
 
 
-# -- url4:// across nodes: the OME-1599 interim allowlist ---------------------------------
+@pytest.mark.asyncio
+async def test_digest_mismatch_fails_the_run_too() -> None:
+    io = _Store({f"/blob/sha256/{HEX}": b"not the png"})
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(img:src=blob:sha256/{HEX})!'D'", io=io)
+    assert caught.value.code == ErrorCode.BLOB_DIGEST_MISMATCH
+
+
+# -- url4:// blob refs: remote, unsupported in v1 (D1 / F1) --------------------------------
 
 
 REMOTE = f"url4://n2.example/blob/sha256/{HEX}"
 
 
-@pytest.mark.asyncio
-async def test_remote_ref_fetches_from_an_allowlisted_node() -> None:
-    io = _Store({REMOTE: PNG}, blob_peers=["n2.example"])
-    got = await _resolve(BlobRefNode.remote(REMOTE), io)
-    assert (got, got.body) == (REMOTE, PNG)
-    assert io.byte_requests == [FetchRequest(REMOTE, relative=False, kind="url4")]
+class _Tripwire:
+    """An io on which ANY call is a failure: proves a refusal happens before I/O."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.calls.append(target)
+        return ""
+
+    async def fetch_ex(self, request: FetchRequest) -> FetchResult:
+        self.calls.append(request.target)
+        return FetchResult("")
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        self.calls.append(request.target)
+        return FetchedBytes(PNG, "image/png")
 
 
 @pytest.mark.asyncio
-async def test_allowlist_compares_authorities_case_insensitively() -> None:
-    io = _Store({REMOTE: PNG}, blob_peers=["N2.Example"])
-    assert (await _resolve(BlobRefNode.remote(REMOTE), io)).body == PNG
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("peers", [[], ["n3.example"], ["n2.example:8443"]])
-async def test_remote_ref_to_a_node_off_the_allowlist_is_refused_without_io(
-    peers: list[str],
-) -> None:
-    io = _Store({REMOTE: PNG}, blob_peers=peers)
+@pytest.mark.parametrize(
+    "ref",
+    [
+        REMOTE,
+        f"url4://N2.Example:8443/blob/sha256/{HEX}",
+        f"url4://user@n2.example/blob/sha256/{HEX}",
+        f"url4://localhost/blob/sha256/{HEX}",
+        f"url4://self/blob/sha256/{HEX}",
+        f"url4://127.0.0.1:4761/blob/sha256/{HEX}",
+        f"url4://n2.example/blob/sha256/{HEX}?x=1",
+        "url4://n2.example/blob/md5/abc",
+        "url4://n2.example/blob",
+    ],
+)
+async def test_any_url4_blob_ref_is_remote_blob_unsupported_with_zero_io(ref: str) -> None:
+    io = _Tripwire()
     with pytest.raises(ResolutionError) as caught:
-        await _resolve(BlobRefNode.remote(REMOTE), io)
-    assert (caught.value.code, caught.value.permanent) == (ErrorCode.BLOB_PEER_NOT_ALLOWED, True)
-    assert io.byte_requests == []
+        await BlobRefNode.remote(ref).resolve({}, ExecutionContext(io))
+    assert (caught.value.code, caught.value.permanent) == (
+        ErrorCode.REMOTE_BLOB_UNSUPPORTED,
+        True,
+    )
+    assert caught.value.code == "x.remote_blob_unsupported"
+    assert io.calls == []
 
 
 @pytest.mark.asyncio
-async def test_an_adapter_with_no_allowlist_capability_allows_no_peer() -> None:
-    # INVARIANT (fail closed): no declared allowlist means no cross-node blob fetch at all.
-    class _Bare:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def fetch(self, target: str, *, relative: bool) -> str:
-            self.calls += 1
-            return ""
-
-    io = _Bare()
-    with pytest.raises(ResolutionError) as caught:
-        await _resolve(BlobRefNode.remote(REMOTE), io)
-    assert caught.value.code == ErrorCode.BLOB_PEER_NOT_ALLOWED
-    assert io.calls == 0
-
-
-@pytest.mark.asyncio
-async def test_remote_missing_bytes_are_source_not_found() -> None:
-    io = _Store({}, blob_peers=["n2.example"])
-    with pytest.raises(ResolutionError) as caught:
-        await _resolve(BlobRefNode.remote(REMOTE), io)
-    assert caught.value.code == ErrorCode.SOURCE_NOT_FOUND
-
-
-@pytest.mark.asyncio
-async def test_run_wide_bounded_wrapper_forwards_the_allowlist() -> None:
-    io = _Store({REMOTE: PNG}, blob_peers=["n2.example"])
-    seen: list[str] = []
+async def test_a_remote_ref_is_refused_by_the_run_before_any_io_or_model_call() -> None:
+    io, seen = _Tripwire(), []
 
     async def model(sources: str, intent: str | None, scope: object) -> str:
         seen.append(sources)
         return "ok"
 
-    assert await run(f"(img:src={REMOTE})!'Describe'", io=io, process=model) == "ok"
-    assert seen == [f"img: {REMOTE}"]
-    assert len(io.byte_requests) == 1
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(img:src={REMOTE})!'Describe'", io=io, process=model)
+    assert caught.value.code == ErrorCode.REMOTE_BLOB_UNSUPPORTED
+    assert (io.calls, seen) == ([], [])
 
 
-def test_bounded_wrapper_hides_the_allowlist_when_inner_lacks_it() -> None:
-    class _Bare:
-        async def fetch(self, target: str, *, relative: bool) -> str:
-            return ""
+@pytest.mark.asyncio
+async def test_a_remote_ref_has_no_attachment_either() -> None:
+    io = _Tripwire()
+    with pytest.raises(ResolutionError) as caught:
+        await _resolve(BlobRefNode.remote(REMOTE), io)
+    assert caught.value.code == ErrorCode.REMOTE_BLOB_UNSUPPORTED
+    assert io.calls == []
 
-    assert not hasattr(BoundedIOLayer(_Bare(), 2), "blob_peer_allowed")
-    assert getattr(BoundedIOLayer(_store(blob_peers=["a"]), 2), "blob_peer_allowed")("a") is True
+
+def test_no_adapter_offers_a_blob_peer_allowlist_any_more() -> None:
+    # The OME-1599 interim allowlist is gone with the remote fetch (D1).
+    for io in (StaticIOLayer(), HttpIOLayer(), BoundedIOLayer(StaticIOLayer(), 2)):
+        assert not hasattr(io, "blob_peer_allowed")
 
 
 # -- adapters ----------------------------------------------------------------------------
@@ -419,14 +457,6 @@ async def test_http_fetch_bytes_other_errors_keep_their_code() -> None:
     assert (caught.value.code, caught.value.permanent) == (ErrorCode.RESOLUTION_FAILED, False)
 
 
-def test_http_blob_peers_allowlist() -> None:
-    io = HttpIOLayer(blob_peers=["N2.example", "n3.example:8443"])
-    assert io.blob_peer_allowed("n2.example") is True
-    assert io.blob_peer_allowed("n3.example:8443") is True
-    assert io.blob_peer_allowed("n3.example") is False
-    assert HttpIOLayer().blob_peer_allowed("n2.example") is False
-
-
 @pytest.mark.asyncio
 async def test_static_fetch_bytes_miss_is_source_not_found_but_text_miss_is_unchanged() -> None:
     io = StaticIOLayer()
@@ -438,56 +468,8 @@ async def test_static_fetch_bytes_miss_is_source_not_found_but_text_miss_is_unch
     assert (text_miss.value.code, text_miss.value.permanent) == (ErrorCode.RESOLUTION_FAILED, False)
 
 
-def test_static_blob_peers_default_to_none() -> None:
-    assert StaticIOLayer().blob_peer_allowed("n2.example") is False
-
-
 def test_source_not_found_is_a_404() -> None:
     assert status_for_code(ErrorCode.SOURCE_NOT_FOUND, permanent=True) == 404
-
-
-# -- collection position (C8 edge) ---------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_text_blob_still_iterates_as_a_collection() -> None:
-    body = '["a", "b"]'
-    digest = hashlib.sha256(body.encode()).hexdigest()
-    io = StaticIOLayer(
-        {f"/blob/sha256/{digest}": body.encode()},
-        media_types={f"/blob/sha256/{digest}": "application/json"},
-    )
-    got = await run(f"/blob/sha256/{digest}*('row $item')!'go'", io=io)
-    assert "row a" in got and "row b" in got
-
-
-@pytest.mark.asyncio
-async def test_resolved_blob_is_plain_text_to_a_text_consumer() -> None:
-    blob = ResolvedBlob("blob:sha256/x", body=b"\x00", media_type="image/png", digest="x")
-    assert isinstance(blob, str)
-    assert blob + "!" == "blob:sha256/x!"
-    assert FetchResult(blob).body == "blob:sha256/x"
-
-
-# -- the interim allowlist cannot be bypassed by a redirect ---------------------------------
-
-
-@pytest.mark.asyncio
-async def test_url4_fetch_bytes_never_follows_a_redirect_off_the_named_node() -> None:
-    # SECURITY (OME-1599 interim rule): an allowlisted node must not redirect the fetch to
-    # a host the allowlist never named, so a url4:// bytes fetch refuses any 3xx.
-    seen: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(str(request.url))
-        return httpx.Response(302, headers={"location": "https://evil.example/x"})
-
-    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=True)
-    io = HttpIOLayer(client=client, blob_peers=["n2.example"])
-    with pytest.raises(ResolutionError) as caught:
-        await io.fetch_bytes(FetchRequest(REMOTE, kind="url4"))
-    assert caught.value.permanent is True
-    assert seen == [f"https://n2.example/blob/sha256/{HEX}"]
 
 
 @pytest.mark.asyncio
@@ -502,18 +484,58 @@ async def test_https_fetch_bytes_still_follows_redirects() -> None:
     assert got == FetchedBytes(PNG, "image/png")
 
 
+# -- collection position: a text blob is text, not an attachment (D4 / C8) ---------------
+
+
+def _json_blob() -> tuple[str, StaticIOLayer]:
+    body = '["a", "b"]'
+    path = f"/blob/sha256/{hashlib.sha256(body.encode()).hexdigest()}"
+    return path, StaticIOLayer({path: body.encode()}, media_types={path: "application/json"})
+
+
 @pytest.mark.asyncio
-async def test_url4_fetch_bytes_server_errors_stay_transient() -> None:
-    io = HttpIOLayer(client=_client(503), blob_peers=["n2.example"])
+async def test_a_text_blob_still_iterates_as_a_collection() -> None:
+    path, io = _json_blob()
+    got = await run(f"{path}*('row $item')!'go'", io=io)
+    assert "row a" in got and "row b" in got
+
+
+@pytest.mark.asyncio
+async def test_a_text_blob_expands_as_a_collection() -> None:
+    path, io = _json_blob()
+    seen: list[str] = []
+
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        seen.append(sources)
+        return "ok"
+
+    assert await run(f"(*src={path})!'go'", io=io, process=model) == "ok"
+    (sources,) = seen
+    assert "a" in sources and "b" in sources and path not in sources
+
+
+@pytest.mark.asyncio
+async def test_a_text_typed_blob_that_is_not_utf8_cannot_be_a_collection() -> None:
+    body = b"\xff\xfe"
+    path = f"/blob/sha256/{hashlib.sha256(body).hexdigest()}"
+    io = StaticIOLayer({path: body}, media_types={path: "text/plain"})
     with pytest.raises(ResolutionError) as caught:
-        await io.fetch_bytes(FetchRequest(REMOTE, kind="url4"))
-    assert caught.value.permanent is False
+        await run(f"{path}*('row $item')!'go'", io=io)
+    assert caught.value.code == ErrorCode.UNSUPPORTED_CONTENT_TYPE
 
 
-# -- addressing and the collection boundary ------------------------------------------------
+@pytest.mark.asyncio
+async def test_an_untyped_blob_in_collection_position_is_read_as_text() -> None:
+    body = "x\ny"
+    path = f"/blob/sha256/{hashlib.sha256(body.encode()).hexdigest()}"
+    got = await run(f"{path}*('row $item')!'go'", io=StaticIOLayer({path: body.encode()}))
+    assert "row x" in got and "row y" in got
 
 
-def test_address_of_a_token_and_of_a_non_ref() -> None:
+# -- addressing ------------------------------------------------------------------------------
+
+
+def test_address_of_a_token_a_remote_ref_and_a_non_ref() -> None:
     from url4.core.blob_ref import address_of
 
     address = address_of(BlobRef(f"blob:sha256/{HEX.upper()}"))
@@ -525,7 +547,8 @@ def test_address_of_a_token_and_of_a_non_ref() -> None:
     )
     assert address_of(Text(f"blob:sha256/{HEX}")) is None
     remote = address_of(Url(REMOTE))
-    assert remote is not None and remote.target == REMOTE
+    assert remote is not None
+    assert (remote.form, remote.authority, remote.digest) == ("remote", "n2.example", None)
 
 
 def test_blob_lowering_refuses_another_node_type() -> None:
@@ -540,16 +563,6 @@ def test_named_constructors_refuse_a_non_ref(ref: str) -> None:
     make = BlobRefNode.remote if ref.startswith("url4") else BlobRefNode.relative_path
     with pytest.raises(ValueError):
         make(ref)
-
-
-def test_a_text_typed_blob_that_is_not_utf8_cannot_be_a_collection() -> None:
-    from url4.dag.nodes.blob import collection_body
-
-    blob = ResolvedBlob("blob:sha256/x", body=b"\xff\xfe", media_type="text/plain", digest="x")
-    with pytest.raises(ResolutionError) as caught:
-        collection_body(blob)
-    assert caught.value.code == ErrorCode.UNSUPPORTED_CONTENT_TYPE
-    assert collection_body("plain") == "plain"
 
 
 # -- the public surface ----------------------------------------------------------------------

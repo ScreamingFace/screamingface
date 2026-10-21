@@ -16,7 +16,6 @@ engine (``url4.dag``) may import only ``io.layer`` and ``io.idempotency``, so it
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -53,15 +52,6 @@ async def fetch_bytes(io: IOLayer, request: FetchRequest) -> FetchedBytes:
         return await io.fetch_bytes(request)
     result = await fetch_result(io, request)
     return FetchedBytes(result.body.encode("utf-8"), result.media_type)
-
-
-def peer_set(peers: Iterable[str]) -> frozenset[str]:
-    """The ``OME-1599`` interim allowlist: ``host[:port]`` authorities, lower-cased.
-
-    An adapter declaring it answers ``blob_peer_allowed(authority)``; one that does not
-    allows no cross-node blob fetch at all (fail closed, ``url4.dag.nodes.blob``).
-    """
-    return frozenset(peer.strip().lower() for peer in peers if peer.strip())
 
 
 # Application types whose body is text even without a charset parameter.
@@ -286,6 +276,5 @@ __all__ = [
     "bare_media_type",
     "fetch_bytes",
     "is_text_media_type",
-    "peer_set",
     "require_text",
 ]

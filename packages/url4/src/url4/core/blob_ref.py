@@ -4,7 +4,8 @@ FEATURE: file refs in url4 sources (epic ``OME-1529``, unit ``OME-1539``; contra
 ``OME-1534`` conformance cases C1–C9). Three forms name a file by its sha256:
 
 - ``/blob/sha256/<hex>`` — a relative data URI, resolved on the current node (C1);
-- ``url4://<node>/blob/sha256/<hex>`` — the same blob on another node (C2, §3.5);
+- ``url4://<authority>/blob/…`` — a blob on another node (C2, §3.5): remote, so in v1 it is
+  ``remote_blob_unsupported`` whatever the authority (#1450 spec §2 F1);
 - ``blob:<alg>/<id>`` — a bare token, an identifier resolved from the evaluating node's
   own store (C3). Quoted, ``'blob:…'`` is plain text and never resolved (C4).
 
@@ -28,8 +29,9 @@ _TOKEN_RE = re.compile(r"blob:([a-z0-9]+(?:-[a-z0-9]+)*)/([A-Za-z0-9_-]+)", re.A
 _HEX = r"[0-9a-fA-F]{64}"
 _SHA256_RE = re.compile(_HEX, re.ASCII)
 _PATH_RE = re.compile(rf"/blob/sha256/({_HEX})", re.ASCII)
-# A host[:port] authority only: no userinfo, no query, no fragment.
-_REMOTE_RE = re.compile(rf"url4://([A-Za-z0-9.-]+(?::[0-9]+)?)/blob/sha256/({_HEX})", re.ASCII)
+# INVARIANT (fail closed, D1): ANY authority (userinfo, port, empty) and anything after
+# ``/blob`` (another algorithm, a query) is a remote blob ref — never a plain web fetch.
+_REMOTE_RE = re.compile(r"(?i:url4)://([^/?#]*)/blob(?:[/?#].*)?", re.ASCII | re.DOTALL)
 
 
 def bare_value(token: str) -> Text | BlobRef:
@@ -50,7 +52,8 @@ class BlobAddress:
 
     ``digest`` is the lower-case sha256 the bytes must hash to, or ``None`` when no store
     can hold the ref (another algorithm, or an id that is not 64 hex digits): such a ref
-    is ``source_not_found`` without any I/O (C5). ``authority`` is set for a cross-node ref.
+    is ``source_not_found`` without any I/O (C5). A ``remote`` ref carries its
+    ``authority`` and no digest: v1 never fetches it (F1).
     """
 
     ref: str
@@ -60,9 +63,8 @@ class BlobAddress:
 
     @property
     def target(self) -> str:
-        """The fetch target: the store path on this node, or the ``url4://`` URL."""
-        path = f"/blob/sha256/{self.digest}"
-        return f"url4://{self.authority}{path}" if self.authority is not None else path
+        """The fetch target on this node's own store (local forms only)."""
+        return f"/blob/sha256/{self.digest}"
 
 
 def address_of(node: Node) -> BlobAddress | None:
@@ -77,7 +79,7 @@ def address_of(node: Node) -> BlobAddress | None:
     elif isinstance(node, RelUrl) and (m := _PATH_RE.fullmatch(node.value)):
         address = BlobAddress(node.value, "path", m.group(1).lower())
     elif isinstance(node, Url) and (m := _REMOTE_RE.fullmatch(node.value)):
-        address = BlobAddress(node.value, "remote", m.group(2).lower(), m.group(1))
+        address = BlobAddress(node.value, "remote", None, m.group(1))
     return address
 
 
