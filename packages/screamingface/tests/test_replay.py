@@ -21,8 +21,10 @@ import pytest
 from test_client_run import REPLAY_URL4, _engine, _ForbiddenTransport
 from test_leaderboards import SCORE_ID, SCOREBOARD_URL, _score_response
 from test_reproduce import COPY, OLD_COPY, RECORDED, _AsyncReplayer, _Replayer
+from url4 import build, expr, render, src, text
 
 import screamingface as sf
+from screamingface._evaluation.url4 import _candidate_text
 from screamingface._replay import replay_async, replay_sync
 
 LOOKUP_PATH = f"/v1/public/scores/by-pinned-cache/{COPY}"
@@ -445,3 +447,40 @@ async def test_the_async_replay_matches_the_sync_replay() -> None:
     reproduction = report.candidates[0].reproduction
     assert reproduction is not None
     assert (reproduction.outcome, reproduction.recorded) == ("exact", True)
+
+
+# --- review fixes 3 and 4 ---------------------------------------------------------------------
+
+
+def test_the_s4_warning_points_at_the_callers_line() -> None:
+    engine = _Replayer(cases=((1, "frozen_copy_miss"),), score=None)
+
+    with _client(engine, _Board()) as client:
+        with pytest.warns(sf.EvaluationWarning) as caught:
+            client.evaluate(pinned_cache=COPY, url4=REPLAY_URL4, progress=False)
+
+    assert [warning.filename for warning in caught] == [__file__]
+
+
+def test_the_embedded_recipe_is_compared_as_a_parsed_recipe_too() -> None:
+    engine = _Replayer()
+    candidate = _candidate_text(build(REPLAY_URL4))
+    spaced = render(
+        expr(
+            src(text(f"  {candidate}  "), name="candidate", weight=0.0),
+            src("fixture", name="result", weight=0.0),
+            intent=text("$result"),
+        )
+    )
+    assert spaced != REPLAY_URL4
+
+    with _client(engine, _Board(lookup=_lookup())) as client:
+        _replay(client, pinned_cache=COPY, url4=spaced)
+
+    assert engine.runs == 1
+
+
+def test_a_published_url4_that_does_not_parse_is_a_value_error() -> None:
+    with _client(_ForbiddenTransport(), _Board(lookup=_lookup(url4_expression="(@ broken"))) as c:
+        with pytest.raises(ValueError):
+            _replay(c, pinned_cache=COPY, url4=REPLAY_URL4)

@@ -225,12 +225,32 @@ def test_the_capture_status_narrows_in_one_place() -> None:
 # --- finding 6: the score argument is checked ---------------------------------------------------
 
 
-@pytest.mark.parametrize("bad", [None, 7, 1.5, {"id": SCORE_ID}, b"id"])
-def test_reproduce_refuses_anything_that_is_not_a_score_uuid_or_id(bad: object) -> None:
+_NOTHING_TO_RUN = (
+    "evaluate needs candidates, or pinned_cache= / score_id= to replay a published run"
+)
+_NOT_A_SCORE_ID = "score_id must be a UUID or a score id string"
+
+
+@pytest.mark.parametrize(
+    ("bad", "message"),
+    [
+        (None, _NOTHING_TO_RUN),
+        (7, _NOT_A_SCORE_ID),
+        (1.5, _NOT_A_SCORE_ID),
+        ({"id": SCORE_ID}, _NOT_A_SCORE_ID),
+        (b"id", _NOT_A_SCORE_ID),
+    ],
+)
+def test_reproduce_refuses_anything_that_is_not_a_score_uuid_or_id(
+    bad: object, message: str
+) -> None:
     transport = _Replayer()
     board = _Board()
-    with _client(transport, board) as client, pytest.raises(TypeError, match="score"):
+    with _client(transport, board) as client, pytest.raises(TypeError) as caught:
         client.evaluate(score_id=bad)  # type: ignore[call-overload]
+
+    # OME-1613: an exact message, not a regex search over it (owner rule).
+    assert str(caught.value) == message
 
     assert transport.runs == 0
     assert board.requests == []
@@ -245,8 +265,10 @@ async def test_the_async_client_refuses_a_bad_score_argument_too() -> None:
         run_transport=_AsyncReplayer(),  # type: ignore[arg-type]
     )
     async with client:
-        with pytest.raises(TypeError, match="score"):
+        with pytest.raises(TypeError) as caught:
             await client.evaluate(score_id=None)  # type: ignore[call-overload]
+
+    assert str(caught.value) == _NOTHING_TO_RUN
 
 
 # --- finding 11: a long client version is dropped on the record only ----------------------------
@@ -612,13 +634,27 @@ def test_a_score_normalises_its_copy_id_like_the_board() -> None:
     assert _score(pinned_cache=COPY.replace("-", "")).pinned_cache == COPY
 
 
+_NOT_A_UUID = "Leaderboard score pinned_cache must be a UUID"
+_NOT_A_STRING = "Leaderboard score pinned_cache must be a string or None"
+
+
 @pytest.mark.parametrize(
-    ("bad", "error"),
-    [("not-a-uuid", ValueError), ("", ValueError), (COPY + "\n", ValueError), (7, TypeError)],
+    ("bad", "error", "message"),
+    [
+        ("not-a-uuid", ValueError, _NOT_A_UUID),
+        ("", ValueError, _NOT_A_UUID),
+        (COPY + "\n", ValueError, _NOT_A_UUID),
+        (7, TypeError, _NOT_A_STRING),
+    ],
 )
-def test_a_score_refuses_an_invalid_copy_id_at_construction(bad: object, error: type) -> None:
-    with pytest.raises(error, match="pinned_cache"):
+def test_a_score_refuses_an_invalid_copy_id_at_construction(
+    bad: object, error: type, message: str
+) -> None:
+    # OME-1613: an exact message, not a regex search over it (owner rule).
+    with pytest.raises(error) as caught:
         _score(pinned_cache=bad)
+
+    assert str(caught.value) == message
 
 
 def test_reproduce_never_sends_a_malformed_copy_id_header() -> None:

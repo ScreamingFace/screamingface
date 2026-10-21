@@ -13,6 +13,7 @@ partial replay is refused before any run, instead of missing the copy case by ca
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from url4 import build
@@ -31,13 +32,23 @@ _CANNOT_REBUILD = (
 )
 
 
-def partial_limit(value: object, published: PublishedScore | None) -> int | None:
-    """`limit=n` is a proper subset of a published run: 1 <= n < its case count."""
+def limit_value(value: object) -> int | None:
+    """The checks that need no published score, so they run before any request."""
 
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError("limit must be an integer")
+    if value < 1:
+        raise ValueError("limit must be at least 1")
+    return value
+
+
+def partial_limit(value: int | None, published: PublishedScore | None) -> int | None:
+    """`limit=n` is a proper subset of a published run: 1 <= n < its case count."""
+
+    if value is None:
+        return None
     if published is None:
         # WHY refused: with no published score the SDK knows no benchmark id. Reading it out of
         # the url4's route text would be a text match over the recipe.
@@ -54,25 +65,31 @@ def _linked(benchmark_url4: str, candidate: str) -> str:
     return _prepare_benchmark(benchmark_url4).bind(candidate).url4
 
 
-def _require_same_run(rebuilt: str, published: PublishedScore) -> None:
-    if build(rebuilt) != build(published.url4):
+def _require_same_run(rebuilt: str, published_tree: object) -> None:
+    if build(rebuilt) != published_tree:
         raise PlanningError(_CANNOT_REBUILD, code="partial_replay_unavailable", permanent=True)
 
 
 def partial_url4_sync(resources: BenchmarkResources, published: PublishedScore, limit: int) -> str:
-    candidate = _candidate_text(build(published.url4))
+    published_tree = build(published.url4)
+    candidate = _candidate_text(published_tree)
     whole = resources.load(published.benchmark_id, published.total_questions)
-    _require_same_run(_linked(whole.url4, candidate), published)
+    _require_same_run(_linked(whole.url4, candidate), published_tree)
     return _linked(resources.load(published.benchmark_id, limit).url4, candidate)
 
 
 async def partial_url4_async(
     resources: AsyncBenchmarkResources, published: PublishedScore, limit: int
 ) -> str:
-    candidate = _candidate_text(build(published.url4))
-    whole = await resources.load(published.benchmark_id, published.total_questions)
-    _require_same_run(_linked(whole.url4, candidate), published)
-    return _linked((await resources.load(published.benchmark_id, limit)).url4, candidate)
+    published_tree = build(published.url4)
+    candidate = _candidate_text(published_tree)
+    # Both catalog reads are independent; the guard still runs before any run is scheduled.
+    whole, subset = await asyncio.gather(
+        resources.load(published.benchmark_id, published.total_questions),
+        resources.load(published.benchmark_id, limit),
+    )
+    _require_same_run(_linked(whole.url4, candidate), published_tree)
+    return _linked(subset.url4, candidate)
 
 
-__all__ = ["partial_limit", "partial_url4_async", "partial_url4_sync"]
+__all__ = ["limit_value", "partial_limit", "partial_url4_async", "partial_url4_sync"]

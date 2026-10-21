@@ -16,7 +16,7 @@ board's answer and surfaces as it is: a 503 must not turn into a login prompt.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
@@ -28,6 +28,7 @@ from screamingface._scoreboard.leaderboards import (
     _async_json,
     _decode_score,
     _integer,
+    _invalid,
     _mapping,
     _number,
     _optional_integer,
@@ -37,7 +38,7 @@ from screamingface._scoreboard.leaderboards import (
     _text,
 )
 from screamingface.errors import LeaderboardError
-from screamingface.leaderboard import LeaderboardScore
+from screamingface.leaderboard import LeaderboardScore, _case_digest
 
 _LOOKUP_PATH = "/v1/public/scores/by-pinned-cache"
 _PUBLIC_SCORES_PATH = "/v1/public/scores"
@@ -95,7 +96,22 @@ def pinned_cache_id(value: object) -> str:
 
 
 def _decode_lookup(payload: object, pinned_cache: str) -> PublishedScore:
+    """The lookup, held to the same contract as a score read (`_decode_score`).
+
+    INVARIANT: a malformed field is the board's contract error (`invalid_leaderboard`), never a bare
+    ValueError that reads like the caller's mistake. The case digest is checked here too: a digest
+    in another spelling would turn an exact replay into `cases_differ`.
+    """
     root = _mapping(payload, "Pinned cache lookup")
+    try:
+        published = _lookup_fields(root, pinned_cache)
+        _case_digest(published.case_digest, published.capture_status)
+    except (TypeError, ValueError) as exc:
+        _invalid(f"pinned cache lookup: {exc}", exc)
+    return published
+
+
+def _lookup_fields(root: Mapping[str, object], pinned_cache: str) -> PublishedScore:
     return PublishedScore(
         score_id=_score_id(_text(root.get("score_id"), "Pinned cache lookup score_id")),
         pinned_cache=pinned_cache,

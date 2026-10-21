@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 import pytest
 from test_client_run import CANDIDATE_URL4, _engine, _ForbiddenTransport
+from test_leaderboards import SCORE_ID
 from test_replay import _Board, _lookup
 from test_reproduce import COPY, _AsyncReplayer, _Replayer
 from url4 import RelExpr, expr, render, src, text
@@ -192,4 +193,21 @@ async def test_the_async_partial_replay_matches_the_sync_one() -> None:
     assert report.candidates[0].reproduction is None
     assert engine.candidate is not None
     assert engine.candidate.url4 == _linked(_benchmark_url4(2))
-    assert catalog.limits == [CASE_COUNT, 2]
+    # Review fix 6: the async path loads both resources at once, so their order is not fixed.
+    assert sorted(limit for limit in catalog.limits if limit is not None) == [2, CASE_COUNT]
+
+
+# --- review fix 2: a bad limit is refused before any request ------------------------------------
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5, "2"])
+def test_a_bad_limit_is_refused_before_the_board_is_read(limit: Any) -> None:
+    board = _Board(lookup=_published())
+    catalog = _Catalog()
+
+    with _client(_ForbiddenTransport(), catalog, board) as client:
+        with pytest.raises((TypeError, ValueError)):
+            client.evaluate(score_id=SCORE_ID, limit=limit)
+
+    assert board.requests == []
+    assert catalog.limits == []

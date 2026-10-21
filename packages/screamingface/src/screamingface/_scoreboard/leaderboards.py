@@ -990,17 +990,18 @@ def _edit_payload(
     if not isinstance(paper_url, _Unset):
         payload["paper_url"] = None if paper_url is None else _paper_url(paper_url)
     # OME-1596: omitted keeps the stored object, None clears it, an object replaces it whole.
+    from screamingface._scoreboard.credit_metadata import (
+        authors_metadata_value,
+        paper_metadata_value,
+    )
+
     if not isinstance(authors_metadata, _Unset):
         payload["authors_metadata"] = (
-            None
-            if authors_metadata is None
-            else _credit_fields(authors_metadata, None)["authors_metadata"]
+            None if authors_metadata is None else authors_metadata_value(authors_metadata)
         )
     if not isinstance(paper_metadata, _Unset):
         payload["paper_metadata"] = (
-            None
-            if paper_metadata is None
-            else _credit_fields(None, paper_metadata)["paper_metadata"]
+            None if paper_metadata is None else paper_metadata_value(paper_metadata)
         )
     if not payload:
         raise ValueError(

@@ -246,6 +246,7 @@ class Client:
         answer_seed: int | None = None,
         record_reproduction: bool = True,
         limit: int | None = None,
+        capture: Literal[False] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -260,6 +261,7 @@ class Client:
         answer_seed: int | None = None,
         record_reproduction: bool = True,
         limit: int | None = None,
+        capture: Literal[False] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -688,6 +690,7 @@ class AsyncClient:
         answer_seed: int | None = None,
         record_reproduction: bool = True,
         limit: int | None = None,
+        capture: Literal[False] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -702,6 +705,7 @@ class AsyncClient:
         answer_seed: int | None = None,
         record_reproduction: bool = True,
         limit: int | None = None,
+        capture: Literal[False] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
     ) -> Report: ...
@@ -734,11 +738,11 @@ class AsyncClient:
 
         self._require_open()
         if pinned_cache is not None or score_id is not None:
-            from screamingface._replay import replay_async
-
-            _replay_options(candidates, benchmark, capture)
-            return await replay_async(
-                self,
+            return await self._evaluate_replay(
+                candidates=candidates,
+                benchmark=benchmark,
+                limit=limit,
+                capture=capture,
                 pinned_cache=pinned_cache,
                 score_id=score_id,
                 url4=url4,
@@ -746,7 +750,6 @@ class AsyncClient:
                 record_reproduction=record_reproduction,
                 on_event=on_event,
                 progress=progress,
-                limit=limit,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
         capture = True if capture is None else capture
@@ -778,6 +781,37 @@ class AsyncClient:
             answer_seed=selected_seed,
             capture=capture,
             load_operators=self._operator_catalog.load,
+        )
+
+    async def _evaluate_replay(
+        self,
+        *,
+        candidates: object,
+        benchmark: str | None,
+        limit: int | None,
+        capture: bool | None,
+        pinned_cache: str | None,
+        score_id: UUID | str | None,
+        url4: str | None,
+        answer_seed: int | None,
+        record_reproduction: bool,
+        on_event: Callable[[Event], None | Awaitable[None]] | None,
+        progress: bool | None,
+    ) -> Report:
+        from screamingface._replay import replay_async
+
+        self._require_open()
+        _replay_options(candidates, benchmark, capture)
+        return await replay_async(
+            self,
+            pinned_cache=pinned_cache,
+            score_id=score_id,
+            url4=url4,
+            answer_seed=answer_seed,
+            record_reproduction=record_reproduction,
+            on_event=on_event,
+            progress=progress,
+            limit=limit,
         )
 
     @overload

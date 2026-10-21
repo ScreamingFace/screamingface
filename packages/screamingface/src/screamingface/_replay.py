@@ -21,12 +21,18 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from url4 import Url4Error, build
+from url4 import Expression, Source, Text, Url4Error, build
 
 from screamingface import _reproduction
+from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.model import _answer_seed_value
-from screamingface._evaluation.url4 import evaluate_url4_async, evaluate_url4_sync
-from screamingface._replay_partial import partial_limit, partial_url4_async, partial_url4_sync
+from screamingface._evaluation.url4 import _candidate_text, evaluate_url4_async, evaluate_url4_sync
+from screamingface._replay_partial import (
+    limit_value,
+    partial_limit,
+    partial_url4_async,
+    partial_url4_sync,
+)
 from screamingface._reproduction import Reproduction, _record_async, _record_sync
 from screamingface._scoreboard.replay_reads import PublishedScore, pinned_cache_id
 from screamingface.errors import ExecutionError, LeaderboardError, ReproductionError
@@ -51,7 +57,7 @@ class _Request:
     score_id: UUID | str | None
     url4: str | None
     answer_seed: int | None
-    limit: object
+    limit: int | None
     record: bool
 
 
@@ -88,22 +94,44 @@ def _request(
         score_id=score_id,
         url4=url4,
         answer_seed=_answer_seed_value(answer_seed),
-        limit=limit,
+        # Review fix: the type and lower bound need no score, so they fail before any request.
+        limit=limit_value(limit),
         record=record_reproduction,
     )
 
 
-def _parsed(url4: str) -> object:
+def _recipe(url4: str, label: str) -> tuple[object, object]:
+    """A url4 as two parsed trees: the evaluation around the recipe, and the embedded recipe.
+
+    WHY two trees (review fix): the Candidate recipe rides inside the evaluation url4 as one Text
+    node, so comparing only the outer tree would still compare the recipe itself as text.
+    """
     try:
-        return build(url4)
+        root = build(url4)
+        recipe = build(_candidate_text(root))
     except Url4Error as exc:
-        raise ValueError(f"url4 does not parse: {exc}") from exc
+        raise ValueError(f"{label} does not parse: {exc}") from exc
+    if isinstance(root, Expression):
+        root = replace(
+            root,
+            sources=tuple(
+                replace(node, value=Text(""))
+                if isinstance(node, Source) and node.name == "candidate"
+                else node
+                for node in root.sources
+            ),
+        )
+    return root, recipe
+
+
+def _parsed(url4: str) -> object:
+    return _recipe(url4, "url4")
 
 
 def _same_recipe(passed: str, published: str) -> bool:
     """Compare two url4s as parsed recipes (spec §3, Q2), never as text."""
 
-    return _parsed(passed) == build(published)
+    return _recipe(passed, "url4") == _recipe(published, "the published url4")
 
 
 def _not_reproducible(published: PublishedScore) -> Reproduction | None:
@@ -158,7 +186,7 @@ def _plan(request: _Request, published: PublishedScore | None) -> _Plan:
 def _replay_unsupported(exc: ExecutionError) -> ReproductionError:
     if exc.hint is not None:
         # The stop of an unacknowledged replay may have failed; the run may still go on.
-        warnings.warn(exc.user_message, EvaluationWarning, stacklevel=4)
+        warnings.warn(exc.user_message, EvaluationWarning, skip_file_prefixes=(SDK_PACKAGE_ROOT,))
     return ReproductionError(
         "SF Engine did not replay the run from the pinned cache",
         reproduction=Reproduction(outcome="failed", reason="replay_unsupported"),
@@ -184,7 +212,8 @@ def _unjudged(report: Report) -> Report:
     # S4: no published score, so no verdict. Q11: when every case missed the copy, the likely
     # cause is a seed or recipe that is not the captured run's; say so once.
     if _every_case_missed(report.candidates[0]):
-        warnings.warn(_ALL_MISSED_HINT, EvaluationWarning, stacklevel=4)
+        # WHY skip_file_prefixes, not a stacklevel: three doors reach here at different depths.
+        warnings.warn(_ALL_MISSED_HINT, EvaluationWarning, skip_file_prefixes=(SDK_PACKAGE_ROOT,))
     return _with_reproduction(report, None)
 
 
@@ -286,45 +315,6 @@ async def _run_async(
     return _with_reproduction(report, reproduction)
 
 
-def _published_request(published: PublishedScore, record: bool) -> _Request:
-    return _Request(
-        pinned_cache=None,
-        score_id=published.score_id,
-        url4=None,
-        answer_seed=None,
-        limit=None,
-        record=record,
-    )
-
-
-def replay_published_sync(
-    client: Client,
-    published: PublishedScore,
-    *,
-    record: bool,
-    on_event: Callable[[Event], None] | None = None,
-    progress: bool | None = False,
-) -> Report:
-    """Replay a score that is already found; `replay_sync` finds it first."""
-
-    return _run_sync(
-        client, _plan(_published_request(published, record), published), record, on_event, progress
-    )
-
-
-async def replay_published_async(
-    client: AsyncClient,
-    published: PublishedScore,
-    *,
-    record: bool,
-    on_event: Callable[[Event], None | Awaitable[None]] | None = None,
-    progress: bool | None = False,
-) -> Report:
-    return await _run_async(
-        client, _plan(_published_request(published, record), published), record, on_event, progress
-    )
-
-
 def replay_sync(
     client: Client,
     *,
@@ -369,4 +359,4 @@ async def replay_async(
     return await _run_async(client, plan, request.record, on_event, progress)
 
 
-__all__ = ["replay_async", "replay_published_async", "replay_published_sync", "replay_sync"]
+__all__ = ["replay_async", "replay_sync"]

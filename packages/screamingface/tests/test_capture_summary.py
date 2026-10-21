@@ -168,6 +168,13 @@ def test_a_result_without_capture_data_has_none_and_exports_null() -> None:
     assert result.to_dict()["capture_status"] is None
 
 
+_MESSAGES = {
+    "pinned_cache": "Candidate pinned_cache must be a UUID string or None",
+    "capture_status": "capture_status must be 'complete', 'partial' or None",
+    "pinned_cache_without_status": "Candidate pinned_cache requires capture_status",
+}
+
+
 @pytest.mark.parametrize(
     ("fields", "message"),
     [
@@ -177,7 +184,7 @@ def test_a_result_without_capture_data_has_none_and_exports_null() -> None:
         ({"capture_status": "yes"}, "capture_status"),
         # INVARIANT: the board refuses a copy id without a status, so the Client never builds that
         # pair.
-        ({"pinned_cache": _COPY}, "pinned_cache"),
+        ({"pinned_cache": _COPY}, "pinned_cache_without_status"),
     ],
 )
 def _constructed(**fields: object) -> sf.CandidateResult:
@@ -213,12 +220,15 @@ def _constructed(**fields: object) -> sf.CandidateResult:
         ({"capture_status": "yes"}, "capture_status"),
         # INVARIANT: the board refuses a copy id without a status, so the Client never builds that
         # pair.
-        ({"pinned_cache": _COPY}, "pinned_cache"),
+        ({"pinned_cache": _COPY}, "pinned_cache_without_status"),
     ],
 )
 def test_the_result_refuses_an_invalid_frozen_copy(fields: dict[str, object], message: str) -> None:
-    with pytest.raises((TypeError, ValueError), match=message):
+    with pytest.raises((TypeError, ValueError)) as caught:
         _constructed(**fields)
+
+    # OME-1613: the exact message, not a regex search over it (owner rule).
+    assert str(caught.value) == _MESSAGES[message]
 
 
 def test_the_partial_reasons_are_sorted_once_and_must_be_strings() -> None:

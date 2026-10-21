@@ -1,10 +1,10 @@
 """Replay a submitted score from its pinned cache and judge it (E14 B5, design §7; OME-1613).
 
 OME-1613 (Q13): `Client.reproduce` was removed and `evaluate(score_id=…)` replaces it. These tests
-keep exercising the same replay, verdict and record path through `_replay.replay_published_*`,
-which takes the score object the old call took. A replay that cannot start now raises
-`ReproductionError`; the `_reproduce` helpers return the `Reproduction` it carries, so the
-verdict assertions stay as they were.
+keep exercising the same replay, verdict and record path: `_replay._plan` and `_replay._run_*`,
+the functions `evaluate` itself runs, fed the score object the old call took. A replay that
+cannot start now raises `ReproductionError`; the `_reproduce` helpers return the `Reproduction`
+it carries, so the verdict assertions stay as they were.
 
 FEATURE: OME-1307 — a replay runs the score's own url4 with its answer seed from
 the frozen copy stored with it, judges the result against the stored numbers, and records an exact
@@ -42,7 +42,7 @@ import screamingface as sf
 from screamingface._case_digest import case_digest
 from screamingface._core.ports import _RunOutcome
 from screamingface._evaluation.url4 import evaluate_url4_sync
-from screamingface._replay import replay_published_async, replay_published_sync
+from screamingface._replay import _plan, _Request, _run_async, _run_sync
 from screamingface._reproduction import Reproduction, _classify
 from screamingface._scoreboard.replay_reads import PublishedScore, published_from_score
 from screamingface.errors import EngineUnavailableError, ReproductionError
@@ -260,11 +260,24 @@ def _published(**overrides: object) -> PublishedScore:
     return published_from_score(_score(**overrides))
 
 
+def _published_plan(score: sf.LeaderboardScore, record: bool) -> Any:
+    published = published_from_score(score)
+    request = _Request(
+        pinned_cache=None,
+        score_id=published.score_id,
+        url4=None,
+        answer_seed=None,
+        limit=None,
+        record=record,
+    )
+    return _plan(request, published)
+
+
 def _replayed(
     client: sf.Client, score: sf.LeaderboardScore, *, record: bool = True
 ) -> tuple[Reproduction, sf.CandidateResult | None]:
     try:
-        report = replay_published_sync(client, published_from_score(score), record=record)
+        report = _run_sync(client, _published_plan(score, record), record, None, False)
     except ReproductionError as exc:
         return exc.reproduction, None
     result = report.candidates[0]
@@ -282,7 +295,7 @@ async def _reproduce_async(
     client: sf.AsyncClient, score: sf.LeaderboardScore, *, record: bool = True
 ) -> Reproduction:
     try:
-        report = await replay_published_async(client, published_from_score(score), record=record)
+        report = await _run_async(client, _published_plan(score, record), record, None, False)
     except ReproductionError as exc:
         return exc.reproduction
     reproduction = report.candidates[0].reproduction

@@ -146,3 +146,25 @@ Decisions S1–S9 are on the ticket; the spec is
   clients; `LeaderboardScore.authors_metadata` / `.paper_metadata` decoded and frozen on read, so
   the metadata round-trips (ticket acceptance).
 - Tests: `tests/test_submission_credit_metadata.py`.
+
+## Independent code review (2026-10-21)
+
+The `/code-review` skill reviewed PR #1519 at `5db7f453c` (high effort): 10 findings, no crash. The
+owner had all 10 fixed in one commit:
+
+1. The pinned-cache lookup is decoded like a score read: case digest shape and its capture status,
+   and any malformed field is a Scoreboard `invalid_leaderboard` error, not a bare `ValueError`.
+2. `limit`'s type and lower bound are checked in `_request`, before any board read or login.
+3. Both replay warnings use `skip_file_prefixes=(SDK_PACKAGE_ROOT,)`, so they point at the
+   caller's line (the "every case missed" hint showed only once per process before).
+4. The url4 check compares the embedded Candidate recipe as a parsed tree too, and an unparseable
+   published url4 is a `ValueError`.
+5. The replay overloads accept `capture: Literal[False] | None`; `capture=True` stays a type error.
+6. The async partial replay loads both catalog resources at once; the published url4 is parsed once.
+7. The replay checks have one home: `Client._evaluate_replay` and a new `AsyncClient._evaluate_replay`;
+   `sf.evaluate` reuses `client._evaluation_candidates`.
+8. `replay_published_*` removed from `src`; the migrated tests drive `_plan` and `_run_*`.
+9. `_edit_payload` calls the metadata value checks directly.
+10. The `pytest.raises(match=...)` lines this PR changed assert the exact message instead.
+
+Gates after the fixes: `run_gates.py screamingface --base origin/main` ALL GATES GREEN.

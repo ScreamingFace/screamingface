@@ -203,3 +203,37 @@ async def test_the_async_reads_match_the_sync_reads() -> None:
     assert seen == [LOOKUP_PATH, PUBLIC_PATH, GATED_PATH]
     assert by_copy.answer_seed == 42
     assert by_score.pinned_cache == COPY
+
+
+# --- review fix 1: the lookup is decoded as strictly as a score read ---------------------------
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"case_digest": "AB" * 32},
+        {"case_digest": "ab" * 31},
+        {"case_digest": 7},
+        {"capture_status": None},
+        {"capture_status": "pending"},
+        {"score_id": "not-a-uuid"},
+    ],
+    ids=[
+        "upper-digest",
+        "short-digest",
+        "number-digest",
+        "digest-without-status",
+        "unknown-status",
+        "bad-score-id",
+    ],
+)
+def test_a_malformed_lookup_is_a_scoreboard_contract_error(overrides: dict[str, object]) -> None:
+    lookup = _lookup()
+    lookup.update(overrides)
+    payload = {key: value for key, value in lookup.items() if value is not None}
+    handler = _routes({LOOKUP_PATH: httpx.Response(200, json=payload)}, [])
+
+    with _sync_client(handler) as client, pytest.raises(sf.LeaderboardError) as caught:
+        client.leaderboards._published_by_pinned_cache(COPY)
+
+    assert caught.value.code == "invalid_leaderboard"

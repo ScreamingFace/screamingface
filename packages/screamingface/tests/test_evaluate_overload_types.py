@@ -26,6 +26,8 @@ import screamingface as sf
 sf.evaluate(pinned_cache="{COPY}")
 sf.evaluate(score_id="score-id")
 sf.evaluate(pinned_cache="{COPY}", score_id="score-id", record_reproduction=False)
+sf.evaluate(pinned_cache="{COPY}", capture=False)
+sf.evaluate(score_id="score-id", limit=2, capture=None)
 sf.Client().evaluate(pinned_cache="{COPY}")
 
 
@@ -33,10 +35,15 @@ async def replay(client: sf.AsyncClient) -> None:
     await client.evaluate(score_id="score-id")
 """
 
+# The call, and the one Pyright rule it must break. `capture=True` matches the replay overload by
+# keywords, so Pyright names the argument; the empty call matches no overload at all.
 REFUSED = {
-    "nothing-to-run": "sf.evaluate()",
-    "capture-on-a-replay": f'sf.evaluate(pinned_cache="{COPY}", capture=True)',
-    "client-nothing-to-run": "sf.Client().evaluate()",
+    "nothing-to-run": ("sf.evaluate()", "reportCallIssue"),
+    "capture-on-a-replay": (
+        f'sf.evaluate(pinned_cache="{COPY}", capture=True)',
+        "reportArgumentType",
+    ),
+    "client-nothing-to-run": ("sf.Client().evaluate()", "reportCallIssue"),
 }
 
 
@@ -69,10 +76,10 @@ def test_both_replay_forms_type_check(tmp_path: Path) -> None:
     assert _pyright(tmp_path, ACCEPTED) == []
 
 
-@pytest.mark.parametrize("call", list(REFUSED.values()), ids=list(REFUSED))
+@pytest.mark.parametrize(("call", "rule"), list(REFUSED.values()), ids=list(REFUSED))
 def test_a_call_with_nothing_to_run_or_capture_on_a_replay_is_a_type_error(
-    tmp_path: Path, call: str
+    tmp_path: Path, call: str, rule: str
 ) -> None:
     errors = _pyright(tmp_path, f"import screamingface as sf\n\n{call}\n")
 
-    assert [error["rule"] for error in errors] == ["reportCallIssue"]
+    assert [error["rule"] for error in errors] == [rule]

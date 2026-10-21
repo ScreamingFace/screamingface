@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import urlsplit
 
 from screamingface._client_connections import _engine_origin
-from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
+from screamingface.client import (
+    DEFAULT_ENGINE_URL,
+    DEFAULT_SCOREBOARD_URL,
+    Client,
+    _evaluation_candidates,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -175,6 +180,7 @@ def evaluate(
     answer_seed: int | None = None,
     record_reproduction: bool = True,
     limit: int | None = None,
+    capture: Literal[False] | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
 ) -> Report: ...
@@ -189,6 +195,7 @@ def evaluate(
     answer_seed: int | None = None,
     record_reproduction: bool = True,
     limit: int | None = None,
+    capture: Literal[False] | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
 ) -> Report: ...
@@ -233,12 +240,8 @@ def evaluate(
             on_event=on_event,
             progress=progress,
         )
-    if url4 is not None or record_reproduction is not True:
-        raise TypeError("url4= and record_reproduction= apply only with pinned_cache= or score_id=")
-    if candidates is None:
-        raise TypeError(
-            "evaluate needs candidates, or pinned_cache= / score_id= to replay a published run"
-        )
+    # One home for these checks: the Client's (review fix, no third copy here).
+    candidates = _evaluation_candidates(candidates, url4, record_reproduction)
     capture = True if capture is None else capture
     if isinstance(candidates, str):
         if benchmark is not None:
