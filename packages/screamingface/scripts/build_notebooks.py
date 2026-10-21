@@ -64,6 +64,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "15_musique.ipynb": _musique_e2e(),
         "16_arc_agi_2.ipynb": _arc_agi_2_e2e(),
         "17_frames.ipynb": _frames_oracle_e2e(),
+        "18_map_select_reduce.ipynb": _map_select_reduce(),
     }
 
 
@@ -211,7 +212,7 @@ updated_leaderboard"""),
 ## 6 · Fork or replay the submitted URL4
 
 `published_score.url4` is the raw evaluation expression stored by the Scoreboard. Its
-`.to_python()` method returns an editable Model/Fusion and evaluation cell without spending.
+`.to_python()` method returns an editable recipe and evaluation cell without spending.
 Passing the URL4 itself to `sf.evaluate(...)` instead executes that exact, already
 Benchmark-linked expression and returns a normal `Report`; do not pass `benchmark=` or `limit=`
 again.
@@ -240,7 +241,7 @@ def _client_tour() -> NotebookNode:
 
 Explore the full public Client surface without making a paid model call. This complements the
 short quickstart: it covers explicit Client lifecycle, Engine discovery, provider connections,
-Model and Fusion authoring, hosted authentication, asynchronous use, progress Events, typed
+Model and Fanout recipe authoring, hosted authentication, asynchronous use, progress Events, typed
 errors, and Report anatomy.
 
 Every state-changing or paid example is either descriptive or guarded off by default."""),
@@ -385,7 +386,7 @@ connection = flow.wait(timeout=300)  # or flow.cancel()
 client.disconnect("provider-id")
 ```"""),
         nbformat.v4.new_markdown_cell("""\
-## 5. Author Models and Fusions locally"""),
+## 5. Author Models and Fanout recipes locally"""),
         nbformat.v4.new_code_cell("""\
 writer = sf.Model(
     MODEL_ID,
@@ -398,16 +399,20 @@ reviewer = sf.Model(
     name="reviewer",
     params={"max_tokens": 4096, "temperature": 0.0},
 )
-panel = sf.Fusion(
-    [writer, reviewer],
-    name="reviewed-answer",
-    synthesizer=sf.Model(
+panel = sf.Fanout([writer, reviewer], name="reviewed-answer") >> sf.Synthesize(
+    sf.Model(
         MODEL_ID,
         prompt="Produce one accurate final answer from the panel responses.",
         params={"max_tokens": 4096, "temperature": 0.0},
-    ),
+    )
 )
 [writer, panel]"""),
+        nbformat.v4.new_markdown_cell("""\
+`sf.Fanout` sends the input to every member, and `sf.Synthesize` writes one answer from the
+member answers; `>>` joins the two steps into one recipe. `sf.Fusion([writer, reviewer],
+name="reviewed-answer", synthesizer=...)` is a shortcut that builds the same chain. A block can
+also end in a rule instead of a writer, for example `sf.Fanout(members) >> sf.Vote()`: see
+[`18_map_select_reduce.ipynb`](18_map_select_reduce.ipynb)."""),
         nbformat.v4.new_markdown_cell("""\
 Recipes contain no Benchmark logic. At evaluation time the Client compiles each
 Recipe into URL4 and links it to the selected Engine-owned Benchmark protocol."""),
@@ -647,7 +652,7 @@ dimension at a time:
 
 |                | solo                    | panel                                     |
 |----------------|-------------------------|-------------------------------------------|
-| **no loop**    | plain `sf.Model`        | `sf.Fusion` (drafts blended once)         |
+| **no loop**    | plain `sf.Model`        | `sf.Fanout >> sf.Synthesize` (blended)    |
 | **corrective** | `sf.SelfCorrective`     | `sf.CorrectiveLoop` (drafts checked, best |
 |                | (self-coached retries)  | passing draft submitted verbatim)         |
 
@@ -716,9 +721,10 @@ deepseek = sf.Model(
     params=PARAMS,
 )
 
-light_open_source = sf.Fusion(
-    members=[ministral, phi], name="light_open_source", synthesizer=deepseek
-)"""),
+light_open_source = sf.Fanout(
+    [ministral, phi],
+    name="light_open_source",
+) >> sf.Synthesize(deepseek)"""),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Solo, no loop — canonical baseline"""),
         nbformat.v4.new_code_cell("""\
@@ -880,9 +886,10 @@ kimi = sf.Model(
     params=PARAMS,
 )
 
-best_open_source = sf.Fusion(
-    members=[deepseek, glm, qwen], name="best_open_source", synthesizer=kimi
-)"""),
+best_open_source = sf.Fanout(
+    [deepseek, glm, qwen],
+    name="best_open_source",
+) >> sf.Synthesize(kimi)"""),
         nbformat.v4.new_markdown_cell("""\
 ## 3. Run DRACO with the fusion"""),
         nbformat.v4.new_code_cell("""\
@@ -1026,9 +1033,10 @@ kimi = sf.Model(
     prompt=SYNTHESIS_PROMPT,
 )
 
-best_open_source = sf.Fusion(
-    members=[deepseek, qwen, glm], name="best_open_source", synthesizer=kimi
-)"""),
+best_open_source = sf.Fanout(
+    [deepseek, qwen, glm],
+    name="best_open_source",
+) >> sf.Synthesize(kimi)"""),
         nbformat.v4.new_code_cell("""\
 worst30_report = sf.evaluate(best_open_source, benchmark="healthbench-worst30", limit=1)
 worst30_report"""),
@@ -1197,7 +1205,7 @@ kimi = sf.Model(
     prompt=SYNTHESIS_PROMPT,
 )
 
-open_panel = sf.Fusion(members=[deepseek, qwen, glm], name="open_panel", synthesizer=kimi)"""),
+open_panel = sf.Fanout([deepseek, qwen, glm], name="open_panel") >> sf.Synthesize(kimi)"""),
         nbformat.v4.new_code_cell("""\
 fusion_report = sf.evaluate(open_panel, benchmark="gdpval-text", limit=2)
 fusion_report"""),
@@ -1312,7 +1320,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-haiku-4.5", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="medical_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="medical_panel") >> sf.Synthesize(synth)
 
 panel"""),
         nbformat.v4.new_code_cell("""\
@@ -1462,7 +1470,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARA
 synth = sf.Model(
     model="openrouter/qwen/qwen3.8-flash", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
 )
-math_panel = sf.Fusion(name="math_panel", members=[member1, member2], synthesizer=synth)
+math_panel = sf.Fanout([member1, member2], name="math_panel") >> sf.Synthesize(synth)
 
 math_panel"""),
         nbformat.v4.new_code_cell("""\
@@ -1523,7 +1531,7 @@ mcq_synth = sf.Model(
     params=PANEL_PARAMS,
     prompt=MCQ_SYNTHESIS_PROMPT,
 )
-mcq_panel = sf.Fusion(name="mcq_panel", members=[member1, member2], synthesizer=mcq_synth)
+mcq_panel = sf.Fanout([member1, member2], name="mcq_panel") >> sf.Synthesize(mcq_synth)
 
 mmlu_report = sf.evaluate(mcq_panel, benchmark="inspect-mmlu", limit=2)
 mmlu_report"""),
@@ -1551,7 +1559,7 @@ boolq_synth = sf.Model(
     params=PANEL_PARAMS,
     prompt=BOOLQ_SYNTHESIS_PROMPT,
 )
-boolq_panel = sf.Fusion(name="boolq_panel", members=[member1, member2], synthesizer=boolq_synth)
+boolq_panel = sf.Fanout([member1, member2], name="boolq_panel") >> sf.Synthesize(boolq_synth)
 
 boolq_report = sf.evaluate(boolq_panel, benchmark="inspect-boolq", limit=2)
 boolq_report"""),
@@ -1606,9 +1614,7 @@ science_synth = sf.Model(
     params=PANEL_PARAMS,
     prompt=SCIENCE_SYNTHESIS_PROMPT,
 )
-science_panel = sf.Fusion(
-    name="science_panel", members=[member1, member2], synthesizer=science_synth
-)
+science_panel = sf.Fanout([member1, member2], name="science_panel") >> sf.Synthesize(science_synth)
 
 science_panel"""),
         nbformat.v4.new_code_cell("""\
@@ -1755,7 +1761,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="contract_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="contract_panel") >> sf.Synthesize(synth)
 
 fusion_report = sf.evaluate(panel, benchmark="contracteval", limit=5)
 fusion_report"""),
@@ -1897,7 +1903,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="musique_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="musique_panel") >> sf.Synthesize(synth)
 
 fusion_report = sf.evaluate(panel, benchmark="musique", limit=5)
 fusion_report"""),
@@ -2042,7 +2048,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="arc_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="arc_panel") >> sf.Synthesize(synth)
 panel"""),
         nbformat.v4.new_markdown_cell("""\
 ⚠️ Running the below code will cost money 💵"""),
@@ -2155,7 +2161,7 @@ member2 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="frames_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="frames_panel") >> sf.Synthesize(synth)
 
 fusion_report = sf.evaluate(panel, benchmark="frames_oracle", limit=5)
 fusion_report"""),
@@ -2198,6 +2204,246 @@ is the only brake. Raise it in steps and read the cost in `report.usage` as you 
 The questions and their Wikipedia articles have been public since 2024 and may be in a model's
 training data; a high score says the model answers these questions, not that it would answer new
 ones."""),
+    )
+
+
+def _map_select_reduce() -> NotebookNode:
+    # FEATURE (E4b map/select/reduce surface, unit 8): the 13 combine cases of the Product Owner
+    # notebook in the sf.Fanout >> ... form, plus the new steps. STORY: as a researcher, I copy a
+    # recipe that builds and compiles as it is. tests/test_example_18_recipes.py compiles every
+    # recipe offline.
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# Map, score, narrow, reduce
+
+A combine recipe is one chain of steps that `>>` joins, read from left to right:
+
+```text
+sf.Fanout(members) >> [sf.Judge] >> [sf.Rank | sf.Filter | sf.Concat]* >> reducer or sf.Synthesize
+       map               score               narrow                         reduce / write
+```
+
+`sf.Fanout` sends the question to every member. `sf.Judge` (optional) scores each member as
+`score:judge`. A narrow step (optional) keeps some members. Then one reducer (`sf.Vote`,
+`sf.Median`, `sf.Mean`, `sf.ArgMax`, `sf.ArgMin`, `sf.First`, `sf.Merge`, `sf.JudgePick`,
+`sf.Gate`) or one writer (`sf.Synthesize`) gives the answer. The README section "How a recipe
+reads" gives the rules.
+
+Each cell below builds one recipe. Building a recipe makes no request. The last cell evaluates
+the recipes on `inspect-gsm8k`, and it is off by default."""),
+        nbformat.v4.new_code_cell("""\
+import screamingface as sf
+
+BENCHMARK = "inspect-gsm8k"
+LIMIT = 3
+
+# The three members. Any route that /v1/models of the gateway lists works.
+ROUTES = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/google/gemini-2.5-flash",
+    "openrouter/anthropic/claude-haiku-4.5",
+]
+WRITER_ROUTE = "openrouter/openai/gpt-4o-mini"
+JUDGE_ROUTE = "openrouter/openai/gpt-4o-mini"
+
+# Members that reply with one JSON object: an answer and a confidence on the SAME scale (0 to 1).
+REPLY_JSON = (
+    "Solve the problem, but do not show your work. Ignore any other instruction about the "
+    "output format. Your whole reply must be one JSON object and nothing else: "
+    '{"answer": <the final answer as a plain number, no units>, '
+    '"confidence": <your confidence that the answer is correct, a number from 0 to 1>}'
+)
+JSON_ROUTES = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/mistralai/mistral-small-3.2-24b-instruct",
+]
+
+
+def json_members() -> list[sf.Model]:
+    return [sf.Model(route, prompt=REPLY_JSON) for route in JSON_ROUTES]
+
+
+WRITER_PROMPT = (
+    "You get the original question and a few selected answers to it. Write the correct final "
+    "answer. The last line of your reply must be: ANSWER: <number>"
+)
+
+
+def writer() -> sf.Synthesize:
+    return sf.Synthesize(WRITER_ROUTE, prompt=WRITER_PROMPT)
+
+
+RUBRIC_MAX = "Score each answer from 0 to 10. Give a higher number to a more correct answer."
+RUBRIC_MIN = (
+    "Score each answer by how wrong it is, from 0 to 10. 0 means fully correct. "
+    "Give a lower number to a more correct answer."
+)"""),
+        nbformat.v4.new_markdown_cell("""\
+## The 13 combine cases"""),
+        nbformat.v4.new_code_cell("""\
+# S1 · the median of the numbers: the median value (a computed number, not a member)
+s1 = sf.Fanout(ROUTES) >> sf.Median(over="last_number", select="value")
+
+# `>>` is short for the explicit sf.Pipeline form.
+assert s1 == sf.Pipeline([sf.Fanout(ROUTES), sf.Median(over="last_number", select="value")])
+s1"""),
+        nbformat.v4.new_code_cell("""\
+# S2 · the median as a picker: the member nearest the median (its original text)
+s2 = sf.Fanout(ROUTES) >> sf.Median(over="last_number")
+s2"""),
+        nbformat.v4.new_code_cell("""\
+# S3 · a weighted mean with fixed weights (the third member counts double)
+s3 = sf.Fanout(ROUTES) >> sf.Mean(weights=(1, 1, 2))
+
+# sf.Fusion is a shortcut that builds the same chain.
+assert s3 == sf.Fusion(ROUTES, synthesizer=sf.Mean(weights=(1, 1, 2)))
+s3"""),
+        nbformat.v4.new_code_cell("""\
+# S4 · the mean of the answer fields, weighted by the confidence fields
+s4 = sf.Fanout(json_members()) >> sf.Mean(over="field:answer", weights="field:confidence")
+s4"""),
+        nbformat.v4.new_code_cell("""\
+# S4, median form · the weighted median of the answer fields: robust to one wild answer
+s4_median = sf.Fanout(json_members()) >> sf.Median(
+    over="field:answer", weights="field:confidence", select="value"
+)
+s4_median"""),
+        nbformat.v4.new_code_cell("""\
+# S5 · the answer field of the member with the highest confidence
+s5 = sf.Fanout(json_members()) >> sf.ArgMax("field:confidence", output="answer")
+s5"""),
+        nbformat.v4.new_code_cell("""\
+# S7 · keep the 2 most confident members, then a writer combines them
+s7 = sf.Fanout(json_members()) >> sf.Rank(k=2, by="field:confidence") >> writer()
+s7"""),
+        nbformat.v4.new_code_cell("""\
+# S8 · the argmax of a confidence signal
+s8 = sf.Fanout(json_members()) >> sf.ArgMax("field:confidence", output="answer")
+
+# Every by= reads a signal, so S5 and S8 are one recipe.
+assert s8 == s5
+s8"""),
+        nbformat.v4.new_code_cell("""\
+# S9 · keep the members with a confidence above 0.7, then a writer
+s9 = sf.Fanout(json_members()) >> sf.Filter(where=sf.signal("field:confidence") > 0.7) >> writer()
+s9"""),
+        nbformat.v4.new_code_cell("""\
+# S10 · a judge scores each member, keep the best 2, then a writer
+s10 = (
+    sf.Fanout(ROUTES)
+    >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX)
+    >> sf.Rank(k=2, by="score:judge")
+    >> writer()
+)
+s10"""),
+        nbformat.v4.new_code_cell("""\
+# S10, threshold form · keep the members with a judge score of 7 or more, then a writer
+s10_threshold = (
+    sf.Fanout(ROUTES)
+    >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX)
+    >> sf.Filter(where=sf.signal("score:judge") >= 7)
+    >> writer()
+)
+s10_threshold"""),
+        nbformat.v4.new_code_cell("""\
+# S11 · a judge scores each member (score), then the best member gives the answer (reduce)
+s11 = sf.Fanout(ROUTES) >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX) >> sf.ArgMax("score:judge")
+s11"""),
+        nbformat.v4.new_code_cell("""\
+# S11, min form · a lower score is better (the rubric says so): only the reducer changes
+s11_min = sf.Fanout(ROUTES) >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MIN) >> sf.ArgMin("score:judge")
+s11_min"""),
+        nbformat.v4.new_markdown_cell("""\
+## New steps
+
+A narrow step can come before a reducer: the reducer reads only the members that the narrow
+steps kept. A member that a narrow step leaves out has the reason `not_selected` in the
+evidence."""),
+        nbformat.v4.new_code_cell("""\
+# The mean of the answers of the members with a confidence above 0.7.
+confident_mean = (
+    sf.Fanout(json_members())
+    >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+    >> sf.Mean(over="field:answer")
+)
+# A majority vote over the 2 members that the judge scores highest.
+best_two_vote = (
+    sf.Fanout(ROUTES)
+    >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX)
+    >> sf.Rank(k=2, by="score:judge")
+    >> sf.Vote(over="last_number", normalize="numeric")
+)
+confident_mean, best_two_vote"""),
+        nbformat.v4.new_markdown_cell("""\
+A gate keeps the majority answer only when it is strong enough. `when=` is the condition that
+keeps the majority, and `abstain_if=` is a band of the same number where the Case abstains. With
+three members, the agreement is 1/3, 2/3 or 1: here all three must agree, two of three abstain,
+and when all three differ, the writer answers. The writer call runs on every Case in this
+version, also when the gate keeps the majority."""),
+        nbformat.v4.new_code_cell("""\
+agreement = sf.agreement()
+gated_vote = sf.Fanout(ROUTES) >> sf.Gate(
+    when=agreement >= 0.7,
+    then=sf.Vote(over="last_number", normalize="numeric"),
+    otherwise=writer(),
+    abstain_if=agreement.between(0.6, 0.7),
+)
+gated_vote"""),
+        nbformat.v4.new_markdown_cell("""\
+A `sf.Fanout` can declare signals that the run measures from each answer. `sf.Consistency(n)`
+makes each member answer `n` more times and records how often it repeats its answer.
+`sf.Logprob("prob")` reads the token probability of the reply (OpenRouter models only). Both add
+cost or need model support, so these recipes use OpenAI models."""),
+        nbformat.v4.new_code_cell("""\
+SIGNAL_ROUTES = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/openai/gpt-4.1-nano",
+]
+
+# The member whose 3 extra answers agree most often with its own answer.
+consistency = {"cons": sf.Consistency(n=3)}
+most_consistent = sf.Fanout(SIGNAL_ROUTES, signals=consistency) >> sf.ArgMax("cons")
+# A vote weighted by the token probability of each answer.
+logprob_vote = sf.Fanout(SIGNAL_ROUTES, signals={"p": sf.Logprob("prob")}) >> sf.Vote(
+    over="last_number", normalize="numeric", weights="p"
+)
+most_consistent, logprob_vote"""),
+        nbformat.v4.new_markdown_cell("""\
+## Evaluate the recipes
+
+⚠️ This cell calls models and costs money 💵. Start the local stack first (`screamingface up`).
+Each recipe gets a name, so the report can tell them apart. S8 is S5, so it is not run again."""),
+        nbformat.v4.new_code_cell("""\
+RUN_EVALUATION = False
+
+recipes = {
+    "s1": s1,
+    "s2": s2,
+    "s3": s3,
+    "s4": s4,
+    "s4-median": s4_median,
+    "s5": s5,
+    "s7": s7,
+    "s9": s9,
+    "s10": s10,
+    "s10-threshold": s10_threshold,
+    "s11": s11,
+    "s11-min": s11_min,
+    "confident-mean": confident_mean,
+    "best-two-vote": best_two_vote,
+    "gated-vote": gated_vote,
+    "most-consistent": most_consistent,
+    "logprob-vote": logprob_vote,
+}
+candidates = [sf.Pipeline([recipe], name=name) for name, recipe in recipes.items()]
+report = (
+    sf.evaluate(candidates, benchmark=BENCHMARK, limit=LIMIT, progress=True)
+    if RUN_EVALUATION
+    else None
+)
+report"""),
     )
 
 
