@@ -25,7 +25,6 @@ def test_sf_signal_gives_the_gate_references() -> None:
     assert type(risk) is Signal
     assert risk.chosen() == GateRef("chosen:risk")
     assert risk.mean() == GateRef("mean:risk")
-    assert sf.signal is sf.signal
 
 
 @pytest.mark.parametrize("method", ["chosen", "mean"])

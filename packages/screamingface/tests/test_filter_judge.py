@@ -156,3 +156,15 @@ def test_url4_round_trip_rebuilds_a_judge_filter_and_filter_block(shape: str) ->
     assert type(stage.synthesizer) is FilterNode
     assert stage.synthesizer == _filter_by_judge()
     assert compile_candidate(recovered, operators=flow_operators()).url4 == url4
+
+
+def test_a_judge_filter_whose_where_no_longer_reads_the_judge_does_not_rebuild() -> None:
+    # WHY a hand edit: the judge call is there, but the where no longer reads score:judge
+    url4 = compile_candidate(_judge_filter(members3()), operators=flow_operators()).url4
+    bad = url4.replace('"key":"score:judge"', '"key":"field:confidence"')
+    assert bad != url4
+
+    with pytest.raises(
+        ValueError, match=r"^URL4 Candidate has a filter spec this SDK version cannot rebuild$"
+    ):
+        sf.Url4(bad).to_python()
