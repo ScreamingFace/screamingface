@@ -44,3 +44,12 @@ Plan only: no code, no PR, no sub-issues filed.
   is text only (D4); failed `;optional` blob fails the run (D5); judge text-only (D6). Added U3
   tests for D1 self-authority, D4 and D5. Q6 (ticket body rewrite at PR-open) and the `OME-1540`
   dependency stay open.
+- **Revision 2 (2026-10-21, F1b):** governing spec now includes F1b (`3c6ae278e`; PR #1450 comment;
+  Linear `OME-1544` re-parented under `OME-1529`). The plan reuses #1482's
+  `url4.dag.attachment.Attachment` (no second definition; U1 reduced to a one-definition test; the
+  engine builder takes bytes from `Attachment.body` and derives `kind`); adds a per-run file cache so
+  each file is fetched and verified once (§2.8); adds `https://` `src=` sources through the
+  `OME-1544` guard, non-text hashed into the run store and attached (§2.7, U3b; sub-issue A also
+  blocked by `OME-1544`); records the local spelling `/blob/sha256/<hex>` with bare
+  `blob:sha256/<hex>` local, and takes `$x*(…)` over a blob binding into scope (§2.9). New open Q7:
+  `https://` attach scope (`src=` only) and write-through of hashed bytes to the engine store.
