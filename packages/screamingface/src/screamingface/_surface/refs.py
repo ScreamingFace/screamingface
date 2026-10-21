@@ -224,11 +224,13 @@ def signal_key(value: object, label: str) -> Signal:
     """
 
     if isinstance(value, str):
-        return signal(value)
+        value = signal(value)
     if not isinstance(value, Signal):
         raise TypeError(
             f"{label} by= must be one signal: a key string such as 'cost_usd' or sf.signal(key)"
         )
+    if value.key.startswith(FIELD_SIGNAL_PREFIX):  # the path rule of sf.field() (gap c)
+        _checked_field_path(value.key.removeprefix(FIELD_SIGNAL_PREFIX), f"{label} field path")
     return value
 
 

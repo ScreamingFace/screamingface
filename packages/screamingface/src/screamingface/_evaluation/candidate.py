@@ -1064,9 +1064,11 @@ def _warn_judge_writers(recipe: Recipe) -> None:
         if isinstance(value, Pipeline):
             # WJ-1: the chain before the lowering: a closed block is one stage.
             _warn_judge_writer(value.name, value._stage_values())
-            # E6: a block that lowers to Pipeline([FusionNode, writer]) holds a judge and a writer.
-            for inner in value._block_pipelines():
-                _warn_judge_writer(inner.name, inner._stage_values())
+            # E6: a block that lowers to Pipeline([FusionNode, writer]) holds a judge and a writer;
+            # it is named by its stage in the user's chain, never by its inferred name (gap b).
+            named = value.name if value._is_named else None
+            for position, inner in value._block_pipelines():
+                _warn_block_judge_writer(named, position, inner._stage_values())
             pending.extend(reversed(value._held_recipes()))
         else:
             pending.extend(reversed(_children(value)))
@@ -1099,23 +1101,62 @@ def _warn_judge_writer(name: str, stages: tuple[Recipe, ...]) -> None:
         )
 
 
-def _judge_routes(stage: Recipe) -> frozenset[str]:
-    """The canonical routes of the judges that a reducer Fusion stage reads, else empty (P9).
+def _warn_block_judge_writer(name: str | None, position: int, stages: tuple[Recipe, ...]) -> None:
+    """Warn when a block's writer uses the model that judged the block's members (E6, JW-1).
+
+    WHY only the first pair: the block lowers to ``[FusionNode, writer, ...]``; a writer recipe
+    that is a chain flattens in after it, and the walk checks that recipe on its own.
+    """
+
+    judged, writer = stages[0], stages[1]
+    if not isinstance(writer, Model):
+        return
+    route = _canonical_model(writer.model)
+    if route not in _judge_routes(judged):
+        return
+    stage = f"stage {position} (a fanout block)"
+    subject = f"Pipeline {name!r}: {stage}" if name is not None else stage[:1].upper() + stage[1:]
+    warnings.warn(
+        f"{subject} uses the same model {route!r} for its judge and its writer: the judge scores "
+        "the members, and the writer writes the answer, so the writer is also the scorer. Give "
+        "the judge or the writer another model, or keep both and ignore this warning.",
+        JudgeWriterWarning,
+        skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+    )
+
+
+def _judge_routes(stage: Recipe, active: frozenset[int] = frozenset()) -> frozenset[str]:
+    """The canonical routes of the judges that a stage's answer comes from, else empty (P9).
 
     WHY a set: a gated vote may read two judges (a scores judge and the gate's fallback label
     judge), and a writer on either model is also a scorer (review P5 #2). "judge" is E4a's key,
     paired with exactly the three ways the Engine reads a judge (the judge reducer, scores@1 by
     judge, score:judge).
+    WHY the writer recipe (7d product gap a): a block whose ``sf.Synthesize`` writer is a recipe
+    answers with that recipe's last stage, so a judge there judged the stage's answer. The
+    ``active`` ids stop a cyclic value (only built by hand), which the compiler names.
     """
 
-    reducer = stage.synthesizer if isinstance(stage, FusionNode) else None
-    if not isinstance(reducer, Reducer):
+    answer = _answer_value(stage)
+    if id(stage) in active or answer is None:
         return frozenset()
+    if isinstance(answer, Recipe):
+        return _judge_routes(answer, active | {id(stage)})
     return frozenset(
         _canonical_model(call.model)
-        for call in reducer._combine_plan().signal_calls
+        for call in answer._combine_plan().signal_calls
         if call.key in _JUDGE_CALL_KEYS
     )
+
+
+def _answer_value(stage: Recipe) -> Recipe | Reducer | None:
+    """What gives a stage its answer: a chain's last stage, a FusionNode's synthesizer (its
+    reducer, or its writer recipe), else nothing a judge can read."""
+
+    if isinstance(stage, Pipeline):
+        stages = stage._stage_values()
+        return stages[-1] if stages else None
+    return stage.synthesizer if isinstance(stage, FusionNode) else None
 
 
 def _member_calls(members: tuple[_ResolvedRecipe, ...]) -> tuple[_SourceCall, ...]:
