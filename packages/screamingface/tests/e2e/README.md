@@ -45,7 +45,7 @@ notebooks call — `sf.evaluate()` — not the `.ipynb` files themselves.)
 
 | Failure rung | Message | Meaning | Fix |
 |---|---|---|---|
-| expression | "goldens stale" | the rendered protocol moved | intended? → re-bless (step ④); if no model-call byte moved, `slice_snapshot.py --board <b> --refresh-golden --accept-expression` re-authors only `expression_sha` from the committed snapshot (refuses on any other drift) |
+| expression | "goldens stale" | the rendered protocol moved | intended? → re-bless (step ④) |
 | case statuses / coverage | "case statuses drifted" | some cases now fail/score differently | investigate, then re-bless if intended |
 | failure codes | "failure codes drifted" | the same cases fail, but for a different REASON (`incomplete_verdicts` → `case_error`) — a reclassification | investigate, then re-bless if intended |
 | score | "final score drifted" | grading/aggregation changed the number | investigate, then re-bless if intended |

@@ -3,7 +3,7 @@
   "branch": "OME-1692-url4-benchmark-expression",
   "approver": "Ionesio Junior (owner)",
   "date": "2026-10-20",
-  "scope": "Expression-shape pins and call sites only, for the spec-faithful Benchmark expression (docs/spec/2026-10-20-url4-benchmark-expression-spec.md): tests that pinned the old expression text or called the retired endpoints (cases()!'N', /check, /benchmarks/case-execution, /benchmarks/case-attempts, aggregate:N intents, the case-v1 Candidate context) now drive the code mounts, the data route and the new Candidate request. Score, row, report and activity assertions are kept. Also: url4 export-count pins (url4 59->61, url4.dag 38->39, url4.streaming.protocol 34->35), the MedXpertQA sha pin, the early-grade compatibility fixture (re-recorded from origin/main 06fcb0889 runs), the report v1 golden ($$ in the linked url4), and the route-layout pins that listed the retired /check route. Plus the four e2e goldens (draco-3pass, healthbench-worst30, gdpval-text, ifeval): only expression_sha moves, re-authored by `slice_snapshot.py --refresh-golden --accept-expression` from the committed snapshots; statuses, counters, revision and score replay identical.",
+  "scope": "Expression-shape pins and call sites only, for the spec-faithful Benchmark expression (docs/spec/2026-10-20-url4-benchmark-expression-spec.md): tests that pinned the old expression text or called the retired endpoints (cases()!'N', /check, /benchmarks/case-execution, /benchmarks/case-attempts, aggregate:N intents, the case-v1 Candidate context) now drive the code mounts, the data route and the new Candidate request. Score, row, report and activity assertions are kept. Also: url4 export-count pins (url4 59->61, url4.dag 38->39, url4.streaming.protocol 34->35), the MedXpertQA sha pin, the early-grade compatibility fixture (re-recorded from origin/main 06fcb0889 runs), the report v1 golden ($$ in the linked url4), and the route-layout pins that listed the retired /check route. Plus the four e2e goldens (draco-3pass, healthbench-worst30, gdpval-text, ifeval): only expression_sha moves, re-authored by `slice_snapshot.py --refresh-golden --accept-expression` from the committed snapshots; statuses, counters, revision and score replay identical. Plus slice_snapshot.py: the refresh's pinned-key check moves into `_refuse_pinned_drift` and gains the opt-in `--accept-expression` (frees expression_sha alone; tested in tests/e2e/test_refresh_accept_expression.py).",
   "reason": "Owner-approved rebuild of the Benchmark URL4 expression to URL4 Parts A-C (decisions D1-D5 and the failure-code cause, 2026-10-20). The old expression text and endpoints no longer exist, so the tests that pinned them must move to the new contract; results, model-call bytes and revision ids are unchanged (kind validation in docs/work/2026-10-20-url4-benchmark-expression-evaluations.md).",
   "files": {
     "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
@@ -241,6 +241,10 @@
     "packages/screamingface/tests/e2e/fixtures/goldens/ifeval.golden.json": {
       "base_blob": "26e67739ada9821634c1e527af0963169738e369",
       "approved_blob": "6cf7416fafeb78c3e031dd73244d518796dd2100"
+    },
+    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
+      "base_blob": "b1cfcfddfef6e7b334b76b281d28d53b16a9fcfd",
+      "approved_blob": "b8c2cb646e7381cb0a6c09fd2d645e418137697e"
     }
   }
 }
