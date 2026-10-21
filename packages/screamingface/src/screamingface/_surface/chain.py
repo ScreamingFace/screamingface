@@ -84,9 +84,9 @@ class Step(_Chainable):
 def refuse_step(value: object) -> None:
     """Refuse a step or an open chain in a place that takes a recipe (CH-8, CH-11).
 
-    WHY here: ``S/recipe.py`` calls it from ``_recipe``, so every recipe position of today
-    (a Fusion member, a Pipeline stage, a CorrectiveLoop member or judge) and of the new surface
-    (a Fanout member, a Synthesize model, a chain stage) gives the same message.
+    WHY here: ``S/recipe.py`` calls it from ``_recipe``, so every recipe position (a Fanout
+    member, a Synthesize model, a chain or Pipeline stage, a CorrectiveLoop member or judge)
+    gives the same message.
     """
 
     if isinstance(value, Step):

@@ -163,8 +163,8 @@ def _vote_node(step: Vote, judge: JudgeNode | None, gate: GateNode | None = None
     """A rule name lowers to the named VoteNode, a field or an extract to the ReduceNode block.
 
     WHY the block form for ``"field:<path>"`` and ``sf.Extract``: the named reducers store an
-    operator name only (``S/reducer.py``), so ``sf.Reduce`` is the one path that compiles an
-    extractor with arguments today (O1).
+    operator name only (``S/reducer.py``), so the ReduceNode block is the one node that compiles
+    an extractor with arguments (O1).
     """
 
     if is_rule_name(step.over):
