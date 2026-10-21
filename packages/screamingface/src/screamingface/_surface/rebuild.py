@@ -360,22 +360,18 @@ def _block_form(block: ReduceNode, judges: list[JudgeNode]) -> Step:
         if isinstance(judge, JudgeNode):
             judges.append(judge)
         return _built(Vote, over=_over(extract), normalize=extract.normalize, weights=weights)
-    if block.op in ("median", "mean"):
-        step = Median if block.op == "median" else Mean
-        select = "nearest" if block.mode == "select" else "value"
-        return _built(step, over=_over(extract), select=select, weights=weights)
-    raise _Unexpressible(f"no step for sf.Reduce({block.op!r})")
+    step = Median if block.op == "median" else Mean
+    select = "nearest" if block.mode == "select" else "value"
+    return _built(step, over=_over(extract), select=select, weights=weights)
 
 
 def _pick(pick: PickNode, _judges: list[JudgeNode]) -> Step:
     if pick.by_signal is not None:
         best = ArgMax if pick.order == "max" else ArgMin
         return _built(best, pick.by_signal, output=pick.output)
-    if pick.field is not None and pick.equals is not None:
-        where = _built(_field_test, pick.field, pick.normalize, pick.equals)
-        return _built(First, where=where, output=pick.output)
-    # D3: a field pick by order reads a signal in the new surface (ArgMax("field:x"))
-    raise _Unexpressible("a field pick by order")
+    assert pick.field is not None and pick.equals is not None  # the one field pick: equals
+    where = _built(_field_test, pick.field, pick.normalize, pick.equals)
+    return _built(First, where=where, output=pick.output)
 
 
 def _field_test(path: str, normalize: Any, value: str) -> FieldEquals:
@@ -394,8 +390,6 @@ def _rank(rank: RankNode, judges: list[JudgeNode]) -> Rank:
     if rank.by is not None:
         judges.append(rank.by)
         return _built(Rank, rank.k, by="score:judge", order=rank.order)
-    if rank.by_signal is None:
-        raise _Unexpressible("a rank by field")  # D3: today's Rank(by_field=)
     return _built(Rank, rank.k, by=rank.by_signal, order=rank.order)
 
 

@@ -284,18 +284,9 @@ class Reducer(ABC):
             raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
         return cls._from_spec(spec)
 
-    def _python(self) -> str:
-        """The ``sf.`` source that rebuilds this reducer (read by ``Url4.to_python``)."""
-        return f"sf.{self!r}"
-
     def _check_members(self, count: int) -> None:
         """Raise ValueError when this reducer cannot serve ``count`` members (Fusion build time)."""
         return None
-
-    def _compiles_to_combine(self) -> bool:
-        """Whether this reducer compiles to a combine call. sf.Reduce('context') does not: the
-        Fusion recipe rewrite removes it, so it needs no operators and has no member cap."""
-        return True
 
 
 # Concrete reducers register here (later units add more names beside vote and median).
@@ -461,22 +452,6 @@ def _reads_judge(weights: object) -> bool:
     return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
 
 
-def _reader_judge[T](judge: T) -> T:
-    """A reader's judge (Rank ``by=``, Vote and Filter ``judge=``) with the default order.
-
-    WHY: a reader reads the scores with its own rule, and the judge call is the same for both
-    orders (``judge-template@2``), so a min judge there compiles to the bytes of a max judge; the
-    reader holds the max judge, so equal bytes are equal values (the url4 rebuild gives the same).
-    """
-
-    # WHY lazy: judge.py imports this module (cycle)
-    from screamingface.judge import JudgeNode, _with_overrides
-
-    if isinstance(judge, JudgeNode) and judge.order != "max":
-        return cast("T", _with_overrides(judge, None, "max"))
-    return judge
-
-
 def _check_judge_pair(
     judge: object, reads_judge: bool, label: str, *, reader: str, read_by: str, unpaired: str
 ) -> None:
@@ -606,11 +581,6 @@ def _recovered_member_weights(weights: object, members: object) -> tuple[float, 
     return tuple(values)
 
 
-def _as_python(value: object) -> str:
-    python = getattr(value, "_python", None)
-    return repr(value) if python is None else python()
-
-
 # The part 5 keys of a spec gate; E4b part 6 adds the optional "abstain_band" (C6).
 _GATE_SPEC_KEYS: frozenset[str] = frozenset({"cmp", "observe", "otherwise", "threshold"})
 _BAND_KEY = "abstain_band"
@@ -737,7 +707,7 @@ class VoteNode(Reducer):
             self, "weights", None if weights is None else _weights_option(weights, "Vote weights")
         )
         _check_judge_weights(self.weights, judge, "Vote")
-        object.__setattr__(self, "judge", _reader_judge(judge))
+        object.__setattr__(self, "judge", judge)
         object.__setattr__(self, "gate", _vote_gate(gate))
         _check_verify(verify)
         object.__setattr__(self, "verify", None)
@@ -815,20 +785,12 @@ class VoteNode(Reducer):
         )
 
     def __repr__(self) -> str:
-        return self._render("Vote", repr)
-
-    def _python(self) -> str:
-        return self._render("sf.Vote", _as_python)
-
-    def _render(self, head: str, show: Callable[[object], str]) -> str:
-        weights = "" if self.weights is None else f", weights={show(self.weights)}"
-        judge = "" if self.judge is None else f", judge={show(self.judge)}"
-        gate = "" if self.gate is None else f", gate={show(self.gate)}"
+        weights = "" if self.weights is None else f", weights={self.weights!r}"
+        judge = "" if self.judge is None else f", judge={self.judge!r}"
+        gate = "" if self.gate is None else f", gate={self.gate!r}"
         if self._is_benchmark:
-            return f"{head}(extract={self.extract!r}{weights}{judge}{gate})"
-        return (
-            f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge}{gate})"
-        )
+            return f"Vote(extract={self.extract!r}{weights}{judge}{gate})"
+        return f"Vote(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge}{gate})"
 
     __hash__: ClassVar[Any] = None
 
@@ -907,10 +869,8 @@ def _numeric_from_spec[R: Reducer](cls: type[R], spec: Mapping[str, object], nam
     return _decoded(name, cls, extract=extract, select=select, weights=weights)
 
 
-def _numeric_render(
-    reducer: MedianNode | MeanNode, head: str, show: Callable[[object], str]
-) -> str:
-    weights = "" if reducer.weights is None else f", weights={show(reducer.weights)}"
+def _numeric_repr(reducer: MedianNode | MeanNode, head: str) -> str:
+    weights = "" if reducer.weights is None else f", weights={reducer.weights!r}"
     return f"{head}(extract={reducer.extract!r}, select={reducer.select!r}{weights})"
 
 
@@ -964,10 +924,7 @@ class MedianNode(Reducer):
         return _numeric_from_spec(cls, spec, "median")
 
     def __repr__(self) -> str:
-        return _numeric_render(self, "Median", repr)
-
-    def _python(self) -> str:
-        return _numeric_render(self, "sf.Median", _as_python)
+        return _numeric_repr(self, "Median")
 
     __hash__: ClassVar[Any] = None
 
@@ -1021,10 +978,7 @@ class MeanNode(Reducer):
         return _numeric_from_spec(cls, spec, "mean")
 
     def __repr__(self) -> str:
-        return _numeric_render(self, "Mean", repr)
-
-    def _python(self) -> str:
-        return _numeric_render(self, "sf.Mean", _as_python)
+        return _numeric_repr(self, "Mean")
 
     __hash__: ClassVar[Any] = None
 

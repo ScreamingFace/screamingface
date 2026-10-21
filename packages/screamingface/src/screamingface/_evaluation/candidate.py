@@ -20,7 +20,6 @@ from screamingface._evaluation.combine_spec import (
     accounting_signal,
     combine_spec_text,
 )
-from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.model import (
     _compiled_operation,
     _member_projection,
@@ -41,7 +40,6 @@ from screamingface._evaluation.topology import (
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface._surface.lowering import lower
-from screamingface.blocks import ReduceNode
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import FusionNode, _consistency_member
@@ -146,7 +144,6 @@ def compile_candidate(
     """
 
     recipe = entry_recipe(recipe, warn_judge_writers=warn_judge_writers)
-    recipe = rewrite_fusion_recipe(recipe)
     try:
         first = _CandidateCompiler(
             check_surface=check_surface, operators=operators, benchmark_rule=benchmark_rule
@@ -181,10 +178,8 @@ def recipes_need_operators(recipes: Sequence[Recipe]) -> bool:
 
 def _needs_operators(value: Recipe | Reducer) -> bool:
     if isinstance(value, Reducer):
-        needed = value._compiles_to_combine()
-    else:
-        needed = any(_needs_operators(child) for child in _children(value))
-    return needed
+        return True
+    return any(_needs_operators(child) for child in _children(value))
 
 
 def _children(value: Recipe) -> tuple[Recipe | Reducer, ...]:
@@ -743,7 +738,7 @@ class _CandidateCompiler:
             # stay out too, because their `binding` param already makes their fingerprint unique;
             # so do the consistency sample calls (E4b part 7).
             calls=_member_calls(members),
-            selection=_selection_label(reducer) if plan.kind == "selection" else None,
+            selection=reducer._public_name if plan.kind == "selection" else None,
         )
 
     def _claim_accounting_sources(
@@ -1112,8 +1107,7 @@ def _judge_routes(stage: Recipe) -> frozenset[str]:
     """
 
     reducer = stage.synthesizer if isinstance(stage, FusionNode) else None
-    # sf.Reduce("context") has no combine call and no plan to read (the Fusion rewrite owns it).
-    if not isinstance(reducer, Reducer) or not reducer._compiles_to_combine():
+    if not isinstance(reducer, Reducer):
         return frozenset()
     return frozenset(
         _canonical_model(call.model)
@@ -1139,14 +1133,6 @@ def _reject_selection_members(members: tuple[_ResolvedRecipe, ...]) -> None:
                 f"a {member.selection} Fusion cannot be a Fusion member: its selection goes "
                 "only to the next Pipeline stage"
             )
-
-
-def _selection_label(reducer: Reducer) -> str:
-    """What a selection compile check calls this reducer: the class, or the block and its op."""
-
-    if isinstance(reducer, ReduceNode):
-        return f"Reduce({reducer.op!r})"
-    return reducer._public_name
 
 
 def _required_topology(value: _ResolvedRecipe) -> _RecipeTopology:

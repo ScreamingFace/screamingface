@@ -9,19 +9,17 @@ Pipeline stage receives exactly the selection.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal, cast
 
 from screamingface._signals import JUDGE_SIGNAL, Signal, _Comparison, _comparison
 from screamingface.blocks import (
-    _BLOCK_FORMS,
     _MAX_K,
     _MAX_SEPARATOR_CHARS,
     Extract,
     Matches,
     _answer_steps,
-    _BlockForm,
     _extract_from_spec,
     _matches_args,
     _normalize_from_spec,
@@ -33,14 +31,11 @@ from screamingface.judge import (
 from screamingface.reducer import (
     _REDUCER_CLASSES,
     Reducer,
-    _as_python,
     _cannot_rebuild,
     _check_judge_pair,
     _decoded,
-    _field_path,
     _ModelSignal,
     _op_name,
-    _reader_judge,
     _ReducerPlan,
     _refuse_judge_signal,
     _require_steps,
@@ -50,20 +45,13 @@ from screamingface.reducer import (
 )
 
 _DEFAULT_SEPARATOR = "\n\n---\n\n"
-# WHY the exact id: scores@1 assumes the v1 output form of the numeric normalizer, so a later
-# numeric@2 must not change what a Rank by field means.
-_RANK_NORMALIZER = "numeric@1"
 
 
-def _check_rank_source(by: object, by_field: object, by_signal: object) -> None:
+def _check_rank_source(by: object, by_signal: object) -> None:
     """Refuse a Rank source the Engine would only refuse after the paid member calls."""
 
-    if by is not None and not isinstance(by, JudgeNode):
-        raise TypeError("Rank by must be an sf.Judge")
-    if by is not None and by.returns != "scores":
-        raise ValueError("Rank(by=...) needs sf.Judge(..., returns='scores')")
-    if by_field is not None:
-        _field_path(by_field, "Rank by_field")
+    # INVARIANT: the lowering and the url4 rebuild give a scores judge (the sf.Judge step).
+    assert by is None or (isinstance(by, JudgeNode) and by.returns == "scores")
     if by_signal is not None and not isinstance(by_signal, Signal):
         raise TypeError("Rank by_signal must be an sf.signal")
     if isinstance(by_signal, Signal):
@@ -81,8 +69,8 @@ class RankNode(Reducer):
     """Keep the ``k`` best-scored members: the next stage gets their original texts, best first.
 
     ``by=sf.Judge(..., returns="scores")`` scores every member with a judge model;
-    ``by_field="score"`` reads a number from each member's JSON reply; ``by_signal=sf.signal(key)``
-    reads a named number on each member's Answer (for example ``cost_usd``). Give exactly one.
+    ``by_signal=sf.signal(key)`` reads a named number on each member's Answer (for example
+    ``cost_usd``). Give exactly one.
     ``order="max"`` (the default) keeps the highest scores and ``order="min"`` the lowest. A tie at
     the cut goes to the earlier member. A Rank Fusion must be followed by another Pipeline stage.
     """
@@ -91,7 +79,6 @@ class RankNode(Reducer):
     name: str
     k: int
     by: JudgeNode | None
-    by_field: str | None
     by_signal: Signal | None
     order: Literal["max", "min"]
     _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
@@ -102,7 +89,6 @@ class RankNode(Reducer):
         k: int,
         *,
         by: JudgeNode | None = None,
-        by_field: str | None = None,
         by_signal: Signal | None = None,
         order: Literal["max", "min"] = "max",
     ) -> None:
@@ -110,14 +96,12 @@ class RankNode(Reducer):
             raise TypeError("Rank k must be an integer")
         if not 1 <= k <= _MAX_K:
             raise ValueError(f"Rank k must be between 1 and {_MAX_K}")
-        if sum(source is not None for source in (by, by_field, by_signal)) != 1:
-            raise ValueError("Rank needs exactly one of by=, by_field= or by_signal=")
-        _check_rank_source(by, by_field, by_signal)
+        assert (by is None) != (by_signal is None)  # a judge or a signal, never both
+        _check_rank_source(by, by_signal)
         object.__setattr__(self, "name", "rank")
         object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "k", k)
-        object.__setattr__(self, "by", _reader_judge(by))
-        object.__setattr__(self, "by_field", by_field)
+        object.__setattr__(self, "by", by)
         object.__setattr__(self, "by_signal", by_signal)
         object.__setattr__(self, "order", _check_rank_order(order))
 
@@ -127,17 +111,9 @@ class RankNode(Reducer):
         # WHY the order only when it is "min": the "max" default keeps the bytes Rank wrote before
         # it had an order.
         select = _Step("top_k", {"k": self.k, **({} if self.order == "max" else {"order": "min"})})
-        if self.by_field is None:
-            steps = _Steps(reduce=_Step("scores", {"source": "judge"}), select=select)
-        else:
-            steps = _Steps(
-                extract=_Step("json_field", {"path": self.by_field}),
-                normalize=_Step(_RANK_NORMALIZER),
-                reduce=_Step("scores", {"source": "values"}),
-                select=select,
-            )
-        calls = () if self.by is None else (self.by._signal_call(),)
-        return _ReducerPlan("rank", "selection", steps, signal_calls=calls)
+        steps = _Steps(reduce=_Step("scores", {"source": "judge"}), select=select)
+        assert self.by is not None  # a Rank holds a judge or a signal
+        return _ReducerPlan("rank", "selection", steps, signal_calls=(self.by._signal_call(),))
 
     def _check_members(self, count: int) -> None:
         if self.k > count:
@@ -162,21 +138,13 @@ class RankNode(Reducer):
         _decoded("rank", rank._check_members, len(cast("Sequence[str]", spec["members"])))
         return rank
 
-    def _python(self) -> str:
-        return self._render("sf.Rank", _as_python)
-
     def __repr__(self) -> str:
-        return self._render("Rank", repr)
-
-    def _render(self, head: str, show: Callable[[object], str]) -> str:
         if self.by_signal is not None:
-            ranking = f"by_signal={show(self.by_signal)}"
-        elif self.by is not None:
-            ranking = f"by={show(self.by)}"
+            ranking = f"by_signal={self.by_signal!r}"
         else:
-            ranking = f"by_field={show(self.by_field)}"
+            ranking = f"by={self.by!r}"
         order = ", order='min'" if self.order == "min" else ""
-        return f"{head}(k={self.k}, {ranking}{order})"
+        return f"Rank(k={self.k}, {ranking}{order})"
 
     __hash__: ClassVar[Any] = None
 
@@ -199,20 +167,18 @@ def _recovered_source(
     steps: Mapping[str, tuple[str, Mapping[str, object]] | None],
     signals: tuple[_ModelSignal, ...],
 ) -> dict[str, object]:
-    """The ``by``, ``by_field`` or ``by_signal`` keyword a decoded Rank spec holds, else refuse."""
+    """The ``by`` or ``by_signal`` keyword a decoded Rank spec holds, else refuse (a rank by a
+    JSON field has no step since the map/select/reduce surface: it cannot rebuild)."""
 
-    reduce, extract = steps["reduce"], steps["extract"]
+    reduce = steps["reduce"]
     if reduce is not None and _op_name(reduce[0]) == "by_signal":
         key = reduce[1].get("key")
         if not isinstance(key, str):
             raise _cannot_rebuild("rank")
         return {"by_signal": _decoded("rank", Signal, key)}  # an unknown key is a hand edit
-    if signals:
-        return {"by": judge_from_signals(signals, "scores")}
-    path = None if extract is None else extract[1].get("path")
-    if not isinstance(path, str):
+    if not signals:
         raise _cannot_rebuild("rank")
-    return {"by_field": path}
+    return {"by": judge_from_signals(signals, "scores")}
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -268,34 +234,6 @@ class ConcatNode(Reducer):
     __hash__: ClassVar[Any] = None
 
 
-def _top_k_from_options(options: Mapping[str, object]) -> RankNode:
-    return RankNode(
-        cast("int", options["k"]),
-        by=cast("JudgeNode | None", options.get("by")),
-        by_field=cast("str | None", options.get("by_field")),
-        by_signal=cast("Signal | None", options.get("by_signal")),
-        order=cast("Literal['max', 'min']", options.get("order", "max")),
-    )
-
-
-def _top_k_options(named: Reducer) -> Mapping[str, object]:
-    """The canonical options of a top_k block, in op-table row order: the default order ``max``
-    is not stored."""
-
-    rank = cast("RankNode", named)
-    source = {
-        name: getattr(rank, name) for name in _RANK_SOURCES if getattr(rank, name) is not None
-    }
-    return {"k": rank.k, **source, **({"order": "min"} if rank.order == "min" else {})}
-
-
-def _check_filter_where(where: object) -> None:
-    if not isinstance(where, Matches | _Comparison):
-        raise TypeError(
-            "Filter where must be sf.matches(...) or a signal comparison like sf.signal(key) >= 0.6"
-        )
-
-
 def _check_filter_judge(where: Matches | _Comparison, judge: object) -> None:
     """The Filter pairing rule (FJ-E3, FJ-E4), the same rule as Vote's (``_check_judge_pair``):
     a score:judge comparison and a scores judge go together."""
@@ -349,7 +287,8 @@ class FilterNode(Reducer):
         extract: Extract | None = None,
         judge: JudgeNode | None = None,
     ) -> None:
-        _check_filter_where(where)
+        # INVARIANT: sf.Filter and the url4 rebuild give a pattern or a signal comparison.
+        assert isinstance(where, Matches | _Comparison)
         if extract is not None and not isinstance(extract, Extract):
             raise TypeError("Filter extract must be an sf.Extract")
         _check_filter_judge(where, judge)
@@ -357,7 +296,7 @@ class FilterNode(Reducer):
         object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "where", where)
         object.__setattr__(self, "extract", extract)
-        object.__setattr__(self, "judge", _reader_judge(judge))
+        object.__setattr__(self, "judge", judge)
 
     def _plan(self) -> _ReducerPlan:
         extract, normalize, benchmark = (
@@ -393,16 +332,10 @@ class FilterNode(Reducer):
         _require_steps(spec, filtered._plan().steps, "filter")
         return filtered
 
-    def _python(self) -> str:
-        return self._render("sf.Filter", _as_python)
-
     def __repr__(self) -> str:
-        return self._render("Filter", repr)
-
-    def _render(self, head: str, show: Callable[[object], str]) -> str:
         extract = "" if self.extract is None else f", extract={self.extract._python()}"
-        judge = "" if self.judge is None else f", judge={show(self.judge)}"
-        return f"{head}(where={self.where._python()}{extract}{judge})"
+        judge = "" if self.judge is None else f", judge={self.judge!r}"
+        return f"Filter(where={self.where._python()}{extract}{judge})"
 
     __hash__: ClassVar[Any] = None
 
@@ -429,44 +362,6 @@ def _recovered_extract(spec: Mapping[str, object]) -> Extract | None:
         raise _cannot_rebuild("filter") from None
 
 
-def _filter_from_options(options: Mapping[str, object]) -> FilterNode:
-    return FilterNode(
-        where=cast("Matches | _Comparison", options["where"]),
-        extract=cast("Extract | None", options.get("extract")),
-        judge=cast("JudgeNode | None", options.get("judge")),
-    )
-
-
-def _filter_options(named: Reducer) -> Mapping[str, object]:
-    """The canonical options of a filter block, in op-table row order (where, extract, judge)."""
-
-    filtered = cast("FilterNode", named)
-    return {
-        "where": filtered.where,
-        **({} if filtered.extract is None else {"extract": filtered.extract}),
-        **({} if filtered.judge is None else {"judge": filtered.judge}),
-    }
-
-
-def _concat_from_options(options: Mapping[str, object]) -> ConcatNode:
-    return ConcatNode(
-        cast("str", options.get("separator", _DEFAULT_SEPARATOR)),
-        label=cast("bool", options.get("label", True)),
-    )
-
-
-def _concat_options(named: Reducer) -> Mapping[str, object]:
-    """The canonical options of a concat block: the defaults are not stored."""
-
-    concat = cast("ConcatNode", named)
-    separator = {} if concat.separator == _DEFAULT_SEPARATOR else {"separator": concat.separator}
-    return {**separator, **({} if concat.label else {"label": False})}
-
-
-_RANK_SOURCES = ("by", "by_field", "by_signal")
 _REDUCER_CLASSES.update(rank=RankNode, concat=ConcatNode, filter=FilterNode)
-_BLOCK_FORMS["top_k"] = _BlockForm(build=_top_k_from_options, options=_top_k_options)
-_BLOCK_FORMS["concat"] = _BlockForm(build=_concat_from_options, options=_concat_options)
-_BLOCK_FORMS["filter"] = _BlockForm(build=_filter_from_options, options=_filter_options)
 
 __all__ = ["ConcatNode", "FilterNode", "RankNode"]
