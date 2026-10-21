@@ -143,4 +143,10 @@ def test_e6_the_judge_and_writer_inside_one_block_still_warn() -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         compile_candidate(chain, operators=flow_operators())
 
-    assert _messages(recorded) == [_message("a+b->b", 1)]
+    # product gap b: the block is named by its stage in the user's chain, not by "a+b->b"
+    assert _messages(recorded) == [
+        "Pipeline 'judged': stage 2 (a fanout block) uses the same model 'openrouter/a/b' for its "
+        "judge and its writer: the judge scores the members, and the writer writes the answer, "
+        "so the writer is also the scorer. Give the judge or the writer another model, or keep "
+        "both and ignore this warning."
+    ]
