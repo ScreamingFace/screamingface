@@ -703,3 +703,32 @@ references on `Signal`). 7d–7h are not in this round.
   `paid/_panel.py`, `paid/test_panel_models.py`, `test_fusion_recipe.py`,
   `test_pick_output_url4_fixtures.py`; with `--skip-append-only` ALL GATES GREEN.
   `run_gates.py repo` ALL GATES GREEN.
+
+### 7d review fixes
+
+- **Commits:** `309f59b4e` fix (ArgMax/ArgMin unhashable), `fd2e5a3df` test (the context block
+  subjects as group F rows), `3f726a87c` test (the minor rows), this ledger commit.
+- **Src (finding 5):** `sx.ArgMax`/`sx.ArgMin` set `__hash__ = None` again (a frozen dataclass
+  subclass adds it back), so every step is unhashable. `test_pick_by_signal` checks `hash(pick)`
+  on the surface value; the AIDEV-NOTE is gone.
+- **Group F additions (deleted in 7f with the context rewrite, D7-8):**
+  `test_fusion_block_quorum.py` (whole file: the block side is `fusion_node(...,
+  ReduceNode("context"), quorum=…)` in a Pipeline with the writer stage);
+  `e2e/harness/fusion_golden.py::FusionLaneSpec.build_block` (the same node form, so the FR-2
+  check of `fusion_lane.py::_replay_recipe` and the `"block"` entry of `FORMS` in
+  `e2e/test_fusion_replay.py` can fail again; `fusion_lane.py` puts `tests/` on `sys.path` for
+  `_nodes`); `test_filter.py::test_filter_as_last_stage_is_rejected` rows 2–3 (a Filter
+  `fusion_node` as a Fanout member and as a loop judge, the pre-swap match strings; the surface
+  `_OPEN_BLOCK` rows stay); `test_judge_writer_warning_stages.py` `context-then-writer` (the
+  pre-swap node subject, stages 3 and 4) and `context-then-judge`. The surface subject of the
+  stage-number row stays as the new row `chain-then-judge` (stages 2 and 3), and the evaluation
+  compile test reads it.
+- **Other rows:** `test_judge_writer_warning.py[middle-stage]` pins "stages 2 and 3" (a judge
+  block in stage 2, the same model in stage 3); `test_weighted_median.py` pins the exact "does
+  not declare" refusal of `sx.Fanout(...) >> sx.Median(weights="abc")`;
+  `test_benchmark_answer_rule.py` notes why the `benchmark@1` Median message changed;
+  `test_fusion_quorum.py::test_optional_members_flag_is_removed` also checks the `sx.Fanout`
+  signature and `Pipeline(optional=True)`; `test_lowering.py` LO-0 adds the identity on 5
+  internal node values; `test_band_api.py` docstring names `sf.Gate(..., abstain_if=...)`.
+- **Gates:** `run_gates.py screamingface --base e4d44281c --skip-append-only` ALL GATES GREEN;
+  `run_gates.py repo` ALL GATES GREEN.
