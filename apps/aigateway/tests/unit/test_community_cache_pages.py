@@ -440,3 +440,46 @@ async def test_has_rows_after_says_whether_a_full_page_was_the_last(db) -> None:
         models=(),
         now=_NOW,
     )
+
+
+# --- each batch starts at its cursor in the index (dev pull at ~33 s a page) ----------------------
+
+
+async def _plan(rows: Any) -> str:
+    connection = Tortoise.get_connection("default")
+    _, plan = await connection.execute_query(f"EXPLAIN QUERY PLAN {rows.sql(params_inline=True)}")
+    return " | ".join(str(dict(step)["detail"]) for step in plan)
+
+
+@pytest.mark.asyncio
+async def test_what_follows_a_cursor_is_read_as_index_ranges_that_start_at_it(db) -> None:
+    # WHY: an OR of `updated_at > X` and `updated_at = X AND key_hash > Y` is no index range, so
+    # every batch walked the index from its start and dropped the rows before the cursor —
+    # ~1.4 s a batch 200k rows into dev's cache, where bulk restores stamped ~188k rows with one
+    # time. A range on both columns starts at the cursor (0.7 ms there).
+    cursor = PageCursor(updated_at=_T0, key_hash="a" * 64)
+    eligible = community_pages._eligible((), _NOW)
+
+    ties, later = community_pages._after(eligible, cursor)
+
+    assert "(updated_at=? AND key_hash>?)" in await _plan(ties.order_by("key_hash"))
+    assert "(updated_at>?)" in await _plan(later.order_by("updated_at", "key_hash"))
+
+
+@pytest.mark.asyncio
+async def test_a_tie_run_that_ends_inside_a_batch_is_finished_before_later_rows(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(community_pages, "BATCH_ROWS", 3)
+    for key in "abcde":
+        await _row(key, updated_at=_T0)
+    for key in "fg":
+        await _row(key, updated_at=_T0 + timedelta(seconds=1))
+    await _row("0", updated_at=_T0 + timedelta(seconds=2))
+
+    batches = [
+        [row["key_hash"][0] for row in batch]
+        async for batch in iter_page(after=None, limit=100, models=(), now=_NOW)
+    ]
+
+    assert batches == [["a", "b", "c"], ["d", "e", "f"], ["g", "0"]]

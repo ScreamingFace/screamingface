@@ -118,25 +118,38 @@ def _eligible(models: Sequence[str], now: datetime) -> QuerySet[RequestCacheEntr
     return rows.filter(model__in=list(models)) if models else rows
 
 
-def _after(rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None) -> QuerySet:
+def _after(
+    rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None
+) -> tuple[QuerySet[RequestCacheEntry], ...]:
+    """What follows ``cursor``, in order: the rest of its tie run, then every later time.
+
+    INVARIANT: ties on updated_at (a restore stamps many rows with one time) split by key_hash,
+    so a page boundary inside a run of equal times skips and repeats nothing.
+    WHY two ranges, not ``updated_at > X OR (updated_at = X AND key_hash > Y)``: that OR is no
+    index range, so every batch walked the ``(updated_at, key_hash)`` index from its start and
+    dropped the rows before the cursor (~1.4 s a batch 200k rows into dev's cache, where bulk
+    restores stamped ~188k rows with one time). Each part here starts at the cursor (~1 ms).
+    Tortoise has no row-value comparison, which would be one range.
+    """
     if cursor is None:
-        return rows
-    # INVARIANT: ties on updated_at (a restore stamps many rows with one time) split by key_hash,
-    # so a page boundary inside a run of equal times skips and repeats nothing.
-    return rows.filter(
-        Q(updated_at__gt=cursor.updated_at)
-        | Q(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash)
+        return (rows,)
+    return (
+        rows.filter(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash),
+        rows.filter(updated_at__gt=cursor.updated_at),
     )
 
 
 async def count_rows(*, after: PageCursor | None, models: Sequence[str], now: datetime) -> int:
     """How many rows a walk from ``after`` would return (approximate once writes continue)."""
-    return await _after(_eligible(models, now), after).count()
+    return sum([await part.count() for part in _after(_eligible(models, now), after)])
 
 
 async def has_rows_after(*, after: PageCursor, models: Sequence[str], now: datetime) -> bool:
     """Whether any eligible row follows ``after`` — so a full page knows whether it was the last."""
-    return await _after(_eligible(models, now), after).exists()
+    for part in _after(_eligible(models, now), after):
+        if await part.exists():
+            return True
+    return False
 
 
 def _within_bytes(sizes: list[dict[str, Any]]) -> int:
@@ -152,12 +165,16 @@ def _within_bytes(sizes: list[dict[str, Any]]) -> int:
 async def _next_keys(
     eligible: QuerySet[RequestCacheEntry], cursor: PageCursor | None, want: int
 ) -> list[dict[str, Any]]:
-    return (
-        await _after(eligible, cursor)
-        .order_by(*_ORDER)
-        .limit(want)
-        .values("key_hash", "updated_at", "response_size_bytes")
-    )
+    keys: list[dict[str, Any]] = []
+    for part in _after(eligible, cursor):
+        keys += (
+            await part.order_by(*_ORDER)
+            .limit(want - len(keys))
+            .values("key_hash", "updated_at", "response_size_bytes")
+        )
+        if len(keys) == want:
+            break
+    return keys
 
 
 def _exactly(keys: Sequence[dict[str, Any]]) -> Q:
