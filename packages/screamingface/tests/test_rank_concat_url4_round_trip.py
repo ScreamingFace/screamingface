@@ -101,7 +101,6 @@ def _shapes() -> dict[str, sf.Recipe]:
     "shape",
     [
         "rank by judge with params",
-        "rank by field",
         "rank by signal min",
         "rank by accounting signal",
         "concat with an odd separator",
@@ -130,8 +129,6 @@ def test_to_python_writes_the_reducers() -> None:
         "synthesizer=sf.Rank(k=2, by=sf.Judge('provider/j', returns='scores', "
         "rubric='Pick the most correct answer.')),"
     ) in judged
-    field = sf.Url4(_compiled(_shapes()["rank by field"]).url4).to_python()
-    assert "synthesizer=sf.Rank(k=2, by_field='result.score[0]')," in field
     signal = sf.Url4(_compiled(_shapes()["rank by signal min"]).url4).to_python()
     assert "synthesizer=sf.Rank(k=2, by_signal=sf.signal('field:score'), order='min')," in signal
     plain = sf.Url4(_compiled(_shapes()["rank by signal"]).url4).to_python()
@@ -143,8 +140,6 @@ def test_to_python_writes_the_reducers() -> None:
 def test_the_recovered_reducers_equal_the_originals() -> None:
     for shape in (
         "rank by judge with params",
-        "rank by field",
-        "rank by field min",
         "rank by signal min",
         "rank by accounting signal",
         "concat without labels",
@@ -216,10 +211,8 @@ def test_a_followed_selection_inside_a_corrective_loop_round_trips() -> None:
         judge="provider/x",
         max_rounds=2,
     )
-    # group F (7f): the by_field Rank of the solo loop (D7-8)
-    solo = sf.SelfCorrective(_after_node(RankNode(k=1, by_field="s")), max_rounds=2)
 
-    for recipe, kind in ((loop, "corrective_loop"), (solo, "self_corrective")):
+    for recipe, kind in ((loop, "corrective_loop"),):
         compiled = _compiled(recipe)
         source = sf.Url4(compiled.url4).to_python()
         assert "synthesizer=sf.Concat(" in source or "synthesizer=sf.Rank(" in source

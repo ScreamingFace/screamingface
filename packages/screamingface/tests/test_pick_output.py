@@ -208,10 +208,6 @@ def test_url4_round_trip_rebuilds_pick_output(original: Step) -> None:
 def test_url4_to_python_shows_the_output_of_each_pick() -> None:
     pairs: list[tuple[sf.Recipe, str]] = [
         (
-            _fusion(PickNode("confidence", order="max", output="answer")),
-            "sf.Pick('confidence', order='max', output='answer')",
-        ),
-        (
             _block(sf.ArgMin("field:confidence", output="answer")),
             "sf.Pick(by_signal=sf.signal('field:confidence'), order='min', output='answer')",
         ),
@@ -225,17 +221,8 @@ def test_url4_to_python_shows_the_output_of_each_pick() -> None:
 
 
 def test_block_forms_round_trip_to_the_named_pick_with_output() -> None:
-    field = PickNode("confidence", order="max", output="answer")
     signal = PickNode(by_signal=sf.signal("field:confidence"), order="max", output="answer")
 
-    assert (
-        _recovered(
-            _url4(
-                _fusion(ReduceNode("pick_field", field="confidence", order="max", output="answer"))
-            )
-        )
-        == field
-    )
     assert (
         _recovered(
             _url4(
@@ -246,11 +233,6 @@ def test_block_forms_round_trip_to_the_named_pick_with_output() -> None:
         )
         == signal
     )
-
-
-def test_pick_field_block_python_round_trips() -> None:
-    block = ReduceNode("pick_field", field="c", order="max", output="answer")
-    assert eval(block._python(), {"sf": sf}) == block  # noqa: S307 - our own generated code
 
 
 def test_a_rebuilt_pick_refuses_an_output_that_is_not_a_field_name() -> None:

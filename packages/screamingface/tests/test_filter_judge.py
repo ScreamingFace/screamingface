@@ -207,29 +207,3 @@ def test_url4_round_trip_rebuilds_a_judge_filter_and_filter_block(shape: str) ->
     assert type(stage.synthesizer) is FilterNode
     assert stage.synthesizer == _filter_by_judge()
     assert compile_candidate(recovered, operators=flow_operators()).url4 == url4
-
-
-def test_filter_block_and_repr_rebuild_the_judge_filter() -> None:
-    # WHY a separate test: the round-trip test above is already at the statement limit
-    # group F (7f): the filter block, the Filter judge= parameter and _python() are deleted code
-    judge = JudgeNode("provider/j", returns="scores", rubric=RUBRIC)
-    block = ReduceNode("filter", where=JUDGED, judge=judge)
-    assert dict(block.options) == {"where": JUDGED, "judge": judge}
-    assert _url4(block) == _url4(_filter_by_judge())
-    assert eval(block._python(), {"sf": _NODES_AS_SF}) == block  # noqa: S307
-    recovered_block = _recovered(_url4(block))
-    assert isinstance(recovered_block, sf.Pipeline)
-    recovered_stage = recovered_block.stages[0]
-    assert isinstance(recovered_stage, FusionNode)
-    assert type(recovered_stage.synthesizer) is FilterNode
-
-    assert repr(_filter_by_judge()) == (
-        "Filter(where=sf.signal('score:judge') >= 7.0, "
-        "judge=Judge('provider/j', returns='scores', rubric='Score each draft.'))"
-    )
-    assert eval(_filter_by_judge()._python(), {"sf": _NODES_AS_SF}) == _filter_by_judge()  # noqa: S307
-
-    # WHY a hand edit: the judge call is there, but the where no longer reads score:judge
-    bad = _url4(_filter_by_judge()).replace('"key":"score:judge"', '"key":"field:confidence"')
-    with pytest.raises(ValueError, match="filter spec this SDK version cannot rebuild"):
-        sf.Url4(bad).to_python()

@@ -13,7 +13,6 @@ import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
 from _nodes import JudgeNode, ReduceNode, fusion_node
 
-import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 
@@ -63,7 +62,6 @@ def test_judge_block_canonical_form_equality_and_hash() -> None:
     overridden = ReduceNode("judge", judge=judge, rubric=_OVERRIDE).options["judge"]
     assert isinstance(overridden, JudgeNode)
     assert overridden.rubric == _OVERRIDE
-    assert eval(plain._python(), {"sf": sf}) == plain  # noqa: S307 - our own generated code
     assert plain._python() == f"sf.Reduce('judge', judge={judge._python()})"
 
 

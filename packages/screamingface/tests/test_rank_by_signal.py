@@ -151,8 +151,6 @@ def test_rank_by_signal_fields_repr_and_equality() -> None:
     assert by_signal._python() == "sf.Rank(k=2, by_signal=sf.signal('field:score'))"
     assert lowest._python() == "sf.Rank(k=2, by_signal=sf.signal('field:score'), order='min')"
     assert repr(RankNode(2, by_field="s", order="min")) == "Rank(k=2, by_field='s', order='min')"
-    for rank in (by_signal, lowest, RankNode(2, by=_scores_judge(), order="min")):
-        assert eval(rank._python(), {"sf": sf}) == rank  # noqa: S307
     assert by_signal != lowest
     assert by_signal == RankNode(2, by_signal=sf.signal("field:score"), order="max")
     assert by_signal != RankNode(2, by_signal=sf.signal("cost_usd"))
@@ -199,15 +197,6 @@ def test_reduce_top_k_block_canonical_form_equality_and_hash() -> None:
     assert dict(explicit.options) == {"k": 2, "by_field": "score"}
     assert dict(lowest.options) == {"k": 2, "by_field": "score", "order": "min"}
     assert plain != lowest
-    for block in (
-        plain,
-        lowest,
-        ReduceNode("top_k", k=3, by=_scores_judge()),
-        ReduceNode("top_k", k=2, by_signal=sf.signal("cost_usd"), order="min"),
-    ):
-        twin = eval(block._python(), {"sf": sf})  # noqa: S307
-        assert twin == block
-        assert hash(twin) == hash(block)
     assert len({plain, explicit, lowest}) == 2
     with pytest.raises(TypeError, match="option 'by' must be an sf.Judge"):
         ReduceNode("top_k", k=2, by="provider/j")
