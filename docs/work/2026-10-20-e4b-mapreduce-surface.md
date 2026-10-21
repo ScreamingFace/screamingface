@@ -998,3 +998,11 @@ references on `Signal`). 7d–7h are not in this round.
 - **Gates (HEAD `bb8a420df`):** `run_gates.py screamingface --base e4d44281c --skip-append-only`
   ALL GATES GREEN (coverage floor 95 met); `run_gates.py repo --base e4d44281c
   --skip-append-only` ALL GATES GREEN. Engine not touched.
+
+## Owner approval of the unit 7 pinned edits (2026-10-21)
+
+The owner approved all 147 pinned test and data files of unit 7 (145 edited, 2 deleted), and the
+group F test deletions by id, as listed in
+[2026-10-20-e4b-mapreduce-surface-owner-list-unit7.md](2026-10-20-e4b-mapreduce-surface-owner-list-unit7.md).
+The main session writes the blob-exact entries for unit 1 and unit 7 into
+`.claude/test-change-approvals/OME-1653.json` when the stack is final (after unit 8).
