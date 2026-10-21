@@ -106,6 +106,35 @@ per-run file count and aggregate byte limits; and the typed failures for each (b
 auth failure, timeout, too large). Alternatively it may delegate ingestion to a constrained fetch
 service that owns this policy.
 
+### F1b — `https://` file sources stay in v1, behind one destination guard (`OME-1544`)
+
+**Decision** (owner, 2026-10-21, after F1). F1 defers **`url4://` remote blobs**, meaning node-to-node
+blob transfer. It does **not** remove plain `https://` sources such as `(img:src=https://…/a.png)`. In v1
+these are fetched by the evaluating node through **one destination guard in the url4 HTTP transport**.
+Every source fetch passes through that guard: today's text path and #1478's `fetch_bytes` alike. The
+guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
+
+**Guard rules (normative):**
+- **Schemes:** `https` only by default; `http` is a configuration switch, off by default.
+- **Address check:** DNS is resolved first. Loopback, private (RFC 1918, `fc00::/7`), link-local
+  (`169.254/16` including metadata `169.254.169.254`, `fe80::/10`), CGNAT `100.64/10`, unspecified,
+  multicast and reserved ranges are refused, as are IPv4-mapped IPv6 forms of any of these.
+- **Pinning:** the connection goes to the vetted IP, keeping SNI and `Host`, so a second DNS answer
+  cannot redirect it (no rebinding).
+- **Redirects:** every hop is re-checked against the same rules. At most 3 hops (configurable). A hop
+  from `https` to `http` is refused.
+- **Time:** a connect timeout plus one **total** deadline for the whole fetch, redirects included.
+- **Size:** a streaming byte cap that aborts mid-stream. The cap counts decoded bytes.
+- **Escape hatch:** loopback may be allowed only through explicit configuration for tests and dev; off
+  by default.
+- **Errors and logs:** each refusal raises a typed `x.` error (see §4). Response bodies are never logged.
+
+**Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
+Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
+time (`OME-1271`) and never fetched at run time. Media-type validation and per-run file-count and byte
+limits follow the attachment rules in F2/F3. Node-to-node authentication applies only to F1's deferred
+remote blobs.
+
 ### F2 — Attachments are a side-channel; the payload stays `str`
 
 **Decision.** The run context carries an ordered **`attachments[]`** of blob refs:
@@ -185,6 +214,8 @@ history.
    - **url4 ingress.** A `src=` binding carrying `/blob/sha256/<hex>` or `blob:sha256/<hex>` is resolved
      at the evaluating node against the local run store (§5) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1).
+     An `https://` source is fetched through the url4 transport's destination guard (F1b) and, when it
+     returns a non-text type, is hashed into the run store and appended to `attachments[]` like a local blob.
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
    `data:` URI); that is the only shape the gateway sees. The gateway never fetches.
@@ -213,6 +244,10 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 |---|---|---|---|---|
 | `source_not_found` | url4 node resolver | per Spec C §13.2.5 | permanent | C5; also a digest outside the tenant + run scope (F3) |
 | `x.remote_blob_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1; every `url4://` blob ref; raised before any network I/O |
+| `x.source_destination_blocked` | url4 HTTP transport guard | 422 (proposed) | permanent | F1b; disallowed scheme, refused address range on any hop, or `https`→`http` downgrade; `OME-1704` |
+| `x.source_redirect_limit` | url4 HTTP transport guard | 422 (proposed) | permanent | F1b; more than the configured hop limit (default 3) |
+| `x.source_too_large` | url4 HTTP transport guard | 413 (proposed) | permanent | F1b; streaming cap on decoded bytes, aborted mid-stream |
+| `x.source_timeout` | url4 HTTP transport guard | 504 (proposed) | retryable | F1b; connect timeout or the total deadline across all hops |
 | `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); run failure at read | permanent | F3; a mismatch at read is store corruption and is logged as such |
 | `unsupported_content_type` | engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
