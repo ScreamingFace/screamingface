@@ -194,3 +194,37 @@ def test_long_identifier_runs_redact_in_linear_time() -> None:
         redact(blob)
         assert time.perf_counter() - started < 1.0
     assert "v" not in redact("x" * 60 + "_key=v").split("=", 1)[1]
+    # Re-review finding 1: no name-length cap — a 100 KB name is still masked, still linear.
+    for blob in ("x" * 100_000 + "_key=v4lue", "a-" * 50_000 + "token: v4lue"):
+        started = time.perf_counter()
+        masked = redact(blob)
+        assert time.perf_counter() - started < 1.0
+        assert "v4lue" not in masked
+        assert masked.endswith(MASK)
+
+
+@pytest.mark.parametrize("length", [64, 65, 66, 200, 4096])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "{name}_key={value}",
+        "{name}_API_KEY={value}",
+        "{name}-api-key: {value}",
+        "{name}_token = '{value}'",
+        '{{"{name}_client_secret": "{value}"}}',
+        "{name}PASSWORD={value}",
+    ],
+)
+def test_secret_names_of_any_length_are_masked(length: int, shape: str) -> None:
+    """Re-review finding 1: a name prefix past the old 64-char cap bypassed the redactor."""
+    text = shape.format(name="N" * length, value=OPAQUE)
+    masked = redact(text)
+    assert OPAQUE not in masked
+    assert MASK in masked
+    assert redact(masked) == masked
+
+
+@pytest.mark.parametrize("length", [65, 4096])
+def test_long_non_secret_names_are_left_alone(length: int) -> None:
+    for text in (f"{'n' * length}_max_tokens=256", f"{'n' * length}_keys=3", f"{'n' * length}=1"):
+        assert redact(text) == text

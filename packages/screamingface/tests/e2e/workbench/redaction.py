@@ -49,9 +49,31 @@ _SECRET_NAME: Final = r"(?:key|token|secret|password|passwd|pwd|credentials?|aut
 # WHY bare `key` is excluded from assignments (but not from `?key=` queries, Google's API-key
 # parameter): the gateway logs `key=<cache key>` on every cache hit, and masking it would blur
 # the evidence. A compound name (`api_key`, `SECRET_KEY`, `apikey`, `x-api-key`) still matches.
+#
+# WHY the secret word is tested as a SUFFIX by lookbehinds after one greedy `[\w-]+`, with no
+# length cap: a capped prefix (`[\w-]{0,64}token`) let a 65-char name walk past the redactor
+# (re-review finding 1). The run is consumed once; the separator can never match a `[\w-]`
+# char, so backtracking only gives back chars of that same run — linear in its length. Each
+# lookbehind is fixed-width (`re` needs that); `[\w-]key` keeps bare `key` out.
 _ASSIGNED_NAME: Final = (
-    r"(?:[\w-]{0,64}(?:token|secret|password|passwd|pwd|credentials?|auth|sig|signature)"
-    r"|[\w-]{1,64}key)"
+    r"[\w-]+(?:"
+    + "|".join(
+        f"(?<={word})"
+        for word in (
+            "token",
+            "secret",
+            "password",
+            "passwd",
+            "pwd",
+            "credential",
+            "credentials",
+            "auth",
+            "sig",
+            "signature",
+            r"[\w-]key",
+        )
+    )
+    + ")"
 )
 _NOT_MASKED: Final = rf"(?!{re.escape(MASK)})"
 # `"name": `, `name=`, `\"name\": ` (JSON inside a JSON string), `'name': ` (a repr).
@@ -74,8 +96,8 @@ _QUERY: Final = re.compile(rf"(?i)([?&][\w.-]*{_SECRET_NAME}=){_NOT_MASKED}[^&#\
 _AUTHORIZATION: Final = re.compile(
     rf"(?i)\b((?:proxy-)?authorization){_SEPARATOR}{_NOT_MASKED}(?:{_QUOTED}|\S[^\r\n]*)"
 )
-# WHY `(?<![\w-])` + a 64-char cap instead of `\b`: `\b` restarts the name at every `-` boundary
-# of a long `[\w-]` run (urlsafe base64), which made matching quadratic (16 KB took ~7 s).
+# WHY `(?<![\w-])` instead of `\b`: `\b` restarts the name at every `-` boundary of a long
+# `[\w-]` run (urlsafe base64), which made matching quadratic (16 KB took ~7 s).
 # NAME=value, NAME: value, 'name': 'value', "name": "value", name='value', name=b"value".
 _ASSIGNMENT: Final = re.compile(
     rf"(?i)(?<![\w-])({_ASSIGNED_NAME}){_SEPARATOR}{_NOT_MASKED}"
