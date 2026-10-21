@@ -383,7 +383,7 @@ class CandidateResult:
         reproduction: Reproduction | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Candidate benchmark must be a sf.BenchmarkInfo")
         _require_reproduction(reproduction)
         _check_cache_counts(cache_hits, cache_unpriced_hits)
         selected_copy, selected_capture = _capture(pinned_cache, capture_status)
@@ -619,7 +619,7 @@ class Report:
         candidates: Sequence[CandidateResult],
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Report benchmark must be a sf.BenchmarkInfo")
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
         for candidate in selected_candidates:

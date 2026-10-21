@@ -195,7 +195,7 @@ def test_fusion_rejects_unpublished_recipe_extensions() -> None:
         def _recipe_marker(self) -> None:
             return None
 
-    with pytest.raises(TypeError, match="an sf.Model or an sf.Pipeline"):
+    with pytest.raises(TypeError, match="a sf.Model or a sf.Pipeline"):
         _ = sf.Fanout([CustomRecipe(), sf.Model("provider/model")]) >> sf.Synthesize(
             "provider/synth"
         )
@@ -204,7 +204,7 @@ def test_fusion_rejects_unpublished_recipe_extensions() -> None:
 def test_fusion_rejects_unsupported_recipe_synthesizers() -> None:
     with pytest.raises(
         TypeError,
-        match=re.escape("Synthesize model must be a model route, an sf.Model or an sf.Pipeline"),
+        match=re.escape("sf.Synthesize model must be a model route, a sf.Model or a sf.Pipeline"),
     ):
         _ = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
             cast(Any, object())

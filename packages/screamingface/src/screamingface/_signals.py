@@ -177,7 +177,7 @@ class _Comparison:
         return hash(self._key())
 
     def __bool__(self) -> bool:
-        raise TypeError("a signal comparison is an sf.Filter predicate, not a bool")
+        raise TypeError("a signal comparison is a sf.Filter predicate, not a bool")
 
     def __repr__(self) -> str:
         return f"signal({self.signal.key!r}) {_SYMBOLS[self.cmp]} {self.value!r}"

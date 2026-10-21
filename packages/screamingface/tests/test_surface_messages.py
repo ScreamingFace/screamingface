@@ -26,8 +26,11 @@ from types import SimpleNamespace
 import pytest
 from _combine_flow_fixtures import flow_operators
 from _nodes import (
+    ConcatNode,
     FilterNode,
     JudgeNode,
+    MeanNode,
+    MedianNode,
     MergeNode,
     PickNode,
     RankNode,
@@ -409,3 +412,168 @@ def test_a_fanout_member_of_a_report_reads_as_fanout() -> None:
 
     assert "<span class='sf-member__k'>fanout</span>" in html
     assert member.kind == "fusion"
+
+
+# ------------------------------------------------- the final review fixes of unit 7 (7f-7h)
+# Each runtime site names the public step as sf.<Step>; the article before "sf." is "a".
+
+_RUBRIC = "Score each answer."
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        (lambda: sf.Fanout(_MEMBERS) >> sf.Vote(weights=[1, 2]), "sf.Vote"),
+        (lambda: sf.Fanout(_MEMBERS) >> sf.Median(weights=[1, 2]), "sf.Median"),
+        (lambda: sf.Fanout(_MEMBERS) >> sf.Mean(weights=[1, 2]), "sf.Mean"),
+        (lambda: fusion_node(_MEMBERS, VoteNode(weights=[1, 2])), "sf.Vote"),
+        (lambda: fusion_node(_MEMBERS, MedianNode(weights=[1, 2])), "sf.Median"),
+        (lambda: fusion_node(_MEMBERS, MeanNode(weights=[1, 2])), "sf.Mean"),
+    ],
+    ids=["vote", "median", "mean", "vote-node", "median-node", "mean-node"],
+)
+def test_a_weight_count_names_the_step(build: Callable[[], object], expected: str) -> None:
+    # S/reducer.py _check_members: f"sf.{self._step_name()}", never the wire name ("vote")
+    assert _message(build) == f"{expected} has 2 weights for 3 members"
+
+
+def test_the_combine_spec_weight_count_names_the_step() -> None:
+    # S/_evaluation/combine_spec.py: f"sf.{reducer._step_name()}", never reducer.name
+    from screamingface._evaluation.combine_spec import combine_spec_text
+
+    assert (
+        _message(
+            lambda: combine_spec_text(
+                MedianNode(weights=[1, 2]), member_count=3, operators=flow_operators()
+            )
+        )
+        == "sf.Median has 2 weights for 3 members"
+    )
+
+
+_NO_JUDGE_WEIGHTS = (
+    "{step} does not read a judge's scores as weights; use sf.Vote(weights='score:judge') or "
+    "sf.ArgMax('score:judge')"
+)
+
+
+@pytest.mark.parametrize(
+    ("build", "step"),
+    [
+        (
+            lambda: (
+                sf.Fanout(_MEMBERS)
+                >> sf.Judge("prov/j", rubric=_RUBRIC)
+                >> sf.Median(weights="score:judge")
+            ),
+            "sf.Median",
+        ),
+        (
+            lambda: (
+                sf.Fanout(_MEMBERS)
+                >> sf.Judge("prov/j", rubric=_RUBRIC)
+                >> sf.Mean(weights=sf.signal("score:judge"))
+            ),
+            "sf.Mean",
+        ),
+        (lambda: sf.Fanout(_MEMBERS) >> sf.Median(weights="score:judge"), "sf.Median"),
+        (lambda: MeanNode(weights=sf.signal("score:judge")), "sf.Mean"),
+        (
+            lambda: ReduceNode(
+                "median", extract=sf.Extract("last_number"), weights=sf.signal("score:judge")
+            ),
+            "sf.Median",
+        ),
+    ],
+    ids=["median-after-judge", "mean-after-judge", "median-no-judge", "mean-node", "median-block"],
+)
+def test_ju1_a_median_or_mean_by_judge_scores_points_at_vote_and_argmax(
+    build: Callable[[], object], step: str
+) -> None:
+    # S/reducer.py _refuse_judge_weights: the user may have written a judge, so the message never
+    # says "it has no judge"
+    message = _message(build)
+
+    assert message == _NO_JUDGE_WEIGHTS.format(step=step)
+    assert "has no judge" not in message
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        (
+            lambda: sf.Median(select="middle"),
+            "sf.Median select must be 'nearest' or 'value', not 'middle'",
+        ),
+        (
+            lambda: sf.Mean(weights=[True]),
+            "sf.Mean weights must be a sequence of numbers, one per member, or a sf.signal",
+        ),
+        (lambda: sf.Rank(0, by="cost_usd"), "sf.Rank k must be between 1 and 256"),
+        (lambda: sf.Concat(""), "sf.Concat separator must not be empty"),
+        (lambda: sf.Merge({}), "sf.Merge needs at least one field"),
+        (
+            lambda: sf.Fanout(["prov/a", sf.Model("prov/b", prompt="Hi.")], prompt="Go."),
+            "sf.Fanout prompt= sets the member prompts: member 2 already has one",
+        ),
+        (lambda: sf.Fanout([]), "a sf.Fanout requires at least one member"),
+        (
+            lambda: sf.Fanout(["prov/a", 7]),  # type: ignore[list-item]
+            "sf.Fanout member must be a model route, a sf.Model or a sf.Pipeline",
+        ),
+    ],
+    ids=[
+        "median-select",
+        "mean-weights",
+        "rank-k",
+        "concat-separator",
+        "merge-fields",
+        "fanout-prompt",
+        "fanout-empty",
+        "fanout-member",
+    ],
+)
+def test_a_step_label_in_a_message_is_sf_step(build: Callable[[], object], expected: str) -> None:
+    assert _message(build) == expected
+
+
+def test_no_message_writes_an_before_sf() -> None:
+    # one article before "sf.": "a sf.Filter", never "an sf.Filter"
+    hits = [site for site in _message_sites() if re.search(r"\b[Aa]n sf\.", site.text)]
+
+    assert not hits, hits
+
+
+def test_a_candidate_that_is_not_a_recipe_reads_a_sf() -> None:
+    # S/_evaluation/candidate.py
+    assert (
+        _message(lambda: compile_candidate(7, operators=flow_operators()))  # type: ignore[arg-type]
+        == "candidate must be a sf.Model or a sf.Pipeline"
+    )
+
+
+@pytest.mark.parametrize(
+    ("narrow", "expected"),
+    [
+        (
+            lambda: JudgeNode("prov/j", returns="scores", rubric=_RUBRIC),
+            "sf.ArgMax is not a narrow step",
+        ),
+        (
+            lambda: JudgeNode("prov/j", returns="scores", rubric=_RUBRIC, order="min"),
+            "sf.ArgMin is not a narrow step",
+        ),
+        (lambda: MedianNode(), "sf.Median is not a narrow step"),
+        (lambda: ConcatNode(), "sf.Concat is not a narrow step"),
+    ],
+    ids=["scores-judge-max", "scores-judge-min", "median-node", "concat-node"],
+)
+def test_the_step_name_of_a_node_is_its_step(narrow: Callable[[], Reducer], expected: str) -> None:
+    # S/reducer.py Reducer._step_name: the class name without "Node", or the node's own override
+    assert _message(lambda: _narrowed(VoteNode(), (narrow(),))) == expected
+
+
+def test_no_node_keeps_a_second_step_name_mechanism() -> None:
+    # _step_name() is the one mechanism; the _public_name class field is gone
+    assert not hasattr(Reducer, "_public_name")
+    assert not any(hasattr(node, "_public_name") for node in (VoteNode, JudgeNode, PickNode))

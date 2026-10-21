@@ -213,6 +213,18 @@ def _narrowed[R: Reducer](reducer: R, narrow: tuple[Reducer, ...]) -> R:
     return copied
 
 
+def _refuse_judge_weights(signal: Signal, step: str) -> None:
+    """Refuse ``score:judge`` as the weights of a median or a mean (JU-1): the Engine reads a
+    judge's scores only through a vote or a judge pick. ``step`` is ``sf.Median`` or ``sf.Mean``.
+    WHY no "it has no judge": the user may have written a ``sf.Judge`` before the step."""
+
+    if signal.key == JUDGE_SIGNAL:
+        raise ValueError(
+            f"{step} does not read a judge's scores as weights; use "
+            f"sf.Vote(weights={JUDGE_SIGNAL!r}) or sf.ArgMax({JUDGE_SIGNAL!r})"
+        )
+
+
 def _refuse_judge_signal(signal: Signal, label: str, use: str) -> None:
     """Refuse ``score:judge`` on a reducer that has no judge: the Engine reads it strictly (GE15),
     so the case would fail after the member calls are paid. ``use`` names what to do instead."""
@@ -240,19 +252,15 @@ class Reducer(ABC):
     # no public signature or field moves. Equality reads it: equal values compile to equal bytes.
     _carries_narrow: ClassVar[bool] = False
     _narrow: tuple[Reducer, ...]
-    # The step name a message shows as ``sf.<name>`` (``_step_name``): each node class names the
-    # step it lowers from; any other reducer shows its class name.
-    _public_name: ClassVar[str]
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        if "_public_name" not in vars(cls):
-            cls._public_name = cls.__name__
 
     def _step_name(self) -> str:
-        """The step a message names as ``sf.<name>``: the step this node lowers from."""
+        """The step a message names as ``sf.<name>``: the step this node lowers from.
 
-        return self._public_name
+        The one mechanism: the class name without ``Node`` (``VoteNode`` is ``Vote``); a node that
+        lowers from more than one step overrides it. Any other reducer shows its class name.
+        """
+
+        return type(self).__name__.removesuffix("Node")
 
     @abstractmethod
     def _plan(self) -> _ReducerPlan:
@@ -301,10 +309,8 @@ _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 # The select ops of sf.Median and sf.Mean: the nearest member's text, or the number itself.
 _NUMERIC_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
 
+
 # What sf.Mean tells an author who passed sf.signal("score:judge") (MN-E4).
-_MEAN_SIGNAL_USE = "a JSON field signal such as sf.signal('field:confidence')"
-
-
 def _op_name(op: str | None) -> str | None:
     return None if op is None else op.split("@", 1)[0]
 
@@ -442,7 +448,7 @@ def _weight(item: object, label: str) -> float:
 
 
 def _weights_type_error(label: str) -> TypeError:
-    return TypeError(f"{label} must be a sequence of numbers, one per member, or an sf.signal")
+    return TypeError(f"{label} must be a sequence of numbers, one per member, or a sf.signal")
 
 
 def _check_weight_count(name: str, weights: tuple[float, ...] | Signal | None, count: int) -> None:
@@ -474,7 +480,7 @@ def _check_judge_pair(
     from screamingface.judge import JudgeNode
 
     if not isinstance(judge, JudgeNode):
-        raise TypeError(f"{label} judge must be an sf.Judge")
+        raise TypeError(f"{label} judge must be a sf.Judge")
     if judge.returns != "scores":
         raise ValueError(
             f"{label} judge must be a sf.Judge, not a sf.JudgePick: "
@@ -494,7 +500,7 @@ def _check_judge_weights(weights: object, judge: object, label: str) -> None:
 
 
 def _vote_gate(gate: object) -> GateNode | None:
-    """``gate`` when it is None or an sf.Gate, else TypeError (GA-E3)."""
+    """``gate`` when it is None or a sf.Gate, else TypeError (GA-E3)."""
 
     if gate is None:
         return None
@@ -502,7 +508,7 @@ def _vote_gate(gate: object) -> GateNode | None:
     from screamingface.gate import GateNode
 
     if not isinstance(gate, GateNode):
-        raise TypeError("Vote gate must be an sf.Gate")
+        raise TypeError("sf.Vote gate must be a sf.Gate")
     return gate
 
 
@@ -677,7 +683,6 @@ class VoteNode(Reducer):
     verifier check and takes only None.
     """
 
-    _public_name: ClassVar[str] = "Vote"
     name: str
     extract: str
     normalize: str | None
@@ -704,9 +709,11 @@ class VoteNode(Reducer):
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "normalize", _vote_normalize(extract, normalize))
         object.__setattr__(
-            self, "weights", None if weights is None else _weights_option(weights, "Vote weights")
+            self,
+            "weights",
+            None if weights is None else _weights_option(weights, "sf.Vote weights"),
         )
-        _check_judge_weights(self.weights, judge, "Vote")
+        _check_judge_weights(self.weights, judge, "sf.Vote")
         object.__setattr__(self, "judge", judge)
         object.__setattr__(self, "gate", _vote_gate(gate))
         _check_verify(verify)
@@ -733,7 +740,7 @@ class VoteNode(Reducer):
         )
 
     def _check_members(self, count: int) -> None:
-        _check_weight_count(self.name, self.weights, count)
+        _check_weight_count(f"sf.{self._step_name()}", self.weights, count)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> VoteNode:
@@ -795,10 +802,8 @@ class VoteNode(Reducer):
     __hash__: ClassVar[Any] = None
 
 
-_MEDIAN_JUDGE_USE = "authored weights or another signal, such as sf.signal('field:confidence')"
-
 # sf.Median and sf.Mean share these helpers: the same options, plan, url4 rebuild and repr. Only
-# the name, the default select, the select-choices text and the score:judge advice are different.
+# the name, the default select and the select-choices text are different.
 
 
 def _numeric_weights(
@@ -808,12 +813,11 @@ def _numeric_weights(
     weights: Sequence[float] | Signal | None,
     *,
     selects: str,
-    judge_use: str,
 ) -> tuple[float, ...] | Signal | None:
     """Check the options of sf.Median or sf.Mean (``label``) and return the checked weights.
 
-    ``selects`` is the select choices as the error names them. ``judge_use`` is what to use in
-    place of a score:judge weight: a Median or a Mean has no judge.
+    ``selects`` is the select choices as the error names them. A score:judge weight is refused
+    (JU-1): a median or a mean does not read a judge's scores.
     """
 
     _Step(extract)
@@ -824,10 +828,10 @@ def _numeric_weights(
             "(the benchmark brings its own normalizer)"
         )
     if _op_name(select) not in _NUMERIC_SELECTS:
-        raise ValueError(f"{label} select must be {selects}, not {select!r}")
-    checked = None if weights is None else _weights_option(weights, f"{label} weights")
+        raise ValueError(f"sf.{label} select must be {selects}, not {select!r}")
+    checked = None if weights is None else _weights_option(weights, f"sf.{label} weights")
     if isinstance(checked, Signal):
-        _refuse_judge_signal(checked, label, judge_use)
+        _refuse_judge_weights(checked, f"sf.{label}")
     return checked
 
 
@@ -884,7 +888,6 @@ class MedianNode(Reducer):
     select=...)``.
     """
 
-    _public_name: ClassVar[str] = "Median"
     name: str
     extract: str
     select: str
@@ -905,7 +908,6 @@ class MedianNode(Reducer):
             select,
             weights,
             selects="'nearest' or 'value'",
-            judge_use=_MEDIAN_JUDGE_USE,
         )
         object.__setattr__(self, "name", "median")
         object.__setattr__(self, "_narrow", ())
@@ -917,7 +919,7 @@ class MedianNode(Reducer):
         return _numeric_plan("median", self.extract, self.select, self.weights)
 
     def _check_members(self, count: int) -> None:
-        _check_weight_count(self.name, self.weights, count)
+        _check_weight_count(f"sf.{self._step_name()}", self.weights, count)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> MedianNode:
@@ -938,7 +940,6 @@ class MeanNode(Reducer):
     JSON field answer, use ``sf.Reduce("mean", extract=sf.Extract("field", path=...))``.
     """
 
-    _public_name: ClassVar[str] = "Mean"
     name: str
     extract: str
     select: str
@@ -959,7 +960,6 @@ class MeanNode(Reducer):
             select,
             weights,
             selects="'value' or 'nearest'",
-            judge_use=_MEAN_SIGNAL_USE,
         )
         object.__setattr__(self, "name", "mean")
         object.__setattr__(self, "_narrow", ())
@@ -971,7 +971,7 @@ class MeanNode(Reducer):
         return _numeric_plan("mean", self.extract, self.select, self.weights)
 
     def _check_members(self, count: int) -> None:
-        _check_weight_count(self.name, self.weights, count)
+        _check_weight_count(f"sf.{self._step_name()}", self.weights, count)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> MeanNode:

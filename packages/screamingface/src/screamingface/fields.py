@@ -272,7 +272,7 @@ def _member_position(value: object) -> int:
 def _field_name(name: object) -> str:
     if not isinstance(name, str) or _FIELD_NAME.fullmatch(name) is None:
         raise ValueError(
-            f"Merge field name {name!r} must start with a letter or underscore, then use only "
+            f"sf.Merge field name {name!r} must start with a letter or underscore, then use only "
             "letters, digits and underscores (at most 64 characters)"
         )
     return name
@@ -286,22 +286,21 @@ class MergeNode(Reducer):
     adds one projection call and one writer call; the writer sees only that field's values.
     """
 
-    _public_name: ClassVar[str] = "Merge"
     name: str
     fields: Mapping[str, FieldRule]
 
     def __init__(self, fields: Mapping[str, FieldRule]) -> None:
         if not isinstance(fields, Mapping):
-            raise TypeError("Merge fields must be a mapping of field name to FieldRule")
+            raise TypeError("sf.Merge fields must be a mapping of field name to FieldRule")
         if not fields:
-            raise ValueError("Merge needs at least one field")
+            raise ValueError("sf.Merge needs at least one field")
         if len(fields) > _MAX_FIELDS:
-            raise ValueError(f"Merge takes at most {_MAX_FIELDS} fields, not {len(fields)}")
+            raise ValueError(f"sf.Merge takes at most {_MAX_FIELDS} fields, not {len(fields)}")
         selected: dict[str, FieldRule] = {}
         for field, rule in fields.items():
             selected[_field_name(field)] = rule
             if not isinstance(rule, FieldRule):
-                raise TypeError(f"Merge field {field!r} must be a FieldRule")
+                raise TypeError(f"sf.Merge field {field!r} must be a FieldRule")
         object.__setattr__(self, "name", "merge")
         object.__setattr__(self, "fields", MappingProxyType(selected))
 
@@ -482,7 +481,6 @@ class PickNode(Reducer):
     never used. Works with a field and with ``by_signal=``.
     """
 
-    _public_name: ClassVar[str] = "First"
     name: str
     field: str | None
     by_signal: Signal | None

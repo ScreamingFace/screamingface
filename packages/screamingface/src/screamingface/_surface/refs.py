@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
 from screamingface._signals import (
-    FIELD_PATH,
     FIELD_SIGNAL_PREFIX,
     Signal,
     _finite_number,
@@ -146,8 +145,8 @@ def extractor(value: object) -> Extractor:
         return value
     if not isinstance(value, str):
         raise TypeError("over= must be a rule name or sf.Extract(...)")
-    if value.startswith(FIELD_SIGNAL_PREFIX):
-        _field_path(value)
+    if value.startswith(FIELD_SIGNAL_PREFIX):  # the path rule of sf.field()
+        _checked_field_path(value.removeprefix(FIELD_SIGNAL_PREFIX), "over= field path")
     elif _rule_name(value) not in RULE_NAMES:
         raise ValueError(_EX1.format(value=value))
     elif _rule_name(value) == BENCHMARK_EXTRACT != value:
@@ -316,14 +315,6 @@ def field(path: str, *, normalize: FieldNormalizer | None = None) -> FieldRef:
 def _rule_name(value: str) -> str:
     pinned = _PINNED.fullmatch(value)
     return value if pinned is None else pinned.group(1)
-
-
-def _field_path(value: str) -> None:
-    if FIELD_PATH.fullmatch(value.removeprefix(FIELD_SIGNAL_PREFIX)) is None:
-        raise ValueError(
-            f"over={value!r} must name a JSON path after 'field:', like 'field:a.b' or "
-            "'field:a[0].b'"
-        )
 
 
 __all__ = ["Extract", "agreement", "field"]

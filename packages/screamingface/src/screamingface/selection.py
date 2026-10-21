@@ -53,14 +53,14 @@ def _check_rank_source(by: object, by_signal: object) -> None:
     # INVARIANT: the lowering and the url4 rebuild give a scores judge (the sf.Judge step).
     assert by is None or (isinstance(by, JudgeNode) and by.returns == "scores")
     if by_signal is not None and not isinstance(by_signal, Signal):
-        raise TypeError("Rank by must be an sf.signal")
+        raise TypeError("sf.Rank by must be a sf.signal")
     if isinstance(by_signal, Signal):
         _refuse_judge_signal(by_signal, "sf.Rank", "sf.Judge(...) after sf.Fanout")
 
 
 def _check_rank_order(order: object) -> Literal["max", "min"]:
     if order not in ("max", "min"):
-        raise ValueError("Rank order must be 'max' or 'min'")
+        raise ValueError("sf.Rank order must be 'max' or 'min'")
     return cast("Literal['max', 'min']", order)
 
 
@@ -75,7 +75,6 @@ class RankNode(Reducer):
     the cut goes to the earlier member. A Rank Fusion must be followed by another Pipeline stage.
     """
 
-    _public_name: ClassVar[str] = "Rank"
     name: str
     k: int
     by: JudgeNode | None
@@ -93,9 +92,9 @@ class RankNode(Reducer):
         order: Literal["max", "min"] = "max",
     ) -> None:
         if isinstance(k, bool) or not isinstance(k, int):
-            raise TypeError("Rank k must be an integer")
+            raise TypeError("sf.Rank k must be an integer")
         if not 1 <= k <= _MAX_K:
-            raise ValueError(f"Rank k must be between 1 and {_MAX_K}")
+            raise ValueError(f"sf.Rank k must be between 1 and {_MAX_K}")
         assert (by is None) != (by_signal is None)  # a judge or a signal, never both
         _check_rank_source(by, by_signal)
         object.__setattr__(self, "name", "rank")
@@ -189,7 +188,6 @@ class ConcatNode(Reducer):
     A Concat Fusion must be followed by another Pipeline stage.
     """
 
-    _public_name: ClassVar[str] = "Concat"
     name: str
     separator: str
     label: bool
@@ -198,13 +196,15 @@ class ConcatNode(Reducer):
 
     def __init__(self, separator: str = _DEFAULT_SEPARATOR, *, label: bool = True) -> None:
         if not isinstance(separator, str):
-            raise TypeError("Concat separator must be a string")
+            raise TypeError("sf.Concat separator must be a string")
         if not separator:
-            raise ValueError("Concat separator must not be empty")
+            raise ValueError("sf.Concat separator must not be empty")
         if len(separator) > _MAX_SEPARATOR_CHARS:
-            raise ValueError(f"Concat separator must be at most {_MAX_SEPARATOR_CHARS} characters")
+            raise ValueError(
+                f"sf.Concat separator must be at most {_MAX_SEPARATOR_CHARS} characters"
+            )
         if not isinstance(label, bool):
-            raise TypeError("Concat label must be a bool")
+            raise TypeError("sf.Concat label must be a bool")
         object.__setattr__(self, "name", "concat")
         object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "separator", separator)
@@ -242,10 +242,10 @@ def _check_filter_judge(where: Matches | _Comparison, judge: object) -> None:
     _check_judge_pair(
         judge,
         isinstance(where, _Comparison) and where.signal.key == JUDGE_SIGNAL,
-        "Filter",
+        "sf.Filter",
         reader="filter",
         read_by=f"a {signal} comparison",
-        unpaired=f"Filter {signal}",
+        unpaired=f"sf.Filter {signal}",
     )
 
 
@@ -272,7 +272,6 @@ class FilterNode(Reducer):
     when the Filter is built.
     """
 
-    _public_name: ClassVar[str] = "Filter"
     name: str
     where: Matches | _Comparison
     extract: Extract | None
@@ -290,7 +289,7 @@ class FilterNode(Reducer):
         # INVARIANT: sf.Filter and the url4 rebuild give a pattern or a signal comparison.
         assert isinstance(where, Matches | _Comparison)
         if extract is not None and not isinstance(extract, Extract):
-            raise TypeError("Filter extract must be an sf.Extract")
+            raise TypeError("sf.Filter extract must be a sf.Extract")
         _check_filter_judge(where, judge)
         object.__setattr__(self, "name", "filter")
         object.__setattr__(self, "_narrow", ())

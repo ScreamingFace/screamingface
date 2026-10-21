@@ -80,11 +80,11 @@ def _member_prompt(value: object, members: tuple[Recipe, ...]) -> str | None:
     for position, member in enumerate(members, 1):
         if not isinstance(member, Model):
             raise ValueError(
-                f"Fanout prompt= sets the member prompts: member {position} is not a model"
+                f"sf.Fanout prompt= sets the member prompts: member {position} is not a model"
             )
         if member.prompt is not None:
             raise ValueError(
-                f"Fanout prompt= sets the member prompts: member {position} already has one"
+                f"sf.Fanout prompt= sets the member prompts: member {position} already has one"
             )
     return selected
 

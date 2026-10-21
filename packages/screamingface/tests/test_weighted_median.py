@@ -4,7 +4,7 @@ FEATURE: a median with weights is a weighted median; a median without weights ke
 STORY: as an SDK author, I write sf.Median(weights=(1, 1, 3)) or sf.Median(over="field:x",
 weights=sf.signal(...)), and the Candidate runs the weighted median in the Engine.
 INVARIANT: an unweighted median compiles to the same url4 bytes as before; weights round-trip
-through url4; a judge signal is refused because a Median has no judge.
+through url4; a judge signal is refused because a Median does not read a judge's scores.
 """
 
 from __future__ import annotations
@@ -134,9 +134,9 @@ def test_sdk_median_with_weights_round_trips_through_url4() -> None:
 def test_sdk_median_weights_refuse_bad_input() -> None:
     with pytest.raises(ValueError, match="has 2 weights for 3 members"):
         _ = sf.Fanout(_MEMBERS3) >> sf.Median(weights=(1, 2))
-    with pytest.raises(ValueError, match="has no judge"):
+    with pytest.raises(ValueError, match="does not read a judge's scores"):
         sf.Median(weights=sf.signal("score:judge"))
-    with pytest.raises(ValueError, match="has no judge"):
+    with pytest.raises(ValueError, match="does not read a judge's scores"):
         sf.Median(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
     with pytest.raises(TypeError, match="must be a sequence of numbers"):
         sf.Median(weights=("a", "b", "c"))  # type: ignore[arg-type]

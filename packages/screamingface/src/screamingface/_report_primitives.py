@@ -348,7 +348,7 @@ def _duration(value: object, label: str) -> int | None:
 
 def _usage(value: object, label: str) -> Usage:
     if not isinstance(value, Usage):
-        raise TypeError(f"{label} usage must be an sf.Usage value")
+        raise TypeError(f"{label} usage must be a sf.Usage value")
     return value
 
 

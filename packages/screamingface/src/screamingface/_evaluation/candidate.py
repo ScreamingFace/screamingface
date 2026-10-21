@@ -350,7 +350,7 @@ class _CandidateCompiler:
                     input_dependencies=input_dependencies,
                     synthesis=synthesis,
                 )
-            raise TypeError("candidate must be an sf.Model or an sf.Pipeline")
+            raise TypeError("candidate must be a sf.Model or a sf.Pipeline")
         finally:
             self._active.remove(identity)
 
@@ -665,7 +665,7 @@ class _CandidateCompiler:
         if self._operators is None:
             raise ValueError(
                 "a reducer needs the SF Engine operator catalog to compile; "
-                "evaluate it through an sf.Client"
+                "evaluate it through a sf.Client"
             )
         # WHY once per Fusion object: a corrective loop recompiles its member Fusion every round.
         if id(fusion) not in self._warned_fusions:
@@ -1010,7 +1010,7 @@ def _fusion_context(
 def _warn_duplicate_members(fusion: FusionNode) -> None:
     """Warn for each group of direct Model members that send one identical request.
 
-    Any reducer synthesizer triggers it, a named reducer or an sf.Reduce block alike (BK-D7): the
+    Any reducer synthesizer triggers it, a named reducer or a sf.Reduce block alike (BK-D7): the
     check runs in _reducer_synthesizer, which every Reducer reaches.
 
     WHY: the gateway keys its response cache on the request, so equal members may be served
