@@ -3,12 +3,12 @@
   "branch": "OME-1701-pr2-chembench-infinite-bench",
   "approver": "owner (approved in the OME-1701 session, 2026-10-21)",
   "date": "2026-10-21",
-  "scope": "test_letter_list_key_imports.py: chembench's 'A, D' reply now scores 1, not 0, and the docstring and comment say why, because chembench now grades the letters as a set (inspect_evals PR #2591 adopted). test_local_task_infinite_bench.py: the row test is renamed from inspect's exact match to the first-number rule and the module docstring names that rule, because the row now grades the official InfiniteBench way (inspect_evals PR #2346 adopted); its assertions are unchanged. test_published_revisions.py: the revision literals of the rows this stack has moved so far (paws, boolq, chembench, infinite_bench_math_find), each with a comment naming the old value, because each Named Deviation changes its rows' grading or Cases and so their published revision; no other literal changes.",
+  "scope": "test_letter_list_key_imports.py: chembench's 'A, D' reply now scores 1, not 0, the test is renamed from the pattern scorer to the set-of-letters rule, and the docstring and comment say why, because chembench now grades the letters as a set (inspect_evals PR #2591 adopted). test_local_task_infinite_bench.py: the row test is renamed from inspect's exact match to the first-number rule and the module docstring names that rule, because the row now grades the official InfiniteBench way (inspect_evals PR #2346 adopted); its assertions are unchanged. test_published_revisions.py: the revision literals of the rows this stack has moved so far (paws, boolq, chembench, infinite_bench_math_find), each with a comment naming the old value, because each Named Deviation changes its rows' grading or Cases and so their published revision; no other literal changes.",
   "reason": "OME-1701 adopts inspect_evals' grading and Case fixes as Named Deviations, one PR each; every edited prior test follows the row it pins to its new grading, Cases, revision or catalogue id, and no assertion is weakened.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_letter_list_key_imports.py": {
       "base_blob": "bba6e1c51fc35347a638d67e59352de5bb7a5376",
-      "approved_blob": "d0e32cebef8b0710f0c58a2155248ab7614b109a"
+      "approved_blob": "1e7def83df8bedbbc49dae99f15ff7fc5cdb3365"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_local_task_infinite_bench.py": {
       "base_blob": "2e4b206bd5c1f8cca9132b5b0ff4f358c211e00a",
@@ -16,7 +16,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "b60981e6787a7f8f0fd1e3e3cc7557e40d2d745e",
-      "approved_blob": "b43d506af9d1f7bd0bffdd717db3302941d88e65"
+      "approved_blob": "8f3d737bfe61a72422f568cd5126dbdbb70ac8a8"
     }
   }
 }

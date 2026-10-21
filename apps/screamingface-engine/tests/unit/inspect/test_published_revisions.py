@@ -92,7 +92,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1701 PR 2 (2026-10-21): first frozen here, at the move that adopted an
     # inspect_evals grading fix (chembench a36d91b7eb601253, infinite_bench_math_find
     # eb87494cb4dab437 before it).
-    "chembench": "2fdb430f6a3505f0",
+    "chembench": "7af1d67ffad68471",
     "infinite_bench_math_find": "a38b3a6c787f08a8",
 }
 

@@ -102,6 +102,12 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Actual files:** as planned, plus two edited prior tests: `test_letter_list_key_imports.py`
   ("A, D" on chembench now scores 1) and `test_local_task_infinite_bench.py` (its row test was
   named for inspect's `exact()`; renamed, and its docstring now says the first-number rule).
-- **Revisions:** chembench a36d91b7eb601253 → 2fdb430f6a3505f0; infinite_bench_math_find
+- **Revisions:** chembench a36d91b7eb601253 → 7af1d67ffad68471; infinite_bench_math_find
   eb87494cb4dab437 → a38b3a6c787f08a8.
-- **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 732 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 11 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Review fixes:** the numeric "agrees with inspect_evals" check now carries the eval's real
+  1% relative tolerance and an expected verdict per reply (1.505 vs 1.5 right, 1.6 wrong), so
+  a numeric path that always marks wrong fails it; the renamed letter-list test names the
+  set-of-letters rule; the scorer docstring states the one one-letter difference ("B,B" or
+  "B B" against "B" is now right, as the authors mark it), pinned by a test. The docstring
+  edit moved chembench's revision once more (2fdb430f6a3505f0 → 7af1d67ffad68471).
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 736 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 11 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.

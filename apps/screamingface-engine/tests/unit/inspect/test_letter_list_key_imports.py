@@ -74,7 +74,7 @@ _FOUR: list[str] = ["benzene", "toluene", "ethanol", "phenol"]
         ("[ANSWER]a,d[/ANSWER]", 1.0),
     ],
 )
-async def test_chembench_grades_a_comma_joined_key_as_its_pattern_scorer_reads_it(
+async def test_chembench_grades_a_comma_joined_key_as_a_set_of_letters(
     reply: str, score: float, no_network: None
 ) -> None:
     sample = Sample(

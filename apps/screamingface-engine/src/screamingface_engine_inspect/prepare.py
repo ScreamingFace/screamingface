@@ -104,10 +104,10 @@ class TaskReplayCasesSpec:
     empty_answer_key_allowed: bool = False
     #: Some multiple-choice Cases key several options: a list of option letters (truthfulqa's
     #: ``["B"]``, stereoset's two related continuations) or one comma-joined string of them
-    #: (chembench's ``"A,D"``, which its pattern scorer compares as text). Accepted only on a
-    #: row that says so, every letter checked against the Case's options (OME-1602, F6); a
-    #: default row still refuses a list beside choices. No identity pin: the Case Digest
-    #: seals the keys.
+    #: (chembench's ``"A,D"``, which its row's scorer compares as a set of letters, our Named
+    #: Deviation adopting inspect_evals PR #2591). Accepted only on a row that says so, every
+    #: letter checked against the Case's options (OME-1602, F6); a default row still refuses a
+    #: list beside choices. No identity pin: the Case Digest seals the keys.
     letter_list_key: bool = False
     #: A NAMED DEVIATION: inspect_evals Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three

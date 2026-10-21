@@ -11,9 +11,11 @@ letters" inside [ANSWER]...[/ANSWER].
 NAMED DEVIATION — adopted from inspect_evals PR #2591 (open; issue #2586;
 https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591). v0.20.0's `chembench_scorer`
 finds the letters with its own regex, then compares them to the key ("A,C") as a STRING, so
-"A, C", "A C" and "C,A" all score 0. 394 of the 2,785 Cases have more than one correct letter;
-on every other Case the two rules agree. The ChemBench authors compare sets
-(`set(found) == set(...)` in their `metrics.py`), and so does the fix.
+"A, C", "A C" and "C,A" all score 0. 394 of the 2,785 Cases have more than one correct letter.
+On the one-letter Cases the two rules agree on every reply except one that repeats the letter:
+"B,B" or "B B" against the key "B" was wrong and is now right, because as sets {B} is {B}. The
+ChemBench authors compare sets (`set(found) == set(...)` in their `metrics.py`), so they mark it
+right too, and so does the fix.
 
 Marking, in execution order:
 

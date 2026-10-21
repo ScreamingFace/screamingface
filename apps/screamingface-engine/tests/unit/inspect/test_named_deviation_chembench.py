@@ -10,7 +10,8 @@ What these tests pin, and why:
 - the TRIPWIRE: v0.20.0's scorer still marks "A, C", "A C" and "C,A" wrong; when a pin bump
   makes that assert fail, inspect_evals has the fix and the Named Deviation can go
   (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591);
-- single-letter and numeric Cases grade exactly as v0.20.0 grades them;
+- single-letter and numeric Cases grade exactly as v0.20.0 grades them, except a repeated
+  letter ("B,B" against "B"), which is right as a set, as the ChemBench authors mark it;
 - the row grades with this scorer.
 
 Runs only with the `inspect` extra installed.
@@ -37,6 +38,11 @@ from screamingface_engine_inspect.named_deviations.chembench.chembench import ( 
 async def _scored(scorer: Scorer, reply: str, key: str, task_type: str = "mcq") -> Score:
     """The Score one scorer gives one reply against one key, on a Case of `task_type`."""
 
+    metadata: dict[str, object] = {"task_type": task_type, "subset_name": "organic_chemistry"}
+    # The eval's own record_to_sample gives every numeric Case a 1% relative tolerance; without
+    # it both scorers would demand an exact number and the numeric rows below would test nothing.
+    if task_type == "mae":
+        metadata.update(tolerance=0.01, relative=True)
     state = TaskState(
         model="none/none",  # type: ignore[arg-type]  # ModelName is a str alias at runtime
         sample_id=1,
@@ -44,7 +50,7 @@ async def _scored(scorer: Scorer, reply: str, key: str, task_type: str = "mcq") 
         input="q",
         messages=[],
         output=ModelOutput.from_content(model="none/none", content=reply),
-        metadata={"task_type": task_type, "subset_name": "organic_chemistry"},
+        metadata=metadata,
     )
     score: Score | None = await scorer(state, Target(key))
     assert score is not None
@@ -65,6 +71,18 @@ async def test_tripwire_a_right_multi_letter_answer_inspect_evals_fails_is_right
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("letters", ["B,B", "B B"])
+async def test_a_repeated_letter_on_a_one_letter_key_is_right_under_ours_only(letters: str) -> None:
+    """The one place a one-letter Case grades differently: as sets "B,B" is {B}, as the
+    ChemBench authors mark it; v0.20.0's string compare marked it wrong."""
+
+    reply: str = f"[ANSWER]{letters}[/ANSWER]"
+
+    assert (await _scored(chembench_scorer(), reply, "B")).value == INCORRECT
+    assert (await _scored(chembench_letter_set(), reply, "B")).value == CORRECT
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("letters", ["A", "A,C,E", "A,B"])
 async def test_a_missing_or_extra_letter_is_wrong(letters: str) -> None:
     score: Score = await _scored(chembench_letter_set(), f"[ANSWER]{letters}[/ANSWER]", "A,C")
@@ -74,27 +92,31 @@ async def test_a_missing_or_extra_letter_is_wrong(letters: str) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("reply", "key", "task_type"),
+    ("reply", "key", "task_type", "expected"),
     [
-        ("[ANSWER]B[/ANSWER]", "B", "mcq"),
-        ("[ANSWER]b.[/ANSWER]", "B", "mcq"),
-        ("[ANSWER]D[/ANSWER]", "B", "mcq"),
-        ("[ANSWER]A,C[/ANSWER]", "A,C", "mcq"),
-        ("The answer is B.", "B", "mcq"),
-        ("[ANSWER]1.505[/ANSWER]", "1.5", "mae"),
-        ("[ANSWER]1.6[/ANSWER]", "1.5", "mae"),
+        ("[ANSWER]B[/ANSWER]", "B", "mcq", CORRECT),
+        ("[ANSWER]b.[/ANSWER]", "B", "mcq", CORRECT),
+        ("[ANSWER]D[/ANSWER]", "B", "mcq", INCORRECT),
+        ("[ANSWER]A,C[/ANSWER]", "A,C", "mcq", CORRECT),
+        ("The answer is B.", "B", "mcq", INCORRECT),
+        # 1.505 is within 1% of 1.5, 1.6 is not: one right and one wrong numeric reply, so a
+        # numeric path that always says wrong (or always right) fails here.
+        ("[ANSWER]1.505[/ANSWER]", "1.5", "mae", CORRECT),
+        ("[ANSWER]1.6[/ANSWER]", "1.5", "mae", INCORRECT),
     ],
 )
 async def test_every_other_reply_grades_as_inspect_evals_grades_it(
-    reply: str, key: str, task_type: str
+    reply: str, key: str, task_type: str, expected: str
 ) -> None:
     """The deviation is the letter compare and nothing else: single letters, a missing tag
-    (a format failure) and numbers within 1% grade as v0.20.0 grades them."""
+    (a format failure) and numbers within 1% grade as v0.20.0 grades them, and the verdict is
+    the one written here, so the two scorers cannot agree on a wrong mark."""
 
     inspect_evals_score: Score = await _scored(chembench_scorer(), reply, key, task_type)
     ours: Score = await _scored(chembench_letter_set(), reply, key, task_type)
 
     assert (ours.value, ours.reason) == (inspect_evals_score.value, inspect_evals_score.reason)
+    assert ours.value == expected
 
 
 def test_the_row_grades_with_the_letter_set_scorer() -> None:
