@@ -1,6 +1,6 @@
 {
   "issue": "OME-1544",
-  "branch": "url4-source-guard",
+  "branch": "OME-1544-url4-source-guard",
   "approver": "owner (Sergey, Linear OME-1544 comment 'Owner decisions', 2026-10-21 12:54Z)",
   "date": "2026-10-21",
   "scope": "One fixture line in packages/url4/tests/regressions/test_close_safety.py::mock_owned_client: real(transport=_SlowCloseTransport(_ok), **kw) becomes real(**{**kw, 'transport': _SlowCloseTransport(_ok)}), so the mock transport overrides the guarded transport the owned client now passes. No assertion changed.",
