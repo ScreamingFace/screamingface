@@ -851,3 +851,93 @@ references on `Signal`). 7d–7h are not in this round.
   ALL GATES GREEN (pyright needed `uv sync --frozen` once: the inspect pitfall);
   `run_gates.py screamingface --base e4d44281c --skip-append-only` ALL GATES GREEN (coverage floor
   95 met, check_notebooks green); `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+
+## Unit 7: swap — steps 7f–7h
+
+- **Commits:** `555ba0002` test (7f group F deletions + the codemod, owner list), `700c08beb`
+  refactor (7f src trims, D7-8), `f646dcb2d` test (7e review fixes 3a, 3b, 4, 5), `5f6761e53` test
+  RED + `8286f1aaf` fix (7e review fixes 2, 6, 7, 12), `71f4b326e` docs (spec errata, review 1
+  and 2), `d308e9dbe` test RED (MSG-1), `02b007fca` refactor (7g src), `612de2367` test (7g pinned
+  messages), `418dcd729` test RED + `2573bc70b` fix + `55ceee454` test (product gaps a–c),
+  `3b44475b5` test (LO-P3), `28bfdf77b` test (rg check), `0555abc37` docs (`_surface` comments),
+  this ledger commit.
+- **7f src (D7-8):** deleted `_evaluation/fusion_recipe.py` and its two call sites (the
+  Evaluation-level rewrite name check `_check_rewritten_names` went with it), `CONTEXT_MISUSE`,
+  the `context` op and `Reducer._compiles_to_combine`; `ReduceNode` keeps plurality, weighted,
+  median and mean (the `_BLOCK_FORMS` registry and the argmax, top_k, filter, pick_field, concat,
+  judge, merge block forms are gone, with `_FieldRules`); `RankNode(by_field=)` and the
+  `PickNode` field-order form (their url4 is "cannot rebuild", RB-1 rows already pin it);
+  `url4._render_topology` and its helpers, `_NARROW_PYTHON`, `python_signals`,
+  `SignalSource._python`, every node `_python()` (`Extract`, `matches` and the signal comparisons
+  keep theirs: `render._leaf` reads them); `fusion_card_html`, `pipeline_card_html`,
+  `FusionNode._repr_html_`, `_synthesizer_fields`; the reader min-judge normalization
+  (`_reader_judge`, `_with_overrides`: no public path builds a min judge in a reader since the
+  swap); node checks that only the lowering or the url4 rebuild reach became asserts (PickNode
+  field/signal checks, RankNode source checks, FilterNode `where` type). `tests/data/
+  fusion_recipe_synthesizer.url4` stays: `test_reducer_characterization.py` reads it.
+- **7f tests:** one commit for the deletions (owner list): `test_fusion_block_quorum.py` (whole),
+  the context rows of `test_judge_writer_warning_stages.py`, the e2e block form
+  (`FusionLaneSpec.build_block`, `FORMS` "block", `_refuse_unless_block_matches` and its 4
+  contract rows), the trimmed-op rows of `test_blocks_reduce.py`, `test_pick_merge_blocks.py`,
+  `test_judge_blocks.py`, `test_filter*.py`, `test_pick_*.py`, `test_rank_*.py`,
+  `test_judge_order.py`, `test_judge_template_v2.py::test_a_reader_reads_a_min_judge_as_the_same_judge`,
+  the `_python()` asserts, the Fusion card rows; `scripts/migrate_surface.py` and
+  `tests/test_migrate_surface.py` (MG-1). Kept node rows moved to the forms that stay (Pick tamper
+  rows to the equals form plus a blank-value row; the recovery rows read the repr).
+- **7e review fixes:** (1) MSG-1 exempts `S/_surface/fusion.py` (messages and the `sf.Fusion`
+  docstring) from `Fusion`/`synthesizer` per module, spec errata in surface §11 and swap §6;
+  (2) `sf.Fusion(..., synthesizer=<narrow>, optional=True)` raises "sf.Fusion optional=True needs
+  a closed block: give a reducer or a writer as synthesizer=, or close the chain first" (surface
+  §3b); (3a) the judge-filter tamper row, exact "filter spec ... cannot rebuild"; (3b) the solo
+  rank row on `by="field:s"`; (4) the k tamper rows on the rank-by-signal shape, the `path` row
+  deleted; **spec gap:** the `normalizer pin` row has no shape to move to (a rank by signal or by
+  judge has no normalize step), so it is deleted too; (5) the `sf.signal is sf.signal` line;
+  (6) `Rebuilt.python` is `render.code(..., width=sys.maxsize)`; (7) `_stage_values()` asserts a
+  closed chain; `entry_recipe` now lowers before the judge-writer warning, so CH-8 still names an
+  open chain first; (11) the stale-comment sweep covers `recipe.py`, `reducer.py`,
+  `compilation.py`, `model.py`, `_surface/*`; (12) the shortcut rows: no redundant url4 compare,
+  frozen rows for Gate, Merge and JudgePick.
+- **7g:** every message site of swap §6 reworded (the scan found 80 message hits and 10 public
+  docstrings at the start); GA-2 is "the gate reads 'chosen:conf', but this sf.Fanout does not
+  declare 'conf' (declared: ...)"; the report labels member kind `fusion` as `fanout` (wire value
+  unchanged); `Reducer._step_name()` gives the runtime sites the step a node lowers from (PickNode:
+  First/ArgMax/ArgMin, JudgeNode: Judge/JudgePick, ReduceNode: Vote/Median/Mean); internal-only
+  ReduceNode option messages name `ReduceNode`, a block op names its step (`sf.Mean has 2 weights
+  for 3 members`). New `tests/test_surface_messages.py` (MSG-1 scan + one row per runtime name
+  site + the `fanout` label): the allow list is empty, so U3c holds trivially.
+  **Spec gap:** `render.py:180` (`no rendering for sf.<X>`) is `pragma: no cover` and unreachable
+  by a public value: no row.
+- **Product gaps (7d batches):** (a) `_judge_routes` reads a stage's answer (a chain's last stage,
+  a FusionNode's reducer or writer recipe, cycle-safe), so `Fanout(ab) >> Synthesize(<judge
+  chain>) >> Model(J)` warns again; (b) an in-block judge and writer warn on "Pipeline 'judged':
+  stage N (a fanout block) uses the same model ..." ("Stage N (a fanout block) ..." for an
+  unnamed chain), never the inferred block name; (c) `refs.signal_key` applies the `sf.field()`
+  path rule (at most 256 characters) to a `field:<path>` key of `by=`/`weights=`; (d) the
+  selection guards ("must be followed", "cannot be a member", "cannot feed a corrective loop")
+  are reachable through a hand-built url4, so they are reworded ("a sf.Filter must be followed by
+  sf.Synthesize", "a sf.Rank block cannot be a sf.Fanout member ..."), not trimmed; the FilterNode
+  member and loop-judge rows stay as tests of that guard.
+- **7h:** LO-P3 in `test_surface_parity.py` (S5, S7, S10, S10′, S11, S11′ equal their frozen
+  rows, which hold the new bytes, with a byte check of the §4.1/§4.2 change, and S5 == S8; the
+  doc rows 418/528 now equal their goldens and fold into LO-P1). `rg -n "sf\.(Pick|Reduce)\b|\.then\("`
+  over `tests/` finds only the 3 CHANGELOG token pins (`test_pick_output.py:226,233`,
+  `test_show_signals_docs.py:29`). **Spec gap:** the README still names `sf.Pick`, `sf.Reduce`
+  and `.then(` in README:1–846 (D7-6: unit 8 moves those sections); not touched here.
+  `synthesizer=` outside `sf.Fusion(...)` calls and `tests/_nodes.py`: FusionNode repr asserts
+  (`test_filter.py:314`, `test_judge_reducer.py:119`, `test_reducer_slot.py:121`), the
+  `sf.Fusion` messages in `test_fusion_shortcut.py`, the internal `_RecipeTopology(synthesizer=)`
+  in `test_url4.py:497`, and the e2e golden document field `synthesizer` (data schema).
+- **Owner list:** `/private/tmp/claude-501/-Users-junior-workspace-screamingface--claude-worktrees-e4b-combine-extensions/f89a8ca0-75f1-48c1-ba44-841df6ae4043/scratchpad/owner-list-unit7.md`
+  (147 files: 145 edited, 2 deleted; group F by test id for 7e and 7f).
+- **Follow-ups:** 7e review 8–10 (double compile on `to_python` for policy topologies; private
+  `Step` in public signatures; the explicit-Pipeline repr of plain models); the stage-to-stage
+  judge-writer warning of an unnamed chain still names the chain by its inferred name (member
+  routes); `over="field:<path>"` has no 256-character cap (gap c covers `by=`/`weights=`);
+  `JUDGE_TEMPLATES`/`JUDGE_PANEL_TEMPLATES` stay (tests read them); U5e (D7-7); multi-line layout
+  inside a stage.
+- **Tests:** SDK 5573 collected (5650 with the deselected e2e/paid lanes); full suite green, 31
+  skipped. Engine unit suite green.
+- **Gates (HEAD of 7h):** `run_gates.py screamingface-engine --base e4d44281c --skip-append-only`
+  ALL GATES GREEN (pyright needed `uv sync --frozen` once: the inspect pitfall);
+  `run_gates.py screamingface --base e4d44281c --skip-append-only` ALL GATES GREEN (coverage floor
+  95 met); `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
