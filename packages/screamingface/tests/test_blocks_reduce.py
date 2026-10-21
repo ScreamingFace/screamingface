@@ -1,4 +1,4 @@
-"""sf.Reduce: the generic block reducer over the op table (OME-1289 gap, BK#5-7, 9-10, 13).
+"""ReduceNode: the block reducer over the op table (OME-1289 gap, BK#5-7, 9-10, 13).
 
 STORY: as a researcher, I build a reducer from blocks, a wrong block fails when I build it, and
 the same block compiles to the same combine call as its named form.

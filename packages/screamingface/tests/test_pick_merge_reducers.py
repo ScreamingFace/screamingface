@@ -1,4 +1,4 @@
-"""sf.Pick, sf.Merge and sf.FieldRule: validation, repr and the compiled combine spec (OME-1289).
+"""sf.First, sf.Merge and sf.FieldRule: validation, repr and the compiled combine spec (OME-1289).
 
 STORY: as a researcher whose members return JSON, I pick the member with the largest field or build
 one object by declared rules, and a mistake (a bad field, a member that is not there) fails when I

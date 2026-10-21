@@ -1,7 +1,7 @@
 """A url4 reducer is recovered as its named class when that class accepts the spec exactly (BK#8).
 
 FEATURE: ``Url4(...).to_python()`` writes ``sf.Vote(...)`` or ``sf.Median(...)`` when the combine
-spec is exactly one, and ``sf.Reduce(...)`` for every other shape (operator args).
+spec is exactly one, and ``over=`` with that extract for every other shape (operator args).
 INVARIANT: the recovered Python recompiles to the very same url4.
 """
 
@@ -124,7 +124,7 @@ def test_named_refusal_falls_back_and_an_unrebuildable_spec_still_refuses(
 
 @pytest.mark.parametrize("op", ["benchmark", "benchmark@1"])
 def test_benchmark_extract_op_in_a_hand_edited_url4_is_refused(op: str) -> None:
-    # A hand-edited url4 cannot name the benchmark's rule: Vote refuses it, so does sf.Reduce.
+    # A hand-edited url4 cannot name the benchmark's rule: Vote refuses it, so does the block.
     vote = sf.Fanout(_MEMBERS) >> sf.Vote(over="last_number", normalize="numeric")
     vote_url4 = compile_candidate(vote, operators=engine_operators()).url4
     spec = decode_combine_spec(_synthesis_call(vote_url4).raw_intent)

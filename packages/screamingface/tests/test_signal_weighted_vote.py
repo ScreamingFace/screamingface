@@ -1,9 +1,9 @@
 """Signal-weighted sf.Vote: weights on the Median, the block twin, the spec and recovery (OME-1289).
 
-FEATURE: ``sf.Vote(weights=[...] | sf.signal(key))`` and ``sf.Reduce("weighted", ...)`` are one
-Candidate (unit 7, BK#4, SR#9).
-INVARIANT: since E4b, sf.Median(weights=...) and sf.Reduce("median", weights=...) take weights;
-both refuse sf.signal("score:judge").
+FEATURE: ``sf.Vote(weights=[...] | sf.signal(key))`` and the weighted block are one Candidate
+(unit 7, BK#4, SR#9).
+INVARIANT: since E4b, sf.Median(weights=...) and the median block take weights; both refuse
+sf.signal("score:judge").
 """
 
 from __future__ import annotations

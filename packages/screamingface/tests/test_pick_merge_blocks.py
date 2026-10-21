@@ -1,7 +1,7 @@
 """sf.FieldRule params in sf.Merge: equal values compile alike, and a bool, an int and a float stay
 three different values (GE21).
 
-The sf.Reduce("pick_field") and sf.Reduce("merge") block forms were deleted in unit 7f (swap D7-8).
+The pick_field and merge block forms (ReduceNode) were deleted in unit 7f (swap D7-8).
 """
 
 from __future__ import annotations

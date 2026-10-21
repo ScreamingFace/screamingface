@@ -1,4 +1,4 @@
-"""sf.Vote and sf.Median are the named forms of sf.Reduce rows (OME-1289 gap, BK#1-4).
+"""sf.Vote and sf.Median are the named forms of ReduceNode rows (OME-1289 gap, BK#1-4).
 
 FEATURE: a named reducer and its block form compile to the same combine call.
 INVARIANT: both build a ``_ReducerPlan`` (the seam), so their url4 bytes are equal by construction.

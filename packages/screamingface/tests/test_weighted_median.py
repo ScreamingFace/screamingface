@@ -1,7 +1,7 @@
 """sf.Median(weights=...) and the median block compile to weighted_median@1 (E4b, WM#1, WM#13-14).
 
 FEATURE: a median with weights is a weighted median; a median without weights keeps its bytes.
-STORY: as an SDK author, I write sf.Median(weights=(1, 1, 3)) or sf.Reduce("median", ...,
+STORY: as an SDK author, I write sf.Median(weights=(1, 1, 3)) or sf.Median(over="field:x",
 weights=sf.signal(...)), and the Candidate runs the weighted median in the Engine.
 INVARIANT: an unweighted median compiles to the same url4 bytes as before; weights round-trip
 through url4; a judge signal is refused because a Median has no judge.

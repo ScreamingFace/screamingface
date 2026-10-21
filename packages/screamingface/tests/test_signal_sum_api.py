@@ -56,10 +56,10 @@ def _declaration(risk: sf.Sum | None = None) -> dict[str, SignalSource]:
     }
 
 
-def _recipe_r(risk: sf.Sum | None = None, synthesizer: Step | None = None) -> sf.Pipeline:
-    """Recipe R of the sum-api PRD §3, or R with another synthesizer."""
+def _recipe_r(risk: sf.Sum | None = None, terminal: Step | None = None) -> sf.Pipeline:
+    """Recipe R of the sum-api PRD §3, or R with another terminal step."""
     return sf.Fanout(_MEMBERS, name="pick", signals=_declaration(risk)) >> (
-        sf.ArgMin("risk") if synthesizer is None else synthesizer
+        sf.ArgMin("risk") if terminal is None else terminal
     )
 
 
@@ -280,7 +280,7 @@ _READERS: list[Any] = [
 @pytest.mark.parametrize("reader", _READERS)
 def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Step]) -> None:
     step = reader()
-    fusion = _recipe_r(synthesizer=step)
+    fusion = _recipe_r(terminal=step)
     signals = _fanout(fusion).signals
     assert signals is not None
     assert list(signals) == ["risk", "sev_a", "sev_b"]

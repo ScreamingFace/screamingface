@@ -132,7 +132,7 @@ def _vote_by_judge() -> dict[str, Any]:
 
 
 def _pick_by_judge() -> dict[str, Any]:
-    """J3: sf.Pick(by_signal=sf.signal("score:judge"), ...)."""
+    """J3: a pick by the signal score:judge."""
 
     return evidence_wire(
         kind="answer",
