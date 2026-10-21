@@ -181,7 +181,8 @@ the same.
       whether it resumed and whether it finished; an interrupted pull re-raises its
       `KeyboardInterrupt` with the same counts as `.result`. A resume continues only into the
       database file it was loading (its device and inode, and still holding the last key it
-      loaded, so a backup restored over the file starts over), not merely the same path, and a
+      loaded: a restart signal for a backup restored over the file, not proof that every earlier
+      row survived), not merely the same path, and a
       file replaced during a pull stops it with `destination_changed` before its cursor moves.
       One pull runs at a time per `(url, models)`; a second concurrent call is refused with
       `pull_in_progress`.

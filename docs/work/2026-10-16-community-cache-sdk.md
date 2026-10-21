@@ -290,3 +290,21 @@ path — once per call, error path only, or the same per-row work — and no per
   starts over; pages without rows leave no key and still resume; an unreadable database holds
   nothing; `sf.close()` closes the pull's session. Local full gates skipped by the owner's call
   for this push (focused suites, ruff and pyright run); GitHub CI is the gate.
+
+## Review round 4 (PR #1446 review by HupBaHa at `000fe869e`, 2026-10-21)
+
+1. **Decoding bounded while it expands:** the page and the refusal body are read raw and gzip is
+   decoded with zlib at most 1 MiB at a time (64 KiB for a refusal), so a chunk that expands a
+   thousandfold is never decoded in one allocation; the 32 MiB line cap then applies to pieces.
+   A body httpx already read (a buffered response) is used as is.
+2. **Counts across differing attempts:** a page's rows are the distinct keys read across all its
+   attempts, so a retry of the same rows counts once and a page that changed between attempts
+   counts every row any attempt loaded; `rows_read` is never below `rows_added`. One set insert a
+   row.
+- **Wording:** the spec calls the last-key check a restart signal for a restored backup, not
+  proof that every earlier row survived (reviewer's non-blocking note).
+- **Tests:** bounded pieces for a thousandfold chunk; identity passthrough; a gzip bomb line refused
+  after at most cap + one piece decoded; a gzip refusal decodes at most 64 KiB; four cut attempts
+  with different rows count 4 read and 4 added; a page that changed before its successful retry
+  counts both attempts' rows. Focused suites, ruff and pyright run; full local gates skipped by
+  the owner's call; GitHub CI is the gate.

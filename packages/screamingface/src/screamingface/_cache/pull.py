@@ -265,9 +265,10 @@ class _Loop:
         self._started = clock()
         self._rows_at_start = self._cursor.rows_read
         self._total: int | None = None
-        # WHY the most rows any attempt read of the page in progress: a failed call reports them
-        # as read, since they were loaded, so its rows_read is never below its rows_added.
-        self._in_page = 0
+        # The distinct rows read of the page in progress, across all its attempts.
+        # INVARIANT: rows_read is never below rows_added. A retry of the same rows counts them
+        # once, and a page that changed between attempts counts every row any attempt loaded.
+        self._page_rows: set[object] = set()
         self._bytes_before = 0
         self._bytes: Callable[[], int] = lambda: 0
 
@@ -296,7 +297,7 @@ class _Loop:
                 return result
 
     def page(self, *, count: bool) -> str | None:
-        read, skipped = [0], [0]
+        skipped = [0]
         last: list[str | None] = [None]
 
         def header(value: PageHeader) -> None:
@@ -308,10 +309,10 @@ class _Loop:
             added, skips = self._destination.load(batch, self.result(complete=False))
             self._cursor.rows_added += added
             skipped[0] += skips
-            read[0] += len(batch)
+            # WHY `or object()`: a row with no key (skipped as unservable) still counts as read.
+            self._page_rows.update(row.get("key_hash") or object() for row in batch)
             last[0] = batch[-1].get("key_hash") if batch else None
-            self._in_page = max(self._in_page, read[0])
-            self._report.update(self.snapshot(extra_rows=read[0]))
+            self._report.update(self.snapshot(extra_rows=len(self._page_rows)))
 
         with self._source.open(after=self._cursor.after, count=count) as (lines, received):
             self._bytes = received
@@ -320,21 +321,21 @@ class _Loop:
             finally:
                 self._bytes_before += received()
                 self._bytes = lambda: 0
-        self._completed(read[0], skipped[0], last[0])
+        self._completed(skipped[0], last[0])
         return after
 
-    def _completed(self, read: int, skipped: int, last_key: str | None) -> None:
-        # WHY at the page's end, like `rows_read`: a retried page is skipped again, and counting
-        # its first attempt too would count those rows twice.
-        self._cursor.rows_read += read
+    def _completed(self, skipped: int, last_key: str | None) -> None:
+        # WHY at the page's end: a retried page is read and skipped again, and counting each
+        # attempt would count those rows twice.
+        self._cursor.rows_read += len(self._page_rows)
         self._cursor.rows_skipped += skipped
         if last_key is not None:
             self._cursor.last_key = last_key
-        self._in_page = 0
+        self._page_rows = set()
 
     def result(self, *, complete: bool) -> PullResult:
         return PullResult(
-            rows_read=self._cursor.rows_read + (0 if complete else self._in_page),
+            rows_read=self._cursor.rows_read + (0 if complete else len(self._page_rows)),
             rows_added=self._cursor.rows_added,
             pages=self._cursor.pages,
             resumed=self._resumed,

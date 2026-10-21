@@ -2,11 +2,14 @@
 
 One streamed `GET /v1/cache/entries` per page, through a `Client`'s own engine session, so the
 caller's Cloudflare Access sign-in is the one every other SDK call uses (spec decision 14). The
-body is decompressed by httpx as it arrives, split into lines here, and handed on line by line.
+body is decompressed here as it arrives, in bounded pieces, split into lines, and handed on line by
+line.
 
-INVARIANT (PR #1446 review): no response is held whole. A line is refused past `_MAX_LINE_BYTES`
-before it is decoded, a retryable status is classified from its headers alone, and any other
-refusal reads at most `_PROBLEM_MAX_BYTES` of its problem detail.
+INVARIANT (PR #1446 review): no response is held whole, and none is decompressed whole. gzip is
+decoded from the raw bytes at most `_DECODED_PIECE` at a time, so a chunk that expands a
+thousandfold never exists decoded in one allocation; a line is refused past `_MAX_LINE_BYTES`
+before it is decoded as text; a retryable status is classified from its headers alone; and any
+other refusal decodes at most `_PROBLEM_MAX_BYTES` of its problem detail.
 
 WHY the replay-safe extension: a page request is a GET with no side effects, so the Access flow
 may send it again after a browser sign-in (`_core/wire.py`).
@@ -14,6 +17,7 @@ may send it again after a browser sign-in (`_core/wire.py`).
 
 from __future__ import annotations
 
+import zlib
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Final
@@ -31,6 +35,9 @@ _ENTRIES_PATH: Final = "/v1/cache/entries"
 # the hosted gateway wrote comes near; a longer line is not a page this client can read.
 _MAX_LINE_BYTES: Final = 32 * 1024 * 1024
 _PROBLEM_MAX_BYTES: Final = 64 * 1024
+# WHY 1 MiB: large enough that zlib's C loop, not Python, does the work; small enough that one
+# decoded piece is a bounded allocation whatever the compression ratio.
+_DECODED_PIECE: Final = 1024 * 1024
 
 
 class TransientPageError(Exception):
@@ -76,12 +83,47 @@ class HostedPages:
             ) as response:
                 if response.status_code != 200:
                     _raise_for(response)
-                yield _lines(response.iter_bytes()), lambda: response.num_bytes_downloaded
+                yield _lines(_body(response)), lambda: response.num_bytes_downloaded
         # WHY DecodingError: a gzip stream cut or garbled in transit reads as corrupt, not dropped.
         except (httpx.TransportError, httpx.DecodingError) as exc:
             raise TransientPageError(
                 f"the Engine could not be reached ({type(exc).__name__})"
             ) from exc
+
+
+def _body(response: httpx.Response, piece: int = _DECODED_PIECE) -> Iterator[bytes]:
+    """The response's decoded body, at most `piece` at a time."""
+    # WHY: a body httpx already read (a buffered response) is decoded already.
+    if response.is_stream_consumed:
+        return iter([response.content])
+    gzip = response.headers.get("content-encoding", "").strip().casefold() == "gzip"
+    return _decompressed(response.iter_raw(), gzip=gzip, piece=piece)
+
+
+def _decompressed(
+    chunks: Iterable[bytes], *, gzip: bool, piece: int = _DECODED_PIECE
+) -> Iterator[bytes]:
+    """The body's decoded bytes, at most `piece` at a time."""
+    import httpx
+
+    if not gzip:
+        yield from chunks
+        return
+    decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        for chunk in chunks:
+            data = chunk
+            while True:
+                out = decoder.decompress(data, piece)
+                if out:
+                    yield out
+                data = decoder.unconsumed_tail
+                # WHY a full piece goes round again: zlib may hold more output for this input.
+                if not data and len(out) < piece:
+                    break
+    # WHY as httpx's own error: a gzip stream garbled in transit stays a transient failure.
+    except zlib.error as exc:
+        raise httpx.DecodingError(f"the page's gzip stream is corrupt: {exc}") from exc
 
 
 def _lines(chunks: Iterable[bytes]) -> Iterator[str]:
@@ -152,7 +194,7 @@ def _prefix(response: httpx.Response) -> httpx.Response:
     import httpx
 
     body = bytearray()
-    for chunk in response.iter_bytes():
+    for chunk in _body(response, _PROBLEM_MAX_BYTES):
         body += chunk
         if len(body) >= _PROBLEM_MAX_BYTES:
             break

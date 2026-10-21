@@ -581,3 +581,25 @@ def test_a_resume_after_pages_without_rows_has_no_key_to_check_and_continues() -
 
     assert source.requests == [("c1", True)]
     assert result.resumed is True
+
+
+# --- PR #1446 review round 4: counts across attempts that differ ---------------------------------
+
+
+def test_cut_attempts_with_different_rows_count_every_row_they_loaded() -> None:
+    # INVARIANT: rows_read is never below rows_added, even when a live page changes between
+    # retries; a page's rows are the distinct keys read across its attempts.
+    source = _Source({None: [_page([key], None, trailer=False) for key in "abcd"]})
+
+    with pytest.raises(CachePullError) as raised:
+        _run(source, _Gateway())
+
+    assert (raised.value.result.rows_read, raised.value.result.rows_added) == (4, 4)
+
+
+def test_a_page_that_changed_before_its_successful_retry_counts_both_attempts_rows() -> None:
+    source = _Source({None: [_page(["a"], None, trailer=False), _page(["b", "c"], None)]})
+
+    result = _run(source, _Gateway())
+
+    assert (result.rows_read, result.rows_added) == (3, 3)

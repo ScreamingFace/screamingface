@@ -272,3 +272,70 @@ def test_a_refusal_reads_only_a_bounded_prefix_of_its_body() -> None:
         pass
 
     assert stream.read == 1
+
+
+# --- PR #1446 review round 4: decoding bounded while it expands -----------------------------------
+
+
+def test_gzip_is_decoded_in_bounded_pieces_however_much_one_chunk_expands() -> None:
+    from screamingface._cache import remote
+
+    body = b"x" * 1_000_000  # ~1 KB compressed: one raw chunk that expands a thousandfold
+    pieces = list(remote._decompressed([gzip.compress(body)], gzip=True, piece=4096))
+
+    assert b"".join(pieces) == body
+    assert max(map(len, pieces)) <= 4096
+
+
+def test_an_identity_body_passes_through_unchanged() -> None:
+    from screamingface._cache import remote
+
+    assert list(remote._decompressed([b"ab", b"c"], gzip=False)) == [b"ab", b"c"]
+
+
+def test_a_gzip_bomb_line_is_refused_without_decoding_it_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screamingface._cache import remote
+
+    monkeypatch.setattr(remote, "_MAX_LINE_BYTES", 10_000)
+    decoded: list[int] = []
+    real = remote._decompressed
+
+    def counting(*args, **kwargs):
+        for piece in real(*args, **kwargs):
+            decoded.append(len(piece))
+            yield piece
+
+    monkeypatch.setattr(remote, "_decompressed", counting)
+    source = _serving(_Chunks([gzip.compress(b"x" * 40_000_000)]), **{"content-encoding": "gzip"})
+
+    with (
+        pytest.raises(MalformedPage, match="longer than"),
+        source.open(after=None, count=False) as (lines, _bytes),
+    ):
+        list(lines)
+
+    assert sum(decoded) <= 10_000 + remote._DECODED_PIECE
+
+
+def test_a_gzip_refusal_decodes_only_its_bounded_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from screamingface._cache import remote
+
+    decoded: list[int] = []
+    real = remote._decompressed
+
+    def counting(*args, **kwargs):
+        for piece in real(*args, **kwargs):
+            decoded.append(len(piece))
+            yield piece
+
+    monkeypatch.setattr(remote, "_decompressed", counting)
+    source = _serving(
+        _Chunks([gzip.compress(b"x" * 1_000_000)]), 422, **{"content-encoding": "gzip"}
+    )
+
+    with pytest.raises(PlanningError), source.open(after=None, count=False):
+        pass
+
+    assert sum(decoded) <= remote._PROBLEM_MAX_BYTES
