@@ -1,9 +1,9 @@
 ---
 ticket: OME-1703
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-21
-finished:
+finished: 2026-10-21
 ---
 
 # e4c-neutral-plugin-hooks — the surviving Profile-named plugin hooks get neutral names
@@ -91,8 +91,8 @@ assertion kept. They are listed in the Outcome and go in the PR's approval manif
   `tests/unit/openai/test_openai_provider.py`, `tests/unit/openrouter/test_openrouter_dispatch.py`
   (15 files). Fake plugins keep their `profile_name` strategy parameter: they are not production
   plugins, and core passes that argument by position.
-- **Commits:** `1be3988e9` refactor(aigateway)!: give the plugin hooks credential names; a docs
-  commit carries the `docs/tasks` mirror and the approval manifest.
+- **Commits:** squash-merged as `eb31158de` (#1523) from `1be3988e9` (the renames and the guard)
+  and `6c1864bd7` (the `docs/tasks` mirror and the approval manifest).
 - **Gates:** RED: the guard test failed 19 of 25 cases on `origin/main` (old names defined, neutral
   names missing). Probe: a temporary plugin package outside `*_provider` with a `profile_name`
   strategy parameter and an old hook name failed three guard cases; the probe was removed.
