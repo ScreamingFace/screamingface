@@ -135,30 +135,98 @@ def _require_one_result_cell(nb: nbformat.NotebookNode) -> None:
         )
 
 
-def _markers(nb: nbformat.NotebookNode) -> list[str]:
-    """Every ``WORKBENCH_RESULT=`` payload printed by ANY cell, in order."""
-    return [
-        line[len(RESULT_PREFIX) :]
-        for cell in nb.cells
-        for output in cell.get("outputs", [])
-        for line in str(output.get("text", "")).splitlines()
-        if line.startswith(RESULT_PREFIX)
-    ]
+def _markers(nb: nbformat.NotebookNode) -> tuple[list[str], list[int]]:
+    """``WORKBENCH_RESULT=`` payloads of the ``workbench-result`` cell, in order, and the
+    indices of any OTHER cell that printed the marker (review re-finding 3: bound to one cell)."""
+    payloads: list[str] = []
+    strays: list[int] = []
+    for index, cell in enumerate(nb.cells):
+        found = [
+            line[len(RESULT_PREFIX) :]
+            for output in cell.get("outputs", [])
+            for line in str(output.get("text", "")).splitlines()
+            if line.startswith(RESULT_PREFIX)
+        ]
+        if RESULT_TAG in cell.metadata.get("tags", []):
+            payloads += found
+        elif found:
+            strays.append(index)
+    return payloads, strays
 
 
 def _result(nb: nbformat.NotebookNode) -> tuple[dict[str, Any] | None, str | None]:
     """The single ``WORKBENCH_RESULT=`` payload and, if it is unusable, why (never raises).
 
-    Fails closed (review finding 6): a second marker — repeated in the result cell or printed
-    by any other cell — makes the result ambiguous, so none is taken. None printed is not an
-    error here; ``result_check`` reports the missing result.
+    Fails closed (review finding 6, re-finding 3): only the ``workbench-result`` cell may print
+    the marker, exactly once. A marker from any other cell, or a second one, makes the result
+    untrustworthy, so none is taken. None printed is not an error here; ``result_check``
+    reports the missing result.
     """
-    payloads = _markers(nb)
+    payloads, strays = _markers(nb)
+    if strays:
+        return None, (
+            f"{RESULT_PREFIX} marker printed outside the {RESULT_TAG!r} cell "
+            f"(cell index {', '.join(map(str, strays))})"
+        )
     if len(payloads) > 1:
         return None, (
             f"notebook must print exactly one {RESULT_PREFIX} marker, found {len(payloads)}"
         )
     return _parse(payloads[0]) if payloads else (None, None)
+
+
+class _DeadlineExceededError(Exception):
+    """Raised before a cell starts once the whole-notebook deadline has passed."""
+
+
+class _DeadlineClient(NotebookClient):
+    """WHY: nbclient only bounds one cell at a time; a hard stop before each cell is what
+    makes the deadline cumulative (review re-finding 2: N short cells each under the clamp)."""
+
+    deadline: float = math.inf
+
+    async def async_execute_cell(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, cell: nbformat.NotebookNode, cell_index: int, *args: Any, **kwargs: Any
+    ) -> nbformat.NotebookNode:
+        if cell.cell_type == "code" and time.monotonic() >= self.deadline:
+            raise _DeadlineExceededError(f"stopped before cell index {cell_index}")
+        return await super().async_execute_cell(cell, cell_index, *args, **kwargs)
+
+
+def _execute(
+    nb: nbformat.NotebookNode, cwd: Path, *, timeout_s: int, deadline_s: int
+) -> str | None:
+    """Execute ``nb`` in place under one whole-notebook deadline; the error text, or ``None``."""
+    deadline = time.monotonic() + deadline_s
+    deadline_error = f"notebook deadline of {deadline_s}s exceeded across all cells"
+    capped = False
+
+    def cell_timeout(cell: nbformat.NotebookNode) -> int:
+        nonlocal capped
+        left = math.ceil(deadline - time.monotonic())
+        capped = left < timeout_s
+        return max(1, min(timeout_s, left))
+
+    with _private_kernelspec():
+        client = _DeadlineClient(
+            nb,
+            kernel_name=_KERNEL,
+            timeout=timeout_s,
+            timeout_func=cell_timeout,
+            resources={"metadata": {"path": str(cwd)}},
+        )
+        client.deadline = deadline
+        try:
+            client.execute()
+        except _DeadlineExceededError as exc:
+            # Last line on purpose: the verdict surfaces it as the root cause.
+            return f"{exc}\n{deadline_error}"
+        except (CellExecutionError, CellTimeoutError, DeadKernelError) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, CellTimeoutError) and capped:
+                error += f"\n{deadline_error}"
+            return error
+    return None
 
 
 def run_notebook(
@@ -172,7 +240,8 @@ def run_notebook(
 
     ``timeout_s`` bounds one cell; ``deadline_s`` bounds the WHOLE notebook (gap b): nbclient
     only knows per-cell timeouts, so each cell's timeout is capped at what is left of the
-    deadline. A run stopped by it is an ordinary execution failure that names the deadline.
+    deadline, and no cell starts once it has passed. A run stopped by it is an ordinary
+    execution failure that names the deadline; the partially executed notebook is kept.
 
     Raises only for caller mistakes (no parameters cell, not exactly one ``workbench-result``
     cell, non-literal parameter); every execution failure — a failing cell, a cell timeout,
@@ -183,31 +252,7 @@ def run_notebook(
     nb = nbformat.read(path, as_version=4)
     _inject(nb, params)
     _require_one_result_cell(nb)
-    deadline = time.monotonic() + deadline_s
-    capped = False
-
-    def cell_timeout(cell: nbformat.NotebookNode) -> int:
-        nonlocal capped
-        left = math.ceil(deadline - time.monotonic())
-        capped = left < timeout_s
-        return max(1, min(timeout_s, left))
-
-    error: str | None = None
-    with _private_kernelspec():
-        client = NotebookClient(
-            nb,
-            kernel_name=_KERNEL,
-            timeout=timeout_s,
-            timeout_func=cell_timeout,
-            resources={"metadata": {"path": str(path.parent)}},
-        )
-        try:
-            client.execute()
-        except (CellExecutionError, CellTimeoutError, DeadKernelError) as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            if isinstance(exc, CellTimeoutError) and capped:
-                # Last line on purpose: the verdict surfaces it as the root cause.
-                error += f"\nnotebook deadline of {deadline_s}s exceeded across all cells"
+    error = _execute(nb, path.parent, timeout_s=timeout_s, deadline_s=deadline_s)
     result, malformed = _result(nb)
     if malformed:
         # The cell error stays last: callers surface the last line as the root cause.

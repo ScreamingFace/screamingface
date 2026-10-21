@@ -110,6 +110,27 @@ def test_the_whole_notebook_has_one_deadline_across_cells(tmp_path: Path) -> Non
     assert run.executed.cells, "the executed notebook is kept for the bundle"
 
 
+def test_the_deadline_stops_many_short_cells_before_the_next_one_starts(tmp_path: Path) -> None:
+    """Review re-finding 2: the deadline is cumulative, not a per-cell clamp. 30 cells of 0.2s
+    each fit any per-cell timeout, but together outlive a 1s deadline; no further cell may
+    start once it has passed, and the partially executed notebook is kept."""
+    short = [nbformat.v4.new_code_cell("import time; time.sleep(0.2)") for _ in range(30)]
+    path = _write(tmp_path, _params("X = 1"), *short, _result(f"print({RESULT_PREFIX + '{}'!r})"))
+    started = time.monotonic()
+    run = run_notebook(path, {}, timeout_s=60, deadline_s=1)
+    elapsed = time.monotonic() - started
+    # Uncapped, the 30 cells alone take 6s; the deadline (1s, kernel start included) stops it.
+    assert elapsed < 4.5, elapsed
+    assert run.error is not None
+    assert run.error.strip().splitlines()[-1] == (
+        "notebook deadline of 1s exceeded across all cells"
+    )
+    assert run.result is None
+    assert not run.executed.cells[-1].get("outputs"), "the result cell never started"
+    assert run.executed.cells[-1].get("execution_count") is None
+    assert run.executed.cells, "the executed notebook is kept for the bundle"
+
+
 def test_a_notebook_within_its_deadline_is_untouched(tmp_path: Path) -> None:
     path = _write(tmp_path, _params("X = 1"), _result(f"print({RESULT_PREFIX + '{}'!r})"))
     run = run_notebook(path, {}, timeout_s=60, deadline_s=60)
@@ -180,7 +201,23 @@ def test_a_marker_printed_outside_the_result_cell_fails_closed(tmp_path: Path) -
     )
     run = run_notebook(path, {})
     assert run.result is None
-    assert run.error is not None and "found 2" in run.error
+    assert run.error is not None
+    assert "outside the 'workbench-result' cell" in run.error
+
+
+def test_a_forged_marker_is_never_taken_when_the_result_cell_prints_none(tmp_path: Path) -> None:
+    """Review re-finding 3: markers are bound to the ``workbench-result`` cell. Before, a
+    marker printed by ANOTHER cell was accepted when the result cell printed nothing."""
+    path = _write(
+        tmp_path,
+        _params("X = 1"),
+        nbformat.v4.new_code_cell(f"print({RESULT_PREFIX + '{"forged": 1}'!r})"),
+        _result("pass"),
+    )
+    run = run_notebook(path, {})
+    assert run.result is None, "a marker from another cell must never become the result"
+    assert run.error is not None
+    assert "outside the 'workbench-result' cell" in run.error
 
 
 def test_a_duplicate_marker_keeps_the_cell_error_last(tmp_path: Path) -> None:
