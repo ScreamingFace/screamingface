@@ -30,16 +30,17 @@ MESSAGE_1_2 = (
     "members as the judge, and stage 2 writes the answer, so the writer is also the scorer. "
     "Give one of the two stages another model, or keep both and ignore this warning."
 )
-# E6: a judge and its writer in one block (Judge >> Rank >> Synthesize) warn on the block's own
-# Pipeline, whose stages are the lowered Fusion (1) and the writer (2).
+# E6: a judge and its writer in one block (Judge >> Rank >> Synthesize) warn on the block, named by
+# its stage in the user's chain (product gap b): never by its inferred name, which lists the
+# member routes.
 MESSAGE_BLOCK = (
-    "Pipeline 'm1+m2+m3->b': stages 1 and 2 use the same model 'openrouter/a/b': stage 1 scores "
-    "the members as the judge, and stage 2 writes the answer, so the writer is also the scorer. "
-    "Give one of the two stages another model, or keep both and ignore this warning."
+    "Pipeline 'judged': stage 1 (a fanout block) uses the same model 'openrouter/a/b' for its "
+    "judge and its writer: the judge scores the members, and the writer writes the answer, so "
+    "the writer is also the scorer. Give the judge or the writer another model, or keep both and "
+    "ignore this warning."
 )
-# WHY a named Fanout here: an unnamed block's Pipeline name is inferred from its member routes,
-# and these rows check that the message names no member.
-MESSAGE_PANEL = MESSAGE_BLOCK.replace("'m1+m2+m3->b'", "'panel->b'")
+# A named Fanout changes nothing: the message names the stage, not the block.
+MESSAGE_PANEL = MESSAGE_BLOCK
 _SURFACE = _CheckSurface(
     check_route="/benchmarks/ifeval/revision-1/check-surface",
     feedback_intent="feedback",
@@ -142,6 +143,42 @@ def test_judge_then_same_model_writer_warns_once(recipe: sf.Recipe, expected: st
     assert judge_writer[0].filename == __file__
     assert RUBRIC not in expected
     assert "m1" not in str(judge_writer[0].message)
+
+
+def test_an_unnamed_chain_names_the_block_by_its_stage_only() -> None:
+    # product gap b: no Pipeline name to give, and the inferred one lists the member routes
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        _compile(_ranked())
+
+    judge_writer = [w for w in recorded if issubclass(w.category, JudgeWriterWarning)]
+    assert [str(w.message) for w in judge_writer] == [
+        "Stage 1 (a fanout block) uses the same model 'openrouter/a/b' for its judge and its "
+        "writer: the judge scores the members, and the writer writes the answer, so the writer "
+        "is also the scorer. Give the judge or the writer another model, or keep both and ignore "
+        "this warning."
+    ]
+    assert "m1" not in str(judge_writer[0].message)
+
+
+def test_a_judge_chain_inside_a_block_writer_warns_on_the_next_stage() -> None:
+    # product gap a: Synthesize(<a chain whose block reads a judge>) answers with that judge's
+    # pick, so the next stage on the judge's model is a writer that is also the scorer (the old
+    # context block form warned here too)
+    judged_writer = (
+        sf.Fanout(MEMBERS)
+        >> _judge()
+        >> sf.Vote(over="last_number", normalize="numeric", weights="score:judge")
+    )
+    pipeline = sf.Pipeline(
+        [sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize(judged_writer), JUDGE_ROUTE],
+        name="judged",
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        _compile(pipeline)
+
+    judge_writer = [w for w in recorded if issubclass(w.category, JudgeWriterWarning)]
+    assert [str(w.message) for w in judge_writer] == [MESSAGE_1_2]
 
 
 def test_warning_does_not_change_the_url4() -> None:
