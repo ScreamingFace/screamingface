@@ -13,12 +13,14 @@ from decimal import Decimal
 from typing import Any
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from litellm.exceptions import RateLimitError
 
 from aigateway.core.usage_accounting import active_collector
+from aigateway.core.usage_accounting.hooks import MAX_RAW_EVIDENCE_BYTES, _read_body
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.taxonomy import RequestAccountingCollector
 from aigateway.plugins.taxonomy.render import render_aigw_metadata
@@ -118,6 +120,35 @@ class TestOpenRouterEvidence:
         assert economics["direct_cost_status"] == "partial"
         (_failed, success) = collector.records()
         assert metadata["usage_accounting"][_USAGE_KEY] == success.usage.as_json()
+
+    @pytest.mark.asyncio
+    async def test_a_200_over_the_full_evidence_cap_still_reports_its_cost(self) -> None:
+        # A long reasoning answer: the body is over the full-evidence cap, and the converted
+        # response carries LiteLLM's float cost, which alone would leave the call unpriced.
+        answer = "x" * (MAX_RAW_EVIDENCE_BYTES + 1024)
+        body = (
+            b'{"id":"gen-1","model":"google/gemini-2.0-flash-001","choices":[{"message":'
+            b'{"content":"' + answer.encode() + b'"}}],'
+            b'"usage":{"prompt_tokens":3,"completion_tokens":5,"cost":0.00042}}'
+        )
+        raw_evidence, _body_completed, _evidence_complete = await _read_body(
+            httpx.Response(200, content=body, headers={"content-type": "application/json"})
+        )
+        collector = _openrouter_collector((200, raw_evidence))
+        final_response = {
+            "id": "gen-1",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 5, "cost": 0.00042},
+        }
+
+        economics = _finalize_and_render(collector, final_response)["request_economics"]
+
+        assert economics[_KEY] == {
+            "status": "reported",
+            "amount": "0.00042",
+            "unit": "openrouter_credits",
+            "source": "openrouter.usage.cost",
+        }
+        assert economics["direct_cost_status"] == "complete"
 
 
 class TestChatRoute:
