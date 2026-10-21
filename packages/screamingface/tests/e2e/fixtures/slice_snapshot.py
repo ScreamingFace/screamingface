@@ -1362,9 +1362,9 @@ def _report_header(board: str, report_sha: str) -> list[str]:
 
 
 def _fusion_candidate(tape: Any) -> Any:
-    from screamingface import _surface as sx
+    import screamingface as sf
 
-    return sx.Fanout(list(tape.member_routes), name=tape.recipe) >> sx.Synthesize(
+    return sf.Fanout(list(tape.member_routes), name=tape.recipe) >> sf.Synthesize(
         tape.synthesizer_route
     )
 

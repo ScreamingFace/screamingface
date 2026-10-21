@@ -24,7 +24,6 @@ from _nodes import ReduceNode, VoteNode, fusion_node
 from _reducer_fixtures import FixtureVote, _entry
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
@@ -65,9 +64,9 @@ def _catalog(names: Mapping[str, Sequence[str]]) -> _OperatorCatalog:
 def argmax_cost_url4() -> str:
     """Three members, the first with a param; the cheapest member's answer is the answer."""
 
-    recipe = sx.Fanout(
+    recipe = sf.Fanout(
         [sf.Model("prov/alpha", params={"temperature": 0.5}), "prov/beta", "prov/gamma"]
-    ) >> sx.ArgMin("cost_usd")
+    ) >> sf.ArgMin("cost_usd")
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
@@ -91,7 +90,7 @@ def corrective_vote_url4() -> str:
     assert match is not None, "corrective_loop_candidate.url4 lost the IFEval check route"
     recipe = sf.CorrectiveLoop(
         [
-            sx.Fanout(["prov/member-a", "prov/member-b", "prov/member-c"]) >> sx.Vote(),
+            sf.Fanout(["prov/member-a", "prov/member-b", "prov/member-c"]) >> sf.Vote(),
             "prov/member-d",
         ],
         judge="prov/judge",
@@ -107,9 +106,9 @@ def filter_pipeline_url4() -> str:
     """Four members, a confidence filter, then a writer that sees only the members that pass."""
 
     recipe = (
-        sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"])
-        >> sx.Filter(where=sf.signal("field:confidence") >= 0.6)
-        >> sx.Synthesize("prov/writer")
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"])
+        >> sf.Filter(where=sf.signal("field:confidence") >= 0.6)
+        >> sf.Synthesize("prov/writer")
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 
@@ -118,9 +117,9 @@ def judge_vote_url4() -> str:
     """Three members voting on a number, each answer weighed by the judge's score for its member."""
 
     recipe = (
-        sx.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
-        >> sx.Judge("prov/judge", rubric="Score each answer.")
-        >> sx.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
+        >> sf.Judge("prov/judge", rubric="Score each answer.")
+        >> sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 
@@ -137,9 +136,9 @@ def samples_vote_url4() -> str:
 def signal_vote_url4() -> str:
     """Three members, the first with a param, voting with weights = each member's own cost."""
 
-    recipe = sx.Fanout(
+    recipe = sf.Fanout(
         [sf.Model("prov/alpha", params={"temperature": 0.5}), "prov/beta", "prov/gamma"]
-    ) >> sx.Vote(over="last_line", normalize="text", weights=sf.signal("cost_usd"))
+    ) >> sf.Vote(over="last_line", normalize="text", weights=sf.signal("cost_usd"))
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 

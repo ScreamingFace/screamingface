@@ -16,7 +16,6 @@ from _combine_contract import engine_operators
 from _nodes import ReduceNode, VoteNode, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._surface.chain import Step
@@ -28,7 +27,7 @@ _FIELD = sf.Extract("field", path="answer", normalize="text")
 
 
 def _url4(step: Step) -> str:
-    return compile_candidate(sx.Fanout(_MEMBERS) >> step, operators=engine_operators()).url4
+    return compile_candidate(sf.Fanout(_MEMBERS) >> step, operators=engine_operators()).url4
 
 
 def _node_url4(synthesizer: Reducer) -> str:
@@ -41,10 +40,10 @@ def test_median_rejects_signal_weights() -> None:
     # E4b weighted median (WM#13): Median and the median block take weights now; only the judge
     # signal is refused, because a Median has no judge.
     with pytest.raises(ValueError, match="has no judge"):
-        sx.Median(weights=sf.signal("score:judge"))
+        sf.Median(weights=sf.signal("score:judge"))
     with pytest.raises(ValueError, match="has no judge"):
-        sx.Median(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
-    assert sx.Median(weights=None).select == "nearest"
+        sf.Median(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
+    assert sf.Median(weights=None).select == "nearest"
 
 
 def test_score_judge_weights_wait_for_the_judge() -> None:
@@ -53,11 +52,11 @@ def test_score_judge_weights_wait_for_the_judge() -> None:
     with pytest.raises(
         ValueError, match=re.escape("score:judge needs sf.Judge(...) after sf.Fanout")
     ):
-        _ = sx.Fanout(_MEMBERS) >> sx.Vote(over=_FIELD, weights=judge)
+        _ = sf.Fanout(_MEMBERS) >> sf.Vote(over=_FIELD, weights=judge)
     with pytest.raises(
         ValueError, match=re.escape("score:judge needs sf.Judge(...) after sf.Fanout")
     ):
-        _ = sx.Fanout(_MEMBERS) >> sx.Vote(**_NUMBER, weights=judge)
+        _ = sf.Fanout(_MEMBERS) >> sf.Vote(**_NUMBER, weights=judge)
 
 
 def _signal_vote_spec(key: str) -> dict[str, Any]:
@@ -86,7 +85,7 @@ def test_signal_weights_value_repr_python_and_recovery() -> None:
 
 @pytest.mark.parametrize("key", ["field:confidence"])
 def test_signal_vote_round_trips_through_url4(key: str) -> None:
-    url4 = _url4(sx.Vote(**_NUMBER, weights=sf.signal(key)))
+    url4 = _url4(sf.Vote(**_NUMBER, weights=sf.signal(key)))
     code = sf.Url4(url4).to_python()
     assert f"weights=sf.signal({key!r})" in code
     namespace: dict[str, Any] = {}

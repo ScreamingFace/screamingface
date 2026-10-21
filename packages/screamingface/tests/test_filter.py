@@ -27,7 +27,6 @@ from _vote_run_fixtures import (
 )
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
@@ -54,9 +53,9 @@ def _url4(reducer: Reducer) -> str:
     return compile_candidate(_wrapped(reducer), operators=flow_operators()).url4
 
 
-def _chain(step: Step) -> sx.Pipeline:
+def _chain(step: Step) -> sf.Pipeline:
     """A selection step in a block, then the writer that reads the selected members."""
-    return sx.Fanout(members3()) >> step >> sx.Synthesize("provider/next")
+    return sf.Fanout(members3()) >> step >> sf.Synthesize("provider/next")
 
 
 def _chain_url4(step: Step) -> str:
@@ -150,10 +149,10 @@ def test_comparisons_compare_and_hash_by_a_typed_key() -> None:
     assert (_CONFIDENCE >= 0.6) == (sf.signal("field:confidence") >= 0.6)
 
     # a Filter and a block that hold the comparisons keep them apart too
-    assert sx.Filter(where=as_true) != sx.Filter(where=as_one)  # type: ignore[arg-type]
-    assert sx.Filter(where=as_one) == sx.Filter(where=as_float)  # type: ignore[arg-type]
+    assert sf.Filter(where=as_true) != sf.Filter(where=as_one)  # type: ignore[arg-type]
+    assert sf.Filter(where=as_one) == sf.Filter(where=as_float)  # type: ignore[arg-type]
     blocks = [ReduceNode("filter", where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
-    filters = [sx.Filter(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
+    filters = [sf.Filter(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
     nodes = [FilterNode(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
     assert blocks[0] != blocks[1]
     assert blocks[1] == blocks[2]
@@ -240,7 +239,7 @@ def test_every_comparison_writes_its_cmp(cmp_op: str) -> None:
 def test_filter_benchmark_extract_resolves_from_the_benchmark_rule() -> None:
     from _fusion_doc_examples import _GSM8K_RULE
 
-    reducer = sx.Filter(where=sf.matches("42"), over=sf.Extract("benchmark"))
+    reducer = sf.Filter(where=sf.matches("42"), over=sf.Extract("benchmark"))
     compiled = compile_candidate(
         _chain(reducer), operators=flow_operators(), benchmark_rule=_GSM8K_RULE
     )
@@ -262,8 +261,8 @@ def test_filter_benchmark_extract_resolves_from_the_benchmark_rule() -> None:
 
 
 def test_filter_as_last_stage_is_rejected() -> None:
-    reducer = sx.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
-    fusion = sx.Fanout(members3()) >> reducer
+    reducer = sf.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
+    fusion = sf.Fanout(members3()) >> reducer
 
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(fusion, operators=flow_operators())
@@ -276,7 +275,7 @@ def test_filter_as_last_stage_is_rejected() -> None:
     # a Fanout member and a corrective-loop judge are refused too
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(
-            sx.Fanout([fusion, "provider/d"]) >> sx.Synthesize("provider/s"),
+            sf.Fanout([fusion, "provider/d"]) >> sf.Synthesize("provider/s"),
             operators=flow_operators(),
         )
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
@@ -297,7 +296,7 @@ def test_filter_as_last_stage_is_rejected() -> None:
             check_surface=_SURFACE,
             operators=flow_operators(),
         )
-    followed = fusion >> sx.Synthesize("provider/next")
+    followed = fusion >> sf.Synthesize("provider/next")
     assert compile_candidate(followed, operators=flow_operators()).operations
 
 
@@ -367,15 +366,15 @@ def test_filter_validation() -> None:
         "sf.signal(key) >= 0.6"
     )
     with pytest.raises(TypeError, match=where_rule):
-        sx.Filter(where="x")  # type: ignore[arg-type]
+        sf.Filter(where="x")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match=where_rule):
-        sx.Filter(where=None)  # type: ignore[arg-type]
+        sf.Filter(where=None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Filter extract must be an sf.Extract"):
         FilterNode(where=sf.matches("a"), extract="last_number")  # type: ignore[arg-type]
     with pytest.raises(
         ValueError, match=re.escape("score:judge needs sf.Judge(...) after sf.Fanout")
     ):
-        _chain(sx.Filter(where=sf.signal("score:judge") >= 0.5))  # type: ignore[arg-type]
+        _chain(sf.Filter(where=sf.signal("score:judge") >= 0.5))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="score:judge"):
         ReduceNode("filter", where=sf.signal("score:judge") >= 0.5)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="option 'where' must be"):
@@ -407,12 +406,12 @@ def test_filter_fields_repr_and_equality() -> None:
 
 def _shapes() -> dict[str, sf.Recipe]:
     judge_free: dict[str, Step] = {
-        "threshold": sx.Filter(where=_CONFIDENCE >= 0.6),  # type: ignore[arg-type]
-        "equal true": sx.Filter(where=_CONFIDENCE == True),  # noqa: E712  # type: ignore[arg-type]
-        "accounting": sx.Filter(where=sf.signal("cost_usd") <= 0.01),  # type: ignore[arg-type]
-        "pattern": sx.Filter(where=sf.matches("ANSWER: [0-9]+")),
-        "pattern ignoring case": sx.Filter(where=sf.matches("yes", ignore_case=True)),
-        "pattern with extract": sx.Filter(
+        "threshold": sf.Filter(where=_CONFIDENCE >= 0.6),  # type: ignore[arg-type]
+        "equal true": sf.Filter(where=_CONFIDENCE == True),  # noqa: E712  # type: ignore[arg-type]
+        "accounting": sf.Filter(where=sf.signal("cost_usd") <= 0.01),  # type: ignore[arg-type]
+        "pattern": sf.Filter(where=sf.matches("ANSWER: [0-9]+")),
+        "pattern ignoring case": sf.Filter(where=sf.matches("yes", ignore_case=True)),
+        "pattern with extract": sf.Filter(
             where=sf.matches("^y"), over=sf.Extract("field", "text", path="answer")
         ),
     }
@@ -479,9 +478,9 @@ def test_filter_tampering_is_refused_as_cannot_rebuild(case: str) -> None:
 
 def _scripted_filter_run(evidence: dict[str, Any]) -> sf.Report:
     recipe = (
-        sx.Fanout(members3())
-        >> sx.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
-        >> sx.Synthesize("provider/writer")
+        sf.Fanout(members3())
+        >> sf.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
+        >> sf.Synthesize("provider/writer")
     )
     operations = [
         operation_wire("op_model_1", '{"answer":"A","confidence":0.9}'),
@@ -574,7 +573,7 @@ def test_equal_comparisons_compile_to_equal_bytes_for_a_negative_zero() -> None:
 
     assert negative == positive
     assert hash(negative) == hash(positive)
-    assert _chain_url4(sx.Filter(where=negative)) == _chain_url4(sx.Filter(where=positive))  # type: ignore[arg-type]
+    assert _chain_url4(sf.Filter(where=negative)) == _chain_url4(sf.Filter(where=positive))  # type: ignore[arg-type]
     assert '"value":0.0' in combine_spec_text(
         FilterNode(where=negative),  # type: ignore[arg-type]
         member_count=3,

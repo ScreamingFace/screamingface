@@ -35,11 +35,10 @@ _PARAMS: Final[dict[str, int | float]] = {"max_tokens": 1024, "temperature": 0.0
 
 def _logprob_fusion(model: str) -> _sf.Recipe:
     import screamingface as sf
-    from screamingface import _surface as sx
 
-    return sx.Fanout(
+    return sf.Fanout(
         [sf.Model(model=model, params=_PARAMS)], signals={"lp": sf.Logprob("mean")}
-    ) >> sx.ArgMax("lp")
+    ) >> sf.ArgMax("lp")
 
 
 def _evaluate_one_case(paid_stack: PaidStack, model: str, report_name: str) -> _sf.CaseResult:

@@ -13,14 +13,13 @@ import pytest
 from _nodes import FusionNode, JudgeNode, MergeNode, PickNode
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._surface.lowering import lower
 
 _TRIO = ["provider/a", "provider/b", "provider/c"]
 
 
 def _synthesizer(step: object) -> object:
-    node = lower(sx.Fanout(_TRIO) >> step)  # type: ignore[operator]
+    node = lower(sf.Fanout(_TRIO) >> step)  # type: ignore[operator]
     assert isinstance(node, FusionNode)
     return node.synthesizer
 
@@ -29,23 +28,23 @@ def _synthesizer(step: object) -> object:
 
 
 def test_ar1_argmax_and_argmin_lower_to_the_pick_by_signal() -> None:
-    assert _synthesizer(sx.ArgMax("cost_usd", output="answer")) == PickNode(
+    assert _synthesizer(sf.ArgMax("cost_usd", output="answer")) == PickNode(
         by_signal=sf.signal("cost_usd"), order="max", output="answer"
     )
-    assert _synthesizer(sx.ArgMin(sf.signal("cost_usd"))) == PickNode(
+    assert _synthesizer(sf.ArgMin(sf.signal("cost_usd"))) == PickNode(
         by_signal=sf.signal("cost_usd"), order="min"
     )
 
 
 def test_ar1_argmax_and_argmin_are_different_steps() -> None:
-    assert sx.ArgMax("cost_usd") != sx.ArgMin("cost_usd")
-    assert sx.ArgMax("cost_usd") == sx.ArgMax(sf.signal("cost_usd"))
+    assert sf.ArgMax("cost_usd") != sf.ArgMin("cost_usd")
+    assert sf.ArgMax("cost_usd") == sf.ArgMax(sf.signal("cost_usd"))
 
 
 def test_ar1_first_lowers_to_the_pick_by_field_equals() -> None:
-    where = sx.field("answer", normalize="text") == "yes"
+    where = sf.field("answer", normalize="text") == "yes"
 
-    assert _synthesizer(sx.First(where=where, output="answer")) == PickNode(
+    assert _synthesizer(sf.First(where=where, output="answer")) == PickNode(
         "answer", equals="yes", normalize="text", output="answer"
     )
 
@@ -53,8 +52,8 @@ def test_ar1_first_lowers_to_the_pick_by_field_equals() -> None:
 def test_ar1_judge_pick_and_merge_lower_to_today() -> None:
     fields = {"answer": sf.FieldRule.majority(normalize="text"), "score": sf.FieldRule.max()}
 
-    assert _synthesizer(sx.Merge(fields)) == MergeNode(fields=fields)
-    assert _synthesizer(sx.JudgePick("provider/j", rubric="Pick one.")) == JudgeNode(
+    assert _synthesizer(sf.Merge(fields)) == MergeNode(fields=fields)
+    assert _synthesizer(sf.JudgePick("provider/j", rubric="Pick one.")) == JudgeNode(
         "provider/j", returns="label", rubric="Pick one."
     )
 
@@ -65,17 +64,17 @@ def test_argmax_by_must_be_one_signal() -> None:
         match=r"^sf\.ArgMax by= must be one signal: a key string such as 'cost_usd' or "
         r"sf\.signal\(key\)$",
     ):
-        sx.ArgMax(3)  # type: ignore[arg-type]
+        sf.ArgMax(3)  # type: ignore[arg-type]
 
 
 def test_argmax_output_has_the_rule_of_today() -> None:
     with pytest.raises(ValueError, match=r"^sf\.ArgMax output='a\.b' must be a top-level field"):
-        sx.ArgMax("cost_usd", output="a.b")
+        sf.ArgMax("cost_usd", output="a.b")
 
 
 def test_merge_checks_its_fields_with_the_rules_of_today() -> None:
     with pytest.raises(ValueError, match="Merge needs at least one field"):
-        sx.Merge({})
+        sf.Merge({})
 
 
 # ---------------------------------------------------------------- SI-2 and the equals rules
@@ -97,13 +96,13 @@ def test_si2_field_compares_with_equals_only(compare: object) -> None:
         TypeError,
         match=r"^sf\.field compares with == only; use sf\.signal\('field:\.\.\.'\) for numbers$",
     ):
-        compare(sx.field("answer"))  # type: ignore[operator]
+        compare(sf.field("answer"))  # type: ignore[operator]
 
 
 def test_first_compares_a_number_as_its_json_text() -> None:
-    assert (sx.field("score") == 7) == (sx.field("score") == "7")
-    assert sx.First(where=sx.field("score") == 7) == sx.First(where=sx.field("score") == "7")
-    assert _synthesizer(sx.First(where=sx.field("score") == 7)) == PickNode("score", equals="7")
+    assert (sf.field("score") == 7) == (sf.field("score") == "7")
+    assert sf.First(where=sf.field("score") == 7) == sf.First(where=sf.field("score") == "7")
+    assert _synthesizer(sf.First(where=sf.field("score") == 7)) == PickNode("score", equals="7")
 
 
 def test_first_refuses_a_bool_with_the_numeric_normalizer() -> None:
@@ -111,7 +110,7 @@ def test_first_refuses_a_bool_with_the_numeric_normalizer() -> None:
         ValueError,
         match=r"^sf\.field == True or False cannot be compared with normalize='numeric'$",
     ):
-        _ = sx.field("ok", normalize="numeric") == True  # noqa: E712
+        _ = sf.field("ok", normalize="numeric") == True  # noqa: E712
 
 
 @pytest.mark.parametrize(
@@ -128,11 +127,11 @@ def test_field_equals_checks_its_value_with_field_messages(
     value: object, error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
-        _ = sx.field("x") == value
+        _ = sf.field("x") == value
 
 
-@pytest.mark.parametrize("step", [sx.ArgMax, sx.ArgMin])
-def test_output_has_the_step_message(step: type[sx.ArgMax]) -> None:
+@pytest.mark.parametrize("step", [sf.ArgMax, sf.ArgMin])
+def test_output_has_the_step_message(step: type[sf.ArgMax]) -> None:
     name = step.__name__
     with pytest.raises(
         ValueError,
@@ -146,37 +145,37 @@ def test_output_has_the_step_message(step: type[sx.ArgMax]) -> None:
 
 def test_first_output_has_the_first_message() -> None:
     with pytest.raises(ValueError, match=r"^sf\.First output='a\.b' must be a top-level field"):
-        sx.First(where=sx.field("x") == 1, output="a.b")
+        sf.First(where=sf.field("x") == 1, output="a.b")
 
 
 def test_argmin_is_not_an_argmax() -> None:
-    assert not issubclass(sx.ArgMin, sx.ArgMax)
-    assert not isinstance(sx.ArgMin("cost_usd"), sx.ArgMax)
+    assert not issubclass(sf.ArgMin, sf.ArgMax)
+    assert not isinstance(sf.ArgMin("cost_usd"), sf.ArgMax)
 
 
 def test_merge_equality_follows_the_field_order() -> None:
     first = {"a": sf.FieldRule.max(), "b": sf.FieldRule.majority()}
     second = {"b": sf.FieldRule.majority(), "a": sf.FieldRule.max()}
 
-    assert sx.Merge(first) == sx.Merge(dict(first))
-    assert sx.Merge(first) != sx.Merge(second)
+    assert sf.Merge(first) == sf.Merge(dict(first))
+    assert sf.Merge(first) != sf.Merge(second)
 
 
 def test_field_checks_its_path_and_normalizer() -> None:
     with pytest.raises(ValueError, match="must be a JSON path"):
-        sx.field("a..b")
+        sf.field("a..b")
     with pytest.raises(ValueError, match="normalize must be 'text' or 'numeric'"):
-        sx.field("a", normalize="set")  # type: ignore[arg-type]
+        sf.field("a", normalize="set")  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("where", [sx.field("a"), "a", sf.signal("field:a") == 1])
+@pytest.mark.parametrize("where", [sf.field("a"), "a", sf.signal("field:a") == 1])
 def test_first_where_takes_a_field_equals_condition(where: object) -> None:
     with pytest.raises(TypeError, match=r"^sf\.First where= takes sf\.field\(path\) == value$"):
-        sx.First(where=where)  # type: ignore[arg-type]
+        sf.First(where=where)  # type: ignore[arg-type]
 
 
 def test_a_field_condition_tells_a_bool_from_a_number() -> None:
-    assert (sx.field("a") == 1) == (sx.field("a") == 1)
-    assert (sx.field("a") == 1) != (sx.field("a") == True)  # noqa: E712
-    assert hash(sx.field("a") == 1) == hash(sx.field("a") == 1)
-    assert sx.First(where=sx.field("a") == 1) != sx.First(where=sx.field("a") == True)  # noqa: E712
+    assert (sf.field("a") == 1) == (sf.field("a") == 1)
+    assert (sf.field("a") == 1) != (sf.field("a") == True)  # noqa: E712
+    assert hash(sf.field("a") == 1) == hash(sf.field("a") == 1)
+    assert sf.First(where=sf.field("a") == 1) != sf.First(where=sf.field("a") == True)  # noqa: E712

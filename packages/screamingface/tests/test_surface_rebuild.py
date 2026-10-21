@@ -25,7 +25,6 @@ from test_narrow_contract_fixtures import FIXTURES
 from test_surface_parity import _NEW_FORM, _NOTEBOOK, _STEPS
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface import rebuild as rebuild_module
@@ -40,7 +39,7 @@ def _url4(recipe: sf.Recipe) -> str:
 
 
 def _executed(code: str) -> sf.Recipe:
-    namespace: dict[str, object] = {"sf": sx}
+    namespace: dict[str, object] = {"sf": sf}
     exec(code, namespace)  # the rebuilt code names every step through the alias sf
     candidate = namespace["candidate"]
     assert isinstance(candidate, sf.Recipe)
@@ -82,26 +81,26 @@ def test_rb1_a_narrow_fixture_round_trips(name: str) -> None:
     _round_trip(url4, _url4)
 
 
-def _pinned_vote(weights: str | None = None) -> sx.Vote:
+def _pinned_vote(weights: str | None = None) -> sf.Vote:
     """The url4 pins every rule id, and the rebuild keeps the pins (rebuild-display §1): a vote
     over the default rule rebuilds as ``Vote(over="last_line@1", normalize="text@1")``."""
 
-    return sx.Vote(over="last_line@1", normalize="text@1", weights=weights)
+    return sf.Vote(over="last_line@1", normalize="text@1", weights=weights)
 
 
 _JUDGED = ["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"]
 _REBUILT: dict[str, Callable[[], sf.Recipe]] = {
     "narrow_filter_mean_candidate.url4": FIXTURES["narrow_filter_mean_candidate.url4"],
     "narrow_rank_vote_candidate.url4": lambda: (
-        sx.Fanout(_JUDGED)
-        >> sx.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
-        >> sx.Rank(2, by="score:judge")
+        sf.Fanout(_JUDGED)
+        >> sf.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
+        >> sf.Rank(2, by="score:judge")
         >> _pinned_vote(weights="score:judge")
     ),
     "narrow_judge_rank_vote_candidate.url4": lambda: (
-        sx.Fanout(_JUDGED)
-        >> sx.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
-        >> sx.Rank(2, by="score:judge")
+        sf.Fanout(_JUDGED)
+        >> sf.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
+        >> sf.Rank(2, by="score:judge")
         >> _pinned_vote()
     ),
 }
@@ -116,10 +115,10 @@ def test_rb1_a_narrow_fixture_rebuilds_as_the_chain_it_was_compiled_from(name: s
 
 def test_rb1_the_code_names_the_steps_in_the_new_form() -> None:
     chain = (
-        sx.Fanout(_ROUTES)
-        >> sx.Judge("prov/judge", rubric="Score it.")
-        >> sx.Rank(2, by="score:judge")
-        >> sx.Vote(weights="score:judge")
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric="Score it.")
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote(weights="score:judge")
     )
 
     assert rebuild(_url4(chain)).python == (
@@ -131,11 +130,11 @@ def test_rb1_the_code_names_the_steps_in_the_new_form() -> None:
 
 
 def test_rb1_a_gate_rebuilds_with_its_references() -> None:
-    chain = sx.Fanout(_ROUTES, signals={"conf": sf.Verbalized("C: ([0-9]+)")}) >> sx.Gate(
-        when=sx.signal("conf").mean() >= 3.0,
+    chain = sf.Fanout(_ROUTES, signals={"conf": sf.Verbalized("C: ([0-9]+)")}) >> sf.Gate(
+        when=sf.signal("conf").mean() >= 3.0,
         then=_pinned_vote(),
-        otherwise=sx.Synthesize("prov/writer"),
-        abstain_if=sx.signal("conf").mean().between(2.0, 4.0),
+        otherwise=sf.Synthesize("prov/writer"),
+        abstain_if=sf.signal("conf").mean().between(2.0, 4.0),
     )
 
     rebuilt = rebuild(_url4(chain))
@@ -151,8 +150,8 @@ def test_rb1_a_gate_rebuilds_with_its_references() -> None:
 
 
 def test_rb1_an_optional_member_block_rebuilds_in_the_explicit_form() -> None:
-    inner = sx.Pipeline([sx.Fanout(["prov/a", "prov/b"]), _pinned_vote()], optional=True)
-    chain = sx.Fanout([inner, "prov/c"], quorum=1) >> _pinned_vote()
+    inner = sf.Pipeline([sf.Fanout(["prov/a", "prov/b"]), _pinned_vote()], optional=True)
+    chain = sf.Fanout([inner, "prov/c"], quorum=1) >> _pinned_vote()
 
     rebuilt = rebuild(_url4(chain))
 
@@ -165,10 +164,10 @@ def test_rb1_an_optional_member_block_rebuilds_in_the_explicit_form() -> None:
 
 def test_rb1_a_selection_and_its_writer_rebuild_as_one_block() -> None:
     chain = (
-        sx.Fanout(_ROUTES)
-        >> sx.Filter(where=sx.signal("cost_usd") < 1)
-        >> sx.Rank(2, by="cost_usd", order="min")
-        >> sx.Synthesize("prov/writer", prompt="Write it.")
+        sf.Fanout(_ROUTES)
+        >> sf.Filter(where=sf.signal("cost_usd") < 1)
+        >> sf.Rank(2, by="cost_usd", order="min")
+        >> sf.Synthesize("prov/writer", prompt="Write it.")
     )
 
     rebuilt = rebuild(_url4(chain))
@@ -181,7 +180,7 @@ def test_rb1_a_selection_and_its_writer_rebuild_as_one_block() -> None:
 
 
 def test_rb1_a_pinned_rule_rebuilds_as_its_rule_name() -> None:
-    chain = sx.Fanout(_ROUTES) >> sx.Vote(over="json")
+    chain = sf.Fanout(_ROUTES) >> sf.Vote(over="json")
 
     # E2: the operator id json_object@1 rebuilds as the rule name, with its pin
     assert rebuild(_url4(chain)).python.endswith(" >> sf.Vote(over='json@1', normalize='text@1')")
@@ -206,7 +205,7 @@ def test_rb1_a_url4_the_new_surface_cannot_express_is_refused(row: str, name: st
 
 
 def test_rb1_a_hand_edited_unknown_extract_op_cannot_rebuild() -> None:
-    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+    url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
     edited = url4.replace('"op":"last_line@1"', '"op":"zzz@1"')
     assert edited != url4
 
@@ -219,9 +218,9 @@ def test_rb1_a_hand_edited_unknown_extract_op_cannot_rebuild() -> None:
 def test_rb1_a_byte_mismatch_of_the_converted_chain_is_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    url4 = _url4(sx.Fanout(_ROUTES) >> sx.Vote())
+    url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
     # the same operators (the url4 pins only these), but another name: other bytes
-    other = sx.Fanout(_ROUTES, name="other") >> sx.Vote()
+    other = sf.Fanout(_ROUTES, name="other") >> sf.Vote()
     monkeypatch.setattr(rebuild_module, "surface_value", lambda _value: other)
 
     with pytest.raises(
@@ -232,7 +231,7 @@ def test_rb1_a_byte_mismatch_of_the_converted_chain_is_refused(
 
 def test_rb1_a_statistic_select_rebuilds_with_no_pin() -> None:
     # the step's select= takes "nearest" or "value"; the spec pins value@1
-    chain = sx.Fanout(_ROUTES) >> sx.Median(select="value")
+    chain = sf.Fanout(_ROUTES) >> sf.Median(select="value")
 
     assert rebuild(_url4(chain)).python.endswith(
         " >> sf.Median(over='last_number@1', select='value')"
@@ -303,27 +302,27 @@ def test_rb1_a_url4_that_is_not_url4_is_refused() -> None:
     [
         (
             lambda: (
-                sx.Fanout(["p/a", "p/b"]) >> sx.Judge("p/j", rubric="r") >> sx.ArgMax("score:judge")
+                sf.Fanout(["p/a", "p/b"]) >> sf.Judge("p/j", rubric="r") >> sf.ArgMax("score:judge")
             ),
             "Fanout(['p/a', 'p/b']) >> Judge('p/j', rubric='r') >> ArgMax('score:judge')",
         ),
         (
-            lambda: sx.Pipeline([sx.Fanout(["p/a", "p/b"]), sx.Vote()], name="x"),
+            lambda: sf.Pipeline([sf.Fanout(["p/a", "p/b"]), sf.Vote()], name="x"),
             "Pipeline([Fanout(['p/a', 'p/b']), Vote()], name='x')",
         ),
         (
-            lambda: sx.Pipeline([sx.Fanout(["p/a", "p/b"]), sx.Vote()], optional=True),
+            lambda: sf.Pipeline([sf.Fanout(["p/a", "p/b"]), sf.Vote()], optional=True),
             "Pipeline([Fanout(['p/a', 'p/b']), Vote()], optional=True)",
         ),
         (
-            lambda: sx.Pipeline([sf.Model("p/a"), sf.Model("p/b")]),
+            lambda: sf.Pipeline([sf.Model("p/a"), sf.Model("p/b")]),
             "Pipeline([Model('p/a'), Model('p/b')])",
         ),
         (
-            lambda: sf.Model("p/a") >> sx.Fanout(["p/b", "p/c"]) >> sx.Mean(),
+            lambda: sf.Model("p/a") >> sf.Fanout(["p/b", "p/c"]) >> sf.Mean(),
             "Model('p/a') >> Fanout(['p/b', 'p/c']) >> Mean()",
         ),
-        (lambda: sx.Fanout(["p/a"]), "Fanout(['p/a'])"),
+        (lambda: sf.Fanout(["p/a"]), "Fanout(['p/a'])"),
     ],
     ids=["judge-argmax", "named", "optional", "two-models", "model-first", "open-block"],
 )
@@ -334,55 +333,55 @@ def test_rb3_a_chain_repr_uses_the_chain_operator(value: Callable[[], object], t
 @pytest.mark.parametrize(
     ("step", "text"),
     [
-        (lambda: sx.Vote(), "Vote()"),
+        (lambda: sf.Vote(), "Vote()"),
         (
-            lambda: sx.Vote(over="json", normalize="identity", weights="cost_usd"),
+            lambda: sf.Vote(over="json", normalize="identity", weights="cost_usd"),
             "Vote(over='json', normalize='identity', weights='cost_usd')",
         ),
-        (lambda: sx.Vote(weights=(1, 2)), "Vote(weights=(1.0, 2.0))"),
-        (lambda: sx.Vote(over="benchmark"), "Vote(over='benchmark')"),
+        (lambda: sf.Vote(weights=(1, 2)), "Vote(weights=(1.0, 2.0))"),
+        (lambda: sf.Vote(over="benchmark"), "Vote(over='benchmark')"),
         (
-            lambda: sx.Vote(over=sx.Extract("regex", pattern="A: (.*)")),
+            lambda: sf.Vote(over=sf.Extract("regex", pattern="A: (.*)")),
             "Vote(over=Extract('regex', pattern='A: (.*)'))",
         ),
-        (lambda: sx.Median(), "Median()"),
+        (lambda: sf.Median(), "Median()"),
         (
-            lambda: sx.Median(over="field:answer", select="value"),
+            lambda: sf.Median(over="field:answer", select="value"),
             "Median(over='field:answer', select='value')",
         ),
-        (lambda: sx.Mean(select="nearest"), "Mean(select='nearest')"),
-        (lambda: sx.Rank(2, by="cost_usd"), "Rank(2, by='cost_usd')"),
-        (lambda: sx.Rank(1, by="p", order="min"), "Rank(1, by='p', order='min')"),
+        (lambda: sf.Mean(select="nearest"), "Mean(select='nearest')"),
+        (lambda: sf.Rank(2, by="cost_usd"), "Rank(2, by='cost_usd')"),
+        (lambda: sf.Rank(1, by="p", order="min"), "Rank(1, by='p', order='min')"),
         (
-            lambda: sx.Filter(where=sx.signal("p") >= 0.5),
+            lambda: sf.Filter(where=sf.signal("p") >= 0.5),
             "Filter(where=signal('p') >= 0.5)",
         ),
         (
-            lambda: sx.Filter(where=sx.matches("^A"), over="last_line"),
+            lambda: sf.Filter(where=sf.matches("^A"), over="last_line"),
             "Filter(where=matches('^A'), over='last_line')",
         ),
-        (lambda: sx.Concat(), "Concat()"),
-        (lambda: sx.Concat(" | ", label=False), "Concat(' | ', label=False)"),
-        (lambda: sx.ArgMin("cost_usd", output="answer"), "ArgMin('cost_usd', output='answer')"),
+        (lambda: sf.Concat(), "Concat()"),
+        (lambda: sf.Concat(" | ", label=False), "Concat(' | ', label=False)"),
+        (lambda: sf.ArgMin("cost_usd", output="answer"), "ArgMin('cost_usd', output='answer')"),
         (
-            lambda: sx.First(where=sx.field("ok", normalize="text") == "yes"),
+            lambda: sf.First(where=sf.field("ok", normalize="text") == "yes"),
             "First(where=field('ok', normalize='text') == 'yes')",
         ),
         (
-            lambda: sx.JudgePick("p/j", rubric="r", params={"temperature": 0}),
+            lambda: sf.JudgePick("p/j", rubric="r", params={"temperature": 0}),
             "JudgePick('p/j', rubric='r', params={'temperature': 0})",
         ),
-        (lambda: sx.Synthesize("p/w"), "Synthesize('p/w')"),
+        (lambda: sf.Synthesize("p/w"), "Synthesize('p/w')"),
         (
-            lambda: sx.Synthesize("p/w", prompt="Write it."),
+            lambda: sf.Synthesize("p/w", prompt="Write it."),
             "Synthesize('p/w', prompt='Write it.')",
         ),
         (
-            lambda: sx.Gate(when=sx.agreement() >= 0.7, then=sx.Vote()),
+            lambda: sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote()),
             "Gate(when=agreement() >= 0.7, then=Vote())",
         ),
         (
-            lambda: sx.Merge({"answer": sx.FieldRule.from_member(1)}),
+            lambda: sf.Merge({"answer": sf.FieldRule.from_member(1)}),
             "Merge({'answer': FieldRule.from_member(1)})",
         ),
     ],
@@ -394,7 +393,7 @@ def test_rb3_a_step_repr_shows_only_the_arguments_that_differ(
 
 
 def test_rb3_a_member_with_options_shows_as_a_model() -> None:
-    fanout = sx.Fanout([sf.Model("p/a", prompt="Be brief."), "p/b"], quorum=1, name="pair")
+    fanout = sf.Fanout([sf.Model("p/a", prompt="Be brief."), "p/b"], quorum=1, name="pair")
 
     assert (
         repr(fanout) == "Fanout([Model('p/a', prompt='Be brief.'), 'p/b'], quorum=1, name='pair')"

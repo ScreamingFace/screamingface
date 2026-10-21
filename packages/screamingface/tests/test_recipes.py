@@ -8,14 +8,13 @@ import pytest
 from _nodes import FusionNode
 
 import screamingface as sf
-from screamingface import _surface as sx
 
 
-def _block(chain: sx.Pipeline) -> tuple[sx.Fanout, sx.Synthesize]:
+def _block(chain: sf.Pipeline) -> tuple[sf.Fanout, sf.Synthesize]:
     """The two steps of a one-block chain: its Fanout and its writer."""
     fanout, writer = chain.steps
-    assert isinstance(fanout, sx.Fanout)
-    assert isinstance(writer, sx.Synthesize)
+    assert isinstance(fanout, sf.Fanout)
+    assert isinstance(writer, sf.Synthesize)
     return fanout, writer
 
 
@@ -72,7 +71,7 @@ def test_candidate_parameters_reject_values_that_cannot_be_encoded(
         sf.Model("provider/model", params=params)
 
     with pytest.raises(ValueError, match="cannot be encoded"):
-        _ = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+        _ = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
             sf.Model("provider/synth", params=params)
         )
 
@@ -82,7 +81,7 @@ def test_fusion_keeps_members_in_order_and_infers_a_name() -> None:
     gpt = sf.Model("openrouter/openai/gpt-5.5")
 
     synthesizer = sf.Model("openrouter/openai/gpt-5.5")
-    fusion = sx.Fanout([opus, gpt]) >> sx.Synthesize(synthesizer)
+    fusion = sf.Fanout([opus, gpt]) >> sf.Synthesize(synthesizer)
     fanout, writer = _block(fusion)
 
     assert isinstance(fusion, sf.Recipe)
@@ -96,9 +95,9 @@ def test_fusion_keeps_members_in_order_and_infers_a_name() -> None:
 
 
 def test_fusion_accepts_an_optional_display_name() -> None:
-    fusion = sx.Fanout(
+    fusion = sf.Fanout(
         [sf.Model("provider/opus"), sf.Model("provider/gpt")], name=" Frontier "
-    ) >> sx.Synthesize("provider/synth")
+    ) >> sf.Synthesize("provider/synth")
 
     assert fusion.name == "Frontier"
 
@@ -109,7 +108,7 @@ def test_fusion_accepts_a_model_with_candidate_owned_synthesis_policy() -> None:
         prompt="Resolve disagreements using evidence.",
         params={"temperature": 0.1},
     )
-    fusion = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+    fusion = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
         synthesizer
     )
     _, writer = _block(fusion)
@@ -121,7 +120,7 @@ def test_fusion_accepts_a_model_with_candidate_owned_synthesis_policy() -> None:
 
 
 def test_fusion_normalizes_synthesizer_route_shorthand_to_a_model() -> None:
-    fusion = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+    fusion = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
         "provider/synth"
     )
     _, writer = _block(fusion)
@@ -134,7 +133,7 @@ def test_fusion_requires_an_explicit_synthesizer() -> None:
     with pytest.raises(TypeError, match="required keyword-only argument: 'synthesizer'"):
         cast(Any, FusionNode)([sf.Model("provider/a"), sf.Model("provider/b")])
 
-    fusion = sx.Fanout(["provider/a"]) >> sx.Synthesize("provider/synth")
+    fusion = sf.Fanout(["provider/a"]) >> sf.Synthesize("provider/synth")
     fanout, writer = _block(fusion)
     assert fanout.members == (sf.Model("provider/a"),)
     assert writer.model == sf.Model("provider/synth")
@@ -146,12 +145,12 @@ def test_nested_fusions_are_regular_members() -> None:
     opus = sf.Model("provider/opus")
     gpt = sf.Model("provider/gpt")
     gemini = sf.Model("provider/gemini")
-    pair = sx.Fanout([opus, gpt], name="pair") >> sx.Synthesize("provider/pair-synth")
-    trio = sx.Fanout([pair, gemini], name="trio") >> sx.Synthesize("provider/trio-synth")
+    pair = sf.Fanout([opus, gpt], name="pair") >> sf.Synthesize("provider/pair-synth")
+    trio = sf.Fanout([pair, gemini], name="trio") >> sf.Synthesize("provider/trio-synth")
 
     trio_fanout, _ = _block(trio)
     assert trio_fanout.members == (pair, gemini)
-    nested, _ = _block(cast(sx.Pipeline, trio_fanout.members[0]))
+    nested, _ = _block(cast(sf.Pipeline, trio_fanout.members[0]))
     assert nested.members == (opus, gpt)
 
 
@@ -162,15 +161,15 @@ def test_explicit_names_distinguish_independent_samples() -> None:
     assert first is not second
     assert first != second
 
-    fusion = sx.Fanout([first, second], name="self-fusion") >> sx.Synthesize("provider/synth")
+    fusion = sf.Fanout([first, second], name="self-fusion") >> sf.Synthesize("provider/synth")
     fanout, _ = _block(fusion)
     assert fanout.members == (first, second)
 
 
 def test_fusion_accepts_one_member_routes_and_duplicate_display_names() -> None:
-    fusion = sx.Fanout(
+    fusion = sf.Fanout(
         ["provider/one", sf.Model("provider-a/same"), sf.Model("provider-b/same")]
-    ) >> sx.Synthesize("provider/synth")
+    ) >> sf.Synthesize("provider/synth")
     fanout, _ = _block(fusion)
 
     assert fanout.members == (
@@ -182,10 +181,10 @@ def test_fusion_accepts_one_member_routes_and_duplicate_display_names() -> None:
 
 def test_fusion_rejects_empty_or_ambiguous_member_collections() -> None:
     with pytest.raises(ValueError, match="at least one member"):
-        _ = sx.Fanout([]) >> sx.Synthesize("provider/synth")
+        _ = sf.Fanout([]) >> sf.Synthesize("provider/synth")
 
     with pytest.raises(TypeError, match="ordered sequence"):
-        _ = sx.Fanout(cast(Any, "provider/one")) >> sx.Synthesize("provider/synth")
+        _ = sf.Fanout(cast(Any, "provider/one")) >> sf.Synthesize("provider/synth")
 
 
 def test_fusion_rejects_unpublished_recipe_extensions() -> None:
@@ -197,7 +196,7 @@ def test_fusion_rejects_unpublished_recipe_extensions() -> None:
             return None
 
     with pytest.raises(TypeError, match="sf.Model, sf.Fusion, or sf.Pipeline"):
-        _ = sx.Fanout([CustomRecipe(), sf.Model("provider/model")]) >> sx.Synthesize(
+        _ = sf.Fanout([CustomRecipe(), sf.Model("provider/model")]) >> sf.Synthesize(
             "provider/synth"
         )
 
@@ -209,7 +208,7 @@ def test_fusion_rejects_unsupported_recipe_synthesizers() -> None:
             "Synthesize model must be a model route or sf.Model, sf.Fusion, or sf.Pipeline"
         ),
     ):
-        _ = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+        _ = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
             cast(Any, object())
         )
 
@@ -220,8 +219,8 @@ def test_fusion_rejects_unsupported_recipe_synthesizers() -> None:
         (lambda: sf.Model("provider/model", name=" "), "model name"),
         (
             lambda: (
-                sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")], name=" ")
-                >> sx.Synthesize("provider/synth")
+                sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")], name=" ")
+                >> sf.Synthesize("provider/synth")
             ),
             "fanout name must not be empty",
         ),
@@ -255,11 +254,11 @@ def test_candidate_representations_are_compact() -> None:
 
     assert repr(opus) == "Model('openrouter/anthropic/claude-opus-4.8')"
     assert repr(sample) == ("Model('openrouter/anthropic/claude-opus-4.8', name='sample-1')")
-    assert repr(sx.Fanout([opus, gpt]) >> sx.Synthesize("provider/synth")) == (
+    assert repr(sf.Fanout([opus, gpt]) >> sf.Synthesize("provider/synth")) == (
         "Fanout(['openrouter/anthropic/claude-opus-4.8', 'openrouter/openai/gpt-5.5']) "
         ">> Synthesize('provider/synth')"
     )
-    assert repr(sx.Fanout([opus, gpt], name="pair") >> sx.Synthesize("provider/synth")) == (
+    assert repr(sf.Fanout([opus, gpt], name="pair") >> sf.Synthesize("provider/synth")) == (
         "Fanout(['openrouter/anthropic/claude-opus-4.8', 'openrouter/openai/gpt-5.5'], "
         "name='pair') >> Synthesize('provider/synth')"
     )
@@ -272,9 +271,9 @@ def test_candidate_representations_include_behavioral_overrides() -> None:
         prompt="Use evidence.",
         params={"temperature": 0.2},
     )
-    fusion = sx.Fanout(
+    fusion = sf.Fanout(
         [sf.Model("provider/a"), sf.Model("provider/b")], name="pair"
-    ) >> sx.Synthesize(
+    ) >> sf.Synthesize(
         sf.Model(
             "provider/synth",
             prompt="Resolve conflicts.",

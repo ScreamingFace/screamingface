@@ -17,7 +17,6 @@ from _nodes import FilterNode, JudgeNode, RankNode, ReduceNode, VoteNode
 from url4 import Expression, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.rebuild import rebuild
 from screamingface.judge import (
@@ -111,12 +110,12 @@ def _judge_calls(url4: str) -> list[Any]:
 
 def _scores_url4() -> str:
     return _url4(
-        sx.Fanout(_ROUTES) >> sx.Judge("prov/judge", rubric=_RUBRIC) >> sx.ArgMax("score:judge")
+        sf.Fanout(_ROUTES) >> sf.Judge("prov/judge", rubric=_RUBRIC) >> sf.ArgMax("score:judge")
     )
 
 
 def _label_url4() -> str:
-    return _url4(sx.Fanout(_ROUTES) >> sx.JudgePick("prov/judge", rubric=_RUBRIC))
+    return _url4(sf.Fanout(_ROUTES) >> sf.JudgePick("prov/judge", rubric=_RUBRIC))
 
 
 def test_tm1_the_four_templates_byte_for_byte() -> None:
@@ -129,7 +128,7 @@ def test_tm1_a_min_judge_writes_the_same_template_as_a_max_judge() -> None:
     # The order selects only the select step (max_score / best_holder{order:min}).
     low = JudgeNode("prov/judge", returns="scores", rubric=_RUBRIC, order="min")
     argmin = (
-        sx.Fanout(_ROUTES) >> sx.Judge("prov/judge", rubric=_RUBRIC) >> sx.ArgMin("score:judge")
+        sf.Fanout(_ROUTES) >> sf.Judge("prov/judge", rubric=_RUBRIC) >> sf.ArgMin("score:judge")
     )
 
     assert low._signal_call().prompt == _SCORES + _RUBRIC
@@ -192,10 +191,10 @@ def test_u5c_an_argmin_by_the_judge_after_a_judge_filter_is_one_judge_call() -> 
     # Unit 5 refused this chain (U5c): ArgMin's judge had its own "lower is better" template. With
     # the neutral template the Filter and the ArgMin read the scores of one judge call.
     chain = (
-        sx.Fanout(_ROUTES)
-        >> sx.Judge("prov/judge", rubric=_RUBRIC_MIN)
-        >> sx.Filter(where=sx.signal("score:judge") <= 3)
-        >> sx.ArgMin("score:judge")
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric=_RUBRIC_MIN)
+        >> sf.Filter(where=sf.signal("score:judge") <= 3)
+        >> sf.ArgMin("score:judge")
     )
 
     url4 = _url4(chain)
@@ -210,10 +209,10 @@ def test_u5c_an_argmin_by_the_judge_after_a_judge_filter_is_one_judge_call() -> 
 
 def test_an_argmin_by_the_judge_after_a_judge_rank_is_one_judge_call() -> None:
     chain = (
-        sx.Fanout(_ROUTES)
-        >> sx.Judge("prov/judge", rubric=_RUBRIC_MIN)
-        >> sx.Rank(2, by="score:judge")
-        >> sx.ArgMin("score:judge")
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric=_RUBRIC_MIN)
+        >> sf.Rank(2, by="score:judge")
+        >> sf.ArgMin("score:judge")
     )
 
     url4 = _url4(chain)

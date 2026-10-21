@@ -5,14 +5,13 @@ from __future__ import annotations
 import pytest
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 
 def test_compiled_fusion_injects_no_model_parameters() -> None:
     compiled = compile_candidate(
-        sx.Fanout([sf.Model("provider/left"), sf.Model("provider/right")])
-        >> sx.Synthesize("provider/synthesizer")
+        sf.Fanout([sf.Model("provider/left"), sf.Model("provider/right")])
+        >> sf.Synthesize("provider/synthesizer")
     )
 
     assert compiled.url4 is not None
@@ -29,7 +28,7 @@ def test_execution_owned_parameters_are_rejected_on_every_candidate_type(reserve
         sf.Model("provider/model", params={reserved: True})
 
     with pytest.raises(ValueError, match=rf"{reserved!r} is reserved"):
-        _ = sx.Fanout([sf.Model("provider/left"), sf.Model("provider/right")]) >> sx.Synthesize(
+        _ = sf.Fanout([sf.Model("provider/left"), sf.Model("provider/right")]) >> sf.Synthesize(
             sf.Model(
                 "provider/synthesizer",
                 params={reserved: True},

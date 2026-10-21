@@ -25,7 +25,6 @@ import pytest
 from _nodes import fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._surface.chain import _Block
 from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.cards import block_card_html, chain_card_html
@@ -33,25 +32,25 @@ from screamingface._ui.cards import block_card_html, chain_card_html
 _GOLDENS = Path(__file__).parent / "data" / "surface_cards"
 
 
-def _judged_block() -> sx.Pipeline:
+def _judged_block() -> sf.Pipeline:
     return (
-        sx.Fanout(["prov/alpha", "prov/beta"], signals={"conf": sf.Verbalized("C: ([0-9]+)")})
-        >> sx.Judge("prov/judge", rubric="Score <each> draft.")
-        >> sx.Filter(where=sx.signal("score:judge") >= 5)
-        >> sx.Vote(weights="score:judge")
+        sf.Fanout(["prov/alpha", "prov/beta"], signals={"conf": sf.Verbalized("C: ([0-9]+)")})
+        >> sf.Judge("prov/judge", rubric="Score <each> draft.")
+        >> sf.Filter(where=sf.signal("score:judge") >= 5)
+        >> sf.Vote(weights="score:judge")
     )
 
 
-def _chain() -> sx.Pipeline:
+def _chain() -> sf.Pipeline:
     return (
         sf.Model("prov/planner")
-        >> sx.Fanout(["prov/alpha", "prov/beta"])
-        >> sx.Rank(1, by="cost_usd")
-        >> sx.Synthesize("prov/writer", prompt="Write it.")
+        >> sf.Fanout(["prov/alpha", "prov/beta"])
+        >> sf.Rank(1, by="cost_usd")
+        >> sf.Synthesize("prov/writer", prompt="Write it.")
     )
 
 
-def _block_of(chain: sx.Pipeline) -> _Block:
+def _block_of(chain: sf.Pipeline) -> _Block:
     (block,) = chain._stages
     assert isinstance(block, _Block)
     return block
@@ -108,13 +107,13 @@ def test_ds1_a_chain_card_shows_a_block_stage_as_a_fanout_block() -> None:
 
 
 def test_ds1_a_writer_step_has_the_write_category() -> None:
-    html = block_card_html(_block_of(sx.Fanout(["prov/a", "prov/b"]) >> sx.Synthesize("prov/w")))
+    html = block_card_html(_block_of(sf.Fanout(["prov/a", "prov/b"]) >> sf.Synthesize("prov/w")))
 
     assert "<div class='sf-detail__index'>write</div>" in html
 
 
 def test_ds1_a_one_block_chain_shows_its_block_card() -> None:
-    chain = sx.Fanout(["prov/a", "prov/b"]) >> sx.Vote()
+    chain = sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote()
 
     assert chain._repr_html_() == block_card_html(_block_of(chain))
 
@@ -128,16 +127,16 @@ def test_ds1_a_longer_chain_shows_its_chain_card() -> None:
 @pytest.mark.parametrize(
     ("chain", "steps"),
     [
-        (lambda: sx.Pipeline([sx.Fanout(["prov/a", "prov/b"])]), []),
+        (lambda: sf.Pipeline([sf.Fanout(["prov/a", "prov/b"])]), []),
         (
-            lambda: sf.Model("prov/q") >> sx.Fanout(["prov/a", "prov/b"]) >> sx.Rank(1, by="p"),
+            lambda: sf.Model("prov/q") >> sf.Fanout(["prov/a", "prov/b"]) >> sf.Rank(1, by="p"),
             ["narrow"],
         ),
     ],
     ids=["fanout-only", "ends-in-narrow"],
 )
 def test_ds1_an_open_chain_card_shows_its_open_block(
-    chain: Callable[[], sx.Pipeline], steps: list[str]
+    chain: Callable[[], sf.Pipeline], steps: list[str]
 ) -> None:
     html = chain_card_html(chain())
 
@@ -146,7 +145,7 @@ def test_ds1_an_open_chain_card_shows_its_open_block(
 
 
 def test_e5_a_chain_member_of_todays_fusion_shows_as_a_nested_chain() -> None:
-    fusion = fusion_node([sx.Fanout(["prov/a", "prov/b"]) >> sx.Vote(), "prov/c"], "prov/w")
+    fusion = fusion_node([sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(), "prov/c"], "prov/w")
 
     html = fusion._repr_html_()
 

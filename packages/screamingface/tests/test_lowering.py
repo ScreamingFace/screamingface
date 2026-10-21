@@ -21,7 +21,6 @@ from test_pipeline_compilation import _whole_candidate_benchmark
 from test_reducer_characterization import _GOLDEN
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation import candidate as candidate_module
 from screamingface._evaluation.candidate import compile_candidate, recipes_need_operators
 from screamingface._evaluation.compilation import compile_evaluation
@@ -112,7 +111,7 @@ def test_lo0_the_evaluation_entry_keeps_old_values_as_they_are() -> None:
 
 
 def test_fanout_then_vote_lowers_to_the_fusion_of_today() -> None:
-    chain = sx.Fanout(_PAIR) >> sx.Vote()
+    chain = sf.Fanout(_PAIR) >> sf.Vote()
 
     assert lower(chain) == fusion_node(_PAIR, VoteNode())
     assert compile_candidate(chain, operators=flow_operators()).url4 == frozen_url4(
@@ -125,9 +124,9 @@ def test_fanout_then_vote_lowers_to_the_fusion_of_today() -> None:
 
 def test_nm1_a_closed_block_has_the_name_of_its_lowered_value() -> None:
     chains = [
-        sx.Fanout(_PAIR) >> sx.Vote(),
-        sx.Fanout(_PAIR, name="panel") >> sx.Synthesize("provider/w"),
-        sx.Pipeline([sx.Fanout(_PAIR), sx.Mean()], optional=True),
+        sf.Fanout(_PAIR) >> sf.Vote(),
+        sf.Fanout(_PAIR, name="panel") >> sf.Synthesize("provider/w"),
+        sf.Pipeline([sf.Fanout(_PAIR), sf.Mean()], optional=True),
     ]
 
     assert [chain.name for chain in chains] == ["a+b", "panel", "a+b"]
@@ -135,14 +134,14 @@ def test_nm1_a_closed_block_has_the_name_of_its_lowered_value() -> None:
 
 
 def test_nm1_a_chain_joins_its_stage_names() -> None:
-    chain = "provider/x" >> (sx.Fanout(_PAIR) >> sx.Vote()) >> sf.Model("provider/y")
+    chain = "provider/x" >> (sf.Fanout(_PAIR) >> sf.Vote()) >> sf.Model("provider/y")
 
     assert chain.name == "x->a+b->y"
     assert lower(chain).name == chain.name
 
 
 def test_nm1_a_named_chain_keeps_its_name() -> None:
-    chain = sx.Pipeline(["provider/x", sx.Fanout(_PAIR), sx.Vote()], name="mine")
+    chain = sf.Pipeline(["provider/x", sf.Fanout(_PAIR), sf.Vote()], name="mine")
 
     assert chain.name == "mine"
     assert lower(chain).name == "mine"
@@ -157,7 +156,7 @@ def test_lo1_lower_makes_no_call(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket, "socket", refuse)
     monkeypatch.setattr(socket, "create_connection", refuse)
-    chain = "provider/x" >> (sx.Fanout(_PAIR) >> sx.Vote())
+    chain = "provider/x" >> (sf.Fanout(_PAIR) >> sf.Vote())
 
     assert lower(chain) == lower(chain)
 
@@ -165,10 +164,10 @@ def test_lo1_lower_makes_no_call(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     "build",
     [
-        lambda: sx.Fanout(_PAIR) >> sx.Vote(),
-        lambda: "provider/x" >> (sx.Fanout(_PAIR) >> sx.Median()),
-        lambda: sx.Pipeline([sx.Fanout(_PAIR), sx.Mean()], name="named"),
-        lambda: sf.CorrectiveLoop([sx.Fanout(_PAIR) >> sx.Vote(), "provider/c"], judge="j/j"),
+        lambda: sf.Fanout(_PAIR) >> sf.Vote(),
+        lambda: "provider/x" >> (sf.Fanout(_PAIR) >> sf.Median()),
+        lambda: sf.Pipeline([sf.Fanout(_PAIR), sf.Mean()], name="named"),
+        lambda: sf.CorrectiveLoop([sf.Fanout(_PAIR) >> sf.Vote(), "provider/c"], judge="j/j"),
     ],
     ids=["block", "chain", "named", "loop"],
 )
@@ -191,11 +190,11 @@ def test_lo3_the_compiler_sees_only_internal_values(monkeypatch: pytest.MonkeyPa
         return original(self, recipe, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(candidate_module._CandidateCompiler, "_recipe", recording)
-    inner = sx.Fanout(["provider/x", "provider/y"]) >> sx.Synthesize("provider/s")
+    inner = sf.Fanout(["provider/x", "provider/y"]) >> sf.Synthesize("provider/s")
     chain = (
         "provider/first"
-        >> (sx.Fanout([inner, "provider/c"]) >> sx.Vote())
-        >> sx.Pipeline(["provider/a", "provider/b"], name="tail")
+        >> (sf.Fanout([inner, "provider/c"]) >> sf.Vote())
+        >> sf.Pipeline(["provider/a", "provider/b"], name="tail")
     )
 
     compile_candidate(chain, operators=flow_operators())
@@ -209,16 +208,16 @@ def test_lo3_an_unlowered_chain_is_not_a_compile_kind() -> None:
     from screamingface.recipe import _recipe_kind
 
     with pytest.raises(TypeError, match="candidate must be an sf.Model, sf.Fusion, or sf.Pipeline"):
-        _recipe_kind(sx.Fanout(_PAIR) >> sx.Vote())
+        _recipe_kind(sf.Fanout(_PAIR) >> sf.Vote())
 
 
 # ---------------------------------------------------------------- LO-4
 
 
 def test_lo4_a_chain_lowers_stage_by_stage() -> None:
-    group = sx.Pipeline(["provider/p", "provider/q"], name="group")
-    chain = sx.Pipeline(
-        [sf.Model("provider/x"), sx.Fanout([group, "provider/c"]), sx.Vote(), group, "provider/y"]
+    group = sf.Pipeline(["provider/p", "provider/q"], name="group")
+    chain = sf.Pipeline(
+        [sf.Model("provider/x"), sf.Fanout([group, "provider/c"]), sf.Vote(), group, "provider/y"]
     )
 
     assert lower(chain) == sf.Pipeline(
@@ -234,7 +233,7 @@ def test_lo4_a_chain_lowers_stage_by_stage() -> None:
 
 
 def test_lo4_old_containers_lower_the_chains_they_hold() -> None:
-    block = sx.Fanout(_PAIR) >> sx.Vote()
+    block = sf.Fanout(_PAIR) >> sf.Vote()
     node = fusion_node(_PAIR, VoteNode())
 
     assert lower(sf.CorrectiveLoop([block, "provider/c"], judge=block)) == sf.CorrectiveLoop(
@@ -253,33 +252,33 @@ def test_lo4_old_containers_lower_the_chains_they_hold() -> None:
 
 
 def test_lo5_an_unnamed_chain_of_one_block_lowers_to_the_node() -> None:
-    chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Median()])
+    chain = sf.Pipeline([sf.Fanout(_PAIR), sf.Median()])
 
     assert lower(chain) == fusion_node(_PAIR, MedianNode())
 
 
 def test_lo5_the_optional_flag_moves_to_the_node() -> None:
-    chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], optional=True)
+    chain = sf.Pipeline([sf.Fanout(_PAIR), sf.Vote()], optional=True)
 
     assert chain.optional is True
     assert lower(chain) == fusion_node(_PAIR, VoteNode(), optional=True)
 
 
 def test_lo5_an_unnamed_chain_of_one_model_stays_a_one_stage_pipeline() -> None:
-    assert lower(sx.Pipeline(["provider/x"])) == sf.Pipeline(["provider/x"])
+    assert lower(sf.Pipeline(["provider/x"])) == sf.Pipeline(["provider/x"])
 
 
 # ---------------------------------------------------------------- LO-6
 
 
 def test_lo6_a_named_chain_keeps_its_grouping() -> None:
-    chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], name="x")
+    chain = sf.Pipeline([sf.Fanout(_PAIR), sf.Vote()], name="x")
 
     assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, VoteNode())], name="x")
 
 
 def test_lo6_a_named_optional_chain_keeps_the_flag_on_the_pipeline() -> None:
-    chain = sx.Pipeline([sx.Fanout(_PAIR), sx.Vote()], name="x", optional=True)
+    chain = sf.Pipeline([sf.Fanout(_PAIR), sf.Vote()], name="x", optional=True)
 
     assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, VoteNode())], name="x", optional=True)
 
@@ -288,7 +287,7 @@ def test_lo6_a_named_optional_chain_keeps_the_flag_on_the_pipeline() -> None:
 
 
 def test_the_evaluation_entry_lowers_each_candidate_once() -> None:
-    chain = sx.Fanout(_PAIR) >> sx.Vote()
+    chain = sf.Fanout(_PAIR) >> sf.Vote()
 
     values = _candidate_values([chain, sf.Model("provider/solo")])
 
@@ -298,11 +297,11 @@ def test_the_evaluation_entry_lowers_each_candidate_once() -> None:
 
 def test_the_evaluation_entry_names_a_duplicate_chain() -> None:
     with pytest.raises(ValueError, match="duplicate Candidate name 'a\\+b'"):
-        _candidate_values([sx.Fanout(_PAIR) >> sx.Vote(), sx.Fanout(_PAIR) >> sx.Median()])
+        _candidate_values([sf.Fanout(_PAIR) >> sf.Vote(), sf.Fanout(_PAIR) >> sf.Median()])
 
 
 def test_compile_evaluation_lowers_a_chain_it_is_given() -> None:
-    chain = sx.Fanout(_PAIR) >> sx.Synthesize("provider/s")
+    chain = sf.Fanout(_PAIR) >> sf.Synthesize("provider/s")
     resource = _whole_candidate_benchmark()
 
     from_chain = compile_evaluation((chain,), resource, 1)
@@ -313,7 +312,7 @@ def test_compile_evaluation_lowers_a_chain_it_is_given() -> None:
 
 
 def test_compile_evaluation_reads_values_the_entry_already_lowered() -> None:
-    values = _candidate_values(sx.Fanout(_PAIR) >> sx.Synthesize("provider/s"))
+    values = _candidate_values(sf.Fanout(_PAIR) >> sf.Synthesize("provider/s"))
 
     lowered = compile_evaluation(values, _whole_candidate_benchmark(), 1, warn_judge_writers=False)
 
@@ -321,7 +320,7 @@ def test_compile_evaluation_reads_values_the_entry_already_lowered() -> None:
 
 
 def test_compile_candidate_lowers_even_when_it_does_not_warn() -> None:
-    chain = sx.Fanout(_PAIR) >> sx.Vote()
+    chain = sf.Fanout(_PAIR) >> sf.Vote()
 
     assert compile_candidate(
         chain, operators=flow_operators(), warn_judge_writers=False

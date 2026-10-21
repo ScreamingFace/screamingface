@@ -33,7 +33,6 @@ from test_consistency_rebuild import (
 )
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface.combine_evidence import CombineEvidence
@@ -43,26 +42,26 @@ _PART_6_URL4 = ("sum_pick_candidate.url4", "gate_band_vote_candidate.url4")
 
 
 def _sum_pick() -> sf.Recipe:
-    return sx.Fanout(
+    return sf.Fanout(
         _MEMBERS, signals={"cons": sf.Consistency(n=2), "risk": sf.Sum({"cons": -1.0})}, name="pick"
-    ) >> sx.ArgMin("risk")
+    ) >> sf.ArgMin("risk")
 
 
 def _band_vote() -> sf.Recipe:
-    return sx.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=2)}, name="vote") >> sx.Gate(
-        when=sx.signal("cons").mean() >= 0.9,
-        then=sx.Vote(),
-        abstain_if=sx.signal("cons").mean().between(0.7, 0.8),
+    return sf.Fanout(_MEMBERS, signals={"cons": sf.Consistency(n=2)}, name="vote") >> sf.Gate(
+        when=sf.signal("cons").mean() >= 0.9,
+        then=sf.Vote(),
+        abstain_if=sf.signal("cons").mean().between(0.7, 0.8),
     )
 
 
 def _sum_band_vote() -> sf.Recipe:
-    return sx.Fanout(
+    return sf.Fanout(
         _MEMBERS, signals={"cons": sf.Consistency(n=2), "risk": sf.Sum({"cons": 3.0})}, name="vote"
-    ) >> sx.Gate(
-        when=sx.signal("risk").mean() >= 3.0,
-        then=sx.Vote(),
-        abstain_if=sx.signal("risk").mean().between(2.0, 2.5),
+    ) >> sf.Gate(
+        when=sf.signal("risk").mean() >= 3.0,
+        then=sf.Vote(),
+        abstain_if=sf.signal("risk").mean().between(2.0, 2.5),
     )
 
 

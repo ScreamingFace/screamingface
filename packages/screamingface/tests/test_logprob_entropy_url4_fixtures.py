@@ -21,7 +21,6 @@ import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _ALPHA = "openrouter/acme/alpha"
@@ -31,8 +30,8 @@ _MEMBERS = [_ALPHA, _BETA, _GAMMA]
 _WRITER = "openrouter/acme/writer"
 
 
-def _pick(name: str, order: Literal["max", "min"] = "max") -> sx.ArgMax | sx.ArgMin:
-    return sx.ArgMax(name) if order == "max" else sx.ArgMin(name)
+def _pick(name: str, order: Literal["max", "min"] = "max") -> sf.ArgMax | sf.ArgMin:
+    return sf.ArgMax(name) if order == "max" else sf.ArgMin(name)
 
 
 def _compiled(recipe: sf.Recipe) -> str:
@@ -40,64 +39,64 @@ def _compiled(recipe: sf.Recipe) -> str:
 
 
 def logprob_pick_mean() -> str:
-    return _compiled(sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")}) >> _pick("lp"))
+    return _compiled(sf.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")}) >> _pick("lp"))
 
 
 def logprob_vote_prob() -> str:
     return _compiled(
-        sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")}) >> sx.Vote(weights=sf.signal("p"))
+        sf.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")}) >> sf.Vote(weights=sf.signal("p"))
     )
 
 
 def logprob_filter_mean() -> str:
     return _compiled(
-        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")})
-        >> sx.Filter(where=sf.signal("lp") >= -0.5)
-        >> sx.Synthesize(_WRITER)
+        sf.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")})
+        >> sf.Filter(where=sf.signal("lp") >= -0.5)
+        >> sf.Synthesize(_WRITER)
     )
 
 
 def logprob_steer_filter() -> str:
     return _compiled(
-        sx.Fanout([_ALPHA], signals={"lp": sf.Logprob("mean")})
-        >> sx.Filter(where=sf.signal("lp") >= -0.3)
-        >> sx.Synthesize(_WRITER)
+        sf.Fanout([_ALPHA], signals={"lp": sf.Logprob("mean")})
+        >> sf.Filter(where=sf.signal("lp") >= -0.3)
+        >> sf.Synthesize(_WRITER)
     )
 
 
 def logprob_samples_pick() -> str:
     return _compiled(
-        sx.Fanout(sf.samples(_ALPHA, 3), signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
+        sf.Fanout(sf.samples(_ALPHA, 3), signals={"lp": sf.Logprob("mean")}) >> _pick("lp")
     )
 
 
 def logprob_rank_mean() -> str:
     return _compiled(
-        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")})
-        >> sx.Rank(2, by="lp")
-        >> sx.Synthesize(_WRITER)
+        sf.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean")})
+        >> sf.Rank(2, by="lp")
+        >> sf.Synthesize(_WRITER)
     )
 
 
 def logprob_pick_sum() -> str:
-    return _compiled(sx.Fanout([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}) >> _pick("lp"))
+    return _compiled(sf.Fanout([_ALPHA, _BETA], signals={"lp": sf.Logprob("sum")}) >> _pick("lp"))
 
 
 def logprob_filter_prob() -> str:
     return _compiled(
-        sx.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")})
-        >> sx.Filter(where=sf.signal("p") >= 0.8)
-        >> sx.Synthesize(_WRITER)
+        sf.Fanout(_MEMBERS, signals={"p": sf.Logprob("prob")})
+        >> sf.Filter(where=sf.signal("p") >= 0.8)
+        >> sf.Synthesize(_WRITER)
     )
 
 
 def entropy_pick_min() -> str:
-    return _compiled(sx.Fanout(_MEMBERS, signals={"ent": sf.Entropy()}) >> _pick("ent", "min"))
+    return _compiled(sf.Fanout(_MEMBERS, signals={"ent": sf.Entropy()}) >> _pick("ent", "min"))
 
 
 def logprob_entropy_shared() -> str:
     return _compiled(
-        sx.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean"), "ent": sf.Entropy()}) >> _pick("lp")
+        sf.Fanout(_MEMBERS, signals={"lp": sf.Logprob("mean"), "ent": sf.Entropy()}) >> _pick("lp")
     )
 
 

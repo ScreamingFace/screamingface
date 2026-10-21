@@ -24,7 +24,6 @@ from _nodes import (
 )
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
 
@@ -33,8 +32,8 @@ _JUDGE = "provider/judge"
 _RUBRIC = "Give a higher number to a more correct answer."
 
 
-def _judge(**options: object) -> sx.Judge:
-    return sx.Judge(_JUDGE, rubric=_RUBRIC, **options)  # type: ignore[arg-type]
+def _judge(**options: object) -> sf.Judge:
+    return sf.Judge(_JUDGE, rubric=_RUBRIC, **options)  # type: ignore[arg-type]
 
 
 def _scores(**options: object) -> JudgeNode:
@@ -73,31 +72,31 @@ def test_a_judge_checks_its_options_with_the_rules_of_today(
     options: dict[str, object], error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
-        sx.Judge(_JUDGE, **options)  # type: ignore[arg-type]
+        sf.Judge(_JUDGE, **options)  # type: ignore[arg-type]
     with pytest.raises(error, match=message):
-        sx.JudgePick(_JUDGE, **options)  # type: ignore[arg-type]
+        sf.JudgePick(_JUDGE, **options)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("step", [_judge(), sx.JudgePick(_JUDGE, rubric="Pick one.")])
+@pytest.mark.parametrize("step", [_judge(), sf.JudgePick(_JUDGE, rubric="Pick one.")])
 def test_a_judge_is_a_step_not_a_member(step: object) -> None:
     with pytest.raises(TypeError, match=r"is a step, not a recipe: put it after a sf\.Fanout$"):
-        sx.Fanout(["provider/a", step])  # type: ignore[list-item]
+        sf.Fanout(["provider/a", step])  # type: ignore[list-item]
 
 
 def test_argmax_by_judge_lowers_to_the_scores_judge_of_today() -> None:
-    chain = sx.Fanout(_TRIO) >> _judge(params={"temperature": 0}) >> sx.ArgMax("score:judge")
+    chain = sf.Fanout(_TRIO) >> _judge(params={"temperature": 0}) >> sf.ArgMax("score:judge")
 
     assert _synthesizer(chain) == _scores(params={"temperature": 0})
 
 
 def test_argmin_by_judge_lowers_to_the_min_order_judge_of_today() -> None:
-    chain = sx.Fanout(_TRIO) >> _judge() >> sx.ArgMin("score:judge")
+    chain = sf.Fanout(_TRIO) >> _judge() >> sf.ArgMin("score:judge")
 
     assert _synthesizer(chain) == _scores(order="min")
 
 
 def test_a_judge_weighted_vote_lowers_to_the_paired_vote_of_today() -> None:
-    chain = sx.Fanout(_TRIO) >> _judge() >> sx.Vote(over="last_number", weights="score:judge")
+    chain = sf.Fanout(_TRIO) >> _judge() >> sf.Vote(over="last_number", weights="score:judge")
 
     assert _synthesizer(chain) == VoteNode(
         extract="last_number", weights=sf.signal("score:judge"), judge=_scores()
@@ -106,7 +105,7 @@ def test_a_judge_weighted_vote_lowers_to_the_paired_vote_of_today() -> None:
 
 def test_a_judge_weighted_extract_vote_lowers_to_the_weighted_block() -> None:
     extract = sf.Extract("last_number", normalize="numeric")
-    chain = sx.Fanout(_TRIO) >> _judge() >> sx.Vote(over=extract, weights="score:judge")
+    chain = sf.Fanout(_TRIO) >> _judge() >> sf.Vote(over=extract, weights="score:judge")
 
     assert _synthesizer(chain) == ReduceNode(
         "weighted", extract=extract, weights=sf.signal("score:judge"), judge=_scores()
@@ -115,10 +114,10 @@ def test_a_judge_weighted_extract_vote_lowers_to_the_weighted_block() -> None:
 
 def test_a_judge_rank_lowers_to_the_rank_by_judge_of_today() -> None:
     chain = (
-        sx.Fanout(_TRIO)
+        sf.Fanout(_TRIO)
         >> _judge()
-        >> sx.Rank(2, by="score:judge", order="min")
-        >> sx.Synthesize("provider/w")
+        >> sf.Rank(2, by="score:judge", order="min")
+        >> sf.Synthesize("provider/w")
     )
 
     assert lower(chain) == sf.Pipeline(
@@ -128,7 +127,7 @@ def test_a_judge_rank_lowers_to_the_rank_by_judge_of_today() -> None:
 
 def test_a_judge_filter_lowers_to_the_filter_with_a_judge_of_today() -> None:
     where = sf.signal("score:judge") >= 7
-    chain = sx.Fanout(_TRIO) >> _judge() >> sx.Filter(where=where) >> sx.Synthesize("provider/w")
+    chain = sf.Fanout(_TRIO) >> _judge() >> sf.Filter(where=where) >> sf.Synthesize("provider/w")
 
     assert lower(chain) == sf.Pipeline(
         [fusion_node(_TRIO, FilterNode(where=where, judge=_scores())), "provider/w"]
@@ -136,7 +135,7 @@ def test_a_judge_filter_lowers_to_the_filter_with_a_judge_of_today() -> None:
 
 
 def test_judge_pick_lowers_to_the_label_judge_of_today() -> None:
-    chain = sx.Fanout(_TRIO) >> sx.JudgePick(_JUDGE, rubric="Pick one.", params={"seed": 1})
+    chain = sf.Fanout(_TRIO) >> sf.JudgePick(_JUDGE, rubric="Pick one.", params={"seed": 1})
 
     assert _synthesizer(chain) == JudgeNode(
         _JUDGE, returns="label", rubric="Pick one.", params={"seed": 1}
@@ -149,19 +148,19 @@ _JU1 = r"^{0} cannot read sf\.signal\('score:judge'\): it has no judge; use {1}$
 def test_ju1_median_and_mean_refuse_a_judge_weight_when_they_are_built() -> None:
     # JU-1 is today's rule and it runs when the step is built: in a chain it raises before the
     # >> that would close the block, after the Fanout and the Judge are in the chain.
-    scored = sx.Fanout(_TRIO) >> _judge()
+    scored = sf.Fanout(_TRIO) >> _judge()
     median = _JU1.format(
         "Median", r"authored weights or another signal, such as sf\.signal\('field:confidence'\)"
     )
     with pytest.raises(ValueError, match=median):
-        _ = scored >> sx.Median(weights="score:judge")
+        _ = scored >> sf.Median(weights="score:judge")
     mean = _JU1.format("Mean", r"a JSON field signal such as sf\.signal\('field:confidence'\)")
     with pytest.raises(ValueError, match=mean):
-        sx.Mean(weights="score:judge")
+        sf.Mean(weights="score:judge")
 
 
-@pytest.mark.parametrize("step", [sx.ArgMax, sx.ArgMin])
-def test_ju2_a_judge_pick_takes_no_output(step: type[sx.ArgMax]) -> None:
+@pytest.mark.parametrize("step", [sf.ArgMax, sf.ArgMin])
+def test_ju2_a_judge_pick_takes_no_output(step: type[sf.ArgMax]) -> None:
     with pytest.raises(
         ValueError,
         match=r"^output= reads a member field; a judge pick returns the member text$",
@@ -170,7 +169,7 @@ def test_ju2_a_judge_pick_takes_no_output(step: type[sx.ArgMax]) -> None:
 
 
 def test_a_judge_block_compiles_to_the_bytes_of_today() -> None:
-    chain = sx.Fanout(_TRIO) >> _judge() >> sx.ArgMax("score:judge")
+    chain = sf.Fanout(_TRIO) >> _judge() >> sf.ArgMax("score:judge")
 
     # today's Fusion of _TRIO with _scores()
     assert compile_candidate(chain, operators=flow_operators()).url4 == frozen_url4(
@@ -179,7 +178,7 @@ def test_a_judge_block_compiles_to_the_bytes_of_today() -> None:
 
 
 def test_judge_repr_shows_params_only_when_set() -> None:
-    assert repr(sx.Judge(_JUDGE, rubric="r")) == "Judge('provider/judge', rubric='r')"
-    assert repr(sx.JudgePick(_JUDGE, rubric="r", params={"seed": 1})) == (
+    assert repr(sf.Judge(_JUDGE, rubric="r")) == "Judge('provider/judge', rubric='r')"
+    assert repr(sf.JudgePick(_JUDGE, rubric="r", params={"seed": 1})) == (
         "JudgePick('provider/judge', rubric='r', params={'seed': 1})"
     )

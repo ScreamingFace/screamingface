@@ -16,7 +16,6 @@ from _nodes import ReduceNode, fusion_node
 from _reducer_fixtures import fixture_operators
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 _MEMBERS = ["provider/a", "provider/b", sf.Model("provider/c", optional=True)]
@@ -30,7 +29,7 @@ def test_the_block_form_with_quorum_compiles_to_the_named_form() -> None:
     block = sf.Pipeline(
         [fusion_node(_MEMBERS, ReduceNode("context"), quorum=2), sf.Model("provider/s")]
     )
-    named = sx.Fanout(_MEMBERS, quorum=2) >> sx.Synthesize("provider/s")
+    named = sf.Fanout(_MEMBERS, quorum=2) >> sf.Synthesize("provider/s")
 
     assert _url4(block) == _url4(named)
 
@@ -39,33 +38,33 @@ def test_a_rewritten_fusion_member_keeps_its_quorum() -> None:
     inner = sf.Pipeline(
         [fusion_node(["provider/a", "provider/b"], ReduceNode("context")), "provider/s"]
     )
-    outer = sx.Fanout([inner, sf.Model("provider/c", optional=True)], quorum=1) >> sx.Synthesize(
+    outer = sf.Fanout([inner, sf.Model("provider/c", optional=True)], quorum=1) >> sf.Synthesize(
         "p/t"
     )
-    expected = sx.Fanout(
+    expected = sf.Fanout(
         [
-            sx.Fanout(["provider/a", "provider/b"]) >> sx.Synthesize("provider/s"),
+            sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize("provider/s"),
             sf.Model("provider/c", optional=True),
         ],
         quorum=1,
-    ) >> sx.Synthesize("p/t")
+    ) >> sf.Synthesize("p/t")
 
     assert _url4(outer) == _url4(expected)
 
 
 def test_an_optional_block_form_member_stays_optional() -> None:
     pair = ["provider/a", "provider/b"]
-    block = sx.Fanout(
+    block = sf.Fanout(
         [
             "provider/x",
             sf.Pipeline([fusion_node(pair, ReduceNode("context")), "provider/s"], optional=True),
         ],
         quorum=1,
-    ) >> sx.Synthesize("provider/t")
-    named = sx.Fanout(
-        ["provider/x", sx.Pipeline([sx.Fanout(pair), sx.Synthesize("provider/s")], optional=True)],
+    ) >> sf.Synthesize("provider/t")
+    named = sf.Fanout(
+        ["provider/x", sf.Pipeline([sf.Fanout(pair), sf.Synthesize("provider/s")], optional=True)],
         quorum=1,
-    ) >> sx.Synthesize("provider/t")
+    ) >> sf.Synthesize("provider/t")
 
     assert _url4(block) == _url4(named)
     assert ";optional" in _url4(block)

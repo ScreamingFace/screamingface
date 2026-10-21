@@ -10,7 +10,6 @@ from test_client_run import _engine, _ReplayTransport
 from test_event_values import NOW, event_envelope
 
 import screamingface as sf
-from screamingface import _surface as sx
 
 
 class AccountingTransport(_ReplayTransport):
@@ -53,8 +52,8 @@ def test_member_usage_and_live_events_come_from_separate_authorities():
     events = []
     with sf.Client(http_transport=httpx.MockTransport(_engine), run_transport=transport) as client:
         report = client.evaluate(
-            sx.Fanout([sf.Model("provider/opus", name="A"), sf.Model("provider/opus", name="B")])
-            >> sx.Synthesize("provider/opus"),
+            sf.Fanout([sf.Model("provider/opus", name="A"), sf.Model("provider/opus", name="B")])
+            >> sf.Synthesize("provider/opus"),
             benchmark="draco",
             on_event=events.append,
             progress=False,

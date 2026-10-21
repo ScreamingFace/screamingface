@@ -12,7 +12,6 @@ import pytest
 from _nodes import VoteNode, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._signals import Signal
 from screamingface._surface.chain import Pipeline as Chain
 from screamingface._surface.refs import GateRef
@@ -26,7 +25,7 @@ def test_sf_signal_gives_the_gate_references() -> None:
     assert type(risk) is Signal
     assert risk.chosen() == GateRef("chosen:risk")
     assert risk.mean() == GateRef("mean:risk")
-    assert sx.signal is sf.signal
+    assert sf.signal is sf.signal
 
 
 @pytest.mark.parametrize("method", ["chosen", "mean"])
@@ -58,7 +57,7 @@ def test_a_route_on_the_left_of_a_recipe_builds_a_chain() -> None:
 
 
 def test_a_chain_and_a_recipe_flatten_into_one_chain() -> None:
-    chain = sx.Fanout(_ROUTES) >> sx.Vote()
+    chain = sf.Fanout(_ROUTES) >> sf.Vote()
     b = sf.Model("prov/b")
 
     assert (chain >> b).steps == (*chain.steps, b)

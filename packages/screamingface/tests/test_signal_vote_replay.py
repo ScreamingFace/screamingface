@@ -19,7 +19,6 @@ from test_engine_url4_contract_fixtures import signal_vote_url4
 from url4 import build, render
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
 from screamingface.url4 import _candidate_expression
@@ -29,7 +28,7 @@ _BENCHMARKS = "/v1/benchmarks"
 
 
 def _vote() -> sf.Recipe:
-    return sx.Fanout(["provider/a", "provider/b", "provider/c"]) >> sx.Vote(
+    return sf.Fanout(["provider/a", "provider/b", "provider/c"]) >> sf.Vote(
         over="last_line", normalize="text", weights=sf.signal("cost_usd")
     )
 

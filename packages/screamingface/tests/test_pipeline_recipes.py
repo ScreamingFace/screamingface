@@ -5,7 +5,6 @@ from typing import Any, cast
 import pytest
 
 import screamingface as sf
-from screamingface import _surface as sx
 
 
 def test_pipeline_is_an_immutable_ordered_recipe() -> None:
@@ -48,7 +47,7 @@ def test_then_builds_the_same_canonical_ordered_pipeline() -> None:
     pair = draft >> review
     trio = pair >> final
 
-    assert isinstance(pair, sx.Pipeline)
+    assert isinstance(pair, sf.Pipeline)
     assert pair.steps == (draft, review)
     assert trio.steps == (draft, review, final)
     assert pair.steps == (draft, review)
@@ -101,29 +100,29 @@ def test_fusion_accepts_pipelines_as_members_and_complete_recipe_synthesizers() 
         [sf.Model("provider/judge"), sf.Model("provider/writer")],
         name="judge-and-write",
     )
-    nested_fusion_synthesizer = sx.Fanout(
+    nested_fusion_synthesizer = sf.Fanout(
         [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")]
-    ) >> sx.Synthesize("provider/final-editor")
+    ) >> sf.Synthesize("provider/final-editor")
 
-    with_pipeline = sx.Fanout([pipeline_member, sf.Model("provider/alternative")]) >> sx.Synthesize(
+    with_pipeline = sf.Fanout([pipeline_member, sf.Model("provider/alternative")]) >> sf.Synthesize(
         pipeline_synthesizer
     )
-    with_nested_fusion = sx.Fanout(
+    with_nested_fusion = sf.Fanout(
         [sf.Model("provider/a"), sf.Model("provider/b")]
-    ) >> sx.Synthesize(nested_fusion_synthesizer)
+    ) >> sf.Synthesize(nested_fusion_synthesizer)
 
     fanout, writer = with_pipeline.steps
     nested_writer = with_nested_fusion.steps[1]
-    assert isinstance(fanout, sx.Fanout)
-    assert isinstance(writer, sx.Synthesize)
-    assert isinstance(nested_writer, sx.Synthesize)
+    assert isinstance(fanout, sf.Fanout)
+    assert isinstance(writer, sf.Synthesize)
+    assert isinstance(nested_writer, sf.Synthesize)
     assert fanout.members[0] is pipeline_member
     assert writer.model is pipeline_synthesizer
     assert nested_writer.model is nested_fusion_synthesizer
 
 
 def test_then_accepts_any_complete_recipe_or_route_and_rejects_a_list() -> None:
-    fusion = sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sx.Synthesize(
+    fusion = sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")]) >> sf.Synthesize(
         "provider/synth"
     )
     pipeline = sf.Model("provider/draft") >> fusion
@@ -143,14 +142,14 @@ def test_recipe_values_have_structural_equality_and_are_unhashable() -> None:
     left = sf.Pipeline(
         [
             "provider/draft",
-            sx.Fanout(["provider/a"]) >> sx.Synthesize("provider/synth"),
+            sf.Fanout(["provider/a"]) >> sf.Synthesize("provider/synth"),
         ],
         name="candidate",
     )
     right = sf.Pipeline(
         [
             sf.Model("provider/draft"),
-            sx.Fanout([sf.Model("provider/a")]) >> sx.Synthesize(sf.Model("provider/synth")),
+            sf.Fanout([sf.Model("provider/a")]) >> sf.Synthesize(sf.Model("provider/synth")),
         ],
         name="candidate",
     )

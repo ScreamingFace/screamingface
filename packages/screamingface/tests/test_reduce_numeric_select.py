@@ -19,7 +19,6 @@ from _nodes import ReduceNode, fusion_node
 from url4 import Expression, build
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
@@ -31,9 +30,9 @@ CONFIDENCE = sf.signal("field:confidence")
 
 # WHY the internal node: these rows check the block form (``ReduceNode``) and its select option;
 # the surface spells the same reducers as ``sx.Median`` and ``sx.Mean``.
-def _url4(synthesizer: Reducer | sx.Median | sx.Mean) -> str:
-    if isinstance(synthesizer, sx.Median | sx.Mean):
-        recipe: sf.Recipe = sx.Fanout(members3()) >> synthesizer
+def _url4(synthesizer: Reducer | sf.Median | sf.Mean) -> str:
+    if isinstance(synthesizer, sf.Median | sf.Mean):
+        recipe: sf.Recipe = sf.Fanout(members3()) >> synthesizer
     else:
         recipe = fusion_node(members3(), synthesizer)
     return compile_candidate(recipe, operators=flow_operators()).url4
@@ -72,17 +71,17 @@ def test_mean_block_select_is_a_second_name_for_mode() -> None:
     [
         (
             lambda: ReduceNode("median", extract=LAST, select="value"),
-            lambda: sx.Median(select="value"),
+            lambda: sf.Median(select="value"),
         ),
         (
             lambda: ReduceNode("median", extract=LAST, select="nearest", weights=(1, 1, 3)),
-            lambda: sx.Median(weights=(1, 1, 3)),
+            lambda: sf.Median(weights=(1, 1, 3)),
         ),
         (
             lambda: ReduceNode("mean", extract=LAST, select="nearest", weights=(1, 1, 2)),
-            lambda: sx.Mean(select="nearest", weights=(1, 1, 2)),
+            lambda: sf.Mean(select="nearest", weights=(1, 1, 2)),
         ),
-        (lambda: ReduceNode("mean", extract=LAST, select="value"), lambda: sx.Mean()),
+        (lambda: ReduceNode("mean", extract=LAST, select="value"), lambda: sf.Mean()),
     ],
 )
 def test_numeric_block_select_compiles_to_the_named_form_bytes(block: Any, named: Any) -> None:

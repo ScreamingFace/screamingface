@@ -12,7 +12,6 @@ from typing import Any, Literal
 import httpx
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
 
 # (id, stage) sorted by id: EXACTLY the Engine built-ins (`BUILTIN_OPERATORS`), 40 ids. A literal
@@ -103,6 +102,6 @@ def judge_fusion(returns: Literal["label", "scores"] = "label", **kw: Any) -> sf
 
     options: dict[str, Any] = {"rubric": RUBRIC, **kw}
     if returns == "label":
-        return sx.Fanout(members3()) >> sx.JudgePick("provider/j", **options)
-    best = sx.ArgMin if options.pop("order", "max") == "min" else sx.ArgMax
-    return sx.Fanout(members3()) >> sx.Judge("provider/j", **options) >> best("score:judge")
+        return sf.Fanout(members3()) >> sf.JudgePick("provider/j", **options)
+    best = sf.ArgMin if options.pop("order", "max") == "min" else sf.ArgMax
+    return sf.Fanout(members3()) >> sf.Judge("provider/j", **options) >> best("score:judge")

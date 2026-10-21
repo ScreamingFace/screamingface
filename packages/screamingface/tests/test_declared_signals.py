@@ -21,7 +21,6 @@ from _reducer_fixtures import evidence_wire
 from _vote_run_fixtures import spec_of
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
@@ -46,12 +45,12 @@ def _compiled(fusion: sf.Recipe) -> str:
     return compile_candidate(fusion, operators=engine_operators()).url4
 
 
-def _fanout(chain: sf.Recipe) -> sx.Fanout:
+def _fanout(chain: sf.Recipe) -> sf.Fanout:
     """The ``Fanout`` that opens ``chain``: it holds the block's declared signals."""
 
-    assert isinstance(chain, sx.Pipeline)
+    assert isinstance(chain, sf.Pipeline)
     fanout = chain.steps[0]
-    assert isinstance(fanout, sx.Fanout)
+    assert isinstance(fanout, sf.Fanout)
     return fanout
 
 
@@ -101,18 +100,18 @@ def test_signal_logprob_mean_is_refused_with_the_e4b_message() -> None:
 def test_fusion_refuses_a_rule_that_reads_an_undeclared_name() -> None:
     # Positive first: the declared read builds, so the refusals below are about the read check.
     declared = {"conf": sf.Verbalized(CONF_PATTERN)}
-    fusion = sx.Fanout(MEMBERS, signals=declared) >> sx.Vote(weights=sf.signal("conf"))
+    fusion = sf.Fanout(MEMBERS, signals=declared) >> sf.Vote(weights=sf.signal("conf"))
     assert list(_fanout(fusion).signals or {}) == ["conf"]
 
     with pytest.raises(ValueError) as undeclared:
-        _ = sx.Fanout(MEMBERS, signals=declared) >> sx.Vote(weights=sf.signal("lp"))
+        _ = sf.Fanout(MEMBERS, signals=declared) >> sf.Vote(weights=sf.signal("lp"))
     assert str(undeclared.value) == (
         "the synthesizer reads sf.signal('lp'), which this Fusion does not declare (declared: conf)"
     )
     with pytest.raises(ValueError, match=r"sf\.signal\('lp'\).*declared: none"):
-        _ = sx.Fanout(MEMBERS) >> sx.ArgMax("lp")
+        _ = sf.Fanout(MEMBERS) >> sf.ArgMax("lp")
     with pytest.raises(ValueError, match=r"sf\.signal\('lp'\).*declared: none"):
-        _ = sx.Fanout(MEMBERS) >> sx.Filter(where=sf.signal("lp") > 0.5) >> sx.Vote()
+        _ = sf.Fanout(MEMBERS) >> sf.Filter(where=sf.signal("lp") > 0.5) >> sf.Vote()
 
 
 # --- DS#5: names are checked with exact refusal texts ----------------------------------------
@@ -121,7 +120,7 @@ def test_fusion_refuses_a_rule_that_reads_an_undeclared_name() -> None:
 def test_fusion_refuses_invalid_and_reserved_names() -> None:
     # Positive first: a 32-character name is valid, so the refusals below are about the rules.
     verbalized = sf.Verbalized(CONF_PATTERN)
-    assert _fanout(sx.Fanout(MEMBERS, signals={"a" * 32: verbalized}) >> sx.Vote()).signals
+    assert _fanout(sf.Fanout(MEMBERS, signals={"a" * 32: verbalized}) >> sf.Vote()).signals
 
     exact = {
         "cost_usd": (
@@ -136,24 +135,24 @@ def test_fusion_refuses_invalid_and_reserved_names() -> None:
     }
     for name, message in exact.items():
         with pytest.raises(ValueError) as refused:
-            _ = sx.Fanout(MEMBERS, signals={name: verbalized}) >> sx.Vote()
+            _ = sf.Fanout(MEMBERS, signals={name: verbalized}) >> sf.Vote()
         assert str(refused.value) == message
 
     for name in ("", "a" * 33, "1a"):
         with pytest.raises(ValueError, match="not a declared name"):
-            _ = sx.Fanout(MEMBERS, signals={name: verbalized}) >> sx.Vote()
+            _ = sf.Fanout(MEMBERS, signals={name: verbalized}) >> sf.Vote()
     # WHY "E4a signal key": "field:x" is a valid E4a field key, so the refusal names that class.
     with pytest.raises(ValueError, match="E4a signal key"):
-        _ = sx.Fanout(MEMBERS, signals={"field:x": verbalized}) >> sx.Vote()
+        _ = sf.Fanout(MEMBERS, signals={"field:x": verbalized}) >> sf.Vote()
     with pytest.raises(ValueError, match="E4a signal key"):
-        _ = sx.Fanout(MEMBERS, signals={"score:judge": verbalized}) >> sx.Vote()
+        _ = sf.Fanout(MEMBERS, signals={"score:judge": verbalized}) >> sf.Vote()
 
     with pytest.raises(TypeError):
-        sx.Fanout(MEMBERS, signals={1: verbalized}) >> sx.Vote()  # type: ignore[dict-item]
+        sf.Fanout(MEMBERS, signals={1: verbalized}) >> sf.Vote()  # type: ignore[dict-item]
     with pytest.raises(TypeError):
-        sx.Fanout(MEMBERS, signals={"conf": "Confidence"}) >> sx.Vote()  # type: ignore[dict-item]
+        sf.Fanout(MEMBERS, signals={"conf": "Confidence"}) >> sf.Vote()  # type: ignore[dict-item]
     with pytest.raises(TypeError):
-        sx.Fanout(MEMBERS, signals=[("conf", verbalized)]) >> sx.Vote()  # type: ignore[arg-type]
+        sf.Fanout(MEMBERS, signals=[("conf", verbalized)]) >> sf.Vote()  # type: ignore[arg-type]
 
 
 # --- DS#6: the name syntax is accepted by sf.signal; the hint is kept --------------------------
@@ -184,7 +183,7 @@ def test_signal_accepts_a_declared_name_syntax() -> None:
 
     # DS-D2: "cost" is a valid name now, so the read check hints the E4a key it may mean.
     with pytest.raises(ValueError, match="did you mean cost_usd"):
-        _ = sx.Fanout(MEMBERS) >> sx.Vote(weights=sf.signal("cost"))
+        _ = sf.Fanout(MEMBERS) >> sf.Vote(weights=sf.signal("cost"))
 
 
 # --- DS#7: at most eight names and at most one entropy ---------------------------------------
@@ -193,17 +192,17 @@ def test_signal_accepts_a_declared_name_syntax() -> None:
 def test_fusion_refuses_more_than_eight_names_and_two_entropies() -> None:
     verbalized = sf.Verbalized(CONF_PATTERN)
     eight = {f"n{index}": verbalized for index in range(1, 9)}
-    fusion = sx.Fanout(MEMBERS, signals=eight) >> sx.Vote()
+    fusion = sf.Fanout(MEMBERS, signals=eight) >> sf.Vote()
     assert len(_fanout(fusion).signals or {}) == 8
 
     nine = {f"n{index}": verbalized for index in range(1, 10)}
     with pytest.raises(ValueError) as too_many:
-        _ = sx.Fanout(MEMBERS, signals=nine) >> sx.Vote()
+        _ = sf.Fanout(MEMBERS, signals=nine) >> sf.Vote()
     assert str(too_many.value) == "a Fusion declares at most 8 signals, not 9"
 
     with pytest.raises(ValueError, match="at most one sf.Entropy"):
-        _ = sx.Fanout(MEMBERS, signals={"e1": _FakeEntropy(), "e2": _FakeEntropy()}) >> sx.Vote()
-    assert _fanout(sx.Fanout(MEMBERS, signals={"e1": _FakeEntropy()}) >> sx.Vote()).signals
+        _ = sf.Fanout(MEMBERS, signals={"e1": _FakeEntropy(), "e2": _FakeEntropy()}) >> sf.Vote()
+    assert _fanout(sf.Fanout(MEMBERS, signals={"e1": _FakeEntropy()}) >> sf.Vote()).signals
 
 
 # --- DS#8: a declaration needs a reducer synthesizer -----------------------------------------
@@ -212,16 +211,16 @@ def test_fusion_refuses_more_than_eight_names_and_two_entropies() -> None:
 def test_fusion_refuses_signals_with_a_model_synthesizer() -> None:
     declared = {"conf": sf.Verbalized(CONF_PATTERN)}
     # Positive first: a reducer synthesizer with the same declaration builds.
-    assert sx.Fanout(MEMBERS, signals=declared) >> sx.Vote(weights=sf.signal("conf"))
+    assert sf.Fanout(MEMBERS, signals=declared) >> sf.Vote(weights=sf.signal("conf"))
 
     for synthesizer in (sf.Model("provider/s"), "provider/s"):
         with pytest.raises(
             ValueError, match=r"sf\.Fanout signals= needs a reducer: sf\.Synthesize reads no signal"
         ):
-            _ = sx.Fanout(MEMBERS, signals=declared) >> sx.Synthesize(synthesizer)
+            _ = sf.Fanout(MEMBERS, signals=declared) >> sf.Synthesize(synthesizer)
 
     # WHY the empty map: signals={} is no declaration, so the Fusion keeps no signals.
-    empty = sx.Fanout(MEMBERS, signals={}) >> sx.Synthesize(sf.Model("provider/s"))
+    empty = sf.Fanout(MEMBERS, signals={}) >> sf.Synthesize(sf.Model("provider/s"))
     assert _fanout(empty).signals is None
 
 
@@ -237,14 +236,14 @@ def test_fusion_compiles_the_signals_map_into_the_spec() -> None:
     )
     assert text == _SPEC_TEXT
 
-    fusion = sx.Fanout(MEMBERS, signals={"conf": sf.Verbalized(CONF_PATTERN)}) >> sx.Vote(
+    fusion = sf.Fanout(MEMBERS, signals={"conf": sf.Verbalized(CONF_PATTERN)}) >> sf.Vote(
         weights=sf.signal("conf")
     )
     assert spec_of(_compiled(fusion)) == decode_combine_spec(_SPEC_TEXT)
 
     # WHY: signals={} is no declaration, so it compiles to the same url4 as no signals=.
-    empty = sx.Fanout(MEMBERS, signals={}) >> sx.Vote(weights=sf.signal("cost_usd"))
-    plain = sx.Fanout(MEMBERS) >> sx.Vote(weights=sf.signal("cost_usd"))
+    empty = sf.Fanout(MEMBERS, signals={}) >> sf.Vote(weights=sf.signal("cost_usd"))
+    plain = sf.Fanout(MEMBERS) >> sf.Vote(weights=sf.signal("cost_usd"))
     assert _compiled(empty) == _compiled(plain)
 
 
@@ -252,7 +251,7 @@ def test_fusion_compiles_the_signals_map_into_the_spec() -> None:
 
 
 def test_fusion_signals_round_trip_through_url4_rebuild_and_repr() -> None:
-    fusion = sx.Fanout(MEMBERS, signals={"conf": sf.Verbalized(CONF_PATTERN)}) >> sx.Vote(
+    fusion = sf.Fanout(MEMBERS, signals={"conf": sf.Verbalized(CONF_PATTERN)}) >> sf.Vote(
         weights=sf.signal("conf")
     )
     assert repr(fusion) == (
@@ -323,10 +322,10 @@ def test_sdk_decoder_reads_declared_and_rejects_unknown_keys() -> None:
 def test_rebuild_keeps_authored_params_of_a_declared_fusion() -> None:
     # WHY only "authored params stay": the drop of injected params is LP#14 and EN#13 (unit 4);
     # erratum E3 in the ledger.
-    fusion = sx.Fanout(
+    fusion = sf.Fanout(
         [sf.Model("provider/a", params={"logprobs": True, "top_logprobs": 3}), "provider/b"],
         signals={"conf": sf.Verbalized(CONF_PATTERN)},
-    ) >> sx.Vote(weights=sf.signal("conf"))
+    ) >> sf.Vote(weights=sf.signal("conf"))
     url4 = _compiled(fusion)
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code

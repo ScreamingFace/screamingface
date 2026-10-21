@@ -17,7 +17,6 @@ from test_judge_reducer import _calls_by_name, _sources
 from url4 import RelExpr, Text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import decode_combine_spec
 from screamingface._evaluation.operators import decode_operator_catalog
@@ -107,47 +106,47 @@ def test_field_rule_constructors_refuse_bad_arguments() -> None:
 
 
 def test_from_member_out_of_range_raises_at_build() -> None:
-    merge = sx.Merge({"s": sf.FieldRule.from_member(5)})
+    merge = sf.Merge({"s": sf.FieldRule.from_member(5)})
 
     with pytest.raises(
         ValueError, match=r"FieldRule.from_member\(5\) for field 's' needs 5 members"
     ):
-        _ = sx.Fanout(members3()) >> merge
-    _ = sx.Fanout(members3() + ["provider/d", "provider/e"]) >> merge
-    _ = sx.Fanout(members3()) >> sx.Merge({"s": sf.FieldRule.from_member(3)})
+        _ = sf.Fanout(members3()) >> merge
+    _ = sf.Fanout(members3() + ["provider/d", "provider/e"]) >> merge
+    _ = sf.Fanout(members3()) >> sf.Merge({"s": sf.FieldRule.from_member(3)})
 
 
 def test_merge_and_pick_validate_arguments() -> None:
     majority = sf.FieldRule.majority()
     with pytest.raises(TypeError, match="Merge fields must be a mapping"):
-        sx.Merge([("a", majority)])  # type: ignore[arg-type]
+        sf.Merge([("a", majority)])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Merge needs at least one field"):
-        sx.Merge({})
+        sf.Merge({})
     with pytest.raises(ValueError, match="Merge takes at most 64 fields"):
-        sx.Merge({f"f{index}": majority for index in range(65)})
-    assert len(sx.Merge({f"f{index}": majority for index in range(64)}).fields) == 64
+        sf.Merge({f"f{index}": majority for index in range(65)})
+    assert len(sf.Merge({f"f{index}": majority for index in range(64)}).fields) == 64
     with pytest.raises(TypeError, match="Merge field 'a' must be a FieldRule"):
-        sx.Merge({"a": "majority"})  # type: ignore[dict-item]
+        sf.Merge({"a": "majority"})  # type: ignore[dict-item]
 
 
 @pytest.mark.parametrize("name", ["1a", "a" * 65, "é"])
 def test_merge_refuses_a_bad_field_name(name: str) -> None:
     with pytest.raises(ValueError, match="Merge field name .* must start with a letter"):
-        sx.Merge({name: sf.FieldRule.majority()})
+        sf.Merge({name: sf.FieldRule.majority()})
 
 
 @pytest.mark.parametrize("path", ["a[01]", "a" * 257])
 def test_pick_refuses_a_bad_field_path(path: str) -> None:
     with pytest.raises(ValueError, match="sf.field path .* must be a JSON path"):
-        sx.First(where=sx.field(path) == "x")
+        sf.First(where=sf.field(path) == "x")
 
 
 def test_pick_refuses_targets_the_engine_would_only_refuse_after_the_member_calls() -> None:
     for blank in ("", "  ", "\n"):
         with pytest.raises(ValueError, match=re.escape(f"sf.field == {blank!r} must not be blank")):
-            sx.First(where=sx.field("a") == blank)
+            sf.First(where=sf.field("a") == blank)
     with pytest.raises(ValueError, match=re.escape("sf.field == '' must not be blank")):
-        sx.First(where=sx.field("a", normalize="text") == "")
+        sf.First(where=sf.field("a", normalize="text") == "")
     for flag in (True, False):
         with pytest.raises(
             ValueError,
@@ -155,11 +154,11 @@ def test_pick_refuses_targets_the_engine_would_only_refuse_after_the_member_call
                 "sf.field == True or False cannot be compared with normalize='numeric'"
             ),
         ):
-            sx.First(where=sx.field("a", normalize="numeric") == flag)
+            sf.First(where=sf.field("a", normalize="numeric") == flag)
     # a bool without the numeric normalizer, and a number with it, are fine
-    sx.First(where=sx.field("a") == True)  # noqa: E712
-    sx.First(where=sx.field("a", normalize="text") == True)  # noqa: E712
-    sx.First(where=sx.field("a", normalize="numeric") == 7)
+    sf.First(where=sf.field("a") == True)  # noqa: E712
+    sf.First(where=sf.field("a", normalize="text") == True)  # noqa: E712
+    sf.First(where=sf.field("a", normalize="numeric") == 7)
 
 
 def test_pick_validates_its_arguments() -> None:
@@ -176,17 +175,17 @@ def test_pick_validates_its_arguments() -> None:
     with pytest.raises(
         ValueError, match=re.escape("sf.field normalize must be 'text' or 'numeric', not 'lower'")
     ):
-        sx.First(where=sx.field("confidence", normalize="lower") == "x")  # type: ignore[arg-type]
+        sf.First(where=sf.field("confidence", normalize="lower") == "x")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="sf.field path must be a string"):
-        sx.First(where=sx.field(3) == "x")  # type: ignore[arg-type]
+        sf.First(where=sf.field(3) == "x")  # type: ignore[arg-type]
     with pytest.raises(
         TypeError, match=re.escape("sf.field compares with a string, a number or a bool, not ['x']")
     ):
-        sx.First(where=sx.field("a") == ["x"])  # type: ignore[arg-type]
+        sf.First(where=sf.field("a") == ["x"])  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="sf.field == nan must be finite"):
-        sx.First(where=sx.field("a") == float("nan"))
-    sx.ArgMin("field:a.b[0].c")
-    sx.ArgMax("field:" + "a" * 256)
+        sf.First(where=sf.field("a") == float("nan"))
+    sf.ArgMin("field:a.b[0].c")
+    sf.ArgMax("field:" + "a" * 256)
 
 
 def test_pick_and_merge_repr_round_trip_and_compare_by_field() -> None:
@@ -232,7 +231,7 @@ def test_pick_and_merge_repr_round_trip_and_compare_by_field() -> None:
 
 
 def test_pick_specs() -> None:
-    fusion = sx.Fanout(members3()) >> sx.ArgMax("field:confidence")
+    fusion = sf.Fanout(members3()) >> sf.ArgMax("field:confidence")
     call = _calls_by_name(compile_candidate(fusion, operators=flow_operators()).url4)["synthesis_1"]
     assert isinstance(call.intent, Text)
     # the exact bytes: canonical JSON, sorted keys, every pinned id. WHY a signal pick: a field
@@ -248,24 +247,24 @@ def test_pick_specs() -> None:
     )
     assert call.params == (("binding", "synthesis_1"),)
 
-    def spec(pick: sx.ArgMin | sx.First) -> dict[str, Any]:
-        return _spec_of(sx.Fanout(members3()) >> pick)
+    def spec(pick: sf.ArgMin | sf.First) -> dict[str, Any]:
+        return _spec_of(sf.Fanout(members3()) >> pick)
 
-    assert spec(sx.ArgMin("field:a.b[0]")) == _spec(
+    assert spec(sf.ArgMin("field:a.b[0]")) == _spec(
         "pick",
         extract=None,
         normalize=None,
         reduce=_step("by_signal@1", {"key": "field:a.b[0]", "order": "min"}),
         select=_step("best_holder@1", {"order": "min"}),
     )
-    assert spec(sx.First(where=sx.field("answer", normalize="text") == "yes")) == _spec(
+    assert spec(sf.First(where=sf.field("answer", normalize="text") == "yes")) == _spec(
         "pick",
         extract=_step("json_field@1", {"path": "answer"}),
         normalize=_step("text@1", {}),
         reduce=_step("values@1", {"field": "answer"}),
         select=_step("by_field@1", {"order": "equals", "value": "yes", "normalize": "text"}),
     )
-    assert spec(sx.First(where=sx.field("n", normalize="numeric") == "0.70")) == _spec(
+    assert spec(sf.First(where=sf.field("n", normalize="numeric") == "0.70")) == _spec(
         "pick",
         extract=_step("json_field@1", {"path": "n"}),
         normalize=_step("numeric@1", {}),
@@ -273,7 +272,7 @@ def test_pick_specs() -> None:
         select=_step("by_field@1", {"order": "equals", "value": "0.70", "normalize": "numeric"}),
     )
     # no normalizer: the target and the values are compared as written
-    assert spec(sx.First(where=sx.field("answer") == "Yes.")) == _spec(
+    assert spec(sf.First(where=sf.field("answer") == "Yes.")) == _spec(
         "pick",
         extract=_step("json_field@1", {"path": "answer"}),
         normalize=None,
@@ -282,9 +281,9 @@ def test_pick_specs() -> None:
     )
     # a non-text target is compared in its JSON spelling
     for given, written in ((7, "7"), (1.5, "1.5"), (True, "true"), (False, "false")):
-        selected = spec(sx.First(where=sx.field("n") == given))["select"]
+        selected = spec(sf.First(where=sf.field("n") == given))["select"]
         assert selected["args"]["value"] == written
-    assert spec(sx.First(where=sx.field("n") == 1e20))["select"]["args"]["value"] == "1e+20"
+    assert spec(sf.First(where=sf.field("n") == 1e20))["select"]["args"]["value"] == "1e+20"
 
 
 def test_pick_pins_its_normalizer_even_when_the_catalog_has_a_newer_version() -> None:
@@ -296,7 +295,7 @@ def test_pick_pins_its_normalizer_even_when_the_catalog_has_a_newer_version() ->
     # WHY First: since the field picks read the field: signal (overview §4.2), the equals pick is
     # the one pick with a normalizer.
     compiled = compile_candidate(
-        sx.Fanout(members3()) >> sx.First(where=sx.field("n", normalize="numeric") == 7),
+        sf.Fanout(members3()) >> sf.First(where=sf.field("n", normalize="numeric") == 7),
         operators=catalog,
     )
 
@@ -306,7 +305,7 @@ def test_pick_pins_its_normalizer_even_when_the_catalog_has_a_newer_version() ->
 
 
 def test_merge_without_model_fields_is_one_combine_call() -> None:
-    merge = sx.Merge(
+    merge = sf.Merge(
         {
             "answer": sf.FieldRule.majority(normalize="text"),
             "score": sf.FieldRule.max(),
@@ -315,7 +314,7 @@ def test_merge_without_model_fields_is_one_combine_call() -> None:
             "plain": sf.FieldRule.majority(),
         }
     )
-    compiled = compile_candidate(sx.Fanout(members3()) >> merge, operators=flow_operators())
+    compiled = compile_candidate(sf.Fanout(members3()) >> merge, operators=flow_operators())
 
     sources = _sources(compiled.url4)
     assert [source.name for source in sources] == [
@@ -332,7 +331,7 @@ def test_merge_without_model_fields_is_one_combine_call() -> None:
     assert call.params == (("binding", "synthesis_1"),)
     assert compiled.models == ("provider/a", "provider/b", "provider/c")
     # "fields" keep the declared order (not the sorted order of the keys)
-    assert _spec_of(sx.Fanout(members3()) >> merge) == _spec(
+    assert _spec_of(sf.Fanout(members3()) >> merge) == _spec(
         "merge",
         extract=_step("json_object@1", {}),
         normalize=None,
@@ -357,10 +356,10 @@ def test_a_catalog_without_the_field_operators_fails_before_any_call() -> None:
 
     with pytest.raises(ValueError, match="unknown extract operator 'json_field'"):
         compile_candidate(
-            sx.Fanout(members3()) >> sx.First(where=sx.field("n") == 7), operators=empty
+            sf.Fanout(members3()) >> sf.First(where=sf.field("n") == 7), operators=empty
         )
     with pytest.raises(ValueError, match="unknown extract operator 'json_object'"):
         compile_candidate(
-            sx.Fanout(members3()) >> sx.Merge({"a": sf.FieldRule.max()}),
+            sf.Fanout(members3()) >> sf.Merge({"a": sf.FieldRule.max()}),
             operators=empty,
         )

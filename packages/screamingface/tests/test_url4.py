@@ -6,7 +6,6 @@ import pytest
 from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.url4 import _candidate_from_url4
@@ -86,8 +85,8 @@ def test_url4_is_a_string_compatible_immutable_value() -> None:
 def test_every_complete_recipe_url4_has_one_canonical_recipe_descriptor() -> None:
     model = _url4(sf.Model("provider/model"))
     fusion = _url4(
-        sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")])
-        >> sx.Synthesize("provider/synthesizer")
+        sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")])
+        >> sf.Synthesize("provider/synthesizer")
     )
     pipeline = _url4(sf.Pipeline([sf.Model("provider/draft"), sf.Model("provider/review")]))
 
@@ -119,14 +118,14 @@ candidate = sf.Model(
 
 def test_fusion_url4_recovers_editable_topology_names_and_policy() -> None:
     value = _url4(
-        sx.Fanout(
+        sf.Fanout(
             [
                 sf.Model("provider/a", name="left", prompt="Answer A"),
                 sf.Model("provider/b", name="right"),
             ],
             name="panel",
         )
-        >> sx.Synthesize(
+        >> sf.Synthesize(
             sf.Model(
                 "provider/synthesizer",
                 prompt="Blend the answers",
@@ -155,11 +154,11 @@ def test_pipeline_url4_recovers_serial_and_nested_parallel_topology() -> None:
         sf.Pipeline(
             [
                 sf.Model("provider/draft", name="draft"),
-                sx.Fanout(
+                sf.Fanout(
                     [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
                     name="review-panel",
                 )
-                >> sx.Synthesize("provider/reconciler"),
+                >> sf.Synthesize("provider/reconciler"),
                 sf.Model("provider/final", prompt="Return only the final answer."),
             ],
             name="draft-review-final",
@@ -181,8 +180,8 @@ def test_pipeline_url4_recovers_serial_and_nested_parallel_topology() -> None:
 
 def test_fusion_url4_recovers_a_pipeline_synthesizer() -> None:
     value = _url4(
-        sx.Fanout([sf.Model("provider/a"), sf.Model("provider/b")])
-        >> sx.Synthesize(
+        sf.Fanout([sf.Model("provider/a"), sf.Model("provider/b")])
+        >> sf.Synthesize(
             sf.Pipeline(
                 [
                     sf.Model("provider/judge", prompt="Choose one answer."),
@@ -204,8 +203,8 @@ def test_fusion_url4_recovers_a_pipeline_synthesizer() -> None:
 
 def test_pipeline_synthesizer_role_defaults_are_not_rendered_as_explicit_prompts() -> None:
     value = _url4(
-        sx.Fanout(["provider/a"])
-        >> sx.Synthesize(sf.Pipeline(["provider/judge", "provider/writer"]))
+        sf.Fanout(["provider/a"])
+        >> sf.Synthesize(sf.Pipeline(["provider/judge", "provider/writer"]))
     )
 
     python = value.to_python()
@@ -219,7 +218,7 @@ def test_corrective_loop_url4_recovers_recursive_recipes_and_configuration() -> 
         sf.CorrectiveLoop(
             [
                 sf.Pipeline(["provider/draft", "provider/revise"], name="chain"),
-                sx.Fanout(["provider/c"]) >> sx.Synthesize("provider/d"),
+                sf.Fanout(["provider/c"]) >> sf.Synthesize("provider/d"),
             ],
             judge=sf.Pipeline(["provider/judge", "provider/writer"]),
             max_rounds=2,
@@ -540,9 +539,9 @@ def test_topology_bindings_separate_context_references_from_operation_edges() ->
 
 @pytest.mark.parametrize("quorum", [0, 1, 2, "all"])
 def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
-    recipe = sx.Fanout(
+    recipe = sf.Fanout(
         [sf.Model("provider/a", optional=True), "provider/b"], quorum=quorum
-    ) >> sx.Synthesize("provider/synth")
+    ) >> sf.Synthesize("provider/synth")
     value = _url4(recipe)
     emitted = 2 if quorum == "all" else quorum
     assert f";quorum={emitted}" in value
@@ -559,18 +558,18 @@ def test_fusion_quorum_round_trips_through_editable_python(quorum: Any) -> None:
 
 
 def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
-    inner = sx.Pipeline(
+    inner = sf.Pipeline(
         [
-            sx.Fanout([sf.Model("provider/a", optional=True), "provider/b"], quorum=1),
-            sx.Synthesize("provider/inner"),
+            sf.Fanout([sf.Model("provider/a", optional=True), "provider/b"], quorum=1),
+            sf.Synthesize("provider/inner"),
         ],
         optional=True,
     )
     recipe = sf.Pipeline(
         [
             "provider/draft",
-            sx.Fanout([inner, sf.Pipeline(["provider/c", "provider/d"], optional=True)], quorum=1)
-            >> sx.Synthesize(sf.Pipeline(["provider/judge", "provider/writer"])),
+            sf.Fanout([inner, sf.Pipeline(["provider/c", "provider/d"], optional=True)], quorum=1)
+            >> sf.Synthesize(sf.Pipeline(["provider/judge", "provider/writer"])),
         ]
     )
     value = _url4(recipe)
@@ -586,8 +585,8 @@ def test_nested_quorum_fusion_and_pipeline_synthesizer_round_trip() -> None:
 @pytest.mark.parametrize("change", ["quorum", "optional"])
 def test_quorum_replay_rejects_executable_policy_that_disagrees_with_metadata(change: str) -> None:
     value = _url4(
-        sx.Fanout([sf.Model("provider/a", optional=True), "provider/b"], quorum=1)
-        >> sx.Synthesize("provider/synth")
+        sf.Fanout([sf.Model("provider/a", optional=True), "provider/b"], quorum=1)
+        >> sf.Synthesize("provider/synth")
     )
     altered = (
         value.replace(";quorum=1", ";quorum=2")

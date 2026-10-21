@@ -15,7 +15,6 @@ from _combine_flow_fixtures import flow_operators
 from _nodes import ConcatNode, FilterNode, FusionNode, JudgeNode, RankNode, frozen_url4, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
 
@@ -24,7 +23,7 @@ _WRITER = "provider/w"
 
 
 def _narrowed(step: object) -> sf.Recipe:
-    return lower(sx.Fanout(_TRIO) >> step >> sx.Synthesize(_WRITER))  # type: ignore[operator]
+    return lower(sf.Fanout(_TRIO) >> step >> sf.Synthesize(_WRITER))  # type: ignore[operator]
 
 
 def _today(synthesizer: sf.Recipe | object) -> sf.Recipe:
@@ -39,10 +38,10 @@ def _url4(recipe: sf.Recipe) -> str:
 
 
 def test_rank_by_a_key_string_lowers_to_the_rank_by_signal() -> None:
-    assert _narrowed(sx.Rank(2, by="cost_usd", order="min")) == _today(
+    assert _narrowed(sf.Rank(2, by="cost_usd", order="min")) == _today(
         RankNode(k=2, by_signal=sf.signal("cost_usd"), order="min")
     )
-    assert sx.Rank(2, by="cost_usd") == sx.Rank(2, by=sf.signal("cost_usd"))
+    assert sf.Rank(2, by="cost_usd") == sf.Rank(2, by=sf.signal("cost_usd"))
 
 
 @pytest.mark.parametrize(
@@ -56,12 +55,12 @@ def test_ra1_by_must_be_one_signal(by: object) -> None:
         match=r"^sf\.Rank by= must be one signal: a key string such as 'cost_usd' or "
         r"sf\.signal\(key\)$",
     ):
-        sx.Rank(2, by=by)  # type: ignore[arg-type]
+        sf.Rank(2, by=by)  # type: ignore[arg-type]
 
 
 def test_a_bad_rank_key_has_the_signal_message() -> None:
     with pytest.raises(ValueError) as from_string:
-        sx.Rank(2, by="score:other")
+        sf.Rank(2, by="score:other")
     with pytest.raises(ValueError) as from_signal:
         sf.signal("score:other")
 
@@ -81,14 +80,14 @@ def test_rank_checks_k_and_order_with_the_rules_of_today(
     k: int, order: str, error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
-        sx.Rank(k, by="cost_usd", order=order)  # type: ignore[arg-type]
+        sf.Rank(k, by="cost_usd", order=order)  # type: ignore[arg-type]
 
 
 def test_rank_k_above_the_member_count_raises_at_block_close() -> None:
-    rank = sx.Rank(4, by="cost_usd")
+    rank = sf.Rank(4, by="cost_usd")
 
     with pytest.raises(ValueError, match="Rank keeps k=4 members but the Fusion has 3"):
-        _ = sx.Fanout(_TRIO) >> rank >> sx.Synthesize(_WRITER)
+        _ = sf.Fanout(_TRIO) >> rank >> sf.Synthesize(_WRITER)
 
 
 # ---------------------------------------------------------------- RE-1
@@ -97,10 +96,10 @@ def test_rank_k_above_the_member_count_raises_at_block_close() -> None:
 def test_re1_a_field_key_reads_the_field_as_a_number_signal() -> None:
     # today's Rank(k=2, by_signal=sf.signal("field:confidence")) before the writer
     assert _url4(
-        sx.Fanout(_TRIO) >> sx.Rank(2, by="field:confidence") >> sx.Synthesize(_WRITER)
+        sf.Fanout(_TRIO) >> sf.Rank(2, by="field:confidence") >> sf.Synthesize(_WRITER)
     ) == frozen_url4("narrow_steps:rank-field-confidence")
     # today's Pick(by_signal=sf.signal("field:confidence"))
-    assert _url4(sx.Fanout(_TRIO) >> sx.ArgMax("field:confidence")) == frozen_url4(
+    assert _url4(sf.Fanout(_TRIO) >> sf.ArgMax("field:confidence")) == frozen_url4(
         "narrow_steps:pick-field-confidence"
     )
 
@@ -111,7 +110,7 @@ def test_re1_a_field_key_reads_the_field_as_a_number_signal() -> None:
 def test_filter_by_a_signal_comparison() -> None:
     where = sf.signal("field:confidence") > 0.7
 
-    assert _narrowed(sx.Filter(where=where)) == _today(FilterNode(where=where))
+    assert _narrowed(sf.Filter(where=where)) == _today(FilterNode(where=where))
 
 
 @pytest.mark.parametrize(
@@ -126,11 +125,11 @@ def test_filter_by_a_signal_comparison() -> None:
 def test_filter_over_reads_the_text_that_matches_tests(over: object, extract: sf.Extract) -> None:
     where = sf.matches("yes")
 
-    assert _narrowed(sx.Filter(where=where, over=over)) == _today(  # type: ignore[arg-type]
+    assert _narrowed(sf.Filter(where=where, over=over)) == _today(  # type: ignore[arg-type]
         FilterNode(where=where, extract=extract)
     )
     # unit 6: a Filter keeps over= as written (as Vote and Median do), and both forms lower alike
-    assert _narrowed(sx.Filter(where=where, over=extract)) == _today(
+    assert _narrowed(sf.Filter(where=where, over=extract)) == _today(
         FilterNode(where=where, extract=extract)
     )
 
@@ -141,7 +140,7 @@ def test_fi1_over_with_a_signal_comparison_is_refused() -> None:
         match=r"^sf\.Filter over= reads the text for sf\.matches: a signal comparison takes no "
         r"over=$",
     ):
-        sx.Filter(where=sf.signal("cost_usd") < 1, over="last_line")
+        sf.Filter(where=sf.signal("cost_usd") < 1, over="last_line")
 
 
 def test_filter_over_takes_no_pinned_rule_name() -> None:
@@ -150,7 +149,7 @@ def test_filter_over_takes_no_pinned_rule_name() -> None:
         match=r"^sf\.Filter over= takes a rule name with no version, 'field:<path>' or "
         r"sf\.Extract\(\.\.\.\), not 'last_line@1'$",
     ):
-        sx.Filter(where=sf.matches("yes"), over="last_line@1")
+        sf.Filter(where=sf.matches("yes"), over="last_line@1")
 
 
 @pytest.mark.parametrize("where", ["cost_usd", sf.signal("cost_usd"), 3])
@@ -160,22 +159,22 @@ def test_filter_where_takes_only_a_condition(where: object) -> None:
         match=r"^sf\.Filter where= takes sf\.matches\(\.\.\.\) or a signal comparison such as "
         r"sf\.signal\(key\) >= 0\.6$",
     ):
-        sx.Filter(where=where)  # type: ignore[arg-type]
+        sf.Filter(where=where)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------- Concat
 
 
 def test_concat_lowers_to_the_concat_of_today() -> None:
-    assert _narrowed(sx.Concat(" | ", label=False)) == _today(ConcatNode(" | ", label=False))
-    assert sx.Concat() == sx.Concat("\n\n---\n\n", label=True)
+    assert _narrowed(sf.Concat(" | ", label=False)) == _today(ConcatNode(" | ", label=False))
+    assert sf.Concat() == sf.Concat("\n\n---\n\n", label=True)
 
 
 def test_concat_checks_its_options_with_the_rules_of_today() -> None:
     with pytest.raises(ValueError, match="Concat separator must not be empty"):
-        sx.Concat("")
+        sf.Concat("")
     with pytest.raises(TypeError, match="Concat label must be a bool"):
-        sx.Concat(label=1)  # type: ignore[arg-type]
+        sf.Concat(label=1)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------- NR-C1 (Merge, JudgePick)
@@ -184,18 +183,18 @@ def test_concat_checks_its_options_with_the_rules_of_today() -> None:
 @pytest.mark.parametrize(
     "terminal",
     [
-        sx.Merge({"answer": sf.FieldRule.majority()}),
-        sx.JudgePick("provider/j", rubric="Pick one."),
+        sf.Merge({"answer": sf.FieldRule.majority()}),
+        sf.JudgePick("provider/j", rubric="Pick one."),
     ],
     ids=["merge", "judge-pick"],
 )
 @pytest.mark.parametrize(
     "narrow",
-    [sx.Rank(1, by="cost_usd"), sx.Filter(where=sf.matches("x"))],
+    [sf.Rank(1, by="cost_usd"), sf.Filter(where=sf.matches("x"))],
     ids=["rank", "filter"],
 )
 def test_nrc1_a_step_with_its_own_call_cannot_follow_a_narrow_step(
-    narrow: sx.Rank, terminal: sx.Merge
+    narrow: sf.Rank, terminal: sf.Merge
 ) -> None:
     name = type(terminal).__name__
     with pytest.raises(
@@ -203,7 +202,7 @@ def test_nrc1_a_step_with_its_own_call_cannot_follow_a_narrow_step(
         match=rf"^sf\.{name} makes its own call over every member, so it cannot follow a "
         r"narrow step$",
     ):
-        _ = sx.Fanout(_TRIO) >> narrow >> terminal
+        _ = sf.Fanout(_TRIO) >> narrow >> terminal
 
 
 # ---------------------------------------------------------------- E4 (FA-2 with a narrow step)
@@ -211,7 +210,7 @@ def test_nrc1_a_step_with_its_own_call_cannot_follow_a_narrow_step(
 
 def test_e4_signals_with_a_narrow_step_before_synthesize_are_read() -> None:
     signals = {"conf": sf.Verbalized("C: ([0-9]+)")}
-    chain = sx.Fanout(_TRIO, signals=signals) >> sx.Rank(2, by="conf") >> sx.Synthesize(_WRITER)
+    chain = sf.Fanout(_TRIO, signals=signals) >> sf.Rank(2, by="conf") >> sf.Synthesize(_WRITER)
 
     assert lower(chain) == sf.Pipeline(
         [
@@ -224,7 +223,7 @@ def test_e4_signals_with_a_narrow_step_before_synthesize_are_read() -> None:
 def test_a_filter_stores_a_plain_signal() -> None:
     from screamingface._signals import Signal, _Comparison
 
-    step = sx.Filter(where=sx.signal("field:confidence") > 0.7)
+    step = sf.Filter(where=sf.signal("field:confidence") > 0.7)
     node = _narrowed(step)
 
     assert isinstance(step.where, _Comparison)

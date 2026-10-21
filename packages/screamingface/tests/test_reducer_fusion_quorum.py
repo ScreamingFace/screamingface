@@ -22,7 +22,6 @@ from _reducer_fixtures import FixtureVote, evidence_wire, fixture_operators
 from url4 import expr, render, src, text
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.url4 import _candidate_from_url4
@@ -76,7 +75,7 @@ def test_a_quorum_reducer_reads_a_broadcast_panel() -> None:
 
 
 def test_a_model_synthesizer_keeps_the_text_panel() -> None:
-    url4 = _url4(sx.Fanout(_MEMBERS, quorum=2) >> sx.Synthesize("provider/s"))
+    url4 = _url4(sf.Fanout(_MEMBERS, quorum=2) >> sf.Synthesize("provider/s"))
 
     assert "!'';quorum=2" in url4
     assert "!*" not in url4

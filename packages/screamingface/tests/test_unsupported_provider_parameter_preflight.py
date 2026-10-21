@@ -29,7 +29,6 @@ from url4 import RelExpr, expr, render, src, text
 
 import screamingface as sf
 from screamingface import _default_client
-from screamingface import _surface as sx
 
 _BENCHMARK_URL4 = render(
     expr(
@@ -177,7 +176,7 @@ def _engine(
 
 
 def _fusion() -> sf.Recipe:
-    return sx.Fanout([sf.Model(_MEMBER)]) >> sx.Synthesize(_SYNTH)
+    return sf.Fanout([sf.Model(_MEMBER)]) >> sf.Synthesize(_SYNTH)
 
 
 def test_seeded_fusion_refuses_before_spend_when_the_synthesizer_provider_denies_seed() -> None:
@@ -363,7 +362,7 @@ def test_declaring_the_seed_only_on_models_that_accept_it_is_allowed() -> None:
     arrived would look stricter and would silently remove this workflow.
     """
     transport = _ReachedTransport()
-    candidate = sx.Fanout([sf.Model(_MEMBER, params={"seed": 42})]) >> sx.Synthesize(_SYNTH)
+    candidate = sf.Fanout([sf.Model(_MEMBER, params={"seed": 42})]) >> sf.Synthesize(_SYNTH)
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=_engine({_SYNTH: "unsupported"}),

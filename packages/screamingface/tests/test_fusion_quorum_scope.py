@@ -10,7 +10,6 @@ from url4.dag import ExecutionContext, run
 from url4.io.static import RouteHandler, StaticIOLayer
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 
 
@@ -36,7 +35,7 @@ async def test_pipeline_quorum_members_receive_the_previous_answer(
     recipe = sf.Pipeline(
         [
             "draft",
-            sx.Fanout(["a", sf.Model("b", optional=True)], quorum=quorum) >> sx.Synthesize("synth"),
+            sf.Fanout(["a", sf.Model("b", optional=True)], quorum=quorum) >> sf.Synthesize("synth"),
         ]
     )
     ctx = ExecutionContext(
@@ -55,8 +54,8 @@ async def test_quorum_fusion_synthesizer_receives_resolved_outer_panel() -> None
         seen.append(json.loads(context))
         return "B"
 
-    recipe = sx.Fanout(["a"], quorum=1) >> sx.Synthesize(
-        sx.Fanout([sf.Model("b", optional=True)], quorum=1) >> sx.Synthesize("inner")
+    recipe = sf.Fanout(["a"], quorum=1) >> sf.Synthesize(
+        sf.Fanout([sf.Model("b", optional=True)], quorum=1) >> sf.Synthesize("inner")
     )
     routes: dict[str, RouteHandler] = {
         "/a": lambda c, i: "A",
@@ -83,8 +82,8 @@ async def test_captured_pipeline_input_does_not_satisfy_member_quorum() -> None:
     recipe = sf.Pipeline(
         [
             "draft",
-            sx.Fanout(["a", sf.Model("missing", optional=True)], quorum=2)
-            >> sx.Synthesize("synth"),
+            sf.Fanout(["a", sf.Model("missing", optional=True)], quorum=2)
+            >> sf.Synthesize("synth"),
         ]
     )
     routes: dict[str, RouteHandler] = {

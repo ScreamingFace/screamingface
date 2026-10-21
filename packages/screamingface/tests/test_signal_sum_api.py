@@ -24,7 +24,6 @@ from test_gate_contract_fixtures import gate_verbalized_vote_url4
 from test_verbalized_contract_fixture import verbalized_vote_url4
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.chain import Step
 from screamingface._surface.lowering import lower
@@ -56,18 +55,18 @@ def _declaration(risk: sf.Sum | None = None) -> dict[str, SignalSource]:
     }
 
 
-def _recipe_r(risk: sf.Sum | None = None, synthesizer: Step | None = None) -> sx.Pipeline:
+def _recipe_r(risk: sf.Sum | None = None, synthesizer: Step | None = None) -> sf.Pipeline:
     """Recipe R of the sum-api PRD §3, or R with another synthesizer."""
-    return sx.Fanout(_MEMBERS, name="pick", signals=_declaration(risk)) >> (
-        sx.ArgMin("risk") if synthesizer is None else synthesizer
+    return sf.Fanout(_MEMBERS, name="pick", signals=_declaration(risk)) >> (
+        sf.ArgMin("risk") if synthesizer is None else synthesizer
     )
 
 
-def _fanout(recipe: sf.Recipe) -> sx.Fanout:
+def _fanout(recipe: sf.Recipe) -> sf.Fanout:
     """The ``sf.Fanout`` that opens ``recipe``, a chain of one block."""
-    assert isinstance(recipe, sx.Pipeline)
+    assert isinstance(recipe, sf.Pipeline)
     fanout = recipe.steps[0]
-    assert isinstance(fanout, sx.Fanout)
+    assert isinstance(fanout, sf.Fanout)
     return fanout
 
 
@@ -75,8 +74,8 @@ def _compiled(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
-def _pick(name: str) -> sx.ArgMin:
-    return sx.ArgMin(sf.signal(name))
+def _pick(name: str) -> sf.ArgMin:
+    return sf.ArgMin(sf.signal(name))
 
 
 # --- SA#1 (CHAR, SA-D1): a Fusion without an sf.Sum compiles to the same url4 bytes ------------
@@ -177,14 +176,14 @@ def test_sum_refuses_bad_terms(value: Any, error: type[Exception], message: str)
 def test_fusion_refuses_a_sum_of_an_undeclared_name() -> None:
     message = "sf.Sum 'risk' adds 'zzz', which this Fusion does not declare (declared: risk, sev_a)"
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(
+        _ = sf.Fanout(
             _MEMBERS,
             signals={"risk": sf.Sum({"sev_a": 0.5, "zzz": 1.0}), "sev_a": sf.Verbalized(_A)},
         ) >> _pick("risk")
     assert str(caught.value) == message
     # the listed names are sorted, whatever the dict order of signals=
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(
+        _ = sf.Fanout(
             _MEMBERS,
             signals={"sev_a": sf.Verbalized(_A), "risk": sf.Sum({"zzz": 1.0, "sev_a": 0.5})},
         ) >> _pick("risk")
@@ -196,7 +195,7 @@ def test_fusion_refuses_a_sum_of_an_undeclared_name() -> None:
 
 def test_fusion_refuses_a_sum_of_a_sum_and_a_sum_of_itself() -> None:
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(
+        _ = sf.Fanout(
             _MEMBERS,
             signals={
                 "a": sf.Verbalized(_A),
@@ -208,7 +207,7 @@ def test_fusion_refuses_a_sum_of_a_sum_and_a_sum_of_itself() -> None:
         "sf.Sum 'r2' adds 'r1', which is an sf.Sum; a sum adds only other sources, not sums"
     )
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(_MEMBERS, signals={"r": sf.Sum({"r": 1.0})}) >> _pick("r")
+        _ = sf.Fanout(_MEMBERS, signals={"r": sf.Sum({"r": 1.0})}) >> _pick("r")
     assert str(caught.value) == (
         "sf.Sum 'r' adds 'r', which is an sf.Sum; a sum adds only other sources, not sums"
     )
@@ -217,9 +216,9 @@ def test_fusion_refuses_a_sum_of_a_sum_and_a_sum_of_itself() -> None:
 # --- SA#6 (SA-E4, P13): a sum with a raw logprob or an entropy is not a vote weight --------------
 
 _WEIGHTED: list[Any] = [
-    pytest.param(lambda s: sx.Vote(weights=s), id="vote"),
-    pytest.param(lambda s: sx.Median(weights=s), id="median"),
-    pytest.param(lambda s: sx.Mean(weights=s), id="mean"),
+    pytest.param(lambda s: sf.Vote(weights=s), id="vote"),
+    pytest.param(lambda s: sf.Median(weights=s), id="median"),
+    pytest.param(lambda s: sf.Mean(weights=s), id="mean"),
 ]
 _RAW: list[Any] = [
     pytest.param(lambda: sf.Logprob("mean"), "Logprob('mean')", id="logprob-mean"),
@@ -238,7 +237,7 @@ def test_fusion_refuses_a_vote_weight_sum_with_a_raw_logprob_or_entropy(
     weighted: Callable[[Any], Step], raw: Callable[[], SignalSource], shown: str
 ) -> None:
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(_OPENROUTER, signals=_weight_signals(raw())) >> weighted(sf.signal("w"))
+        _ = sf.Fanout(_OPENROUTER, signals=_weight_signals(raw())) >> weighted(sf.signal("w"))
     assert str(caught.value) == (
         f"sf.Sum 'w' cannot be a vote weight: it adds 'lp' ({shown}), and a weight must be "
         "greater than 0; read sf.signal('w') with sf.Pick, sf.Rank or sf.Filter instead"
@@ -246,14 +245,14 @@ def test_fusion_refuses_a_vote_weight_sum_with_a_raw_logprob_or_entropy(
 
 
 def test_a_sum_weight_may_add_a_logprob_prob_and_a_pick_may_read_any_sum() -> None:
-    weighted = sx.Fanout(_OPENROUTER, signals=_weight_signals(sf.Logprob("prob"))) >> sx.Vote(
+    weighted = sf.Fanout(_OPENROUTER, signals=_weight_signals(sf.Logprob("prob"))) >> sf.Vote(
         weights=sf.signal("w")
     )
     weights = _fanout(weighted).signals
     assert weights is not None
     assert weights["w"] == sf.Sum({"conf": 0.01, "lp": 1.0})
     for raw in (sf.Logprob("mean"), sf.Logprob("sum"), sf.Entropy()):
-        picked = sx.Fanout(_OPENROUTER, signals=_weight_signals(raw)) >> sx.ArgMax("w")
+        picked = sf.Fanout(_OPENROUTER, signals=_weight_signals(raw)) >> sf.ArgMax("w")
         declared = _fanout(picked).signals
         assert declared is not None
         assert declared["lp"] == raw
@@ -262,15 +261,15 @@ def test_a_sum_weight_may_add_a_logprob_prob_and_a_pick_may_read_any_sum() -> No
 # --- SA#7 (SA-3, SA-D4): every rule and gate reads a sum by name --------------------------------
 
 _READERS: list[Any] = [
-    pytest.param(lambda: sx.ArgMin("risk"), id="pick"),
-    pytest.param(lambda: sx.Rank(1, by="risk", order="min"), id="rank"),
-    pytest.param(lambda: sx.Filter(where=sf.signal("risk") <= 3.0), id="filter"),
-    pytest.param(lambda: sx.Vote(weights=sf.signal("risk")), id="vote-weight"),
+    pytest.param(lambda: sf.ArgMin("risk"), id="pick"),
+    pytest.param(lambda: sf.Rank(1, by="risk", order="min"), id="rank"),
+    pytest.param(lambda: sf.Filter(where=sf.signal("risk") <= 3.0), id="filter"),
+    pytest.param(lambda: sf.Vote(weights=sf.signal("risk")), id="vote-weight"),
     pytest.param(
-        lambda: sx.Gate(when=sx.signal("risk").chosen() <= 3.0, then=sx.Vote()), id="gate-chosen"
+        lambda: sf.Gate(when=sf.signal("risk").chosen() <= 3.0, then=sf.Vote()), id="gate-chosen"
     ),
     pytest.param(
-        lambda: sx.Gate(when=sx.signal("risk").mean() <= 3.0, then=sx.Vote()), id="gate-mean"
+        lambda: sf.Gate(when=sf.signal("risk").mean() <= 3.0, then=sf.Vote()), id="gate-mean"
     ),
 ]
 
@@ -284,9 +283,9 @@ def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Step]) -> None:
     assert list(signals) == ["risk", "sev_a", "sev_b"]
     # WHY the next stage: a Rank or a Filter ends a candidate with a selection, and the compile
     # refuses that unless a writer follows (test_rank_by_signal.py _wrapped precedent)
-    narrow = isinstance(step, sx.Rank | sx.Filter)
+    narrow = isinstance(step, sf.Rank | sf.Filter)
     spec = spec_of(
-        _compiled(fusion >> (sx.Synthesize("provider/next") if narrow else "provider/next"))
+        _compiled(fusion >> (sf.Synthesize("provider/next") if narrow else "provider/next"))
     )
     assert spec["signals"] == _SPEC_SIGNALS
     # the rule or the gate names the sum outside the signals map
@@ -295,12 +294,12 @@ def test_rules_and_gates_read_a_sum_by_name(reader: Callable[[], Step]) -> None:
 
 def test_a_sum_counts_toward_the_eight_names() -> None:
     names: dict[str, SignalSource] = {f"a{index}": sf.Verbalized(_A) for index in range(1, 8)}
-    fusion = sx.Fanout(_MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), **names}) >> _pick("s")
+    fusion = sf.Fanout(_MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), **names}) >> _pick("s")
     signals = _fanout(fusion).signals
     assert signals is not None
     assert len(signals) == 8
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(
+        _ = sf.Fanout(
             _MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), "a8": sf.Verbalized(_A), **names}
         ) >> _pick("s")
     assert str(caught.value) == "a Fusion declares at most 8 signals, not 9"

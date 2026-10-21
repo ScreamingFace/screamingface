@@ -16,7 +16,6 @@ from _combine_contract import engine_operators
 from _nodes import FusionNode
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
 
@@ -27,10 +26,10 @@ _CN_I2 = (
 
 
 def test_compile_refuses_a_non_model_member_with_the_fusion_error() -> None:
-    inner = sx.Fanout(["prov/gamma", "prov/delta"], name="inner") >> sx.Vote()
+    inner = sf.Fanout(["prov/gamma", "prov/delta"], name="inner") >> sf.Vote()
     fusion = lower(
-        sx.Fanout(["prov/alpha", "prov/beta"], signals={"cons": sf.Consistency(n=2)}, name="cons")
-        >> sx.ArgMax("cons")
+        sf.Fanout(["prov/alpha", "prov/beta"], signals={"cons": sf.Consistency(n=2)}, name="cons")
+        >> sf.ArgMax("cons")
     )
     assert isinstance(fusion, FusionNode)
     # WHY bypass __init__: the Fusion check refuses this shape, so only a changed value reaches
@@ -45,10 +44,10 @@ def test_compile_refuses_a_non_model_member_with_the_fusion_error() -> None:
 
 def test_fusion_init_raises_the_same_cn_i2_error() -> None:
     # control: the message above is the one of Fusion.__init__
-    inner = sx.Fanout(["prov/gamma", "prov/delta"], name="inner") >> sx.Vote()
+    inner = sf.Fanout(["prov/gamma", "prov/delta"], name="inner") >> sf.Vote()
     with pytest.raises(ValueError) as caught:
-        _ = sx.Fanout(
+        _ = sf.Fanout(
             ["prov/alpha", inner], signals={"cons": sf.Consistency(n=2)}, name="cons"
-        ) >> sx.ArgMax("cons")
+        ) >> sf.ArgMax("cons")
 
     assert str(caught.value) == _CN_I2

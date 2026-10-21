@@ -21,7 +21,6 @@ from _combine_flow_fixtures import flow_operators, members3
 from _nodes import PickNode, ReduceNode, fusion_node
 
 import screamingface as sf
-from screamingface import _surface as sx
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._surface.chain import Step
@@ -36,8 +35,8 @@ def _url4(recipe: sf.Recipe) -> str:
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
-def _block(step: Step) -> sx.Pipeline:
-    return sx.Fanout(members3()) >> step
+def _block(step: Step) -> sf.Pipeline:
+    return sf.Fanout(members3()) >> step
 
 
 def _fusion(reducer: Reducer) -> sf.Recipe:
@@ -146,14 +145,14 @@ def test_pick_output_with_a_bad_name_raises_value_error(bad: str) -> None:
         "(a letter or _, then letters, digits or _; at most 64 characters)"
     )
     with pytest.raises(ValueError, match=message):
-        sx.ArgMax("field:confidence", output=bad)
+        sf.ArgMax("field:confidence", output=bad)
     with pytest.raises(ValueError, match=message):
-        sx.ArgMax("field:confidence", output=bad)
+        sf.ArgMax("field:confidence", output=bad)
 
 
 def test_pick_output_that_is_not_text_raises_type_error() -> None:
     with pytest.raises(TypeError, match=re.escape("sf.ArgMax output= must be a string")):
-        sx.ArgMax("field:confidence", output=7)  # type: ignore[arg-type]
+        sf.ArgMax("field:confidence", output=7)  # type: ignore[arg-type]
 
 
 def test_block_output_with_a_bad_name_raises_before_any_call() -> None:
@@ -166,20 +165,20 @@ def test_block_output_with_a_bad_name_raises_before_any_call() -> None:
 
 
 def test_a_pick_output_of_the_longest_name_is_kept() -> None:
-    assert sx.ArgMax("field:c", output="a" * 64).output == "a" * 64
+    assert sf.ArgMax("field:c", output="a" * 64).output == "a" * 64
 
 
 def test_pick_repr_and_python_show_the_output() -> None:
     assert (
-        repr(sx.ArgMax("field:confidence", output="answer"))
+        repr(sf.ArgMax("field:confidence", output="answer"))
         == "ArgMax('field:confidence', output='answer')"
     )
     assert (
-        repr(sx.ArgMax("field:confidence", output="answer"))
+        repr(sf.ArgMax("field:confidence", output="answer"))
         == "ArgMax('field:confidence', output='answer')"
     )
     assert (
-        repr(sx.First(where=sx.field("label", normalize="text") == "yes", output="answer"))
+        repr(sf.First(where=sf.field("label", normalize="text") == "yes", output="answer"))
         == "First(where=field('label', normalize='text') == 'yes', output='answer')"
     )
     assert (
@@ -191,9 +190,9 @@ def test_pick_repr_and_python_show_the_output() -> None:
 @pytest.mark.parametrize(
     "original",
     [
-        sx.ArgMax("field:confidence", output="answer"),
-        sx.ArgMin("field:confidence", output="answer"),
-        sx.First(where=sx.field("label", normalize="text") == "yes", output="answer"),
+        sf.ArgMax("field:confidence", output="answer"),
+        sf.ArgMin("field:confidence", output="answer"),
+        sf.First(where=sf.field("label", normalize="text") == "yes", output="answer"),
     ],
     ids=["field-max", "signal-min", "field-equals"],
 )
@@ -213,11 +212,11 @@ def test_url4_to_python_shows_the_output_of_each_pick() -> None:
             "sf.Pick('confidence', order='max', output='answer')",
         ),
         (
-            _block(sx.ArgMin("field:confidence", output="answer")),
+            _block(sf.ArgMin("field:confidence", output="answer")),
             "sf.Pick(by_signal=sf.signal('field:confidence'), order='min', output='answer')",
         ),
         (
-            _block(sx.First(where=sx.field("label", normalize="text") == "yes", output="answer")),
+            _block(sf.First(where=sf.field("label", normalize="text") == "yes", output="answer")),
             "sf.Pick('label', equals='yes', normalize='text', output='answer')",
         ),
     ]
