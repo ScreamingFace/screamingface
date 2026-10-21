@@ -89,6 +89,11 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # Verified against main 2026-09-30: the inverted-grade pin (OME-1400) exists only
     # when a row sets the flag, so its uninverted sibling keeps this revision.
     "xstest_safe": "1044036b2049e623",
+    # OME-1701 PR 2 (2026-10-21): first frozen here, at the move that adopted an
+    # inspect_evals grading fix (chembench a36d91b7eb601253, infinite_bench_math_find
+    # eb87494cb4dab437 before it).
+    "chembench": "2fdb430f6a3505f0",
+    "infinite_bench_math_find": "a38b3a6c787f08a8",
 }
 
 

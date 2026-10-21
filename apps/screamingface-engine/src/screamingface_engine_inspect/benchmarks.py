@@ -5680,8 +5680,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "model's context window; this Task cuts every input to one fixed budget, about "
             "446,000 characters (128k tokens by inspect_evals' estimate), whichever model "
             "answers. No Math.Find input is that long (the longest is 120,155 "
-            "characters), so every Case is inspect_evals' whole input. Grading is inspect's own "
-            "exact match against the answer, so no judge tokens are spent. Benchmark score "
+            "characters), so every Case is inspect_evals' whole input. Graded the official "
+            "InfiniteBench way: the first number in the reply, compared with the answer "
+            "by value, so 'The largest number in the list is: 91' is right for 91 and no "
+            "judge tokens are spent. inspect_evals grades with exact match on the whole "
+            "reply, which scores that answer 0; this is its proposed fix (PR #2346), "
+            "adopted here. Benchmark score "
             "= plain accuracy over the cases run. Inputs are long, about 118,000 characters "
             "each: use a model with a long context window."
         ),
@@ -5694,12 +5698,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench
         #   :infinite_bench_math_find,
-        #   a LOCAL Task built from inspect_evals' infinite_bench_math_find; only its cut
-        #   differs (OME-1602). Its code lives here, so its origin is ours; it reuses
-        #   inspect_evals' loader and prompts, and the harness link names that eval.
+        #   a LOCAL Task built from inspect_evals' infinite_bench_math_find; its cut differs
+        #   (OME-1602) and so does its grading (NAMED DEVIATION 2 in the Task's docstring:
+        #   the official first-number rule, https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346).
+        #   Its code lives here, so its origin is ours; it reuses inspect_evals' loader and
+        #   prompts, and the harness link names that eval.
         # License: apache-2.0, the Hub card's licence line (the card's header is malformed,
         #   so the Hub shows none; owner decision on OME-1602, 2026-10-14).
-        scorer="inspect_ai.scorer:exact",
+        scorer=(
+            "screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench"
+            ":math_find_scorer"
+        ),
         paper_url="https://arxiv.org/abs/2402.13718",
         authors="Zhang et al., 2024",
         citation=(
@@ -5880,11 +5889,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "2,785 chemistry questions from ChemBench, across topics from general and "
             "organic chemistry to toxicity and safety, imported from inspect_evals. Most are "
             "multiple choice, some with several correct options the model must list "
-            "together (for example A,D); the rest ask for a number. Grading is the eval's "
-            "own scorer: the multiple-choice answer must match the key exactly, ignoring "
-            "letter case, letters in the key's order and comma-joined with no spaces (A,D; "
-            "'A, D' and 'D,A' score 0, as in inspect_evals), and a number "
-            "must fall within 1% of the answer, so no judge tokens are spent. Cases are served "
+            "together (for example A,D); the rest ask for a number. A multiple-choice "
+            "answer is right when it names exactly the key's letters, in any order and "
+            "case, separated by commas or spaces ('A,D', 'A, D', 'D A' and 'd,a' all "
+            "count), as the ChemBench authors grade and as the eval's prompt invites; a "
+            "number must fall within 1% of the answer, as the eval grades. No judge "
+            "tokens are spent. The letter rule is inspect_evals' proposed fix (PR "
+            "#2591), adopted here: the pinned v0.20.0 scorer compares the letters as "
+            "text, so on the 394 Cases with several correct letters a right answer "
+            "written 'A, D' or 'D,A' scored 0. Cases are served "
             "in a fixed seeded shuffle (the eval shuffles per run). Benchmark score = plain "
             "accuracy over the cases run; the eval's per-topic breakdown is not reproduced. "
             "No mid-run check surface."
@@ -5894,10 +5907,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The best verified bare model reaches about 0.71: real headroom (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.chembench.chembench:chembench.
+        # Provenance: the Task is inspect_evals.chembench.chembench:chembench, whose scorer is
+        #   inspect_evals.chembench.chembench:chembench_scorer.
         # License: mit.
-        scorer="inspect_evals.chembench.chembench:chembench_scorer",
+        # NAMED DEVIATION: multiple choice is graded by the set of letters, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591, issue
+        #   #2586); numbers stay the eval's own pattern_mae. Drop it when the pin reaches the
+        #   fix: the tripwire in tests/unit/inspect/test_named_deviation_chembench.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.chembench.chembench:chembench_letter_set",
         # NAMED DEVIATION: the eval scores the whole run with grouped accuracy, one mean per
         # topic beside the overall mean; this Benchmark reports the overall mean per-Case
         # score (chosen at import, OME-1527), which is that overall figure.

@@ -58,6 +58,31 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   are pinned; every other revision is byte-identical.
 - the tripwire names #2334.
 
+## PR 2 — chembench's letter set and InfiniteBench's first number
+
+### Planned changes
+
+- `.../named_deviations/chembench/` (new): multiple choice graded by the set of letters
+  (inspect_evals PR #2591, open); numbers stay the eval's own `pattern_mae`.
+- `.../local_tasks/infinite_bench/infinite_bench.py`: the official first-number Math.Find rule
+  (inspect_evals PR #2346, open); its README's Scoring section says so.
+- `.../benchmarks.py`: the chembench and infinite_bench_math_find rows grade with them; honest
+  descriptions; NAMED DEVIATION comments.
+- tests: `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py`
+  (new); `test_published_revisions.py` (both rows first frozen here); `test_scorer_source_pins.py`
+  (its row set gains chembench).
+
+### Test plan
+
+- chembench: "A, D", "D,A" and "d,a" answer the key "A,D"; a subset does not; the tripwire
+  asserts v0.20.0 scores "A, D" 0.
+- infinite_bench_math_find: "The largest number in the list is: 91" is right for 91; the
+  tripwire asserts inspect's `exact()` scores it 0.
+
+### Acceptance
+
+- chembench and infinite_bench_math_find each publish a new revision; no other revision moves.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -71,3 +96,12 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   588977e58b380d7f, pinned in `test_benchmark_fingerprints.py`. Every one of the 85 imported revisions
   computed before and after: none publishes a new revision.
 - **Gates:** relevant tests only (owner rule): `test_named_deviation_yes_no.py` and `test_scorer_source_pins.py` (new), `test_benchmark_fingerprints.py` (new), `test_published_revision.py` (edited), `test_published_revisions.py`, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 702 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 10 inspect-only skip). Mutation: one byte added to `yes_no.py` fails both held pins and leaves every published literal passing. ruff check + format and pyright (extra-less) clean on every touched file.
+
+### PR 2
+
+- **Actual files:** as planned, plus two edited prior tests: `test_letter_list_key_imports.py`
+  ("A, D" on chembench now scores 1) and `test_local_task_infinite_bench.py` (its row test was
+  named for inspect's `exact()`; renamed, and its docstring now says the first-number rule).
+- **Revisions:** chembench a36d91b7eb601253 → 2fdb430f6a3505f0; infinite_bench_math_find
+  eb87494cb4dab437 → a38b3a6c787f08a8.
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 732 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 11 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
