@@ -180,7 +180,10 @@ the same.
       every hosted row is keyed under. `PullResult` reports rows read, rows added, pages,
       whether it resumed and whether it finished; an interrupted pull re-raises its
       `KeyboardInterrupt` with the same counts as `.result`. A resume continues only into the
-      database file it was loading (its device and inode), not merely the same path.
+      database file it was loading (its device and inode), not merely the same path, and a
+      file replaced during a pull stops it with `destination_changed` before its cursor moves.
+      One pull runs at a time per `(url, models)`; a second concurrent call is refused with
+      `pull_in_progress`.
     - Progress follows `evaluate`: `progress=None` shows it in a notebook or an interactive
       terminal and stays quiet when piped. A notebook gets one card updated in place through an
       IPython display handle (no `ipywidgets` needed); a terminal gets one line on stderr

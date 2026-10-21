@@ -518,3 +518,36 @@ def test_a_second_concurrent_pull_of_the_same_filter_is_refused() -> None:
     assert other.complete
     assert first[0].complete
     assert _run(_Source({None: [_page(["c"], None)]}), _Gateway()).complete
+
+
+@pytest.mark.parametrize(
+    "pages",
+    [
+        pytest.param({None: [_page(["a"], "c1")], "c1": [_page(["b"], None)]}, id="mid-pull"),
+        pytest.param({None: [_page(["a"], None)]}, id="last-page"),
+    ],
+)
+def test_a_database_replaced_during_a_pull_stops_it_before_the_cursor_moves(
+    pages: dict[str | None, list[object]],
+) -> None:
+    # INVARIANT: the cursor advances, and a pull reports complete, only into the database it
+    # started loading; checked once a page, a stat of microseconds.
+    class _Replaced(_Gateway):
+        def __init__(self) -> None:
+            super().__init__()
+            self.identities = ["inode-1"]
+
+        @property
+        def identity(self) -> str:  # type: ignore[override]
+            return self.identities[-1]
+
+        def load(self, rows: Any, result: PullResult) -> tuple[int, int]:
+            self.identities.append("inode-2")  # atomically replaced while the page loads
+            return super().load(rows, result)
+
+    with pytest.raises(CachePullError) as raised:
+        _run(_Source(pages), _Replaced())
+
+    assert raised.value.code == "destination_changed"
+    assert raised.value.result.complete is False
+    assert pull_module._CURSORS == {}

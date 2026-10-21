@@ -254,6 +254,16 @@ class _Loop:
         while True:
             after = _with_retries(partial(self.page, count=first), self, sleep)
             first = False
+            # INVARIANT: the cursor advances, and the pull reports complete, only into the
+            # database it started loading. Checked once a page, before the cursor moves (a stat:
+            # microseconds), so a database replaced mid-pull is caught on its last page too.
+            if self._destination.identity != self._cursor.destination:
+                raise CachePullError(
+                    "The local gateway database was replaced during the pull",
+                    code="destination_changed",
+                    hint="Call pull_from_remote() again; it starts over into the new database.",
+                    result=self.result(complete=False),
+                )
             self._cursor.after, self._cursor.pages = after, self._cursor.pages + 1
             if after is not None:
                 _CURSORS[self._key] = self._cursor

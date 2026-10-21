@@ -258,9 +258,12 @@ path — once per call, error path only, or the same per-row work — and no per
 2. **Rows before the trailer:** a line after the trailer is caught before the page's last batch is
    handed on. A failed call's `rows_read` includes the rows read of the page it stopped in, so it
    is never below `rows_added`.
-3. **Database identity:** not changed. A file overwritten in place keeps counting as the same
-   database (round 2), and a database replaced during a pull is not detected: a per-page check
-   for a case nothing in the SDK or runtime causes is not worth its cost.
+3. **Database identity:** after each page, before the cursor advances, the destination's identity
+   is compared with the one the pull started with; a database replaced during the pull stops it
+   with `destination_changed`, on its last page too. Measured: ~16 µs a check, ~2 ms over a full
+   pull (120 pages), against ~4 ms to load one 500-row batch, so the owner chose to add it (the
+   latency rule is about real costs, not microseconds). A file overwritten in place still counts
+   as the same database (round 2).
 4. **Session preference:** this module's own signed-in client is used before the default
    client; the default is used only when the module has none for that origin.
 5. **Concurrent pulls:** one pull at a time per `(url, models)`; a second concurrent call is
@@ -275,3 +278,6 @@ path — once per call, error path only, or the same per-row work — and no per
   failed call counts the rows of the page it stopped in; a concurrent pull of the same filter is
   refused while another filter runs; a later default client does not replace the pull's own.
   Each failed against `655b3ea06`. Gates green.
+- **Follow-up (same day):** the identity check above, with a test that a database replaced
+  mid-pull or on the last page stops the pull before the cursor moves; spec decision 14's resume
+  paragraph names `destination_changed` and `pull_in_progress`.
