@@ -158,6 +158,9 @@ omit = ["src/screamingface/_runtime/*"]
 [dependency-groups]
 dev = [
     "editables>=0.5",
+    # WHY: the dev-only e2e workbench UI (tests/e2e/workbench/ui) imports these directly, and
+    # the SDK test job installs only the notebook extra. Same floors as the runtime extra.
+    "fastapi>=0.141.1",
     "hatchling>=1.31",
     "ipykernel>=6.29",
     "jupyterlab>=4.6.3",
@@ -172,4 +175,5 @@ dev = [
     "pytest-xdist>=3.8",
     "ruff>=0.16.3",
     "testcontainers[postgres]>=4.15,<5",
+    "uvicorn>=0.52.3",
 ]

@@ -779,7 +779,7 @@ name = "click"
 version = "8.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-13-screamingface-inspect' and extra == 'extra-13-screamingface-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/76/d4/81420972a676e8ffea40450d8c8c92943e7218a78fe9b64359836cc9876b/click-8.4.2.tar.gz", hash = "sha256:9a6cea6e60b17ebe0a44c5cc636d94f09bd66142c1cd7d8b4cd731c4917a15f6", size = 338000, upload-time = "2026-06-24T17:45:15.148Z" }
 wheels = [
@@ -4325,6 +4325,7 @@ runtime = [
 [package.dev-dependencies]
 dev = [
     { name = "editables" },
+    { name = "fastapi" },
     { name = "hatchling" },
     { name = "ipykernel" },
     { name = "jupyterlab" },
@@ -4339,6 +4340,7 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruff" },
     { name = "testcontainers" },
+    { name = "uvicorn" },
 ]
 
 [package.metadata]
@@ -4379,6 +4381,7 @@ provides-extras = ["notebook", "inspect", "runtime"]
 [package.metadata.requires-dev]
 dev = [
     { name = "editables", specifier = ">=0.5" },
+    { name = "fastapi", specifier = ">=0.141.1" },
     { name = "hatchling", specifier = ">=1.31" },
     { name = "ipykernel", specifier = ">=6.29" },
     { name = "jupyterlab", specifier = ">=4.6.3" },
@@ -4393,6 +4396,7 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.8" },
     { name = "ruff", specifier = ">=0.16.3" },
     { name = "testcontainers", extras = ["postgres"], specifier = ">=4.15,<5" },
+    { name = "uvicorn", specifier = ">=0.52.3" },
 ]
 
 [[package]]
@@ -4469,7 +4473,7 @@ version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13' or (extra == 'extra-13-screamingface-inspect' and extra == 'extra-13-screamingface-runtime')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
