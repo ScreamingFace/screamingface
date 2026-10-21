@@ -67,7 +67,7 @@ class _ChatlessButAuthenticatedPlugin(ProviderPluginBase):
     def supports_api_key(self) -> bool:
         return True
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
     def oauth_config(self) -> OAuthConfig:

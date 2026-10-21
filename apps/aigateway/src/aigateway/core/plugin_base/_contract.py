@@ -350,8 +350,8 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         # could never advertise a parameter until it had a mode of its own to
         # prove them under.
         # INVARIANT: "none" is derived HERE, from the provider's own declaration —
-        # never from an absent profile. A provider that merely permits a
-        # profile-less request (``allows_chatless_profile``) still declares real
+        # never from an absent credential. A provider that merely permits a
+        # credential-less request (``allows_chatless_credential``) still declares real
         # credential types and keeps them.
         """
         modes: list[AuthMode] = []

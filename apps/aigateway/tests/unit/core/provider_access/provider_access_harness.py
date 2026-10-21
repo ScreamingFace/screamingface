@@ -149,7 +149,7 @@ class ProfileBackedHarness:
             return real_evict(credential_name)
 
         monkeypatch.setattr(cache, "evict", recording_evict)
-        monkeypatch.setattr(ANTHROPIC, "invalidate_profile_session", self._invalidated.append)
+        monkeypatch.setattr(ANTHROPIC, "invalidate_credential_session", self._invalidated.append)
 
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return self.client.portal.call(partial(fn, *args, **kwargs))

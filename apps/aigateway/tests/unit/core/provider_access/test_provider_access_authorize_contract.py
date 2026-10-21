@@ -38,13 +38,13 @@ class _NoCredentialPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("none",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
-    def profileless_auth_mode(self) -> str | None:
+    def credentialless_auth_mode(self) -> str | None:
         return None
 
-    def invalidate_profile_session(self, _name: str) -> None:
+    def invalidate_credential_session(self, _name: str) -> None:
         return None
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
-from .auth_mode import auth_type_of, profileless_auth_mode
+from .auth_mode import auth_type_of, credentialless_auth_mode
 from .connection_locator import credential_name_from_locator
 from .profile_authorize import reauth_url_for
 from .types import CredentialTarget, TargetKind
@@ -54,7 +54,7 @@ def connection_target(
 
 
 def targetless(account_id: str, plugin: Any) -> CredentialTarget:
-    kind: TargetKind = "ambient" if profileless_auth_mode(plugin) is not None else "none"
+    kind: TargetKind = "ambient" if credentialless_auth_mode(plugin) is not None else "none"
     return CredentialTarget(
         kind=kind,
         auth_type="oauth",

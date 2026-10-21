@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 CLIENT_DISCONNECTED_STATUS = 499
 
 
-def _should_mark_profile_error_on_dispatch_status(plugin: Any, status_code: int) -> bool:
-    checker = getattr(plugin, "should_mark_profile_error_on_dispatch_status", None)
+def _should_mark_credential_error_on_dispatch_status(plugin: Any, status_code: int) -> bool:
+    checker = getattr(plugin, "should_mark_credential_error_on_dispatch_status", None)
     return bool(checker(status_code)) if callable(checker) else False
 
 
@@ -93,7 +93,7 @@ async def _dispatch_failure_response(
                 return exc
             return HTTPException(status_code=exc.status_code, detail=rewritten)
 
-    if not _should_mark_profile_error_on_dispatch_status(plugin, exc.status_code):
+    if not _should_mark_credential_error_on_dispatch_status(plugin, exc.status_code):
         return exc
     rewritten = await access.record_dispatch_failure(
         target, exc.status_code, exc.detail, plugin=plugin

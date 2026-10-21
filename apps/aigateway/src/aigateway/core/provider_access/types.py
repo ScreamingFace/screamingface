@@ -33,7 +33,7 @@ class ResolvePolicy(Enum):
 
 # `stored`: a Connection row backs the target and `credential_name` is set.
 # `ambient`: no stored row, but the provider names a runtime credential of its own
-#            (`plugin.profileless_auth_mode()` is not None — Gemini's ADC path).
+#            (`plugin.credentialless_auth_mode()` is not None — Gemini's ADC path).
 # `none`: no stored row and no ambient credential — either the provider needs none
 #         (chatless providers such as Ollama) or the DATASHEET policy admitted the absence.
 TargetKind = Literal["stored", "ambient", "none"]

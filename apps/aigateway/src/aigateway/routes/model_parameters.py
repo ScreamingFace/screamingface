@@ -171,11 +171,12 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # FEATURE: evaluation access preflight (OME-1195).
     # INVARIANT: configuration is separate from the datasheet's auth-mode binding.
     # A keyless datasheet still exists; only chat's resolved target or an allowed
-    # profileless mode establishes configuration. Never inject/validate secrets here.
+    # credentialless mode establishes configuration. Never inject/validate secrets here.
     configured: bool = target.kind == "stored"
-    if not configured and plugin.allows_chatless_profile():
+    if not configured and plugin.allows_chatless_credential():
         configured = (
-            plugin.profileless_auth_mode() is not None or plugin.available_auth_modes() == ("none",)
+            plugin.credentialless_auth_mode() is not None
+            or plugin.available_auth_modes() == ("none",)
         )
     document["context"]["execution_access"] = "configured" if configured else "missing"
     return document
