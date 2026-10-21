@@ -1038,15 +1038,15 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face matichon/thai-onet-m6-exam/default
     #     pin revision 93ffb5e3f3ec630b73e501937805984dd24f2365
-    # Re-sealed 2026-10-21 (OME-1701 PR 6) by two build replays: the 373 are
-    #   the 391 less the 18 ids below, in the same order (positional Case ids renumber).
+    # Re-sealed 2026-10-21 (OME-1701 PR 6) by two build replays: the 372 are
+    #   the 391 less the 19 ids below, in the same order (positional Case ids renumber).
     "onet_m6": TaskReplayCasesSpec(
         task="inspect_evals.onet.onet:onet_m6",
-        case_count=373,
-        case_digest="95dc23aef92510679bbd2641aecc4fd73b920b6a00055c234d59bc038c44a54a",
-        case_set_digest="8101723bfa4793922d1e04f9635dbd69d4031342c6772ba5a08dd8329a1fe6f1",
+        case_count=372,
+        case_digest="224831b1d7bb097a1dec3eb7e06c4ea3515ecb0e89f7628e08cabc3064c8e116",
+        case_set_digest="89e60804a1506a5fc18503411b3e5687caa30e523c7ea68f0841c5dc920412f8",
         # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
-        # questions, the Benchmark serves 373 (391 until the 18 below). Six cannot be graded
+        # questions, the Benchmark serves 372 (391 until the 19 below). Six cannot be graded
         # as published: inspect_evals
         # split their numbered choices wrongly, so the answer letter points past the last
         # choice (2021_4_b447: answer E, 4 choices).
@@ -1063,10 +1063,12 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             # split off as one; the key letter comes from the record's own number, so it
             # can land on another option's text. inspect_evals PR #2590 (open) parses the
             # options in number order: these, with the six above, are every Sample where its
-            # parse differs from v0.20.0's. Left out rather than re-parsed: #2590 is not
-            # merged, and re-parsing needs a local Task (a new origin and catalogue id); the
-            # other 373 Cases are the same under both parses. "4 of 5" = options v0.20.0
-            # reads of the record's five. The test pins each reason.
+            # parse differs from v0.20.0's. Left out rather than re-parsed, because the parse
+            # runs inside inspect_evals' Task: re-parsing needs a local Task, so a new origin
+            # and catalogue id for the row, a larger change than leaving 18 questions out (a
+            # scorer fix, by contrast, sits beside inspect_evals' Task, as other rows adopt
+            # open PRs). The other 373 questions parse the same under both. "4 of 5" =
+            # options v0.20.0 reads of the record's five. The test pins each reason.
             # The key names another option's text (16):
             "2019_23_38bf",  # D, 4 of 5
             "2019_27_0cda",  # B, 4 of 5
@@ -1087,6 +1089,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             # The key is right, but an option is missing (2):
             "2019_10ก_6985",  # B, 4 of 5
             "2020_1ข_eead",  # B, 4 of 5
+            # A SEPARATE NAMED DEVIATION (OME-1701 PR 6 review, 2026-10-21), not #2590's: a
+            # fault in the source data that neither parser catches. Options C and E have the
+            # same text ("สนับสนุน สรุป สนับสนุน") and the key is C, so a reply of E names the
+            # right answer and is marked wrong. The only question whose key text appears twice.
+            "2020_32_08b1",
         ),
         source_pins={
             "matichon/thai-onet-m6-exam": "93ffb5e3f3ec630b73e501937805984dd24f2365",

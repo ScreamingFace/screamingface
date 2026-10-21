@@ -1,7 +1,7 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this suite imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""O-NET M6: every question v0.20.0 builds wrongly is left out, by id.
+"""O-NET M6: every question v0.20.0 builds wrongly is left out by id, and one the source garbles.
 
 inspect_evals v0.20.0 splits a question's numbered options only at "N. " (number, dot,
 space). The pinned dataset also writes "1.picnic" and "1 helpless", and has years inside
@@ -11,6 +11,10 @@ text: 2021_40_e2b5's key is "careless" where the record's answer is "restless".
 inspect_evals PR #2590 (open) parses the options in number order. The owner chose to leave
 out every question where the two parses differ, rather than re-parse.
 
+Separately, one question is wrong in the source data itself, so neither parser can fix it:
+2020_32_08b1 gives options C and E the same text, and the key is C, so a reply of E names the
+right answer and is marked wrong. It is left out by id too, under its own note.
+
 What these tests pin, and why:
 
 - the excluded ids are EXACTLY the questions whose prompt, options or key differ between
@@ -19,8 +23,11 @@ What these tests pin, and why:
 - 2021_40_e2b5 is excluded, and is the worked example: "careless" under v0.20.0, "restless"
   under #2590;
 - the TRIPWIRE asserts inspect_evals v0.20.0 still keys 2021_40_e2b5 to "careless": when the
-  inspect_evals pin reaches #2590 it fails and says to drop the 18 ids this fix added;
-- the row serves 397 less the excluded ids.
+  inspect_evals pin reaches #2590 it fails and says all 24 parse exclusions can come back (the
+  six from OME-1269 only with that decision owner's OK);
+- 2020_32_08b1 is the only question both parses agree on whose key's text sits under two
+  letters, and it is excluded;
+- the row serves 397 less the 25 excluded ids.
 
 The whole-file tests read the pinned Hub revision through inspect_evals' own `hf_dataset` call,
 which downloads it once into the Hugging Face cache.
@@ -55,8 +62,8 @@ _PAST_END: str = "key past the last option"
 _WRONG_OPTION: str = "key names another option"
 _OPTIONS_LOST: str = "options missing or merged, key right"
 
-#: Every excluded id and its reason, as the row's comment in prepare.py lists them. The first
-#: six were excluded first (OME-1269); the other 18 came with #2590.
+#: Every id excluded for a parse difference and its reason, as the row's comment in prepare.py
+#: lists them. The first six were excluded first (OME-1269); the other 18 came with #2590.
 _REASONS: dict[str, str] = {
     "2019_10ข_6985": _PAST_END,
     "2020_28_177b": _PAST_END,
@@ -83,6 +90,10 @@ _REASONS: dict[str, str] = {
     "2019_10ก_6985": _OPTIONS_LOST,
     "2020_1ข_eead": _OPTIONS_LOST,
 }
+
+#: The one id excluded for a fault in the source data, not a parse: a separate Named Deviation.
+#: Both parsers build it the same, with options C and E one text and the key C.
+_DUPLICATE_OPTION: dict[str, str] = {"2020_32_08b1": "options C and E share the key's text"}
 
 #: The real record behind 2021_40_e2b5, verbatim from matichon/thai-onet-m6-exam at the
 #: pinned revision 93ffb5e3f3ec630b73e501937805984dd24f2365 (default config, test split).
@@ -115,8 +126,8 @@ def _split_in_number_order(text: str) -> tuple[str, list[str]]:
     """Find option 1, then option 2 after it, and so on, so a number inside an option is never
     taken for the next one.
 
-    A verbatim copy of `split_numbered_list` from inspect_evals PR #2590 at its head commit
-    (MIT, Arthit Suriyawongkul and contributors):
+    A faithful copy of `split_numbered_list` from inspect_evals PR #2590 at its head commit,
+    annotations added (MIT, Arthit Suriyawongkul and contributors):
     https://github.com/UKGovernmentBEIS/inspect_evals/blob/3778bdff7c1b77aba2063d14ab84b8daf4ed1873/src/inspect_evals/onet/onet.py
     It is the reference parse here only; no Case is built with it.
     """
@@ -185,7 +196,7 @@ def test_the_excluded_ids_are_exactly_where_the_two_parses_differ(
     both_parses: tuple[dict[str, Sample], dict[str, Sample]],
 ) -> None:
     """Every question #2590 builds differently is left out, each for its stated reason, and
-    no question both parses agree on is."""
+    no question both parses agree on is, apart from the one named duplicate-option id."""
 
     v0_20, number_order = both_parses
     differing: dict[str, str] = {}
@@ -198,7 +209,31 @@ def test_the_excluded_ids_are_exactly_where_the_two_parses_differ(
     assert set(v0_20) == set(number_order)
     assert len(v0_20) == _INSPECT_EVALS_QUESTIONS
     assert differing == _REASONS
-    assert excluded is not None and sorted(excluded) == sorted(_REASONS)
+    assert excluded is not None and sorted(excluded) == sorted({**_REASONS, **_DUPLICATE_OPTION})
+
+
+def test_2020_32_08b1_is_the_one_agreed_question_whose_key_text_sits_under_two_letters(
+    both_parses: tuple[dict[str, Sample], dict[str, Sample]],
+) -> None:
+    """A source-data fault neither parser catches: a reply naming the right text under the
+    other letter would be marked wrong, so the question is left out by id."""
+
+    v0_20, number_order = both_parses
+    duplicated: set[str] = set()
+    for sample_id, sample in v0_20.items():
+        if sample_id in _REASONS:
+            continue  # parse faults, excluded above
+        key: str | None = _key_text(sample)
+        assert sample.choices == number_order[sample_id].choices
+        if key is not None and list(sample.choices or []).count(key) > 1:
+            duplicated.add(sample_id)
+    excluded: tuple[str, ...] | None = TASK_REPLAY_CASES["onet_m6"].excluded_sample_ids
+    choices: list[str] = list(v0_20["2020_32_08b1"].choices or [])
+
+    assert duplicated == set(_DUPLICATE_OPTION)
+    assert v0_20["2020_32_08b1"].target == "C"
+    assert choices[2] == choices[4] == "สนับสนุน สรุป สนับสนุน"
+    assert excluded is not None and "2020_32_08b1" in excluded
 
 
 def test_2021_40_e2b5_is_excluded_because_its_key_names_another_option(
@@ -223,9 +258,11 @@ def test_tripwire_inspect_evals_still_keys_2021_40_e2b5_to_careless() -> None:
 
     assert sample.id == "2021_40_e2b5"
     assert _key_text(sample) == "careless", (
-        f"the pinned inspect_evals now parses O-NET options in number order ({_PR}): drop the "
-        "18 ids the #2590 Named Deviation added to onet_m6's excluded_sample_ids, re-seal the "
-        "row, and delete this file"
+        f"the pinned inspect_evals now parses O-NET options in number order ({_PR}), which "
+        "builds all 24 parse exclusions in onet_m6's excluded_sample_ids right: the 18 the "
+        "#2590 Named Deviation added can come back now, and the six from OME-1269 need that "
+        "decision owner's OK first. 2020_32_08b1 stays out (a source-data fault, not a parse). "
+        "Re-seal the row and delete this file's #2590 tests"
     )
 
 
@@ -240,11 +277,13 @@ def test_the_number_order_parse_keys_2021_40_e2b5_to_the_records_answer() -> Non
 
 
 def test_the_row_serves_inspect_evals_questions_less_the_excluded() -> None:
-    """397 kept by inspect_evals' filter, less the 24 left out: 373 Cases."""
+    """397 kept by inspect_evals' filter, less the 24 parse exclusions and the 1 duplicate-option
+    question: 372 Cases."""
 
     row = TASK_REPLAY_CASES["onet_m6"]
+    left_out: int = len(_REASONS) + len(_DUPLICATE_OPTION)
 
     assert row.excluded_sample_ids is not None
-    assert len(set(row.excluded_sample_ids)) == len(row.excluded_sample_ids) == len(_REASONS)
-    assert row.case_count == _INSPECT_EVALS_QUESTIONS - len(_REASONS) == 373
-    assert imported_benchmark("onet_m6").benchmark.case_count == 373
+    assert len(set(row.excluded_sample_ids)) == len(row.excluded_sample_ids) == left_out
+    assert row.case_count == _INSPECT_EVALS_QUESTIONS - left_out == 372
+    assert imported_benchmark("onet_m6").benchmark.case_count == 372

@@ -325,18 +325,29 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   one new test file `test_onet_m6_option_parse_exclusions.py`, and two edited prior tests:
   `test_published_revisions.py` (onet_m6 first frozen here) and
   `test_inspect_imported_benchmarks.py` (its onet test pinned 6 exclusions and 391 Cases; now
-  6 + 18 and 397 − 24, docstring says why).
+  6 + 18 + 1 and 397 − 25, docstring says why).
 - **Probe (pinned revision 93ffb5e3, inspect_evals' own Task, both parses):** 24 of 397 Samples
   differ: the 6 already excluded (key past the last option), 16 whose key names another
   option's text, 2 whose key is right but an option is missing. The other 373 are identical,
   question text included. Same ids under both parses (the id hashes the question only).
-- **Cases:** onet_m6 391 → 373 (case_digest 92d013fe… → 95dc23ae…, case_set_digest
-  7a6f28e4… → 8101723b…). Sealed by two build replays (`replay_with_provenance`), which
-  reproduce the old seal exactly on the old six-id declaration; the 373 are the old 391 less
-  the 18, same bytes and order bar the positional Case ids.
-- **Revisions:** onet_m6 fefdc98fb53b0777 → fa7e02ef6c82f99d; no other moved.
-- **Gates:** relevant tests only (owner rule): `test_onet_m6_option_parse_exclusions.py` (new), `test_inspect_imported_benchmarks.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, scorer source pins): 688 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): un-excluding 2021_40_e2b5 fails 3 of the 5 new tests.
+- **Cases:** onet_m6 391 → 372 (case_digest 92d013fe… → 224831b1…, case_set_digest
+  7a6f28e4… → 89e60804…). Sealed by two build replays (`replay_with_provenance`), which
+  reproduce the old seal exactly on the old six-id declaration; the 372 are the old 391 less
+  the 19, same bytes and order bar the positional Case ids.
+- **Revisions:** onet_m6 fefdc98fb53b0777 → cfc5f0da9f9418bd; no other moved.
+- **Review fixes:** a 25th exclusion, under its own note (not #2590's): 2020_32_08b1 gives
+  options C and E the same text ("สนับสนุน สรุป สนับสนุน") and the key is C, so an E reply
+  names the right answer and is marked wrong; a source-data fault neither parser catches, and
+  the only question both parses agree on whose key's text sits under two letters (pinned by a
+  test). It took the row 373 → 372 and the revision fa7e02ef6c82f99d → cfc5f0da9f9418bd. The
+  tripwire message now says #2590's parser fixes all 24 parse exclusions (the 18 can come
+  back, the six need the OME-1269 decision owner's OK); the #2590 copy is a faithful copy with
+  annotations, not verbatim; the revision comment says the questions are excluded, the parser
+  not adopted; and the row comment names the deciding reason for not re-parsing (it needs a
+  local Task, so a new origin and catalogue id).
+- **Gates:** relevant tests only (owner rule): `test_onet_m6_option_parse_exclusions.py` (new), `test_inspect_imported_benchmarks.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, scorer source pins): 691 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): un-excluding 2021_40_e2b5 fails 3 of the 5 new tests.
 - **Deviations:** #2590 is still open (not merged), so the tripwire guards a fix inspect_evals
   has not landed yet. Re-parsing would have changed only these 24 rows (the other 373 are
-  identical under both parses), but needs a local Task (origin and catalogue id change) and
-  adopts an unmerged parser; exclusion kept, per the owner's call.
+  identical under both parses); the deciding reason against it is that it needs a local Task,
+  so a new origin and catalogue id for the row (the stack adopts other open PRs where the fix
+  sits beside inspect_evals' Task); exclusion kept, per the owner's call.
