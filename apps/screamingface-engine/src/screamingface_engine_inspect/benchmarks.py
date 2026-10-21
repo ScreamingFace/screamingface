@@ -6434,9 +6434,10 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _scorer_function_pins(spec)
             + _scorer_dependency_pins(spec)
             + _whole_run_metric_pins(spec)
-            # WHY last and only when set: a scorer of ours beside an inspect_evals Task (a
-            # Named Deviation) has no package pin, so its source joins; no other revision moves.
-            + scorer_source_pins(cases_spec.task, (spec.scorer, *spec.extra_scorers))
+            # WHY last and only when set: a scorer or whole-run metric of ours beside an
+            # inspect_evals Task (a Named Deviation) has no package pin, so its source joins;
+            # no other revision moves.
+            + scorer_source_pins(cases_spec.task, grading_references(spec))
         ),
         scorer_factory=_scorer_factory(spec),
         extra_scorer_factories=_extra_scorer_factories(spec),
@@ -7221,6 +7222,16 @@ def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
                 "grade the row (install the `inspect` extra)"
             ) from None
     return tuple(pins)
+
+
+def grading_references(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Every code reference that marks the row: its scorer, its Named-Score scorers and, when
+    the row honours one, its whole-run metric — the code ``scorer_source_pins`` must cover."""
+
+    # WHY the metric too: it computes the published number, so a metric of ours beside an
+    # inspect_evals Task is grading code no package pin covers, exactly like a scorer of ours.
+    metric: tuple[str, ...] = () if spec.whole_run_metric is None else (spec.whole_run_metric,)
+    return (spec.scorer, *spec.extra_scorers, *metric)
 
 
 def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

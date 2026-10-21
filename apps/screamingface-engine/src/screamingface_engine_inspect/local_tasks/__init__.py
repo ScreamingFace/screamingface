@@ -82,7 +82,8 @@ def scorer_source_pins(task_reference: str, scorer_references: Sequence[str]) ->
     version pins cover, or, on a local Task, with a scorer in the Task's package, which
     ``task_source`` covers. A row that adopts an inspect_evals fix as a Named Deviation grades
     with OUR scorer beside an inspect_evals Task instead, and nothing else would pin that code:
-    each such scorer's package is hashed, one pin per package, in reference order.
+    each such scorer's package is hashed, one pin per package, in reference order. A whole-run
+    metric of ours is grading code too, so callers pass it among the references.
 
     Worked example: PAWS's Task ``inspect_evals.paws.paws:paws`` graded by
     ``...named_deviations.yes_no.yes_no:paws_yes_no`` gives one ``scorer_source=`` pin over

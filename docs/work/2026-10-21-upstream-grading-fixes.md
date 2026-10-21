@@ -27,9 +27,11 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 ### Planned changes
 
 - `apps/screamingface-engine/src/screamingface_engine_inspect/local_tasks/__init__.py`: a
-  `scorer_source_pins` rule. A scorer that is OUR code but lives outside the row's Task package
-  joins the revision by its source, as a local Task does; inspect's and inspect_evals' scorers
-  ride the package version pins, and a local Task's own scorers ride `task_source`.
+  `scorer_source_pins` rule. A scorer or whole-run metric that is OUR code but lives outside
+  the row's Task package joins the revision by its source, as a local Task does; inspect's and
+  inspect_evals' scorers ride the package version pins, and a local Task's own scorers ride
+  `task_source`. A Named Deviation imports none of our code outside its own package, so the
+  hashed package is the whole marking code (tested).
 - `.../benchmarks.py`: wire that pin into `_assemble`; point paws and boolq at our scorers;
   honest descriptions; NAMED DEVIATION comments citing inspect_evals PR #2334 (merged).
 - `.../named_deviations/` (new): the package docstring, and `yes_no/` with the two scorers.
@@ -57,4 +59,4 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Revisions:** paws 8f4e0e9c0864a6e7 → ab44cff9bea304ca; boolq 00d4443ca7e66d43 →
   b4a47768ef2ebf95. Every one of the 85 imported revisions computed before and after (on the
   original combined change): only the scorer-fix rows moved.
-- **Gates:** relevant tests only (owner rule): `test_named_deviation_yes_no.py` and `test_scorer_source_pins.py` (new), `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 695 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_yes_no.py` and `test_scorer_source_pins.py` (new), `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 697 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
