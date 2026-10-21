@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1710
 stack: aigateway
 status: in_progress
 started: 2026-10-21
@@ -46,7 +46,11 @@ walk is quadratic today.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus the `docs/tasks` mirror.
+- **Commits:** `cd5571ed7` perf(aigateway): start each community-cache batch at its cursor in the
+  index; then this backfill.
+- **Gates:** focused `test_community_cache_pages.py` + `test_cache_entries_route.py` (70 passed),
+  ruff, ruff format and pyright on the changed files. Full local gates skipped by the owner's call;
+  GitHub CI is the gate. Postgres plans re-checked on dev (read-only `EXPLAIN ANALYZE`): tie part
+  0.48 ms, later part 1.28 ms, against 1,379 ms before.
+- **Deviations:** none.
