@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import httpx
 
 from url4.core.errors import ResolutionError
-from url4.io._body_decode import BodyDecoder, decoder_for
+from url4.io._body_decode import STEP, BodyDecoder, decoder_for
 from url4.io._source_policy import (
     IPAddress,
     SourceGuard,
@@ -183,22 +183,33 @@ class GuardedTransport(httpx.AsyncBaseTransport):
 
 
 class _CappedStream(httpx.AsyncByteStream):
-    """A response stream, decoded in bounded steps, that aborts past ``limit`` decoded bytes.
+    """A response stream, decoded in bounded steps, that aborts past ``limit`` bytes.
 
     WHY in the transport: httpx reads a redirect response's body itself before following it,
     so only the transport sees — and can bound — every body on the chain.
+    INVARIANT: two counts, one ``limit``: RAW bytes off the wire (counted before decoding, so a
+    body that decodes to nothing — empty deflate blocks, empty gzip members — still ends) and
+    DECODED bytes handed on. Neither depends on ``Content-Length``/``Content-Encoding``, which
+    the transport strips for httpx's sake only.
+    INVARIANT: the decoder is fed at most :data:`STEP` raw bytes at a time, so zlib's
+    ``unconsumed_tail`` never copies more than one step of a large network chunk.
     """
 
     def __init__(self, inner: httpx.AsyncByteStream, limit: int, decoder: BodyDecoder) -> None:
         self._inner = inner
         self._limit = limit
         self._decoder = decoder
+        self._raw = 0
         self._seen = 0
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         async for chunk in self._inner:
-            for piece in self._decoder.feed(chunk):
-                yield self._count(piece)
+            self._raw += len(chunk)
+            if self._raw > self._limit:
+                raise too_large(self._limit)
+            for start in range(0, len(chunk), STEP):
+                for piece in self._decoder.feed(chunk[start : start + STEP]):
+                    yield self._count(piece)
 
     def _count(self, piece: bytes) -> bytes:
         self._seen += len(piece)

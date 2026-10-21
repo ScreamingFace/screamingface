@@ -690,3 +690,110 @@ async def test_a_corrupt_encoded_body_is_a_resolution_failure(net: _Net) -> None
         200, headers={"Content-Encoding": "gzip"}, stream=_Chunks([b"not gzip at all"])
     )
     await _blocked(_io(net), "https://example.com/", ErrorCode.RESOLUTION_FAILED)
+
+
+# --- review hardening 2: resource caps a crafted encoding cannot defeat (OME-1544) -------------
+
+# A non-final stored deflate block of length 0 (BFINAL=0, BTYPE=00, LEN=0, NLEN=0xffff): five raw
+# bytes that decode to nothing, repeatable forever.
+_EMPTY_STORED_BLOCK = b"\x00\x00\x00\xff\xff"
+_GZIP_HEADER = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff"
+
+
+def _encoded(net: _Net, encoding: str, chunks: list[bytes]) -> _Chunks:
+    net.dns["example.com"] = [[PUBLIC]]
+    stream = _Chunks(chunks)
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": encoding}, stream=stream
+    )
+    return stream
+
+
+@pytest.mark.asyncio
+async def test_bytes_after_a_gzip_member_are_never_buffered(net: _Net) -> None:
+    # One tiny member, then 64 MiB of trailing bytes: zlib parks them all in unused_data while
+    # nothing decodes, so neither the decoded cap nor any raw count used to stop the read.
+    stream = _encoded(net, "gzip", [_gzip(b"a" * 10)] + [b"\0" * (64 * 1024)] * 1024)
+    tracemalloc.start()
+    try:
+        with pytest.raises(ResolutionError):
+            async with _io(net, max_bytes=64 * 1024) as io:
+                await io.fetch("https://example.com/", relative=False)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert stream.yielded < len(stream.chunks)
+    assert peak < 2 * _MIB
+
+
+@pytest.mark.asyncio
+async def test_every_gzip_member_is_decoded(net: _Net) -> None:
+    _encoded(net, "gzip", _split(_gzip(b"hel") + _gzip(b"lo"), 7))
+    async with _io(net) as io:
+        assert await io.fetch("https://example.com/", relative=False) == "hello"
+
+
+@pytest.mark.asyncio
+async def test_gzip_members_share_one_decoded_cap(net: _Net) -> None:
+    member = _gzip(b"\0" * (32 * 1024))
+    stream = _encoded(net, "gzip", [member] * 64)
+    error = await _blocked(
+        _io(net, max_bytes=64 * 1024), "https://example.com/", ErrorCode.SOURCE_TOO_LARGE
+    )
+    assert error.permanent is True
+    assert stream.yielded < len(stream.chunks)
+
+
+@pytest.mark.asyncio
+async def test_bytes_after_a_deflate_stream_are_refused(net: _Net) -> None:
+    _encoded(net, "deflate", [zlib.compress(b"hello"), b"trailing"])
+    await _blocked(_io(net), "https://example.com/", ErrorCode.RESOLUTION_FAILED)
+
+
+@pytest.mark.asyncio
+async def test_bytes_after_a_gzip_member_that_are_not_gzip_are_refused(net: _Net) -> None:
+    _encoded(net, "gzip", [_gzip(b"hello") + b"not a gzip member"])
+    await _blocked(_io(net), "https://example.com/", ErrorCode.RESOLUTION_FAILED)
+
+
+@pytest.mark.asyncio
+async def test_raw_bytes_that_decode_to_nothing_hit_the_raw_cap(net: _Net) -> None:
+    # Endless empty stored blocks: 4 MiB on the wire, zero decoded bytes. The raw count stops it.
+    filler = _EMPTY_STORED_BLOCK * (64 * 1024 // len(_EMPTY_STORED_BLOCK))
+    stream = _encoded(net, "gzip", [_GZIP_HEADER] + [filler] * 64)
+    error = await _blocked(
+        _io(net, max_bytes=64 * 1024), "https://example.com/", ErrorCode.SOURCE_TOO_LARGE
+    )
+    assert error.permanent is True
+    assert stream.yielded < len(stream.chunks)
+
+
+@pytest.mark.asyncio
+async def test_raw_bytes_that_decode_to_nothing_still_hit_the_total_deadline(net: _Net) -> None:
+    net.dns["example.com"] = [[PUBLIC]]
+    stream = _Chunks([_GZIP_HEADER, _EMPTY_STORED_BLOCK, _EMPTY_STORED_BLOCK], hang_after=2)
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": "gzip"}, stream=stream
+    )
+    await _blocked(_io(net, total_timeout=0.2), "https://example.com/", ErrorCode.SOURCE_TIMEOUT)
+
+
+@pytest.mark.asyncio
+async def test_identity_raw_cap_is_the_decoded_cap(net: _Net) -> None:
+    # Stripped encoding headers cannot lift the raw cap: an identity body is capped at max_bytes.
+    net.dns["example.com"] = [[PUBLIC]]
+    stream = _Chunks([b"x" * 1024] * 64)
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": "identity", "Content-Length": "16"}, stream=stream
+    )
+    await _blocked(_io(net, max_bytes=4096), "https://example.com/", ErrorCode.SOURCE_TOO_LARGE)
+    assert stream.yielded < len(stream.chunks)
+
+
+@pytest.mark.asyncio
+async def test_one_huge_raw_chunk_is_decoded_a_step_at_a_time(net: _Net) -> None:
+    # ~1 MB of gzip in ONE chunk: zlib's unconsumed_tail would copy it whole on every step.
+    net.dns["example.com"] = [[PUBLIC]]
+    data = _gzip_of_zeros()
+    peak = await _peak_while_blocked(net, [data], "gzip", _MIB)
+    assert peak < 2 * _MIB
