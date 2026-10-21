@@ -281,7 +281,7 @@ def test_a_grouped_metric_block_after_the_headline_is_noted_in_words(fake_eval: 
 
 def test_an_extra_scorer_created_with_arguments_is_refused(fake_eval: str) -> None:
     # Stack review on #1250: `match(numeric=True)` beside f1 was written as `match()` — the
-    # row would pin the wrong configuration as faithful ("1,889" grades C upstream, I here).
+    # row would pin the wrong configuration as faithful ("1,889" grades C in inspect_evals, I here).
     with pytest.raises(TaskReplayError, match=r"extra scorer match .*numeric.*True"):
         replay_for_import(f"{fake_eval}:extra_with_kwargs", None)
 

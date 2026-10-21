@@ -67,7 +67,7 @@ _FOUR: list[str] = ["benzene", "toluene", "ethanol", "phenol"]
     [
         ("[ANSWER]A,D[/ANSWER]", 1.0),
         ("[ANSWER]A[/ANSWER]", 0.0),
-        # Upstream's pattern scorer compares the string, so a space between letters misses;
+        # inspect_evals' pattern scorer compares the string, so a space between letters misses;
         # the row's description says so.
         ("[ANSWER]A, D[/ANSWER]", 0.0),
         # ...but it ignores letter case, so "a,d" names the same options.

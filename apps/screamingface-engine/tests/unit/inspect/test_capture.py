@@ -491,8 +491,8 @@ def test_a_solver_that_builds_its_own_model_is_refused_in_the_child(own_model_ev
 # ── a Named Deviation: Samples the declaration leaves out (spec R18) ─────────
 
 #: Three Samples, the middle one with nothing to ask: the shape of sad_stages_full, whose
-#: upstream records 15, 59 and 103 have an empty body. A stand-in for that eval's data, not its
-#: prompt; it proves which Samples become Cases, not how sad renders them.
+#: records 15, 59 and 103 in the authors' dataset have an empty body. A stand-in for that eval's
+#: data, not its prompt; it proves which Samples become Cases, not how sad renders them.
 GAP_SAMPLES: list[Sample] = [
     Sample(input="First question?", target="A", id="q:0"),
     Sample(input="", target="B", id="q:1"),

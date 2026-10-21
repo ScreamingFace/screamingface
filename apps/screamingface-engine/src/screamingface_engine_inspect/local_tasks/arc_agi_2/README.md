@@ -24,7 +24,7 @@ One user message per test grid: the ARC Prize harness's own template
 (`arcprize/arc-agi-benchmarking@9e2828fb`, `prompts/system_prompt.txt`) with every example pair
 and the test input written as JSON. It is restated in `arc_agi_2.py` rather than copied, because
 the template file ends with no newline and the repo's whitespace hooks would add one; the test
-pins the template's sha256 to the upstream file's and one fixture prompt to the upstream builder's
+pins the template's sha256 to the harness file's and one fixture prompt to the harness builder's
 own output.
 
 ## Scoring

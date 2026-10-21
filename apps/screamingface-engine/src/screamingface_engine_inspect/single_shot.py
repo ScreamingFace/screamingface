@@ -431,7 +431,7 @@ def single_shot_benchmark(
             in words (coconot); passed to the scorer adapter, which then grades by it
             instead of inspect's letters. The caller carries it into ``revision_pins``
             (OME-1371).
-        extra_scorer_factories: the Task's other scorers as lazy factories, in upstream
+        extra_scorer_factories: the Task's other scorers as lazy factories, in inspect_evals'
             order; the adapter grades each Case once per scorer (OME-1268). The caller
             carries them into ``revision_pins``.
         named_scores: the keys of the Case's Named Scores, headline first (OME-1268);

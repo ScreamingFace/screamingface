@@ -335,7 +335,7 @@ def _excluded_id_lines(excluded_ids: tuple[str, ...]) -> list[str]:
     """The Named Deviation (R18): one id per line, under a reason the reviewer still writes."""
 
     return [
-        "        # NAMED DEVIATION — TODO(review): say why upstream's Samples",
+        "        # NAMED DEVIATION — TODO(review): say why inspect_evals' Samples",
         "        # below are left out.",
         "        excluded_sample_ids=(",
         *(

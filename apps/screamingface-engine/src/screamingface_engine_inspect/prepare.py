@@ -8,7 +8,7 @@
 Run at IMAGE BUILD time, never at run time (OME-925): a Job's rootfs is read-only and
 holds no HuggingFace credential, so every artifact exists before a run starts. Every
 fetch happens here, at the declaration's pinned commits, and the Case Digest seals what it
-produced; upstream gating or drift cannot change a published benchmark.
+produced; the dataset owner's gating or drift cannot change a published benchmark.
 
 Emits, per benchmark::
 
@@ -109,7 +109,7 @@ class TaskReplayCasesSpec:
     #: default row still refuses a list beside choices. No identity pin: the Case Digest
     #: seals the keys.
     letter_list_key: bool = False
-    #: A NAMED DEVIATION: upstream Sample ids (``str(Sample.id)``)
+    #: A NAMED DEVIATION: inspect_evals Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
     #: Samples with an empty question). Every id must still be there, or Case Preparation
     #: refuses; ``case_count`` is the count kept. The row says why beside the ids, and they
@@ -335,9 +335,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     #   hugging-face ybisk/piqa
     #     pin revision 2e8ac2dffd59bac8c3c6714948f4c551a0848bb0
     #   url https://storage.googleapis.com/ai2-mosaic/public/physicaliqa/physicaliqa-train-dev.zip
-    #     pin unpinned (no upstream hash: the Case Digest is the only pin)
+    #     pin unpinned (no inspect_evals hash: the Case Digest is the only pin)
     #   url https://yonatanbisk.com/piqa/data/tests.jsonl
-    #     pin unpinned (no upstream hash: the Case Digest is the only pin)
+    #     pin unpinned (no inspect_evals hash: the Case Digest is the only pin)
     "piqa": TaskReplayCasesSpec(
         task="inspect_evals.piqa.piqa:piqa",
         case_count=1838,
@@ -558,7 +558,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_digest="a5d0851ddeee6f85a4ac3f911245c2b37fdb2a20f305a9259846c011c1bc0385",
         case_set_digest="6c2f142289357c7033b4f93f637c6d6b4e7cd1c27b8281d31b20a0dee9268bc1",
         keep_sample_metadata=True,
-        # NAMED DEVIATION (spec R18): upstream's records 15, 59 and 103 of the stages/full
+        # NAMED DEVIATION (spec R18): records 15, 59 and 103 of the authors' stages/full
         # batch files have an empty body, so the eval asks "In what stage … the above text?"
         # about no text at all, and the Case boundary never prepares a Case with nothing to
         # ask. inspect keeps them; this Benchmark leaves them out, 797 of 800. The ids do not
@@ -588,7 +588,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         has_answer_key=False,
         # License: owner decision 2026-10-05: MIT, as the eval's code states for
         # PurpleLlama ("Copyright (c) Meta Platforms, Inc. and affiliates., MIT License");
-        # no dataset card. Upstream publishes no sha256 for this file: the commit in the
+        # no dataset card. inspect_evals publishes no sha256 for this file: the commit in the
         # URL and the Case Digest are its pins.
         license="mit",
     ),
@@ -1040,7 +1040,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_digest="92d013fe6efd85165221d02958efaf13df3f31ee25ce4e8868112b92c30e613b",
         case_set_digest="7a6f28e40396cd9c450e0d4f7948368e22f522cb784636105072b95eb9fc96d9",
         # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
-        # questions, the Benchmark serves 391. Six cannot be graded as published: upstream
+        # questions, the Benchmark serves 391. Six cannot be graded as published: inspect_evals
         # split their numbered choices wrongly, so the answer letter points past the last
         # choice (2021_4_b447: answer E, 4 choices).
         excluded_sample_ids=(
@@ -1627,7 +1627,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_set_digest="4bed9cb49af4cb115835e13a4073d374a7ec9300e5e243dccbb543313a18928b",
         keep_sample_metadata=True,
         letter_list_key=True,
-        # NAMED DEVIATION: question 425 of upstream's 609 has no correct option listed, so it
+        # NAMED DEVIATION: question 425 of inspect_evals' 609 has no correct option listed, so it
         # has no answer key to grade against; the paper counts the same 608.
         excluded_sample_ids=("cyse4_malware_analysis_994447af",),
         # License: owner decision 2026-10-01 (OME-1273): CC-BY-SA-4.0, CrowdStrike's
@@ -1717,11 +1717,11 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_set_digest="275f19834b5e1ec798f09813eaaacf48602d1b3269ff3f945e0653d1b5dd7ee4",
         # WHY kept: the scorer is the eval's own. Question mX9pR4wN's url_source names
         # prophet-weblogic.pdf, but its report_id, which the Case reads, is qakbot-onenote, so
-        # the Case pastes the right report; only that metadata link is wrong upstream.
+        # the Case pastes the right report; only that metadata link is wrong in inspect_evals.
         keep_sample_metadata=True,
         letter_list_key=True,
-        # NAMED DEVIATION: question 361 of upstream's 588 (Scattered Spider, FBI report 231116)
-        # has five options, A to E, but its key is A to F, so no reply can match it; upstream
+        # NAMED DEVIATION: question 361 of inspect_evals' 588 (Scattered Spider, FBI report 231116)
+        # has five options, A to E, but its key is A to F, so no reply can match it; inspect_evals
         # scores it 0 for every model (owner decision 2026-10-20, OME-1602).
         excluded_sample_ids=("cyse4_threat_intelligence_6d2139d3",),
         # License: owner decision 2026-10-14 (OME-1602), per report source; CC-BY-ND-4.0 for the
@@ -1745,7 +1745,7 @@ def require_commit_sha(revision: str) -> str:
     if len(revision) != 40 or any(ch not in "0123456789abcdef" for ch in revision):
         raise PrepareError(
             f"dataset_revision {revision!r} is not a 40-hex commit sha — a mutable "
-            "ref (branch/tag) would let upstream change a published exam; pin the "
+            "ref (branch/tag) would let the dataset's owner change a published exam; pin the "
             "resolved sha (the importer captures it for you)"
         )
     return revision

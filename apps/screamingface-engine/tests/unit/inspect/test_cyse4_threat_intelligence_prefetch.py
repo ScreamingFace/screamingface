@@ -1,17 +1,17 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this module imports the `inspect` extra's packages, absent in the
 # default (extra-less) install the typecheck gate runs against.
-"""The cyse4_threat_intelligence prefetch: a replay stocks upstream's reports folder from the
-owner's report mirror, not web.archive.org (OME-1602).
+"""The cyse4_threat_intelligence prefetch: a replay stocks inspect_evals' reports folder from
+the owner's report mirror, not web.archive.org (OME-1602).
 
-INVARIANT: before the threat_intelligence task function runs, upstream's reports folder
-already holds the 19 CrowdStrike reports (unpacked from CrowdStrike's pinned zip by upstream's
-own code) and the 26 other report PDFs, fetched from the Hugging Face mirror at its pinned
-commit and verified against upstream's own sha256 pins. Upstream's fetch step then finds
-every PDF and calls nothing; web.archive.org, which refuses connections partway through a
-burst, is never asked.
+INVARIANT: before the threat_intelligence task function runs, inspect_evals' reports folder
+already holds the 19 CrowdStrike reports (unpacked from CrowdStrike's pinned zip by
+inspect_evals' own code) and the 26 other report PDFs, fetched from the Hugging Face mirror at
+its pinned commit and verified against inspect_evals' own sha256 pins. inspect_evals' fetch
+step then finds every PDF and calls nothing; web.archive.org, which refuses connections partway
+through a burst, is never asked.
 
-No network: inspect's download() is replaced by a recorder, and upstream's zip step by a
+No network: inspect's download() is replaced by a recorder, and inspect_evals' zip step by a
 stand-in, in every test.
 """
 
@@ -41,15 +41,15 @@ _MIRROR_PREFIX: str = (
     "https://huggingface.co/datasets/khoaguin/cyberseceval4-threat-intel-reports/resolve/"
     "ab38cf24125e38b88ef0f2dd866d5d3cc12965cb/pdfs/"
 )
-#: Stand-in for one of the 19 CrowdStrike reports upstream's zip step unpacks.
+#: Stand-in for one of the 19 CrowdStrike reports inspect_evals' zip step unpacks.
 _CROWDSTRIKE_REPORT: str = "crowdstrike-stand-in.txt"
 
 
-def _stub_upstream_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
-    """Point upstream's cyse4 cache root at the test's folder; return the reports folder.
+def _stub_inspect_evals_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Point inspect_evals' cyse4 cache root at the test's folder; return the reports folder.
 
-    Stand-in: upstream resolves the root through platformdirs, which would be the developer's
-    real user cache here; the replay child gets a clean one through XDG_CACHE_HOME.
+    Stand-in: inspect_evals resolves the root through platformdirs, which would be the
+    developer's real user cache here; the replay child gets a clean one through XDG_CACHE_HOME.
     """
 
     monkeypatch.delenv(threat_intelligence.THREAT_INTEL_ENV_VAR, raising=False)
@@ -58,7 +58,7 @@ def _stub_upstream_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Pat
 
 
 def _stub_zip_step(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> None:
-    """Replace upstream's CrowdStrike zip step with one that writes a stand-in report.
+    """Replace inspect_evals' CrowdStrike zip step with one that writes a stand-in report.
 
     Stand-in: the real step fetches CrowdStrike's 58 MB zip from GitHub and unpacks it.
     """
@@ -79,8 +79,9 @@ def _record_downloads(
 ) -> list[tuple[str, str, Path]]:
     """Replace inspect's ``download`` with one that writes a stand-in PDF; return the calls.
 
-    Stand-in: each "PDF" is its report id as bytes, and upstream's pin for it is set to that
-    content's sha256, so upstream's own skip-if-present check can run for real afterwards.
+    Stand-in: each "PDF" is its report id as bytes, and inspect_evals' pin for it is set to
+    that content's sha256, so inspect_evals' own skip-if-present check can run for real
+    afterwards.
     """
 
     import inspect_ai.util
@@ -104,25 +105,25 @@ def _record_downloads(
     return calls
 
 
-def test_after_the_prefetch_upstreams_own_fetch_step_asks_no_host(
+def test_after_the_prefetch_inspect_evals_own_fetch_step_asks_no_host(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, no_network: None
 ) -> None:
-    """WHY upstream's real step, not a list of ours: a folder or file name that differs by a
-    byte would leave a PDF unfound, and upstream would go to web.archive.org for it."""
+    """WHY inspect_evals' real step, not a list of ours: a folder or file name that differs by
+    a byte would leave a PDF unfound, and inspect_evals would go to web.archive.org for it."""
 
-    reports_dir: Path = _stub_upstream_cache(monkeypatch, tmp_path)
+    reports_dir: Path = _stub_inspect_evals_cache(monkeypatch, tmp_path)
     events: list[str] = []
     _stub_zip_step(monkeypatch, events)
     _record_downloads(monkeypatch, events)
 
     prefetch_case_sources(_THREAT_INTEL_TASK, tmp_path / "inspect_evals")
 
-    # Upstream's real fetch step, run against the stocked folder. Its own download() is the
-    # real one: it skips a file whose sha256 matches, and no_network fails any real request.
+    # inspect_evals' real fetch step, run against the stocked folder. Its own download() is
+    # the real one: it skips a file whose sha256 matches, and no_network fails any real request.
     import inspect_ai._util.download
 
     monkeypatch.setattr(threat_intelligence, "download", inspect_ai._util.download.download)
-    # Stand-in: upstream sleeps 4 s between reports to spare archive.org; nothing is fetched.
+    # Stand-in: inspect_evals sleeps 4 s between reports to spare archive.org; nothing is fetched.
     monkeypatch.setattr(threat_intelligence.time, "sleep", lambda _seconds: None)
     questions: Path = (
         Path(threat_intelligence.__file__).parent
@@ -140,10 +141,10 @@ def test_after_the_prefetch_upstreams_own_fetch_step_asks_no_host(
 def test_the_prefetch_reads_every_pinned_report_from_the_mirror_at_its_commit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, no_network: None
 ) -> None:
-    """WHY upstream's pin on each fetch: the mirror is ours, so its bytes are only trusted
-    because inspect's download() checks them against the checksum upstream published."""
+    """WHY inspect_evals' pin on each fetch: the mirror is ours, so its bytes are only trusted
+    because inspect's download() checks them against the checksum inspect_evals published."""
 
-    reports_dir: Path = _stub_upstream_cache(monkeypatch, tmp_path)
+    reports_dir: Path = _stub_inspect_evals_cache(monkeypatch, tmp_path)
     events: list[str] = []
     _stub_zip_step(monkeypatch, events)
     calls: list[tuple[str, str, Path]] = _record_downloads(monkeypatch, events)
@@ -160,11 +161,11 @@ def test_the_prefetch_reads_every_pinned_report_from_the_mirror_at_its_commit(
 def test_the_crowdstrike_reports_are_unpacked_before_any_mirrored_pdf_lands(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, no_network: None
 ) -> None:
-    """WHY first: upstream unpacks CrowdStrike's zip only into an EMPTY reports folder. A
+    """WHY first: inspect_evals unpacks CrowdStrike's zip only into an EMPTY reports folder. A
     folder stocked with the 26 PDFs alone would make it skip the zip, and every CrowdStrike
     question would fail to find its report."""
 
-    _stub_upstream_cache(monkeypatch, tmp_path)
+    _stub_inspect_evals_cache(monkeypatch, tmp_path)
     events: list[str] = []
     _stub_zip_step(monkeypatch, events)
     _record_downloads(monkeypatch, events)
@@ -178,10 +179,10 @@ def test_the_crowdstrike_reports_are_unpacked_before_any_mirrored_pdf_lands(
 def test_a_stocked_reports_folder_is_not_unpacked_again(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, no_network: None
 ) -> None:
-    """WHY: upstream treats a non-empty folder as already unpacked, and so must the prefetch;
-    the 26 PDFs are still checked, and download() skips each one that matches its pin."""
+    """WHY: inspect_evals treats a non-empty folder as already unpacked, and so must the
+    prefetch; the 26 PDFs are still checked, and download() skips each one that matches its pin."""
 
-    reports_dir: Path = _stub_upstream_cache(monkeypatch, tmp_path)
+    reports_dir: Path = _stub_inspect_evals_cache(monkeypatch, tmp_path)
     reports_dir.mkdir(parents=True)
     (reports_dir / _CROWDSTRIKE_REPORT).write_text("CrowdStrike report", encoding="utf-8")
     events: list[str] = []
@@ -200,7 +201,7 @@ def test_the_other_cyse4_tasks_get_no_prefetch(
     """WHY: malware_analysis and mitre_frr fetch only CrowdStrike's GitHub zip, which has
     never failed; they must fetch exactly as they always have."""
 
-    _stub_upstream_cache(monkeypatch, tmp_path)
+    _stub_inspect_evals_cache(monkeypatch, tmp_path)
     events: list[str] = []
     _stub_zip_step(monkeypatch, events)
     _record_downloads(monkeypatch, events)
@@ -223,7 +224,7 @@ def test_the_imports_first_run_prefetches_into_its_own_cache_before_importing_th
     """WHY the import too: the importer's first run reads the Cases the declaration is sealed
     with; without the prefetch it went to web.archive.org and was refused (2026-10-20), so
     the row could never be imported. WHY before the import: the task function is what calls
-    upstream's loader, and the recorder must still see the fetches the eval itself makes."""
+    inspect_evals' loader, and the recorder must still see the fetches the eval itself makes."""
 
     events: list[tuple[str, Any]] = []
     monkeypatch.setattr(

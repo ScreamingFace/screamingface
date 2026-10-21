@@ -253,7 +253,7 @@ def _scorer_facts(
 
     Stage 1 — list the declared scorers; none is a refusal.
     Stage 2 — one scorer: resolve it exactly as before (a judged one takes the judged row).
-    Stage 3 — several: keep each one that grades without a judge, in upstream order; a
+    Stage 3 — several: keep each one that grades without a judge, in inspect_evals' order; a
               judged one cannot be seated (only a single-scorer row pins a judge), so it is
               written to ``dropped_scorers`` by name. None kept is a refusal.
     Stage 4 — the tripwire: the headline scorer's first declared metric must be a plain mean
@@ -528,7 +528,7 @@ def _check_kept_scorers(
     WHY refuse arguments on an extra scorer: it is constructed bare at grading time
     (benchmarks.py keeps kwargs for the headline scorer only), so `match(numeric=True)`
     written as `match()` would pin the wrong configuration into the Revision as faithful —
-    "1,889" grades C upstream and I here. Never truncated, never silent.
+    "1,889" grades C in inspect_evals and I here. Never truncated, never silent.
     WHY refuse an extra scorer whose whole-run metric is not a mean (OME-1602, F5): a Named
     Score column is the mean of that scorer's per-Case scores, so stereoset's formula would
     be published as a mean under its name. Only the headline's metric was checked before.
@@ -879,7 +879,7 @@ def _scorer_lines(
         # WHY json.dumps for str values AND names: repr's single quotes fail the
         # emitted file's ruff-format gate; json escaping is as injection-safe as
         # repr's. Names are registry_params keys — identifiers in practice, but
-        # a **kwargs-taking scorer could carry arbitrary upstream strings.
+        # a **kwargs-taking scorer could carry arbitrary inspect_evals strings.
         rendered_kwargs: str = ", ".join(
             f"{json.dumps(name)}: {_python_literal_source(value)}"
             for name, value in sorted(scorer_kwargs.items())
@@ -990,7 +990,9 @@ def _named_score_lines(
         # WHY not only beside Named Scores: with one scorer left after drops the row writes
         # none, and the moved headline still needs a reviewer's eye (OME-1602, PR 5 review).
         headline: str = named_scores[0] if named_scores else "the one scorer kept"
-        lines.append(f"        # TODO(review): the Headline Score is {headline}, not upstream's")
+        lines.append(
+            f"        # TODO(review): the Headline Score is {headline}, not inspect_evals'"
+        )
         lines.append("        # first scorer — confirm the description names which column ranks.")
     for metric_name in dropped_metrics:
         lines.append(f"        # The eval also reports {metric_name}; the Benchmark reports each")
@@ -1257,7 +1259,7 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="ID",
-        help="an upstream Sample id to leave out (repeatable), a Named Deviation whose "
+        help="an inspect_evals Sample id to leave out (repeatable), a Named Deviation whose "
         "reason the row must state, e.g. stages_full:14",
     )
     # WHY exclusive: one says no Sample has an answer key, the other that some do.

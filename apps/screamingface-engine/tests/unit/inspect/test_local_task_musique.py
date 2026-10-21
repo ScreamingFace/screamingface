@@ -220,7 +220,7 @@ async def test_support_f1_without_metadata_never_raises_and_scores_by_the_papers
     """WHY: every real MuSiQue question has 2 to 4 gold paragraphs, so a Case with no
     `supporting_idx` is broken, not "expected nothing". The old default scored a reply that
     cites nothing 1.0 against an empty gold list, a silent full mark. Now the scorer raises,
-    as upstream bbeh's does on a missing key; the no-network lane supplies realistic stand-in
+    as inspect_evals' bbeh does on a missing key; the no-network lane supplies realistic stand-in
     metadata instead. The answer scorers read no required key and still grade."""
 
     with pytest.raises(ValueError, match="supporting_idx"):

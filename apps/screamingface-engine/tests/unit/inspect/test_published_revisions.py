@@ -33,7 +33,7 @@ from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: 
 #: all selected Cases — the failure policy is Benchmark identity (spec R6).
 _PUBLISHED_REVISIONS: dict[str, str] = {
     "gsm8k": "075954bfd63059e0",
-    # OME-1268: the first two Benchmarks with Named Scores (served in upstream order).
+    # OME-1268: the first two Benchmarks with Named Scores (served in inspect_evals' order).
     "squad": "5b97eeadbf95b722",
     # OME-1513: the first LOCAL Task (our own eval in inspect's shape, not an inspect_evals import).
     # OME-1527: 1ae798e073477a54 → 9ba23547b22e70ff, support F1 now raises on a missing
