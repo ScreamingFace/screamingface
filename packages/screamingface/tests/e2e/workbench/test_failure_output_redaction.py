@@ -42,7 +42,10 @@ def _notebook(path: Path) -> Path:
     params = nbformat.v4.new_code_cell("LEAK = ''\nENGINE_URL = ''\nSCOREBOARD_URL = ''")
     params.metadata["tags"] = ["parameters"]
     boom = nbformat.v4.new_code_cell("print(LEAK)\nraise RuntimeError('upstream said ' + LEAK)")
-    nb = nbformat.v4.new_notebook(cells=[params, boom])
+    # Never reached; the runner refuses a notebook without exactly one result cell.
+    result = nbformat.v4.new_code_cell("print('WORKBENCH_RESULT={}')")
+    result.metadata["tags"] = ["workbench-result"]
+    nb = nbformat.v4.new_notebook(cells=[params, boom, result])
     nb.metadata["workbench"] = {"targets": ["replay"], "required_result": ["trace_ids"]}
     nbformat.write(nb, path)
     return path

@@ -12,7 +12,9 @@ Reviewable notebooks executed by pytest against a live target. Design:
 2. The notebook's `WORKBENCH_RESULT` payload is well-formed (`result_check.py`): it has every
    key the notebook declares in `workbench.required_result`, `trace_ids` is a list, and each id
    is 32 lowercase hex characters. A missing payload, a non-list `trace_ids`, or a malformed id
-   is a failure reason. Only well-formed ids go on to the chain check.
+   is a failure reason. Only well-formed ids go on to the chain check. The run fails closed on
+   more than one `WORKBENCH_RESULT=` line from any cell (no marker wins), and the runner refuses
+   a notebook without exactly one `workbench-result` cell before executing it (`runner.py`).
 3. The trace chain is complete (`TraceChain.missing` / `TraceChain.reasons` in `evidence.py`).
    The notebook's `workbench-result` cell prints `WORKBENCH_RESULT={"trace_ids": [...]}`, and
    the check runs **per trace id**: every reported id must appear in every one of the target's
@@ -132,7 +134,8 @@ this lane where the output is published, and do not put secrets in warning messa
 
 1. Add a builder function in `build_notebooks.py` and register it in `_BUILDERS`. Give it a
    `parameters`-tagged cell holding the defaults (the runner injects overrides after it) and a
-   `workbench-result`-tagged cell that prints the trace ids.
+   `workbench-result`-tagged cell that prints the trace ids. Exactly one such cell, holding the
+   notebook's only `WORKBENCH_RESULT=` marker; the builder refuses any other shape.
 2. Declare which targets it supports in the notebook metadata, for example
    `{"targets": ["replay", "local"]}`. On any other target the notebook skips.
 3. Regenerate the notebooks and commit them:

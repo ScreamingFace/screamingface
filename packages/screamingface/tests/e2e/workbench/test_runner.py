@@ -43,11 +43,16 @@ def test_injected_parameters_override_defaults_and_result_is_parsed(tmp_path: Pa
 
 
 def test_a_failing_cell_returns_the_executed_notebook_and_the_error(tmp_path: Path) -> None:
-    path = _write(tmp_path, _params("X = 1"), nbformat.v4.new_code_cell("assert X == 2, 'band'"))
+    path = _write(
+        tmp_path,
+        _params("X = 1"),
+        nbformat.v4.new_code_cell("assert X == 2, 'band'"),
+        _result(f"print({RESULT_PREFIX + '{}'!r})"),
+    )
     run = run_notebook(path, {})
     assert run.error is not None and "band" in run.error
     assert run.result is None
-    assert any(o.get("output_type") == "error" for o in run.executed.cells[-1].outputs)
+    assert any(o.get("output_type") == "error" for o in run.executed.cells[-2].outputs)
 
 
 @pytest.mark.parametrize(
@@ -95,7 +100,7 @@ def test_the_whole_notebook_has_one_deadline_across_cells(tmp_path: Path) -> Non
     """Gap (b): nbclient's timeout is per cell, so N slow cells could outlive the CI job and
     no bundle would be written. The deadline spans the notebook and still returns the run."""
     slow = [nbformat.v4.new_code_cell("import time; time.sleep(2)") for _ in range(4)]
-    path = _write(tmp_path, _params("X = 1"), *slow)
+    path = _write(tmp_path, _params("X = 1"), *slow, _result(f"print({RESULT_PREFIX + '{}'!r})"))
     started = time.monotonic()
     run = run_notebook(path, {}, timeout_s=60, deadline_s=3)
     elapsed = time.monotonic() - started
@@ -140,3 +145,52 @@ def test_a_bad_lane_deadline_is_refused(monkeypatch: pytest.MonkeyPatch, bad: st
     monkeypatch.setenv(DEADLINE_ENV, bad)
     with pytest.raises(ValueError, match=DEADLINE_ENV):
         notebook_deadline_s()
+
+
+# Review finding 6: exactly one result cell and exactly one WORKBENCH_RESULT= marker, or the run
+# fails closed — never "first marker wins".
+
+
+@pytest.mark.parametrize("cells", [0, 2], ids=["no-result-cell", "two-result-cells"])
+def test_a_notebook_without_exactly_one_result_cell_is_refused(tmp_path: Path, cells: int) -> None:
+    result = [_result(f"print({RESULT_PREFIX + '{}'!r})") for _ in range(cells)]
+    path = _write(tmp_path, _params("X = 1"), *result)
+    with pytest.raises(ValueError, match=f"exactly one.*workbench-result.*found {cells}"):
+        run_notebook(path, {})
+
+
+def test_two_markers_in_the_result_cell_fail_closed(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        _params("X = 1"),
+        _result(f"print({RESULT_PREFIX + '{"a": 1}'!r}); print({RESULT_PREFIX + '{}'!r})"),
+    )
+    run = run_notebook(path, {})
+    assert run.result is None, "no marker may win when there are two"
+    assert run.error is not None and "exactly one WORKBENCH_RESULT= marker" in run.error
+    assert "found 2" in run.error
+
+
+def test_a_marker_printed_outside_the_result_cell_fails_closed(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        _params("X = 1"),
+        nbformat.v4.new_code_cell(f"print({RESULT_PREFIX + '{"forged": 1}'!r})"),
+        _result(f"print({RESULT_PREFIX + '{}'!r})"),
+    )
+    run = run_notebook(path, {})
+    assert run.result is None
+    assert run.error is not None and "found 2" in run.error
+
+
+def test_a_duplicate_marker_keeps_the_cell_error_last(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        _params("X = 1"),
+        _result(f"print({RESULT_PREFIX + '{}'!r}); print({RESULT_PREFIX + '{}'!r})"),
+        nbformat.v4.new_code_cell("assert X == 2, 'band'"),
+    )
+    run = run_notebook(path, {})
+    assert run.result is None
+    assert run.error is not None and "found 2" in run.error
+    assert "band" in run.error.strip().splitlines()[-1]

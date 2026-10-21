@@ -124,16 +124,41 @@ def _parse(payload: str) -> tuple[dict[str, Any] | None, str | None]:
     return value, None  # pyright: ignore[reportUnknownVariableType]
 
 
+RESULT_TAG = "workbench-result"
+
+
+def _require_one_result_cell(nb: nbformat.NotebookNode) -> None:
+    found = sum(RESULT_TAG in c.metadata.get("tags", []) for c in nb.cells)
+    if found != 1:
+        raise ValueError(
+            f"notebook must have exactly one cell tagged {RESULT_TAG!r}, found {found}"
+        )
+
+
+def _markers(nb: nbformat.NotebookNode) -> list[str]:
+    """Every ``WORKBENCH_RESULT=`` payload printed by ANY cell, in order."""
+    return [
+        line[len(RESULT_PREFIX) :]
+        for cell in nb.cells
+        for output in cell.get("outputs", [])
+        for line in str(output.get("text", "")).splitlines()
+        if line.startswith(RESULT_PREFIX)
+    ]
+
+
 def _result(nb: nbformat.NotebookNode) -> tuple[dict[str, Any] | None, str | None]:
-    """The first ``WORKBENCH_RESULT=`` payload and, if it is malformed, why (never raises)."""
-    for cell in nb.cells:
-        if "workbench-result" not in cell.metadata.get("tags", []):
-            continue
-        for output in cell.get("outputs", []):
-            for line in str(output.get("text", "")).splitlines():
-                if line.startswith(RESULT_PREFIX):
-                    return _parse(line[len(RESULT_PREFIX) :])
-    return None, None
+    """The single ``WORKBENCH_RESULT=`` payload and, if it is unusable, why (never raises).
+
+    Fails closed (review finding 6): a second marker — repeated in the result cell or printed
+    by any other cell — makes the result ambiguous, so none is taken. None printed is not an
+    error here; ``result_check`` reports the missing result.
+    """
+    payloads = _markers(nb)
+    if len(payloads) > 1:
+        return None, (
+            f"notebook must print exactly one {RESULT_PREFIX} marker, found {len(payloads)}"
+        )
+    return _parse(payloads[0]) if payloads else (None, None)
 
 
 def run_notebook(
@@ -149,13 +174,15 @@ def run_notebook(
     only knows per-cell timeouts, so each cell's timeout is capped at what is left of the
     deadline. A run stopped by it is an ordinary execution failure that names the deadline.
 
-    Raises only for caller mistakes (no parameters cell, non-literal parameter); every
-    execution failure — a failing cell, a cell timeout, the notebook deadline, a dead kernel,
-    a malformed ``WORKBENCH_RESULT`` payload — is returned in ``NotebookRun.error`` alongside
+    Raises only for caller mistakes (no parameters cell, not exactly one ``workbench-result``
+    cell, non-literal parameter); every execution failure — a failing cell, a cell timeout,
+    the notebook deadline, a dead kernel, a malformed or repeated ``WORKBENCH_RESULT`` marker —
+    is returned in ``NotebookRun.error`` alongside
     the (partially) executed notebook.
     """
     nb = nbformat.read(path, as_version=4)
     _inject(nb, params)
+    _require_one_result_cell(nb)
     deadline = time.monotonic() + deadline_s
     capped = False
 

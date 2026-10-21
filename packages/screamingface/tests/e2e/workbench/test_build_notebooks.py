@@ -11,6 +11,8 @@ from harness.goldens import GoldenReport, build_candidate, load_golden
 import screamingface as sf
 from workbench.build_notebooks import (
     NOTEBOOK_DIR,
+    _code,  # pyright: ignore[reportPrivateUsage]
+    _notebook,  # pyright: ignore[reportPrivateUsage]
     build,
     main,
     render_golden_candidate,
@@ -212,3 +214,40 @@ def test_quickstart_success_path_reports_the_report_ids(capsys) -> None:
 def test_quickstart_does_not_swallow_non_sdk_errors(capsys) -> None:
     with pytest.raises(KeyError):
         _evaluate_then_report(KeyError("bug"), capsys)
+
+
+# Review finding 6: the runner fails closed on anything but one result cell printing one marker,
+# so the builder guarantees that shape at build time.
+
+
+def test_every_notebook_has_exactly_one_result_cell_and_one_marker() -> None:
+    for stem, nb in build().items():
+        tagged = [c for c in nb.cells if "workbench-result" in c.metadata.get("tags", [])]
+        assert len(tagged) == 1, stem
+        assert sum(c.source.count(RESULT_PREFIX) for c in nb.cells) == 1, stem
+        assert tagged[0].source.count(RESULT_PREFIX) == 1, stem
+
+
+@pytest.mark.parametrize(
+    ("sources", "why"),
+    [
+        ([("print(1)", ())], "found 0"),
+        ([(f"print('{RESULT_PREFIX}')", ("workbench-result",))] * 2, "found 2"),
+        ([(f"print('{RESULT_PREFIX}' + '{RESULT_PREFIX}')", ("workbench-result",))], "marker"),
+        ([("print(1)", ("workbench-result",))], "marker"),
+        (
+            [
+                (f"print('{RESULT_PREFIX}')", ("workbench-result",)),
+                (f"print('{RESULT_PREFIX}')", ()),
+            ],
+            "marker",
+        ),
+    ],
+    ids=["no-cell", "two-cells", "two-markers", "no-marker", "marker-elsewhere"],
+)
+def test_the_builder_refuses_a_notebook_without_one_result_cell_and_marker(
+    sources: list[tuple[str, tuple[str, ...]]], why: str
+) -> None:
+    cells = [_code(src, *tags) for src, tags in sources]
+    with pytest.raises(ValueError, match=why):
+        _notebook("bad", cells, {"targets": ["replay"], "required_result": ["trace_ids"]})

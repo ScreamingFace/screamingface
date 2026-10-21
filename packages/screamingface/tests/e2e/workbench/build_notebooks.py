@@ -30,6 +30,8 @@ if str(_E2E_ROOT) not in sys.path:
 from harness._gating import GOLDENS_DIR  # noqa: E402
 from harness.goldens import GoldenModelSpec, GoldenReport, load_golden  # noqa: E402
 
+from workbench.runner import RESULT_PREFIX, RESULT_TAG  # noqa: E402
+
 NOTEBOOK_DIR: Final = Path(__file__).resolve().parent / "notebooks"
 
 _INDENT: Final = "    "
@@ -156,7 +158,22 @@ def _markdown(source: str) -> nbformat.NotebookNode:
     return nbformat.v4.new_markdown_cell(source.strip("\n"))
 
 
+def _require_one_result(cells: list[nbformat.NotebookNode]) -> None:
+    """Review finding 6: the runner refuses anything but ONE ``workbench-result`` cell printing
+    ONE marker, so a notebook of any other shape must never be built."""
+    tagged = [c for c in cells if RESULT_TAG in c.metadata.get("tags", [])]
+    if len(tagged) != 1:
+        raise ValueError(f"exactly one cell tagged {RESULT_TAG!r} required, found {len(tagged)}")
+    markers = sum(c.source.count(RESULT_PREFIX) for c in cells)
+    if markers != 1 or tagged[0].source.count(RESULT_PREFIX) != 1:
+        raise ValueError(
+            f"exactly one {RESULT_PREFIX} marker required, in the {RESULT_TAG!r} cell;"
+            f" found {markers} in the notebook"
+        )
+
+
 def _notebook(stem: str, cells: list[nbformat.NotebookNode], meta: dict[str, Any]) -> Any:
+    _require_one_result(cells)
     nb = nbformat.v4.new_notebook(cells=cells)
     nb.metadata["kernelspec"] = dict(_KERNELSPEC)
     nb.metadata["workbench"] = meta
@@ -292,7 +309,7 @@ def _quickstart() -> Any:
         _code(_QUICKSTART_CLIENT),
         _code(recipe),
         _code(_QUICKSTART_EVALUATE),
-        _code(_QUICKSTART_RESULT, "workbench-result"),
+        _code(_QUICKSTART_RESULT, RESULT_TAG),
         _code(_QUICKSTART_ASSERT),
         _code("client.close()"),
     ]
