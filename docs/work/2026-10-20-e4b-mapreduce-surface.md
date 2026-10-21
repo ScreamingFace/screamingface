@@ -1086,3 +1086,39 @@ The main session writes the blob-exact entries for unit 1 and unit 7 into
   ALL GATES GREEN (ruff, format, pyright, pytest + coverage floor 95, check_notebooks, build,
   distribution); `run_gates.py repo --base e4d44281c` ALL GATES GREEN (append-only check passed
   without the skip).
+
+### Unit 8 review fixes (ACCEPT WITH FIXES)
+
+- **Commits:** `066b38136` docs (fixes 1–3, 6–9, 12), `fdc2fb30a` docs (fixes 4, 5, 10, 11 and a
+  new row of `test_example_18_recipes.py`), `ec38a9cc2` test (fix 13), this ledger commit.
+- **(1)** CHANGELOG Breaking: "gone with no alias, except the `sf.Fusion` shortcut"; the two
+  `sf.Fusion(synthesizer=)` rows moved under "Kept" as canonical forms (plus `quorum=`/`name=` →
+  `sf.Fanout`, `optional=` → `sf.Pipeline([...], optional=True)`); one removed row is left for
+  `.members`/`.synthesizer`/`.stages`/`isinstance(x, sf.Fusion)`. **(2)** New rows:
+  `sf.Pipeline(stages=)` → `steps=` (`TypeError`), `Filter(where=<signal>, extract=)` → no
+  replacement (`over=` only with `sf.matches`; FI-1); the Fusion `quorum=`/`optional=` mapping is in
+  the Kept table. **(8)** The `output=` entry no longer says "same url4 as before" (field picks
+  read a signal); the Rank/Concat entry says only a Rank carries `order`.
+- **(3)** The shortcut rules (`optional=`, the refusal of `optional=True` with a narrow step, the
+  refusal of a bare `sf.Judge`) are in README "How a recipe reads", README "Fusion as a named
+  recipe" and FusionsPage.vue §5. **(6)** "How a recipe reads" adds CH-3 (no `sf.JudgePick` in a
+  block with `sf.Judge`) and CH-14 (a named `sf.Pipeline` cannot end in an open block). **(7)**
+  `sf.Merge` "reads every member". Every message was checked against the SDK.
+- **(9)** PipelinesPage.vue (two aria-labels, two SVG labels "Fanout", two captions),
+  CandidateResultPage.vue:32 and the Index.vue comment now say "fanout block"/"fusion".
+- **(4)** Notebook 18: `WRITER_ROUTE = "openrouter/openai/gpt-4.1-mini"`, different from
+  `JUDGE_ROUTE`. New row `test_no_recipe_of_notebook_18_warns_that_the_judge_writes` (a fresh run
+  of the cells, because the SDK warns once per Pipeline object); it fails when the routes are
+  equal (checked). **(5)** The evaluation cell has the "inspect extra / `SCREAMINGFACE_ENGINE_URL`"
+  note of the other notebooks. **(10)** A markdown cell maps the 13 cases to map, score, narrow,
+  reduce.
+- **(11)** `check_notebooks.py`: new `_RETIRED_PATTERNS` (regex) for the positional
+  `sf.Gate("...`, `sf.Judge(..., order=`, `.stages` and `.synthesizer`; each is checked to refuse
+  a sample cell, and `sf.Gate(when=...)` passes. **Not added:** `.members`, because the public
+  `CombineEvidence.members` and `sf.Fanout(...).members` keep that name.
+- **(12)** migration.md §5: the acceptance grep is `sf\.(Pick|Reduce)\b|\.then\(`, with an
+  erratum that allows `sf.Fusion(`/`synthesizer=` where they show the shortcut (A4 revised).
+- **(13)** `tests/test_fusion_recipe.py` and `tests/test_fusion_block_quorum.py` are back as stub
+  modules with only a docstring (owner decision; the append-only gate cannot approve a deletion).
+- **Gates (HEAD `ec38a9cc2`):** `run_gates.py screamingface --base e4d44281c --skip-append-only`
+  ALL GATES GREEN; `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
