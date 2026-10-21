@@ -171,8 +171,9 @@ _QUICKSTART_TITLE = """
 Builds one candidate, evaluates it on `BENCHMARK`, and asserts that the client minted a trace
 id, the candidate compiled to url4, and the score sits in the hand-set `SCORE_BAND`. The
 `workbench-result` cell reports the trace ids right after the evaluation, before any
-assertion, so a failing check still leaves them in the evidence; the workbench then requires
-each one to appear in the engine and aigateway logs.
+assertion, so a failing check still leaves them in the evidence. If `client.evaluate()` itself
+raises, the SDK error's `trace_id` is reported instead and the error re-raised after the
+result cell. The workbench then requires each id to appear in the engine and aigateway logs.
 
 On `replay` the recipe is the golden ifeval recipe (served from the recorded cache, no spend);
 on `local` it is the authored open-source fusion below, run with your OpenRouter key.
@@ -223,13 +224,25 @@ else:
 candidate
 """
 
+# WHY catch the SDK error here and re-raise it after the result cell (review gap (a)): a run
+# minted before the failure carries its id on `sf.ScreamingFaceError.trace_id` (OME-967), and
+# the bundle can only correlate the logs of that run if the result cell gets to report it.
+# Only the SDK's public error is held back; anything else is a notebook bug and fails here.
 _QUICKSTART_EVALUATE = """
-report = client.evaluate(candidate, benchmark=BENCHMARK, limit=LIMIT, progress=False)
+report = None
+evaluate_error = None
+try:
+    report = client.evaluate(candidate, benchmark=BENCHMARK, limit=LIMIT, progress=False)
+except sf.ScreamingFaceError as exc:
+    evaluate_error = exc
+    report = getattr(exc, "partial_report", None)  # ExecutionError: the Candidates that ran
 """
 
 # WHY after the result cell: a failing assert must still leave the trace ids in the bundle
 # (Review Focus 1), so the workbench can check the chain of the run that misbehaved.
 _QUICKSTART_ASSERT = """
+if evaluate_error is not None:
+    raise evaluate_error
 (result,) = list(report.candidates)
 assert result.trace_id, "the client minted no trace id (OME-967)"
 assert result.url4, "the candidate compiled to no url4"
@@ -240,20 +253,26 @@ report
 """
 
 _QUICKSTART_RESULT = """
+ran = list(report.candidates) if report is not None else []
+error_trace_id = evaluate_error.trace_id if evaluate_error is not None else None
+trace_ids = [c.trace_id for c in ran if c.trace_id] + [error_trace_id]
 print(
     "WORKBENCH_RESULT="
     + json.dumps(
         {
-            "trace_ids": [c.trace_id for c in report.candidates if c.trace_id],
-            "run_ids": [str(c.run_id) for c in report.candidates],
+            "trace_ids": [t for t in dict.fromkeys(trace_ids) if t],
+            "run_ids": [str(c.run_id) for c in ran],
             "candidates": {
                 c.name: {
                     "score": c.score,
                     "cache_hits": c.cache_hits,
                     "cache_saved_cost_usd": str(c.cache_saved_cost_usd),
                 }
-                for c in report.candidates
+                for c in ran
             },
+            "evaluate_error": None
+            if evaluate_error is None
+            else {"type": type(evaluate_error).__name__, "code": evaluate_error.code},
         }
     )
 )

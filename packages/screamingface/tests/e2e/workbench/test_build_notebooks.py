@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import nbformat
@@ -7,6 +8,7 @@ import pytest
 from harness._gating import GOLDENS_DIR
 from harness.goldens import GoldenReport, build_candidate, load_golden
 
+import screamingface as sf
 from workbench.build_notebooks import (
     NOTEBOOK_DIR,
     build,
@@ -14,6 +16,7 @@ from workbench.build_notebooks import (
     render_golden_candidate,
     serialize,
 )
+from workbench.runner import RESULT_PREFIX
 
 
 @pytest.mark.parametrize("path", sorted(GOLDENS_DIR.glob("*.golden.json")), ids=lambda p: p.name)
@@ -127,3 +130,85 @@ def test_quickstart_refuses_a_missing_scoreboard() -> None:
     namespace["SCOREBOARD_URL"] = None
     with pytest.raises(ValueError, match="SCOREBOARD_URL"):
         exec(_quickstart_code(contains="sf.Client("), namespace)
+
+
+# Gap (a) (PR #1455 review): `client.evaluate()` raising after a run was minted must still
+# report that run's trace id (`sf.ScreamingFaceError.trace_id`), so the bundle correlates logs.
+
+_TID = "4bf92f3577b34da6a3ce929d0e0e4736"
+_TID2 = "00f067aa0ba902b7aaaaaaaaaaaaaaaa"
+
+
+class _Candidate:
+    def __init__(self, trace_id: str | None) -> None:
+        self.name = "c"
+        self.trace_id = trace_id
+        self.run_id = "r1"
+        self.score = 0.5
+        self.cache_hits = 0
+        self.cache_saved_cost_usd = "0"
+
+
+class _Report:
+    def __init__(self, *trace_ids: str | None) -> None:
+        self.candidates = [_Candidate(t) for t in trace_ids]
+
+
+class _Client:
+    def __init__(self, outcome: Any) -> None:
+        self._outcome = outcome
+
+    def evaluate(self, *_: Any, **__: Any) -> Any:
+        if isinstance(self._outcome, BaseException):
+            raise self._outcome
+        return self._outcome
+
+
+def _evaluate_then_report(outcome: Any, capsys: pytest.CaptureFixture[str]) -> tuple[dict, Any]:
+    ns: dict[str, Any] = {"sf": sf, "json": json, "client": _Client(outcome)}
+    exec(_quickstart_code(tag="parameters"), ns)
+    ns["candidate"] = object()
+    exec(_quickstart_code(contains="client.evaluate("), ns)
+    exec(_quickstart_code(tag="workbench-result"), ns)
+    (line,) = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith(RESULT_PREFIX)]
+    return json.loads(line[len(RESULT_PREFIX) :]), ns
+
+
+def test_quickstart_reports_the_trace_id_of_a_failed_evaluate(capsys) -> None:
+    error = sf.ScreamingFaceError("run failed", code="run_failed", trace_id=_TID)
+    payload, ns = _evaluate_then_report(error, capsys)
+    assert payload["trace_ids"] == [_TID]
+    assert payload["evaluate_error"] == {"type": "ScreamingFaceError", "code": "run_failed"}
+    # The notebook still fails: the captured error is re-raised by the first assert cell.
+    with pytest.raises(sf.ScreamingFaceError) as raised:
+        exec(_quickstart_code(contains="(result,) ="), ns)
+    assert raised.value is error
+
+
+def test_quickstart_reports_partial_report_ids_and_the_error_id_once(capsys) -> None:
+    error = sf.ExecutionError(
+        "one candidate failed",
+        code="candidates_failed",
+        trace_id=_TID,
+        partial_report=_Report(_TID2, _TID),  # pyright: ignore[reportArgumentType]
+    )
+    payload, _ = _evaluate_then_report(error, capsys)
+    assert payload["trace_ids"] == [_TID2, _TID]
+
+
+def test_quickstart_reports_no_id_when_the_failure_minted_none(capsys) -> None:
+    payload, _ = _evaluate_then_report(sf.ScreamingFaceError("refused"), capsys)
+    assert payload["trace_ids"] == []
+    assert payload["evaluate_error"]["type"] == "ScreamingFaceError"
+
+
+def test_quickstart_success_path_reports_the_report_ids(capsys) -> None:
+    payload, ns = _evaluate_then_report(_Report(_TID), capsys)
+    assert payload["trace_ids"] == [_TID]
+    assert payload["evaluate_error"] is None
+    assert ns["evaluate_error"] is None
+
+
+def test_quickstart_does_not_swallow_non_sdk_errors(capsys) -> None:
+    with pytest.raises(KeyError):
+        _evaluate_then_report(KeyError("bug"), capsys)
