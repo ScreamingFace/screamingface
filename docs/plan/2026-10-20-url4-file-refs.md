@@ -19,3 +19,6 @@ hooks (moving pure helpers out where a hook does not fit).
 7. **Gates** `run_gates.py url4` + `check_module_size.py` + `check_suppressions.py`; regression run of
    `screamingface-engine` (it imports `url4`).
 8. **Live** two `Url4Node` processes on two ports (C6 over HTTP).
+9. **Amendment 2026-10-21 (#1450 F1/F2).** Drop steps 1's peer code and 4's allowlist: every
+   `url4://…/blob` ref is `x.remote_blob_unsupported` before I/O; replace `ResolvedBlob` with the
+   typed `Attachment` (`dag/attachment.py`) and a structural collection flag (D4). Tests first.

@@ -10,13 +10,13 @@ sub-request codec and the error hierarchy, never on httpx.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from inspect import isawaitable
 
 from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import FetchRequest, FetchResult
-from url4.io.media import FetchedBytes, peer_set, require_text
+from url4.io.media import FetchedBytes, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
@@ -40,7 +40,6 @@ class StaticIOLayer:
     ``fetch_ex`` reports for it. ``code`` maps a code path or name to a handler: the test
     double for a node's ``@node.code`` mounts. Missing keys raise
     :class:`~url4.core.errors.ResolutionError` (``source_not_found`` on the bytes path).
-    ``blob_peers`` is the ``OME-1599`` interim allowlist for ``url4://<node>/blob/…`` refs.
     """
 
     def __init__(
@@ -51,9 +50,7 @@ class StaticIOLayer:
         holdings: Mapping[str, str] | None = None,
         media_types: Mapping[str, str] | None = None,
         code: Mapping[str, CodeHandler] | None = None,
-        blob_peers: Iterable[str] = (),
     ) -> None:
-        self._blob_peers = peer_set(blob_peers)
         self._fetch = dict(fetch_map or {})
         self._routes = dict(routes or {})
         self._holdings = dict(holdings) if holdings is not None else None
@@ -94,10 +91,6 @@ class StaticIOLayer:
             return self._fetch[target]
         except KeyError:
             raise ResolutionError(f"no fetch mapping for {target!r}") from None
-
-    def blob_peer_allowed(self, authority: str) -> bool:
-        """Whether a ``url4://<authority>/blob/…`` ref may be fetched (``OME-1599`` interim)."""
-        return authority.lower() in self._blob_peers
 
     def processor_routes(self) -> list[str]:
         """The declared route paths a `processor=` id may name (§27.3)."""

@@ -85,3 +85,47 @@ applies here, fail closed.
   `87b64b489` (feat) and the ledger/mirror docs commits; #1478's are `527935946`, `cba065be1`.
   `git merge-tree origin/main HEAD` is clean (main has not touched `packages/url4` since the
   #1478 base). After #1478 squash-merges: `git rebase --onto origin/main cba065be1`.
+
+## Amendment 2026-10-21 — align with #1450 F1/F2 (owner decisions D1–D6, Sergey)
+
+**Intent.** Remove the remote `url4://` blob fetch and its `OME-1599` interim peer allowlist: in
+v1 every `url4://<any authority>/blob/…` ref is remote and fails `x.remote_blob_unsupported`,
+permanent, before any I/O (D1; replaces `x.blob_peer_not_allowed`). Replace the `ResolvedBlob`
+`str` subclass with a typed `Attachment` value (digest `sha256:<hex>`, media type, optional
+filename/detail; D2). Resolution stays at the evaluating node; `Payload` stays plain `str`.
+Wiring attachments into model calls, the run's ordered `attachments[]`, D3/D5/D6 = `OME-1543`.
+
+**Planned changes.**
+- `core/errors.py` — `REMOTE_BLOB_UNSUPPORTED` replaces `BLOB_PEER_NOT_ALLOWED`.
+- `core/blob_ref.py` — a remote ref is any `url4://<authority>/blob…` (any authority, query).
+- `dag/attachment.py` (new) — the typed `Attachment` (F2 fields + the verified bytes).
+- `dag/nodes/blob.py` — `BlobRefNode.attachment(ctx)` (the seam for `OME-1543`); `resolve`
+  returns the ref text; collection mode (D4) set structurally at lowering, no `str` subclass.
+- `dag/_lowering.py`, `dag/_descriptor.py` — mark a blob in collection / `*src` position.
+- `dag/nodes/iteration.py` — revert the `collection_body` hook.
+- `io/http.py`, `io/static.py`, `io/media.py`, `dag/_context.py` — drop `blob_peers`,
+  `blob_peer_allowed`, `peer_set` and the no-redirect url4 path.
+- Tests (this PR's own files only): `tests/unit/test_blob_refs.py`, `tests/spec/test_file_ref_conformance.py`.
+
+**Test plan.** RED first: `url4://` any authority → `x.remote_blob_unsupported` with zero I/O
+calls (unit + C2); `/blob/sha256/<hex>` → typed `Attachment` with `sha256:` digest and media
+type, digest verified; mismatch → `x.blob_digest_mismatch`; payload is a plain `str`; a text
+blob as a collection iterates (D4) and a PNG is C8.
+
+**Outcome (amendment).**
+- **Actual files:** as planned. `dag/_context.py`, `io/media.py`, `dag/nodes/iteration.py` are
+  back to the `cba065be1` base (their only changes here were the allowlist / `collection_body`).
+  `HttpIOLayer.fetch_bytes` keeps only the 404/410 → `source_not_found` typing; the no-redirect
+  url4 path is gone with the remote fetch.
+- **Gates:** `run_gates.py url4 --base cba065be1` (append-only vs the merge-base, NOT skipped)
+  ALL GATES GREEN — 2065 passed, 17 xfailed, coverage 99%; `blob.py`, `attachment.py`,
+  `blob_ref.py` 100%. `check_module_size.py` within baseline (`_lowering.py` 635/640),
+  `check_suppressions.py` 3/3. Regression `run_gates.py screamingface-engine` green.
+- **Deviations:** (1) the remote form is broadened: any `url4://<authority>/blob…` (userinfo,
+  port, query, other algorithm) is `x.remote_blob_unsupported`, so no `url4://…/blob` URL can fall
+  through to a web fetch; (2) `Attachment.media_type` defaults to `application/octet-stream` when
+  the adapter reports none (F2 makes it required); (3) `resolve` still fetches and verifies the
+  bytes and returns only the ref text — `OME-1543` collects attachments via
+  `BlobRefNode.attachment` (one fetch per ref until it caches); (4) collection position (D4) is
+  marked at lowering for a direct ref only: `$x*(…)` with `x` bound to a blob ref iterates the ref
+  text (fails as a scalar collection) — structural, no string scanning, flagged for `OME-1543`.

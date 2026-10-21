@@ -146,8 +146,6 @@ class BoundedIOLayer:
         # (test_layering); a runtime_checkable isinstance checks exactly this attribute anyway.
         if (fetch_bytes := getattr(inner, "fetch_bytes", None)) is not None:
             self.fetch_bytes = partial(self._admit, fetch_bytes)
-        if (blob_peer_allowed := getattr(inner, "blob_peer_allowed", None)) is not None:
-            self.blob_peer_allowed = blob_peer_allowed  # not I/O; absent → no peer (fail closed)
         if isinstance(inner, SupportsProcessorRoutes):
             # Not bounded: declaring routes is not I/O. Forwarded so a
             # `processor=` id still resolves through the wrapper (§27.3).

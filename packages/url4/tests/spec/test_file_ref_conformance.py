@@ -2,11 +2,11 @@
 
 FEATURE: image and PDF inputs for url4 sources (epic ``OME-1529``, unit ``OME-1539``).
 
-Each test is one row of the signed-off table, on resolution behaviour. The §5.4.2 trust
-steps of C1/C2 (policy, identity, attribution, ``URL4-Auth-Token``) are ``OME-1599``; until
-then its interim rule applies to C2: a cross-node fetch only to an allowlisted node. The
-``data:`` attachment of C1 and the model refusal of C9 are the engine connector's
-(``OME-1545`` / ``OME-1548``); here C9 is the url4 half — the error is the intent's.
+Each test is one row of the signed-off table, on resolution behaviour. C2 is v1's
+``remote_blob_unsupported`` (#1450 spec §2 F1, owner decision D1 2026-10-21): every
+``url4://<authority>/blob/…`` ref fails before any I/O. The ``data:`` attachment of C1 and the
+model refusal of C9 are the engine connector's (``OME-1543`` / ``OME-1545`` / ``OME-1548``);
+here C9 is the url4 half — the error is the intent's.
 """
 
 from __future__ import annotations
@@ -29,17 +29,14 @@ from url4.wire.subrequest import decode_subrequest, extract_expression_params
 PNG = b"\x89PNG\r\n\x1a\n-conformance-4827"
 HEX = hashlib.sha256(PNG).hexdigest()
 LOCAL = f"/blob/sha256/{HEX}"
-REMOTE = f"url4://n2.example/blob/sha256/{HEX}"
 TOKEN = f"blob:sha256/{HEX}"
 
 
 class _Node(StaticIOLayer):
     """The evaluating node: its own blob store, plus a record of every request it makes."""
 
-    def __init__(self, blobs: dict[str, bytes], *, blob_peers: tuple[str, ...] = ()) -> None:
-        super().__init__(
-            dict(blobs), media_types=dict.fromkeys(blobs, "image/png"), blob_peers=blob_peers
-        )
+    def __init__(self, blobs: dict[str, bytes]) -> None:
+        super().__init__(dict(blobs), media_types=dict.fromkeys(blobs, "image/png"))
         self.byte_targets: list[str] = []
         self.text_targets: list[str] = []
 
@@ -85,23 +82,24 @@ async def test_c1_relative_blob_path_resolves_on_the_current_node() -> None:
 
 
 @pytest.mark.asyncio
-async def test_c2_remote_ref_is_fetched_from_the_named_node() -> None:
-    text = f"(img:src={REMOTE})!'Describe'"
+@pytest.mark.parametrize("authority", ["n2.example", "localhost", "self", "127.0.0.1:4761"])
+async def test_c2_remote_ref_is_unsupported_in_v1_without_any_io(authority: str) -> None:
+    # INVARIANT (D1 / F1): ANY url4:// blob ref is remote in v1 -- even one naming this node --
+    # and fails permanently before a byte or a text fetch is attempted.
+    ref = f"url4://{authority}/blob/sha256/{HEX}"
+    text = f"(img:src={ref})!'Describe'"
     tree = parse(text)
     assert isinstance(tree, Expression)
-    assert tree.sources == (Binding("img", Url(REMOTE), ":"),)
-    node = _Node({REMOTE: PNG}, blob_peers=("n2.example",))
-    assert await run(text, io=node, process=_Model()) == "described"
-    assert node.byte_targets == [REMOTE]
-
-
-@pytest.mark.asyncio
-async def test_c2_interim_rule_refuses_a_node_off_the_allowlist() -> None:
-    node = _Node({REMOTE: PNG})
+    assert tree.sources == (Binding("img", Url(ref), ":"),)
+    node, model = _Node({ref: PNG, LOCAL: PNG}), _Model()
     with pytest.raises(ResolutionError) as caught:
-        await run(f"(img:src={REMOTE})!'Describe'", io=node, process=_Model())
-    assert caught.value.code == ErrorCode.BLOB_PEER_NOT_ALLOWED
-    assert node.byte_targets == []
+        await run(text, io=node, process=model)
+    assert (caught.value.code, caught.value.permanent) == (
+        ErrorCode.REMOTE_BLOB_UNSUPPORTED,
+        True,
+    )
+    assert node.byte_targets == node.text_targets == []
+    assert model.calls == []
 
 
 @pytest.mark.asyncio

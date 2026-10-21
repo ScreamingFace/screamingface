@@ -20,7 +20,6 @@ from url4.dag.node import (  # isort: skip
 )
 
 
-from url4.dag.nodes.blob import collection_body  # isort: skip
 from url4.dag.nodes._shared import (  # isort: skip
     DEFAULT_MAP_CONCURRENCY,
     _ITEM_KEY,
@@ -45,7 +44,7 @@ class ExpandNode:
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"inner": node}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        inner = collection_body(inputs["inner"])
+        inner = inputs["inner"]
         try:
             return parse_collection(_as_text(inner), _media_type_of(inner))
         except CollectionError as exc:
@@ -119,7 +118,6 @@ class MapNode:
         if isinstance(collection, list):
             items = collection
         else:
-            collection = collection_body(collection)  # a resolved blob: text body, or C8
             items = parse_collection(_as_text(collection), _media_type_of(collection))
         if self.directives.slice is not None:
             start, end = self.directives.slice
