@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn, NotRequired, TypedDict, cast
 
 from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
@@ -48,12 +48,89 @@ _FILE_MIMES = frozenset({"application/pdf"})
 _IMAGE_DETAILS = frozenset({"auto", "low", "high"})
 _MEDIA_PART_TYPES = frozenset({"image_url", "file"})
 
+# The shapes, in one place. WHY TypedDicts and not models: they cost nothing at run time and keep
+# every refusal message under this module's control (a model's validation error would quote the
+# input, base64 included). The checks below enforce them; pyright holds readers and writers to them.
+
+#: Who may speak in a Case conversation; the same set as ``CANDIDATE_MESSAGE_ROLES``.
+CandidateRole = Literal["system", "developer", "user", "assistant"]
+ImageDetail = Literal["auto", "low", "high"]
+
+
+class TextPart(TypedDict):
+    """A run of text inside a v2 part list, e.g. ``{"type": "text", "text": "What is shown?"}``."""
+
+    type: Literal["text"]
+    text: str
+
+
+class ImageUrl(TypedDict):
+    """An inline picture: ``url`` is ``data:image/png;base64,…`` (PNG, JPEG, GIF or WebP)."""
+
+    url: str
+    detail: NotRequired[ImageDetail]
+
+
+class ImagePart(TypedDict):
+    """A picture part, e.g. ``{"type": "image_url", "image_url": {"url": "data:image/png;…"}}``."""
+
+    type: Literal["image_url"]
+    image_url: ImageUrl
+
+
+class FileData(TypedDict):
+    """An inline PDF: ``file_data`` is ``data:application/pdf;base64,…``."""
+
+    file_data: str
+    filename: NotRequired[str]
+
+
+class FilePart(TypedDict):
+    """A PDF part, e.g. ``{"type": "file", "file": {"file_data": "data:…"}}``."""
+
+    type: Literal["file"]
+    file: FileData
+
+
+ContentPart = TextPart | ImagePart | FilePart
+
+
+class TextMessage(TypedDict):
+    """A message of plain text: every v1 message, and every v2 message without a picture."""
+
+    role: CandidateRole
+    content: str
+
+
+class PartsMessage(TypedDict):
+    """A v2 user message carrying at least one picture or file, in order with its text."""
+
+    role: Literal["user"]
+    content: list[ContentPart]
+
+
+CandidateMessage = TextMessage | PartsMessage
+
+
+class CandidateInputV1(TypedDict):
+    """A v1 envelope: a fixed text conversation (OME-1527)."""
+
+    schema: Literal["screamingface.candidate-input.v1"]
+    messages: list[TextMessage]
+
+
+class CandidateInputV2(TypedDict):
+    """A v2 envelope: a conversation whose user messages may carry pictures and PDFs."""
+
+    schema: Literal["screamingface.candidate-input.v2"]
+    messages: list[CandidateMessage]
+
 
 class CandidateInputError(ValueError):
     """A Case input names the candidate-input schema but breaks its rules."""
 
 
-def parse_candidate_input(text: str | None) -> list[dict[str, Any]] | None:
+def parse_candidate_input(text: str | None) -> list[CandidateMessage] | None:
     """Open a Case input into chat messages, or ``None`` when it is a plain prompt.
 
     Stage 1 — is it an envelope? Anything that is not a JSON object naming a
@@ -88,7 +165,7 @@ def parse_candidate_input(text: str | None) -> list[dict[str, Any]] | None:
 
     # Stage 3 — every message.
     allows_parts: bool = schema == CANDIDATE_INPUT_V2_SCHEMA
-    messages: list[dict[str, Any]] = [
+    messages: list[CandidateMessage] = [
         _message(index, value, allows_parts=allows_parts)
         for index, value in enumerate(raw_messages)
     ]
@@ -99,7 +176,7 @@ def parse_candidate_input(text: str | None) -> list[dict[str, Any]] | None:
     return messages
 
 
-def _message(index: int, value: object, *, allows_parts: bool) -> dict[str, Any]:
+def _message(index: int, value: object, *, allows_parts: bool) -> CandidateMessage:
     """Check one message and rebuild it as ``{"role", "content"}``."""
 
     if not isinstance(value, dict) or set(value) != {"role", "content"}:
@@ -109,13 +186,16 @@ def _message(index: int, value: object, *, allows_parts: bool) -> dict[str, Any]
     if not isinstance(role, str) or role not in CANDIDATE_MESSAGE_ROLES:
         _refuse(f"message {index} has unsupported role {role!r}")
     if isinstance(content, str):
-        return {"role": role, "content": content}
+        # WHY the cast: the membership check above is what proves the role; pyright cannot
+        # narrow a str to a Literal through a frozenset.
+        return {"role": cast(CandidateRole, role), "content": content}
     if not allows_parts:
         _refuse(f"message {index} content must be text")
-    return {"role": role, "content": _part_list(index, role, content)}
+    # INVARIANT: _part_list refuses any role but user, so the role written here is the truth.
+    return {"role": "user", "content": _part_list(index, role, content)}
 
 
-def _part_list(index: int, role: str, content: object) -> list[dict[str, Any]]:
+def _part_list(index: int, role: str, content: object) -> list[ContentPart]:
     """Check a v2 message's part list: a user message holding at least one picture or file."""
 
     if not isinstance(content, list):
@@ -126,7 +206,7 @@ def _part_list(index: int, role: str, content: object) -> list[dict[str, Any]]:
     # model never saw would grade as a wrong answer instead of failing the Case.
     if role != "user":
         _refuse(f"message {index}: pictures and files go in user messages only")
-    parts: list[dict[str, Any]] = [
+    parts: list[ContentPart] = [
         _part(f"message {index} part {position}", part) for position, part in enumerate(content)
     ]
     if not any(part["type"] in _MEDIA_PART_TYPES for part in parts):
@@ -136,7 +216,7 @@ def _part_list(index: int, role: str, content: object) -> list[dict[str, Any]]:
     return parts
 
 
-def _part(where: str, value: object) -> dict[str, Any]:
+def _part(where: str, value: object) -> ContentPart:
     """Check one content part and rebuild it from its allowed fields only."""
 
     if not isinstance(value, dict):
@@ -155,7 +235,7 @@ def _part(where: str, value: object) -> dict[str, Any]:
     _refuse(f"{where}: unsupported part type {shown!r}")
 
 
-def _picture(where: str, part: Mapping[str, Any]) -> dict[str, str]:
+def _picture(where: str, part: Mapping[str, Any]) -> ImageUrl:
     """The ``image_url`` object of a picture part: an inline picture and an optional detail."""
 
     body: object = part.get("image_url")
@@ -169,16 +249,16 @@ def _picture(where: str, part: Mapping[str, Any]) -> dict[str, str]:
     mime: str = _data_uri_mime(where, body["url"])
     if mime not in _PICTURE_MIMES:
         _refuse(f"{where}: picture type {mime} is not png, jpeg, gif or webp")
-    picture: dict[str, str] = {"url": body["url"]}
+    picture: ImageUrl = {"url": body["url"]}
     if "detail" in body:
         detail: object = body["detail"]
         if not isinstance(detail, str) or detail not in _IMAGE_DETAILS:
             _refuse(f"{where}: detail must be auto, low or high")
-        picture["detail"] = detail
+        picture["detail"] = cast(ImageDetail, detail)
     return picture
 
 
-def _file(where: str, part: Mapping[str, Any]) -> dict[str, str]:
+def _file(where: str, part: Mapping[str, Any]) -> FileData:
     """The ``file`` object of a file part: an inline PDF and an optional filename."""
 
     body: object = part.get("file")
@@ -192,7 +272,7 @@ def _file(where: str, part: Mapping[str, Any]) -> dict[str, str]:
     mime: str = _data_uri_mime(where, body["file_data"])
     if mime not in _FILE_MIMES:
         _refuse(f"{where}: file type {mime} is not application/pdf")
-    file: dict[str, str] = {"file_data": body["file_data"]}
+    file: FileData = {"file_data": body["file_data"]}
     if "filename" in body:
         filename: object = body["filename"]
         if not isinstance(filename, str) or not filename:
@@ -234,4 +314,20 @@ def _refuse(detail: str) -> NoReturn:
     raise CandidateInputError(detail)
 
 
-__all__ = ["CandidateInputError", "parse_candidate_input"]
+__all__ = [
+    "CandidateInputError",
+    "CandidateInputV1",
+    "CandidateInputV2",
+    "CandidateMessage",
+    "CandidateRole",
+    "ContentPart",
+    "FileData",
+    "FilePart",
+    "ImageDetail",
+    "ImagePart",
+    "ImageUrl",
+    "PartsMessage",
+    "TextMessage",
+    "TextPart",
+    "parse_candidate_input",
+]

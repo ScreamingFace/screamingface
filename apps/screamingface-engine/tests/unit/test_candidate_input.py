@@ -99,10 +99,9 @@ def test_v2_parses_an_mmmu_sized_case() -> None:
     big = "data:image/png;base64," + "A" * (3_800_000)
     part = {"type": "image_url", "image_url": {"url": big}}
 
-    messages = parse_candidate_input(_v2(_user(_TEXT, part)))
-
-    assert messages is not None
-    assert messages[0]["content"][1]["image_url"]["url"] == big
+    assert parse_candidate_input(_v2(_user(_TEXT, part))) == [
+        {"role": "user", "content": [_TEXT, part]}
+    ]
 
 
 def test_unknown_candidate_input_version_is_refused_by_name() -> None:

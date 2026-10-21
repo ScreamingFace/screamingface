@@ -22,6 +22,7 @@ import httpx
 from screamingface_engine import engine_version, job_env
 from screamingface_engine.benchmarks.candidate_input import (
     CandidateInputError,
+    CandidateMessage,
     parse_candidate_input,
 )
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
@@ -1485,11 +1486,13 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, Any]]:
     if native is None:
         messages.append({"role": "user", "content": context or ""})
     else:
-        messages.extend(native)
+        # WHY a shallow copy of each message: the gateway loop's chat is wider than a Case's (it
+        # appends assistant tool calls and tool results), so it holds plain dicts.
+        messages.extend(dict(message) for message in native)
     return messages
 
 
-def _native_messages(context: str | None) -> list[dict[str, Any]] | None:
+def _native_messages(context: str | None) -> list[CandidateMessage] | None:
     """The Case's own chat messages, or ``None`` when its input is a plain prompt.
 
     FEATURE (OME-1678): the candidate-input envelope module owns the rules, so this connector and
