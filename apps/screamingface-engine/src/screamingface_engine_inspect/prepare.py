@@ -431,16 +431,20 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         license="apache-2.0",
     ),
     # worldsense — imported by Task replay on 2026-10-02 from
-    #   inspect_evals.worldsense.worldsense:worldsense.
+    #   inspect_evals.worldsense.worldsense:worldsense; re-pointed on 2026-10-21 to
+    #   screamingface_engine_inspect.local_tasks.worldsense.worldsense:worldsense, inspect_evals'
+    #   Task with every trial kept (NAMED DEVIATION, inspect_evals PR #2507): 40,176 → 87,048.
+    #   Sealed by two build replays of this declaration (the importer cannot read a local
+    #   Task's re-exported inspect_evals scorer), which reproduce the old seal on the old Task.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   url https://github.com/facebookresearch/worldsense/raw/bd81d945077f169cf95ff39207f788f86e4645e9/data/worldsense/test_set/trials.jsonl.bz2
     #     pin sha256 00c94031fc435c5f13156d57fcf61dace875d5e7fa4c218a40029a2eb0f3deb9
     "worldsense": TaskReplayCasesSpec(
-        task="inspect_evals.worldsense.worldsense:worldsense",
+        task="screamingface_engine_inspect.local_tasks.worldsense.worldsense:worldsense",
         task_args={"shuffle": False},
-        case_count=40176,
-        case_digest="426b5a4e50aa171acc180de1e5836eb1f25b605a960ae8c6e08b1f414a3b079c",
-        case_set_digest="dc359e888daa42d4fa6df4c0af21dc2dfba374f2a745b23e9fcc427bfb941963",
+        case_count=87048,
+        case_digest="347a2aa2ab71eb24a902dc8697293cc3f365baabe399929963a8b250a2caf6f1",
+        case_set_digest="a24618fd666142fcac0efd144ba22dc20e5147c2a0b9363b12d7c49ba4ffa9de",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-NC-4.0, facebookresearch/worldsense LICENSE;
         #  non-commercial use only.

@@ -219,7 +219,7 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-cybermetric_500": ("withhold", "single_shot", "easy"),
         "inspect-cybermetric_2000": ("withhold", "single_shot", "easy"),
         "inspect-cybermetric_10000": ("withhold", "single_shot", "easy"),
-        "inspect-worldsense": ("withhold", "single_shot", "hard"),
+        "worldsense": ("withhold", "single_shot", "hard"),
         "inspect-sevenllm_mcq_zh": ("withhold", "single_shot", "medium"),
         "inspect-sevenllm_mcq_en": ("withhold", "single_shot", "medium"),
         # OME-1371: CoCoNot — declining what it should (noncompliance rate), and answering
