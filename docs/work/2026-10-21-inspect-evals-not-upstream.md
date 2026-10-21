@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1698
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-10-21
-finished:
+finished: 2026-10-21
 ---
 
 # inspect-evals-not-upstream — name inspect_evals and the authors' code instead of "upstream"
