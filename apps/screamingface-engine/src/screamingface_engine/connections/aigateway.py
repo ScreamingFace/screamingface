@@ -387,20 +387,12 @@ def _is_uuid(value: object) -> bool:
 
 
 def _headers(caller: Caller) -> dict[str, str]:
-    """The upstream headers for one caller-scoped request: identity, then trace context.
+    """The upstream headers for one caller-scoped request (``job_env.upstream_headers``).
 
-    INVARIANT: the gateway-owned headers are written LAST, the same rule
-    ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. `caller.identity` is
-    built from inbound request headers, and although the mesh guarantees the identity header
-    itself is not forged, nothing guarantees the mapping holds ONLY that key — so a caller
-    cannot displace this request's own trace by sending their own.
-
-    A zero traceparent is omitted rather than sent: it parses everywhere while joining nothing.
+    The same rule ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. A zero
+    traceparent is omitted rather than sent: it parses everywhere while joining nothing.
     """
-    headers = job_env.identity_for_forwarding(caller.identity)
-    if caller.traceparent is not None:
-        headers["traceparent"] = caller.traceparent
-    return headers
+    return job_env.upstream_headers(caller.identity, caller.traceparent)
 
 
 def _decode_object(response: httpx.Response) -> dict[str, Any]:

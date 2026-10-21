@@ -39,6 +39,7 @@ from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotation needs the name
     from screamingface_engine.adapters.jetstream import JetStreamConsumer
 
+from screamingface_engine.community_cache import CommunityCache, build_community_cache
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
 from screamingface_engine.cors import install_cors
@@ -65,6 +66,7 @@ from screamingface_engine.rest import (
     operator_router,
 )
 from screamingface_engine.rest import router as rest_router
+from screamingface_engine.rest.cache_entries import router as cache_entries_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
@@ -89,6 +91,7 @@ _ROUTERS = (
     operator_router,
     catalog_router,
     connection_router,
+    cache_entries_router,
     ws_router,
     ops_router,
 )
@@ -116,6 +119,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    community_cache: CommunityCache | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
     operators: OperatorRegistry = BUILTIN_OPERATORS,
@@ -146,7 +150,7 @@ def create_app(
     app.state.job_runner = job_runner
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
-    app.state.connections = connections
+    _install_gateway_adapters(app, connections, community_cache)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
@@ -224,6 +228,14 @@ def _install_discovery_registries(
     """
     app.state.benchmarks = benchmarks
     app.state.operators = operators
+
+
+def _install_gateway_adapters(
+    app: FastAPI, connections: Connections | None, community_cache: CommunityCache | None
+) -> None:
+    """Park the AI Gateway-backed ports on the App; a route answers 503 for one that is None."""
+    app.state.connections = connections
+    app.state.community_cache = community_cache
 
 
 def _install_middleware(app: FastAPI, settings: Settings) -> None:
@@ -701,6 +713,8 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     # gateway publishes it (`GET /v1/provider-access`); this Engine owns none of it and refuses
     # every mutation (D15). The provider catalogue describes capability, not what this caller holds.
     connections = build_connections(settings, mutable=False)
+    # FEATURE (OME-1311): the hosted door to the gateway's community-cache pages.
+    community_cache = build_community_cache(settings)
     app = create_app(
         settings,
         stream=stream,
@@ -708,6 +722,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        community_cache=community_cache,
         benchmarks=BUILTIN_BENCHMARKS,
         span_sink=control_plane_span_sink(os.environ),
     )
@@ -726,6 +741,8 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
+    if community_cache is not None:
+        app.router.on_shutdown.append(community_cache.aclose)
     # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(
