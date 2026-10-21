@@ -2,7 +2,7 @@
 
 # FEATURE: PR #1029 review — a Profile-facade OAuth start on a migrated pair RETIRES the `error`
 # row it supersedes (D-R1-1). That retirement is a row write, so it must come AFTER the marker,
-# like every other authority writer (marker → index → connection row → blob).
+# like every other authority writer (marker → connection row → blob since OME-1209 E4b).
 # INVARIANT (D14): whoever holds the marker row decides; the other writer re-evaluates its
 # `WHERE generation = <stale>` to zero rows and answers 409. Revoking the row BEFORE the marker
 # would invert the order against a native key replacement (marker, then row) and deadlock.
@@ -89,17 +89,17 @@ def test_two_concurrent_deletes_of_rows_sharing_a_blob_leave_no_orphan_on_postgr
     real = oauth_routes.credential_has_other_owner
     calls = {"n": 0}
 
-    async def check(app: Any, connection: Any) -> bool:
+    async def check(connection: Any) -> bool:
         calls["n"] += 1
         if calls["n"] == 1:
             # The first delete has decided while the other row was still live — and holds its txn.
-            result = await real(app, connection)
+            result = await real(connection)
             held.set()
             if not await asyncio.to_thread(release.wait, 20):
                 raise TimeoutError("the first delete was never released")
             return result
         attempted.set()
-        return await real(app, connection)
+        return await real(connection)
 
     monkeypatch.setattr(oauth_routes, "credential_has_other_owner", check)
 

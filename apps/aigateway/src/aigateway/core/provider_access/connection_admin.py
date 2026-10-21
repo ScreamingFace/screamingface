@@ -3,29 +3,23 @@
 # FEATURE: OME-1138 D18 — the admin PUT (`pair_admin_writes.set_pair_api_key`) lands an API key on
 # the pair's Connection through `publish_api_key`; a pair captured as `none` is adopted (the G1
 # bridge).
-# INVARIANT (design card, one lock/CAS order): marker advance → index row CAS → Connection row →
-# blob, inside ONE transaction. The marker's generation CAS is the fence: a writer that observed a
-# stale generation changes nothing and surfaces `WriteConflict("superseded", subject="connection")`.
-# INVARIANT (D16 (a), D5): the legacy document is rewritten as a faithful MIRROR of what a Profile
-# would hold, so an R1 rollback (marker reset, blobs kept) serves the same credential from the
-# legacy path. The document is never read as authority.
+# INVARIANT (design card, one lock/CAS order): marker advance → Connection row → blob, inside ONE
+# transaction. The marker's generation CAS is the fence: a writer that observed a stale generation
+# changes nothing and surfaces `WriteConflict("superseded", subject="connection")`.
+# WHY no compat-document mirror (OME-1209 E4b): no runtime path writes a Profile document. A pair
+# changed after E4b is not coherent for an R1 rollback (spec §8 Q7).
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 from tortoise.transactions import in_transaction
 
-from ..credential_blob.store import CredentialBlobMutationConflict
-from ..credential_names import profile_id_for
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, credential_locator_for
 from ..plugin_base import credential_service_provider_for
-from ..profile_index import ProfileTransitionConflict
-from ..profile_models import Profile, ProfileState
 from . import profile_admin
 from .connection_locator import credential_name_from_locator
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
@@ -37,33 +31,6 @@ from .types import UnsupportedAuthMode, WriteConflict
 # authority never needs a label-conflict path.
 _API_KEY_LABEL = "api-key-{id}"
 _ERROR_PLACEHOLDER = "error:"
-
-
-def api_key_mirror(
-    document: Profile | None,
-    *,
-    account_id: str,
-    provider: str,
-    name: str,
-    raw_api_key: str,
-) -> Profile:
-    """The API-key document an R1 rollback must find — the rollback-coherent mirror.
-
-    # INVARIANT (OME-1323, D2): the mirror never writes `defaults` — a document keeps its
-    # historical ones byte-identical, and a new document gets the empty model default.
-    """
-    profile = document or Profile(
-        id=profile_id_for(account_id, provider, name),
-        account_id=account_id,
-        provider=provider,
-        name=name,
-    )
-    profile.auth_type = "api_key"
-    profile.state = ProfileState.AUTHENTICATED
-    profile.last_refreshed_at = datetime.now(UTC)
-    profile.account_label = f"API key ····{raw_api_key[-4:]}"
-    profile.scopes = []
-    return profile
 
 
 class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
@@ -84,8 +51,8 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         name: str,
         raw_api_key: str,
         expected_live: frozenset[UUID],
-    ) -> tuple[OAuthConnection, Profile]:
-        """Publish `pair` as `migrated` with an active API-key Connection and its mirror.
+    ) -> OAuthConnection:
+        """Publish `pair` as `migrated` with an active API-key Connection.
 
         `reuse` keeps an existing row (its id and locator); None mints a row on `name`'s Profile
         address. Fenced on `pair.generation`, so a pair captured as `none` is adopted (the G1
@@ -109,15 +76,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
         if strategy is None:
             raise UnsupportedAuthMode("api_key", provider=provider)
 
-        document = await self._index.get(account_id, provider, name)
-        document_observed = document is not None
-        mirror = api_key_mirror(
-            document,
-            account_id=account_id,
-            provider=provider,
-            name=name,
-            raw_api_key=raw_api_key,
-        )
         store = oauth_connection_store(self._app)
         try:
             async with in_transaction():
@@ -144,15 +102,6 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
                 await _require_live(
                     account_id, provider, expected_live | {connection.id}, requested=name
                 )
-                # INVARIANT (OME-307 Unit 3, kept): an observed document publishes conditionally
-                # so a concurrent removal wins; a first mirror is an unconditional create.
-                if document_observed:
-                    await self._index.upsert(mirror, require_present=True)
-                else:
-                    await self._index.upsert(mirror)
-                await self._mirror_siblings(
-                    account_id, provider, name=name, raw_api_key=raw_api_key
-                )
                 if reuse is not None:
                     await _publish_api_key_on(store, reuse, provider=provider, requested=name)
                 await profile_admin.persist_credentials_or_refuse(
@@ -164,39 +113,8 @@ class ConnectionBackedCredentialAdmin(ProfileBackedCredentialAdmin):
             raise WriteConflict(
                 "superseded", subject="connection", provider=provider, requested=name
             ) from exc
-        except ProfileTransitionConflict as exc:
-            raise WriteConflict(
-                "superseded", subject="profile", provider=provider, requested=name
-            ) from exc
-        except CredentialBlobMutationConflict as exc:
-            raise WriteConflict(
-                "retry_exhausted", subject="profile", provider=provider, requested=name
-            ) from exc
         self._invalidate(plugin, credential_name)
-        return connection, mirror
-
-    # --- shared --------------------------------------------------------------------------------
-
-    async def _mirror_siblings(
-        self, account_id: str, provider: str, *, name: str, raw_api_key: str
-    ) -> None:
-        """Every OTHER document of the pair describes the same ONE credential — say so (D-R1-3).
-
-        # WHY: the key lands at the effective row's locator, which may be ANOTHER document's
-        # address (an alias write); that document must read api_key after an R1 rollback, as the
-        # native key route already ensures (`republish_effective_api_key`). Defaults are kept.
-        """
-        for document in await self._index.list(account_id, provider):
-            if document.name == name:
-                continue
-            sibling = api_key_mirror(
-                document,
-                account_id=account_id,
-                provider=provider,
-                name=document.name,
-                raw_api_key=raw_api_key,
-            )
-            await self._index.upsert(sibling, require_present=True)
+        return connection
 
 
 async def live_connection_ids(account_id: str, provider: str) -> frozenset[UUID]:
@@ -253,6 +171,5 @@ async def _publish_api_key_on(
 
 __all__ = [
     "ConnectionBackedCredentialAdmin",
-    "api_key_mirror",
     "live_connection_ids",
 ]

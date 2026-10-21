@@ -26,7 +26,6 @@ from .core.auth.log_filter import (
     RedactProvisioningTokenFilter,
     install_provisioning_token_redaction,
 )
-from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.frozen_copy.headers import published_capture_headers
@@ -39,12 +38,7 @@ from .core.parameter_discovery_cache import (
     SystemMonotonicClock,
 )
 from .core.pending_auth import PendingAuthTable
-from .core.profile_index import ProfileIndexStore
-from .core.provider_access import (
-    ConnectionBackedProviderAccess,
-    SelectorPolicy,
-    bootstrap_under_the_floor,
-)
+from .core.provider_access import ConnectionBackedProviderAccess, SelectorPolicy
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -190,8 +184,8 @@ async def _lifespan(app):
     await init_db(database_url)
     try:
         # Install the encryption-at-rest provider BEFORE any credential read/write.
-        # The JWT-secret bootstrap and provider bootstrap below both go through the
-        # now-encrypting ORMStore, so the active secret store must exist first.
+        # The JWT-secret bootstrap below goes through the now-encrypting ORMStore, so the
+        # active secret store must exist first.
         secret_store = await build_secret_store(
             app.state.settings.secret_provider,
             app.state.settings.secret_key,
@@ -209,36 +203,16 @@ async def _lifespan(app):
         # this keeps its behavior for `jwt` and extends the same treatment to `cloudflare_headers`.
         authenticating = app.state.settings.auth_mode != "disabled"
         if authenticating or app.state.settings.admin_password is not None:
-            # Named `admin_account`, not `admin`: the `admin` ROUTER module is imported at module
-            # scope, and a local of that name shadows it for the rest of this function.
-            admin_account = await ensure_admin_account(app.state.settings.admin_password)
-            bootstrap_account_id = (
-                str(admin_account.id) if authenticating else str(ANONYMOUS_ACCOUNT_ID)
-            )
-        else:
-            bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
+            await ensure_admin_account(app.state.settings.admin_password)
 
-        # Provider startup bootstrap is opt-in.
-        # By default the gateway boots with an empty profile index so the user
-        # explicitly authenticates via the UI rather than seeing a "default"
-        # profile they did not authorize through the gateway.
-        #
-        # Bootstrap uses the same DB-backed store as normal runtime credentials.
+        # WHY a warning, not an import (OME-1209 E4b): the opt-in Claude Code import seeded a
+        # legacy Profile, and no runtime path writes one any more. A provider is connected
+        # through the UI, so a deployment that still sets the flag learns it does nothing.
         if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
-            for plugin in app.state.providers.all():
-                try:
-                    # FEATURE (OME-1497, G0): the import is a legacy writer on its pair.
-                    await bootstrap_under_the_floor(
-                        plugin,
-                        account_id=bootstrap_account_id,
-                        credential_store=credential_store,
-                        index_store=app.state.profile_index,
-                    )
-                except Exception:
-                    logger.exception(
-                        "bootstrap failed for provider %s; gateway will continue",
-                        plugin.custom_llm_provider,
-                    )
+            logger.warning(
+                "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE is set, but the Claude Code credential "
+                "import is retired; connect the provider through the UI instead"
+            )
 
         # OME-303 U3: ONE app-lifetime observed LiteLLM handler. App-lifetime, not
         # per-request, so connection pooling and the default aiohttp transport are
@@ -437,7 +411,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # in e2e harnesses. Credential storage itself is always DB-backed.
     credential_store = ORMStore()
     app.state.credential_store = credential_store
-    app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
     # OME-1394: the selector sunset is configured once; HTTP boundaries consume this policy through
     # ``selector_from_request`` and provider-access implementations never inspect it.
     app.state.selector_policy = SelectorPolicy.REJECT_EXPLICIT

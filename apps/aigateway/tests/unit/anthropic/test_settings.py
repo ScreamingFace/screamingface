@@ -14,7 +14,6 @@ def _clear_anthropic_env(monkeypatch) -> None:
 
 def test_anthropic_settings_defaults_preserve_current_values(monkeypatch) -> None:
     _clear_anthropic_env(monkeypatch)
-    monkeypatch.setenv("USER", "alice")
 
     settings = AnthropicPluginSettings()
 
@@ -33,9 +32,7 @@ def test_anthropic_settings_defaults_preserve_current_values(monkeypatch) -> Non
     assert settings.authorize_extra_params == {"code": "true"}
     assert settings.api_version == "2023-06-01"
     assert "oauth-2025-04-20" in settings.beta
-    assert settings.claude_code_keychain_service == "Claude Code-credentials"
     assert settings.keychain_account == "default"
-    assert settings.bootstrap_user == "alice"
     assert [model.model_name for model in settings.models] == [
         "claude-opus-5",
         "claude-opus-4-8",
@@ -90,6 +87,8 @@ def test_anthropic_settings_env_overrides(monkeypatch) -> None:
         "AIGW_ANTHROPIC_MODELS",
         '[{"model_name":"claude-env","litellm_params":{"model":"anthropic/claude-env"}}]',
     )
+    # WHY still set (OME-1209 E4b): a deployment's leftover variables for the retired Claude Code
+    # import are ignored, never a startup error.
     monkeypatch.setenv("AIGW_ANTHROPIC_CLAUDE_CODE_KEYCHAIN_SERVICE", "CC Env")
     monkeypatch.setenv("AIGW_ANTHROPIC_KEYCHAIN_ACCOUNT", "account-env")
     monkeypatch.setenv("AIGW_ANTHROPIC_BOOTSTRAP_USER", "bootstrap-env")
@@ -108,9 +107,7 @@ def test_anthropic_settings_env_overrides(monkeypatch) -> None:
     assert settings.models == [
         ModelEntry(model_name="claude-env", litellm_params={"model": "anthropic/claude-env"})
     ]
-    assert settings.claude_code_keychain_service == "CC Env"
     assert settings.keychain_account == "account-env"
-    assert settings.bootstrap_user == "bootstrap-env"
 
 
 def test_anthropic_settings_constructor_overrides_env(monkeypatch) -> None:

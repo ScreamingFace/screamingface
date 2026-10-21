@@ -6,6 +6,6 @@ Connection is the empty pair, and DELETE on it writes nothing.
 
 Successors:
 - `test_pair_admin_connection_only.py::test_delete_leaves_a_profile_only_pair_untouched`;
-- the shared-address guard: `test_pair_admin_publication.py::`
-  `test_only_a_live_connection_at_the_profile_address_keeps_the_legacy_blob`.
+- the shared-address guard: `test_connection_backed_shared_addresses.py::`
+  `test_deleting_an_errored_sibling_keeps_the_blob_the_effective_row_serves`.
 """

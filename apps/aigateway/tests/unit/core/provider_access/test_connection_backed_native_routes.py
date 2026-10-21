@@ -4,7 +4,7 @@
 # `credential_locator` (the Profile blob) by EVERY path: refresh and token read/write THAT blob,
 # key replacement writes it, delete evicts under its name (SF-282). The two authority-changing
 # writes keep the pair coherent: delete retires the pair (op 9 shape), key replacement fences the
-# generation and mirrors the compat document (op 8 shape).
+# generation (op 8 shape). Since OME-1209 E4b neither writes or removes a compat document.
 # INVARIANT (D-S2b4-6): creating a SECOND Connection on a migrated provider never moves the
 # marker — no silent authority change, no guessing between two credentials.
 # AIDEV-NOTE: a stray (never-effective) row of a migrated pair is a plain Connection; the
@@ -44,7 +44,6 @@ from aigateway.core.api_key_validation import (
 )
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_index import ProfileTransitionConflict
 from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -187,6 +186,7 @@ def test_deleting_the_effective_row_retires_the_pair(migrated) -> None:
     h = migrated
     h.seed_profile()
     effective = h.migrated["default"]
+    before = document(h)
 
     resp = delete(h, effective)
 
@@ -199,7 +199,9 @@ def test_deleting_the_effective_row_retires_the_pair(migrated) -> None:
         None,
         2,
     )
-    assert document(h) is None
+    # WHY the document stays (OME-1209 E4b): the native delete removes no document; E5 does.
+    assert before is not None
+    assert document(h) == before
     assert h.profile_state() is None
     assert locator_name(h) in h.evicted()
 
@@ -237,14 +239,17 @@ def test_deleting_the_effective_row_loses_to_a_racing_authority_change(migrated)
     assert marker(h).generation == 1
 
 
-# --- api-key replacement: fence + mirror ------------------------------------------------------
+# --- api-key replacement: fence, no mirror ---------------------------------------------------
 
 
-def test_replacing_the_key_on_the_effective_row_fences_the_pair_and_mirrors(migrated) -> None:
+def test_replacing_the_key_on_the_effective_row_fences_the_pair_and_mirrors_nothing(
+    migrated,
+) -> None:
     h = migrated
     accept_keys(h)
     h.seed_profile(auth_type="api_key", credential=OLD_KEY)
     effective = h.migrated["default"]
+    before = document(h)
 
     resp = put_key(h, effective)
 
@@ -255,13 +260,9 @@ def test_replacing_the_key_on_the_effective_row_fences_the_pair_and_mirrors(migr
     assert blob_at_connection_address(h, effective) is None
     pair = marker(h)
     assert (str(pair.effective_connection_id), pair.generation) == (effective, 2)
-    doc = document(h)
-    assert doc is not None
-    assert (doc.auth_type, doc.state, doc.account_label) == (
-        "api_key",
-        ProfileState.AUTHENTICATED,
-        f"API key ····{KEY[-4:]}",
-    )
+    # WHY unchanged (OME-1209 E4b): the replacement mirrors nothing onto the document.
+    assert before is not None
+    assert document(h) == before
     assert locator_name(h) in h.evicted()
     assert h.profile_state() == "authenticated"
 
@@ -404,22 +405,7 @@ def test_deleting_the_effective_row_of_a_documentless_pair_retires_it(migrated) 
     assert document(h) is None
 
 
-def test_replacing_the_key_loses_when_the_document_vanishes_in_the_window(migrated) -> None:
-    h = migrated
-    accept_keys(h)
-    h.seed_profile(auth_type="api_key", credential=OLD_KEY)
-    effective = h.migrated["default"]
-
-    async def vanished(*_args: Any, **_kwargs: Any) -> Any:
-        raise ProfileTransitionConflict("profile was concurrently deleted")
-
-    h.monkeypatch.setattr(h.client.app.state.profile_index, "upsert", vanished)
-
-    resp = put_key(h, effective)
-
-    assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["code"] == "connection_conflict"
-    assert api_key_of(blob_at_profile_address(h)) == OLD_KEY
-    assert connection(h, effective).status == "active"
-    # INVARIANT: one transaction — the marker advance rolled back with the failed mirror.
-    assert marker(h).generation == 1
+# WHY no "document vanished in the window" test (OME-1209 E4b): the key replacement writes no
+# document, so there is no mirror to lose. The fence is pinned above and in
+# `test_no_profile_writer.py::
+# test_a_native_key_replacement_fences_the_pair_and_mirrors_no_document`.

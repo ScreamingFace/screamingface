@@ -6,8 +6,8 @@
 # INVARIANT: `claim_pair` re-publishes exactly the observed authority (state, effective reference,
 # note) one generation later — it fences, it never changes the owner. `hold_pair` checks the
 # observed generation under the marker row lock and never advances it.
-# AIDEV-NOTE: call both inside the caller's `in_transaction()`, as the FIRST write, so the claim
-# commits or rolls back with the data it fences (marker → index → row → blob). A lost claim is
+# INVARIANT: call both inside the caller's `in_transaction()`, as the FIRST write, so the claim
+# commits or rolls back with the data it fences (marker → row → blob). A lost claim is
 # `PairAuthorityConflict`; under PostgreSQL the transaction is aborted by then, so callers catch it
 # outside the `async with`.
 """
@@ -29,10 +29,6 @@ from .pair_authority import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class _NothingImported(Exception):
-    """Rolls a startup import's claim back: an import that published nothing changed no owner."""
 
 
 def fences_writer(pair: PairAuthority) -> bool:
@@ -149,40 +145,7 @@ async def mark_error_checked(
         )
 
 
-async def bootstrap_under_the_floor(
-    plugin: Any, *, account_id: str, credential_store: Any, index_store: Any
-) -> None:
-    """Run a provider's opt-in startup import as a legacy writer on its pair (§5.3 inventory).
-
-    # WHY skip `migrated`: the pair's Connection owns the Profile address (D5) — an import there
-    # would overwrite or shadow the effective credential.
-    # WHY roll back an empty import: most providers import nothing; moving their generation on
-    # every start would supersede flows in flight on other replicas and mint marker rows.
-    # AIDEV-NOTE: the plugin writes through the app's Tortoise-backed stores, so its index and
-    # blob writes commit or roll back with the claim (marker first).
-    """
-    provider = plugin.custom_llm_provider
-    pair = await PairAuthorityStore().read(account_id, provider)
-    if not fences_writer(pair):
-        logger.info("bootstrap: skipping %s, its pair is owned by a Connection", provider)
-        return
-    try:
-        async with in_transaction():
-            await claim_pair(pair)
-            before = await index_store.list(account_id, provider)
-            await plugin.bootstrap_profiles(
-                account_id=account_id,
-                credential_store=credential_store,
-                index_store=index_store,
-            )
-            if await index_store.list(account_id, provider) == before:
-                raise _NothingImported
-    except _NothingImported:
-        return
-
-
 __all__ = [
-    "bootstrap_under_the_floor",
     "check_observed",
     "claim_observed",
     "claim_pair",

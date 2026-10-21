@@ -7,9 +7,11 @@
 # STORY: as an operator, I attach a key to a tenant's provider, or disconnect it, without knowing
 # whether the tenant's credential is still a legacy Profile or already a Connection.
 # INVARIANT (§5.3): the pair is captured AFTER the key validation and every write is fenced on the
-# captured generation — marker → index → row → blob in one transaction. A stale mutation is never
+# captured generation — marker → row → blob in one transaction. A stale mutation is never
 # retried on a freshly read generation; it surfaces as `WriteConflict("superseded")`.
 # INVARIANT: a refused mutation (rows 3, 4, 11; an inconsistency; a lost fence) writes nothing.
+# WHY no Profile document (OME-1209 E4b): neither mutation writes, removes or reads one; a document
+# left behind, and a blob at its address, stay until E5.
 """
 
 from __future__ import annotations
@@ -22,14 +24,10 @@ from uuid import UUID
 
 from tortoise.transactions import in_transaction
 
-from ..credential_blob.store import CredentialBlobMutationConflict
-from ..credential_names import credential_name_for
 from ..credential_strategy_cache import credential_strategy_cache
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, ensure_anonymous_account
 from ..plugin_base import credential_service_provider_for
-from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import Profile
 from ..storage_outages import STORAGE_OUTAGES
 from .connection_admin import ConnectionBackedCredentialAdmin, live_connection_ids
 from .connection_native import credential_has_other_owner, credential_name_of, lock_lower_addressers
@@ -58,8 +56,8 @@ _NOTHING_TO_DELETE = (6, 7)
 class PairMutation:
     """What a committed mutation changed — for the response and the post-commit cleanup.
 
-    `profile_names` and `connection_ids` are the pair's captured targets (§5.2): the pending OAuth
-    flows to drop are exactly the ones naming them.
+    `connection_ids` is the pair's captured Connection and `profile_names` the name a PUT minted
+    its row at (§5.2): the pending OAuth flows to drop are exactly the ones naming them.
     """
 
     credential: PairCredential | None
@@ -89,7 +87,6 @@ async def set_pair_api_key(
     await validate()
     capture = await _capture(app, account_id, provider)
     disposition = capture.disposition
-    name = await _mirror_name(app, account_id, provider)
     marker = disposition.marker
     admin = ConnectionBackedCredentialAdmin(app)
     if marker.generation == UNMARKED_GENERATION:
@@ -97,70 +94,45 @@ async def set_pair_api_key(
         with _store_writes("update"):
             await ensure_anonymous_account(account_id)
     with _store_writes("update"):
-        connection, mirror = await admin.publish_api_key(
+        connection = await admin.publish_api_key(
             account_id,
             provider,
             capture.plugin,
             pair=marker,
             reuse=disposition.connection,
-            name=name,
+            name=DEFAULT_LEGACY_NAME,
             raw_api_key=raw_api_key,
             expected_live=capture.live,
         )
-    return PairMutation(connection_credential(connection), (mirror.name,), _ids(disposition))
-
-
-async def _mirror_name(app: Any, account_id: str, provider: str) -> str:
-    """The compatibility mirror's name: a pair's one legacy document keeps its own (§5.2).
-
-    # WHY a document read in a PUT that classifies without documents (OME-1209 E4a): it only
-    # names the mirror write, and both go at E4b. A second `default` document beside the pair's
-    # one would put the pair in row 3 for a pre-E4 build and make the R1 rollback refuse it.
-    # With no document, or several, the row-7 rule names the mirror `default`.
-    """
-    index: ProfileIndexStore = app.state.profile_index
-    with store_reads():
-        documents = await index.list(account_id, provider=provider)
-    return documents[0].name if len(documents) == 1 else DEFAULT_LEGACY_NAME
+    return PairMutation(
+        connection_credential(connection), (DEFAULT_LEGACY_NAME,), _ids(disposition)
+    )
 
 
 async def delete_pair(app: Any, account_id: str, provider: str) -> PairMutation:
-    """DELETE: the pair ends `migrated` with no effective Connection, its blob and no document.
-
-    # WHY no Profile blob delete (OME-1209 E4a): no document takes part in the table, so a blob
-    # at a document's address is never the pair's to remove; it stays until E5.
-    """
+    """DELETE: the pair ends `migrated` with no effective Connection and without its blob."""
     capture = await _capture(app, account_id, provider)
     disposition = capture.disposition
     if disposition.row in _NOTHING_TO_DELETE:
         # WHY no write: repeating a delete is a success, and an empty pair gets no marker (row 7).
         return PairMutation(None)
-    index: ProfileIndexStore = app.state.profile_index
-    with store_reads():
-        documents = await index.list(account_id, provider=provider)
     evicted: list[str] = []
     try:
         with _store_writes("delete"):
-            await _delete_in_transaction(app, capture, documents, evicted)
-    except (PairAuthorityConflict, ProfileTransitionConflict) as exc:
+            await _delete_in_transaction(app, capture, evicted)
+    except PairAuthorityConflict as exc:
         raise _superseded(provider) from exc
-    except CredentialBlobMutationConflict as exc:
-        raise WriteConflict("retry_exhausted", subject="profile", provider=provider) from exc
-    evicted.extend(credential_name_for(account_id, d.name) for d in documents)
-    for credential_name in dict.fromkeys(evicted):
+    for credential_name in evicted:
         invalidate_session(capture.plugin, credential_name)
         credential_strategy_cache(app).evict(credential_name)
-    return PairMutation(None, tuple(sorted(d.name for d in documents)), _ids(disposition))
+    return PairMutation(None, (), _ids(disposition))
 
 
-async def _delete_in_transaction(
-    app: Any, capture: _Capture, documents: list[Profile], evicted: list[str]
-) -> None:
-    """The DELETE's one transaction: marker → index → row → blob (§5.3 lock order)."""
+async def _delete_in_transaction(app: Any, capture: _Capture, evicted: list[str]) -> None:
+    """The DELETE's one transaction: marker → row → blob (§5.3 lock order)."""
     disposition = capture.disposition
     marker = disposition.marker
     account_id, provider = marker.account_id, marker.provider
-    index: ProfileIndexStore = app.state.profile_index
     connection = disposition.connection
     async with in_transaction():
         if marker.generation == UNMARKED_GENERATION:
@@ -174,8 +146,6 @@ async def _delete_in_transaction(
         )
         if await live_connection_ids(account_id, provider) != capture.live:
             raise _superseded(provider)
-        for document in documents:
-            await index.remove(document.id)
         if connection is not None:
             evicted.append(await _retire_connection(app, capture.plugin, connection, account_id))
 
@@ -223,7 +193,7 @@ async def _retire_connection(
     """Revoke the pair's Connection and drop its blob unless another live owner serves it."""
     await lock_lower_addressers(connection)
     await OAuthConnectionStore().mark_revoked(connection)
-    if not await credential_has_other_owner(app, connection):
+    if not await credential_has_other_owner(connection):
         locator = connection.credential_locator
         await app.state.credential_store.delete(locator["service"], locator["account"])
     return credential_name_of(plugin, connection, account_id=account_id)

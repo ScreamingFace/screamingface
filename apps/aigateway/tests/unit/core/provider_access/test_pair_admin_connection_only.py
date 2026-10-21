@@ -7,8 +7,8 @@
 # Profile document beside it neither shows up nor changes which row the pair is in.
 # INVARIANT: LIST and the mutation capture read no Profile document; row 11 is refused exactly
 # like row 4, with no identity proof; a Profile-only pair is the empty pair.
-# INVARIANT (§5.2, until E4b): the PUT still names its compatibility mirror after the pair's one
-# document, so a pair never gains a second document.
+# WHY no mirror (OME-1209 E4b): the PUT names no compatibility document any more; the pair's
+# one document, if any, stays as it was until E5.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
+from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     MigrationState,
@@ -55,9 +56,8 @@ def h(authenticated_client: Any, credential_blobs: Any, monkeypatch: Any) -> Pro
 
 @pytest.fixture
 def index_reads(h: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Every read of the wired Profile index, by method name, in order."""
+    """Every read of a Profile index, by method name, in order."""
     reads: list[str] = []
-    index = h.client.app.state.profile_index
 
     def spy(name: str, real: Callable[..., Coroutine[Any, Any, Any]]) -> Any:
         async def read(*args: Any, **kwargs: Any) -> Any:
@@ -66,8 +66,10 @@ def index_reads(h: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch) -> lis
 
         return read
 
+    # WHY the class (OME-1209 E4b): the app wires no index, so a read could only come through a
+    # store built on the spot; the class sees every one.
     for name in ("get", "list"):
-        monkeypatch.setattr(index, name, spy(name, getattr(index, name)))
+        monkeypatch.setattr(ProfileIndexStore, name, spy(name, getattr(ProfileIndexStore, name)))
     return reads
 
 
@@ -154,7 +156,8 @@ def _live(h: ProfileBackedHarness) -> list[dict[str, Any]]:
 
 
 def _documents(h: ProfileBackedHarness) -> list[str]:
-    return sorted(d.name for d in h.call(h.client.app.state.profile_index.list, h.account_id))
+    index = ProfileIndexStore(credential_store=h.client.app.state.credential_store)
+    return sorted(d.name for d in h.call(index.list, h.account_id))
 
 
 # --- the table ---------------------------------------------------------------------------------
@@ -242,11 +245,11 @@ def test_put_adopts_the_one_connection_of_a_none_pair_beside_a_profile(
     )
 
 
-def test_put_on_a_migrated_pair_keeps_its_one_document_as_the_mirror(
+def test_put_on_a_migrated_pair_keeps_its_row_and_mirrors_no_document(
     h: ProfileBackedHarness,
 ) -> None:
-    # The backfill's shape: the effective Connection sits at the `work` document's address. A
-    # second `default` mirror would put the pair in row 3 for a pre-E4 build (D18 §5.2).
+    # The backfill's shape: the effective Connection sits at the `work` document's address.
+    # WHY `default` in `profile_names` (OME-1209 E4b): the PUT reads no document to name it by.
     h.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
     effective = seed_migrated_pair(
         h.client, h.account_id, PROVIDER, name="work", auth_type="api_key"
@@ -259,7 +262,7 @@ def test_put_on_a_migrated_pair_keeps_its_one_document_as_the_mirror(
     assert _blob(h, _address(h, "work")) == NEW_KEY
     assert _blob(h, _address(h, "default")) is None
     assert _documents(h) == ["work"]
-    assert mutation.profile_names == ("work",)
+    assert mutation.profile_names == ("default",)
     assert _inventory(h).conflicts == ()
 
 

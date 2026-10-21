@@ -1,10 +1,10 @@
 """A migrated pair's delete (OME-1208, S2'b1).
 
 # FEATURE: OME-1138 Stage B (D14) — a migrated pair's delete clears the marker's effective
-# reference, removes the compat document, revokes the Connection and deletes the ONE blob, in
-# that order and one transaction. Since OME-1209 E3b both writes run through the D18 admin PUT
-# and DELETE (`set_pair_api_key`, `delete_pair`); the Profile-era ops 7-9 retired with their
-# routes.
+# reference, revokes the Connection and deletes the ONE blob, in that order and one transaction;
+# since OME-1209 E4b it leaves a compat document as it was. Since OME-1209 E3b both writes run
+# through the D18 admin PUT and DELETE (`set_pair_api_key`, `delete_pair`); the Profile-era ops
+# 7-9 retired with their routes.
 # WHY no rollback test: the D5 R1 legacy Profile reader retired at OME-1209 Stage E4a (spec §9
 # Q10); a reset `none` pair resolves its Connection instead — test_connection_only_resolve.py::
 # test_a_none_pair_resolves_its_connection_even_beside_a_profile_document.
@@ -41,10 +41,13 @@ def test_delete_revokes_the_effective_connection_and_clears_the_reference(
 ) -> None:
     migrated.seed_document(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
+    before = document(migrated)
 
     delete(migrated)
 
-    assert document(migrated) is None
+    # WHY the document stays (OME-1209 E4b): the DELETE removes no document; E5 does.
+    assert before is not None
+    assert document(migrated) == before
     assert blob_at_profile_address(migrated) is None
     assert connection(migrated, connection_id).status == "revoked"
     pair = marker(migrated)

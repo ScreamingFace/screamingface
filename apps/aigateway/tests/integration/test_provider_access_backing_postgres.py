@@ -33,6 +33,7 @@ from aigateway.core.auth_types import AuthType
 from aigateway.core.credential_names import credential_name_for, profile_id_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
+from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access.models import ProviderCredentialSlot
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
@@ -57,6 +58,12 @@ def _app(client: TestClient) -> FastAPI:
     if not isinstance(app, FastAPI):
         raise AssertionError("TestClient is not running the expected FastAPI app")
     return app
+
+
+def _index(app: FastAPI) -> ProfileIndexStore:
+    # WHY a store built here (OME-1209 E4b): the app wires no Profile index; this one reads and
+    # writes the same index blob through the app's credential store.
+    return ProfileIndexStore(credential_store=app.state.credential_store)
 
 
 def _call(
@@ -112,8 +119,8 @@ async def _reset_pair(app: FastAPI, account_id: str) -> None:
     """The shared admin account starts every test with NO authority for the anthropic pair."""
     await ProviderCredentialSlot.filter(account_id=account_id, provider=PROVIDER).delete()
     await OAuthConnection.filter(account_id=account_id, provider=PROVIDER).delete()
-    for document in await app.state.profile_index.list(account_id, provider=PROVIDER):
-        await app.state.profile_index.remove(document.id)
+    for document in await _index(app).list(account_id, provider=PROVIDER):
+        await _index(app).remove(document.id)
 
 
 async def _seed_migrated_pair(
@@ -123,7 +130,7 @@ async def _seed_migrated_pair(
     await app.state.credential_store.write(
         credential_service_for(credential_name_for(account_id, name)), "default", blob
     )
-    await app.state.profile_index.upsert(
+    await _index(app).upsert(
         Profile(
             id=profile_id_for(account_id, PROVIDER, name),
             account_id=account_id,
@@ -166,7 +173,7 @@ def _connection(client: TestClient, account_id: str, connection_id: UUID | str) 
 
 
 def _document(client: TestClient, account_id: str, name: str) -> Profile | None:
-    return _call(client, _app(client).state.profile_index.get, account_id, PROVIDER, name)
+    return _call(client, _index(_app(client)).get, account_id, PROVIDER, name)
 
 
 def _profile_blob(client: TestClient, account_id: str, name: str) -> str | None:

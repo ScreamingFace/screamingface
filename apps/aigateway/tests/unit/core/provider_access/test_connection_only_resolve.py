@@ -23,6 +23,7 @@ from provider_access_harness import ANTHROPIC, PROVIDER
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore
+from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     MigrationState,
@@ -58,9 +59,8 @@ def h(
 
 @pytest.fixture
 def index_reads(h: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Every read of the wired Profile index, by method name, in order."""
+    """Every read of a Profile index, by method name, in order."""
     reads: list[str] = []
-    index = h.client.app.state.profile_index
 
     def spy(name: str, real: Callable[..., Coroutine[Any, Any, Any]]) -> Any:
         async def read(*args: Any, **kwargs: Any) -> Any:
@@ -69,8 +69,10 @@ def index_reads(h: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch) -> 
 
         return read
 
+    # WHY the class (OME-1209 E4b): the app wires no index, so a read could only come through a
+    # store built on the spot; the class sees every one.
     for name in ("get", "list"):
-        monkeypatch.setattr(index, name, spy(name, getattr(index, name)))
+        monkeypatch.setattr(ProfileIndexStore, name, spy(name, getattr(ProfileIndexStore, name)))
     return reads
 
 

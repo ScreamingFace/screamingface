@@ -95,7 +95,7 @@ async def _seed_legacy_profile(app: Any, account_id: str, name: str) -> None:
         "default",
         backing._api_key_blob(LEGACY_KEY),
     )
-    await app.state.profile_index.upsert(
+    await backing._index(app).upsert(
         Profile(
             id=profile_id_for(account_id, PROVIDER, name),
             account_id=account_id,
@@ -200,5 +200,6 @@ def test_a_bridge_put_and_delete_on_a_sole_profile_commit_exactly_one_on_postgre
         # INVARIANT: the stale PUT never resurrects the credential the DELETE removed.
         assert pair.effective_connection_id is None
         assert _live(pg_client, account_id) == []
-        assert backing._document(pg_client, account_id, name) is None
+        # WHY the document survives (OME-1209 E4b): the DELETE removes no document; E5 does.
+        assert backing._document(pg_client, account_id, name) is not None
         assert _blob(pg_client, account_id, name) is None
