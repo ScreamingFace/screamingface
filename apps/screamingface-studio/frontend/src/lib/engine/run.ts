@@ -231,7 +231,9 @@ function parseResult(body: string): CandidateResult {
   if (!checked.ok) {
     throw new RunError(
       "invalid_result",
-      `The Engine's result has an invalid \`${checked.field}\`.`,
+      checked.rule
+        ? `The Engine's result has an invalid \`${checked.field}\`: ${checked.rule}.`
+        : `The Engine's result has an invalid \`${checked.field}\`.`,
       "invalid_result",
     );
   }
@@ -272,6 +274,36 @@ async function withDeadline<T>(
     deps.clearTimeout(timer);
     cancelOn?.removeEventListener("abort", onCancel);
   }
+}
+
+// One absolute deadline shared by several steps (a request and then its body): each `wait`
+// races its step against whatever is left of `ms`, and optionally against a caller's abort.
+// `signal` aborts when the time runs out, so the request and its body stream stop too.
+function budget(deps: RunDeps, ms: number) {
+  const controller = new AbortController();
+  let timer: unknown;
+  const expired = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = deps.setTimeout(() => {
+      resolve(TIMED_OUT);
+      controller.abort();
+    }, ms);
+  });
+  return {
+    signal: controller.signal,
+    wait<T>(next: () => Promise<T>, cancelOn?: AbortSignal): Promise<T | typeof TIMED_OUT> {
+      const attempt = next();
+      // Once time runs out, the aborted step's own rejection is expected and unobserved.
+      attempt.catch(() => undefined);
+      const cancelled = new Promise<typeof TIMED_OUT>((resolve) => {
+        if (cancelOn?.aborted) resolve(TIMED_OUT);
+        cancelOn?.addEventListener("abort", () => resolve(TIMED_OUT), { once: true });
+      });
+      return Promise.race([attempt, expired, cancelled]);
+    },
+    dispose() {
+      deps.clearTimeout(timer);
+    },
+  };
 }
 
 // The most of an error body Studio reads for its problem detail. An Engine problem+json body is
@@ -594,10 +626,20 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
 
     // A start whose answer never came (no answer in time, or a broken connection): the Engine
     // may have accepted it, so stop it over HTTP before settling, and say how that went.
+    //
+    // INVARIANT: this owns the run's outcome from the moment it starts. `closing` is set before
+    // the DELETE is awaited, so a socket close, a silence timer or a stray frame meanwhile cannot
+    // settle the run and leave the DELETE detached. A caller abort still decides the kind.
     async function unansweredStart(detail: string) {
+      closing = true;
+      clear("silence");
+      clear("gap");
       const outcome = await deleteRun();
-      if (abortRequested) return fail(outcome === "stopped" ? "stopped" : "stop_unconfirmed");
-      settle({ error: new RunError("unreachable", detail, undefined, outcome) });
+      if (abortRequested) {
+        settle({ error: new RunError(outcome === "stopped" ? "stopped" : "stop_unconfirmed") });
+      } else {
+        settle({ error: new RunError("unreachable", detail, undefined, outcome) });
+      }
     }
 
     async function begin() {
@@ -605,19 +647,22 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
       const headers: Record<string, string> = { ...capability, Prefer: "respond-async" };
       if (!useCache) headers["Cache-Control"] = "no-store";
       for (let attempt = 0; ; attempt += 1) {
+        // The start's 30 s covers the answer AND, for a refusal, its whole diagnostic body.
+        const window = budget(deps, REQUEST_DEADLINE_MS);
         let response: Response | typeof TIMED_OUT;
         try {
-          response = await withDeadline(deps, REQUEST_DEADLINE_MS, (deadline) =>
+          response = await window.wait(() =>
             deps.fetch(`${origin}/?q=${encodeURIComponent(linked)}`, {
               method: "GET",
               headers,
               cache: "no-store",
               // A capability never follows a redirect off the Engine.
               redirect: "error",
-              signal: deadline,
+              signal: window.signal,
             }),
           );
         } catch {
+          window.dispose();
           // The request went out: the Engine may have accepted the run before the connection
           // failed, so treat it like an unanswered start.
           if (settled || closing) {
@@ -627,24 +672,30 @@ function runOnSocket(run: SocketRun): Promise<CandidateResult> {
           return unansweredStart("The connection broke before the Engine answered the run's start.");
         }
         if (settled || closing) {
+          window.dispose();
           // Accepted after Studio already gave up on this run: stop it rather than orphan it.
           if (response !== TIMED_OUT && response.status === 202) void deleteRun();
           return;
         }
         if (response === TIMED_OUT) {
+          window.dispose();
           return unansweredStart("The Engine did not answer the run's start within 30 seconds.");
         }
         if (response.status === 202) {
+          window.dispose();
           started = true;
           starting = false;
           // Accepted after the user aborted: stop the run that just began.
           if (abortRequested) requestStop();
           return;
         }
-        if (abortRequested) return fail("stopped");
-        const detail = await boundedProblemDetail(response, (next) =>
-          withDeadline(deps, REQUEST_DEADLINE_MS, () => next(), signal),
-        );
+        if (abortRequested) {
+          window.dispose();
+          return fail("stopped");
+        }
+        // What is left of the start's budget bounds the whole body; a caller abort ends it too.
+        const detail = await boundedProblemDetail(response, (next) => window.wait(next, signal));
+        window.dispose();
         if (settled) return;
         if (abortRequested) return fail("stopped");
         const registering =

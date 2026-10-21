@@ -68,6 +68,7 @@ import {
   type FusionNode,
   type PipelineNode,
   type RecipeKind,
+  type RecipeIssue,
   type RecipeNode,
   type SoloNode,
   collectSolos,
@@ -1003,6 +1004,7 @@ function RunsPanel({
   slots,
   judge,
   runs,
+  issues,
   onComplete,
   onPublish,
   ensembleName,
@@ -1011,6 +1013,8 @@ function RunsPanel({
   slots: Slot[];
   judge: Slot | null;
   runs: SavedRun[];
+  // What keeps the recipe from compiling; a run is not offered until it is empty.
+  issues: RecipeIssue[];
   onComplete: (run: SavedRun) => void;
   onPublish: (run: SavedRun) => void;
   ensembleName: string;
@@ -1181,7 +1185,7 @@ function RunsPanel({
             </div>
             <Button
               size="sm"
-              disabled={slots.length === 0}
+              disabled={slots.length === 0 || issues.length > 0}
               onClick={() => setMode("new")}
             >
               <Play className="size-3.5" />
@@ -1591,9 +1595,19 @@ function RunsPanel({
         </div>
 
         <div className="mt-8">
+          {issues.length > 0 && !running && (
+            <div role="alert" className="mb-3 text-xs text-destructive">
+              <p>Fix the recipe before running:</p>
+              <ul className="mt-1 list-disc pl-4">
+                {issues.map((issue, index) => (
+                  <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {!running ? (
             <Button
-              disabled={slots.length === 0 || !runnable || customEmpty}
+              disabled={slots.length === 0 || !runnable || customEmpty || issues.length > 0}
               className="rounded-xl"
               onClick={startRun}
             >
@@ -2694,6 +2708,7 @@ function EnsembleComposer() {
             <div>
               <Button
                 className="w-full rounded-xl"
+                disabled={!rendered.ok}
                 onClick={() => setTab("runs")}
               >
                 Next: Run
@@ -2710,6 +2725,7 @@ function EnsembleComposer() {
           slots={slots}
           judge={judge}
           runs={runHistory}
+          issues={rendered.ok ? [] : rendered.issues}
           ensembleName={name}
           onComplete={completeRun}
           onPublish={publishRun}

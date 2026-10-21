@@ -93,7 +93,7 @@ type EngineRoutes = {
   tokens?: Route[];
   start?: (Route | (() => Promise<Reply>))[];
   artifact?: Route | (() => Promise<Reply>);
-  remove?: Route;
+  remove?: Route | (() => Promise<Reply>);
 };
 
 function fakeEngine(routes: EngineRoutes = {}) {
@@ -1066,7 +1066,7 @@ describe("startRun result contract", () => {
       "failures[0].message",
       (r) =>
         (r.failures = [
-          { stage: "candidate", code: "c", retryable: null, case_id: null, metadata: {} },
+          { stage: "candidate", code: "upstream_error", retryable: null, case_id: null, metadata: {} },
         ]),
     ],
     ["case_count", (r) => (r.case_count = 2)],
@@ -1088,31 +1088,31 @@ describe("startRun result contract", () => {
     ["cases[0].operations[0].accounting", (r) => (r.cases[0].operations[0].accounting = "x")],
     [
       "cases[0].failures[0].stage",
-      (r) => (r.cases[0].failures = [{ code: "c", message: "m" }]),
+      (r) => (r.cases[0].failures = [{ code: "upstream_error", message: "m" }]),
     ],
     [
       "cases[0].failures[0].retryable",
-      (r) => (r.cases[0].failures = [{ stage: "candidate", code: "c", message: "m" }]),
+      (r) => (r.cases[0].failures = [{ stage: "candidate", code: "upstream_error", message: "m" }]),
     ],
     [
       "cases[0].failures[0].case_id",
       (r) =>
         (r.cases[0].failures = [
-          { stage: "candidate", code: "c", message: "m", retryable: false, case_id: 7, metadata: {} },
+          { stage: "candidate", code: "upstream_error", message: "m", retryable: false, case_id: 7, metadata: {} },
         ]),
     ],
     [
       "cases[0].failures[0].metadata",
       (r) =>
         (r.cases[0].failures = [
-          { stage: "candidate", code: "c", message: "m", retryable: null, case_id: 1000 },
+          { stage: "candidate", code: "upstream_error", message: "m", retryable: null, case_id: 1000 },
         ]),
     ],
     [
       "failures[0].case_id",
       (r) =>
         (r.failures = [
-          { stage: "candidate", code: "c", message: "m", retryable: null, case_id: 1000, metadata: {} },
+          { stage: "candidate", code: "upstream_error", message: "m", retryable: null, case_id: 1000, metadata: {} },
         ]),
     ],
   ] as [string, Mutation][])("rejects a result with a bad %s, naming it", async (field, mutate) => {
@@ -1124,6 +1124,8 @@ describe("startRun result contract", () => {
   it("accepts a null score and an ungraded case", async () => {
     const outcome = await resultWith((r) => {
       r.score = null;
+      r.metrics = {};
+      r.coverage = 0;
       r.cases[0].grade = null;
       r.cases[0].output = null;
       r.cases[0].status = "failed";
@@ -1492,5 +1494,248 @@ describe("startRun problem bodies", () => {
     const error = await rejection(outcome);
     expect(error).toMatchObject({ kind: "failed", code: "http_400" });
     expect(error.message.length).toBeLessThan(1024);
+  });
+});
+
+const FAILURE = {
+  stage: "candidate",
+  code: "upstream_error",
+  message: "no profile",
+  retryable: false,
+  case_id: 1000,
+  metadata: {},
+};
+
+describe("startRun result outcome rules (the Engine's producer invariants)", () => {
+  async function resultWith(mutate: Mutation, raw?: (json: string) => string) {
+    const result = structuredClone(frames.candidateResult) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mutate(result);
+    const body = JSON.stringify(result);
+    const { outcome, socket } = await started();
+    socket().receive(
+      ...HAPPY.slice(0, 10),
+      { ...HAPPY[10], data: { body: raw ? raw(body) : body, media_type: "application/json" } },
+      HAPPY[11],
+    );
+    return outcome;
+  }
+
+  function unscored(r: Record<string, any>) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    r.score = null;
+    r.metrics = {};
+    r.coverage = 0;
+    r.cases[0].status = "failed";
+    r.cases[0].grade = null;
+    r.cases[0].failures = [{ ...FAILURE }];
+  }
+
+  it.each([
+    ["a scored case with failures", "cases[0]", (r) => (r.cases[0].failures = [{ ...FAILURE }])],
+    ["a scored case with no grade", "cases[0]", (r) => (r.cases[0].grade = null)],
+    ["a scored case with a null grade score", "cases[0]", (r) => (r.cases[0].grade.score = null)],
+    ["a scored case with both output and refusal", "cases[0]", (r) => (r.cases[0].refusal = "no")],
+    [
+      "a scored case with neither output nor refusal",
+      "cases[0]",
+      (r) => (r.cases[0].output = null),
+    ],
+    [
+      "a failed case without failures",
+      "cases[0]",
+      (r) => {
+        unscored(r);
+        r.cases[0].failures = [];
+        r.failures = [{ ...FAILURE, case_id: null }];
+      },
+    ],
+    [
+      "a failed case with a numeric grade",
+      "cases[0]",
+      (r) => {
+        r.cases[0].status = "failed";
+        r.cases[0].failures = [{ ...FAILURE }];
+      },
+    ],
+    [
+      "a failed case with refusal text but no provider_refusal failure",
+      "cases[0]",
+      (r) => {
+        unscored(r);
+        r.cases[0].output = null;
+        r.cases[0].refusal = "I can't help with that.";
+      },
+    ],
+    ["a null score with a numeric case grade", "score", (r) => {
+      r.score = null;
+      r.metrics = {};
+    }],
+    ["a score with no numeric case grade", "score", (r) => {
+      unscored(r);
+      r.score = 0.5;
+    }],
+    ["an unscored result with metrics", "metrics", (r) => {
+      unscored(r);
+      r.metrics = { accuracy: 0 };
+    }],
+    ["an inconsistent coverage", "coverage", (r) => (r.coverage = 0.5)],
+    ["metrics.coverage", "metrics", (r) => (r.metrics.coverage = 1)],
+    ["a blank case id", "cases[0].case_id", (r) => {
+      r.cases[0].case_id = "  ";
+    }],
+    ["an undeclared failure code", "cases[0].failures[0].code", (r) => {
+      unscored(r);
+      r.cases[0].failures[0].code = "made_up_code";
+    }],
+    ["empty operation accounting", "cases[0].operations[0].accounting.provider", (r) => {
+      r.cases[0].operations[0].accounting = {};
+    }],
+    ["accounting with no cache response", "cases[0].operations[0].accounting.cache", (r) => {
+      r.cases[0].operations[0].accounting.cache = { hits: 0, misses: 0, bypasses: 0, unknown: 0 };
+    }],
+    ["a malformed cost", "cases[0].operations[0].accounting.usage.cost_usd", (r) => {
+      r.cases[0].operations[0].accounting.usage.cost_usd = "-1";
+    }],
+    ["an evidence item without a producer", "cases[0].grade.checks[0].evidence[0].producer", (r) => {
+      r.cases[0].grade.checks[0].evidence = [
+        { sequence: 1, valid: true, raw_output: null, metadata: {}, accounting: null },
+      ];
+    }],
+    ["invalid evidence that claims an outcome", "cases[0].grade.checks[0].evidence[0]", (r) => {
+      r.cases[0].grade.checks[0].evidence = [
+        {
+          sequence: 1,
+          producer: { type: "checker", id: "c1" },
+          valid: false,
+          outcome: "PASS",
+          raw_output: null,
+          metadata: {},
+          accounting: null,
+        },
+      ];
+    }],
+    ["a named score that is not a number", "scores.f1", (r) => (r.scores = { f1: "high" })],
+    ["a non-boolean inverted_grade", "inverted_grade", (r) => (r.inverted_grade = "yes")],
+    ["an unknown key", "result", (r) => (r.extra = 1)],
+    ["an abstained case that is not an empty answer", "cases[0]", (r) => (r.cases[0].abstained = true)],
+    [
+      "a single attempt",
+      "cases[0].attempts",
+      (r) => {
+        const { input, case_id, metadata, operations, ...rest } = r.cases[0];
+        void input; void case_id; void metadata; void operations;
+        delete r.cases[0].operations;
+        r.cases[0].attempts = [{ attempt: 1, ...rest }];
+      },
+    ],
+  ] as [string, string, Mutation][])("rejects %s, naming `%s`", async (_rule, field, mutate) => {
+    const error = await rejection(resultWith(mutate));
+    expect(error).toMatchObject({ kind: "invalid_result", code: "invalid_result" });
+    expect(error.message).toContain(`\`${field}\``);
+  });
+
+  it("rejects metadata holding a non-finite number", async () => {
+    const error = await rejection(
+      resultWith(
+        (r) => (r.cases[0].metadata = { latency: "__INFINITE__" }),
+        (json) => json.replace('"__INFINITE__"', "1e999"),
+      ),
+    );
+    expect(error.message).toContain("`cases[0].metadata`");
+  });
+
+  it("accepts attempts, named scores and the inverted-grade mark when they follow the rules", async () => {
+    const outcome = await resultWith((r) => {
+      const { input, case_id, metadata, operations, ...rest } = r.cases[0];
+      void input; void case_id; void metadata;
+      delete r.cases[0].operations;
+      r.cases[0].attempts = [
+        { attempt: 1, ...rest, operations },
+        { attempt: 2, ...rest },
+      ];
+      r.cases[0].grade.scores = { strict: 1, loose: null };
+      r.scores = { strict: 1 };
+      r.inverted_grade = true;
+    });
+    expect(outcome).toMatchObject({ value: { inverted_grade: true } });
+  });
+});
+
+describe("startRun uncertain-start cleanup", () => {
+  function deferredRemove() {
+    let answer: (value: Reply) => void = () => undefined;
+    const pending = new Promise<Reply>((resolve) => {
+      answer = resolve;
+    });
+    return { route: () => pending, answer: () => answer(reply(204, "")) };
+  }
+
+  it.each([
+    ["the start's connection broke", () => Promise.reject(new TypeError("reset")), 0],
+    ["the start never answered", () => HANG as never, 30_000],
+  ] as [string, () => Promise<Reply>, number][])(
+    "keeps the outcome until the DELETE answers when the socket closes after %s",
+    async (_name, startRoute, untilDelete) => {
+      vi.useFakeTimers();
+      const remove = deferredRemove();
+      const { outcome, engine, socket } = await started({
+        routes: { start: [startRoute], remove: remove.route },
+      });
+      await vi.advanceTimersByTimeAsync(untilDelete);
+      expect(engine.calls.at(-1)?.method).toBe("DELETE");
+
+      socket().onclose?.({});
+      let settled = false;
+      void outcome.then(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+
+      remove.answer();
+      expect(await rejection(outcome)).toMatchObject({ kind: "unreachable", cleanup: "stopped" });
+    },
+  );
+
+  it("still lets an abort during that cleanup choose stopped", async () => {
+    const remove = deferredRemove();
+    const controller = new AbortController();
+    const { outcome, socket } = await started({
+      signal: controller.signal,
+      routes: { start: [() => Promise.reject(new TypeError("reset"))], remove: remove.route },
+    });
+    await flush();
+
+    controller.abort();
+    socket().onclose?.({});
+    remove.answer();
+
+    expect(await rejection(outcome)).toMatchObject({ kind: "stopped" });
+  });
+});
+
+describe("startRun refused-start body budget", () => {
+  it("settles a refused start whose body trickles within the start's own deadline", async () => {
+    vi.useFakeTimers();
+    const trickle = {
+      ...reply(500, ""),
+      headers: new Headers({ "content-type": "application/problem+json" }),
+      json: () => new Promise<never>(() => undefined),
+      body: new ReadableStream<Uint8Array>(
+        {
+          async pull(controller) {
+            await new Promise((wake) => setTimeout(wake, 29_000));
+            controller.enqueue(new TextEncoder().encode(" "));
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    };
+    const { outcome } = await started({ routes: { start: [() => trickle] } });
+
+    let settled = false;
+    void outcome.then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+
+    expect(settled).toBe(true);
+    expect(await rejection(outcome)).toMatchObject({ kind: "failed", code: "http_500" });
   });
 });

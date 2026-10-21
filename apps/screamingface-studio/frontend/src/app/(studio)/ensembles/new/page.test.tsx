@@ -173,6 +173,24 @@ describe("EnsembleComposerPage recipe parameters", () => {
     expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
   });
 
+  it("will not go on to Run or start a run while the recipe has an issue", async () => {
+    useBenchmarkStore.setState({ status: "idle", benchmarks: [], error: null });
+    client.listBenchmarks.mockResolvedValue(CATALOG);
+    const user = userEvent.setup();
+    openSaved([{ key: "", value: "1" }]);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/name/i);
+    expect(screen.getByRole("button", { name: /Next: Run/ })).toBeDisabled();
+
+    await user.click(screen.getByRole("tab", { name: "Runs" }));
+    const runButton = await screen.findByRole("button", { name: /Run Evaluation/ });
+    expect(runButton).toBeDisabled();
+    expect(screen.getByText(/Fix the recipe before running/)).toBeInTheDocument();
+    // Even with a runnable benchmark chosen, the recipe's issue keeps Run off.
+    await user.click(await screen.findByRole("radio", { name: "IFEval" }));
+    expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeDisabled();
+  });
+
   it("lists two issues of the same kind on one model without a duplicate key", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const [llama, qwen] = MODELS.map((model) => toSavedModel(model));

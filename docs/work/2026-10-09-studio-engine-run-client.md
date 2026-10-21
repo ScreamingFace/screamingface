@@ -465,3 +465,68 @@ TDD: 39 tests went RED, then GREEN.
 branches 89.42%, functions 94%, lines 96.23%) and `npm run build` all pass. Both SDK fixture
 scripts regenerate byte for byte; the only golden change is the new `params_empty_value`, an
 addition. No lockfile was touched. Committed locally, not pushed.
+
+## Third review follow-up (PR #1327, HupBaHa 2026-10-21)
+
+I checked all four findings first. All four held, but one requested check is pushed back
+(item 3, unique Check ids). TDD: 31 tests went RED, then GREEN (30 run-client tests, 1 page
+test). One guard test passed already.
+
+1. **Uncertain-start cleanup lost ownership of the outcome.** Before, `unansweredStart()`
+   awaited the `DELETE` with nothing reserving the outcome, so a socket close in the meantime
+   settled the run as `stream_failed` with no cleanup.
+   - It now sets `closing` before it awaits, and it settles the run itself afterwards. While
+     the `DELETE` is pending, a socket close, a timer or a frame cannot settle the run. A
+     caller abort still makes the result `stopped` / `stop_unconfirmed`.
+   - RED→GREEN: "keeps the outcome until the DELETE answers when the socket closes after the
+     start's connection broke / the start never answered", "still lets an abort during that
+     cleanup choose stopped".
+2. **The refused-start body budget.** Each attempt now has one `budget(30 s)` that covers the
+   start request and its whole diagnostic body, and a caller abort still ends the body read.
+   - **Artifact error bodies keep the per-read inactivity deadline** (30 s between chunks),
+     the same as the artifact download, and are bounded by the 64 KiB cap.
+   - RED→GREEN: "settles a refused start whose body trickles within the start's own deadline".
+3. **The Engine's producer invariants, mirrored for parity.** Sources are
+   `apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py` and
+   `operation_accounting.py`:
+   - closed models: every model is `extra="forbid"`, so an unknown key is refused;
+   - the declared failure codes (:55-168);
+   - `Evidence` (:189-210), including that invalid Evidence cannot claim an outcome or an
+     explanation;
+   - `Check` (:213-231), `CaseGrade` with named `scores` (:234-260), `Failure` (:263-288);
+   - `CaseResult` (:291-346): `stop_reason` and `rounds_executed` together, `abstained`, and
+     `attempts`;
+   - `OperationOutput` (:349-373), and `combine` as a schema-tagged object (see below);
+   - `CaseAttempt` (:374-395);
+   - `_require_scored_case` (:474-486), `_require_case_attempts` (:489-512),
+     `_require_case_outcome` (:515-523), `_require_abstained_case` (:526-536),
+     `_require_failed_case` (:539-547);
+   - `_enforce_result_contract` (:614-626);
+   - `candidate_coverage`, with Python's `round(x, 4)` reproduced half-to-even (:633-642);
+   - `_candidate_outcome` and `_unscored_candidate_outcome` (:645-675);
+   - `validate_case_id` (:678-685), `validate_finish_reason` (:688-695), finite JSON values
+     recursively (:698-716), `_finite_score` (:719-724), `_named_scores` (:727-738);
+   - `OperationAccounting`, `OperationUsage` and `OperationCache`, including the fixed-point
+     `cost_usd` and at least one cache response (operation_accounting.py:22-75).
+   - A broken rule names its path, and the message gives the rule.
+   - RED→GREEN: 25 "rejects <rule>, naming `<field>`" cases, plus "rejects metadata holding a
+     non-finite number". Guard that already passed: "accepts attempts, named scores and the
+     inverted-grade mark when they follow the rules".
+   - **Pushed back: unique Check ids per case.** `contract.py` has no such rule. Its only
+     uniqueness check is on `case_id` (:614-626), so this would narrow the producer instead
+     of mirroring it.
+   - **Not mirrored deeply: `CombineEvidence`** (`combine/evidence.py`). It is checked as an
+     object carrying `schema: "screamingface.combine-evidence.v1"`. It only appears on a
+     reducer's combine step, and Studio recipes have no reducers (spec D6).
+   - **Prior test setups changed** to stay valid under the producer's rules:
+     - failure fixtures now use a declared code (`upstream_error` instead of `c`);
+     - "accepts a null score and an ungraded case" now also sets `metrics: {}` and
+       `coverage: 0`, as an unscored Candidate must.
+4. **A recipe issue blocked Share but not Run.** `RunsPanel` now receives the recipe issues.
+   While there are any, Next: Run, New Run and Run Evaluation are disabled, and the Runs panel
+   lists them under "Fix the recipe before running".
+   - RED→GREEN: "will not go on to Run or start a run while the recipe has an issue".
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 462 tests; statements 92.53%,
+branches 87.68%, functions 93.33%, lines 95.4%) and `npm run build` all pass. Both SDK fixture
+scripts regenerate byte for byte, and no lockfile was touched.
