@@ -70,12 +70,15 @@ class HttpIOLayer:
     pinned to the vetted IP (SNI and ``Host`` kept), at most ``guard.max_redirects`` hops, no
     ``https``→``http`` downgrade, environment proxies ignored, and a ``url4://`` peer only
     when its host is in ``guard.peer_hosts`` (empty by default: no remote-node calls).
-    ``resolver`` replaces the system DNS lookup. Relative fetches against the operator-set
-    ``base_url`` origin are trusted. The whole owned fetch, redirects included, runs under
-    ``guard.total_timeout`` seconds. On every client, owned or injected, the body is streamed
-    under ``guard.max_bytes`` decoded bytes. Each refusal is a typed ``x.source_*``
-    ResolutionError. AIDEV-NOTE: an injected ``client`` is used as-is — its owner chose its
-    destinations and timeouts, so only the size cap applies to it.
+    ``resolver`` replaces the system DNS lookup. Only the FIRST hop of a relative fetch against
+    the operator-set ``base_url`` origin is trusted; every redirect hop, and an absolute target
+    that spells that origin out, is checked. The whole owned fetch, redirects included, runs
+    under ``guard.total_timeout`` seconds. The owned client asks for ``Accept-Encoding:
+    identity`` and decodes at most one gzip/deflate layer in bounded steps, refusing stacked or
+    other codings (``x.source_too_large``), so its cap on ``guard.max_bytes`` decoded bytes holds
+    with bounded memory. Each refusal is a typed ``x.source_*`` ResolutionError.
+    AIDEV-NOTE: an injected ``client`` is used as-is — its owner chose its destinations,
+    timeouts and decoding, so only the size cap applies to it (checked after httpx decodes).
     """
 
     def __init__(

@@ -12,6 +12,8 @@ spelling, through DNS, or through a redirect — is refused before a connection 
 from __future__ import annotations
 
 import asyncio
+import functools
+import tracemalloc
 import zlib
 from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
@@ -579,3 +581,112 @@ async def test_a_transport_without_fetch_state_trusts_no_origin(net: _Net) -> No
             await client.get("https://127.0.0.1:9105/")
     assert caught.value.code == ErrorCode.SOURCE_DESTINATION_BLOCKED
     assert net.sent == []
+
+
+# --- review hardening: bounded decoding, never a whole-chunk inflate (OME-1544) ----------------
+
+_MIB = 1024 * 1024
+
+
+@functools.cache
+def _gzip_of_zeros(gib: int = 1) -> bytes:
+    """``gib`` GiB of zeros, gzipped (about 1 MB on the wire per GiB)."""
+    compressor = zlib.compressobj(9, zlib.DEFLATED, 31)
+    block = b"\0" * _MIB
+    parts = [compressor.compress(block) for _ in range(gib * 1024)]
+    return b"".join([*parts, compressor.flush()])
+
+
+def _gzip(data: bytes) -> bytes:
+    compressor = zlib.compressobj(9, zlib.DEFLATED, 31)
+    return compressor.compress(data) + compressor.flush()
+
+
+def _split(data: bytes, size: int = 64 * 1024) -> list[bytes]:
+    return [data[i : i + size] for i in range(0, len(data), size)]
+
+
+async def _peak_while_blocked(net: _Net, chunks: list[bytes], encoding: str, limit: int) -> int:
+    stream = _Chunks(chunks)
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": encoding}, stream=stream
+    )
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        await _blocked(
+            _io(net, max_bytes=limit), "https://example.com/", ErrorCode.SOURCE_TOO_LARGE
+        )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    return peak
+
+
+@pytest.mark.asyncio
+async def test_nested_gzip_bomb_peak_memory_bounded(net: _Net) -> None:
+    # gzip(gzip(1 GiB)) is ~2 KB on the wire; stacked encodings are refused before decoding.
+    net.dns["example.com"] = [[PUBLIC]]
+    chunks = _split(_gzip(_gzip_of_zeros()))
+    peak = await _peak_while_blocked(net, chunks, "gzip, gzip", _MIB)
+    assert peak < 2 * _MIB
+
+
+@pytest.mark.asyncio
+async def test_single_gzip_bomb_peak_memory_bounded(net: _Net) -> None:
+    # gzip(1 GiB) is ~1 MB on the wire: each 64 KiB chunk would inflate to ~64 MiB at once.
+    net.dns["example.com"] = [[PUBLIC]]
+    chunks = _split(_gzip_of_zeros())
+    peak = await _peak_while_blocked(net, chunks, "gzip", _MIB)
+    assert peak < 2 * _MIB
+
+
+@pytest.mark.asyncio
+async def test_the_guard_asks_for_an_identity_body(net: _Net) -> None:
+    net.dns["example.com"] = [[PUBLIC]]
+    async with _io(net) as io:
+        await io.fetch("https://example.com/", relative=False)
+    assert net.sent[0].headers["accept-encoding"] == "identity"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("encoding", "body"),
+    [
+        ("gzip", _gzip(b"hello")),
+        ("GZIP", _gzip(b"hello")),
+        ("deflate", zlib.compress(b"hello")),  # zlib-wrapped deflate
+        ("deflate", zlib.compress(b"hello", wbits=-15)),  # raw deflate, as some servers send
+        ("identity, gzip", _gzip(b"hello")),
+        ("identity", b"hello"),
+    ],
+)
+async def test_a_single_encoded_layer_is_decoded(net: _Net, encoding: str, body: bytes) -> None:
+    net.dns["example.com"] = [[PUBLIC]]
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": encoding}, stream=_Chunks(_split(body, 3))
+    )
+    async with _io(net) as io:
+        assert await io.fetch("https://example.com/", relative=False) == "hello"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("encoding", ["gzip, gzip", "deflate, gzip", "br", "zstd", "compress"])
+async def test_stacked_or_unsupported_encodings_are_refused(net: _Net, encoding: str) -> None:
+    net.dns["example.com"] = [[PUBLIC]]
+    stream = _Chunks([b"anything"])
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": encoding}, stream=stream
+    )
+    error = await _blocked(_io(net), "https://example.com/", ErrorCode.SOURCE_TOO_LARGE)
+    assert "Content-Encoding" in str(error)
+    assert stream.yielded == 0  # refused before a byte is read
+
+
+@pytest.mark.asyncio
+async def test_a_corrupt_encoded_body_is_a_resolution_failure(net: _Net) -> None:
+    net.dns["example.com"] = [[PUBLIC]]
+    net.handler = lambda _r: httpx.Response(
+        200, headers={"Content-Encoding": "gzip"}, stream=_Chunks([b"not gzip at all"])
+    )
+    await _blocked(_io(net), "https://example.com/", ErrorCode.RESOLUTION_FAILED)

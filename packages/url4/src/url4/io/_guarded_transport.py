@@ -16,6 +16,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from url4.core.errors import ResolutionError
+from url4.io._body_decode import BodyDecoder, decoder_for
 from url4.io._source_policy import (
     IPAddress,
     SourceGuard,
@@ -39,6 +41,9 @@ it builds, so one mutable state object follows the whole chain through the trans
 """
 
 _DEFAULT_PORTS = {"https": 443, "http": 80}
+
+# Headers that describe the wire encoding of a body the transport has already decoded.
+_ENCODING_HEADERS = ("content-encoding", "content-length")
 
 
 @dataclass(slots=True)
@@ -97,6 +102,9 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         state = request.extensions.get(FETCH_STATE)
         if not isinstance(state, FetchState):
             state = FetchState()
+        # WHY identity: an encoded body would be inflated by httpx a whole chunk at a time; a
+        # server that encodes anyway is decoded here in bounded steps (url4.io._body_decode).
+        request.headers["Accept-Encoding"] = "identity"
         previous, state.previous_scheme = state.previous_scheme, url.scheme
         trusted, state.trusted_first_hop = state.trusted_first_hop, False
         if trusted and origin_of(url) in self._trusted:
@@ -109,10 +117,20 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         if not isinstance(stream, httpx.AsyncByteStream):
             # INVARIANT: fail closed — a body the cap cannot wrap is never handed on.
             raise TypeError("the connection returned a body stream that is not async")
+        try:
+            decoder, decodes = decoder_for(response.headers)
+        except ResolutionError:
+            await stream.aclose()
+            raise
+        headers = response.headers.copy()
+        if decodes:
+            # WHY: the body leaves here decoded, so httpx must not decode it a second time.
+            for name in _ENCODING_HEADERS:
+                headers.pop(name, None)
         return httpx.Response(
             response.status_code,
-            headers=response.headers,
-            stream=_CappedStream(stream, self._guard.max_bytes),
+            headers=headers,
+            stream=_CappedStream(stream, self._guard.max_bytes, decoder),
             extensions=response.extensions,
         )
 
@@ -165,23 +183,28 @@ class GuardedTransport(httpx.AsyncBaseTransport):
 
 
 class _CappedStream(httpx.AsyncByteStream):
-    """A response stream that aborts once more than ``limit`` raw bytes arrive.
+    """A response stream, decoded in bounded steps, that aborts past ``limit`` decoded bytes.
 
     WHY in the transport: httpx reads a redirect response's body itself before following it,
     so only the transport sees — and can bound — every body on the chain.
     """
 
-    def __init__(self, inner: httpx.AsyncByteStream, limit: int) -> None:
+    def __init__(self, inner: httpx.AsyncByteStream, limit: int, decoder: BodyDecoder) -> None:
         self._inner = inner
         self._limit = limit
+        self._decoder = decoder
+        self._seen = 0
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
-        seen = 0
         async for chunk in self._inner:
-            seen += len(chunk)
-            if seen > self._limit:
-                raise too_large(self._limit)
-            yield chunk
+            for piece in self._decoder.feed(chunk):
+                yield self._count(piece)
+
+    def _count(self, piece: bytes) -> bytes:
+        self._seen += len(piece)
+        if self._seen > self._limit:
+            raise too_large(self._limit)
+        return piece
 
     async def aclose(self) -> None:
         await self._inner.aclose()

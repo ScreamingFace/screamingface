@@ -66,8 +66,9 @@ The execution engine (DAG compilation, executor, lowering) lives one level down:
 - **Fully typed**: passes `pyright`; type hints ship to consumers.
 - **Guarded HTTP sources**: the default `HttpIOLayer` fetches `https://` only, refuses
   loopback, private, link-local, CGNAT and metadata addresses (after DNS, on every redirect
-  hop, pinned to the vetted IP), follows at most 3 redirects, caps the decoded body and the
-  total time, and ignores proxy environment variables. `url4://` remote-node calls also
+  hop, pinned to the vetted IP), follows at most 3 redirects, caps the decoded body (one
+  gzip/deflate layer at most, decoded in bounded steps) and the total time, and ignores proxy
+  environment variables. `url4://` remote-node calls also
   need their host on an allowlist, which is empty by default:
   `HttpIOLayer(guard=SourceGuard(peer_hosts=frozenset({"node.example"})))`
   (`from url4.io.http import HttpIOLayer, SourceGuard`). Refusals are typed
