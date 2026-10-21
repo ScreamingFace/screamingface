@@ -86,6 +86,7 @@ New tests first (prior tests are append-only until the owner approves the test m
     writer_floor}.py`, `plugins/anthropic_provider/{plugin,settings}.py`; deleted
     `plugins/anthropic_provider/bootstrap.py`.
   - New tests: `tests/unit/core/provider_access/test_no_profile_writer.py` (7),
+    `tests/integration/test_native_d18_writer_serialization_postgres.py` (2),
     `tests/unit/test_profile_index_offline_only.py` (6 functions, 10 cases).
   - Prior tests (owner-approved test map, 2026-10-21), 30 files under the append-only check,
     each listed in `.claude/test-change-approvals/OME-1695.json`:
@@ -114,7 +115,11 @@ New tests first (prior tests are append-only until the owner approves the test m
       test in `test_auth_routes.py`; three startup-import tests in `test_bootstrap.py`.
     - Successor pointers re-pointed in three existing shells (`test_provider_credential_admin.py`,
       `test_pair_shadow_identity_writes.py`, `test_writer_floor_legacy_admin.py`).
-- **Commits:** none yet.
+- **Commits:** `973f47876` refactor(aigateway)!: stop writing Profile documents; the index is
+  offline-only; a follow-up commit will carry the review and writer-race fixes.
+- **Review:** the independent read-only review found no E4b blocker. Its residual native-create/D18
+  race is closed in the follow-up: `claim_native_write` holds a migrated pair's marker without
+  advancing it, and PostgreSQL tests pin both commit orders.
 - **Gates:**
   - `run_gates.py aigateway --base origin/main --skip-append-only`: ruff check, ruff format,
     pyright, enterprise guard and the full suite with coverage (`--cov-fail-under=80`) green.
@@ -124,6 +129,10 @@ New tests first (prior tests are append-only until the owner approves the test m
   - PostgreSQL lane (`AIGW_TEST_PG=1 -m needs_postgres`): 58 passed; the 5 failures are all in
     `test_cache_snapshot_upload_postgres.py` (untouched): the local `pg_dump` 15 cannot dump the
     PostgreSQL 16 container. Every concurrency suite of this landing passed.
+  - Race follow-up: the new PostgreSQL file passes 2/2; the writer-floor/native/D18 unit cluster
+    passes 123 tests; the selected PostgreSQL writer-race cluster passes 14 tests; the full
+    `run_gates.py aigateway --base origin/main` is green including append-only, Ruff, format,
+    Pyright, enterprise guard and full coverage suite.
 - **Deviations:**
   - The read-outage test of the D18 DELETE is adapted, not retired: it now fails the
     `OAuthConnectionStore.list` read and keeps its `CredentialStoreReadUnavailable` refusal.

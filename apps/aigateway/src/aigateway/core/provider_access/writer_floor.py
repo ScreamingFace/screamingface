@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 def fences_writer(pair: PairAuthority) -> bool:
     """True for the legacy-owned states whose writers G0 fences with the pair generation.
 
-    # WHY not `migrated`: a migrated pair's effective writes already advance the marker, and its
-    # non-effective native rows keep their existing fences (owner decision 2026-10-06).
+    # WHY not `migrated`: `claim_native_write` holds that marker without advancing it; effective
+    # writes then advance it through their existing replacement/delete fence.
     """
     return pair.migration_state != "migrated"
 

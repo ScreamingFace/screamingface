@@ -34,7 +34,7 @@ from aigateway.core.plugin_base import credential_service_provider_for
 from .connection_locator import credential_name_from_locator
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
 from .types import WriteConflict
-from .writer_floor import claim_observed
+from .writer_floor import claim_observed, hold_pair
 
 
 def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: str) -> str:
@@ -48,14 +48,18 @@ def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: 
 
 
 async def claim_native_write(observed: PairAuthority, *, requested: str) -> PairAuthority | None:
-    """Claim the legacy-owned pair a native writer observed; the published pair, else None.
+    """Fence the pair a native writer observed; the published legacy-owned pair, else None.
 
     Runs inside the caller's transaction as its FIRST write (marker → row → blob). A `migrated`
-    pair is a no-op: its effective row is fenced by `retire_effective` and
-    `republish_effective_api_key`, and its other rows keep their fences (owner decision
-    2026-10-06). A lost claim is the native superseded conflict (409 `connection_conflict`).
+    pair is held without advancing its generation: this serializes a new native row with D18's
+    live-set recheck, while effective-row writes still advance through `retire_effective` and
+    `republish_effective_api_key`. A lost claim or hold is the native superseded conflict (409
+    `connection_conflict`).
     """
     try:
+        if observed.migration_state == "migrated":
+            await hold_pair(observed)
+            return None
         return await claim_observed(observed)
     except PairAuthorityConflict as exc:
         raise WriteConflict(
