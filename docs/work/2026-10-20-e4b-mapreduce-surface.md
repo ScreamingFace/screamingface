@@ -732,3 +732,122 @@ references on `Signal`). 7d–7h are not in this round.
   internal node values; `test_band_api.py` docstring names `sf.Gate(..., abstain_if=...)`.
 - **Gates:** `run_gates.py screamingface --base e4d44281c --skip-append-only` ALL GATES GREEN;
   `run_gates.py repo` ALL GATES GREEN.
+
+## Unit 7: swap — step 7e
+
+- **Commits:** `f118fea33` feat (src swap), `1f1e93bbb` test (codemod R13 output), `8127d0848` test
+  (group F deletions, owner list), `f830a1140` fix (rebuild: a selection whose writer is another
+  selection), `42f4e18f8` feat (`sf.Fusion` shortcut), `d5fd9b97c` docs (spec A4 revised),
+  `ed7cfd5a7` test (hand fixes), `bae347925` docs (README D7-6 + group H literals), `4fc6b26c1`
+  test (public surface snapshot), `4c6444cfb` test (comments), this ledger commit.
+- **Src swap:** `sf.*` exports the `_surface` names (`Fanout`, `Synthesize`, `Judge`, `JudgePick`,
+  `Rank`, `Filter`, `Concat`, `Vote`, `Median`, `Mean`, `ArgMax`, `ArgMin`, `First`, `Merge`,
+  `Gate`, `agreement`, `field`); `sf.Pick`, `sf.Reduce`, the 7a module aliases and `Recipe.then`
+  are gone; `screamingface._surface` exports nothing. D7-2: the chain class is the one
+  `sf.Pipeline` (`S/pipeline.py` re-exports it); the public `stages` field is gone and the compile,
+  the cards, the judge-writer check, `fusion_recipe.py` and the rebuild read `_stage_values()`; the
+  lowering of a chain with no block is the chain itself (LO-0), else a `Pipeline` of nodes.
+  `Url4.to_python()` = `import screamingface as sf`, blank line, the chain code
+  (`render.code`), and the linked `sf.evaluate(...)` lines; U5d lifted. **Multi-line output:** a
+  top-level chain longer than 100 characters shows one stage per line (`candidate = (` /
+  `    >> step`), a named or optional chain one step per line in `sf.Pipeline([...])`;
+  `Rebuilt.python` stays one line.
+- **Owner decision 2026-10-20 (A4 revised):** `sf.Fusion` stays public as a function in
+  `S/_surface/fusion.py` that returns `sf.Fanout(members, signals=, quorum=, name=, prompt=) >> S`
+  (a step as it is, a route/Model/recipe as `sf.Synthesize(...)`, `sf.Judge` refused, a narrow
+  step leaves the chain open, `optional=True` → `sf.Pipeline([chain], optional=True)`). New
+  `ST/test_fusion_shortcut.py` (23 rows: equality and bytes per kind, frozen S1–S3, the vote and
+  the nested docs rows, pass-through, optional, open chain, the refusal, the signature). Spec:
+  overview A4 and §1/§2, surface §3b and §10, swap 7e. **7g note:** MSG-1's forbidden list must
+  drop `sf\.Fusion\b` (and the plain `\bFusion\b` where it names the shortcut).
+- **Src fix (found by 7e):** `to_python()` of `Fanout >> Judge >> Rank >> Synthesize(Fanout >>
+  Concat >> Synthesize(w))` failed (the rebuild took `Fusion(concat)` alone as the writer of the
+  first selection: an open block). `rebuild._writer_of` groups a selection writer with its own
+  writer. Covered by `test_rank_concat_url4_round_trip[two selections in a row]`.
+- **Group F deletions (owner list, one commit `8127d0848`):**
+  - `test_fusion_recipe.py` (whole file, 23 tests: `test_the_goldens_without_a_block_form_are_exactly_the_unnamed_pipeline_synthesizers`,
+    `test_block_form_rewrites_to_fusion_and_compiles_byte_identical`, `test_rewrite_keeps_the_rest_of_the_pipeline`,
+    `test_an_unnamed_pipeline_of_one_stage_is_that_stage_and_a_named_one_keeps_its_name`,
+    `test_recipe_synthesizer_keeps_the_synthesis_flag_on_its_first_stage_only`, `test_named_pipeline_keeps_its_name_after_the_rewrite`,
+    `test_nested_fusion_keeps_its_bindings_in_both_block_forms`, `test_every_recipe_without_a_context_block_is_returned_as_it_is`,
+    `test_the_rewrite_is_idempotent`, `test_the_name_rule_infers_again_or_keeps_the_given_name`,
+    `test_the_rewrite_reaches_loops_members_and_judges`, `test_the_rewrite_reaches_a_fusion_synthesizer_and_a_fusion_member`,
+    `test_a_300_member_block_form_constructs_and_compiles_to_its_golden`, `test_only_the_context_block_skips_the_combine_exclusions`,
+    `test_context_misuse_raises_before_spend`, `test_context_misuse_through_a_client_never_spends_or_fetches_operators`,
+    `test_a_context_block_compiled_directly_is_the_misuse`, `test_the_synthesizer_operation_is_op_synthesis_n`,
+    `test_recovered_fusion_prints_as_fusion`, `test_both_forms_report_the_same_candidate_name_in_a_scripted_run`,
+    `test_a_cyclic_value_is_left_for_the_compiler_to_refuse`, `test_the_inferred_name_rule_lives_once_in_recipe_py`,
+    `test_a_duplicate_name_made_by_the_rewrite_says_so_and_asks_for_a_name`): it read `Pipeline.stages`.
+  - `test_blocks_reduce.py::test_equal_reduce_blocks_are_equal_and_hash_equal` (the `eval(_python())`
+    loop over `_one_per_row()`); `test_reduce_to_python_round_trips` rows
+    `Reduce('pick_field', field='score', order='min')`, `Reduce('top_k', k=2, by_field='score')`,
+    `Reduce('top_k', k=2, by_field='a.b[0]', order='min')` (D7-8 forms: the rebuild refuses them).
+  - `test_filter.py::test_reduce_filter_block_canonical_form_equality_and_hash` and
+    `::test_filter_fields_repr_and_equality` (the `eval(_python())` loops).
+  - `test_filter_judge.py::test_filter_block_and_repr_rebuild_the_judge_filter` (whole test).
+  - `test_judge_blocks.py::test_judge_block_canonical_form_equality_and_hash` (the `eval` line).
+  - `test_judge_order.py::test_public_surface_lists_judge_order` (JO#13: `Judge(returns=, order=)`).
+  - `test_pick_merge_blocks.py::test_pick_and_merge_blocks_canonical_equality_hash_and_errors`
+    (`_check_canonical_equality_and_hash`: the `eval(_python())` loop of 3 blocks).
+  - `test_pick_output.py::test_url4_to_python_shows_the_output_of_each_pick` (the field order
+    pair), `::test_block_forms_round_trip_to_the_named_pick_with_output` (the `pick_field` row),
+    `::test_pick_field_block_python_round_trips` (whole test).
+  - `test_rank_by_signal.py::test_rank_by_signal_fields_repr_and_equality` and
+    `::test_reduce_top_k_block_canonical_form_equality_and_hash` (the `eval(_python())` loops).
+  - `test_rank_concat_url4_round_trip.py::test_rank_and_concat_round_trip[rank by field]`,
+    `::test_to_python_writes_the_reducers` (the by_field lines),
+    `::test_the_recovered_reducers_equal_the_originals` (the 2 by_field shapes),
+    `::test_a_followed_selection_inside_a_corrective_loop_round_trips` (the by_field solo loop).
+  - Group F rows that still pass on the nodes stay for 7f (the by_field tamper rows of
+    `test_rank_concat_url4_round_trip.py` now meet the refusal before the tamper, they still pass).
+- **Hand fixes (pinned, owner list):** `_nodes.py` (`lowered()`), `_reducer_fixtures.py`,
+  `e2e/test_fusion_golden_contracts.py`, `test_band_api.py`, `test_benchmark_extract_evaluation.py`,
+  `test_blocks_reduce.py`, `test_chain_rules_steps.py`, `test_consistency_rebuild.py`,
+  `test_consistency_sum_band.py`, `test_declared_signals.py`, `test_duplicate_members_warning.py`,
+  `test_entropy_source.py`, `test_filter.py`, `test_filter_judge.py`, `test_gate_api.py`,
+  `test_judge_order.py`, `test_judge_quorum.py`, `test_judge_reducer.py`,
+  `test_judge_url4_round_trip.py`, `test_judge_weighted_vote.py`, `test_logprob_source.py`,
+  `test_lowering.py`, `test_mean.py`, `test_migrate_surface.py`, `test_narrow_compile.py`,
+  `test_narrow_steps.py`, `test_pick_by_signal.py`, `test_pick_merge_url4_round_trip.py`,
+  `test_pick_output.py`, `test_pipeline_compilation.py`, `test_pipeline_recipes.py`,
+  `test_rank_concat_url4_round_trip.py`, `test_reduce_numeric_select.py`,
+  `test_reducer_url4_round_trip.py`, `test_signal_sum_api.py`, `test_signal_vote_replay.py`,
+  `test_signal_weighted_vote.py`, `test_surface_rebuild.py`, `test_url4.py`, `test_verbalized.py`,
+  `test_weighted_median.py`; group H `test_gate_docs.py`, `test_sum_band_docs.py`,
+  `test_consistency_docs.py` (`test_combine_recipes_readme.py`, `test_signal_recipes_readme.py`
+  pass unchanged); comments only: `test_judge_writer_warning.py`, `test_selection_compile_checks.py`,
+  `unit/test_signal_key_conformance.py`; `public_surface_snapshot.json`.
+- **Audit** (`migrate_surface.py --audit e0a6018c3`): every lower count is a group F row above or
+  one of these rewrites: `test_declared_signals.py::test_fusion_signals_round_trip_through_url4_rebuild_and_repr`
+  and `test_url4.py::test_fusion_url4_recovers_editable_topology_names_and_policy` /
+  `::test_pipeline_url4_recovers_serial_and_nested_parallel_topology` (several `in` asserts → one
+  list equality of the lines); `test_lowering.py::test_lo3_an_unlowered_chain_is_not_a_compile_kind`
+  → `test_lo3_an_unlowered_chain_is_a_pipeline_kind_that_lowers_to_its_node` (D7-2);
+  `test_narrow_compile.py::test_to_python_of_a_narrow_url4_names_the_new_surface` (raises → the
+  output; U5d lifted); `test_reducer_url4_round_trip.py::test_to_python_and_corrective_replay_use_the_reducer_registry`
+  (a registry reducer with no step: `to_python` now raises "cannot rebuild"); the two
+  `test_surface_rebuild.py::test_rb3_today_*` rows → `test_rb3_to_python_is_the_import_and_the_rebuild_code`,
+  `test_rb3_to_python_rebuilds_a_narrow_url4`, plus two layout rows. New: RB-1b
+  (`test_rb1b_every_doc_example_round_trips_through_to_python`, `..._every_parity_row_...`,
+  `..._a_judge_chain_comes_back_...`), RB-2 (`test_rb2_a_judge_template_v1_scores_url4_is_refused`).
+- **README (D7-6):** the six sections keep their headings; code in the Fanout form; "Fusion as a
+  named recipe" now shows `Fanout >> Synthesize` and the `sf.Fusion` shortcut (the context block
+  form is gone); D5 (the fallback runs on every Case in E4b) kept; O12 note on
+  `Vote(weights="score:judge")` with a lower-is-better rubric. Each code block compiles to its
+  Engine fixture. `scripts/check_notebooks.py` green (notebooks untouched, unit 8).
+- **Spec gaps / choices:** (1) the rebuild bug above; (2) D7-2 side effects: `sf.Pipeline([step])`
+  gives CH-1 `ValueError` (was the `TypeError` "is a step"); `_recipe_kind(chain)` is
+  `"pipeline"` before the lowering; the chain repr shows `Model(...)` stages; (3) a rebuilt chain
+  pins rule ids (`Vote()` → `Vote(over='last_line@1', normalize='text@1')`) and puts a writer's
+  prompt on the step (`Synthesize('w', prompt=...)`), so a round trip equals the authored chain
+  only when the author wrote that form; those rows compare the steps or the lowered node;
+  (4) `Url4.to_python()` of a url4 whose reducer is a custom registry class is "cannot rebuild"
+  (before: `sf.FixtureVote(...)`).
+- **Follow-ups:** multi-line layout inside a stage (a long `sf.Fanout([...], signals=...)` line, a
+  long `sf.Model(...)` or `sf.CorrectiveLoop(...)` stays one line); 7f trims `_render_topology`,
+  `_NARROW_PYTHON` and the `_python()` renderers (now unreached by `to_python`); U5e (D7-7).
+- **Tests:** SDK suite 5634 passed, 33 skipped (before 7e: 5611 passed, 33 skipped).
+- **Gates (HEAD of 7e):** `run_gates.py screamingface-engine --base e4d44281c --skip-append-only`
+  ALL GATES GREEN (pyright needed `uv sync --frozen` once: the inspect pitfall);
+  `run_gates.py screamingface --base e4d44281c --skip-append-only` ALL GATES GREEN (coverage floor
+  95 met, check_notebooks green); `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
