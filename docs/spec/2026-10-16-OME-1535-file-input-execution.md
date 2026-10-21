@@ -1,7 +1,8 @@
 # Spec — file input across url4, engine and gateway (`OME-1535`)
 
 Epic `OME-1529`. Status: **draft for review** (url4: Kevin; gateway: Dmitry; architecture: HupBaHa).
-Owner decisions F1–F4 locked by Sergey on 2026-10-21 (§2).
+Owner decisions F1–F4 locked by Sergey on 2026-10-21 (§2); his follow-up decisions D1–D6 of the
+same day are folded into F1 and F2.
 
 **Snapshot.** Every "today" claim and every `file:line` citation is pinned to `main` at
 [`ec4b632b2`][snap] (2026-10-21, after #1447). Citations are commit-qualified links, so they stay
@@ -84,9 +85,12 @@ carries **no media type**; the media type lives on the enclosing [`ResultData.me
 ### F1 — Remote blobs are deferred from v1
 
 **Decision.** v1 supports exactly two blob sources: **local, run-scoped blobs** and **inline `data:` at
-Case ingress**. A ref `url4://<authority>/blob/...` whose authority is not the evaluating node fails with
-the typed, permanent **`remote_blob_unsupported`** at resolution, **before any network I/O** (no DNS
-lookup, no connection). There is no "fetch once and pin" for remote sources in v1.
+Case ingress**. **Every** `url4://<authority>/blob/...` ref is remote in v1, whatever its authority:
+there is no self-recognition, so a ref naming the evaluating node itself is remote too. It fails with
+the typed, permanent **`x.remote_blob_unsupported`** at resolution, **before any network I/O** (no DNS
+lookup, no connection). Only an authority-less ref is local: the bare path `/blob/sha256/<hex>` (C1) and
+the bare token `blob:sha256/<hex>` (C3), which names that same path on the evaluating node. There is no
+"fetch once and pin" for remote sources in v1.
 
 **Rationale.** A remote fetch is an SSRF/egress boundary. url4 HTTP sources follow redirects to
 arbitrary translated targets ([`U/io/http.py:66-69`][u-redirect]), and "no egress" for Runner Jobs is a
@@ -119,7 +123,9 @@ Case envelope), never from the contents of a payload, a member output or a JSON 
 
 **Content layout.** Every model-calling node — ensemble members, model and recipe synthesizers
 (fusion), reducers, and the judge — builds the OpenAI `content` of its user message as
-`[attachment parts in attachments[] order…, then the text]`. Each attachment becomes `image_url` (for
+`[attachment parts in attachments[] order…, then the text]`. In a multi-message candidate envelope
+the attachment parts go on the **last user message** only; earlier messages keep their text content
+unchanged (D3). Each attachment becomes `image_url` (for
 `image/*`) or `file` (otherwise) with a `data:` URI built from the verified bytes. A node with no
 attachments sends `content` as a plain string, exactly as today.
 
@@ -128,9 +134,15 @@ attachments sends `content` as a plain string, exactly as today.
 Attachments are never inlined into, or referenced from, that JSON. Member outputs are text and add no
 attachments.
 
+**Text blobs in collections (D4).** A blob read in collection position whose media type is in the
+collection text set ([`U/dag/semantics/collection.py:140-142`][u-coll]) is used as text and is **not**
+added to `attachments[]`. Any other type there stays `unsupported_content_type` (C8).
+
 **Propagation (v1).** Attachments are fixed at run start (Case ingress, plus the url4 refs resolved for
 that run) and are **inherited unchanged** by every node: pipelines, nested local sub-expressions,
-reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1.
+reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1. Because the list is fixed before execution, a
+blob source marked `;optional` that fails to resolve **fails the whole run** with its own code (§4); it
+is never dropped from the list (D5).
 A nested expression evaluated by a **remote** node (C6) resolves its own sources against its own store;
 the outer run's attachments are not shipped to it, because that would be a remote blob transfer (F1).
 
@@ -155,7 +167,7 @@ node may read a digest only if it was ingested into the same run of the same ten
 another run or tenant is `source_not_found`, indistinguishable from a missing blob.
 
 **Integrity.** sha256 is verified against the ref **before storing** (ingress) and **before use** (every
-read that builds a part). A mismatch is `blob_digest_mismatch`, permanent.
+read that builds a part). A mismatch is `x.blob_digest_mismatch`, permanent.
 
 ### F4 — "Today" is the stated snapshot
 
@@ -170,9 +182,9 @@ history.
      (`OME-1271` v1), within the **1 MiB** `RUN_SPEC` cap, never in the URL (8 KiB cap) and never in a url4
      expression. The engine decodes each part, hashes it, stores it in the run blob store and appends it to
      `attachments[]`. This path does not go through url4.
-   - **url4 ingress.** A `src=` binding carrying `/blob/sha256/<hex>`, `blob:sha256/<hex>` or
-     `url4://<self>/blob/sha256/<hex>` is resolved at the evaluating node against the local run store (§5)
-     and appended to `attachments[]`. A non-local authority is `remote_blob_unsupported` (F1).
+   - **url4 ingress.** A `src=` binding carrying `/blob/sha256/<hex>` or `blob:sha256/<hex>` is resolved
+     at the evaluating node against the local run store (§5) and appended to `attachments[]`. Any
+     `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1).
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
    `data:` URI); that is the only shape the gateway sees. The gateway never fetches.
@@ -195,13 +207,13 @@ Wrapping rule: the phase that detects a failure raises it with its own code; enc
 a `SourceFailure` that **preserves the original code and permanence verbatim** and adds the node path. A
 wrapper never turns a permanent failure into a retryable one, and only retryable failures are retried.
 Codes not in url4 Spec C travel on the url4 wire with the `x.` implementation prefix (C §13.5.2) until
-Kevin adopts them into the spec.
+Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/errors.py:48`][u-xcode]).
 
 | Code | Phase owner | Status | Class | Notes |
 |---|---|---|---|---|
 | `source_not_found` | url4 node resolver | per Spec C §13.2.5 | permanent | C5; also a digest outside the tenant + run scope (F3) |
-| `remote_blob_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1; raised before any network I/O |
-| `blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); run failure at read | permanent | F3; a mismatch at read is store corruption and is logged as such |
+| `x.remote_blob_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1; every `url4://` blob ref; raised before any network I/O |
+| `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); run failure at read | permanent | F3; a mismatch at read is store corruption and is logged as such |
 | `unsupported_content_type` | engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; the connector wraps it as `intent_error` carrying the gateway `info` as `cause` |
@@ -230,7 +242,7 @@ Adopted **as signed off by Kevin (2026-10-13)** in `OME-1534`; the Parse column 
 | # | Expression | Parse (B §5.2) | Resolution at the evaluating node |
 | -- | -- | -- | -- |
 | C1 | `(img:0.5:src=/blob/sha256/<hex>)!'Describe'` | relative URL (`RelUrl`) | `url4://<current_node>/blob/sha256/<hex>` with §5.4.2 policy, identity and attribution; bytes go to the model as a `data:` URI (§26.2.3) |
-| C2 | `(img:src=url4://n2.example/blob/sha256/<hex>)!'Describe'` | remote URL4 reference | fetched from `n2` with `url4://` semantics (§3.5). **v1: `remote_blob_unsupported`** (F1) |
+| C2 | `(img:src=url4://n2.example/blob/sha256/<hex>)!'Describe'` | remote URL4 reference | fetched from `n2` with `url4://` semantics (§3.5). **v1: `x.remote_blob_unsupported`** for any authority, `n2` or the evaluating node itself (F1) |
 | C3 | `(img:src=blob:sha256/<hex>)!'Describe'` | bare token (identifier) | resolved from the evaluating node's own store |
 | C4 | `(img:'blob:sha256/<hex>')!'Describe'` | quoted text | the literal string; not resolved |
 | C5 | C3 where the node doesn't hold the bytes | bare token | `source_not_found`, permanent (C §13.2.5) |
@@ -270,6 +282,7 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [u-http]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/io/http.py#L74-L80
 [u-redirect]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/io/http.py#L66-L69
 [u-peer]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/peer/_http.py#L109
+[u-xcode]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/core/errors.py#L48
 [u-intent]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/peer/_http.py#L52
 [u-coll]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/dag/semantics/collection.py#L140-L142
 [u-artifact]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/streaming/protocol/signals.py#L174-L192

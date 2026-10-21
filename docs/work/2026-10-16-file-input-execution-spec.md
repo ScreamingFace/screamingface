@@ -48,6 +48,13 @@ with the 2026-10-16 live evidence. Docs only.
   the TODAY snapshot. Added the error-ownership table (§4), separate Case and url4 ingress paths,
   the `ResultArtifact`/`ResultData` and `RelUrl` corrections, and dated-observation labels. The
   diagram was regenerated (title/desc, ≥ 12 px labels, embedded in the spec).
+- **Review round 2 (2026-10-21):** owner decisions D1–D6 folded into F1/F2. D1 made explicit: every
+  `url4://` blob ref is remote in v1 (no self-recognition; `url4://<self>` dropped from url4 ingress and
+  the diagram), only authority-less refs are local. D3 (attachments on the last user message), D4
+  (a text blob read as a collection is text, not an attachment) and D5 (a failed `;optional` blob
+  source fails the run) added as normative text; D2/D6 were already in F2. New url4 wire codes spelled
+  with the `x.` prefix (`x.remote_blob_unsupported`, `x.blob_digest_mismatch`), matching `#1482` and
+  `x.admission_timeout` at `ec4b632b2`. Diagram PNG re-rendered with `rsvg-convert`.
 - **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
   attachments under `OME-1271` v1; a remote nested expression (C6) does not receive the outer run's
   attachments; a request with no attachments keeps today's key; new codes travel with the url4 `x.`
