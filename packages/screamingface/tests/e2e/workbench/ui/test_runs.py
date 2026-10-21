@@ -1,0 +1,408 @@
+"""Workbench UI run manager (unit 4 plan, Task 4): one pytest run at a time, streamed, cancellable.
+
+The fast tests inject a ``spawn`` that runs a tiny Python script (no pytest-in-pytest, no stack).
+``test_cancel_runs_pytest_teardown`` runs a real pytest child: it pins Review Focus 2's premise
+that a cancel lets fixture teardown (``targets.local_stack``'s ``down``) run.
+``test_cancelling_a_local_boot_frees_its_ports`` boots the real keyless local stack (opt-in).
+"""
+
+from __future__ import annotations
+
+import os
+import socket
+import subprocess
+import sys
+import textwrap
+import time
+import uuid
+from collections.abc import Callable, Mapping
+from pathlib import Path
+
+import pytest
+from harness._gating import E2E_ENV
+
+from workbench.ui import runs
+from workbench.ui.runs import (
+    KNOWN_UI_TARGETS,
+    Run,
+    RunBusy,
+    RunManager,
+    RunRejected,
+    RunRequest,
+)
+
+Spawn = Callable[[list[str], dict[str, str], Path], "subprocess.Popen[str]"]
+
+
+def _script_spawn(script: str, calls: list[list[str]] | None = None) -> Spawn:
+    def spawn(argv: list[str], env: dict[str, str], cwd: Path) -> subprocess.Popen[str]:
+        if calls is not None:
+            calls.append(argv)
+        return subprocess.Popen(
+            [sys.executable, "-c", script],
+            env=env,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            start_new_session=True,
+        )
+
+    return spawn
+
+
+def _manager(
+    tmp_path: Path,
+    script: str = "print('a'); print('b')",
+    environ: Mapping[str, str] | None = None,
+    **kwargs: float,
+) -> RunManager:
+    return RunManager(
+        tmp_path,
+        workdir=tmp_path,
+        environ=environ or {},
+        spawn=_script_spawn(script),
+        **kwargs,
+    )
+
+
+def _no_process_matches(marker: str, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        out = subprocess.run(["pgrep", "-f", marker], capture_output=True, text=True)
+        if out.stdout.strip() == "":
+            return True
+        time.sleep(0.1)
+    return False
+
+
+# --- command(): argv, env, gating ------------------------------------------------------------
+
+
+def test_targets_are_the_keyless_and_the_paid_local_one() -> None:
+    assert KNOWN_UI_TARGETS == ("replay", "local")
+
+
+def test_command_sets_the_workbench_env_and_filters_notebooks(tmp_path: Path) -> None:
+    argv, env = _manager(tmp_path).command(RunRequest("replay", ("quickstart",)), tmp_path / "o")
+    assert argv[:3] == [sys.executable, "-m", "pytest"]
+    assert "tests/e2e/workbench/test_notebooks.py" in argv
+    assert argv[-2:] == ["-k", "quickstart"]
+    assert env["SCREAMINGFACE_TEST_E2E"] == "1"
+    assert env["SCREAMINGFACE_WORKBENCH_TARGET"] == "replay"
+    assert env["SCREAMINGFACE_WORKBENCH_REQUIRE_ALL"] == "1"
+    assert env["SCREAMINGFACE_WORKBENCH_OUT"] == str(tmp_path / "o")
+    assert "SCREAMINGFACE_TEST_PAID" not in env
+
+
+def test_command_ors_several_notebooks_and_runs_all_when_none_given(tmp_path: Path) -> None:
+    m = _manager(tmp_path)
+    argv, _ = m.command(RunRequest("replay", ("quickstart", "judge-panel")), tmp_path)
+    assert argv[-2:] == ["-k", "quickstart or judge-panel"]
+    argv_all, _ = m.command(RunRequest("replay", ()), tmp_path)
+    assert "-k" not in argv_all
+
+
+def test_command_keeps_the_inherited_env(tmp_path: Path) -> None:
+    _, env = _manager(tmp_path, environ={"PATH": "/x", "HOME": "/h"}).command(
+        RunRequest("replay", ()), tmp_path
+    )
+    assert env["PATH"] == "/x" and env["HOME"] == "/h"
+
+
+def test_a_replay_run_never_inherits_the_paid_opt_in(tmp_path: Path) -> None:
+    # WHY: the UI process's own SCREAMINGFACE_TEST_PAID must not turn a keyless replay launch
+    # into one that may spend; only a confirmed `local` request sets it.
+    _, env = _manager(tmp_path, environ={"SCREAMINGFACE_TEST_PAID": "1"}).command(
+        RunRequest("replay", ()), tmp_path
+    )
+    assert "SCREAMINGFACE_TEST_PAID" not in env
+
+
+def test_a_confirmed_local_run_with_a_key_is_paid(tmp_path: Path) -> None:
+    _, env = _manager(tmp_path, environ={"OPENROUTER_API_KEY": "k"}).command(
+        RunRequest("local", (), confirm_paid=True), tmp_path
+    )
+    assert env["SCREAMINGFACE_TEST_PAID"] == "1"
+    assert env["SCREAMINGFACE_WORKBENCH_TARGET"] == "local"
+
+
+@pytest.mark.parametrize(
+    ("request_", "environ", "reason"),
+    [
+        (RunRequest("local", (), confirm_paid=False), {"OPENROUTER_API_KEY": "k"}, "spends"),
+        (RunRequest("local", (), confirm_paid=True), {}, "OPENROUTER_API_KEY"),
+        (RunRequest("local", (), confirm_paid=True), {"OPENROUTER_API_KEY": ""}, "OPENROUTER"),
+        (RunRequest("prod", ()), {}, "target"),
+        (RunRequest("replay", ("x or y",)), {}, "notebook"),
+        (RunRequest("replay", ("Quickstart",)), {}, "notebook"),
+        (RunRequest("replay", ("",)), {}, "notebook"),
+    ],
+)
+def test_invalid_or_ungated_requests_are_rejected_with_the_reason(
+    tmp_path: Path, request_: RunRequest, environ: dict[str, str], reason: str
+) -> None:
+    calls: list[list[str]] = []
+    m = RunManager(tmp_path, workdir=tmp_path, environ=environ, spawn=_script_spawn("", calls))
+    with pytest.raises(RunRejected, match=reason):
+        m.start(request_)
+    assert calls == []
+
+
+# --- start / follow / get ---------------------------------------------------------------------
+
+
+def test_output_is_streamed_and_the_exit_code_recorded(tmp_path: Path) -> None:
+    m = _manager(tmp_path)
+    run = m.start(RunRequest("replay", ()))
+    assert list(m.follow(run.id, 0)) == ["a", "b"]
+    done = m.get(run.id)
+    assert done.returncode == 0 and not done.cancelled
+
+
+def test_a_run_writes_under_runs_its_id(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="import os; print(os.environ['SCREAMINGFACE_WORKBENCH_OUT'])")
+    run = m.start(RunRequest("replay", ()))
+    assert run.out_dir == tmp_path / "runs" / run.id
+    assert list(m.follow(run.id, 0)) == [str(run.out_dir)]
+    assert run.out_dir.is_dir()
+
+
+def test_follow_resumes_from_an_absolute_line_index(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="print('a'); print('b'); print('c')")
+    run = m.start(RunRequest("replay", ()))
+    list(m.follow(run.id, 0))
+    assert list(m.follow(run.id, 2)) == ["c"]
+    assert list(m.follow(run.id, 99)) == []
+
+
+def test_follow_sees_lines_live_before_the_run_ends(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="import time; print('first', flush=True); time.sleep(30)")
+    run = m.start(RunRequest("replay", ()))
+    stream = m.follow(run.id, 0)
+    assert next(stream) == "first"
+    assert m.get(run.id).returncode is None
+    m.cancel(run.id)
+    # The stream ends with the run; the interrupt's traceback is part of the output.
+    assert list(stream)[-1] == "KeyboardInterrupt"
+
+
+def test_unknown_run_is_a_key_error(tmp_path: Path) -> None:
+    m = _manager(tmp_path)
+    with pytest.raises(KeyError):
+        m.get("nope")
+    with pytest.raises(KeyError):
+        m.cancel("nope")
+    with pytest.raises(KeyError):
+        list(m.follow("nope", 0))
+
+
+def test_run_ids_are_timestamped_and_distinct(tmp_path: Path) -> None:
+    m = _manager(tmp_path)
+    first = m.start(RunRequest("replay", ()))
+    list(m.follow(first.id, 0))
+    second = m.start(RunRequest("replay", ()))
+    list(m.follow(second.id, 0))
+    assert first.id != second.id
+    assert time.strftime("%Y%m%d-") in first.id
+
+
+def test_output_is_capped_and_the_dropped_lines_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(runs, "LINE_CAP", 5)
+    m = _manager(tmp_path, script="for i in range(12): print(i)")
+    run = m.start(RunRequest("replay", ()))
+    list(m.follow(run.id, 0))
+    done = m.get(run.id)
+    assert done.lines == ["7", "8", "9", "10", "11"]
+    assert done.dropped == 7
+    # A reader that fell behind the cap resumes at the oldest line still held.
+    assert list(m.follow(run.id, 0)) == ["7", "8", "9", "10", "11"]
+    assert list(m.follow(run.id, 10)) == ["10", "11"]
+
+
+def test_undecodable_output_does_not_stall_the_run(tmp_path: Path) -> None:
+    script = "import sys; sys.stdout.buffer.write(b'bad \\xff\\xfe byte\\n'); print('after')"
+    argv_spawn = runs._spawn  # the real spawn: it decides the decoding
+    m = RunManager(
+        tmp_path,
+        workdir=tmp_path,
+        environ=dict(os.environ),
+        spawn=lambda _argv, env, cwd: argv_spawn([sys.executable, "-c", script], env, cwd),
+    )
+    run = m.start(RunRequest("replay", ()))
+    lines = list(m.follow(run.id, 0))
+    assert lines[-1] == "after" and lines[0].startswith("bad ")
+    assert m.get(run.id).returncode == 0
+
+
+# --- one at a time ---------------------------------------------------------------------------
+
+
+def test_a_second_run_while_one_is_active_is_busy(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="import time; time.sleep(30)")
+    first = m.start(RunRequest("replay", ()))
+    with pytest.raises(RunBusy):
+        m.start(RunRequest("replay", ()))
+    m.cancel(first.id)
+    # Once the first one ended, the slot is free again.
+    second = m.start(RunRequest("replay", ()))
+    m.cancel(second.id)
+
+
+def test_a_failed_spawn_frees_the_slot(tmp_path: Path) -> None:
+    def broken(_argv: list[str], _env: dict[str, str], _cwd: Path) -> subprocess.Popen[str]:
+        raise OSError("no such interpreter")
+
+    m = RunManager(tmp_path, workdir=tmp_path, environ={}, spawn=broken)
+    with pytest.raises(OSError):
+        m.start(RunRequest("replay", ()))
+    with pytest.raises(OSError):  # not RunBusy
+        m.start(RunRequest("replay", ()))
+
+
+# --- ends and cancels (Review Focus 1, 2) ------------------------------------------------------
+
+
+def test_a_crashing_run_ends_with_its_exit_code(tmp_path: Path) -> None:
+    m = _manager(tmp_path, script="print('x'); raise SystemExit(3)")
+    run = m.start(RunRequest("replay", ()))
+    assert list(m.follow(run.id, 0)) == ["x"]
+    assert m.get(run.id).returncode == 3
+
+
+def test_a_run_whose_leftover_child_holds_the_pipe_still_ends(tmp_path: Path) -> None:
+    # Review Focus 1: pytest exits but a straggler (a kernel, say) keeps stdout open. The run
+    # must still end with pytest's exit code, and the straggler is reaped with the group.
+    marker = f"straggler-{uuid.uuid4().hex}"
+    script = textwrap.dedent(
+        f"""
+        import subprocess, sys
+        subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', '{marker}'])
+        print('parent done', flush=True)
+        raise SystemExit(1)
+        """
+    )
+    m = _manager(tmp_path, script=script, drain_grace=0.5)
+    run = m.start(RunRequest("replay", ()))
+    started = time.monotonic()
+    assert list(m.follow(run.id, 0)) == ["parent done"]
+    assert time.monotonic() - started < 10
+    assert m.get(run.id).returncode == 1
+    assert _no_process_matches(marker)
+
+
+def test_cancel_kills_the_process_group(tmp_path: Path) -> None:
+    marker = f"grandchild-{uuid.uuid4().hex}"
+    script = (
+        "import subprocess, sys, time; "
+        f"subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)', '{marker}']); "
+        "print('child', flush=True); time.sleep(60)"
+    )
+    m = _manager(tmp_path, script=script)
+    run = m.start(RunRequest("replay", ()))
+    next(m.follow(run.id, 0))
+    done = m.cancel(run.id)
+    assert done.cancelled and done.returncode is not None
+    # The grandchild is in the same session, so it is gone too.
+    assert _no_process_matches(marker)
+
+
+def test_cancel_escalates_when_the_interrupt_is_ignored(tmp_path: Path) -> None:
+    script = (
+        "import signal, time; signal.signal(signal.SIGINT, signal.SIG_IGN); "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); print('stubborn', flush=True); "
+        "time.sleep(60)"
+    )
+    m = _manager(tmp_path, script=script, interrupt_grace=0.3, terminate_grace=0.3)
+    run = m.start(RunRequest("replay", ()))
+    next(m.follow(run.id, 0))
+    started = time.monotonic()
+    done = m.cancel(run.id)
+    assert time.monotonic() - started < 10
+    assert done.cancelled and done.returncode == -9
+
+
+def test_cancelling_a_finished_run_changes_nothing(tmp_path: Path) -> None:
+    m = _manager(tmp_path)
+    run = m.start(RunRequest("replay", ()))
+    list(m.follow(run.id, 0))
+    done = m.cancel(run.id)
+    assert done.returncode == 0 and not done.cancelled
+
+
+def test_cancel_runs_pytest_teardown(tmp_path: Path) -> None:
+    # Review Focus 2's premise: the local target's `down` lives in a fixture `finally`. pytest
+    # runs that on SIGINT (KeyboardInterrupt) but NOT on SIGTERM (the default action kills it
+    # outright) — so cancel must interrupt first. A real pytest child proves it.
+    torn_down = tmp_path / "torn_down"
+    test_file = tmp_path / "test_slow.py"
+    test_file.write_text(
+        textwrap.dedent(
+            f"""
+            import pathlib, time
+            import pytest
+
+            @pytest.fixture
+            def stack():
+                try:
+                    yield
+                finally:
+                    pathlib.Path({str(torn_down)!r}).write_text("down")
+
+            def test_slow(stack):
+                print("booted", flush=True)
+                time.sleep(60)
+            """
+        )
+    )
+
+    def spawn(_argv: list[str], env: dict[str, str], cwd: Path) -> subprocess.Popen[str]:
+        argv = [sys.executable, "-m", "pytest", "-s", "-q", "-p", "no:cacheprovider"]
+        return runs._spawn([*argv, str(test_file)], env, cwd)
+
+    m = RunManager(tmp_path, workdir=tmp_path, environ=dict(os.environ), spawn=spawn)
+    run = m.start(RunRequest("replay", ()))
+    assert any("booted" in line for line in m.follow(run.id, 0))
+    done = m.cancel(run.id)
+    assert done.cancelled
+    assert torn_down.read_text() == "down"
+
+
+_LOCAL_PORTS = (9105, 9106, 9108)
+
+
+def _listening(port: int) -> bool:
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+@pytest.mark.e2e
+def test_cancelling_a_local_boot_frees_its_ports(tmp_path: Path) -> None:
+    # Review Focus 2 against the real stack, keyless: the run is the un-paid local boot check
+    # (`screamingface up` + Engine), cancelled once the stack listens. Its teardown must run
+    # `down`, which is the only thing that stops the runtime (it detaches into its own session).
+    if os.environ.get(E2E_ENV) != "1":
+        pytest.skip(f"{E2E_ENV}=1 not set (boots the real local stack)")
+    if any(_listening(p) for p in _LOCAL_PORTS):
+        pytest.skip(f"a local stack already holds one of {_LOCAL_PORTS}")
+    package = Path(__file__).resolve().parents[4]
+
+    def spawn(_argv: list[str], env: dict[str, str], cwd: Path) -> subprocess.Popen[str]:
+        argv = [sys.executable, "-m", "pytest", "-s", "-q", "-p", "no:cacheprovider"]
+        return runs._spawn([*argv, "tests/e2e/workbench/test_local_boot.py"], env, cwd)
+
+    m = RunManager(tmp_path, workdir=package, environ=dict(os.environ), spawn=spawn)
+    run = m.start(RunRequest("replay", ()))
+    deadline = time.monotonic() + 600
+    while not all(_listening(p) for p in _LOCAL_PORTS):
+        assert m.get(run.id).returncode is None, "\n".join(m.get(run.id).lines[-40:])
+        assert time.monotonic() < deadline, "the local stack never came up"
+        time.sleep(1)
+    done: Run = m.cancel(run.id)
+    assert done.cancelled and done.returncode is not None
+    stuck = [p for p in _LOCAL_PORTS if _listening(p)]
+    assert stuck == [], "\n".join(done.lines[-40:])
