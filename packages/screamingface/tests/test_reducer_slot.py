@@ -107,7 +107,7 @@ def _combine_intent(url4: str, binding: str = "synthesis_1") -> str:
 def test_reducer_outside_a_fusion_slot_raises_type_error(position: str) -> None:
     with (
         _client() as client,
-        pytest.raises(TypeError, match="reducer must be a Fusion synthesizer"),
+        pytest.raises(TypeError, match="closes a sf.Fanout block"),
     ):
         _misplaced()[position](client)
 
@@ -128,7 +128,7 @@ def test_fusion_accepts_a_reducer_in_the_synthesizer_slot() -> None:
     # the base-class defaults accept any member count
     fusion_node(["provider/a", "provider/b"], FixtureJudgeish())
     # a non-reducer synthesizer keeps its exact message
-    with pytest.raises(TypeError, match="Fusion synthesizer must be a model route"):
+    with pytest.raises(TypeError, match="the writer must be a model route"):
         fusion_node(["provider/a"], 3)  # type: ignore[arg-type]
 
 

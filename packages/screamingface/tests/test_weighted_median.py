@@ -144,8 +144,7 @@ def test_sdk_median_weights_refuse_bad_input() -> None:
         sf.Median(weights=(1, 0, 1))
     # a string is a signal key on the surface, so the block refuses a key it does not declare
     undeclared = (
-        "the synthesizer reads sf.signal('abc'), which this Fusion does not declare "
-        "(declared: none)"
+        "a step reads sf.signal('abc'), which this sf.Fanout does not declare (declared: none)"
     )
     with pytest.raises(ValueError, match=f"^{re.escape(undeclared)}$"):
         _ = sf.Fanout(_MEMBERS3) >> sf.Median(weights="abc")

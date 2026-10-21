@@ -106,7 +106,7 @@ def test_fusion_refuses_a_rule_that_reads_an_undeclared_name() -> None:
     with pytest.raises(ValueError) as undeclared:
         _ = sf.Fanout(MEMBERS, signals=declared) >> sf.Vote(weights=sf.signal("lp"))
     assert str(undeclared.value) == (
-        "the synthesizer reads sf.signal('lp'), which this Fusion does not declare (declared: conf)"
+        "a step reads sf.signal('lp'), which this sf.Fanout does not declare (declared: conf)"
     )
     with pytest.raises(ValueError, match=r"sf\.signal\('lp'\).*declared: none"):
         _ = sf.Fanout(MEMBERS) >> sf.ArgMax("lp")
@@ -198,7 +198,7 @@ def test_fusion_refuses_more_than_eight_names_and_two_entropies() -> None:
     nine = {f"n{index}": verbalized for index in range(1, 10)}
     with pytest.raises(ValueError) as too_many:
         _ = sf.Fanout(MEMBERS, signals=nine) >> sf.Vote()
-    assert str(too_many.value) == "a Fusion declares at most 8 signals, not 9"
+    assert str(too_many.value) == "a sf.Fanout declares at most 8 signals, not 9"
 
     with pytest.raises(ValueError, match="at most one sf.Entropy"):
         _ = sf.Fanout(MEMBERS, signals={"e1": _FakeEntropy(), "e2": _FakeEntropy()}) >> sf.Vote()

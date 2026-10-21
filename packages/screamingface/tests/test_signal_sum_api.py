@@ -175,7 +175,9 @@ def test_sum_refuses_bad_terms(value: Any, error: type[Exception], message: str)
 
 
 def test_fusion_refuses_a_sum_of_an_undeclared_name() -> None:
-    message = "sf.Sum 'risk' adds 'zzz', which this Fusion does not declare (declared: risk, sev_a)"
+    message = (
+        "sf.Sum 'risk' adds 'zzz', which this sf.Fanout does not declare (declared: risk, sev_a)"
+    )
     with pytest.raises(ValueError) as caught:
         _ = sf.Fanout(
             _MEMBERS,
@@ -241,7 +243,7 @@ def test_fusion_refuses_a_vote_weight_sum_with_a_raw_logprob_or_entropy(
         _ = sf.Fanout(_OPENROUTER, signals=_weight_signals(raw())) >> weighted(sf.signal("w"))
     assert str(caught.value) == (
         f"sf.Sum 'w' cannot be a vote weight: it adds 'lp' ({shown}), and a weight must be "
-        "greater than 0; read sf.signal('w') with sf.Pick, sf.Rank or sf.Filter instead"
+        "greater than 0; read sf.signal('w') with sf.ArgMax, sf.Rank or sf.Filter instead"
     )
 
 
@@ -303,7 +305,7 @@ def test_a_sum_counts_toward_the_eight_names() -> None:
         _ = sf.Fanout(
             _MEMBERS, signals={"s": sf.Sum({"a1": 1.0}), "a8": sf.Verbalized(_A), **names}
         ) >> _pick("s")
-    assert str(caught.value) == "a Fusion declares at most 8 signals, not 9"
+    assert str(caught.value) == "a sf.Fanout declares at most 8 signals, not 9"
 
 
 # --- SA#8 (SA-2): the compile writes the sum entry ----------------------------------------------

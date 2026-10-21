@@ -125,42 +125,42 @@ def test_url4_round_trip_keeps_the_select_of_a_numeric_block(make: Any) -> None:
         (
             "median",
             {"extract": LAST, "select": "mean"},
-            "sf.Reduce('median') option 'select' must be 'nearest' or 'value', not 'mean'",
+            "sf.Median select= must be 'nearest' or 'value', not 'mean'",
         ),
         (
             "mean",
             {"extract": LAST, "select": "value@1"},
-            "sf.Reduce('mean') option 'select' must be 'value' or 'nearest', not 'value@1'",
+            "sf.Mean select= must be 'value' or 'nearest', not 'value@1'",
         ),
         (
             "median",
             {"extract": LAST, "select": 1},
-            "sf.Reduce('median') option 'select' must be 'nearest' or 'value', not 1",
+            "sf.Median select= must be 'nearest' or 'value', not 1",
         ),
         (
             "median",
             {"mode": "compute", "extract": LAST, "select": "value"},
-            "sf.Reduce('median') takes mode or select, not both",
+            "ReduceNode('median') takes mode or select, not both",
         ),
         (
             "mean",
             {"mode": "select", "extract": LAST, "select": "nearest"},
-            "sf.Reduce('mean') takes mode or select, not both",
+            "ReduceNode('mean') takes mode or select, not both",
         ),
         (
             "plurality",
             {"extract": LAST, "select": "value"},
-            "sf.Reduce('plurality') does not take option 'select'; it takes extract",
+            "ReduceNode('plurality') does not take option 'select'; it takes extract",
         ),
         (
             "median",
             {"extract": LAST, "foo": 1},
-            "sf.Reduce('median') does not take option 'foo'; it takes extract, weights, select",
+            "ReduceNode('median') does not take option 'foo'; it takes extract, weights, select",
         ),
         (
             "mean",
             {"extract": LAST, "foo": 1},
-            "sf.Reduce('mean') does not take option 'foo'; it takes extract, weights, select",
+            "ReduceNode('mean') does not take option 'foo'; it takes extract, weights, select",
         ),
     ],
 )

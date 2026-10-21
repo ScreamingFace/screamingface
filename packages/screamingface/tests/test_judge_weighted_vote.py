@@ -86,7 +86,7 @@ def test_a_nested_vote_judge_call_is_never_a_claimant_of_the_outer_sources() -> 
 def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
     secret = JudgeNode("provider/j", returns="scores", rubric=SECRET)
     label = JudgeNode("provider/j", returns="label", rubric=SECRET)
-    prefix = "Vote" if kind == "vote" else r"sf\.Reduce\('weighted'\)"
+    prefix = "Vote" if kind == "vote" else r"sf\.Vote"
     read_only = rf"{prefix} judge is read only by weights=sf\.signal\('score:judge'\)"
 
     def make(weights: Any, judge: Any) -> Reducer:
@@ -98,12 +98,12 @@ def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
     assert make(JUDGE_SIGNAL, secret) is not None  # the one valid pairing
     assert make(sf.signal("cost_usd"), None) is not None  # no judge, no pairing needed
     cases: list[tuple[Any, Any, type[Exception], str]] = [
-        (JUDGE_SIGNAL, None, ValueError, r"needs a judge on the same reducer"),
+        (JUDGE_SIGNAL, None, ValueError, r"needs a judge: put sf.Judge"),
         (
             JUDGE_SIGNAL,
             label,
             ValueError,
-            rf"{prefix} judge needs sf\.Judge\(\.\.\., returns='scores'\)",
+            rf"{prefix} judge must be a sf\.Judge, not a sf\.JudgePick",
         ),
         ([1.0, 2.0, 3.0], secret, ValueError, read_only),
         (sf.signal("cost_usd"), secret, ValueError, read_only),

@@ -96,7 +96,7 @@ def test_sy1_a_blank_prompt_is_refused() -> None:
 
 
 def test_an_optional_writer_is_refused() -> None:
-    with pytest.raises(ValueError, match="optional=True is only supported on Fusion members"):
+    with pytest.raises(ValueError, match="optional=True is only supported on sf.Fanout members"):
         sf.Synthesize(sf.Model("provider/w", optional=True))
 
 

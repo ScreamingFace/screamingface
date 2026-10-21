@@ -100,7 +100,7 @@ def test_sdk_judge_order_min_writes_the_neutral_template() -> None:
 
 def test_sdk_judge_label_refuses_an_order() -> None:
     # JO-E1: a label names one member, so it has no order.
-    with pytest.raises(ValueError, match=r"Judge order='min' needs returns='scores'"):
+    with pytest.raises(ValueError, match=r"a label judge \(sf\.JudgePick\) has no order"):
         JudgeNode("provider/j", returns="label", rubric=RUBRIC, order="min")
     # control: order="max" on a label is the same judge as no order
     assert JudgeNode("provider/j", returns="label", rubric=RUBRIC, order="max") == JudgeNode(

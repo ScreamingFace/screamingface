@@ -78,7 +78,7 @@ def test_extract_args_are_frozen() -> None:
 
 
 def test_extract_steps_map_rules_to_engine_operators() -> None:
-    with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
+    with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
         Extract("benchmark")._steps()
 
 

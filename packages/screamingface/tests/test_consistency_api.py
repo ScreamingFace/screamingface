@@ -4,7 +4,7 @@ FEATURE: ``sf.Fusion(members, signals={"cons": sf.Consistency(n=5)}, ...)`` asks
 more times with distinct seeds at the stated temperature (ans:Q3).
 STORY: as a benchmark author, I pick the member answer that its model gives most often again.
 INVARIANT defended: n is an int from 1 to 32 and the temperature a finite number >= 0, default
-1.0 (P2); a Fusion declares at most one sf.Consistency, each member is one sf.Model, at most 1024
+1.0 (P2); a sf.Fanout declares at most one sf.Consistency, each member is one sf.Model, at most 1024
 extra calls, and no member seed equals a sample seed of the Fusion (P4, P5; erd CN-I1..CN-I5).
 """
 
@@ -163,7 +163,7 @@ _THIRTY_THREE = [f"prov/m{index}" for index in range(1, 34)]
             _MEMBERS,
             {"cons": sf.Consistency(n=2), "again": sf.Consistency(n=3)},
             _pick(),
-            "a Fusion declares at most one sf.Consistency source: every member gets one set "
+            "a sf.Fanout declares at most one sf.Consistency source: every member gets one set "
             "of samples",
             id="two-consistency",
         ),
@@ -171,16 +171,16 @@ _THIRTY_THREE = [f"prov/m{index}" for index in range(1, 34)]
             ["prov/alpha", _NESTED, "prov/gamma"],
             {"cons": sf.Consistency(n=2)},
             _pick(),
-            "sf.Consistency needs each Fusion member to be one sf.Model call; member 2 "
-            "('inner') is a nested Fusion or Pipeline",
+            "sf.Consistency needs each sf.Fanout member to be one sf.Model call; member 2 "
+            "('inner') is a nested block or Pipeline",
             id="member-2-fusion",
         ),
         pytest.param(
             [_CHAIN, "prov/beta"],
             {"cons": sf.Consistency(n=2)},
             _pick(),
-            "sf.Consistency needs each Fusion member to be one sf.Model call; member 1 "
-            "('chain') is a nested Fusion or Pipeline",
+            "sf.Consistency needs each sf.Fanout member to be one sf.Model call; member 1 "
+            "('chain') is a nested block or Pipeline",
             id="member-1-pipeline",
         ),
         pytest.param(
@@ -188,7 +188,7 @@ _THIRTY_THREE = [f"prov/m{index}" for index in range(1, 34)]
             {"cons": sf.Consistency(n=32)},
             _pick(),
             "sf.Consistency(n=32) on 33 members makes 1056 extra calls; the limit is 1024 per "
-            "Fusion",
+            "sf.Fanout",
             id="over-1024-calls",
         ),
         pytest.param(

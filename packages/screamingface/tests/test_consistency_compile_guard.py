@@ -20,8 +20,8 @@ from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
 
 _CN_I2 = (
-    "sf.Consistency needs each Fusion member to be one sf.Model call; member 2 ('inner') is a "
-    "nested Fusion or Pipeline"
+    "sf.Consistency needs each sf.Fanout member to be one sf.Model call; member 2 ('inner') is a "
+    "nested block or Pipeline"
 )
 
 

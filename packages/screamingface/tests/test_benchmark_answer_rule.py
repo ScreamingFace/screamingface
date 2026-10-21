@@ -119,9 +119,9 @@ def test_vote_benchmark_extract_without_benchmark_raises() -> None:
     vote = sf.Vote(over="benchmark")
     fusion = sf.Fanout(["provider/a", "provider/b", "provider/c"]) >> vote
 
-    with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
+    with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
         compile_candidate(fusion, operators=engine_operators())
-    with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
+    with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
         combine_spec_text(
             VoteNode(extract="benchmark"), member_count=3, operators=engine_operators()
         )

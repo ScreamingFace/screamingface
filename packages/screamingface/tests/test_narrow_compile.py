@@ -321,12 +321,14 @@ def test_nc3_an_argmax_by_the_judge_after_a_filter_leaves_the_judge_step_as_it_i
 
 
 def test_a_narrow_step_that_reads_an_undeclared_name_is_refused() -> None:
-    with pytest.raises(ValueError, match=r"reads sf\.signal\('p'\), which this Fusion does not"):
+    with pytest.raises(
+        ValueError, match=r"reads sf\.signal\('p'\), which this sf\.Fanout does not"
+    ):
         _ = sf.Fanout(_ROUTES) >> sf.Filter(where=sf.signal("p") > 0.5) >> sf.Vote()
 
 
 def test_a_narrow_rank_over_the_member_count_is_refused() -> None:
-    with pytest.raises(ValueError, match=r"^Rank keeps k=3 members but the Fusion has 2$"):
+    with pytest.raises(ValueError, match=r"^sf\.Rank keeps k=3 members but the sf\.Fanout has 2$"):
         _ = sf.Fanout(_ROUTES[:2]) >> sf.Rank(3, by="cost_usd") >> sf.Vote()
 
 

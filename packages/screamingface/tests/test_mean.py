@@ -65,7 +65,7 @@ def test_sdk_mean_compiles_mean_or_weighted_mean_by_weights() -> None:
 def test_sdk_mean_refuses_a_wrong_weight_count() -> None:
     with pytest.raises(ValueError, match="mean has 2 weights for 3 members"):
         _fusion(sf.Mean(weights=(1, 2)))
-    with pytest.raises(ValueError, match=r"sf.Reduce\('mean'\) has 2 weights for 3 members"):
+    with pytest.raises(ValueError, match=r"sf.Mean has 2 weights for 3 members"):
         _fusion(sf.Mean(over=sf.Extract("last_number"), weights=(1, 2)))
 
 
@@ -74,9 +74,7 @@ def test_sdk_mean_refuses_score_judge_weights() -> None:
         ValueError, match=r"Mean cannot read sf.signal\('score:judge'\): it has no judge"
     ):
         sf.Mean(weights=sf.signal("score:judge"))
-    with pytest.raises(
-        ValueError, match=r"sf.Reduce\('mean'\) cannot read sf.signal\('score:judge'\)"
-    ):
+    with pytest.raises(ValueError, match=r"sf.Mean cannot read sf.signal\('score:judge'\)"):
         sf.Mean(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
 
 
