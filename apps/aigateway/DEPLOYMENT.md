@@ -484,10 +484,10 @@ commits after the pull's cursor has passed its `updated_at`, and every row of a 
 restore, which keeps the archive's `updated_at` (a merge restore stamps the restore time).
 
 **Cost.** Each page is read in batches of at most 100 rows and at most 8 MB of responses (a
-size-only query picks the rows, then a second reads them), and written to the response as it
-goes: memory per request is ~24 MB at most whatever the page size, and no connection or
-transaction is held between batches. `next` is null exactly when no eligible row follows the
-page's last row (one `exists()` look-ahead per page). On 2026-10-15 prod data (~596k rows),
+size-only query picks the rows, then a second reads exactly those rows), and written to the
+response as it goes: memory per request is ~24 MB at most whatever the page size, and no
+connection or transaction is held between batches. `next` is null exactly when no eligible row follows the
+last key the page scanned (one `exists()` look-ahead per page). On 2026-10-15 prod data (~596k rows),
 an unfiltered pull was ~120 pages and ~400–500 MB gzip'd; gzip is the largest gateway cost
 (~57 ms per 1,000 rows). `count=true` runs one `count(*)` over the rows after the cursor.
 

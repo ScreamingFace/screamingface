@@ -15,9 +15,11 @@ kept, never replaced (``ON CONFLICT(key_hash) DO NOTHING``). Reloading rows ther
 nothing, which is what makes resuming after a crash safe.
 INVARIANT: only a row a local lookup can serve is written (``_parameters``): both hashes are
 SHA-256 hex, the text fields fit their columns, ``response_json`` passes the lookup's own decoder
-(``store.decode_cached_response``), the size and timestamps are coherent, and the row has not
-expired. Because a kept key is never replaced, a row written that could not be served would hold
-its key unservable for good.
+(``store.decode_cached_response``), the timestamps are coherent, and the row has not expired.
+``response_size_bytes`` is measured here from ``response_json``, never taken from the page: the
+gateway batches its own exports by that column, so a page that understated it would let a later
+export of this database outgrow its byte bound. Because a kept key is never replaced, a row
+written that could not be served would hold its key unservable for good.
 WHY a row that fails is skipped and counted rather than refusing the call (owner decision,
 2026-10-20): rows are independent cache entries, and a pull resumes from the same cursor, so a
 refusal would stop every pull at that row until the hosted side was fixed. A skipped row is not
@@ -155,12 +157,12 @@ def _parameters(row: Mapping[str, Any], now: datetime) -> tuple[Any, ...]:
         if not isinstance(row[field], str) or not _HASH.fullmatch(row[field]):
             raise ValueError(f"{field} is not a SHA-256 hex digest")
     response = row["response_json"]
-    if not isinstance(response, str) or len(response.encode()) > _RESPONSE_MAX_BYTES:
-        raise ValueError("response_json is not text within bounds")
+    if not isinstance(response, str):
+        raise ValueError("response_json is not text")
+    size = len(response.encode())
+    if size > _RESPONSE_MAX_BYTES:
+        raise ValueError("response_json is larger than the bound")
     decode_cached_response(response)
-    size = row["response_size_bytes"]
-    if not isinstance(size, int) or isinstance(size, bool) or not 0 <= size <= _RESPONSE_MAX_BYTES:
-        raise ValueError("response_size_bytes is not a size within bounds")
     created, updated = _instant(row["created_at"]), _instant(row["updated_at"])
     expires = None if row["expires_at"] is None else _instant(row["expires_at"])
     if expires is not None and expires <= now:
@@ -200,32 +202,37 @@ def _check_schema(conn: sqlite3.Connection, database: Path) -> None:
             "outdated_gateway_database",
             f"{database} lacks {', '.join(missing)}; apply the gateway's migrations to it first",
         )
-    # WHY: ``ON CONFLICT(key_hash)`` needs a unique index on exactly ``key_hash``; a table without
-    # one would pass the column check and then fail every insert with a raw OperationalError.
+    # WHY: ``ON CONFLICT(key_hash)`` needs a unique, non-partial index on exactly ``key_hash``; a
+    # table without one would pass the column check and then fail every insert with a raw
+    # OperationalError.
     if not _has_unique_key_hash(conn):
         raise PageRejected("not_a_gateway_database", f"{database} has no unique key on key_hash")
 
 
 def _has_unique_key_hash(conn: sqlite3.Connection) -> bool:
-    for index in conn.execute(f"PRAGMA index_list({_TABLE})"):
-        name, unique = index[1], index[2]
-        columns = [column[2] for column in conn.execute(f"PRAGMA index_info('{name}')")]
-        if unique and columns == ["key_hash"]:
+    # WHY not partial: a conflict target cannot use a partial index (its WHERE clause), so a
+    # unique `key_hash` index with one does not serve `ON CONFLICT(key_hash)`.
+    for _seq, name, unique, _origin, partial in conn.execute(
+        'SELECT seq, name, "unique", origin, partial FROM pragma_index_list(?)', (_TABLE,)
+    ):
+        columns = [row[0] for row in conn.execute("SELECT name FROM pragma_index_info(?)", (name,))]
+        if unique and not partial and columns == ["key_hash"]:
             return True
     return False
 
 
-def check_database(database: Path) -> None:
-    """Refuse a database a pull could not load into, before anything is downloaded.
-
-    WHY ``mode=rw``: a plain connect creates a missing file, which would leave an empty
-    ``aigateway.sqlite3`` behind for the gateway to find.
-    """
+def _connect(database: Path) -> sqlite3.Connection:
+    # WHY ``mode=rw``: a plain connect creates a missing file, which would leave an empty
+    # ``aigateway.sqlite3`` behind for the gateway to find.
     try:
-        conn = sqlite3.connect(f"{database.resolve().as_uri()}?mode=rw", uri=True, timeout=30.0)
+        return sqlite3.connect(f"{database.resolve().as_uri()}?mode=rw", uri=True, timeout=30.0)
     except sqlite3.OperationalError as exc:
         raise PageRejected("not_a_gateway_database", f"{database} cannot be opened: {exc}") from exc
-    with closing(conn):
+
+
+def check_database(database: Path) -> None:
+    """Refuse a database a pull could not load into, before anything is downloaded."""
+    with closing(_connect(database)) as conn:
         _check_schema(conn, database)
 
 
@@ -238,7 +245,7 @@ def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
     now = datetime.now(UTC)
     checked = [_valid(row, now) for row in rows]
     parameters = [values for values in checked if values is not None]
-    with closing(sqlite3.connect(database, timeout=30.0)) as conn, conn:
+    with closing(_connect(database)) as conn, conn:
         _check_schema(conn, database)
         before = conn.total_changes
         conn.executemany(_INSERT, parameters)
