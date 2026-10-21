@@ -119,6 +119,30 @@ sf.Fanout(members, *, signals=None, quorum="all", name=None, prompt=None)
   `sf.Pipeline([sf.Fanout(m), sf.Vote()], optional=True)`. The lowering gives that flag to the
   internal node ([lowering.md](lowering.md) §2.3).
 
+## 3b. The `sf.Fusion` shortcut (A4, revised 2026-10-20)
+
+```python
+sf.Fusion(members, *, synthesizer, signals=None, quorum="all", name=None, prompt=None, optional=False)
+```
+
+A **function** (not a class; no second compile path) in `S/_surface/fusion.py`. It returns the
+chain `sf.Fanout(members, signals=signals, quorum=quorum, name=name, prompt=prompt) >> S`:
+
+- a reduce step (`Vote`, `Median`, `Mean`, `ArgMax`, `ArgMin`, `First`, `Merge`, `JudgePick`,
+  `Gate`) or an `sf.Synthesize(...)`: `S` is the step as it is;
+- a route string, an `sf.Model` or a recipe (a Pipeline or a chain): `S = sf.Synthesize(it)`;
+- a narrow step (`Rank`, `Filter`, `Concat`): `S` is the step as it is, and the result is an
+  **open** chain that the user closes with `>> sf.Synthesize(...)` (CH-8 at compile if not);
+- an `sf.Judge(...)` is refused: "sf.Fusion synthesizer= takes a reducer, a writer or a narrow
+  step; sf.Judge only scores: use sf.Fanout(...) >> sf.Judge(...) >> <reader>";
+- `optional=True` gives `sf.Pipeline([<that chain>], optional=True)` (LO-5).
+
+The value is the ordinary chain, so `==`, `repr`, the cards and `to_python()` show the canonical
+`sf.Fanout(...) >> ...` form. `isinstance(x, sf.Fusion)` is not supported (a function). Bytes:
+`sf.Fusion(m, synthesizer=R)` compiles to the bytes of `sf.Fanout(m) >> R`, which equal today's
+Fusion for the parity set (`ST/test_fusion_shortcut.py`). The internal node keeps its name
+`FusionNode`.
+
 ## 4. Score: `sf.Judge`
 
 ```python
@@ -271,7 +295,8 @@ sf.Synthesize(model, *, prompt=None)
 
 ## 10. Deleted public names
 
-`sf.Fusion`, `sf.Pick`, `sf.Reduce`, `Recipe.then`. Deleted parameters: `Judge(returns=, order=)`,
+`sf.Pick`, `sf.Reduce`, `Recipe.then` (`sf.Fusion` stays as the shortcut of §3b, revised
+2026-10-20). Deleted parameters: `Judge(returns=, order=)`,
 `Rank(by=<Judge>, by_field=, by_signal=)`, `Filter(judge=, extract=)` (also the form
 `Filter(where=<signal comparison>, extract=...)`, FI-1), `Vote(extract=, judge=, gate=)`,
 `Median/Mean(extract=)`, and the `sf.Gate(observe, cmp, threshold, *, otherwise, abstain_band)`
