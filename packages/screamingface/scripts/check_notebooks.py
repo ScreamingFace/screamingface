@@ -27,7 +27,12 @@ _STORY_MARKERS = (
     "hosted.login(",
     "hosted.logout()",
     "sf.Model(",
-    "sf.Fusion(",
+    "sf.Fanout(",
+    ">> sf.Synthesize(",
+    ">> sf.Judge(",
+    ">> sf.Rank(",
+    ">> sf.Filter(",
+    ">> sf.Gate(",
     "on_event=",
     "progress=True",
     "limit=1",
@@ -40,6 +45,20 @@ _STORY_MARKERS = (
     ".to_json()",
     "report.export()",
     "sf.ScreamingFaceError",
+)
+# The recipe names and parameters that the map/select/reduce surface removed (E4b). A notebook
+# that still writes one would raise on the user's machine; ``sf.Fusion`` stays as a shortcut.
+_RETIRED_MARKERS = (
+    "sf.Pick(",
+    "sf.Reduce(",
+    ".then(",
+    'returns="label"',
+    'returns="scores"',
+    "by_field=",
+    "by_signal=",
+    "extract=",
+    "abstain_band=",
+    "gate=sf.Gate(",
 )
 
 
@@ -73,6 +92,9 @@ def _check_public_story(values: dict[str, NotebookNode]) -> None:
     missing = [marker for marker in _STORY_MARKERS if marker not in authored]
     if missing:
         raise SystemExit(f"notebook story is missing public surface markers: {missing}")
+    retired = [marker for marker in _RETIRED_MARKERS if marker in authored]
+    if retired:
+        raise SystemExit(f"notebook story still uses removed recipe names: {retired}")
     code = "\n".join(
         cell.source
         for notebook in values.values()
