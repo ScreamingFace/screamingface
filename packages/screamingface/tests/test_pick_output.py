@@ -190,6 +190,21 @@ def test_a_rebuilt_pick_refuses_an_output_that_is_not_a_field_name() -> None:
         PickNode._from_spec(spec)
 
 
+def test_a_rebuilt_pick_refuses_an_output_that_is_a_field_path() -> None:
+    # the ValueError branch of the PickNode output check: only a hand-edited url4 reaches it
+    spec = _spec_of(PickNode("label", equals="yes", output="answer"))
+    spec["select"] = {
+        "op": "by_field@1",
+        "args": {"normalize": None, "order": "equals", "output": "a.b", "value": "yes"},
+    }
+
+    with pytest.raises(ValueError, match=_CANNOT_REBUILD_PICK) as caught:
+        PickNode._from_spec(spec)
+
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert "must be a top-level field name" in str(caught.value.__cause__)
+
+
 def test_answer_v1_lists_output_missing() -> None:
     assert "output_missing" in ABSTAIN_REASONS
     assert "output_missing" in ANSWER_REASONS
