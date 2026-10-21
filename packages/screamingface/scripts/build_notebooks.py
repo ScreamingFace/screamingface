@@ -2243,7 +2243,9 @@ ROUTES = [
     "openrouter/google/gemini-2.5-flash",
     "openrouter/anthropic/claude-haiku-4.5",
 ]
-WRITER_ROUTE = "openrouter/openai/gpt-4o-mini"
+# The writer and the judge are different models: the model that scores the members should not
+# also write the answer (sf.JudgeWriterWarning).
+WRITER_ROUTE = "openrouter/openai/gpt-4.1-mini"
 JUDGE_ROUTE = "openrouter/openai/gpt-4o-mini"
 
 # Members that reply with one JSON object: an answer and a confidence on the SAME scale (0 to 1).
@@ -2355,6 +2357,25 @@ s11"""),
 s11_min = sf.Fanout(ROUTES) >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MIN) >> sf.ArgMin("score:judge")
 s11_min"""),
         nbformat.v4.new_markdown_cell("""\
+Every case is a fan-out, an optional score (`sf.Judge`), an optional narrow step (`sf.Rank`,
+`sf.Filter`), and one reducer or writer:
+
+| Case | Flow |
+|---|---|
+| S1 median value | `Fanout → Median(value)` |
+| S2 median member | `Fanout → Median(nearest)` |
+| S3 weighted mean | `Fanout → Mean(weights)` |
+| S4 mean by confidence | `Fanout → Mean(over=answer, weights=confidence)` |
+| S4, median form | `Fanout → Median(over=answer, weights=confidence)` |
+| S5 max confidence | `Fanout → ArgMax(field:confidence)` |
+| S7 top 2, then a writer | `Fanout → Rank(k=2) → Synthesize` |
+| S8 argmax of a signal | `Fanout → ArgMax(field:confidence)` (the same recipe as S5) |
+| S9 threshold, then a writer | `Fanout → Filter(> 0.7) → Synthesize` |
+| S10 judge top 2, then a writer | `Fanout → Judge → Rank(k=2) → Synthesize` |
+| S10, threshold form | `Fanout → Judge → Filter(>= 7) → Synthesize` |
+| S11 judge argmax | `Fanout → Judge → ArgMax(score:judge)` |
+| S11, min form | `Fanout → Judge → ArgMin(score:judge)` |"""),
+        nbformat.v4.new_markdown_cell("""\
 ## New steps
 
 A narrow step can come before a reducer: the reducer reads only the members that the narrow
@@ -2413,8 +2434,14 @@ most_consistent, logprob_vote"""),
         nbformat.v4.new_markdown_cell("""\
 ## Evaluate the recipes
 
-⚠️ This cell calls models and costs money 💵. Start the local stack first (`screamingface up`).
-Each recipe gets a name, so the report can tell them apart. S8 is S5, so it is not run again."""),
+⚠️ This cell calls models and costs money 💵. Each recipe gets a name, so the report can tell
+them apart. S8 is S5, so it is not run again.
+
+**`inspect-gsm8k` needs an Engine with the `inspect` extra.** It is an imported inspect_evals
+board, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
+recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
         nbformat.v4.new_code_cell("""\
 RUN_EVALUATION = False
 
