@@ -56,18 +56,18 @@ def _calls(url4: str) -> dict[str, RelExpr]:
 
 
 def test_selection_at_end_of_candidate_raises_at_compile() -> None:
-    with pytest.raises(ValueError, match="a Rank must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Rank must be followed by sf.Synthesize"):
         _compile(_rank())
-    with pytest.raises(ValueError, match="a Rank must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Rank must be followed by sf.Synthesize"):
         _compile(_rank_by_judge())
-    with pytest.raises(ValueError, match="a Concat must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Concat must be followed by sf.Synthesize"):
         _compile(_concat())
-    with pytest.raises(ValueError, match="a Concat must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Concat must be followed by sf.Synthesize"):
         _compile(sf.Pipeline(["provider/x", _concat()]))
-    with pytest.raises(ValueError, match="a Rank must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Rank must be followed by sf.Synthesize"):
         _compile(sf.Pipeline([sf.Pipeline(["provider/x", _rank()])]))
     # a Fusion whose Recipe synthesizer ends in a selection ends the candidate with it
-    with pytest.raises(ValueError, match="a Rank must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Rank must be followed by sf.Synthesize"):
         _compile(
             sf.Fanout(members3()) >> sf.Synthesize(sf.Pipeline(["provider/y", _rank()])),
         )
@@ -77,13 +77,13 @@ def test_selection_at_end_of_candidate_raises_at_compile() -> None:
 
 
 def test_selection_as_fusion_or_loop_member_raises_at_compile() -> None:
-    member = "a Rank Fusion cannot be a Fusion member"
+    member = "a sf.Rank block cannot be a sf.Fanout member"
     with pytest.raises(ValueError, match=member):
         _compile(sf.Fanout([_rank(), "provider/d"]) >> sf.Synthesize("provider/s"))
-    with pytest.raises(ValueError, match="a Concat Fusion cannot be a Fusion member"):
+    with pytest.raises(ValueError, match="a sf.Concat block cannot be a sf.Fanout member"):
         _compile(sf.Fanout(["provider/d", _concat()]) >> sf.Vote())
     # also through a Pipeline that ends in a selection
-    with pytest.raises(ValueError, match="a Concat Fusion cannot be a Fusion member"):
+    with pytest.raises(ValueError, match="a sf.Concat block cannot be a sf.Fanout member"):
         _compile(
             sf.Fanout([sf.Pipeline(["provider/x", _concat()]), "provider/d"])
             >> sf.Synthesize("p/s")
@@ -92,19 +92,19 @@ def test_selection_as_fusion_or_loop_member_raises_at_compile() -> None:
     with pytest.raises(ValueError, match=member):
         _compile(sf.Fanout([_rank_by_judge(), "provider/d"]) >> sf.Vote())
 
-    feed = "a Rank cannot feed a corrective loop"
+    feed = "a sf.Rank block cannot feed a corrective loop"
     with pytest.raises(ValueError, match=feed):
         _compile(sf.CorrectiveLoop([_rank(), "provider/d"], judge="provider/j"))
     with pytest.raises(ValueError, match=feed):
         _compile(sf.SelfCorrective(sf.Pipeline(["provider/x", _rank()])))
-    with pytest.raises(ValueError, match="a Concat cannot feed a corrective loop"):
+    with pytest.raises(ValueError, match="a sf.Concat block cannot feed a corrective loop"):
         _compile(sf.CorrectiveLoop(["provider/d", sf.Pipeline([_concat()])], judge="provider/j"))
 
 
 def test_a_fusion_whose_recipe_synthesizer_ends_in_a_selection_is_not_a_member() -> None:
     ends_in_rank = sf.Fanout(members3()) >> sf.Synthesize(sf.Pipeline(["provider/y", _rank()]))
 
-    with pytest.raises(ValueError, match="a Rank Fusion cannot be a Fusion member"):
+    with pytest.raises(ValueError, match="a sf.Rank block cannot be a sf.Fanout member"):
         _compile(sf.Fanout([ends_in_rank, "provider/d"]) >> sf.Synthesize("provider/s"))
     # followed by a stage, the same Fusion is an ordinary member
     followed = sf.Pipeline([ends_in_rank, _writer()])

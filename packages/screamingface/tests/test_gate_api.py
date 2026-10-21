@@ -305,7 +305,7 @@ def test_gate_otherwise_refuses_a_scores_judge_a_named_model_and_a_recipe() -> N
         (
             scores_judge,
             ValueError,
-            "a gate fallback judge needs sf.Judge(..., returns='label'): it names one member",
+            "a gate fallback judge must be a sf.JudgePick: it names one member",
         ),
         (
             named_model,
@@ -343,12 +343,12 @@ def test_fusion_refuses_a_gate_that_reads_an_undeclared_name() -> None:
     with pytest.raises(ValueError) as caught:
         _fusion(vote)
     assert str(caught.value) == (
-        "the gate reads 'mean:lp', but this Fusion does not declare 'lp' (declared: none)"
+        "the gate reads 'mean:lp', but this sf.Fanout does not declare 'lp' (declared: none)"
     )
     with pytest.raises(ValueError) as caught:
         _fusion(vote, signals={"conf": sf.Verbalized(CONF_PATTERN)})
     assert str(caught.value) == (
-        "the gate reads 'mean:lp', but this Fusion does not declare 'lp' (declared: conf)"
+        "the gate reads 'mean:lp', but this sf.Fanout does not declare 'lp' (declared: conf)"
     )
     _fusion(
         sf.Gate(when=sf.signal("conf").mean() >= 50, then=sf.Vote()),

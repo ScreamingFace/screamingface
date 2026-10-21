@@ -146,11 +146,11 @@ async def test_optional_nested_fusion_is_one_member() -> None:
     ],
 )
 def test_optional_is_only_valid_in_a_fusion_member_position(recipe: sf.Recipe) -> None:
-    with pytest.raises(ValueError, match="Fusion members"):
+    with pytest.raises(ValueError, match="sf.Fanout members"):
         compile_candidate(recipe)
-    with pytest.raises(ValueError, match="Fusion members"):
+    with pytest.raises(ValueError, match="sf.Fanout members"):
         sf.Pipeline([recipe, "final"])
-    with pytest.raises(ValueError, match="Fusion members"):
+    with pytest.raises(ValueError, match="sf.Fanout members"):
         _ = sf.Fanout(["a"]) >> sf.Synthesize(recipe)
 
 

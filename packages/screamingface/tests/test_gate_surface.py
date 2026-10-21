@@ -305,7 +305,7 @@ def test_ga2_a_gate_reads_a_declared_name_of_its_block() -> None:
 
     with pytest.raises(
         ValueError,
-        match=r"^the gate reads 'chosen:conf', but this Fusion does not declare 'conf' "
+        match=r"^the gate reads 'chosen:conf', but this sf.Fanout does not declare 'conf' "
         r"\(declared: none\)$",
     ):
         _ = sf.Fanout(_PANEL) >> gate

@@ -260,13 +260,13 @@ def test_filter_as_last_stage_is_rejected() -> None:
     # the compiler's own guard on the internal node, which only a hand-built url4 reaches: alone,
     # as a member and as a loop judge
     node = fusion_node(members3(), FilterNode(where=_CONFIDENCE >= 0.6))  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="a Filter must be followed by another stage"):
+    with pytest.raises(ValueError, match="a sf.Filter must be followed by sf.Synthesize"):
         compile_candidate(node, operators=flow_operators())
-    with pytest.raises(ValueError, match="a Filter Fusion cannot be a Fusion member"):
+    with pytest.raises(ValueError, match="a sf.Filter block cannot be a sf.Fanout member"):
         compile_candidate(
             fusion_node([node, "provider/d"], "provider/s"), operators=flow_operators()
         )
-    with pytest.raises(ValueError, match="a Filter cannot feed a corrective loop"):
+    with pytest.raises(ValueError, match="a sf.Filter block cannot feed a corrective loop"):
         compile_candidate(
             sf.CorrectiveLoop(["provider/a", "provider/b"], judge=node),
             check_surface=_SURFACE,

@@ -71,7 +71,7 @@ def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
         ReduceNode(3)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"'plurality'.*'k'|'k'.*'plurality'"):
         ReduceNode("plurality", extract=LAST, k=2)
-    with pytest.raises(TypeError, match="option 'judge' must be an sf.Judge"):
+    with pytest.raises(TypeError, match="sf.Vote judge must be an sf.Judge"):
         ReduceNode("weighted", extract=LAST, weights=[1], judge="m")
 
 
@@ -152,7 +152,7 @@ def test_only_ops_with_engine_operators_compile_at_this_unit() -> None:
 def test_extract_benchmark_without_benchmark_raises() -> None:
     block = ReduceNode("plurality", extract=sf.Extract("benchmark"))
 
-    with pytest.raises(ValueError, match="extract='benchmark' needs a benchmark"):
+    with pytest.raises(ValueError, match="over='benchmark' needs a benchmark"):
         _compiled_text(block)
 
 

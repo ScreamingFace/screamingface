@@ -86,7 +86,7 @@ def test_rank_checks_k_and_order_with_the_rules_of_today(
 def test_rank_k_above_the_member_count_raises_at_block_close() -> None:
     rank = sf.Rank(4, by="cost_usd")
 
-    with pytest.raises(ValueError, match="Rank keeps k=4 members but the Fusion has 3"):
+    with pytest.raises(ValueError, match="sf.Rank keeps k=4 members but the sf.Fanout has 3"):
         _ = sf.Fanout(_TRIO) >> rank >> sf.Synthesize(_WRITER)
 
 

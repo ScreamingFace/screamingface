@@ -93,7 +93,7 @@ def test_an_accounting_key_emits_sources_through_the_signal_seam(key: str) -> No
 
 
 def test_rank_by_signal_validation() -> None:
-    with pytest.raises(TypeError, match="Rank by_signal must be an sf.signal"):
+    with pytest.raises(TypeError, match="Rank by must be an sf.signal"):
         RankNode(2, by_signal="field:score")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="Rank order must be 'max' or 'min'"):
         sf.Rank(2, by="cost_usd", order="avg")  # type: ignore[arg-type]

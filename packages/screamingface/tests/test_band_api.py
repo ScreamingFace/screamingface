@@ -268,5 +268,5 @@ def test_a_band_keeps_the_declared_name_rule() -> None:
             >> vote
         )
     assert str(caught.value) == (
-        "the gate reads 'mean:zzz', but this Fusion does not declare 'zzz' (declared: conf)"
+        "the gate reads 'mean:zzz', but this sf.Fanout does not declare 'zzz' (declared: conf)"
     )

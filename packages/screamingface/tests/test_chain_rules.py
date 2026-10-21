@@ -99,7 +99,7 @@ def test_a_named_pipeline_of_today_keeps_its_grouping() -> None:
 def test_an_optional_unnamed_pipeline_of_today_is_not_a_stage() -> None:
     today = sf.Pipeline(["provider/x", "provider/y"], optional=True)
 
-    with pytest.raises(ValueError, match="optional=True is only supported on Fusion members"):
+    with pytest.raises(ValueError, match="optional=True is only supported on sf.Fanout members"):
         sf.Pipeline([today, "provider/z"])
 
 
@@ -136,7 +136,7 @@ def test_the_steps_must_be_a_sequence() -> None:
 def test_an_optional_unnamed_chain_is_not_a_stage() -> None:
     optional = sf.Pipeline([sf.Fanout(_PAIR), sf.Vote()], optional=True)
 
-    with pytest.raises(ValueError, match="optional=True is only supported on Fusion members"):
+    with pytest.raises(ValueError, match="optional=True is only supported on sf.Fanout members"):
         _ = optional >> sf.Model("provider/after")
 
 
@@ -327,7 +327,7 @@ _SOLO = sf.SelfCorrective("provider/a")
 
 @pytest.mark.parametrize("root", [_LOOP, _SOLO], ids=["corrective-loop", "self-corrective"])
 def test_ch13_a_corrective_root_is_not_a_chain_stage(root: sf.Recipe) -> None:
-    message = r"^Pipeline stage must be a model route or sf\.Model, sf\.Fusion, or sf\.Pipeline$"
+    message = r"^Pipeline stage must be a model route, an sf\.Model or an sf\.Pipeline$"
     with pytest.raises(TypeError, match=message):
         sf.Pipeline(["provider/x", root])
     with pytest.raises(TypeError, match=message):
@@ -336,7 +336,7 @@ def test_ch13_a_corrective_root_is_not_a_chain_stage(root: sf.Recipe) -> None:
 
 @pytest.mark.parametrize("root", [_LOOP, _SOLO], ids=["corrective-loop", "self-corrective"])
 def test_ch13_a_corrective_root_is_not_a_fanout_member(root: sf.Recipe) -> None:
-    message = r"^Fanout member must be a model route or sf\.Model, sf\.Fusion, or sf\.Pipeline$"
+    message = r"^Fanout member must be a model route, an sf\.Model or an sf\.Pipeline$"
     with pytest.raises(TypeError, match=message):
         sf.Fanout(["provider/a", root])
 
