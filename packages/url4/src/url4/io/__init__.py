@@ -11,7 +11,9 @@ Owns
 - ``idempotency`` — the ``Idempotency-Key`` a retrying guard offers to adapters
   ("reuse until answered"), carried in a context variable. Standard library only.
 - ``static`` — ``StaticIOLayer``: in-memory, deterministic; the test default.
-- ``http`` — ``HttpIOLayer``: the httpx adapter.
+- ``http`` — ``HttpIOLayer``: the httpx adapter, with its private destination guard
+  (spec F1b): ``_source_policy`` (stdlib: scheme, address, peer rules; ``SourceGuard``)
+  and ``_guarded_transport`` (the httpx transport that enforces them on every hop).
 
 May import: the standard library, ``url4.core``, and ``url4.wire``.
 Must not import: ``url4.dag`` (the engine depends on this port, not the

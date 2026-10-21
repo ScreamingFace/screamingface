@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1544",
+  "branch": "url4-source-guard",
+  "approver": "owner (Sergey, Linear OME-1544 comment 'Owner decisions', 2026-10-21 12:54Z)",
+  "date": "2026-10-21",
+  "scope": "One fixture line in packages/url4/tests/regressions/test_close_safety.py::mock_owned_client: real(transport=_SlowCloseTransport(_ok), **kw) becomes real(**{**kw, 'transport': _SlowCloseTransport(_ok)}), so the mock transport overrides the guarded transport the owned client now passes. No assertion changed.",
+  "reason": "OME-1544 (spec F1b): HttpIOLayer's owned client is built with transport=GuardedTransport(...); the old fixture passed transport= twice (TypeError). Owner approved the edit in the STOP answer.",
+  "files": {
+    "packages/url4/tests/regressions/test_close_safety.py": {
+      "base_blob": "962c2839d6cd876c8cf75214d18f716788913181",
+      "approved_blob": "952fd681743efc98d4447af5c569d8826c7124ec"
+    }
+  }
+}

@@ -3,19 +3,40 @@
 The only module in the package that imports httpx. It owns a single, lazily
 created :class:`httpx.AsyncClient` so the many fetches of one expression (a
 fan-out's N sources plus its reducer) share one connection pool via keep-alive,
-instead of paying a fresh TCP+TLS handshake per fetch.
+instead of paying a fresh TCP+TLS handshake per fetch. Its private helpers
+``_guarded_transport`` / ``_source_policy`` hold the destination guard (spec F1b).
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from email.utils import parsedate_to_datetime
 
 import httpx
 
 from url4.core.errors import ResolutionError
+from url4.io._guarded_transport import (
+    FETCH_STATE,
+    FetchState,
+    GuardedTransport,
+    Origin,
+    Resolver,
+    origin_of,
+    system_resolver,
+)
+from url4.io._source_policy import (
+    SourceGuard,
+    check_url,
+    redirect_limit,
+    source_timeout,
+    too_large,
+)
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
+
+# Headers that describe the wire encoding of a body this adapter has already decoded.
+_DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})
 
 
 class HttpIOLayer:
@@ -42,6 +63,19 @@ class HttpIOLayer:
     Inside a retrying guard every request carries the guard's ``Idempotency-Key``
     header, and every received response marks its target answered, so the next
     request to it gets a new key (:mod:`url4.io.idempotency`, "reuse until answered").
+
+    The OWNED client is built on the destination guard (spec F1b, ``OME-1544``) configured by
+    ``guard`` (:class:`SourceGuard`; strict defaults): ``https`` only, no loopback / private /
+    link-local / CGNAT / metadata address after DNS and on any redirect hop, connections
+    pinned to the vetted IP (SNI and ``Host`` kept), at most ``guard.max_redirects`` hops, no
+    ``https``→``http`` downgrade, environment proxies ignored, and a ``url4://`` peer only
+    when its host is in ``guard.peer_hosts`` (empty by default: no remote-node calls).
+    ``resolver`` replaces the system DNS lookup. Relative fetches against the operator-set
+    ``base_url`` origin are trusted. The whole owned fetch, redirects included, runs under
+    ``guard.total_timeout`` seconds. On every client, owned or injected, the body is streamed
+    under ``guard.max_bytes`` decoded bytes. Each refusal is a typed ``x.source_*``
+    ResolutionError. AIDEV-NOTE: an injected ``client`` is used as-is — its owner chose its
+    destinations and timeouts, so only the size cap applies to it.
     """
 
     def __init__(
@@ -50,10 +84,15 @@ class HttpIOLayer:
         *,
         timeout: float = 30.0,
         client: httpx.AsyncClient | None = None,
+        guard: SourceGuard | None = None,
+        resolver: Resolver | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client = client
+        self._guard = guard if guard is not None else SourceGuard()
+        self._resolver = resolver if resolver is not None else system_resolver
+        self._trusted = _trusted_origins(self._base_url)
         self._owned: httpx.AsyncClient | None = None  # lazily created when no client is injected
         self._closed = False
 
@@ -65,8 +104,19 @@ class HttpIOLayer:
         if self._owned is None:
             # follow_redirects: a source that 301/302s (http->https, trailing
             # slash, auth bounce) must resolve to the real body, not the empty
-            # redirect response — raise_for_status never fires on a 3xx.
-            self._owned = httpx.AsyncClient(timeout=self._timeout, follow_redirects=True)
+            # redirect response — raise_for_status never fires on a 3xx. Every hop
+            # goes through the GuardedTransport, which re-checks it (spec F1b).
+            # WHY trust_env=False: an environment proxy would carry the request to an
+            # address the guard never vetted.
+            self._owned = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout, connect=self._guard.connect_timeout),
+                follow_redirects=True,
+                max_redirects=self._guard.max_redirects,
+                trust_env=False,
+                transport=GuardedTransport(
+                    self._guard, resolver=self._resolver, trusted=self._trusted
+                ),
+            )
         return self._owned
 
     async def fetch(self, target: str, *, relative: bool) -> str:
@@ -80,31 +130,66 @@ class HttpIOLayer:
         return FetchResult(response.text, media_type=media_type)
 
     def _transport_url(self, target: str, relative: bool) -> str:
-        url = f"{self._base_url}{target}" if relative else target
-        if url.startswith("url4://"):
-            return "https://" + url.removeprefix("url4://")
-        return url
+        # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
+        return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, url: str) -> httpx.Response:
+    async def _get(self, target: str) -> httpx.Response:
+        peer = target.startswith("url4://")
+        url = "https://" + target.removeprefix("url4://") if peer else target
         key = idempotency_key(url)
         headers = {"Idempotency-Key": key} if key is not None else None
+        # WHY owned only: an injected client keeps the timeouts its owner chose.
+        deadline = self._guard.total_timeout if self._client is None else None
         try:
-            response = await self._get_client().get(url, headers=headers)
+            async with asyncio.timeout(deadline):
+                return await self._send(url, headers, peer=peer)
+        except TimeoutError as exc:
+            raise source_timeout(
+                f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
+            ) from exc
+
+    async def _send(
+        self, url: str, headers: dict[str, str] | None, *, peer: bool
+    ) -> httpx.Response:
+        client = self._get_client()
+        guarded = client is self._owned
+        try:
+            if guarded and not self._is_trusted(url):
+                check_url(url, self._guard, peer=peer)
+            extensions = {FETCH_STATE: FetchState(peer=peer)} if guarded else None
+            request = client.build_request("GET", url, headers=headers, extensions=extensions)
+            response = await client.send(request, stream=True)
             # A reply came back (any status): the next request to url is a new one.
             mark_answered(url)
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+                body = await _read_capped(response, self._guard.max_bytes)
+            finally:
+                await response.aclose()
         except httpx.HTTPStatusError as exc:
             raise ResolutionError(
                 f"GET {url!r} failed: {exc}",
                 permanent=_permanent_status(exc.response),
                 retry_after=_retry_after(exc.response),
             ) from exc
+        except httpx.TooManyRedirects as exc:
+            raise redirect_limit(
+                f"GET {url!r} passed the {self._guard.max_redirects}-hop redirect limit"
+            ) from exc
+        except httpx.ConnectTimeout as exc:
+            raise source_timeout(f"GET {url!r} failed: {exc}") from exc
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
             # WHY: httpx.InvalidURL is not an HTTPError subclass; catch it too so a
             # malformed target (e.g. control chars in a reducer query) still
             # surfaces as ResolutionError rather than a raw httpx exception.
             raise ResolutionError(f"GET {url!r} failed: {exc}") from exc
-        return response
+        return _buffered(response, body)
+
+    def _is_trusted(self, url: str) -> bool:
+        try:
+            return origin_of(httpx.URL(url)) in self._trusted
+        except httpx.InvalidURL:
+            return False
 
     async def aclose(self) -> None:
         """Close the internally created client, if any (an injected client is left alone).
@@ -121,6 +206,36 @@ class HttpIOLayer:
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+def _trusted_origins(base_url: str) -> frozenset[Origin]:
+    if not base_url:
+        return frozenset()
+    try:
+        return frozenset({origin_of(httpx.URL(base_url))})
+    except httpx.InvalidURL:
+        return frozenset()
+
+
+async def _read_capped(response: httpx.Response, limit: int) -> bytes:
+    """The decoded body, read chunk by chunk and abandoned as soon as it passes ``limit``.
+
+    INVARIANT: never holds more than ``limit`` bytes — the check runs before each append.
+    """
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        if len(body) + len(chunk) > limit:
+            raise too_large(limit)
+        body += chunk
+    return bytes(body)
+
+
+def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
+    """``response`` with its already-decoded ``body`` in memory (``.text`` / ``.content`` work)."""
+    headers = [(k, v) for k, v in response.headers.multi_items() if k.lower() not in _DECODED_AWAY]
+    return httpx.Response(
+        response.status_code, headers=headers, content=body, request=response.request
+    )
 
 
 # Spec C §13.2.1: 4xx is permanent except these; 5xx is transient except the others.
@@ -163,4 +278,4 @@ def _delta_seconds(raw: str) -> float | None:
         return None
 
 
-__all__ = ["HttpIOLayer"]
+__all__ = ["HttpIOLayer", "SourceGuard"]

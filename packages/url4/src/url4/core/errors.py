@@ -50,6 +50,18 @@ class ErrorCode(StrEnum):
     permit: no request was sent. Transient, like ``timeout``, but it names the run's own
     concurrency cap as the cause, not the source. An implementation code, so it carries
     the ``x.`` prefix the spec reserves for them (Spec C §13.5.2)."""
+    SOURCE_DESTINATION_BLOCKED = "x.source_destination_blocked"
+    """The url4 HTTP source guard refused a hop: a disallowed scheme, an address in a refused
+    range (after DNS, on any redirect hop), an ``https``→``http`` downgrade, or a ``url4://``
+    peer off the operator's allowlist. Permanent (spec F1b, OME-1544)."""
+    SOURCE_REDIRECT_LIMIT = "x.source_redirect_limit"
+    """A source fetch exceeded the guard's redirect-hop limit (default 3). Permanent."""
+    SOURCE_TOO_LARGE = "x.source_too_large"
+    """A source body passed the guard's streaming cap on decoded bytes; the read was aborted
+    mid-stream. Permanent."""
+    SOURCE_TIMEOUT = "x.source_timeout"
+    """A source fetch hit the connect timeout or the one total deadline across all hops.
+    Transient, like ``timeout``."""
     EXPANSION_NOT_ITERABLE = "expansion_not_iterable"
     QUORUM_NOT_MET = "quorum_not_met"
     UNKNOWN_PROCESSOR = "unknown_processor"

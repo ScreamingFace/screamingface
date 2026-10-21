@@ -37,7 +37,7 @@ def mock_owned_client(monkeypatch):
     real = httpx.AsyncClient
 
     def factory(**kw):
-        c = real(transport=_SlowCloseTransport(_ok), **kw)
+        c = real(**{**kw, "transport": _SlowCloseTransport(_ok)})
         created.append(c)
         return c
 
