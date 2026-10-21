@@ -1,13 +1,13 @@
 ---
 id: OME-1695
 linear_url: https://linear.app/openmined/issue/OME-1695/remove-every-profile-document-writer-and-make-the-index-offline-only
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-21
-closed:
+closed: 2026-10-21
 ---
 
 # Remove every Profile document writer and make the index offline-only (Stage E, E4b)
