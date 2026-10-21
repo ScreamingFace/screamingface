@@ -4,7 +4,8 @@ Status: in implementation. Epic OME-1636 is in Triage with scope review requeste
 OME-1637 (PR #1438); unit 2 is not yet filed.
 Refs: OME-1636 (ledger `docs/work/2026-10-16-e2e-notebook-workbench.md`).
 Plans: `docs/plan/2026-10-16-e2e-workbench-u1-client-pairing-and-token.md`,
-`docs/plan/2026-10-16-e2e-workbench-u2-core.md`.
+`docs/plan/2026-10-16-e2e-workbench-u2-core.md`,
+`docs/plan/2026-10-17-e2e-workbench-u4-ui.md`.
 Explainer: https://claude.ai/artifact/XzJH59USTJ8GwFSHhNv1eP (private).
 
 ## 1. Problem
@@ -37,7 +38,7 @@ The pieces to fix this already exist but are split across three places:
 | D1 | A run is one cell of **Target × Scenario × Mode**. | Two hard-coded notebook parts |
 | D2 | **Notebooks are the scenarios; pytest is the harness.** pytest finds the notebooks, injects the target, executes them, and decides pass/fail. | Pure pytest, which loses the reviewable story; notebooks alone, which have no gate |
 | D3 | **Evidence is checked independently of the notebook.** A run passes only when the notebook's asserts pass *and* the trace chain is complete. | Trusting notebook output alone |
-| D4 | The UI is a **local web app** (`screamingface workbench`) that launches the same runner and views bundles. | A new Electron app (second desktop toolchain); a Studio dev route (couples tests to the product's release) |
+| D4 | The UI is a **local web app** (dev-only `python -m workbench.ui` since 2026-10-17, §3.5) that launches the same runner and views bundles. | A new Electron app (second desktop toolchain); a Studio dev route (couples tests to the product's release) |
 | D5 | **Auth: option A now, option B for the UI** (§6). CI stays on replay and local. | C (service tokens) deferred; D (aigateway API keys) is a product decision |
 
 ## 3. Shape
@@ -52,14 +53,14 @@ packages/screamingface/tests/e2e/workbench/
   bundle.py             # evidence bundle writer (redacting)
   conftest.py           # env-selected target, require-all, fixtures
   test_notebooks.py     # one parametrized test per notebook
+  ui/                   # dev-only local web UI: viewer + launcher (unit 4, §3.5)
 ```
 
 It sits inside the existing replay suite, so it reuses `tests/e2e/harness` (replay stack,
 gating, assets, goldens) instead of copying it, and the existing replay workflow runs it. The
 SDK wheel excludes `tests/`, so test tooling still never ships. Selection uses env vars
 (`SCREAMINGFACE_WORKBENCH_TARGET`, `…_OUT`, `…_REQUIRE_ALL`) rather than CLI options, which a
-nested conftest cannot register. Where the local UI (unit 4) lives is decided in that unit's
-plan.
+nested conftest cannot register. The local UI (unit 4) lives in `workbench/ui/` (§3.5).
 
 ### 3.1 Target
 
@@ -152,20 +153,45 @@ Units 1–2 shipped a subset of §3.1–§3.4. These items are still open; none 
 - **Hosted / preview targets:** `preview:N` and `hosted-dev`, with their kubectl log sources and
   Access auth, belong to unit 3 (§7). Only `replay` and `local` exist.
 
-### 3.5 Local web UI (`screamingface workbench`)
+### 3.5 Local web UI (unit 4, dev-only)
 
-- A loopback-only server.
-- **Launch:** pick notebooks and a target (local, preview:N, hosted-dev), set limit and budget,
-  run. It spawns the same `pytest e2e/workbench …` command CI uses and streams its progress.
+Owner decisions (2026-10-17), plan `docs/plan/2026-10-17-e2e-workbench-u4-ui.md`:
+
+- **Dev-only, next to the workbench.** It lives in `tests/e2e/workbench/ui/` and never ships in
+  the SDK wheel. The `screamingface workbench` CLI name is dropped; the entry points are
+  `python -m workbench.ui` and a `just workbench-ui` recipe.
+- **First version = viewer + launcher.** Targets are `replay` and `local` only. Hosted and
+  preview targets, and their Access login (§6, B), wait for unit 3; no target that needs a
+  login is offered.
+
+What it does:
+
+- **Launch:** pick a target (`replay` | `local`) and notebooks, run. It spawns the same
+  `pytest tests/e2e/workbench/test_notebooks.py` command CI uses, with the workbench env vars,
+  and streams its output live. One run at a time.
 - **View:** list bundles, from local runs or unzipped CI artifacts. Per notebook it shows:
   - the rendered executed notebook
   - the trace chain (hop, found/missing, source)
   - log excerpts
   - cost and cache hits
-  - a link by trace id to the tracing backend
-- **Login:** runs the Access login once per target and passes the token to the runner through
-  `SCREAMINGFACE_ACCESS_TOKEN` (§6, B).
-- **Never executes notebooks itself.**
+  - trace ids (a link to a tracing backend waits for OTLP spans, §3.4.1)
+- **Never executes notebooks itself** (D4).
+
+Security constraints:
+
+- **Loopback only:** binds `127.0.0.1`; a request whose `Host` is not `127.0.0.1:<port>` or
+  `localhost:<port>` is refused (DNS-rebinding guard).
+- **Request forgery:** state-changing routes (start, cancel) require a per-launch random token,
+  printed once in the startup URL and sent as a header or hidden form field; no cookies.
+  Without it: 403.
+- **Keys:** the UI never accepts or displays a provider key or Access token. A `local` run reads
+  `OPENROUTER_API_KEY` from the UI process environment only, and needs an explicit "spends real
+  tokens" confirmation.
+- **Untrusted HTML:** executed-notebook outputs render only inside an empty-sandbox iframe
+  (`sandbox=""`, `srcdoc`); every other value is HTML-escaped; responses carry a strict CSP and
+  `X-Frame-Options: DENY`.
+- **Paths:** a bundle path from a URL must resolve inside the output root, else 404.
+- **Dependencies:** no new runtime dependency; `nbconvert` is a `dev`-group dependency.
 
 ## 4. Run lanes
 

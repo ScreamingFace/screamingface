@@ -162,6 +162,7 @@ dev = [
     "ipykernel>=6.29",
     "jupyterlab>=4.6.3",
     "nbclient>=0.10",
+    "nbconvert>=7.16",
     "nbformat>=5.11.0",
     "pydantic>=2.9",
     "pyright>=1.1.409",
