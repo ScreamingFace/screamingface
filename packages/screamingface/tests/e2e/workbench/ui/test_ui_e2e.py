@@ -66,6 +66,9 @@ def test_a_replay_run_through_the_ui_lands_a_passing_bundle(client: TestClient) 
     assert end, log
     assert json.loads(end.group(1)) == {"returncode": 0, "cancelled": False}, log
     assert f"test_notebook[replay-{NOTEBOOK}] PASSED" in log, log
+    # The run selected its notebook by exact node id, and pushed a live progress state.
+    assert f"::test_notebook[replay-{NOTEBOOK}]" in log and "collected 1 item" in log, log
+    assert re.search(rf'event: progress\ndata: {{"running": "{NOTEBOOK}", ', stream), stream
 
     # 3. The index lists the run's bundle with a PASS pill.
     key = f"runs/{run_id}/replay/{NOTEBOOK}"
@@ -78,8 +81,16 @@ def test_a_replay_run_through_the_ui_lands_a_passing_bundle(client: TestClient) 
     # 4. Its bundle page: both hops of the chain found, the notebook in an empty sandbox.
     page = client.get(f"/bundles/{key}")
     assert page.status_code == 200
+    _assert_bundle_page(page.text)
+
+
+def _assert_bundle_page(text: str) -> None:
     hop_row = r'<tr><td>(engine|aigateway)</td><td><span class="pill (\w+)"'
-    hops = dict(re.findall(hop_row, page.text))
-    assert hops == {"engine": "pass", "aigateway": "pass"}, page.text
-    assert page.text.count(">found<") >= 2
-    assert '<iframe class="nb" sandbox=""' in page.text
+    hops = dict(re.findall(hop_row, text))
+    assert hops == {"engine": "pass", "aigateway": "pass"}, text
+    assert text.count(">found<") >= 2
+    assert '<iframe class="nb" sandbox=""' in text
+    # 5. Spend per candidate: an amount or "unknown", never the string "None".
+    candidates = text.split("<th>Candidate</th>", 1)[1].split("</table>", 1)[0]
+    assert "<th>Spend (USD)</th>" in text and "None" not in candidates, candidates
+    assert re.search(r"Total spend: <b>(\$[0-9.]+|unknown)</b>", text), text

@@ -99,3 +99,30 @@ browser; the iframe was checked in HTML, not visually.
   left running. SIGINT to the UI exited it; 9112 free too. Note: replay does not bind
   9105/9106/9108 at all — the port check after a cancelled `local` run needs a paid run and was
   not done.
+
+## Post-review polish — 2026-10-21
+
+Rebased onto the core branch (redaction.py, verdict.py, exact trace ids, allowlisted local
+env, JUnit); the workbench unit and UI suites were green as-is, no rebase fix needed.
+
+- Runs select `test_notebooks.py::test_notebook[<target>-<stem>]` node ids, not `-k`.
+- A replay child never gets `OPENROUTER_API_KEY` (or `SCREAMINGFACE_TEST_PAID`).
+- `--basetemp=<run out>/pytest-tmp`, so a local run's runtime data dir is known. A cancel that
+  needed SIGKILL, or any cancelled local run, shows "the runtime may still be up" and the exact
+  `screamingface down --data-dir …`; cancelling a finished run → 409 "already finished —
+  nothing to cancel".
+- UI shutdown: the lifespan hook was skipped on uvicorn's force exit (second Ctrl-C) and SIGHUP
+  killed the UI outright, leaving the run going (RED in the new `ui/test_shutdown.py`). Now
+  `main` cancels the run after serving, a further signal SIGKILLs its group, SIGHUP → SIGTERM.
+- Run page: `running <notebook>… mm:ss` from pytest's `collected` line to each result (server-
+  derived, SSE `progress` event; `log_cli` stays off).
+- quickstart `WORKBENCH_RESULT` carries `cost_usd`; unknown money is null (it was the string
+  "None" for `cache_saved_cost_usd`). Bundle page: Spend column + total, unknown → "unknown".
+- README: `up` is not in the run's process group (only `down` stops it); start command and a
+  5-step human test checklist.
+
+Verified: workbench unit + UI suites; `SCREAMINGFACE_TEST_E2E=1` keyless runs of
+`ui/test_ui_e2e.py` (real replay through the UI) and `test_cancelling_a_local_boot_frees_its_ports`;
+a scripted smoke of the real UI on :9112 (progress `running quickstart… 00:06`, PASS, 409 on a
+finished cancel, spend `$0` with cache-saved `unknown`, Ctrl-C mid-run → UI exit 130, no
+pytest left, 9105/9106/9108/9112 free). Not run: a paid `local` run.
