@@ -1,9 +1,9 @@
 ---
 ticket: OME-1701
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-21
-finished:
+finished: 2026-10-21
 ---
 
 # upstream-grading-fixes — adopt inspect_evals grading fixes as our own Named Deviations
@@ -182,6 +182,37 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - onet_m6 publishes a new revision; every other revision is byte-identical.
 - the tripwire names #2590.
 
+## PR 7 — a cut-off reply reaches the scorer as cut off; AIME scores it wrong
+
+### Planned changes
+
+- `.../shared_grading/benchmark_aggregation.py`: `GradeRequest` carries the Candidate's
+  `finish_reason` (defaulted None), filled from the Case record the row already holds.
+- `.../single_shot.py`: the mid-run check surface passes the invocation's finish reason too.
+- `.../scorer_adapter.py`: the rebuilt `ModelOutput` carries inspect's own stop reason for it
+  (`length` → `max_tokens`; unknown → `unknown`), instead of always `stop`.
+- `.../named_deviations/aime/` (new): the eval's `aime_scorer` behind the guard proposed in
+  inspect_evals issue #2701 (cut off at max_tokens, no `ANSWER:` on the last line → wrong).
+- `.../benchmarks.py`: aime24/25/26 grade with it; NAMED DEVIATION comments; descriptions;
+  their answer rules name the scorer the row declares.
+- tests: one new file for the pass-through, one for the deviation;
+  `test_published_revisions.py` and `test_benchmark_answer_rules.py` literals for the rows;
+  `test_scorer_source_pins.py` (its row set gains the three AIME rows).
+
+### Test plan
+
+- pass-through: a Case whose record says `length` reaches the scorer as `max_tokens`, `stop`
+  as `stop`, none as `unknown`, through the real aime24 aggregation.
+- deviation: #2701's repro is right under v0.20.0 (TRIPWIRE) and wrong under ours;
+  a complete right reply, and a cut-off reply ending on its `ANSWER:` line, stay right.
+- audit: no scorer any row uses reads the Candidate's stop reason, so no other row's grade
+  can change; all revisions computed before and after: only the three aime rows move.
+
+### Acceptance
+
+- aime24, aime25, aime26 publish new revisions; no other revision moves.
+- the tripwire names #2701.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -351,3 +382,32 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   identical under both parses); the deciding reason against it is that it needs a local Task,
   so a new origin and catalogue id for the row (the stack adopts other open PRs where the fix
   sits beside inspect_evals' Task); exclusion kept, per the owner's call.
+
+### PR 7
+
+- **Actual files:** as planned (`benchmark_aggregation.py`, `single_shot.py`,
+  `scorer_adapter.py`, `named_deviations/aime/`, `benchmarks.py`, two new test files), plus
+  three edited tests: `test_published_revisions.py` (aime24/25 move, aime26 first frozen
+  here), `test_benchmark_answer_rules.py` (the AIME rules pin the scorer the rows now declare)
+  and `test_scorer_source_pins.py` (its row set gains the three AIME rows).
+- **Where the finish reason comes from:** the provider's `finish_reason` on the chat
+  completion (`parse_choice`) → the Candidate's terminal model outcome → the invocation → the
+  Case record the check route writes → `CandidateFields.finish_reason` → `GradeRequest` →
+  `ModelOutput.stop_reason` via inspect's own `as_stop_reason` (`length` → `max_tokens`,
+  None → `unknown`). The check surface passes the invocation's reason the same way.
+- **Audit:** no scorer any row grades with reads the Candidate's stop reason. inspect_ai's
+  scorers (`choice`, `match`, `f1`, `model_graded_qa`, …) never read it; in inspect_evals 0.20.0
+  only `utils/scorers.py` (`_is_grader_refusal`, under `schema_tool_graded_scorer`) reads one,
+  on the JUDGE's own generate output, not the state; our local Tasks, Named Deviations and
+  combine operators read none. So `unknown` grades as the old `stop` did on every other row.
+- **Revisions:** aime24 2e4ce70a8953233a → 7ea7e9e38c46bc51; aime25 b207e9fe34ea7517 →
+  aaea4e938eb3d574; aime26 c3ccaa828160f661 → 2efde55f1db9b7ed. All 85 computed before and
+  after: only these three moved (the adapter is not a revision input).
+- **Gates:** relevant tests only (owner rule): `test_finish_reason_reaches_scorer.py` and `test_named_deviation_aime.py` (new), `test_benchmark_answer_rules.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 706 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 10 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): the adapter writing `stop` fails 3 tests; dropping the aggregate's pass-through fails 3; dropping the check surface's fails 1.
+- **Deviations:** the combine operator `inspect_aime@1` is unchanged. Its vendored copy is only
+  the eval's line-finding helpers, which #2701's fix does not touch, and an extract operator
+  reads a member's text alone, never its finish reason; marking a cut-off member there needs a
+  finish reason in the combine context (a protocol change) and a new operator version, so it
+  is proposed to the owner as its own change. A fusion Candidate whose model calls stopped for
+  different reasons records no finish reason, so its cut-off reply reaches the scorer as
+  `unknown` and AIME grades it as v0.20.0 does.

@@ -911,7 +911,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. Cases "
+            "line against the answer key — so no judge tokens are spent. A reply "
+            "the token limit cut off before its 'ANSWER:' line is wrong: it never "
+            "answered, though v0.20.0's scorer would read whatever number ended its "
+            "last line. This is inspect_evals' proposed fix (issue #2701), adopted "
+            "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
             "over the cases run. Free-form replies make the mid-run check "
@@ -924,10 +928,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # professional stakes (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.aime2024.aime2024:aime2024.
-        # License: mit.
-        scorer="inspect_evals.aime2024.aime2024:aime_scorer",
+        # Provenance: the Task is inspect_evals.aime2024.aime2024:aime2024, whose scorer
+        #   is inspect_evals.aime2024.aime2024:aime_scorer. License: mit.
+        # NAMED DEVIATION: graded by the eval's scorer behind a cut-off guard, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701): a reply
+        #   stopped at max_tokens with no ANSWER: line is wrong; v0.20.0 credits its last
+        #   number. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_aime.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -956,7 +964,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         answer_rule=AnswerRule(
             extract="inspect_aime@1",
             normalize="inspect_numeric@1",
-            grader="inspect_evals.aime2024.aime2024:aime_scorer@0.20.0",
+            grader="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0",
         ),
     ),
     BenchmarkSpec(
@@ -968,7 +976,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. Cases "
+            "line against the answer key — so no judge tokens are spent. A reply "
+            "the token limit cut off before its 'ANSWER:' line is wrong: it never "
+            "answered, though v0.20.0's scorer would read whatever number ended its "
+            "last line. This is inspect_evals' proposed fix (issue #2701), adopted "
+            "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
             "over the cases run. Free-form replies make the mid-run check "
@@ -979,10 +991,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Same tier as aime24 — the sibling year of one competition (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.aime2025.aime2025:aime2025.
-        # License: apache-2.0.
-        scorer="inspect_evals.aime2025.aime2025:aime_scorer",
+        # Provenance: the Task is inspect_evals.aime2025.aime2025:aime2025, whose scorer
+        #   is inspect_evals.aime2025.aime2025:aime_scorer. License: apache-2.0.
+        # NAMED DEVIATION: graded by the eval's scorer behind a cut-off guard, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701): a reply
+        #   stopped at max_tokens with no ANSWER: line is wrong; v0.20.0 credits its last
+        #   number. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_aime.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -1010,7 +1026,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         answer_rule=AnswerRule(
             extract="inspect_aime@1",
             normalize="inspect_numeric@1",
-            grader="inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
+            grader="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0",
         ),
     ),
     BenchmarkSpec(
@@ -4986,7 +5002,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. Cases "
+            "line against the answer key — so no judge tokens are spent. A reply "
+            "the token limit cut off before its 'ANSWER:' line is wrong: it never "
+            "answered, though v0.20.0's scorer would read whatever number ended its "
+            "last line. This is inspect_evals' proposed fix (issue #2701), adopted "
+            "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy over the cases run."
         ),
@@ -4995,10 +5015,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Same tier as aime24 and aime25 — the sibling year of one competition (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.aime2026.aime2026:aime2026.
-        # License: apache-2.0.
-        scorer="inspect_evals.aime2026.aime2026:aime_scorer",
+        # Provenance: the Task is inspect_evals.aime2026.aime2026:aime2026, whose scorer
+        #   is inspect_evals.aime2026.aime2026:aime_scorer. License: apache-2.0.
+        # NAMED DEVIATION: graded by the eval's scorer behind a cut-off guard, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701): a reply
+        #   stopped at max_tokens with no ANSWER: line is wrong; v0.20.0 credits its last
+        #   number. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_aime.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
         # Benchmark Provenance (OME-1455): eval.yaml and the Hub card via the importer; the
         # rest by hand, as the aime25 row.
         paper_url="https://huggingface.co/datasets/math-ai/aime26",
@@ -5028,7 +5052,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         answer_rule=AnswerRule(
             extract="inspect_aime@1",
             normalize="inspect_numeric@1",
-            grader="inspect_evals.aime2026.aime2026:aime_scorer@0.20.0",
+            grader="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0",
         ),
     ),
     BenchmarkSpec(
