@@ -1,13 +1,13 @@
 ---
 id: OME-1685
 linear_url: https://linear.app/openmined/issue/OME-1685/resolve-availability-and-pair-admin-read-no-profile-document-stage-e
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-20
-closed:
+closed: 2026-10-20
 ---
 
 # Resolve, availability and pair admin read no Profile document (Stage E, E4a)
