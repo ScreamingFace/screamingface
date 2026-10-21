@@ -105,3 +105,42 @@ All F1b rules hold on the default (owned) `HttpIOLayer` client; `run_gates.py ur
   translates `url4://`, builds the headers dict with `Accept`, and calls `_send(url, headers or None,
   peer=peer)`. With that resolution the merged url4 suite passed (2070 passed, ruff + pyright clean),
   and `fetch_bytes` inherits the guard through `_get`.
+
+## Review hardening (adversarial review, 2026-10-21)
+
+Three F1b bypasses found after `ad932ceb4`, each fixed test-first (RED observed, then GREEN);
+no existing test changed.
+
+1. **Decompression bomb** — httpx inflated a whole raw chunk before the cap ran
+   (`gzip(gzip(1 GiB))` peaked ~2.2 GB RSS at `max_bytes=1 MiB`). The guarded transport now sends
+   `Accept-Encoding: identity` and decodes at most ONE `gzip`/`deflate` layer itself
+   (`src/url4/io/_body_decode.py`, zlib `decompressobj` with `max_length=64 KiB` per step,
+   `Content-Encoding`/`Content-Length` stripped so httpx does not decode again). Tests:
+   `test_nested_gzip_bomb_peak_memory_bounded`, `test_single_gzip_bomb_peak_memory_bounded`
+   (tracemalloc peak < 2×cap), identity request, single-layer decode matrix, refusal matrix,
+   corrupt body. Commit `426689ec6`.
+2. **Reserved / embedded IPv6** — `vet_address` now refuses `is_reserved` and `192.88.99.0/24`
+   (6to4 relay), and `_unwrap` judges IPv4-compatible `::/96` and SIIT `::ffff:0:0:0/96` as the
+   embedded IPv4 (`::` and `::1` excluded). Tests: `test_reserved_and_embedded_ipv4_forms_are_refused`,
+   `test_embedded_loopback_forms_follow_the_escape_hatch`. Commit `68a718c2d`.
+3. **Redirect into the base_url origin** skipped every check. Trust is now a one-shot
+   `FetchState.trusted_first_hop`, set only for a relative fetch whose URL is on the base_url
+   origin; every redirect hop (including back into that origin), an absolute target spelling the
+   origin, and a transport call without `FetchState` are checked. Tests:
+   `test_redirect_into_base_origin_still_checked` + 3 siblings. Commit `003e99516`.
+
+**Deviations (for the PR reviewer):**
+- Stacked or unsupported codings are refused as `x.source_too_large` (not
+  `x.source_destination_blocked`): spec §4 binds `too_large` to the decoded-byte cap, and these
+  codings are refused because that cap cannot be enforced layer by layer; `destination_blocked`
+  is about where a hop goes (scheme/address/downgrade/peer).
+- `br` is refused, not decoded: no brotli decoder is a url4 dependency, and adding one is a new
+  dependency (out of this unit). With `Accept-Encoding: identity` a compliant server never sends it.
+- The trusted first hop now also goes through the bounded decoder + cap (previously its body was
+  passed through untouched).
+- Unchanged by instruction: an injected `client` still gets only the size cap, checked after
+  httpx's own decoding — so it is NOT bomb-safe; its owner chose its decoding.
+
+**Gates:** `run_gates.py url4` ALL GATES GREEN (no `--skip-append-only`);
+`run_gates.py screamingface-engine` ALL GATES GREEN; `check_module_size.py` / `check_suppressions.py`
+within baseline (suppressions 5/5).
