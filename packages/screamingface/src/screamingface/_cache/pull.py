@@ -67,6 +67,8 @@ class Destination(Protocol):
 
     def load(self, rows: Sequence[Any], result: PullResult) -> tuple[int, int]: ...
 
+    def holds(self, key_hash: str) -> bool: ...
+
 
 @dataclass
 class _Cursor:
@@ -74,6 +76,9 @@ class _Cursor:
 
     destination: Hashable
     after: str | None = None
+    # The key of the last row of the last completed page that had rows: a resume checks the
+    # database still has it.
+    last_key: str | None = None
     rows_read: int = 0
     rows_added: int = 0
     rows_skipped: int = 0
@@ -97,6 +102,15 @@ _SESSIONS_LOCK = Lock()
 # than share the cursor, whose counts two walks would race.
 _RUNNING: set[tuple[str, tuple[str, ...]]] = set()
 _RUNNING_LOCK = Lock()
+
+
+def close_sessions() -> None:
+    """Close and forget this module's own pull Clients (`sf.close()` calls it)."""
+    with _SESSIONS_LOCK:
+        clients = list(_SESSIONS.values())
+        _SESSIONS.clear()
+    for client in clients:
+        client.close()
 
 
 def pull_into(
@@ -236,7 +250,15 @@ class _Loop:
         self._key = key
         saved = _CURSORS.get(key)
         identity = destination.identity
-        self._resumed = saved is not None and saved.destination == identity
+        # WHY the last key as well as the identity: a backup copied over the file keeps its
+        # inode, and may lack the pages before the cursor. One indexed lookup, on resume only.
+        # AIDEV-NOTE: a last row the local gateway skipped as unservable reads as missing too;
+        # the pull then starts over, which costs a re-read and loses nothing.
+        self._resumed = (
+            saved is not None
+            and saved.destination == identity
+            and (saved.last_key is None or destination.holds(saved.last_key))
+        )
         self._cursor = saved if saved and self._resumed else _Cursor(identity)
         self._report = report
         self._clock = clock
@@ -275,6 +297,7 @@ class _Loop:
 
     def page(self, *, count: bool) -> str | None:
         read, skipped = [0], [0]
+        last: list[str | None] = [None]
 
         def header(value: PageHeader) -> None:
             self._destination.check(value.revisions, self.result(complete=False))
@@ -286,6 +309,7 @@ class _Loop:
             self._cursor.rows_added += added
             skipped[0] += skips
             read[0] += len(batch)
+            last[0] = batch[-1].get("key_hash") if batch else None
             self._in_page = max(self._in_page, read[0])
             self._report.update(self.snapshot(extra_rows=read[0]))
 
@@ -296,12 +320,17 @@ class _Loop:
             finally:
                 self._bytes_before += received()
                 self._bytes = lambda: 0
+        self._completed(read[0], skipped[0], last[0])
+        return after
+
+    def _completed(self, read: int, skipped: int, last_key: str | None) -> None:
         # WHY at the page's end, like `rows_read`: a retried page is skipped again, and counting
         # its first attempt too would count those rows twice.
-        self._cursor.rows_read += read[0]
-        self._cursor.rows_skipped += skipped[0]
+        self._cursor.rows_read += read
+        self._cursor.rows_skipped += skipped
+        if last_key is not None:
+            self._cursor.last_key = last_key
         self._in_page = 0
-        return after
 
     def result(self, *, complete: bool) -> PullResult:
         return PullResult(
@@ -350,4 +379,4 @@ def _with_retries(
     raise AssertionError("unreachable")  # pragma: no cover
 
 
-__all__ = ["pull_into", "run_pull"]
+__all__ = ["close_sessions", "pull_into", "run_pull"]

@@ -126,6 +126,19 @@ class LocalGateway:
         except sqlite3.Error as exc:
             raise self._unwritable(exc, result) from exc
 
+    def holds(self, key_hash: str) -> bool:
+        """Whether the database still has `key_hash`; one that cannot be read holds nothing.
+
+        WHY "nothing" on failure: a resumed pull then starts over, and loading is idempotent, so
+        doubt costs a re-read rather than skipped pages.
+        """
+        from aigateway.core.request_cache.sqlite_loader import PageRejected, holds
+
+        try:
+            return holds(self._database, key_hash)
+        except (PageRejected, sqlite3.Error):
+            return False
+
     def _unwritable(self, exc: sqlite3.Error, result: PullResult) -> CachePullError:
         # WHY retryable: a locked or full database fails the batch, not the pull. The cursor
         # only ever advances past a whole page, and loading is idempotent, so calling again

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import urlsplit
@@ -132,7 +133,8 @@ def configure(
 
 
 def close() -> None:
-    """Close and forget the process-wide Client, if it has been created."""
+    """Close and forget the process-wide Client, if it has been created, and the community-cache
+    pull's own sign-in sessions."""
 
     global _client
     with _lock:
@@ -140,6 +142,11 @@ def close() -> None:
         _client = None
     if previous is not None:
         previous.close()
+    # WHY from sys.modules: a process that never pulled has no pull sessions, and importing the
+    # pull module just to find that out would load it for nothing.
+    pull = sys.modules.get("screamingface._cache.pull")
+    if pull is not None:
+        pull.close_sessions()
 
 
 @overload

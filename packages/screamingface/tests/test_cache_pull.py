@@ -106,6 +106,9 @@ class _Gateway:
         self.loaded.extend(new)
         return len(new), sum(key in self.unservable for key in keys)
 
+    def holds(self, key_hash: str) -> bool:
+        return key_hash in self.loaded
+
 
 class _Report:
     def __init__(self) -> None:
@@ -551,3 +554,30 @@ def test_a_database_replaced_during_a_pull_stops_it_before_the_cursor_moves(
     assert raised.value.code == "destination_changed"
     assert raised.value.result.complete is False
     assert pull_module._CURSORS == {}
+
+
+def test_a_resume_into_a_database_restored_in_place_starts_over() -> None:
+    # WHY: a backup copied over the file keeps its inode, so the identity alone would resume
+    # after pages the restored file no longer holds; the last loaded key says it lost them.
+    gateway = _Gateway()
+    with pytest.raises(CachePullError):
+        _run(_Source({None: [_page(["a"], "c1")], "c1": [TransientPageError("x")]}), gateway)
+    gateway.loaded.clear()  # restored from a backup taken before the pull
+
+    source = _Source({None: [_page(["a"], "c1")], "c1": [_page(["b"], None)]})
+    result = _run(source, gateway)
+
+    assert source.requests[0] == (None, True)
+    assert result == PullResult(rows_read=2, rows_added=2, pages=2, resumed=False, complete=True)
+
+
+def test_a_resume_after_pages_without_rows_has_no_key_to_check_and_continues() -> None:
+    gateway = _Gateway()
+    with pytest.raises(CachePullError):
+        _run(_Source({None: [_page([], "c1")], "c1": [TransientPageError("x")]}), gateway)
+
+    source = _Source({"c1": [_page(["b"], None)]})
+    result = _run(source, gateway)
+
+    assert source.requests == [("c1", True)]
+    assert result.resumed is True

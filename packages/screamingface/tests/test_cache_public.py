@@ -222,3 +222,15 @@ def test_a_default_client_opened_after_a_pull_does_not_replace_its_signed_in_ses
     monkeypatch.setattr("screamingface._default_client._client", later)
 
     assert pull_module._session(DEFAULT_ENGINE_URL) is built[0]
+
+
+def test_sf_close_also_closes_the_pulls_own_sessions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    built = _counting_clients(monkeypatch, tmp_path)
+    pull_module.pull_into((), url=None, data_dir=tmp_path, progress=False)
+
+    sf.close()
+
+    assert built[0].closed
+    assert pull_module._SESSIONS == {}

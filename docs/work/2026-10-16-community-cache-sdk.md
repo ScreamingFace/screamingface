@@ -262,13 +262,17 @@ path — once per call, error path only, or the same per-row work — and no per
    is compared with the one the pull started with; a database replaced during the pull stops it
    with `destination_changed`, on its last page too. Measured: ~16 µs a check, ~2 ms over a full
    pull (120 pages), against ~4 ms to load one 500-row batch, so the owner chose to add it (the
-   latency rule is about real costs, not microseconds). A file overwritten in place still counts
-   as the same database (round 2).
+   latency rule is about real costs, not microseconds). A resume also checks the database still
+   holds the last key of the last completed page (one indexed lookup, on resume only), so a
+   backup copied over the file in place, which keeps its inode, starts over instead of resuming.
+   This replaces round 2's "overwritten in place counts as the same database" (owner: close
+   review comments rather than push back). The check is the gateway loader's new `holds()`.
 4. **Session preference:** this module's own signed-in client is used before the default
    client; the default is used only when the module has none for that origin.
 5. **Concurrent pulls:** one pull at a time per `(url, models)`; a second concurrent call is
    refused with `pull_in_progress` instead of sharing the cursor.
-6. **Pull clients never closed:** not changed; one per origin for the process, by design.
+6. **Pull clients never closed:** `sf.close()` now also closes and forgets this module's pull
+   clients (read from `sys.modules`, so a process that never pulled imports nothing).
 - **Spec:** decision 12 now says what the code does: a cut page does not advance the cursor (its
   loaded rows stay), a line is at most 32 MiB, and a line after the trailer refuses the page
   before its last batch loads.
@@ -281,3 +285,8 @@ path — once per call, error path only, or the same per-row work — and no per
 - **Follow-up (same day):** the identity check above, with a test that a database replaced
   mid-pull or on the last page stops the pull before the cursor moves; spec decision 14's resume
   paragraph names `destination_changed` and `pull_in_progress`.
+- **Follow-up 2 (same day):** the resume key check (`LocalGateway.holds` → loader `holds()`, with
+  aigateway tests) and `sf.close()` closing the pull clients, with tests: a restore in place
+  starts over; pages without rows leave no key and still resume; an unreadable database holds
+  nothing; `sf.close()` closes the pull's session. Local full gates skipped by the owner's call
+  for this push (focused suites, ruff and pyright run); GitHub CI is the gate.
