@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from _combine_contract import engine_operators
 from _combine_flow_fixtures import members3
-from _nodes import FusionNode, MeanNode, ReduceNode
+from _nodes import FusionNode, MeanNode, ReduceNode, lowered
 from _reducer_fixtures import fixture_operators
 from url4 import Expression, build
 
@@ -123,12 +123,13 @@ def test_url4_round_trip_rebuilds_sf_mean_and_the_mean_block(make: Any, expected
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)
     recovered = namespace["candidate"]
-    assert type(recovered.synthesizer) is expected
+    assert isinstance(recovered, sf.Pipeline)
+    node = lowered(recovered)
+    assert type(node.synthesizer) is expected
     if expected is ReduceNode:
-        # WHY the lowered value: the rebuild gives the internal node that the step lowers to.
-        lowered = lower(_fusion(step))
-        assert isinstance(lowered, FusionNode)
-        assert recovered.synthesizer == lowered.synthesizer
+        authored = lower(_fusion(step))
+        assert isinstance(authored, FusionNode)
+        assert node.synthesizer == authored.synthesizer
     assert compile_candidate(recovered, operators=engine_operators()).url4 == url4
 
 

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import ReduceNode, fusion_node
+from _nodes import ReduceNode, fusion_node, lowered
 from url4 import Expression, build
 
 import screamingface as sf
@@ -112,7 +112,7 @@ def test_url4_round_trip_keeps_the_select_of_a_numeric_block(make: Any) -> None:
     url4 = _url4(authored)
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)
-    recovered = namespace["candidate"].synthesizer
+    recovered = lowered(namespace["candidate"]).synthesizer
     assert type(recovered) is ReduceNode
     assert recovered == authored
     assert recovered.mode == authored.mode

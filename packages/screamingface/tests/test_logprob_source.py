@@ -26,7 +26,6 @@ from url4 import RelExpr, expr, render, src, text
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._signals import Signal
-from screamingface._surface.lowering import lower
 from screamingface.signal_sources import declared_from_spec
 
 _ALPHA = "openrouter/acme/alpha"
@@ -276,8 +275,8 @@ def test_logprob_fusion_rebuilds_from_url4_without_injected_params(
     assert "logprobs" not in code  # case-sensitive: sf.Logprob has a capital L
     assert "params={'temperature': 0.5}" in code
     recovered = _recovered(url4)
-    # WHY lower: until 7e the url4 rebuilds today's internal value, which the chain lowers to.
-    assert repr(recovered) == repr(lower(fusion))
+    assert recovered == fusion
+    assert repr(recovered) == repr(fusion)
     assert _compiled(recovered) == url4
 
 

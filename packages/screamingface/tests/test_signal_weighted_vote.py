@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
-from _nodes import ReduceNode, VoteNode, fusion_node
+from _nodes import ReduceNode, VoteNode, fusion_node, lowered
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -87,11 +87,11 @@ def test_signal_weights_value_repr_python_and_recovery() -> None:
 def test_signal_vote_round_trips_through_url4(key: str) -> None:
     url4 = _url4(sf.Vote(**_NUMBER, weights=sf.signal(key)))
     code = sf.Url4(url4).to_python()
-    assert f"weights=sf.signal({key!r})" in code
+    assert f">> sf.Vote(over='last_number@1', normalize='numeric@1', weights={key!r})" in code
     namespace: dict[str, Any] = {}
     exec(code, namespace)  # noqa: S102 - our own generated code
-    assert type(namespace["candidate"].synthesizer) is VoteNode
-    assert _node_url4(namespace["candidate"].synthesizer) == url4
+    assert type(lowered(namespace["candidate"]).synthesizer) is VoteNode
+    assert _node_url4(lowered(namespace["candidate"]).synthesizer) == url4
 
 
 def test_signal_block_with_a_field_path_recovers_as_reduce() -> None:
@@ -99,8 +99,8 @@ def test_signal_block_with_a_field_path_recovers_as_reduce() -> None:
     url4 = _node_url4(block)
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    assert namespace["candidate"].synthesizer == block
-    assert _node_url4(namespace["candidate"].synthesizer) == url4
+    assert lowered(namespace["candidate"]).synthesizer == block
+    assert _node_url4(lowered(namespace["candidate"]).synthesizer) == url4
 
 
 @pytest.mark.parametrize("weights", [{"signal": 3}, {"signal": "x", "y": 1}, [1, 2, 3], "cost_usd"])

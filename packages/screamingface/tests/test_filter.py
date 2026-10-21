@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import FilterNode, FusionNode, ReduceNode, fusion_node
+from _nodes import FilterNode, FusionNode, ReduceNode, fusion_node, lowered
 from _reducer_fixtures import evidence_wire
 from _vote_run_fixtures import (
     ScriptedTransport,
@@ -421,7 +421,8 @@ def test_filter_round_trips_and_is_recovered_as_sf_filter(shape: str) -> None:
 
     recovered = _recovered(url4)
     assert isinstance(recovered, sf.Pipeline)
-    fusion = recovered.stages[0]
+    assert type(recovered.steps[1]) is sf.Filter
+    fusion = lowered(recovered)._stage_values()[0]
     assert isinstance(fusion, FusionNode)
     assert type(fusion.synthesizer) is FilterNode
     assert compile_candidate(recovered, operators=flow_operators()).url4 == url4
@@ -431,11 +432,11 @@ def test_to_python_writes_the_filter() -> None:
     url4 = compile_candidate(_shapes()["threshold"], operators=flow_operators()).url4
     source = sf.Url4(url4).to_python()
 
-    assert "synthesizer=sf.Filter(where=sf.signal('field:confidence') >= 0.6)," in source
+    assert "    >> sf.Filter(where=sf.signal('field:confidence') >= 0.6)" in source.splitlines()
     pattern = compile_candidate(_shapes()["pattern ignoring case"], operators=flow_operators())
     assert (
-        "synthesizer=sf.Filter(where=sf.matches('yes', ignore_case=True)),"
-        in sf.Url4(pattern.url4).to_python()
+        "    >> sf.Filter(where=sf.matches('yes', ignore_case=True))"
+        in sf.Url4(pattern.url4).to_python().splitlines()
     )
 
 

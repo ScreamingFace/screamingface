@@ -15,20 +15,20 @@ def test_pipeline_is_an_immutable_ordered_recipe() -> None:
 
     assert isinstance(pipeline, sf.Recipe)
     assert pipeline.name == "Review chain"
-    assert pipeline.stages == (draft, review)
-    assert pipeline.stages[0] is draft
-    assert pipeline.stages[1] is review
+    assert pipeline.steps == (draft, review)
+    assert pipeline.steps[0] is draft
+    assert pipeline.steps[1] is review
 
     with pytest.raises(AttributeError):
-        cast(Any, pipeline).stages = ()
+        cast(Any, pipeline).steps = ()
 
 
 def test_pipeline_accepts_one_stage_and_route_shorthand() -> None:
     one = sf.Pipeline(["provider/only"])
     mixed = sf.Pipeline([sf.Model("provider/a"), "provider/b"])
 
-    assert one.stages == (sf.Model("provider/only"),)
-    assert mixed.stages == (sf.Model("provider/a"), sf.Model("provider/b"))
+    assert one.steps == (sf.Model("provider/only"),)
+    assert mixed.steps == (sf.Model("provider/a"), sf.Model("provider/b"))
 
 
 def test_pipeline_rejects_empty_or_ambiguous_stage_collections() -> None:
@@ -60,9 +60,10 @@ def test_pipeline_infers_a_compact_serial_name_and_representation() -> None:
     )
 
     assert pipeline.name == "draft->review"
-    assert repr(pipeline) == "Pipeline(['draft', 'review'])"
-    assert repr(sf.Pipeline(pipeline.stages, name="review chain")) == (
-        "Pipeline(['draft', 'review'], name='review chain')"
+    # D7-2: the chain repr shows each stage as the value it is (rebuild-display §2)
+    assert repr(pipeline) == "Pipeline([Model('provider/draft'), Model('provider/review')])"
+    assert repr(sf.Pipeline(pipeline.steps, name="review chain")) == (
+        "Pipeline([Model('provider/draft'), Model('provider/review')], name='review chain')"
     )
 
 
@@ -87,7 +88,7 @@ def test_unnamed_nested_pipelines_flatten_to_one_canonical_stage_sequence() -> N
     constructed = sf.Pipeline([draft, sf.Pipeline([review, final])])
     chained = draft >> sf.Pipeline([review, final])
 
-    assert constructed.stages == (draft, review, final)
+    assert constructed.steps == (draft, review, final)
     assert chained.steps == (draft, review, final)
 
 
@@ -166,10 +167,10 @@ def test_explicit_naming_is_visible_even_when_it_matches_the_inferred_name() -> 
     # WHY: the spec keeps an explicitly named nested Pipeline grouped instead of
     # flattening it, so namedness is behavioral — equality AND repr must show it.
     assert named != unnamed
-    assert repr(unnamed) == "Pipeline(['a', 'b'])"
-    assert repr(named) == "Pipeline(['a', 'b'], name='a->b')"
-    assert sf.Pipeline([named, "provider/c"]).stages == (named, sf.Model("provider/c"))
-    assert sf.Pipeline([unnamed, "provider/c"]).stages == (
+    assert repr(unnamed) == "Pipeline([Model('provider/a'), Model('provider/b')])"
+    assert repr(named) == "Pipeline([Model('provider/a'), Model('provider/b')], name='a->b')"
+    assert sf.Pipeline([named, "provider/c"]).steps == (named, sf.Model("provider/c"))
+    assert sf.Pipeline([unnamed, "provider/c"]).steps == (
         sf.Model("provider/a"),
         sf.Model("provider/b"),
         sf.Model("provider/c"),

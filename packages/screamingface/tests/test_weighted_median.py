@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 from _combine_contract import engine_operators
 from _combine_flow_fixtures import flow_operators
-from _nodes import MedianNode, ReduceNode, fusion_node
+from _nodes import MedianNode, ReduceNode, fusion_node, lowered
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -96,8 +96,8 @@ def test_sdk_reduce_block_median_accepts_weights_and_round_trips() -> None:
     url4 = compile_candidate(fusion, operators=flow_operators()).url4
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    assert type(namespace["candidate"].synthesizer) is ReduceNode
-    assert namespace["candidate"].synthesizer == block
+    assert type(lowered(namespace["candidate"]).synthesizer) is ReduceNode
+    assert lowered(namespace["candidate"]).synthesizer == block
     assert compile_candidate(namespace["candidate"], operators=flow_operators()).url4 == url4
 
     block_text = combine_spec_text(
@@ -125,7 +125,7 @@ def test_sdk_median_with_weights_round_trips_through_url4() -> None:
     assert "weights=(1.0, 1.0, 3.0)" in code
     namespace: dict[str, Any] = {}
     exec(code, namespace)  # noqa: S102 - our own generated code
-    synthesizer = namespace["candidate"].synthesizer
+    synthesizer = lowered(namespace["candidate"]).synthesizer
     assert type(synthesizer) is MedianNode
     assert synthesizer.weights == (1.0, 1.0, 3.0)
     again = fusion_node(_MEMBERS3, synthesizer)

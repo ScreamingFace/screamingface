@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import PickNode, ReduceNode, fusion_node
+from _nodes import PickNode, ReduceNode, fusion_node, lowered
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -64,7 +64,7 @@ def _spec_of(reducer: Reducer) -> dict[str, Any]:
 def _recovered(url4: str) -> Reducer:
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
-    synthesizer = namespace["candidate"].synthesizer
+    synthesizer = lowered(namespace["candidate"]).synthesizer
     assert isinstance(synthesizer, Reducer)
     return synthesizer
 
@@ -198,6 +198,9 @@ def test_pick_repr_and_python_show_the_output() -> None:
 )
 def test_url4_round_trip_rebuilds_pick_output(original: Step) -> None:
     url4 = _url4(_block(original))
+    namespace: dict[str, Any] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    assert namespace["candidate"] == _block(original)
     rebuilt = _recovered(url4)
 
     assert type(rebuilt) is PickNode
@@ -209,11 +212,11 @@ def test_url4_to_python_shows_the_output_of_each_pick() -> None:
     pairs: list[tuple[sf.Recipe, str]] = [
         (
             _block(sf.ArgMin("field:confidence", output="answer")),
-            "sf.Pick(by_signal=sf.signal('field:confidence'), order='min', output='answer')",
+            "sf.ArgMin('field:confidence', output='answer')",
         ),
         (
             _block(sf.First(where=sf.field("label", normalize="text") == "yes", output="answer")),
-            "sf.Pick('label', equals='yes', normalize='text', output='answer')",
+            "sf.First(where=sf.field('label', normalize='text') == 'yes', output='answer')",
         ),
     ]
     for recipe, expected in pairs:

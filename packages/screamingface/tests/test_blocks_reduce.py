@@ -30,6 +30,7 @@ from _reducer_fixtures import engine_operators
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
+from screamingface._surface.lowering import lower
 from screamingface.blocks import Matches
 from screamingface.reducer import Reducer
 
@@ -350,12 +351,14 @@ def test_reduce_to_python_round_trips(reducer: ReduceNode) -> None:
     exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102
 
     recovered = namespace["candidate"]
-    synthesizer = (recovered.stages[0] if selection else recovered).synthesizer
+    # the code builds a chain; the node it lowers to holds the reducer the url4 is recovered as
+    lowered: Any = lower(recovered)
+    synthesizer = (lowered._stage_values()[0] if selection else lowered).synthesizer
     # The named form wins when it holds the spec exactly (Vote, Median, Judge, Pick, Merge, Rank,
     # Concat).
     assert type(synthesizer) is _named_or_block(reducer)
     if isinstance(synthesizer, ReduceNode):
-        assert recovered == candidate
+        assert lowered == candidate
     assert compile_candidate(recovered, operators=operators).url4 == url4
 
 

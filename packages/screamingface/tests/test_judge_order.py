@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
-from _nodes import FusionNode, JudgeNode, ReduceNode, fusion_node
+from _nodes import FusionNode, JudgeNode, ReduceNode, fusion_node, lowered
 from url4 import Expression, build
 
 import screamingface as sf
@@ -46,7 +46,7 @@ def _judge(**kw: Any) -> JudgeNode:
     """A scores judge node on provider/j; ``kw`` goes to JudgeNode (order, params, returns...).
 
     WHY the internal node: the order is a field of the node that a url4 rebuilds; the surface
-    spells it as the select step (``sx.Judge(...) >> sx.ArgMin("score:judge")``).
+    spells it as the select step (``sf.Judge(...) >> sf.ArgMin("score:judge")``).
     """
     options: dict[str, Any] = {"returns": "scores", "rubric": RUBRIC, **kw}
     return JudgeNode("provider/j", **options)
@@ -143,12 +143,14 @@ def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
     url4 = _url4(low)
     source = sf.Url4(url4).to_python()
 
-    assert (
-        "synthesizer=sf.Judge('provider/j', returns='scores', "
-        "rubric='Pick the most correct answer.', params={'temperature': 0}, order='min')" in source
-    )
+    assert source.splitlines()[-3:] == [
+        "    >> sf.Judge('provider/j', rubric='Pick the most correct answer.', "
+        "params={'temperature': 0})",
+        "    >> sf.ArgMin('score:judge')",
+        ")",
+    ]
 
-    rebuilt = _recovered(url4)
+    rebuilt = lowered(_recovered(url4))
     assert isinstance(rebuilt, FusionNode)
     assert rebuilt.synthesizer == low
     assert rebuilt.synthesizer.order == "min"  # type: ignore[attr-defined]
@@ -176,11 +178,12 @@ def test_panel_judge_order_min_first_line() -> None:
     assert prompt.split("\n", 1)[0] == "judge-template@2 returns=scores input=panel"
     assert '"panel" is the JSON text of a list' in prompt
     assert "Score each member as the rubric says." in prompt
-    assert (
-        f"sf.Judge('provider/j', returns='scores', rubric={RUBRIC!r}, order='min')"
-        in sf.Url4(url4).to_python()
-    )
-    assert _url4(_recovered(url4).synthesizer, members, quorum=2) == url4  # type: ignore[attr-defined]
+    assert sf.Url4(url4).to_python().splitlines()[-3:] == [
+        f"    >> sf.Judge('provider/j', rubric={RUBRIC!r})",
+        "    >> sf.ArgMin('score:judge')",
+        ")",
+    ]
+    assert _url4(lowered(_recovered(url4)).synthesizer, members, quorum=2) == url4
 
 
 def test_judge_key_and_repr_include_order() -> None:

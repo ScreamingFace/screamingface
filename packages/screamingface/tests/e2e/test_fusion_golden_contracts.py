@@ -97,7 +97,7 @@ def test_build_uses_seeded_samples_and_the_recipe_synthesizer() -> None:
     assert isinstance(writer, sf.Synthesize)
     synthesizer = writer.model
     assert isinstance(synthesizer, sf.Pipeline)
-    assert list(synthesizer.stages) == [sf.Model(_MODEL), sf.Model(_MODEL, prompt=CHECK_PROMPT)]
+    assert list(synthesizer.steps) == [sf.Model(_MODEL), sf.Model(_MODEL, prompt=CHECK_PROMPT)]
 
 
 # -- body digests and the replay check ----------------------------------------

@@ -186,7 +186,7 @@ def test_a_block_that_needs_the_narrow_key_builds(steps: list[sf.Vote], carried:
 
     # lowering §2.2: before a writer the last narrow step is the main selection, so the reducer
     # carries every narrow step before it; before a reducer it carries them all
-    fusion = lowered.stages[0] if isinstance(lowered, sf.Pipeline) else lowered
+    fusion = lowered._stage_values()[0] if isinstance(lowered, sf.Pipeline) else lowered
     assert isinstance(fusion, FusionNode)
     assert len(fusion.synthesizer._narrow) == carried  # type: ignore[union-attr]
 

@@ -182,11 +182,11 @@ def test_lo1_lower_is_idempotent(build: Callable[[], sf.Recipe]) -> None:
 
 
 def test_lo3_the_compiler_sees_only_internal_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[type] = []
+    seen: list[sf.Recipe] = []
     original = candidate_module._CandidateCompiler._recipe
 
     def recording(self: object, recipe: sf.Recipe, **kwargs: object) -> object:
-        seen.append(type(recipe))
+        seen.append(recipe)
         return original(self, recipe, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(candidate_module._CandidateCompiler, "_recipe", recording)
@@ -200,15 +200,21 @@ def test_lo3_the_compiler_sees_only_internal_values(monkeypatch: pytest.MonkeyPa
     compile_candidate(chain, operators=flow_operators())
 
     assert seen
-    assert all(issubclass(kind, _INTERNAL) for kind in seen)
-    assert not any(kind.__module__.startswith("screamingface._surface") for kind in seen)
+    assert all(isinstance(recipe, _INTERNAL) for recipe in seen)
+    # D7-2: sf.Pipeline is the one chain class; the compiler sees it lowered, with no block in it
+    pipelines = [recipe for recipe in seen if isinstance(recipe, sf.Pipeline)]
+    assert pipelines
+    assert all(recipe._stage_values() == recipe.steps for recipe in pipelines)
 
 
-def test_lo3_an_unlowered_chain_is_not_a_compile_kind() -> None:
+def test_lo3_an_unlowered_chain_is_a_pipeline_kind_that_lowers_to_its_node() -> None:
     from screamingface.recipe import _recipe_kind
 
-    with pytest.raises(TypeError, match="candidate must be an sf.Model, sf.Fusion, or sf.Pipeline"):
-        _recipe_kind(sf.Fanout(_PAIR) >> sf.Vote())
+    chain = sf.Fanout(_PAIR) >> sf.Vote()
+
+    # D7-2: one Pipeline class, so a chain is the pipeline kind; the compile lowers it first
+    assert _recipe_kind(chain) == "pipeline"
+    assert _recipe_kind(lower(chain)) == "fusion"
 
 
 # ---------------------------------------------------------------- LO-4

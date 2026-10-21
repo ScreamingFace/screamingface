@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import JudgeNode, ReduceNode, VoteNode, fusion_node
+from _nodes import JudgeNode, ReduceNode, VoteNode, fusion_node, lowered
 from url4 import Expression, RelExpr, Source, build, render, struct
 
 import screamingface as sf
@@ -93,7 +93,7 @@ def test_score_judge_weights_and_a_vote_judge_pair_up(kind: str) -> None:
         options: dict[str, Any] = {} if judge is None else {"judge": judge}
         if kind == "vote":
             return VoteNode(weights=weights, **options)
-        return sf.Reduce("weighted", extract=_NUMBER, weights=weights, **options)
+        return ReduceNode("weighted", extract=_NUMBER, weights=weights, **options)
 
     assert make(JUDGE_SIGNAL, secret) is not None  # the one valid pairing
     assert make(sf.signal("cost_usd"), None) is not None  # no judge, no pairing needed
@@ -145,13 +145,13 @@ def test_judge_weighted_vote_round_trips() -> None:
     url4 = _url4(V)
 
     code = sf.Url4(url4).to_python()
-    assert (
-        "sf.Vote(extract='last_number@1', normalize='numeric@1', "
-        "weights=sf.signal('score:judge'), "
-        "judge=sf.Judge('provider/j', returns='scores', rubric='Score each answer.'))"
-    ) in code
+    assert code.splitlines()[-3:] == [
+        "    >> sf.Judge('provider/j', rubric='Score each answer.')",
+        "    >> sf.Vote(over='last_number@1', normalize='numeric@1', weights='score:judge')",
+        ")",
+    ]
     candidate = _exec_candidate(url4)
-    assert type(candidate.synthesizer) is VoteNode
+    assert type(lowered(candidate).synthesizer) is VoteNode
     assert _compiled(candidate).url4 == url4
 
 
@@ -162,8 +162,8 @@ def test_the_regex_block_form_of_a_judge_weighted_vote_recovers_as_reduce() -> N
 
     candidate = _exec_candidate(url4)
 
-    assert type(candidate.synthesizer) is ReduceNode
-    assert candidate.synthesizer == block
+    assert type(lowered(candidate).synthesizer) is ReduceNode
+    assert lowered(candidate).synthesizer == block
     assert _compiled(candidate).url4 == url4
 
 

@@ -337,19 +337,25 @@ def test_mg1_a_hand_case_is_reported(body: str, lines: list[str], new: str | Non
     ids=["plurality", "weighted", "plurality-extract", "median-mode", "vote"],
 )
 def test_mg1_the_rewritten_vote_compiles_to_the_same_bytes(old: str) -> None:
+    from types import SimpleNamespace
+
     from _combine_flow_fixtures import flow_operators
+    from _nodes import FusionNode, ReduceNode, VoteNode
 
     import screamingface as sf
-    from screamingface import _surface as sx
     from screamingface._evaluation.candidate import compile_candidate
 
     source = f"{_SF}x = sf.Fusion(['p/a', 'p/b', 'p/c'], synthesizer={old})\n"
     new = migrate.migrate_source(source, to="sx")
     assert new.report == []
+    # WHY no import lines: since the swap (7e) the old names are the internal nodes, and the sx
+    # names are sf.*; each text runs with the names it was written for.
+    today = SimpleNamespace(
+        Fusion=FusionNode, Reduce=ReduceNode, Vote=VoteNode, Extract=sf.Extract, signal=sf.signal
+    )
     values = []
-    for text in (source, new.text):
-        namespace: dict[str, object] = {"sf": sf, "sx": sx}
-        exec(text, namespace)  # noqa: S102 - the codemod's own rows
+    for text, namespace in ((source, {"sf": today}), (new.text, {"sf": sf, "sx": sf})):
+        exec(text.replace(_SF, "").replace(_SX, ""), namespace)  # noqa: S102 - the codemod's rows
         values.append(compile_candidate(namespace["x"], operators=flow_operators()).url4)  # type: ignore[arg-type]
     assert values[0] == values[1]
 

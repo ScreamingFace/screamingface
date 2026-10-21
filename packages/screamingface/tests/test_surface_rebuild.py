@@ -400,16 +400,130 @@ def test_rb3_a_member_with_options_shows_as_a_model() -> None:
     )
 
 
-def test_rb3_today_to_python_keeps_its_output() -> None:
-    # The swap (unit 7) switches Url4.to_python to the new rebuild; until then it is today's.
-    url4 = frozen_url4("surface_rebuild:vote")  # today's Fusion of _ROUTES with Vote()
+def test_rb3_to_python_is_the_import_and_the_rebuild_code() -> None:
+    # The swap (unit 7e): Url4.to_python is the import line and the rebuilt chain; a line over
+    # 100 characters is laid out one stage per line.
+    url4 = frozen_url4("surface_rebuild:vote")  # the Fusion of _ROUTES with Vote() before the swap
 
-    assert "sf.Fusion(" in sf.Url4(url4).to_python()
+    assert rebuild(url4).python == (
+        "candidate = sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma']) >> "
+        "sf.Vote(over='last_line@1', normalize='text@1')"
+    )
+    assert sf.Url4(url4).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = (\n"
+        "    sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'])\n"
+        "    >> sf.Vote(over='last_line@1', normalize='text@1')\n"
+        ")"
+    )
+    short = _url4(sf.Fanout(["p/a", "p/b"]) >> sf.Vote())
+    assert sf.Url4(short).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = sf.Fanout(['p/a', 'p/b']) >> sf.Vote(over='last_line@1', normalize='text@1')"
+    )
 
 
-def test_rb3_today_to_python_still_refuses_a_narrow_url4() -> None:
-    # U5d: today's classes cannot spell a narrow step, so to_python keeps its refusal until the swap
+def test_rb3_to_python_rebuilds_a_narrow_url4() -> None:
+    # U5d lifted at the swap: a narrow step has its new-surface spelling
     url4 = (COMBINE_CONTRACT / "narrow_filter_mean_candidate.url4").read_text(encoding="utf-8")
+    url4 = url4.removesuffix("\n")
 
-    with pytest.raises(ValueError, match=r"narrow steps before its reducer"):
-        sf.Url4(url4.removesuffix("\n")).to_python()
+    source = sf.Url4(url4).to_python()
+
+    assert source.startswith("import screamingface as sf\n\ncandidate = ")
+    assert ">> sf.Filter(" in source
+    assert _url4(_executed(source)) == url4
+
+
+def test_rb3_to_python_lays_a_long_chain_out_one_stage_per_line() -> None:
+    chain = (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric="Score it.")
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote(weights="score:judge")
+    )
+
+    assert sf.Url4(_url4(chain)).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = (\n"
+        "    sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'])\n"
+        "    >> sf.Judge('prov/judge', rubric='Score it.')\n"
+        "    >> sf.Rank(2, by='score:judge')\n"
+        "    >> sf.Vote(over='last_line@1', normalize='text@1', weights='score:judge')\n"
+        ")"
+    )
+
+
+def test_rb3_to_python_lays_a_long_named_chain_out_one_step_per_line() -> None:
+    chain = sf.Pipeline(
+        [sf.Fanout(_ROUTES), sf.Judge("prov/judge", rubric="Score it."), sf.ArgMax("score:judge")],
+        name="judged",
+    )
+
+    assert sf.Url4(_url4(chain)).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = sf.Pipeline(\n"
+        "    [\n"
+        "        sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma']),\n"
+        "        sf.Judge('prov/judge', rubric='Score it.'),\n"
+        "        sf.ArgMax('score:judge'),\n"
+        "    ],\n"
+        "    name='judged',\n"
+        ")"
+    )
+
+
+# ---------------------------------------------------------------- RB-1b, RB-2 (unit 7e)
+
+
+def _through_to_python(url4: str) -> sf.Recipe:
+    """The candidate that ``Url4.to_python()`` builds when it runs on its own (it imports sf)."""
+
+    namespace: dict[str, object] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    candidate = namespace["candidate"]
+    assert isinstance(candidate, sf.Recipe)
+    return candidate
+
+
+@pytest.mark.parametrize("slug", sorted(_NEW_FORM))
+def test_rb1b_every_doc_example_round_trips_through_to_python(slug: str) -> None:
+    # the judge rows (scores, label, judge-weighted, ranked) included: judge-template@2 rebuilds
+    example = _EXAMPLES[slug]
+    url4 = compile_example(example, _NEW_FORM[slug]())
+
+    assert compile_example(example, _through_to_python(url4)) == url4
+
+
+@pytest.mark.parametrize("case", sorted(_ROWS))
+def test_rb1b_every_parity_row_round_trips_through_to_python(case: str) -> None:
+    url4 = _url4(_ROWS[case]())
+
+    assert _url4(_through_to_python(url4)) == url4
+
+
+def test_rb1b_a_judge_chain_comes_back_as_the_chain_it_was_compiled_from() -> None:
+    chain = (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric="Score it.", params={"temperature": 0})
+        >> sf.Filter(where=sf.signal("score:judge") >= 7)
+        >> sf.ArgMin("score:judge")
+    )
+
+    assert _through_to_python(_url4(chain)) == chain
+
+
+def test_rb2_a_judge_template_v1_scores_url4_is_refused() -> None:
+    # A0: a url4 compiled before judge-template@2 (its scores judge says @1) does not rebuild
+    url4 = _url4(
+        sf.Fanout(_ROUTES) >> sf.Judge("prov/judge", rubric="R") >> sf.ArgMax("score:judge")
+    )
+    old = url4.replace("judge-template@2 returns=scores", "judge-template@1 returns=scores")
+    assert old != url4
+
+    with pytest.raises(ValueError, match=r"^URL4 Candidate has an unsupported judge call$"):
+        sf.Url4(old).to_python()

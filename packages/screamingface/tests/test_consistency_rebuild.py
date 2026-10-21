@@ -98,29 +98,17 @@ _FIXTURES: dict[str, str] = {"F1": _PICK, "F2": _MEDIAN}
 _HEAD = (
     "import screamingface as sf\n"
     "\n"
-    "candidate = sf.Fusion(\n"
-    "    [\n"
-    "        sf.Model(\n"
-    "            'prov/alpha',\n"
-    "        ),\n"
-    "        sf.Model(\n"
-    "            'prov/beta',\n"
-    "        ),\n"
-    "        sf.Model(\n"
-    "            'prov/gamma',\n"
-    "        ),\n"
-    "    ],\n"
+    "candidate = (\n"
+    "    sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'], "
 )
 _PYTHON: dict[str, str] = {
     "F1": _HEAD
-    + "    name='pick',\n"
-    + "    signals={'cons': sf.Consistency(n=3, temperature=1.0)},\n"
-    + "    synthesizer=sf.Pick(by_signal=sf.signal('cons'), order='max'),\n"
+    + "signals={'cons': sf.Consistency(n=3, temperature=1.0)}, name='pick')\n"
+    + "    >> sf.ArgMax('cons')\n"
     + ")",
     "F2": _HEAD
-    + "    name='median',\n"
-    + "    signals={'cons': sf.Consistency(n=2, temperature=0.7)},\n"
-    + "    synthesizer=sf.Median(extract='last_number@1', select='nearest@1'),\n"
+    + "signals={'cons': sf.Consistency(n=2, temperature=0.7)}, name='median')\n"
+    + "    >> sf.Median(over='last_number@1')\n"
     + ")",
 }
 
@@ -390,8 +378,10 @@ def test_to_python_rebuilds_sf_consistency_and_drops_the_sample_calls(name: str)
     for word in ("seed", "binding", "params="):
         assert word not in source, word
     rebuilt = _rebuilt(url4)
-    assert isinstance(rebuilt, FusionNode)
-    assert dict(rebuilt.signals or {}) == _declared(recipe)
+    assert isinstance(rebuilt, sf.Pipeline)
+    fanout = rebuilt.steps[0]
+    assert isinstance(fanout, sf.Fanout)
+    assert dict(fanout.signals or {}) == _declared(recipe)
     assert _url4(rebuilt) == url4
 
 

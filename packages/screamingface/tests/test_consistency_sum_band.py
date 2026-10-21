@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 from _combine_contract import COMBINE_CONTRACT, read_contract, requires_engine_app
-from _nodes import FusionNode
+from _nodes import FusionNode, lowered
 from test_consistency_display import _N, _SAMPLES_CHIP, _chip, _section, _wire
 from test_consistency_rebuild import (
     _MEMBERS,
@@ -82,8 +82,10 @@ def test_a_recipe_with_consistency_and_a_sum_or_a_band_round_trips(name: str) ->
 
     assert _recompiled(url4) == url4
     rebuilt = _rebuilt(url4)
-    assert isinstance(rebuilt, FusionNode)
-    assert dict(rebuilt.signals or {}) == _declared(recipe)
+    assert isinstance(rebuilt, sf.Pipeline)
+    fanout = rebuilt.steps[0]
+    assert isinstance(fanout, sf.Fanout)
+    assert dict(fanout.signals or {}) == _declared(recipe)
     _candidate_from_url4(_linked(url4))  # the replay takes the byte-for-byte recompile too
 
 
@@ -111,7 +113,7 @@ def test_the_part_6_contract_url4s_recompile_byte_for_byte(name: str) -> None:
 
     assert '"signals":{' in url4  # so the part 7 trigger runs the recompile for it
     assert _recompiled(url4) == url4
-    assert isinstance(_rebuilt(url4), FusionNode)
+    assert isinstance(lowered(_rebuilt(url4)), FusionNode)
     _candidate_from_url4(_linked(url4))
 
 

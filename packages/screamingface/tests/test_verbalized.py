@@ -72,10 +72,11 @@ def test_verbalized_fusion_rebuilds_from_url4() -> None:
     ) >> sf.ArgMax("conf")
     url4 = compile_candidate(fusion, operators=engine_operators()).url4
     code = sf.Url4(url4).to_python()
-    assert r"signals={'conf': sf.Verbalized('Confidence:\\s*([0-9]+)', ignore_case=True)}," in code
+    assert r"signals={'conf': sf.Verbalized('Confidence:\\s*([0-9]+)', ignore_case=True)})" in code
 
     namespace: dict[str, Any] = {}
     exec(code, namespace)  # noqa: S102 - our own generated code
     rebuilt = namespace["candidate"]
-    assert rebuilt.signals["conf"] == sf.Verbalized(pattern, ignore_case=True)
+    assert rebuilt == fusion
+    assert rebuilt.steps[0].signals["conf"] == sf.Verbalized(pattern, ignore_case=True)
     assert compile_candidate(rebuilt, operators=engine_operators()).url4 == url4
