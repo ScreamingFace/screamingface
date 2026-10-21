@@ -13,6 +13,7 @@ from typing import Final
 
 import pytest
 
+from workbench.redaction import redact
 from workbench.targets import LiveTarget, selected_target, start_target
 
 REQUIRE_ALL_ENV: Final = "SCREAMINGFACE_WORKBENCH_REQUIRE_ALL"
@@ -41,6 +42,7 @@ def pytest_runtest_makereport(
     item: pytest.Item, call: pytest.CallInfo[None]
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
     """With REQUIRE_ALL=1 a skipped notebook is a failure: an all-skipped run is not green.
+    Every report of the lane is then redacted (``_redact_report``).
 
     WHY rewrite at makereport, not logreport: the session counts failures in a ``tryfirst``
     logreport hook that runs before a conftest's; a report fixed at creation is seen as failed
@@ -61,7 +63,32 @@ def pytest_runtest_makereport(
         why = report.longrepr[-1] if isinstance(report.longrepr, tuple) else report.longrepr
         report.outcome = "failed"
         report.longrepr = f"{REQUIRE_ALL_ENV}=1 and the workbench skipped — {why}"
+    _redact_report(report)
     return report
+
+
+def _redact_report(report: pytest.TestReport) -> None:
+    """Scrub every text a report carries to the terminal and JUnit (review finding 1).
+
+    WHY here: the verdict redacts its own reasons, but a report also carries tracebacks (with
+    ``-l``, every frame's locals), captured stdout/stderr/log and user properties, any of which
+    can quote a key. This is the last point before every sink (terminal, junit, -r summary).
+    A structured longrepr is replaced by its redacted rendering only when it held a secret,
+    so ordinary failures keep their native formatting.
+    """
+    longrepr = report.longrepr
+    if isinstance(longrepr, tuple):  # a skip: (path, lineno, "Skipped: <reason>")
+        path, lineno, why = longrepr
+        report.longrepr = (path, lineno, redact(why))
+    elif longrepr is not None:
+        text = str(longrepr)
+        if (clean := redact(text)) != text:
+            report.longrepr = clean
+    report.sections = [(title, redact(body)) for title, body in report.sections]
+    report.user_properties = [
+        (name, value if redact(str(value)) == str(value) else redact(str(value)))
+        for name, value in report.user_properties
+    ]
 
 
 def pytest_terminal_summary(

@@ -1,0 +1,113 @@
+"""The workbench's one redactor (review finding 1): every sink imports it.
+
+WHY the fake secrets are assembled at runtime: a literal ``ghp_``/``AIza`` token in the repo
+trips secret scanners, and these are never real.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from workbench.redaction import MASK, redact, redact_tree
+
+GHP = "ghp_" + "a1B2" * 9
+GH_PAT = "github_pat_" + "Z9y8" * 8
+AIZA = "AIza" + "Sy" + "Q7x_" * 9
+OPAQUE = "op4que-V4lue-zz9"
+JWT = "eyJhbGciOi.eyJleHAiOjF9.c2ln"
+SK = "sk-or-v1-abcdefghijklmnop0123"
+TID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        (f"key {SK}", SK),
+        (f"tok {JWT}", JWT),
+        ("hdr Bearer abc.def", "abc.def"),
+        ("hdr Authorization: Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"),
+        (f"git {GHP} end", GHP),
+        (f"git {GH_PAT}", GH_PAT),
+        (f"gemini {AIZA}", AIZA),
+        (f"OPENROUTER_API_KEY={OPAQUE}", OPAQUE),
+        (f"export AIGATEWAY_SECRET_KEY='{OPAQUE} more'", OPAQUE),
+        (f'DB_PASSWORD = "{OPAQUE}"', OPAQUE),
+        (f"Client(api_key='{OPAQUE}')", OPAQUE),
+        (f"{{'access_token': '{OPAQUE}', 'x': 1}}", OPAQUE),
+        (f'{{"client_secret": "{OPAQUE}"}}', OPAQUE),
+        (f"GET https://h.test/v1?api_key={OPAQUE}&q=1", OPAQUE),
+        (f"GET https://h.test/v1?x=1&token={OPAQUE}#frag", OPAQUE),
+        (f"GET https://h.test/v1?key={OPAQUE}", OPAQUE),
+        (f"https://user:{OPAQUE}@h.test/db", OPAQUE),
+    ],
+    ids=[
+        "sk",
+        "jwt",
+        "bearer",
+        "basic",
+        "ghp",
+        "github-pat",
+        "aiza",
+        "env-assign",
+        "env-quoted",
+        "spaced-assign",
+        "kwarg",
+        "dict-repr",
+        "json",
+        "query-api-key",
+        "query-token",
+        "query-key",
+        "userinfo",
+    ],
+)
+def test_every_secret_shape_is_masked(text: str, secret: str) -> None:
+    out = redact(text)
+    assert secret not in out
+    assert MASK in out
+
+
+def test_names_survive_so_the_reader_knows_what_was_masked() -> None:
+    out = redact(f"OPENROUTER_API_KEY={OPAQUE} https://h.test/?api_key={OPAQUE}&q=1")
+    assert out == f"OPENROUTER_API_KEY={MASK} https://h.test/?api_key={MASK}&q=1"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"trace_id={TID} gateway_call_id=abc123",
+        "result lacks declared key 'run_ids'",
+        "KeyError: 'trace_ids'",
+        "aigateway: trace 4bf9 absent; engine: no log source",
+        "SCREAMINGFACE_WORKBENCH_REQUIRE_ALL=1 and the workbench skipped",
+        "http://127.0.0.1:9105/v1/models?limit=5",
+        # Seen in a real passing replay bundle: masking these would only blur the evidence.
+        "openrouter/microsoft/phi-4?max_tokens=256&temperature=0",
+        "max_tokens=256 completion_tokens: 12",
+        f"global cache hit provider=openrouter model='openrouter/x' key={TID}",
+        'sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])',
+        "client = Client(api_key=load_key())",
+    ],
+    ids=[
+        "trace-and-call-id",
+        "declared-key",
+        "key-error",
+        "chain-gap",
+        "require-all",
+        "url",
+        "query-count",
+        "count-assign",
+        "cache-key",
+        "env-lookup",
+        "call",
+    ],
+)
+def test_non_secrets_are_left_alone(text: str) -> None:
+    assert redact(text) == text
+
+
+def test_redact_tree_masks_keys_and_values_in_nested_containers() -> None:
+    tree = {"a": [f"x {GHP}", {"n": 1}], f"OPENROUTER_API_KEY={OPAQUE}": (AIZA,)}
+    flat = repr(redact_tree(tree))
+    for secret in (GHP, AIZA, OPAQUE):
+        assert secret not in flat
+    assert "'n': 1" in flat

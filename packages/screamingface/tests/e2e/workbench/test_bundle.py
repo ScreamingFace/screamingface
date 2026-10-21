@@ -5,8 +5,9 @@ from pathlib import Path
 
 import nbformat
 
-from workbench.bundle import redact, write_bundle
+from workbench.bundle import write_bundle
 from workbench.evidence import Hop, TraceChain
+from workbench.redaction import redact
 from workbench.runner import NotebookRun
 
 JWT = "eyJhbGciOi.eyJleHAiOjF9.c2ln"

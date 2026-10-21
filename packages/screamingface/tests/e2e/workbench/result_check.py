@@ -11,6 +11,8 @@ from typing import Any
 
 from harness.trace_evidence import TRACE_ID
 
+from workbench.redaction import redact
+
 
 def check_result(
     result: Mapping[str, Any] | None, required: Sequence[str]
@@ -29,7 +31,9 @@ def check_result(
         if isinstance(item, str) and TRACE_ID.fullmatch(item):
             ids.append(item)
         else:
-            reasons.append(f"malformed trace id {item!r} (want 32 lowercase hex)")
+            # WHY redact here, not only at the sinks: a reason is display text from the moment
+            # it exists, and the notebook controls the payload.
+            reasons.append(f"malformed trace id {redact(repr(item))} (want 32 lowercase hex)")
     if not raw:
         reasons.append("no trace id reported by the notebook")
     return ids, reasons

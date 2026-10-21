@@ -36,6 +36,15 @@ def test_malformed_ids_are_reasons_and_never_reach_the_chain() -> None:
     assert all("malformed trace id" in r for r in reasons)
 
 
+def test_a_secret_in_a_malformed_id_never_reaches_the_reason() -> None:
+    opaque = "op4que-V4lue-zz9"
+    leaky = [f"OPENROUTER_API_KEY={opaque}", {"api_key": opaque}]
+    ids, reasons = check_result({"trace_ids": leaky}, ["trace_ids"])
+    assert ids == []
+    assert len(reasons) == 2
+    assert all(opaque not in r and "[REDACTED]" in r for r in reasons), reasons
+
+
 def test_an_empty_id_list_is_a_reason() -> None:
     assert check_result({"trace_ids": []}, ["trace_ids"]) == (
         [],

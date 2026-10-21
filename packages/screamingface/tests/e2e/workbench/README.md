@@ -108,8 +108,17 @@ Each notebook writes a bundle, whether it passes or fails:
 With `--junitxml`, each `test_notebook` entry also carries the properties `trace_ids`
 (comma-joined) and `bundle` (the bundle path).
 
-Secrets are redacted before anything is written. The patterns are `sk-…` keys, JWT-shaped
-tokens, and `Bearer …`.
+Secrets are redacted before anything leaves the test, by one redactor (`redaction.py`):
+the bundle, the failure reasons (`verdict.py` raises them without a traceback, so `-l` cannot
+re-print the raw error), the JUnit properties, and, through the lane's report hook in
+`conftest.py`, every report's traceback, captured output and properties on the terminal and in
+JUnit. Masked whole: `sk-…`, JWT-shaped tokens, `Bearer …`/`Basic …`, `ghp_…`/`github_pat_…`,
+`AIza…`, `hf_…`, `AKIA…`, `xox?-…`. Masked by name, keeping the name: URL userinfo passwords,
+query parameters such as `?api_key=…&token=…`, and assignments or mapping entries whose name
+ends in key, token, secret, password, credential(s), auth or sig (`OPENROUTER_API_KEY=…`,
+`api_key='…'`, `"client_secret": "…"`). Left readable on purpose: a bare `key=` (the gateway's
+cache key), counts such as `max_tokens=`, and code such as `api_key=os.environ[...]`. Free text
+with no recognisable shape or name is not detected.
 
 ## Adding a notebook
 
