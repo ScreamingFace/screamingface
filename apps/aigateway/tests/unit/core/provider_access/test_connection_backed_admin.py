@@ -4,11 +4,10 @@
 # effective Connection through ONE authority. Since OME-1209 E3b these tests drive it through the
 # D18 admin PUT (`set_pair_api_key`), its only caller; the Profile-era op 8 retired with its
 # routes.
-# INVARIANT (D16 (a), D5): the legacy document is rewritten as a faithful mirror on every
-# authority write, so an R1 rollback (marker reset, blobs kept) serves the same credential from
-# the legacy path — `test_connection_backed_admin_delete_list.py` proves the rollback itself.
-# INVARIANT (design card): marker → index → Connection row → blob, one transaction; the marker
-# advance is the fence, so a stale writer changes nothing and surfaces `WriteConflict`.
+# WHY no mirror (OME-1209 E4b): the authority write leaves a legacy document as it was; an R1
+# rollback is not coherent for a pair changed after E4b (spec §8 Q7).
+# INVARIANT (design card): marker → Connection row → blob, one transaction; the marker advance is
+# the fence, so a stale writer changes nothing and surfaces `WriteConflict`.
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ from typing import Any
 import pytest
 from connection_backed_admin_probes import (
     KEY,
-    MASKED,
     blob_at_connection_address,
     blob_at_profile_address,
     connection,
@@ -67,14 +65,15 @@ def test_an_unreadable_marker_store_propagates_instead_of_guessing_the_owner(
 # --- the D18 key write on a migrated pair ---------------------------------------------------
 
 
-def test_set_api_key_writes_the_effective_connection_and_mirrors_the_document(
+def test_set_api_key_writes_the_effective_connection_and_leaves_the_document(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    # The document carries HISTORICAL defaults; op 8 takes none and must keep them (D2).
+    # The document carries HISTORICAL defaults; the write must leave it exactly as it was (E4b).
     migrated.seed_document(
         name="default", auth_type="oauth", defaults=ProfileDefaults(max_tokens=7)
     )
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
+    before = document(migrated)
 
     put_pair_key(migrated)
 
@@ -98,21 +97,11 @@ def test_set_api_key_writes_the_effective_connection_and_mirrors_the_document(
         connection_id,
         2,
     )
-    doc = document(migrated)
-    assert doc is not None
-    assert (doc.state, doc.auth_type, doc.account_label, doc.scopes) == (
-        ProfileState.AUTHENTICATED,
-        "api_key",
-        MASKED,
-        [],
-    )
-    assert doc.defaults == ProfileDefaults(max_tokens=7)
-    assert doc.last_refreshed_at is not None
+    assert before is not None
+    assert document(migrated) == before
     credential_name = credential_name_for(migrated.account_id, "default")
-    # WHY twice: the publication evicts inside the PUT's outer transaction, and the PUT evicts
-    # again after the commit.
-    assert migrated.evicted() == [credential_name, credential_name]
-    assert migrated.invalidated() == [credential_name, credential_name]
+    assert migrated.evicted() == [credential_name]
+    assert migrated.invalidated() == [credential_name]
 
 
 def test_set_api_key_reactivates_an_errored_connection_and_drops_the_error_placeholder(
@@ -123,6 +112,7 @@ def test_set_api_key_reactivates_an_errored_connection_and_drops_the_error_place
         name="default", state=ProfileState.ERROR, auth_type="oauth"
     )
     assert connection(migrated, connection_id).label == f"error:{connection_id}"
+    before = document(migrated)
 
     put_pair_key(migrated)
 
@@ -135,9 +125,9 @@ def test_set_api_key_reactivates_an_errored_connection_and_drops_the_error_place
     # WHY: `mark_error` left the OAuth placeholder label; an API key has no identity to name the
     # row by, so it takes the Connection-native `api-key-<id>` label (unique by construction).
     assert row.label == f"api-key-{connection_id}"
-    doc = document(migrated)
-    assert doc is not None
-    assert (doc.state, doc.auth_type) == (ProfileState.AUTHENTICATED, "api_key")
+    # WHY unchanged (OME-1209 E4b): the reactivation mirrors nothing onto the document.
+    assert before is not None
+    assert document(migrated) == before
     assert migrated.profile_state("default") == "authenticated"
 
 
@@ -168,6 +158,7 @@ def test_set_api_key_without_a_usable_effective_connection_starts_a_new_one(
     if how == "deleted":
         delete(migrated)
     generation_before = marker(migrated).generation
+    before = document(migrated)
 
     put_pair_key(migrated)
 
@@ -190,9 +181,9 @@ def test_set_api_key_without_a_usable_effective_connection_starts_a_new_one(
     assert json.loads(blob_at_profile_address(migrated) or "{}")["api_key"] == KEY
     assert blob_at_connection_address(migrated, new_id) is None
     assert connection(migrated, old_id).status == "revoked"
-    doc = document(migrated)
-    assert doc is not None
-    assert (doc.state, doc.auth_type) == (ProfileState.AUTHENTICATED, "api_key")
+    # WHY unchanged (OME-1209 E4b): neither the DELETE nor the PUT writes the document.
+    assert before is not None
+    assert document(migrated) == before
 
 
 def test_a_stale_marker_loses_and_writes_nothing(

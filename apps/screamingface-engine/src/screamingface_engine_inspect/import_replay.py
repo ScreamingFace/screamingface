@@ -128,7 +128,7 @@ class TaskReplayFacts:
 
 @dataclass(frozen=True)
 class ImportReplay:
-    """One import-mode run: the Cases, the upstream Sample ids, where they came from, and the
+    """One import-mode run: the Cases, the inspect_evals Sample ids, where they came from, and the
     Task's facts."""
 
     prepared: list[PreparedCase]
@@ -161,7 +161,7 @@ def replay_for_import(
     Args:
         task_ref: ``"module:attr"`` of the eval's task function.
         task_args: forwarded to the task function; None for none.
-        excluded_sample_ids: upstream Sample ids capture leaves out (spec R18); None for none.
+        excluded_sample_ids: inspect_evals Sample ids capture leaves out (spec R18); None for none.
         has_answer_key: False when the Benchmark has no answer key, so an empty one is
             accepted (spec R19).
         empty_answer_key_allowed: True when some Cases' empty key is itself the answer the
@@ -178,7 +178,7 @@ def replay_for_import(
         drop_scorers: extra scorers left out by registry name, a Named Deviation (OME-1602).
 
     Returns:
-        The child's Cases (numbered 1..N by the shared writer), the upstream Sample ids in
+        The child's Cases (numbered 1..N by the shared writer), the inspect_evals Sample ids in
         the same order (None for a Sample with no id), the recorded Case Sources and the facts.
 
     Raises:
@@ -442,7 +442,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         for index, source in enumerate(recorder.sources)
     ]
     # Stage 4 — one file back to the parent. WHY sample_ids: the writer numbers Cases 1..N,
-    # so the upstream ids R4's duplicate check reads exist only here.
+    # so the inspect_evals ids R4's duplicate check reads exist only here.
     result: dict[str, Any] = {
         "prepared": prepared,
         "sample_ids": [None if sample.id is None else str(sample.id) for sample in samples],
@@ -506,7 +506,7 @@ def import_by_task_replay(
     Args:
         task_ref: ``"module:attr"`` of the eval's task function.
         task_args: forwarded to the task function in both runs; None for none.
-        excluded_sample_ids: upstream Sample ids both runs leave out (R18); None for none.
+        excluded_sample_ids: inspect_evals Sample ids both runs leave out (R18); None for none.
         has_answer_key: False when the Benchmark has no answer key, in both runs (R19).
         empty_answer_key_allowed: True when some Cases' empty key is the answer the eval's
             own scorer reads, in both runs (OME-1527, R5).

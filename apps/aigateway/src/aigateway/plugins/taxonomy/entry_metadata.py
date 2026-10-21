@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, get_args
 
 from ...core.request_cache.entry_metadata import CacheEntryMetadata
-from .render import MAX_RENDERED_ATTEMPTS
+from .render import MAX_RENDERED_ATTEMPTS, last_succeeded_record
 from .types import (
     CacheReference,
     CacheWriteTTL,
@@ -194,10 +194,7 @@ def cache_entry_metadata_from_session(
         records = collector.records()
         if not records:
             return None
-        chosen = next(
-            (record for record in reversed(records) if record.outcome == "succeeded"),
-            None,
-        )
+        chosen = last_succeeded_record(records)
         if chosen is None:
             # Only a successful final response is served, so there is nothing to describe.
             return None

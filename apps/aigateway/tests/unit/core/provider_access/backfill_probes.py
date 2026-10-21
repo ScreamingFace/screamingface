@@ -41,7 +41,9 @@ SECRET_NEEDLES = ("tok", "ctok", "other", KEY, SECRET_PROMPT, "v1:", "aigateway:
 
 
 def context(harness: Any) -> BackfillContext:
-    return BackfillContext.from_app(harness.client.app)
+    # WHY the stores (OME-1209 E4b): the app wires no index; the CLI builds its context this way.
+    app = harness.client.app
+    return BackfillContext.from_stores(app.state.credential_store, app.state.providers)
 
 
 def classify(harness: Any, account_id: str | None = None) -> dict[str, PairPlan]:

@@ -4,7 +4,6 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from html import escape
 from ipaddress import ip_address
 from typing import Any, cast
@@ -17,7 +16,6 @@ from tortoise.exceptions import IntegrityError
 from tortoise.transactions import in_transaction
 
 from ..core.auth.middleware import CurrentAccount
-from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.oauth.store import (
     OAuthConnectionStore,
@@ -29,8 +27,6 @@ from ..core.plugin_base import (
     OAuthConfig,
     credential_strategy_from,
 )
-from ..core.profile_index import ProfileIndexStore
-from ..core.profile_models import ProfileState
 from ..core.provider_access import (
     PairAuthorityConflict,
     claim_observed,
@@ -52,10 +48,6 @@ class _LoopbackHttpRequest:
     method: str
     target: str
     headers: dict[str, str]
-
-
-def _index_store_for_app(app) -> ProfileIndexStore:
-    return app.state.profile_index
 
 
 def _registry_for_app(app):
@@ -434,15 +426,6 @@ async def oauth_callback(code: str, state: str, request: Request):
     provider = pending_entry.provider
     try:
         return await _generic_callback(provider, code, state, request)
-    except CredentialBlobMutationConflict:
-        return HTMLResponse(
-            _callback_failure_html(
-                provider,
-                "profile_index_conflict",
-                "Profile metadata update conflicted. Try again.",
-            ),
-            status_code=503,
-        )
     except HTTPException as exc:
         return HTMLResponse(
             _callback_failure_html(provider, type(exc).__name__, str(exc.detail)),
@@ -595,32 +578,6 @@ async def _mark_oauth_completion_error(
     await _close_loopback_callback(app, state)
 
 
-async def _mark_profile_authenticated(
-    app,
-    pending: PendingAuthEntry,
-    plugin,
-    creds: dict,
-) -> None:
-    """D14: mirror the native callback's success onto a same-named compat document, if any."""
-    index = _index_store_for_app(app)
-    profile = await index.get(
-        pending.account_id,
-        pending.provider,
-        pending.profile_name,
-    )
-    if profile is None:
-        return
-    profile.state = ProfileState.AUTHENTICATED
-    # A completed OAuth round-trip overwrites the credential slot, so the
-    # discriminator must flip back even if the profile was api_key before.
-    profile.auth_type = "oauth"
-    profile.last_refreshed_at = datetime.now(UTC)
-    label = plugin.account_label_from_credentials(creds)
-    if label is not None:
-        profile.account_label = label
-    await index.upsert(profile)
-
-
 def _credential_name_for_pending(pending: PendingAuthEntry) -> str:
     return credential_key_for(pending.account_id, pending.connection_id)
 
@@ -688,14 +645,13 @@ async def _record_oauth_connection_completion(
         # a concurrent DELETE wins without credential orphaning or stale-row resurrection.
         async with in_transaction():
             # INVARIANT (OME-1497, G0 §5.3): check and publication are atomic — the native claim
-            # and compat-document update commit with the activated row and its blob, or not at all.
+            # commits with the activated row and its blob, or not at all.
+            # WHY no Profile document (OME-1209 E4b): the D14 mirror onto a same-named document
+            # is retired; a document left behind waits for E5.
             await claim_observed(pending.observed_pair)
-            if pending.replaces_effective is None:
-                await _mark_profile_authenticated(app, pending, plugin, creds)
-            else:
+            if pending.replaces_effective is not None:
                 # FEATURE (OME-1209, E1b, R6): this flow repairs a migrated pair — marker first
                 # (D14), the old row revoked before this one activates.
-                # INVARIANT (R6, §8 Q7): a repair writes no Profile document.
                 await replace_effective(pending.replaces_effective, connection_id=connection.id)
                 replaced = await retire_replaced(
                     pending.replaces_effective,
@@ -737,10 +693,6 @@ async def _record_oauth_connection_completion(
     except HTTPException as exc:
         if exc.status_code == 503:
             await store.mark_pending_error(connection, "credential_store_unavailable")
-        raise
-    except CredentialBlobMutationConflict:
-        # WHY: the compat-document update exhausted its retries; everything rolled back and the
-        # Connection stays pending, so the callback keeps its retryable `profile_index_conflict`.
         raise
     except Exception as exc:
         await store.mark_pending_error(connection, "connection_activation_failed")

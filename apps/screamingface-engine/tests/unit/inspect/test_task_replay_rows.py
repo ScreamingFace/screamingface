@@ -155,7 +155,8 @@ def test_an_unpinned_source_says_the_digest_is_the_only_pin() -> None:
     rows: TaskReplayRows = render_task_replay_rows("mgsm_en", _imported(sources=(source,)), "TODO")
 
     assert (
-        "    #     pin unpinned (no upstream hash: the Case Digest is the only pin)\n" in rows.cases
+        "    #     pin unpinned (no inspect_evals hash: the Case Digest is the only pin)\n"
+        in rows.cases
     )
 
 
@@ -420,7 +421,7 @@ def test_excluded_ids_are_written_with_a_reason_left_for_review() -> None:
     )
 
     assert (
-        "        # NAMED DEVIATION — TODO(review): say why upstream's Samples\n"
+        "        # NAMED DEVIATION — TODO(review): say why inspect_evals' Samples\n"
         "        # below are left out.\n"
         "        excluded_sample_ids=(\n"
         '            "stages_full:14",\n'
@@ -639,7 +640,7 @@ def test_a_moved_headline_is_flagged_even_with_one_scorer_left() -> None:
         "TODO",
     )
 
-    assert "# TODO(review): the Headline Score is the one scorer kept, not upstream's" in (
+    assert "# TODO(review): the Headline Score is the one scorer kept, not inspect_evals'" in (
         rows.benchmark
     )
 

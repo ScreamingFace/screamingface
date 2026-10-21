@@ -246,7 +246,7 @@ not hours):
   - Know the bad-reply semantics before reading a low score: a judge reply the
     eval's parser cannot grade becomes a per-case `invalid_score_value` rejection
     (it never aborts the whole aggregate), but a TRUNCATED reply that still parses
-    keeps upstream's 0.0 silently — on the first live run, check the judge calls'
+    keeps inspect_evals' 0.0 silently — on the first live run, check the judge calls'
     finish reasons before trusting zeros.
   - Judged runs are auditable per case: each case's judge call lands in its
     evidence `accounting` (tokens/USD/latency/attempts) and the engine log tags the
@@ -269,11 +269,11 @@ inspect_evals eval such as `bbeh/`:
 | dataset loader | `<name>.py` | a pinned fetch (Hub commit + sha256, or a URL through `inspect_ai.util.download(url, sha256)`, which the Case Source recorder wraps; ARC-AGI-2 fetches GitHub's zip at a commit) rendered into `Sample`s: `input` is the exact Candidate-facing text, `target` the answer key (a list when there are aliases), `metadata` whatever the scorer needs |
 | scorer(s) | `<name>.py` | `@scorer` functions, `(state, target) -> Score`; several scorers = several Named Scores, the first is the Headline |
 | the Task | `<name>.py` | `@task def <name>() -> Task(dataset=…, solver=generate(), scorer=[…])` |
-| vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the upstream blob at the pinned commit (never the upstream docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
+| vendored grading code | `vendor/` | the paper's own scorer when it has one, copied byte-for-byte below a header of ours that links to the authors' file at its pinned commit (never the authors' docstring), with its licence and a sha256 test (`test_local_task_musique_vendor.py` is the template) |
 | the card | `README.md` | dataset, prompt, scoring, baselines, how to run |
 
-A scorer that reads `metadata` fails loudly on a missing key: it raises, as upstream bbeh's
-does, and the scorer adapter records a `scorer_error`. It never falls back to a default that
+A scorer that reads `metadata` fails loudly on a missing key: it raises, as inspect_evals' bbeh
+scorer does, and the scorer adapter records a `scorer_error`. It never falls back to a default that
 grades. The lanes that grade every Benchmark over stand-in Cases take realistic stand-in
 metadata from one table, `STAND_IN_METADATA` in `tests/unit/inspect/replayed_cases_helpers.py`,
 so add your Task's entry there (OME-1527).
@@ -340,11 +340,11 @@ the rows, known-benign, or refused/flagged. Silence is never an option.**
 |---|---|---|
 | the task raised / yielded no Samples | the eval failed in the clean child, or built an empty dataset | read the child's error line; fix the task args |
 | no Case Source was recorded | the eval fetched through something the recorder does not wrap | extend the recorder for that primitive (it is a reviewable fetch), or import by hand |
-| two Samples share the id | the eval's ids collide, so Cases cannot be addressed | report upstream; import by hand |
+| two Samples share the id | the eval's ids collide, so Cases cannot be addressed | report it to inspect_evals; import by hand |
 | calls hf_dataset(…, shuffle=True) with no seed | inspect's own order is random per run | pass `--shuffle-seed` (or `--choice-shuffle-seed` for `shuffle_choices=True`) |
 | …seed was never applied | the eval makes no unseeded hf_dataset shuffle the seed would pin | drop the flag |
 | two Task replays produced different Cases | a shuffle the enforcer cannot reach (the eval's own `MemoryDataset.shuffle()`), generated Cases, a per-run value in metadata, or HEAD moving between the runs | pass task args that fix the order, or re-run |
-| reads … at two revisions / cannot resolve … | the eval reads one repo at two commits, or the Hub could not be asked | report upstream / retry with the Hub reachable |
+| reads … at two revisions / cannot resolve … | the eval reads one repo at two commits, or the Hub could not be asked | report it to inspect_evals / retry with the Hub reachable |
 | key already exists | the benchmark is already imported | pick a distinct key |
 | characters that cannot be written | a string from the eval or the Hub would break the generated Python | inspect it — this is a red flag, not an inconvenience |
 | anchor line missing | someone edited the anchor comments | restore them; nothing was written |
@@ -360,7 +360,7 @@ A different Case Digest ends with one of two explanations when the declaration c
   a shuffle the pins no longer reach. Check the seed and commit in the bundle's
   `provenance.json`; re-importing re-seals the new order once you accept it.
 - **"same count, different Cases: text changed"**: at least one Case's prompt or Grading Material
-  differs. Usually an upstream data or prompt change; treat it as a new Benchmark Revision and
+  differs. Usually an inspect_evals data or prompt change; treat it as a new Benchmark Revision and
   re-import. For lab_bench, a moved `choice_shuffle_seed` also lands here, because the options
   sit inside each Case's text.
 

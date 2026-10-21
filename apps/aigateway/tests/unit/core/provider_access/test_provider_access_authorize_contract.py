@@ -3,6 +3,9 @@
 # INVARIANT: the two mutating operations of the read interface are exactly the writes the read
 # path performs today — error marking, strategy-cache eviction, session invalidation — named so
 # consumers stop touching rows. Codes are NOT decided here (edge table).
+# WHY the fake alone here: the real port is re-run over a migrated pair by
+# `test_connection_backed_authorize_contract`; the Profile-backed run retired with its
+# implementation (OME-1209, Stage E, E4a).
 """
 
 from __future__ import annotations
@@ -15,7 +18,6 @@ from provider_access_harness import (
     PROVIDER,
     FakeHarness,
     Harness,
-    ProfileBackedHarness,
 )
 
 from aigateway.core.provider_access import (
@@ -46,15 +48,9 @@ class _NoCredentialPlugin:
         return None
 
 
-@pytest.fixture(params=["fake", "profile_backed"])
-def harness(request: pytest.FixtureRequest) -> Harness:
-    if request.param == "fake":
-        return FakeHarness()
-    return ProfileBackedHarness(
-        request.getfixturevalue("authenticated_client"),
-        request.getfixturevalue("credential_blobs"),
-        request.getfixturevalue("monkeypatch"),
-    )
+@pytest.fixture(params=["fake"])
+def harness() -> Harness:
+    return FakeHarness()
 
 
 def _resolve(harness: Harness, *, plugin: Any = ANTHROPIC, policy=ResolvePolicy.DISPATCH):

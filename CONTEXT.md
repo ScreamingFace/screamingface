@@ -307,22 +307,22 @@ name always means the framework; Sample, Target, Solver and Scorer for our own c
 
 **Imported Benchmark**:
 A Benchmark generated from an external eval catalogue, whose Cases are exactly the items the
-upstream eval would run (apart from any Named Deviation) and whose Grading is the upstream eval's
-own grading code. Today the only source is Inspect.
+inspect_evals eval would run (apart from any Named Deviation) and whose Grading is the inspect_evals
+eval's own grading code. Today the only source is Inspect.
 _Avoid_: Board, inspect board
 
 **Named Deviation**:
-A declared, reviewable difference between an Imported Benchmark and its upstream eval, such as
+A declared, reviewable difference between an Imported Benchmark and its inspect_evals eval, such as
 dropped questions or a system message delivered as input text. It is written on the Benchmark
 and included in its Benchmark Revision.
 _Avoid_: Patch, tweak
 
 **Inverted Grade**:
-A mark on an Imported Benchmark whose upstream grade counts the behaviour we don't want, such as
-a judge's grade for going along with an unsafe prompt. Each Case scores 1 − that grade, so higher
-is still better and the Benchmark's score is a refusal rate, not a compliance rate. It is part of
-the Benchmark Revision and shown in the Report; it says the score is already flipped, never that
-anyone should flip it again.
+A mark on an Imported Benchmark whose grade in the inspect_evals eval counts the behaviour we don't
+want, such as a judge's grade for going along with an unsafe prompt. Each Case scores 1 − that
+grade, so higher is still better and the Benchmark's score is a refusal rate, not a compliance rate.
+It is part of the Benchmark Revision and shown in the Report; it says the score is already flipped,
+never that anyone should flip it again.
 _Avoid_: Reversed score, lower-is-better Benchmark
 
 **Headline Score**:
@@ -341,10 +341,10 @@ _Avoid_: Sub-score, secondary metric, extra metric
 What says where a Benchmark comes from: its paper with the authors and a citation, the links to
 its website, harness, dataset and licence (with any restriction on it) and, for an Imported
 Benchmark, the people who ported it into Inspect. Who typed the row into ScreamingFace is not
-part of it: git holds that. The harness link is always the original upstream code that produced the paper's
-numbers, pinned to a commit or version tag, never ScreamingFace's own translation of it. None of
-it is part of the Benchmark Revision: a link or a baseline says nothing about which Cases are
-asked or how they are graded.
+part of it: git holds that. The harness link is always the authors' original code that produced
+the paper's numbers, pinned to a commit or version tag, never ScreamingFace's own translation of
+it. None of it is part of the Benchmark Revision: a link or a baseline says nothing about which
+Cases are asked or how they are graded.
 _Avoid_: Metadata, sources
 
 **Frontier Score**:

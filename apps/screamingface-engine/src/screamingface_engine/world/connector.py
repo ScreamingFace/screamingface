@@ -138,7 +138,8 @@ _TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if
 # INVARIANT (OME-1220): the transport failures that prove no request byte left the Engine.
 # httpcore raises these only while opening the connection (TCP connect, TLS handshake) or while
 # waiting for a pooled one; the request is written strictly after. A retry that follows one of
-# them is the only billed attempt, so its price is exact. Every other failure is ambiguous:
+# them does not set the `possibly_billed` fact. Since OME-1687 that fact changes no price — a call
+# is priced from its successful request whatever preceded it. Every other failure is ambiguous:
 # httpcore swallows a mid-request `WriteError` and surfaces the outcome as a read-side error,
 # so only "connect phase vs the rest" separates sent from unsent, never "write vs read".
 # AIDEV-NOTE: `_post_attempt`'s own `asyncio.timeout` raises `ReadTimeout` whatever the phase —
@@ -640,10 +641,10 @@ def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -
     hit and re-issue the call, returning the SECOND trip's outcome; deriving from that same
     returned pair is what keeps the discarded hit's cost out of the run total (PRD test 17).
 
-    INVARIANT: a hit whose round trip was RETRIED is never priced. A transport retry can follow
-    an attempt the provider already processed and billed, so pricing the hit would report money
-    saved that was in fact spent — the one direction of error this whole feature exists to
-    remove.
+    FEATURE: cost of intelligence (OME-1687). A hit whose round trip was RETRIED claims its saving
+    like any hit. The leaderboard's reproduction cost is spend plus saving, and in a perfect world
+    — every model answering on the first attempt — the hit replaces the original call, whose cost
+    the reference holds. A retry is an infrastructure event and changes no price.
     """
     sink = current_response_sink()
     if sink is None:
@@ -671,8 +672,8 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
-def _report_served_from_cache(model: str, call: CallAccounting | None, *, retried: bool) -> None:
-    """Report a cache hit: zero tokens consumed, and priced at zero unless a retry preceded it.
+def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
+    """Report a cache hit: zero tokens consumed, and priced at zero.
 
     WHY zero rather than the numbers the response carries: a hit replays a STORED response, whose
     body still contains the original call's `usage`. aigateway says so explicitly — it labels the
@@ -685,22 +686,15 @@ def _report_served_from_cache(model: str, call: CallAccounting | None, *, retrie
     gateway reported something definite — nothing was consumed — and a run total must be able to
     add that in rather than treat it as a gap.
 
-    INVARIANT: an UNRETRIED hit stays `Decimal("0")` and never `None`. Zero is a real claim about
-    a real saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two
-    agree.
+    INVARIANT: a hit stays `Decimal("0")` and never `None`, retried or not. Zero is a real claim
+    about a real saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so
+    the two agree.
 
-    INVARIANT: a RETRIED hit is `None` — "not priced" — because nobody can know what it cost.
-    `_post_completion` retries a lost reply, and the attempt whose reply was lost may already have
-    been processed and billed upstream, in which case the row this attempt hit is the very one it
-    paid for and wrote. `avoided_usd_for_outcome` already withdraws the SAVING on exactly this
-    evidence; withdrawing the saving while still asserting a spend of zero would state two
-    opposite confidences about one ambiguous fact, and the zero is the more misleading half —
-    a run total sums it in as certainty. `_fold_usage` latches the run UNPRICED on it instead.
-
-    AIDEV-NOTE (OME-1220): a retried MISS is unpriced too — `_report_usage` applies the same
-    rule. Its figure covers only the attempt that answered, and the owner chose "unknown" over a
-    confident undercount. The trade this note once guarded against (one transport blip costs a
-    run its total) is bounded by `_NEVER_SENT`: a connect-phase failure keeps the exact price.
+    FEATURE: cost of intelligence (OME-1687). A transport retry before the hit changes nothing
+    here. The price is the successful request's, and a hit's successful request cost nothing.
+    AIDEV-NOTE: this reverses OME-1220, which made a retried hit (and miss) unpriced to protect
+    the actual spend. The owner chose the model price instead (2026-10-20). `CacheOutcome.retried`
+    is still recorded; no price reads it.
 
     AIDEV-NOTE: hit-ness is decided by the caller from the published `CacheOutcome` (the response
     headers), NOT from `_aigw`. That is deliberate — an older gateway emits the header and no
@@ -719,13 +713,13 @@ def _report_served_from_cache(model: str, call: CallAccounting | None, *, retrie
         cache_read_tokens=0,
         cache_creation_tokens=0,
         reasoning_tokens=0,
-        cost_usd=None if retried else _hit_cost(call),
+        cost_usd=_hit_cost(call),
     )
 
 
 def _hit_cost(call: CallAccounting | None) -> Decimal:
-    """A non-retried hit's price: the gateway's own figure, or an explicit zero when it reported
-    no accounting at all. Never `None` — see the invariant above."""
+    """A hit's price: the gateway's own figure, or an explicit zero when it reported no
+    accounting at all. Never `None` — see the invariant above."""
     return call.cost_usd if call is not None and call.cost_usd is not None else Decimal(0)
 
 
@@ -755,7 +749,7 @@ def _report_usage(
     if call is None and usage is None:
         return
     if cache is not None and cache.status == "hit":
-        _report_served_from_cache(model, call, retried=cache.retried)
+        _report_served_from_cache(model, call)
         return
     reported = usage or {}
     sink(
@@ -775,10 +769,11 @@ def _report_usage(
         cache_read_tokens=call.cache_read_tokens if call is not None else None,
         cache_creation_tokens=call.cache_creation_tokens if call is not None else None,
         reasoning_tokens=call.reasoning_tokens if call is not None else None,
-        # INVARIANT (OME-1220): a round trip retried after a possibly billed failure is unpriced.
-        # The gateway's figure covers only the attempt that answered; the lost one may have been
-        # billed in full upstream, and nobody on this side learns that price. Tokens stay.
-        cost_usd=(None if (cache is not None and cache.retried) or call is None else call.cost_usd),
+        # FEATURE: cost of intelligence (OME-1687). The price is the successful request's, so a
+        # transport retry before it changes nothing. `None` when there is no `_aigw` to read, when
+        # the successful request's own cost is unknown (R3), and for an older gateway's non-complete
+        # status (`usd_from_aigw`).
+        cost_usd=None if call is None else call.cost_usd,
     )
 
 
@@ -795,8 +790,9 @@ async def _post_completion(
     Other HTTP errors remain owned by the caller's declared URL4 retry policy.
     The caller deadline bounds each attempt and must fit a full attempt before retry.
     The bool marks a retry that followed a failure which may have reached the gateway, and so
-    may have been billed. A known queue refusal never dispatched and must not make subsequent
-    usage unknown; neither does a connect-phase failure (`_NEVER_SENT`).
+    may have been billed. A known queue refusal never dispatched and does not set it; neither
+    does a connect-phase failure (`_NEVER_SENT`). AIDEV-NOTE (OME-1687): it is a recorded fact
+    only — no price reads it, because the price is the successful request's.
     Independently, a capture ``probe`` learns every lost reply as it happens, including a
     connect-phase failure: capture ordering is ambiguous after any retry even when billing is not.
     """
@@ -1065,8 +1061,8 @@ async def _fetch_completion(
     if probe is not None:
         probe.read(resp)
     _raise_for_status(resp)
-    # INVARIANT (OME-1220): a possibly billed attempt lost on the FIRST round trip is still spend
-    # this call cannot price, even though the re-issue that replaced it ran cleanly.
+    # WHY carry the first round trip's flag: it records that a possibly billed attempt was lost
+    # before the re-issue. A recorded fact only — no price reads it (OME-1687).
     return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
 
 

@@ -221,7 +221,7 @@ def _row(key: str) -> BenchmarkSpec:
     return next(row for row in benchmarks.BENCHMARKS if row.key == key)
 
 
-def _upstream() -> Any:
+def _inspect_evals_coconot_module() -> Any:
     """The eval's task MODULE — ``inspect_evals.coconot`` re-exports the task function
     under the same name, so a plain ``from … import coconot`` gets the function."""
 
@@ -230,28 +230,28 @@ def _upstream() -> Any:
     return import_module("inspect_evals.coconot.coconot")
 
 
-def test_coconot_rows_copy_upstreams_judge_prompt_and_have_no_answer_key() -> None:
-    """Both halves keep upstream's dataset revision, case counts, judge prompt and grade
+def test_coconot_rows_copy_inspect_evals_judge_prompt_and_have_no_answer_key() -> None:
+    """Both halves keep inspect_evals' dataset revision, case counts, judge prompt and grade
     pattern verbatim (a dependency bump that edits them fails here), keep the Sample
     metadata (the template reads the rubric's {refusal}/{compliance} text from it) and
     store no answer key. Only the original half is inverted."""
 
     from inspect_evals.coconot.scorer import contrast_grade_pattern, original_grade_pattern
 
-    upstream: Any = _upstream()
+    coconot_module: Any = _inspect_evals_coconot_module()
     for key, count, template, grade_pattern in [
-        ("coconot_original", 1001, upstream.original_scorer_template, original_grade_pattern),
-        ("coconot_contrast", 379, upstream.contrast_scorer_template, contrast_grade_pattern),
+        ("coconot_original", 1001, coconot_module.original_scorer_template, original_grade_pattern),
+        ("coconot_contrast", 379, coconot_module.contrast_scorer_template, contrast_grade_pattern),
     ]:
         # OME-1460: a Task-replay declaration now; its Hub pin is the eval's own revision.
         cases = TASK_REPLAY_CASES[key]
-        assert cases.source_pins == {"allenai/coconot": upstream.COCONOT_DATASET_REVISION}
+        assert cases.source_pins == {"allenai/coconot": coconot_module.COCONOT_DATASET_REVISION}
         assert cases.case_count == count
         assert cases.has_answer_key is False
         assert cases.keep_sample_metadata is True
         row: BenchmarkSpec = _row(key)
         assert row.scorer_kwargs["template"] == template
-        assert row.scorer_kwargs["instructions"] == upstream.scorer_instructions
+        assert row.scorer_kwargs["instructions"] == coconot_module.scorer_instructions
         assert row.scorer_kwargs["grade_pattern"] == grade_pattern
         assert "{criterion}" not in template
     original, contrast = _row("coconot_original"), _row("coconot_contrast")
@@ -275,7 +275,7 @@ def test_coconot_maps_each_word_exactly_as_the_evals_own_reducer(
 
     import re
 
-    upstream: Any = _upstream()
+    coconot_module: Any = _inspect_evals_coconot_module()
     row: BenchmarkSpec = _row(key)
     assert row.verdict_grades is not None
     alternatives: re.Match[str] | None = re.search(
@@ -283,7 +283,7 @@ def test_coconot_maps_each_word_exactly_as_the_evals_own_reducer(
     )
     assert alternatives is not None
     assert set(row.verdict_grades) == set(alternatives.group(1).split("|"))
-    to_float: Any = getattr(upstream, reducer_name)()
+    to_float: Any = getattr(coconot_module, reducer_name)()
     for word, grade in row.verdict_grades.items():
         assert grade == to_float(word), word
 
@@ -335,7 +335,7 @@ async def test_coconot_scores_real_judge_replies(key: str, label: str, case_scor
 
 @pytest.mark.asyncio
 async def test_a_coconot_judge_reply_with_no_label_fails_by_name() -> None:
-    """A reply with no class word is unscored upstream (NaN); it must fail by name and
+    """A reply with no class word is unscored in inspect_evals (NaN); it must fail by name and
     never be flipped into a credited refusal."""
 
     from inspect_ai.model import ModelOutput, get_model
@@ -361,23 +361,23 @@ async def test_a_coconot_judge_reply_with_no_label_fails_by_name() -> None:
     assert outcome.failure_code == "invalid_score_value"
 
 
-def test_coconot_names_upstreams_metric_and_generate_config(
+def test_coconot_names_inspect_evals_metric_and_generate_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Upstream reports compliance_rate per category (x100) and runs the Candidate at
+    """inspect_evals reports compliance_rate per category (x100) and runs the Candidate at
     temperature 0 with 256 max tokens; the Benchmarks report one mean and impose no
     generation settings. Both deviations are named — if a dependency bump changes either
-    upstream fact, this fails and the rows' notes must be revisited."""
+    inspect_evals fact, this fails and the rows' notes must be revisited."""
 
     from inspect_ai._util.registry import registry_info
     from inspect_ai.dataset import MemoryDataset, Sample
 
-    upstream: Any = _upstream()
+    coconot_module: Any = _inspect_evals_coconot_module()
     monkeypatch.setattr(
-        upstream, "hf_dataset", lambda *args, **kwargs: MemoryDataset([Sample(input="q")])
+        coconot_module, "hf_dataset", lambda *args, **kwargs: MemoryDataset([Sample(input="q")])
     )
     for subset in ("original", "contrast"):
-        task: Any = upstream.coconot(subset=subset, grader="mockllm/model")
+        task: Any = coconot_module.coconot(subset=subset, grader="mockllm/model")
         assert [registry_info(metric).name for metric in task.metrics] == [
             "inspect_evals/compliance_rate"
         ]

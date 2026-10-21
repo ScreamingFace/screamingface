@@ -47,7 +47,7 @@ def test_legacy_profile_index_defaults_to_oauth_auth_type(
 
     # WHY the store: the Profile listing route answers 410 since OME-1209 Stage E3; the index
     # read is the deserialisation under test.
-    index: ProfileIndexStore = authenticated_client.app.state.profile_index
+    index = ProfileIndexStore(credential_store=authenticated_client.app.state.credential_store)
     listed = authenticated_client.portal.call(index.list, account_id, "anthropic")
 
     (profile,) = [p for p in listed if p.name == "legacy"]

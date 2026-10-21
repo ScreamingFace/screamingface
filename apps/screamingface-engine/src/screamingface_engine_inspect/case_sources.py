@@ -118,7 +118,7 @@ class CaseSource:
 
         pin: str = f"pin {self.pin}"
         if self.pin == UNPINNED:
-            pin += " (no upstream hash: the Case Digest is the only pin)"
+            pin += " (no inspect_evals hash: the Case Digest is the only pin)"
         what: str = f"{self.kind} {self.location}"
         if self.phase == RENDER_PHASE:
             what += " (fetched while rendering a Case, not while loading the dataset)"

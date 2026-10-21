@@ -487,6 +487,7 @@ def test_unclassified_openrouter_401_falls_back_to_legacy_connection_handling(
     assert response.json()["detail"] == {
         "code": "provider_policy",
         "message": "provider rejected the key",
+        "reauth_url": f"/v1/oauth/connections/{created['id']}/api-key",
     }
     connection = authenticated_client.portal.call(
         OAuthConnectionStore().get, account_id, UUID(created["id"])

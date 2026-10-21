@@ -32,6 +32,7 @@ from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _ANTHROPIC_MODEL = "anthropic/claude-haiku-4-5"
 _CODEX_MODEL = "codex/gpt-5.4-mini"
@@ -70,7 +71,7 @@ def _seed_codex_credential(credential_blobs, account_id: str) -> None:
 
 
 async def _seed_profile(
-    credential_blobs, account_id: str, *, provider: str, defaults: ProfileDefaults
+    client, credential_blobs, account_id: str, *, provider: str, defaults: ProfileDefaults
 ) -> None:
     idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
@@ -83,6 +84,7 @@ async def _seed_profile(
             defaults=defaults,
         )
     )
+    seed_migrated_pair(client, account_id, provider)
 
 
 def _capture(store: dict[str, Any]):
@@ -113,6 +115,7 @@ async def test_a_caller_fault_is_reported_alone_beside_an_invalid_historical_def
     account_id = _account_id(authenticated_client)
     _seed_anthropic_credential(credential_blobs, account_id)
     await _seed_profile(
+        authenticated_client,
         credential_blobs,
         account_id,
         provider="anthropic",
@@ -152,7 +155,13 @@ async def test_the_refusal_precedes_provider_preparation_and_everything_after_it
     # caller's own: Codex enables no `temperature` (OME-634).
     account_id = _account_id(authenticated_client)
     _seed_codex_credential(credential_blobs, account_id)
-    await _seed_profile(credential_blobs, account_id, provider="codex", defaults=ProfileDefaults())
+    await _seed_profile(
+        authenticated_client,
+        credential_blobs,
+        account_id,
+        provider="codex",
+        defaults=ProfileDefaults(),
+    )
 
     def _tripwire(_self, body):
         raise AssertionError("provider preparation ran before the parameter contract")
@@ -182,7 +191,13 @@ async def test_the_refusal_precedes_credential_access(
     # is direct evidence that no credential was read. The refused value is the
     # caller's own `temperature`, which Codex does not enable.
     account_id = _account_id(authenticated_client)
-    await _seed_profile(credential_blobs, account_id, provider="codex", defaults=ProfileDefaults())
+    await _seed_profile(
+        authenticated_client,
+        credential_blobs,
+        account_id,
+        provider="codex",
+        defaults=ProfileDefaults(),
+    )
 
     resp = authenticated_client.post(
         "/v1/chat/completions",

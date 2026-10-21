@@ -41,6 +41,13 @@ with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the correspo
 environment variables. `screamingface up` prints the resolved SDK environment variables; the SDK
 does not switch away from its hosted defaults automatically.
 
+Benchmark datasets live in `<data-dir>/benchmark-assets`, where `screamingface prepare` writes
+them. To read them from another folder instead — for example a read-only copy bundled with an
+app — start the runtime with `screamingface --data-dir <dir> up --benchmark-assets-dir <folder>`.
+The folder must exist, or `up` fails before any service starts. The Engine reads datasets from it,
+`status --json` and `doctor` report bundle status from it (and name it), and `restart` keeps it.
+`prepare` still writes only to the data directory and refuses `--benchmark-assets-dir`.
+
 The local gateway caches model responses by default (`AIGW_REQUEST_CACHE_ENABLED=false` before
 `screamingface up` turns it off). To start from the community cache instead of an empty one, pull
 it into the local gateway — from a notebook or a shell:

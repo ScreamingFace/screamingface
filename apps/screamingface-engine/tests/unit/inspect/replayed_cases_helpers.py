@@ -125,4 +125,7 @@ STAND_IN_METADATA: dict[str, dict[str, object]] = {
     "ifeval": {"instruction_id_list": ["punctuation:no_comma"], "kwargs": [{}]},
     # OME-1602: chembench's scorer picks its multiple-choice or numeric rule by task_type.
     "chembench": {"task_type": "multiple_choice_grade", "subset_name": "organic_chemistry"},
+    # OME-1696: bbh's solver and scorer pick their rule by dataset_type, its metric groups by
+    # dataset_name.
+    "bbh": {"dataset_type": "MULTIPLE_CHOICE", "dataset_name": "date_understanding"},
 }

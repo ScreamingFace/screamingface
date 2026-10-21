@@ -20,12 +20,9 @@ from fastapi import HTTPException
 from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError, OperationalError
 
-from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.db import init_db
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
 from aigateway.routes.auth import (
@@ -60,26 +57,11 @@ def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
 
 
-def _pending_profile(account_id: str, provider: str, name: str) -> Profile:
-    return Profile(
-        id=profile_id_for(account_id, provider, name),
-        account_id=account_id,
-        provider=provider,
-        name=name,
-        state=ProfileState.PENDING,
-    )
-
-
 def _open_flow(
     client, provider: str, name: str, *, redirect_uri: str | None = None
 ) -> tuple[str, str]:
-    # FEATURE: OME-1209 Stage E3b — every pending flow is a native Connection flow. A PENDING
-    # compat document of the same name is seeded first, so the callback's D14 mirror flips it as
-    # the retired Profile start left it; returns the flow's `state` and `connection_id`.
-    client.portal.call(
-        client.app.state.profile_index.upsert,
-        _pending_profile(_account_id(client), provider, name),
-    )
+    # FEATURE: OME-1209 Stage E3b — every pending flow is a native Connection flow; returns the
+    # flow's `state` and `connection_id`.
     body: dict[str, str] = {"provider": provider, "label": name}
     if redirect_uri is not None:
         body["redirect_uri"] = redirect_uri
@@ -88,13 +70,12 @@ def _open_flow(
     return started.json()["state"], started.json()["connection_id"]
 
 
-def _indexed_profile(client, provider: str, name: str) -> dict:
-    # WHY: the retired `GET .../profiles/{name}` returned this exact projection of the index row.
-    profile = client.portal.call(
-        client.app.state.profile_index.get, _account_id(client), provider, name
-    )
-    assert profile is not None
-    return profile.model_dump(mode="json")
+def _connection(client, connection_id: str) -> dict:
+    # WHY the Connection (OME-1209 E4b): a callback mirrors its outcome onto no Profile document,
+    # so the flow's own Connection is what observes it.
+    response = client.get(f"/v1/oauth/connections/{connection_id}")
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 def test_start_oauth_returns_authorize_url(client_with_index) -> None:
@@ -259,7 +240,7 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    state, _ = _open_flow(client, "anthropic", "topcb")
+    state, connection_id = _open_flow(client, "anthropic", "topcb")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -271,15 +252,14 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     finally:
         client.headers["Authorization"] = auth_header
     assert resp.status_code == 200
-    prof = _indexed_profile(client, "anthropic", "topcb")
-    assert prof["state"] == "authenticated"
+    assert _connection(client, connection_id)["status"] == "active"
 
 
 def test_oauth2callback_alias_completes_auth(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
-    state, _ = _open_flow(client, "anthropic", "oauth2cb")
+    state, connection_id = _open_flow(client, "anthropic", "oauth2cb")
 
     auth_header = client.headers.pop("Authorization")
     try:
@@ -291,8 +271,7 @@ def test_oauth2callback_alias_completes_auth(client_with_index) -> None:
     finally:
         client.headers["Authorization"] = auth_header
     assert resp.status_code == 200
-    prof = _indexed_profile(client, "anthropic", "oauth2cb")
-    assert prof["state"] == "authenticated"
+    assert _connection(client, connection_id)["status"] == "active"
 
 
 def test_top_level_callback_unknown_state_400(client_with_index) -> None:
@@ -462,13 +441,12 @@ async def _seed_pending_flow(
     state: str,
 ) -> str:
     # WHY no HTTP start: these tests drive the loopback callback on pytest's loop. Mirror what the
-    # native start leaves — the pending Connection, the pending entry naming it — plus a PENDING
-    # compat document of the same name for the D14 mirror; returns the Connection id.
+    # native start leaves — the pending Connection and the pending entry naming it; returns the
+    # Connection id.
     connection_id = uuid4()
     await OAuthConnectionStore().create_pending(
         account_id=account_id, provider=provider, label=name, connection_id=connection_id
     )
-    await client.app.state.profile_index.upsert(_pending_profile(account_id, provider, name))
     client.app.state.pending_auth.put(
         state,
         PendingAuthEntry(
@@ -591,7 +569,7 @@ async def test_handle_loopback_callback_completes_oauth(client_with_index) -> No
     server = _FakeServer()
     client.app.state.providers._plugins["generic"] = plugin
     client.app.state.loopback_oauth_callbacks = {state: server}
-    await _seed_pending_flow(client, account_id, "generic", "loopback", state)
+    connection_id = await _seed_pending_flow(client, account_id, "generic", "loopback", state)
 
     writer = _FakeWriter()
     await _handle_loopback_callback(
@@ -614,9 +592,9 @@ async def test_handle_loopback_callback_completes_oauth(client_with_index) -> No
     assert server.closed is True
     assert server.waited is True
     assert state not in client.app.state.loopback_oauth_callbacks
-    profile = await client.app.state.profile_index.get(account_id, "generic", "loopback")
-    assert profile is not None
-    assert profile.state == ProfileState.AUTHENTICATED
+    connection = await OAuthConnectionStore().get(account_id, connection_id)
+    assert connection is not None
+    assert connection.status == "active"
     await Tortoise.close_connections()
 
 
@@ -748,7 +726,7 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     client.app.state.providers._plugins["generic"] = plugin
 
     redirect_uri = "http://localhost:1455/callback"
-    state, _ = _open_flow(client, "generic", "work", redirect_uri=redirect_uri)
+    state, connection_id = _open_flow(client, "generic", "work", redirect_uri=redirect_uri)
 
     resp = client.post(
         "/v1/auth/generic/exchange-code",
@@ -762,9 +740,8 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     assert plugin.exchange_request.state == state
     assert plugin.strategy.creds is not None
     assert plugin.strategy.creds["access_token"] == "generic-token"
-    profile = _indexed_profile(client, "generic", "work")
-    assert profile["id"] == profile_id_for(account_id, "generic", "work")
-    assert profile["state"] == "authenticated"
+    connection = _connection(client, connection_id)
+    assert (connection["account_id"], connection["status"]) == (account_id, "active")
 
 
 def test_connection_exchange_uses_redirect_uri_override(client_with_index) -> None:
@@ -1031,34 +1008,9 @@ def test_connection_completion_persist_failure_is_sanitized_and_non_active(
 # `test_connection_completion_persist_failure_is_sanitized_and_non_active`.
 
 
-def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
-    client_with_index, monkeypatch
-) -> None:
-    client, _ = client_with_index
-    plugin = _GenericOAuthPlugin()
-    client.app.state.providers._plugins["generic"] = plugin
-    state, _ = _open_flow(client, "generic", "index-conflict")
-
-    async def authenticate_conflict(_profile, **_kwargs) -> None:
-        raise CredentialBlobMutationConflict("forced contention")
-
-    # WHY: on the OAuth callback path a CAS conflict surfaces from the D14 compat-document
-    # mirror, the index upsert inside the completion transaction (OME-1209 Stage E3b).
-    monkeypatch.setattr(client.app.state.profile_index, "upsert", authenticate_conflict)
-    auth_header = client.headers.pop("Authorization")
-    try:
-        with _server_errors_as_responses(client):
-            cb = client.get(
-                "/callback",
-                params={"code": "generic-code", "state": state},
-                follow_redirects=False,
-            )
-    finally:
-        client.headers["Authorization"] = auth_header
-
-    assert cb.status_code == 503
-    assert "profile_index_conflict" in cb.text
-    assert "forced contention" not in cb.text
+# WHY no index-conflict 503 test (OME-1209 E4b): the callback writes no Profile document, so no
+# index CAS conflict can surface on it; `core/provider_access/test_no_profile_writer.py` pins the
+# callback leaving a same-named document as it was.
 
 
 @pytest.mark.parametrize(
@@ -1136,7 +1088,7 @@ def test_callback_completes_auth(client_with_index) -> None:
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
     state, connection_id = _open_flow(client, "anthropic", "work")
-    assert _indexed_profile(client, "anthropic", "work")["last_refreshed_at"] is None
+    assert _connection(client, connection_id)["last_refreshed_at"] is None
     before = datetime.now(UTC)
 
     auth_header = client.headers.pop("Authorization")
@@ -1150,10 +1102,10 @@ def test_callback_completes_auth(client_with_index) -> None:
         client.headers["Authorization"] = auth_header
     assert cb.status_code == 200
 
-    prof = _indexed_profile(client, "anthropic", "work")
-    assert prof["state"] == "authenticated"
-    # INVARIANT (D14): the native callback's mirror stamps the compat document's refresh time.
-    assert datetime.fromisoformat(prof["last_refreshed_at"]) >= before
+    connection = _connection(client, connection_id)
+    assert connection["status"] == "active"
+    # INVARIANT: the native callback stamps its Connection's refresh time as it activates it.
+    assert datetime.fromisoformat(connection["last_refreshed_at"]) >= before
 
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
@@ -1164,11 +1116,10 @@ def test_callback_completes_auth(client_with_index) -> None:
 
 
 # WHY no Profile-flow rollback test: since OME-1209 Stage E3b every flow is a native Connection
-# flow; a failed compat-document mirror rolling the completion back is pinned in
+# flow; a failed publication rolling the completion back is pinned in
 # `core/provider_access/test_writer_floor_native.py`
-# (`test_a_native_callback_publication_failure_leaves_same_named_profile_unchanged`) and
-# `core/provider_access/test_writer_floor_native_compat.py`
-# (`test_a_compat_document_conflict_rolls_the_native_callback_back_as_an_index_conflict`).
+# (`test_a_native_callback_publication_failure_leaves_same_named_profile_unchanged`). Since E4b the
+# callback writes no compat document, so no document conflict can roll it back.
 
 
 def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_index) -> None:
@@ -1189,9 +1140,9 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
         client.headers["Authorization"] = auth_header
     assert cb.status_code == 200
 
-    prof = _indexed_profile(client, "codex", "work")
-    assert prof["state"] == "authenticated"
-    assert prof["account_label"] == "user@example.com"
+    connection = _connection(client, connection_id)
+    assert connection["status"] == "active"
+    assert connection["account"]["email"] == "user@example.com"
 
     from aigateway.plugins.codex_provider.auth import credential_service_for
 
@@ -1247,7 +1198,7 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     plugin = _DelayedOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
-    state, _ = _open_flow(client, "generic", "race")
+    state, connection_id = _open_flow(client, "generic", "race")
     await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     results = await asyncio.gather(
@@ -1261,9 +1212,9 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     assert len(errors) == 1
     assert errors[0].status_code == 400
     assert plugin.exchange_count == 1
-    profile = await client.app.state.profile_index.get(account_id, "generic", "race")
-    assert profile is not None
-    assert profile.state == ProfileState.AUTHENTICATED
+    connection = await OAuthConnectionStore().get(account_id, connection_id)
+    assert connection is not None
+    assert connection.status == "active"
     await Tortoise.close_connections()
 
 
@@ -1320,8 +1271,7 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     assert resp.status_code == 200
     assert resp.json() == {"state": "authenticated"}
 
-    prof = _indexed_profile(client, "anthropic", "paste")
-    assert prof["state"] == "authenticated"
+    assert _connection(client, connection_id)["status"] == "active"
 
     from aigateway.plugins.anthropic_provider.auth import credential_service_for
 

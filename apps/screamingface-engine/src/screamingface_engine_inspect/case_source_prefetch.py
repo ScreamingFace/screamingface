@@ -18,8 +18,8 @@ Hugging Face mirror serves the same bytes (OME-1602).
 
 INVARIANT: this is still a real fetch into the replay's own empty cache (the clean room in
 :mod:`screamingface_engine_inspect.task_replay`), verified by inspect's own ``download``
-against upstream's pinned sha256, so a different blob fails the replay exactly as before.
-Every address part, checksum and path is imported from upstream, never copied.
+against inspect_evals' pinned sha256, so a different blob fails the replay exactly as before.
+Every address part, checksum and path is imported from inspect_evals, never copied.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def prefetch_sad(inspect_evals_cache: Path) -> None:
         inspect_evals_cache: the replay's ``INSPECT_EVALS_CACHE_DIR``.
 
     Raises:
-        ValueError: a fetched zip's sha256 is not upstream's pin (from inspect's ``download``).
+        ValueError: a fetched zip's sha256 is not inspect_evals' pin (from inspect's ``download``).
         httpx.HTTPStatusError: the raw host refused a zip.
     """
 
@@ -60,7 +60,7 @@ def prefetch_sad(inspect_evals_cache: Path) -> None:
         ZIP_PATHS,
     )
 
-    # WHY not CACHE_DIR itself: upstream computes it once, from whichever environment first
+    # WHY not CACHE_DIR itself: inspect_evals computes it once, from whichever environment first
     # imported inspect_evals; only its place under the cache root is taken from it.
     sad_cache: Path = inspect_evals_cache / CACHE_DIR.relative_to(INSPECT_EVALS_CACHE_PATH)
     for zip_path in ZIP_PATHS.values():
@@ -71,8 +71,8 @@ def prefetch_sad(inspect_evals_cache: Path) -> None:
 
 
 #: One of the 26 non-CrowdStrike threat-intelligence report PDFs on the owner's Hugging Face
-#: mirror, at the commit uploaded 2026-10-20 (OME-1602). Ours, so not imported from upstream:
-#: each file is byte-identical to what upstream fetches from web.archive.org.
+#: mirror, at the commit uploaded 2026-10-20 (OME-1602). Ours, so not imported from inspect_evals:
+#: each file is byte-identical to what inspect_evals fetches from web.archive.org.
 _THREAT_INTEL_MIRROR_URL: str = (
     "https://huggingface.co/datasets/khoaguin/cyberseceval4-threat-intel-reports/resolve/"
     "ab38cf24125e38b88ef0f2dd866d5d3cc12965cb/pdfs/{report_id}.pdf"
@@ -80,32 +80,32 @@ _THREAT_INTEL_MIRROR_URL: str = (
 
 
 def prefetch_cyse4_threat_intelligence(inspect_evals_cache: Path) -> None:
-    """Stock upstream's threat-intelligence reports folder: CrowdStrike's zip first, then the
+    """Stock inspect_evals' threat-intelligence reports folder: CrowdStrike's zip first, then the
     26 other report PDFs from the owner's mirror instead of web.archive.org.
 
-    WHY: upstream fetches those 26 PDFs from web.archive.org, whose rate limiter refuses
+    WHY: inspect_evals fetches those 26 PDFs from web.archive.org, whose rate limiter refuses
     connections partway through a burst of that size, so a build that fetches them fails
-    (OME-1273, 2026-10-02). Upstream's fetch step skips a PDF already in the folder with the
+    (OME-1273, 2026-10-02). inspect_evals' fetch step skips a PDF already in the folder with the
     pinned sha256, so a stocked folder means it asks no host.
 
-    Stage 1 — find the folder upstream's loader will read, by upstream's own rule (an env
+    Stage 1 — find the folder inspect_evals' loader will read, by inspect_evals' own rule (an env
     override, the package's folder, else the user cache, which the replay child points at a
     clean one through XDG_CACHE_HOME).
-    Stage 2 — if it is empty, unpack CrowdStrike's pinned zip into it with upstream's own
-    step. INVARIANT: this comes first, because upstream unpacks the zip only into an EMPTY
+    Stage 2 — if it is empty, unpack CrowdStrike's pinned zip into it with inspect_evals' own
+    step. INVARIANT: this comes first, because inspect_evals unpacks the zip only into an EMPTY
     folder; one stocked with the 26 PDFs alone would skip the 19 CrowdStrike reports.
     Stage 3 — fetch each of the 26 PDFs from the mirror, verified by inspect's ``download``
-    against upstream's ``THREAT_INTEL_PDF_SHA256``. Example: report ``200707-2`` →
+    against inspect_evals' ``THREAT_INTEL_PDF_SHA256``. Example: report ``200707-2`` →
     ``…/pdfs/200707-2.pdf`` lands at ``<reports>/200707-2.pdf`` after its sha256 matches
     ``d8ee…``.
 
     Args:
-        inspect_evals_cache: the replay's ``INSPECT_EVALS_CACHE_DIR``. Unread: upstream keeps
+        inspect_evals_cache: the replay's ``INSPECT_EVALS_CACHE_DIR``. Unread: inspect_evals keeps
             these reports under platformdirs' user cache, not under this root (the zip itself
-            does go there, by upstream's own path).
+            does go there, by inspect_evals' own path).
 
     Raises:
-        ValueError: a mirrored PDF's sha256 is not upstream's pin (from inspect's ``download``).
+        ValueError: a mirrored PDF's sha256 is not inspect_evals' pin (from inspect's ``download``).
         httpx.HTTPStatusError: the mirror or GitHub refused a file.
     """
 
@@ -119,7 +119,7 @@ def prefetch_cyse4_threat_intelligence(inspect_evals_cache: Path) -> None:
         resolve_nested_data_dir,
     )
 
-    # Stage 1 — the same call upstream's ensure_threat_intel_data makes.
+    # Stage 1 — the same call inspect_evals' ensure_threat_intel_data makes.
     reports_dir: Path
     needs_unpack: bool
     reports_dir, needs_unpack = resolve_data_location(
@@ -127,7 +127,7 @@ def prefetch_cyse4_threat_intelligence(inspect_evals_cache: Path) -> None:
         local_dir=Path(threat_intelligence.__file__).parent / "threat_intel_reasoning" / "reports",
         cache_parts=("threat_intelligence", "reports"),
     )
-    # Stage 2 — CrowdStrike's zip, from GitHub at upstream's pinned commit and checksum.
+    # Stage 2 — CrowdStrike's zip, from GitHub at inspect_evals' pinned commit and checksum.
     if needs_unpack:
         reports_dir = threat_intelligence.download_threat_intel_data(reports_dir)
     reports_dir = resolve_nested_data_dir(reports_dir, "reports")
@@ -140,7 +140,7 @@ def prefetch_cyse4_threat_intelligence(inspect_evals_cache: Path) -> None:
         )
 
 
-#: Upstream package → the prefetch every Task in it needs. Most packages need none.
+#: inspect_evals package → the prefetch every Task in it needs. Most packages need none.
 _PREFETCHES: dict[str, Callable[[Path], None]] = {
     "inspect_evals.sad": prefetch_sad,
     # WHY the module, not the package: the other cyse4 Tasks fetch only CrowdStrike's zip.
@@ -149,7 +149,7 @@ _PREFETCHES: dict[str, Callable[[Path], None]] = {
 
 
 def prefetch_case_sources(task: str, inspect_evals_cache: Path) -> None:
-    """Run the prefetch the Task's upstream package needs, if it has one.
+    """Run the prefetch the Task's inspect_evals package needs, if it has one.
 
     Args:
         task: the declaration's ``"module:attr"`` reference, e.g.

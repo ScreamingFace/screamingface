@@ -31,6 +31,7 @@ from aigateway.core.parameter_discovery import (
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _PROVIDER = "gemini-cli"
 _MODEL = "gemini-cli/gemini-2.5-pro"
@@ -95,7 +96,9 @@ def _install_runtime(client: TestClient, discovery_client: _DiscoveryClient, clo
     )
 
 
-async def _seed_profile(credential_blobs, account_id: str, *, auth_type: AuthType) -> None:
+async def _seed_profile(
+    credential_blobs, client: TestClient, account_id: str, *, auth_type: AuthType
+) -> None:
     idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
@@ -107,11 +110,20 @@ async def _seed_profile(credential_blobs, account_id: str, *, auth_type: AuthTyp
             auth_type=auth_type,
         )
     )
+    # WHY: resolve reads the pair's authority, not the document (OME-1209 E4a); an api-key
+    # target's resolve reads its blob's operational register, so that blob exists unvalidated.
+    seed_migrated_pair(
+        client,
+        account_id,
+        _PROVIDER,
+        auth_type=auth_type,
+        credential="AIza-never-validated" if auth_type == "api_key" else None,
+    )
 
 
 async def _contract(credential_blobs, client: TestClient, *, auth_type: AuthType) -> dict:
     account_id = client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, account_id, auth_type=auth_type)
+    await _seed_profile(credential_blobs, client, account_id, auth_type=auth_type)
     resp = client.get("/v1/model-parameters", params={"model": _MODEL})
     assert resp.status_code == 200, resp.text
     return resp.json()

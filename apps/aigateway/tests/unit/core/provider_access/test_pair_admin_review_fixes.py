@@ -131,7 +131,6 @@ def test_an_unregistered_shipped_provider_keeps_its_stable_credential_namespace(
 
     disposition = classify_pair(
         marker,
-        [],
         [connection],
         credential_provider=None,
     )
@@ -143,11 +142,10 @@ def test_an_unregistered_shipped_provider_keeps_its_stable_credential_namespace(
 def test_inventory_retries_a_generation_move_instead_of_rendering_a_false_active(
     harness, monkeypatch
 ) -> None:
-    harness.seed_profile()
     harness.seed_connection(label="shadow")
-    _mark(harness, PROVIDER, "none")
-    real_list = harness.client.app.state.profile_index.list
-    profile_reads = 0
+    _mark(harness, PROVIDER, "migrated")
+    real_list = OAuthConnectionStore.list
+    connection_reads = 0
     snapshots = iter(
         [
             (),
@@ -157,21 +155,21 @@ def test_inventory_retries_a_generation_move_instead_of_rendering_a_false_active
         ]
     )
 
-    async def moving_profiles(*args: Any, **kwargs: Any):
-        nonlocal profile_reads
-        profile_reads += 1
-        return [] if profile_reads == 1 else await real_list(*args, **kwargs)
+    async def moving_connections(self: OAuthConnectionStore, *args: Any, **kwargs: Any):
+        nonlocal connection_reads
+        connection_reads += 1
+        return [] if connection_reads == 1 else await real_list(self, *args, **kwargs)
 
     async def generations(_self: PairAuthorityStore, _account_id: str):
         return next(snapshots)
 
-    monkeypatch.setattr(harness.client.app.state.profile_index, "list", moving_profiles)
+    monkeypatch.setattr(OAuthConnectionStore, "list", moving_connections)
     monkeypatch.setattr(PairAuthorityStore, "generations", generations, raising=False)
 
     assert _inventory(harness) == PairInventory(
         credentials=(), conflicts=(PairConflict(PROVIDER, "unresolved"),)
     )
-    assert profile_reads == 2
+    assert connection_reads == 2
 
 
 def test_inventory_refuses_persistently_moving_generations(harness, monkeypatch) -> None:

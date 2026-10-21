@@ -1,9 +1,9 @@
 """Pair-authority routing behind the provider-access port (OME-1208, Stage B S2'; D14).
 
 # FEATURE: Stage B Target — the port reads the pair marker on every resolve; a `migrated` pair is
-# served from its effective Connection, an unmarked or `quarantined` pair by today's Profile-backed
-# path, byte for byte. Reads go through the stored `credential_locator`, so a migrated Connection
-# serves the Profile's blob with no secret re-entry.
+# served from its effective Connection. Reads go through the stored `credential_locator`, so a
+# migrated Connection serves the Profile's blob with no secret re-entry. An unmarked, `none` or
+# `quarantined` pair is pinned in `test_connection_only_resolve.py` (OME-1209, Stage E, E4a).
 # INVARIANT: the legacy document's own state is never authority for a migrated pair; the effective
 # Connection's status decides. An unreadable marker store is an error, never a silent fall-back to
 # the legacy credential.
@@ -25,7 +25,6 @@ from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     ConnectionBackedProviderAccess,
     PairAuthorityStore,
-    ProfileBackedProviderAccess,
     ProviderAccess,
     Selector,
     TargetMissing,
@@ -77,72 +76,14 @@ def migrated(
 # --- wiring ---------------------------------------------------------------------------------------
 
 
-def test_the_app_wires_the_connection_backed_port_within_the_profile_backed_family(
-    authenticated_client: Any,
-) -> None:
+def test_the_app_wires_the_connection_backed_port(authenticated_client: Any) -> None:
     access = authenticated_client.app.state.provider_access
 
     assert isinstance(access, ConnectionBackedProviderAccess)
-    # WHY: every prior pin and seam (`isinstance`, patched `ProfileBackedProviderAccess.resolve` /
-    # `.authorize`) keeps holding — the transition backing IS the Profile-backed family plus the
-    # per-pair Connection authority, and the legacy branch is inherited, not copied.
-    assert isinstance(access, ProfileBackedProviderAccess)
     assert isinstance(access, ProviderAccess)
 
 
-# --- unmarked and quarantined pairs: the legacy path, unchanged ----------------------------------
-
-
-def test_an_unmarked_pair_is_served_by_the_legacy_implementation_after_one_marker_read(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    legacy.seed_profile(credential="tok")
-    marker_reads: list[tuple[str, str]] = []
-    real_read = PairAuthorityStore.read
-
-    async def counting_read(self: PairAuthorityStore, account_id: str, provider: str) -> Any:
-        marker_reads.append((account_id, provider))
-        return await real_read(self, account_id, provider)
-
-    legacy_calls: list[tuple[Any, ...]] = []
-    real_resolve = ProfileBackedProviderAccess.resolve
-
-    async def spying_resolve(self: Any, *args: Any, **kwargs: Any) -> Any:
-        legacy_calls.append(args)
-        return await real_resolve(self, *args, **kwargs)
-
-    monkeypatch.setattr(PairAuthorityStore, "read", counting_read)
-    monkeypatch.setattr(ProfileBackedProviderAccess, "resolve", spying_resolve)
-
-    target = _resolve(legacy)
-
-    assert marker_reads == [(legacy.account_id, PROVIDER)]
-    assert len(legacy_calls) == 1
-    assert target.credential_name == credential_name_for(legacy.account_id, "default")
-    assert target.context_stamp.startswith(f"acct:{legacy.account_id}|prof:")
-
-
-def test_a_quarantined_pair_keeps_the_legacy_profile_authority(
-    legacy: ProfileBackedHarness,
-) -> None:
-    legacy.seed_profile(credential="tok")
-    legacy.call(
-        PairAuthorityStore().advance,
-        legacy.account_id,
-        PROVIDER,
-        expected_generation=0,
-        migration_state="quarantined",
-        migration_note="profile and connection could not be proven the same",
-    )
-
-    target = _resolve(legacy)
-    authorization = _authorize(legacy, target)
-
-    assert target.credential_name == credential_name_for(legacy.account_id, "default")
-    assert target.context_stamp.startswith(f"acct:{legacy.account_id}|prof:")
-    assert authorization.headers["Authorization"] == "Bearer tok"
-    marker = legacy.call(PairAuthorityStore().read, legacy.account_id, PROVIDER)
-    assert (marker.migration_state, marker.generation) == ("quarantined", 1)
+# --- the marker read ------------------------------------------------------------------------------
 
 
 def test_an_unreadable_marker_store_never_falls_back_to_the_legacy_credential(
@@ -239,15 +180,15 @@ def test_a_revoked_effective_connection_is_never_served(migrated: ConnectionBack
         _resolve(migrated)
 
 
-def test_a_selector_naming_no_document_takes_the_legacy_path_and_reads_through_the_locator(
+def test_a_selector_naming_the_effective_label_reads_through_the_locator(
     migrated: ConnectionBackedHarness,
 ) -> None:
     migrated.seed_document(credential="profile-token")
     connection_id = migrated.seed_authority(label="work")
 
-    # `work` names no legacy document → today's Connection-label path, now locator-authoritative:
-    # the effective Connection's own UUID address holds nothing, and it must NOT be marked errored
-    # because a caller sent a header the pair never had a document for.
+    # WHY: `work` is the effective Connection's own label, so its reference answers the selector,
+    # locator-authoritative: the Connection's own UUID address holds nothing, and it must NOT be
+    # marked errored because a caller sent a header the pair never had a document for.
     target = _resolve(migrated, Selector.from_header("work"))
     authorization = _authorize(migrated, target)
 
@@ -339,7 +280,7 @@ def test_availability_of_a_migrated_pair_without_an_effective_connection_is_not_
     assert _availability(migrated)[PROVIDER] == "not_connected"
 
 
-def test_availability_leaves_every_other_provider_on_the_legacy_precedence(
+def test_availability_leaves_every_other_provider_not_connected(
     migrated: ConnectionBackedHarness,
 ) -> None:
     migrated.seed_profile(state=ProfileState.PENDING, credential=None)

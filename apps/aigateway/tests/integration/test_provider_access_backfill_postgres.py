@@ -63,14 +63,14 @@ def _call(
 async def _reset_and_seed_profile_only(app: FastAPI, account_id: str, name: str) -> None:
     await ProviderCredentialSlot.filter(account_id=account_id, provider=PROVIDER).delete()
     await OAuthConnection.filter(account_id=account_id, provider=PROVIDER).delete()
-    for document in await app.state.profile_index.list(account_id, provider=PROVIDER):
-        await app.state.profile_index.remove(document.id)
+    for document in await backing._index(app).list(account_id, provider=PROVIDER):
+        await backing._index(app).remove(document.id)
     locator = credential_locator_for(PROVIDER, account_id, name)
     # WHY: the S2'c helper's blob carries `expires_at_ms` — the token route refuses one without it.
     await app.state.credential_store.write(
         locator["service"], locator["account"], backing._oauth_blob("tok")
     )
-    await app.state.profile_index.upsert(
+    await backing._index(app).upsert(
         Profile(
             id=profile_id_for(account_id, PROVIDER, name),
             account_id=account_id,
@@ -85,7 +85,9 @@ def _seed(client: TestClient) -> tuple[str, str, BackfillContext]:
     account_id = client.get("/v1/auth/me").json()["id"]
     name = f"pair-{account_id[:8]}"
     _call(client, _reset_and_seed_profile_only, _app(client), account_id, name)
-    return account_id, name, BackfillContext.from_app(_app(client))
+    app = _app(client)
+    context = BackfillContext.from_stores(app.state.credential_store, app.state.providers)
+    return account_id, name, context
 
 
 def _connections(client: TestClient, account_id: str) -> list[Any]:

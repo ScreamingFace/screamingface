@@ -9,9 +9,9 @@
 # INVARIANT: an API-key Connection is re-keyed IN PLACE (same row, still `active`), so `id` and
 # `status=active` cannot tell the old key's failure from the new key's; the generation can.
 # INVARIANT: a lost check marks nothing and changes no answer; a check never moves the generation.
-# AIDEV-NOTE: `migrated` pairs keep their own fences (§5.3) and are not covered here. The Profile
-# marks are already fenced on the credential version; the pin at the end proves they lose to the
-# same ownership change. The legacy OAuth-callback pin retired with that callback (OME-1209 E3b).
+# WHY no `migrated` pair here: it keeps its own fences (§5.3). The Profile-mark pin retired with
+# the Profile dispatch target (OME-1209 E4a): a key replaced during dispatch is pinned on its
+# Connection below. The legacy OAuth-callback pin retired with that callback (OME-1209 E3b).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from connection_backed_admin_probes import document, marker, put_pair_key
+from connection_backed_admin_probes import marker
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
 from aigateway.core.api_key_validation import (
@@ -29,7 +29,6 @@ from aigateway.core.api_key_validation import (
 )
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError, ReauthRequiredError
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     CredentialTarget,
     PairAuthorityStore,
@@ -149,9 +148,11 @@ def test_a_dispatch_failure_after_the_first_marker_appeared_marks_nothing(harnes
 
 
 def test_a_lost_check_on_a_quarantined_pair_keeps_its_state_and_note(harness) -> None:
+    # WHY resolve first: a quarantined pair refuses resolve (spec §9 Q8), so the quarantine lands
+    # while the request is in flight.
     connection_id = harness.seed_connection(label="work")
-    _quarantine(harness, "two candidates")
     target = _resolve(harness)
+    _quarantine(harness, "two candidates")
     _claim(harness)
     before = marker(harness)
 
@@ -277,18 +278,3 @@ class _Rejects:
 
     async def get_token_with_expiry(self) -> tuple[str, int, bool]:
         raise self._exc
-
-
-# --- pins: paths already fenced on the credential version -------------------------------------
-
-
-def test_a_profile_dispatch_failure_after_a_legacy_key_put_keeps_the_new_key(harness) -> None:
-    harness.seed_profile(auth_type="api_key", credential="sk-ant-api03-old-key-1111")
-    target = _resolve(harness)
-    put_pair_key(harness, key=NEW_KEY)
-
-    _record(harness, target)
-
-    current = document(harness)
-    assert current is not None
-    assert current.state is ProfileState.AUTHENTICATED

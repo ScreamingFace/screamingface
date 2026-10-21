@@ -218,11 +218,11 @@ async def test_a_gradeless_judge_reply_fails_one_case_not_the_run(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_the_olympic_judge_prompt_is_upstreams_template_verbatim(
+async def test_the_olympic_judge_prompt_is_inspect_evals_template_verbatim(
     tmp_path: Path,
 ) -> None:
     """The prompt on the wire IS the eval's own grading prompt — every static
-    chunk of the upstream template, in order, not merely a keyword."""
+    chunk of the inspect_evals template, in order, not merely a keyword."""
 
     from inspect_evals.frontierscience.frontierscience import OLYMPIC_GRADING_TEMPLATE
 
@@ -254,7 +254,7 @@ async def test_the_olympic_judge_prompt_is_upstreams_template_verbatim(
 async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
     tmp_path: Path,
 ) -> None:
-    """Upstream's research scorer scores an unparseable verdict 0.0 — ITS OWN
+    """inspect_evals' research scorer scores an unparseable verdict 0.0 — ITS OWN
     semantics, kept faithfully — and says so in its explanation. Pin that the
     explanation ("Could not parse verdict") survives into the report's evidence,
     so a 0.0 can be told from a genuinely worthless answer when reading the
@@ -276,9 +276,9 @@ async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
     result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
 
     research = result["cases"][1]
-    # Faithful to upstream: 0.0 is a published score, not a failure...
+    # Faithful to inspect_evals: 0.0 is a published score, not a failure...
     assert research["grade"]["score"] == 0.0
-    # ...but the judge's own words make it auditable, and upstream's raw_points
+    # ...but the judge's own words make it auditable, and inspect_evals' raw_points
     # metadata (JSON-safe) rides along, so a reader can count these cases.
     rendered = json.dumps(research["grade"]["checks"])
     assert "Could not parse verdict" in rendered

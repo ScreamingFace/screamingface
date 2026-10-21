@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from ..credential_blob.store import CredentialBlobStore
     from ..oauth.identity import AccountIdentity
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from ..profile_index import ProfileIndexStore
 
 
 class ProviderPluginCore[TSettings: PluginSettings](ABC):
@@ -364,14 +363,4 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         Handlers should require `CurrentAccount` unless they are OAuth callback
         targets protected by a pending-auth state nonce.
         """
-        return None
-
-    async def bootstrap_profiles(
-        self,
-        *,
-        account_id: str,
-        credential_store: CredentialBlobStore | None = None,
-        index_store: ProfileIndexStore | None = None,
-    ) -> None:
-        """Populate provider-owned profile metadata at startup, if any."""
         return None

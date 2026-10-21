@@ -36,6 +36,7 @@ from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import disconnect_migrated_pair, seed_migrated_pair
 
 _CHAT_PATH = "/v1/chat/completions"
 _MODEL = "anthropic/claude-haiku-4-5"
@@ -76,6 +77,7 @@ def _seed_credential(credential_blobs, account_id: str, *, name: str) -> None:
 
 
 def _seed_profile(
+    client: TestClient,
     credential_blobs,
     account_id: str,
     *,
@@ -99,6 +101,8 @@ def _seed_profile(
     import asyncio
 
     asyncio.run(_upsert())
+    # WHY: since OME-1209 E4a the pair's Connection is the target; re-seeding moves its status.
+    seed_migrated_pair(client, account_id, "anthropic", name=name, state=state)
 
 
 def _bare_body(**overrides) -> dict[str, Any]:
@@ -212,7 +216,9 @@ def test_a_default_target_that_cannot_authenticate_still_gets_a_hit(
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed_credential(credential_blobs, account_id, name="default")
-    _seed_profile(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
+    _seed_profile(
+        cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults()
+    )
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
@@ -228,8 +234,10 @@ def test_a_default_target_that_cannot_authenticate_still_gets_a_hit(
             portal = cache_client.portal
             assert portal is not None
             portal.call(_remove_default)
+            disconnect_migrated_pair(cache_client, account_id, "anthropic")
         else:
             _seed_profile(
+                cache_client,
                 credential_blobs,
                 account_id,
                 name="default",
@@ -263,7 +271,9 @@ def test_a_caller_timeout_changes_no_key_and_causes_no_bypass(
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed_credential(credential_blobs, account_id, name="default")
-    _seed_profile(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
+    _seed_profile(
+        cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults()
+    )
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
@@ -288,7 +298,9 @@ def test_a_caller_timeout_still_reaches_the_provider_on_a_miss(
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed_credential(credential_blobs, account_id, name="default")
-    _seed_profile(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
+    _seed_profile(
+        cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults()
+    )
     _install(cache_client, _Store())
     dispatch = _Dispatch()
 

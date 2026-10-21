@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { SavedModel } from "@/lib/ensemble-store";
 import { getEngineClient } from "@/lib/engine";
-import { EngineError, isEngineError } from "@/lib/engine/errors";
+import { asEngineError, type EngineError } from "@/lib/engine/errors";
 import { runOAuth } from "@/lib/engine/oauth";
 import type {
   AuthMethod,
@@ -132,10 +132,6 @@ type ModelState = {
   toggleLibraryModel: (model: SavedModel) => void;
   addLibraryModels: (models: SavedModel[]) => void;
 };
-
-function asEngineError(error: unknown) {
-  return isEngineError(error) ? error : new EngineError("unknown");
-}
 
 // WHY a sequence number: two refreshes can overlap (mount + a finished connect); only the newest
 // one may write, or an older, slower response would roll the page back.
