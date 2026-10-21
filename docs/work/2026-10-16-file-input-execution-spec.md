@@ -55,6 +55,16 @@ with the 2026-10-16 live evidence. Docs only.
   source fails the run) added as normative text; D2/D6 were already in F2. New url4 wire codes spelled
   with the `x.` prefix (`x.remote_blob_unsupported`, `x.blob_digest_mismatch`), matching `#1482` and
   `x.admission_timeout` at `ec4b632b2`. Diagram PNG re-rendered with `rsvg-convert`.
+- **Review round 3 (2026-10-21):** adopted khoaguin's v2 candidate-input envelope (#1450 comment
+  6286823021) as new §2.7, per Sergey's #1507 review: Case parts are typed parts in
+  `screamingface.candidate-input.v2`, read structurally, keeping their position; identity via the raw
+  `context` hash; `data:` URIs only; the gateway 8 MiB body cap (#1479) bounds a request and per-Case
+  limits belong to the `OME-1271` importer. §3 Case ingress corrected: `RUN_SPEC` carries only `env`
+  (`child_protocol.py:94-99`) and Cases come from `cases.json` (`single_shot.py:799-818`), not appended
+  to `attachments[]`. D3 scoped to url4 attachments merged into an envelope. Four v1 gates recorded
+  (Fusion/inspect re-serialisation `OME-1679`/`OME-1271` PR1, explicit judge refusal D6, Report
+  placeholder `OME-1680`, `data:` pattern conformance test). Not changed: the diagram still labels Case
+  ingress `RUN_SPEC ≤ 1 MiB`.
 - **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
   attachments under `OME-1271` v1; a remote nested expression (C6) does not receive the outer run's
   attachments; a request with no attachments keeps today's key; new codes travel with the url4 `x.`
