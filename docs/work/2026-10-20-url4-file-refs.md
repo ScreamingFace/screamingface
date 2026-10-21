@@ -79,3 +79,9 @@ applies here, fail closed.
   `endpoint_not_found` for its own store path); the text path's 404 keeps `resolution_failed`;
   (4) peer status: `source_not_found` → 404; (5) `;accept=` is not applied to blob refs
   (content-addressed; YAGNI).
+- **Stack check (2026-10-21):** fetched; this branch already sits on the current
+  `OME-1538-url4-bytes-fetch` head `cba065be1` (merge-base = that head), so no rebase was needed.
+  `run_gates.py url4` ALL GATES GREEN (append-only included). Own commits on top of #1478:
+  `87b64b489` (feat) and the ledger/mirror docs commits; #1478's are `527935946`, `cba065be1`.
+  `git merge-tree origin/main HEAD` is clean (main has not touched `packages/url4` since the
+  #1478 base). After #1478 squash-merges: `git rebase --onto origin/main cba065be1`.
