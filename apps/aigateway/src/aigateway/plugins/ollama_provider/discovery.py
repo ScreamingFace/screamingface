@@ -108,6 +108,9 @@ async def discover_ollama_show_modalities(
     partially text-only listing as fresh.
     """
     bounds = limits if limits is not None else DiscoveryLimits()
+    # WHY min: the operator's discovery envelope (``AIGW_DISCOVERY_MAX_BYTES``) may
+    # only tighten the per-probe show cap, never loosen it past ``SHOW_MAX_BYTES``.
+    show_max_bytes = min(bounds.max_bytes, SHOW_MAX_BYTES)
     gate = asyncio.Semaphore(OLLAMA_SHOW_CONCURRENCY)
     found: dict[str, tuple[InputModality, ...] | None] = {}
 
@@ -122,7 +125,7 @@ async def discover_ollama_show_modalities(
                 f"{host}/api/show",
                 json_body={"model": name},
                 timeout_s=bounds.timeout_s,
-                max_bytes=SHOW_MAX_BYTES,
+                max_bytes=show_max_bytes,
             )
         modalities = _show_modalities(response.status, response.body)
         _SHOW_MEMO[key] = (modalities, time.monotonic() + MODALITIES_POSITIVE_TTL_SECONDS)

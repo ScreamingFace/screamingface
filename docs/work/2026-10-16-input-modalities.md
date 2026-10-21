@@ -121,3 +121,10 @@ Unknown is `["text"]`, never vision. Spec: `docs/spec/2026-10-16-input-modalitie
   found); "no network" is enforced for `/api/show`. (3) The sync `discover_ollama_input_modalities`
   has no listing caller now but is kept (bounded) because deleting it means deleting this PR's own
   tests, outside the approved change set — candidate cleanup with owner approval.
+
+### Review round 3 (HupBaHa 2026-10-21T15:00Z, Medium)
+
+- **Operator byte limit:** async `/api/show` probes now cap each body at
+  `min(DiscoveryLimits.max_bytes, SHOW_MAX_BYTES)` — a stricter `AIGW_DISCOVERY_MAX_BYTES` wins, a
+  looser one never raises the 1 MB show cap. Regression: `tests/unit/ollama/test_ollama_show_operator_limit.py`
+  (new file; no prior test edited).
