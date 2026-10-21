@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1703
 stack: aigateway
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-21
@@ -91,7 +91,8 @@ assertion kept. They are listed in the Outcome and go in the PR's approval manif
   `tests/unit/openai/test_openai_provider.py`, `tests/unit/openrouter/test_openrouter_dispatch.py`
   (15 files). Fake plugins keep their `profile_name` strategy parameter: they are not production
   plugins, and core passes that argument by position.
-- **Commits:** one commit, `refactor(aigateway)!: give the plugin hooks credential names`.
+- **Commits:** `1be3988e9` refactor(aigateway)!: give the plugin hooks credential names; a docs
+  commit carries the `docs/tasks` mirror and the approval manifest.
 - **Gates:** RED: the guard test failed 19 of 25 cases on `origin/main` (old names defined, neutral
   names missing). Probe: a temporary plugin package outside `*_provider` with a `profile_name`
   strategy parameter and an old hook name failed three guard cases; the probe was removed.
@@ -99,8 +100,10 @@ assertion kept. They are listed in the Outcome and go in the PR's approval manif
   misspelled lookup in `routes/auth.py`, and an old name kept in the Gemini plugin each fail the
   guard; before the review fixes the first two passed the whole suite. GREEN:
   `run_gates.py aigateway --base origin/main` — ruff, format, pyright, no-enterprise guard and
-  pytest with coverage all green (6151 tests collected); the append-only
-  check runs at PR-open with the approval manifest. PostgreSQL lane
+  pytest with coverage all green (6151 tests collected). After the rebase onto `origin/main`
+  (`dc695cfd2`), the full gate with `--base origin/main`, append-only included: all green, 6277
+  tests collected; the 15 prior-test transitions are approved by
+  `.claude/test-change-approvals/OME-1703.json`. PostgreSQL lane
   (`AIGW_TEST_PG=1 uv run pytest -m needs_postgres`): 60 passed, 5 failed, all five in
   `test_cache_snapshot_upload_postgres.py` at the `pg_dump` call — the local 15.13 client against
   the PostgreSQL 16 test container, the same local-only set as on E4b; E4c does not touch that
