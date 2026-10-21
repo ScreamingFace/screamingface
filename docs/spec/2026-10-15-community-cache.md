@@ -99,7 +99,10 @@ the same.
    page:
    - the gateway writes each batch to the response as it is read. A batch is at most 100 rows
      and at most 8 MB of responses (one row, if a single response is larger), chosen by a cheap
-     size-only query on the stored `response_size_bytes` before the rows are read. A response can
+     size-only query on the stored `response_size_bytes` before the rows are read; the second
+     query reads exactly those rows (same key, `updated_at` and size), so a row rewritten in
+     between comes later in the walk instead of crossing at its new size, and `next` follows the
+     keys scanned, not the rows sent (PR 1 review round 2). A response can
      be up to 1 MB, so a row count alone would let one batch reach ~100 MB, several times that
      while it is encoded; bounded by bytes, a request holds ~24 MB at most whatever the page size
      or filter (revised after the PR 1 review, 2026-10-20);
@@ -141,8 +144,8 @@ the same.
     it. The database is checked (`check_database`: it exists, has the current schema and the
     unique key on `key_hash`) before any request. Only a row a local lookup can serve is written:
     both hashes SHA-256 hex, text fields within their columns, `response_json` accepted by the
-    lookup's own decoder (`store.decode_cached_response`), a size and timestamps in range, not
-    expired; unreadable metadata is stored as NULL, as a lookup would read it. A row that fails is
+    lookup's own decoder (`store.decode_cached_response`), timestamps in range, not expired;
+    `response_size_bytes` is measured from `response_json`, never taken from the page; unreadable metadata is stored as NULL, as a lookup would read it. A row that fails is
     skipped and counted (`PageLoad.skipped`), never written, so it can neither hold its key
     against a later valid row nor stop the pull (owner decision, 2026-10-20). The cursor still
     only advances past a page that ended with its trailer.
@@ -202,7 +205,8 @@ GET /v1/cache/entries[?after=<cursor>][&limit=<1..5000>][&count=true]
                      [&model=<model>&model=<model>…]
 Authorization: <any signed-in account>
 
-200  Content-Type: application/x-ndjson   (Content-Encoding: gzip when accepted)
+200  Content-Type: application/x-ndjson   (Content-Encoding: gzip when accepted;
+     406 when neither gzip nor identity is)
      Cache-Control: private, no-store
 
      {"schema": "screamingface.cache-page.v1", "revisions": {"parameter_contract": "…", …},

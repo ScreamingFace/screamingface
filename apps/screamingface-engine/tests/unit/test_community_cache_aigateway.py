@@ -90,7 +90,7 @@ async def test_the_page_request_forwards_only_the_known_parameters() -> None:
 
     page = await adapter.open_page(
         _CALLER,
-        CachePageRequest(after="abc", limit=10, count=True, models=("m1", "m2"), gzip=False),
+        CachePageRequest(after="abc", limit="10", count="true", models=("m1", "m2"), gzip=False),
     )
     await page.aclose()
 
@@ -330,11 +330,61 @@ class _Failing(httpx.AsyncByteStream):
 async def test_a_failure_mid_page_maps_to_its_error(
     failure: Exception, error: type[Exception]
 ) -> None:
-    adapter, _ = _adapter(lambda _request: httpx.Response(200, stream=_Failing(failure)))
+    adapter, _ = _adapter(
+        lambda _request: httpx.Response(
+            200, stream=_Failing(failure), headers={"content-type": "application/x-ndjson"}
+        )
+    )
     page = await adapter.open_page(_CALLER, CachePageRequest())
 
     with pytest.raises(error):
         await _read(page)
+    await page.aclose()
+
+
+# --- an unusable 200 (PR #1439 review round 2) -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("gzip_asked", "headers"),
+    [
+        (False, {b"content-type": b"text/html"}),
+        (False, {}),
+        (False, {b"content-type": b"application/x-ndjson", b"content-encoding": b"gzip"}),
+        (True, {b"content-type": b"application/x-ndjson", b"content-encoding": b"br"}),
+    ],
+    ids=["html", "no-type", "gzip-not-asked", "other-encoding"],
+)
+async def test_an_unusable_200_is_closed_and_refused(
+    gzip_asked: bool, headers: dict[bytes, bytes]
+) -> None:
+    # WHY: the page's content headers go to the caller. An unexpected one would mislabel the bytes
+    # or fail while the response is built, before the stream that closes the upstream had begun.
+    stream = _Closing(_PAGE)
+    adapter, _ = _adapter(lambda _request: httpx.Response(200, stream=stream, headers=headers))
+
+    with pytest.raises(CommunityCacheBadResponse):
+        await adapter.open_page(_CALLER, CachePageRequest(gzip=gzip_asked))
+
+    assert stream.closed
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [b"Application/X-NDJSON; charset=utf-8", "application/x-ndjson; x=€".encode()],
+    ids=["spelling", "unencodable-parameter"],
+)
+async def test_a_page_reports_only_the_checked_content_headers(content_type: bytes) -> None:
+    # WHY the fixed value, not the upstream's: a parameter the response cannot encode (the
+    # review's `x=€`) would otherwise fail while the Engine's response is built.
+    stream = _Closing(_PAGE)
+    adapter, _ = _adapter(
+        lambda _request: httpx.Response(200, stream=stream, headers={b"content-type": content_type})
+    )
+
+    page = await adapter.open_page(_CALLER, CachePageRequest())
+
+    assert (page.content_type, page.content_encoding) == ("application/x-ndjson", None)
     await page.aclose()
 
 

@@ -169,7 +169,6 @@ async def test_a_gzip_page_is_passed_through_still_compressed() -> None:
         ("gzip;q=0.000, identity", False),
         ("gzip;q=bogus", False),
         ("*", True),
-        ("*;q=0", False),
         ("gzip;q=0, *", False),
         ("identity", False),
         ("", False),
@@ -246,7 +245,7 @@ async def test_the_callers_identity_trace_and_parameters_reach_the_port() -> Non
     assert caller.identity == {"X-User-Email": _EMAIL}
     assert caller.traceparent == _TRACEPARENT
     assert request == CachePageRequest(
-        after="abc", limit=10, count=True, models=("m1", "m2"), gzip=False
+        after="abc", limit="10", count="true", models=("m1", "m2"), gzip=False
     )
 
 
@@ -292,21 +291,57 @@ async def test_each_failure_is_problem_json_with_its_status(error: Exception, st
     _assert_private(response)
 
 
-@pytest.mark.parametrize("params", [{"limit": "abc-SECRETISH"}, {"count": "maybe-SECRETISH"}])
-async def test_an_invalid_parameter_is_a_private_problem_json_422_that_echoes_nothing(
-    params: dict[str, str],
-) -> None:
+@pytest.mark.parametrize("headers", [{"X-User-Email": _EMAIL}, {}], ids=["signed-in", "anonymous"])
+async def test_query_values_reach_the_gateway_unparsed(headers: dict[str, str]) -> None:
+    # WHY (PR #1439 review round 2): the gateway authenticates before it validates. Parsing here
+    # first would answer an anonymous caller's bad value 422 where the gateway answers 401.
     cache = _FakeCache()
 
     async with _client(_app(cache)) as client:
-        response = await client.get(_URL, params=params, headers={"X-User-Email": _EMAIL})
+        response = await client.get(
+            _URL, params={"limit": "abc", "count": "maybe"}, headers=headers
+        )
 
-    assert response.status_code == 422
-    assert response.headers["content-type"].startswith("application/problem+json")
-    assert response.json()["detail"] == "the community-cache page request is invalid"
-    assert "SECRETISH" not in response.text
-    _assert_private(response)
+    assert response.status_code == 200
+    request = cache.calls[0][1]
+    assert (request.limit, request.count) == ("abc", "maybe")
+
+
+@pytest.mark.parametrize("accept_encoding", ["gzip;q=0, identity;q=0", "*;q=0"])
+async def test_a_caller_refusing_every_coding_gets_a_private_406(accept_encoding: str) -> None:
+    cache = _FakeCache()
+
+    async with _client(_app(cache)) as client:
+        response = await client.get(
+            _URL, headers={"X-User-Email": _EMAIL, "Accept-Encoding": accept_encoding}
+        )
+
+    assert response.status_code == 406
+    assert response.headers["cache-control"] == "private, no-store"
     assert cache.calls == []
+
+
+async def test_a_page_that_fails_to_close_keeps_its_complete_body(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _FailingClose(_Page):
+        async def aclose(self) -> None:
+            raise RuntimeError("close failed")
+
+    chunks = [chunk async for chunk in _body(_FailingClose([_PAGE], encoding=None))]
+
+    assert b"".join(chunks) == _PAGE
+    assert "failed to close (RuntimeError)" in caplog.text
+
+
+async def test_a_failed_close_does_not_replace_the_stream_failure() -> None:
+    class _FailingBoth(_FailingPage):
+        async def aclose(self) -> None:
+            raise RuntimeError("close failed")
+
+    with pytest.raises(CommunityCacheTimeout):
+        async for _chunk in _body(_FailingBoth(CommunityCacheTimeout())):
+            pass
 
 
 @pytest.mark.parametrize(
@@ -375,6 +410,10 @@ async def test_the_openapi_document_describes_the_ndjson_page() -> None:
 
     assert list(ok["content"]) == ["application/x-ndjson"]
     assert set(ok["headers"]) == {"Content-Encoding", "Cache-Control", "Vary"}
+    query = {p["name"]: p["schema"] for p in operation["parameters"] if p["in"] == "query"}
+    assert query["after"]["maxLength"] == 256
+    assert (query["limit"]["minimum"], query["limit"]["maximum"]) == (1, 5000)
+    assert (query["model"]["items"]["minLength"], query["model"]["items"]["maxLength"]) == (1, 255)
 
 
 async def test_no_gateway_address_builds_no_adapter() -> None:

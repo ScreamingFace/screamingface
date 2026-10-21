@@ -261,7 +261,36 @@ def test_row_encoding_and_gzip_run_off_the_event_loop(
 def test_gzip_is_negotiated_by_rfc_9110_rules(accept: str, gzip_ok: bool) -> None:
     request = types.SimpleNamespace(headers={"accept-encoding": accept})
 
-    assert cache_entries._accepts_gzip(request) is gzip_ok  # type: ignore[arg-type]
+    assert (cache_entries._coding(request) == "gzip") is gzip_ok  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("accept", "coding"),
+    [
+        ("", "identity"),
+        ("identity", "identity"),
+        ("br", "identity"),
+        ("gzip;q=0", "identity"),
+        ("identity;q=0", None),
+        ("gzip;q=0, identity;q=0", None),
+        ("*;q=0", None),
+        ("*;q=0, identity", "identity"),
+        ("identity;q=0, gzip", "gzip"),
+    ],
+)
+def test_identity_is_sent_unless_refused(accept: str, coding: str | None) -> None:
+    request = types.SimpleNamespace(headers={"accept-encoding": accept})
+
+    assert cache_entries._coding(request) == coding  # type: ignore[arg-type]
+
+
+def test_a_caller_refusing_every_coding_gets_a_private_406(
+    authenticated_client: TestClient,
+) -> None:
+    response = authenticated_client.get(_URL, headers={"Accept-Encoding": "gzip;q=0, identity;q=0"})
+
+    assert response.status_code == 406
+    assert response.headers["cache-control"] == "private, no-store"
 
 
 # --- the last page (PR #1433 review, non-blocking) -----------------------------------------------

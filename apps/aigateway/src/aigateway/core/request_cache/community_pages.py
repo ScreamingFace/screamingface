@@ -10,10 +10,14 @@ read in batches, every batch two short keyset queries on the ``(updated_at, key_
 transaction is held between batches and the caller can write each batch out before the next is
 read.
 INVARIANT: a batch holds at most ``BATCH_BYTES`` of responses (or one row, if a single response is
-larger) and at most ``BATCH_ROWS`` rows. A response can be up to 1 MB
-(``AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES``), so a row count alone would let one batch of the
-largest responses reach ~100 MB — several times that once the route encodes it — against ~240 MiB
-of headroom on a gateway pod.
+larger) and at most ``BATCH_ROWS`` rows. The second query reads exactly the rows the first one
+sized — same ``key_hash``, ``updated_at`` and size — so a row rewritten between the two (a merge
+restore) is neither read at its new size nor sent out of order; it comes later in the walk, at its
+new ``updated_at``. The page's ``next`` comes from the keys scanned (``PageScan``), not the rows
+sent, so a row that moved or vanished between the queries cannot end the page early.
+A response can be up to 1 MB (``AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES``), so a row count alone
+would let one batch of the largest responses reach ~100 MB — several times that once the route
+encodes it — against ~240 MiB of headroom on a gateway pod.
 
 WHY write order: a row written while a walk is under way normally lands after the cursor, so the
 same walk reaches it. ``updated_at`` rather than ``created_at`` because a merge restore inserts
@@ -68,6 +72,13 @@ PAGE_FIELDS: Final[tuple[str, ...]] = (
 
 _KEY_HASH = re.compile(r"[0-9a-f]{64}")
 _ORDER: Final = ("updated_at", "key_hash")
+
+
+@dataclass
+class PageScan:
+    """How far a page's scan got: the last key it read, whether or not that row was sent."""
+
+    cursor: PageCursor | None = None
 
 
 class InvalidCursor(ValueError):
@@ -138,35 +149,62 @@ def _within_bytes(sizes: list[dict[str, Any]]) -> int:
     return len(sizes)
 
 
+async def _next_keys(
+    eligible: QuerySet[RequestCacheEntry], cursor: PageCursor | None, want: int
+) -> list[dict[str, Any]]:
+    return (
+        await _after(eligible, cursor)
+        .order_by(*_ORDER)
+        .limit(want)
+        .values("key_hash", "updated_at", "response_size_bytes")
+    )
+
+
+def _exactly(keys: Sequence[dict[str, Any]]) -> Q:
+    return Q(
+        *(
+            Q(
+                key_hash=key["key_hash"],
+                updated_at=key["updated_at"],
+                response_size_bytes=key["response_size_bytes"],
+            )
+            for key in keys
+        ),
+        join_type="OR",
+    )
+
+
 async def iter_page(
-    *, after: PageCursor | None, limit: int, models: Sequence[str], now: datetime
+    *,
+    after: PageCursor | None,
+    limit: int,
+    models: Sequence[str],
+    now: datetime,
+    scan: PageScan | None = None,
 ) -> AsyncIterator[list[dict[str, Any]]]:
-    """Yield one page of at most ``limit`` rows, in batches bounded by rows and bytes."""
+    """Yield one page of at most ``limit`` rows, in batches bounded by rows and bytes.
+
+    ``scan``, when given, is kept at the last key read, which is where the next page starts.
+    """
     eligible = _eligible(models, now)
     cursor = after
     left = limit
     while left > 0:
         want = min(BATCH_ROWS, left)
-        sizes = (
-            await _after(eligible, cursor)
-            .order_by(*_ORDER)
-            .limit(want)
-            .values("key_hash", "updated_at", "response_size_bytes")
-        )
+        sizes = await _next_keys(eligible, cursor, want)
         if not sizes:
             return
         taken = sizes[: _within_bytes(sizes)]
-        batch = (
-            await eligible.filter(key_hash__in=[row["key_hash"] for row in taken])
-            .order_by(*_ORDER)
-            .values(*PAGE_FIELDS)
-        )
-        if batch:
-            yield batch
-        # WHY the cursor and the count come from the keys, not the rows: a row deleted between
-        # the two queries is simply absent, and must neither end the page nor move it backwards.
+        batch = await eligible.filter(_exactly(taken)).order_by(*_ORDER).values(*PAGE_FIELDS)
+        # WHY the cursor and the count come from the keys, not the rows: a row rewritten or
+        # deleted between the two queries is simply absent, and must neither end the page nor
+        # move it backwards.
         left -= len(taken)
         cursor = PageCursor(updated_at=taken[-1]["updated_at"], key_hash=taken[-1]["key_hash"])
+        if scan is not None:
+            scan.cursor = cursor
+        if batch:
+            yield batch
         if len(sizes) < want and len(taken) == len(sizes):
             return
 
@@ -190,6 +228,7 @@ __all__ = [
     "InvalidCursor",
     "BATCH_BYTES",
     "PageCursor",
+    "PageScan",
     "count_rows",
     "cursor_after",
     "has_rows_after",

@@ -20,8 +20,7 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Annotated, Any
 
 import anyio
-from fastapi import APIRouter, Query, Request, Response
-from fastapi.exceptions import RequestValidationError
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 
@@ -31,7 +30,6 @@ from screamingface_engine.community_cache.port import (
     CachePageRequest,
     CommunityCache,
     CommunityCacheError,
-    CommunityCacheInvalidRequest,
 )
 from screamingface_engine.rest.gateway_route import caller_from_request, problem_responses
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
@@ -47,9 +45,7 @@ _QVALUE = re.compile(r"0(\.[0-9]{0,3})?|1(\.0{0,3})?")
 
 
 class _CommunityCacheRoute(APIRoute):
-    """The route's boundary: refuse a stated selector before anything else, then turn FastAPI's
-    input-echoing validation errors into the documented problem+json 422, private like every
-    other answer."""
+    """The route's boundary: refuse a stated selector before anything else."""
 
     def get_route_handler(
         self,
@@ -58,18 +54,9 @@ class _CommunityCacheRoute(APIRoute):
 
         async def community_cache_route_handler(request: Request) -> Response:
             # INVARIANT (OME-1381): refused BEFORE `route_handler`, so a stated `X-Profile` is
-            # answered 400 ahead of any 422 and of the 503 for an unconfigured cache.
+            # answered 400 ahead of the 503 for an unconfigured cache.
             refuse_selector(request.headers, problem_headers=_PRIVATE_HEADERS)
-            try:
-                return await route_handler(request)
-            except RequestValidationError:
-                logger.info("community-cache page request validation failed")
-                raise ProblemException(
-                    status=422,
-                    title="Unprocessable Content",
-                    detail=CommunityCacheInvalidRequest.detail,
-                    headers=_PRIVATE_HEADERS,
-                ) from None
+            return await route_handler(request)
 
         return community_cache_route_handler
 
@@ -79,6 +66,7 @@ router = APIRouter(tags=["Community cache"], route_class=_CommunityCacheRoute)
 _ERROR_DESCRIPTIONS = {
     400: "The request states the unsupported `X-Profile` header (`code: x_profile_unsupported`).",
     401: "The caller has no verified identity, or AI Gateway rejected it.",
+    406: "The caller accepts neither a gzip nor an unencoded page.",
     422: "A query parameter is invalid.",
     429: "AI Gateway is rate limiting community-cache reads; see Retry-After.",
     502: "AI Gateway returned an unusable response.",
@@ -115,15 +103,57 @@ def _service(request: Request) -> CommunityCache:
     return service
 
 
-def _accepts_gzip(request: Request) -> bool:
-    # RFC 9110 §12.5.3: codings are case-insensitive, `q=0` refuses one, and `*` stands for
-    # every coding not listed by name. A malformed weight refuses, so the safe answer is identity.
+# WHY declared here and not as handler parameters: FastAPI validates typed parameters before the
+# handler runs, which would answer an anonymous caller's bad value 422 where the gateway answers
+# 401. The values are forwarded raw (`CachePageRequest`); these schemas document the gateway's
+# rules for clients without enforcing them on the Engine.
+_QUERY_PARAMETERS: list[dict[str, Any]] = [
+    {
+        "name": "after",
+        "in": "query",
+        "description": "The `next` cursor of the previous page; absent for the first page.",
+        "schema": {"type": "string", "maxLength": 256},
+    },
+    {
+        "name": "limit",
+        "in": "query",
+        "description": "Rows per page.",
+        "schema": {"type": "integer", "minimum": 1, "maximum": 5000, "default": 5000},
+    },
+    {
+        "name": "count",
+        "in": "query",
+        "description": "Add `remaining`, the rows left from this cursor, to the header line.",
+        "schema": {"type": "boolean", "default": False},
+    },
+    {
+        "name": "model",
+        "in": "query",
+        "description": "Only these models' rows, exactly as the cache names them (repeatable).",
+        "schema": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 255}},
+        "style": "form",
+        "explode": True,
+    },
+]
+
+
+def _coding(request: Request) -> str | None:
+    """``gzip`` or ``identity``, whichever the caller accepts (gzip first), or None for neither.
+
+    RFC 9110 §12.5.3: codings are case-insensitive, `q=0` refuses one, and `*` stands for every
+    coding not listed by name. A malformed weight refuses. Identity is acceptable unless refused
+    by name or by `*;q=0`; gzip only when asked for, by name or by `*`.
+    """
     weights: dict[str, float] = {}
     for part in request.headers.get("accept-encoding", "").split(","):
         coding, *params = (piece.strip() for piece in part.split(";"))
         if coding:
             weights[coding.lower()] = _weight(params)
-    return weights.get("gzip", weights.get("*", 0.0)) > 0
+    if weights.get("gzip", weights.get("*", 0.0)) > 0:
+        return "gzip"
+    if weights.get("identity", weights.get("*", 1.0)) > 0:
+        return "identity"
+    return None
 
 
 def _weight(params: list[str]) -> float:
@@ -149,8 +179,13 @@ async def _body(page: CachePage) -> AsyncIterator[bytes]:
     finally:
         # WHY shielded: on a disconnect Starlette cancels the stream's task group, and anyio
         # would cancel this close too, leaking the upstream connection back into the pool.
+        # INVARIANT: a failed close is logged, never raised — it must not turn a complete body
+        # into an error, or replace the stream failure the caller is being told about.
         with anyio.CancelScope(shield=True):
-            await page.aclose()
+            try:
+                await page.aclose()
+            except Exception as exc:  # noqa: BLE001 — logged; the stream's outcome stands
+                logger.warning("community-cache page failed to close (%s)", type(exc).__name__)
 
 
 @router.get(
@@ -163,18 +198,28 @@ async def _body(page: CachePage) -> AsyncIterator[bytes]:
     ),
     response_class=StreamingResponse,
     responses={**_PAGE_RESPONSE, **problem_responses(_ERROR_DESCRIPTIONS)},
+    openapi_extra={"parameters": _QUERY_PARAMETERS},
 )
 async def community_cache_entries(
     request: Request,
-    after: str | None = None,
-    limit: int | None = None,
-    count: bool = False,
-    model: Annotated[list[str], Query()] = [],  # noqa: B006 — FastAPI copies defaults
     _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
 ) -> StreamingResponse:
     service = _service(request)
+    coding = _coding(request)
+    if coding is None:
+        raise ProblemException(
+            status=406,
+            title="Not Acceptable",
+            detail="accept gzip or identity",
+            headers={**_PRIVATE_HEADERS, "Vary": "Accept-Encoding, X-User-Email"},
+        )
+    query = request.query_params
     page_request = CachePageRequest(
-        after=after, limit=limit, count=count, models=tuple(model), gzip=_accepts_gzip(request)
+        after=query.get("after"),
+        limit=query.get("limit"),
+        count=query.get("count"),
+        models=tuple(query.getlist("model")),
+        gzip=coding == "gzip",
     )
     try:
         page = await service.open_page(caller_from_request(request), page_request)

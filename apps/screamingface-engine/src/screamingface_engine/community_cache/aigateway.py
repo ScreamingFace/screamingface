@@ -35,6 +35,7 @@ from screamingface_engine.connections.port import Caller
 logger = logging.getLogger(__name__)
 
 _ENTRIES_PATH = "/v1/cache/entries"
+_PAGE_MEDIA_TYPE = "application/x-ndjson"
 # WHY bounded: `int()` refuses more than 4,300 digits with a ValueError, and no real delay needs
 # more than nine.
 _RETRY_AFTER = re.compile(r"[0-9]{1,9}")
@@ -53,9 +54,11 @@ _ERRORS: dict[int, type[CommunityCacheError]] = {
 
 class _HttpxPage:
     def __init__(self, response: httpx.Response) -> None:
+        # INVARIANT: `open_page` checked the headers (`_unusable`), so only these values reach
+        # the caller.
         self._response = response
-        self.content_type = response.headers.get("content-type", "application/x-ndjson")
-        self.content_encoding = response.headers.get("content-encoding")
+        self.content_type = _PAGE_MEDIA_TYPE
+        self.content_encoding = "gzip" if response.headers.get("content-encoding") else None
 
     async def aiter_raw(self) -> AsyncIterator[bytes]:
         # WHY raw: `aiter_bytes` would decode a gzip body, holding the Engine's CPU and handing
@@ -106,10 +109,31 @@ class AigatewayCommunityCache:
             if status == 429:
                 raise CommunityCacheRateLimited(retry_after)
             raise _ERRORS.get(status, CommunityCacheBadResponse)()
+        problem = _unusable(response, request)
+        if problem is not None:
+            await _close(response)
+            logger.warning("AI Gateway community-cache page is unusable: %s", problem)
+            raise CommunityCacheBadResponse()
         return _HttpxPage(response)
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _unusable(response: httpx.Response, request: CachePageRequest) -> str | None:
+    """Why a 200 cannot be passed on as a page, or None when it can.
+
+    WHY checked here: its content headers are handed to the caller, and an unexpected value would
+    either mislabel the bytes or fail while the response is built — before the stream that closes
+    the upstream response has started.
+    """
+    media_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
+    if media_type != _PAGE_MEDIA_TYPE:
+        return "not an NDJSON page"
+    encoding = response.headers.get("content-encoding")
+    if encoding is not None and not (request.gzip and encoding.strip().lower() == "gzip"):
+        return "a content encoding the caller did not accept"
+    return None
 
 
 def _params(request: CachePageRequest) -> httpx.QueryParams:
@@ -117,9 +141,9 @@ def _params(request: CachePageRequest) -> httpx.QueryParams:
     if request.after is not None:
         params["after"] = request.after
     if request.limit is not None:
-        params["limit"] = str(request.limit)
-    if request.count:
-        params["count"] = "true"
+        params["limit"] = request.limit
+    if request.count is not None:
+        params["count"] = request.count
     if request.models:
         params["model"] = list(request.models)
     return httpx.QueryParams(params)

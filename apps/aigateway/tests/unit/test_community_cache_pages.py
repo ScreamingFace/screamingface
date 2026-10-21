@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import base64
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 import pytest_asyncio
 from tortoise import Tortoise
 
+from aigateway.core.request_cache import community_pages
 from aigateway.core.request_cache.community_pages import (
     BATCH_BYTES,
     BATCH_ROWS,
@@ -26,6 +28,7 @@ from aigateway.core.request_cache.community_pages import (
     PAGE_FIELDS,
     InvalidCursor,
     PageCursor,
+    PageScan,
     count_rows,
     cursor_after,
     has_rows_after,
@@ -343,6 +346,82 @@ async def test_a_byte_cut_at_the_end_of_the_table_loses_no_row(db) -> None:
     ]
 
     assert walked == ["a", "b", "c"]
+
+
+# --- a row rewritten or deleted between the two queries (PR #1433 review round 2) -----------------
+
+
+def _between_queries(monkeypatch: pytest.MonkeyPatch, change) -> None:
+    """Run ``change`` once, after the first batch's keys are read and before its rows are."""
+    original = community_pages._next_keys
+    pending = [change]
+
+    async def next_keys(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        keys = await original(*args, **kwargs)
+        while pending:
+            await pending.pop()()
+        return keys
+
+    monkeypatch.setattr(community_pages, "_next_keys", next_keys)
+
+
+@pytest.mark.asyncio
+async def test_a_row_rewritten_between_the_queries_is_sent_later_not_at_its_new_size(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: a merge restore rewrites a row with a new updated_at and size. Read by key alone, it
+    # would cross at its new size (breaking the byte bound) and out of order (its new place).
+    for i, key in enumerate("abcd"):
+        await _sized(key, 10, seconds=i)
+
+    async def rewrite_b() -> None:
+        await RequestCacheEntry.filter(key_hash="b".ljust(64, "0")).update(
+            updated_at=_T0 + timedelta(seconds=100), response_size_bytes=50_000_000
+        )
+
+    _between_queries(monkeypatch, rewrite_b)
+    scan = PageScan()
+
+    first = [
+        r["key_hash"][0]
+        async for b in iter_page(after=None, limit=3, models=(), now=_NOW, scan=scan)
+        for r in b
+    ]
+
+    assert first == ["a", "c"]
+    assert scan.cursor is not None and scan.cursor.key_hash[0] == "c"
+    assert await has_rows_after(after=scan.cursor, models=(), now=_NOW)
+    rest = [
+        r["key_hash"][0]
+        async for b in iter_page(after=scan.cursor, limit=10, models=(), now=_NOW)
+        for r in b
+    ]
+    assert rest == ["d", "b"]
+
+
+@pytest.mark.asyncio
+async def test_rows_deleted_between_the_queries_still_move_the_scan_on(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: with every selected row gone, nothing is sent; the next page must still start after
+    # them rather than the page ending with next: null while rows remain.
+    await _sized("a", 10, seconds=0)
+    await _sized("b", 10, seconds=1)
+    await _sized("c", 10, seconds=2)
+
+    async def delete_a_and_b() -> None:
+        await RequestCacheEntry.filter(
+            key_hash__in=["a".ljust(64, "0"), "b".ljust(64, "0")]
+        ).delete()
+
+    _between_queries(monkeypatch, delete_a_and_b)
+    scan = PageScan()
+
+    sent = [b async for b in iter_page(after=None, limit=2, models=(), now=_NOW, scan=scan)]
+
+    assert sent == []
+    assert scan.cursor is not None and scan.cursor.key_hash[0] == "b"
+    assert await has_rows_after(after=scan.cursor, models=(), now=_NOW)
 
 
 # --- the last page (PR #1433 review, non-blocking) -----------------------------------------------
