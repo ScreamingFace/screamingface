@@ -15,6 +15,7 @@ be part of the revision too — otherwise the grading rule could change under a 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -23,6 +24,9 @@ LOCAL_TASK_PREFIX = "screamingface_engine_inspect.local_tasks."
 
 #: The one task-reference prefix whose source is pinned elsewhere (`inspect-evals==<version>`).
 INSPECT_EVALS_PREFIX = "inspect_evals."
+#: The scorer-reference prefixes whose source is pinned elsewhere: inspect's own scorers ride
+#: `inspect-ai==<version>`, an eval's ride `inspect-evals==<version>`.
+INSPECT_PREFIXES: tuple[str, ...] = ("inspect_ai.", INSPECT_EVALS_PREFIX)
 
 
 def source_digest(package_dir: Path) -> str:
@@ -68,7 +72,43 @@ def task_source_pin(task_reference: str) -> tuple[str, ...]:
 
     if task_reference.startswith(INSPECT_EVALS_PREFIX):
         return ()
-    module_name: str = task_reference.partition(":")[0]
+    return (f"task_source={source_digest(_package_dir(task_reference, 'Task'))}",)
+
+
+def scorer_source_pins(task_reference: str, scorer_references: Sequence[str]) -> tuple[str, ...]:
+    """The ``scorer_source=<digest>`` revision pins for scorers that are our code, not the Task's.
+
+    A row normally grades with inspect's or its eval's own scorer, whose source the package
+    version pins cover, or, on a local Task, with a scorer in the Task's package, which
+    ``task_source`` covers. A row that adopts an inspect_evals fix as a Named Deviation grades
+    with OUR scorer beside an inspect_evals Task instead, and nothing else would pin that code:
+    each such scorer's package is hashed, one pin per package, in reference order.
+
+    Worked example: PAWS's Task ``inspect_evals.paws.paws:paws`` graded by
+    ``...named_deviations.yes_no.yes_no:paws_yes_no`` gives one ``scorer_source=`` pin over
+    ``named_deviations/yes_no/``; graded by ``inspect_ai.scorer:includes`` it gives none.
+
+    INVARIANT: like ``task_source_pin``, this locates modules and never imports them.
+    """
+
+    task_package: str = task_reference.partition(":")[0].rpartition(".")[0]
+    pins: list[str] = []
+    for reference in scorer_references:
+        if reference.startswith(INSPECT_PREFIXES):
+            continue
+        # WHY by name: a local Task's scorers sit in the package `task_source` already hashes.
+        if reference.partition(":")[0].rpartition(".")[0] == task_package:
+            continue
+        pin: str = f"scorer_source={source_digest(_package_dir(reference, 'Scorer'))}"
+        if pin not in pins:
+            pins.append(pin)
+    return tuple(pins)
+
+
+def _package_dir(reference: str, kind: str) -> Path:
+    """The directory of the module a ``module:attr`` reference names, located without running it."""
+
+    module_name: str = reference.partition(":")[0]
     # WHY catch: find_spec raises ModuleNotFoundError when a dotted name's PARENT package is
     # missing and returns None when only the leaf is; both mean "cannot be located".
     try:
@@ -76,8 +116,15 @@ def task_source_pin(task_reference: str) -> tuple[str, ...]:
     except ModuleNotFoundError:
         spec = None
     if spec is None or spec.origin is None:
-        raise ValueError(f"Task module {module_name!r} cannot be located to pin its source")
-    return (f"task_source={source_digest(Path(spec.origin).parent)}",)
+        raise ValueError(f"{kind} module {module_name!r} cannot be located to pin its source")
+    return Path(spec.origin).parent
 
 
-__all__ = ["INSPECT_EVALS_PREFIX", "LOCAL_TASK_PREFIX", "source_digest", "task_source_pin"]
+__all__ = [
+    "INSPECT_EVALS_PREFIX",
+    "INSPECT_PREFIXES",
+    "LOCAL_TASK_PREFIX",
+    "scorer_source_pins",
+    "source_digest",
+    "task_source_pin",
+]
