@@ -154,11 +154,23 @@ def _chain(pipeline: Pipeline) -> Pipeline:
         if not isinstance(stage, FusionNode):
             items.append(surface_value(stage))
         elif _is_selection(stage) and stages:
-            items.extend(_block(stage, writer=stages.pop(0)))
+            items.extend(_block(stage, writer=_writer_of(stages)))
         else:
             items.extend(_block(stage))
     name = pipeline.name if pipeline._is_named else None
     return Pipeline(items, name=name, optional=pipeline.optional)
+
+
+def _writer_of(stages: list[Recipe]) -> Recipe:
+    """The stage after a selection, taken from ``stages``. A selection Fusion there takes its own
+    writer with it: ``Synthesize(Fanout >> Concat >> Synthesize(w))`` lowers to the flat stages
+    ``[Fusion(concat), w]`` (an unnamed Pipeline is flattened), so the rebuild groups them again.
+    """
+
+    stage = stages.pop(0)
+    if isinstance(stage, FusionNode) and _is_selection(stage) and stages:
+        return Pipeline([stage, _writer_of(stages)])
+    return stage
 
 
 # The recipe kinds of today and their new-surface form.
