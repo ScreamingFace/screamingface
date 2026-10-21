@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, version
 # parameter named `json`, so the module name is shadowed inside exactly the functions most
 # likely to want it. Importing the one callable under its own name removes the trap.
 from json import dumps as _json_dumps
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 from urllib.parse import quote, urlsplit
 from uuid import UUID
 
@@ -38,6 +38,9 @@ from screamingface.leaderboard import (
     ScoreMetadataEvent,
 )
 from screamingface.report import CandidateResult
+
+if TYPE_CHECKING:
+    from screamingface._scoreboard.replay_reads import PublishedScore
 from screamingface.url4 import Url4
 
 _BENCHMARKS_PATH = "/v1/benchmarks"
@@ -166,6 +169,16 @@ class Leaderboards:
         )
         display_submission_notice(notebook_notice)
         return score
+
+    def _published_by_pinned_cache(self, pinned_cache: str) -> PublishedScore:
+        from screamingface._scoreboard.replay_reads import published_by_pinned_cache_sync
+
+        return published_by_pinned_cache_sync(self._request, self._scoreboard_url, pinned_cache)
+
+    def _published_score(self, score_id: UUID | str) -> PublishedScore:
+        from screamingface._scoreboard.replay_reads import published_score_sync
+
+        return published_score_sync(self._request, self._scoreboard_url, score_id)
 
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
@@ -308,6 +321,18 @@ class AsyncLeaderboards:
         )
         display_submission_notice(notebook_notice)
         return score
+
+    async def _published_by_pinned_cache(self, pinned_cache: str) -> PublishedScore:
+        from screamingface._scoreboard.replay_reads import published_by_pinned_cache_async
+
+        return await published_by_pinned_cache_async(
+            self._request, self._scoreboard_url, pinned_cache
+        )
+
+    async def _published_score(self, score_id: UUID | str) -> PublishedScore:
+        from screamingface._scoreboard.replay_reads import published_score_async
+
+        return await published_score_async(self._request, self._scoreboard_url, score_id)
 
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)

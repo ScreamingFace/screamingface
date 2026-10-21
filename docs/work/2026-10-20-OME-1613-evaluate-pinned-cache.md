@@ -1,0 +1,75 @@
+---
+ticket: OME-1613
+stack: screamingface
+status: in_progress
+started: 2026-10-20
+finished:
+---
+
+# OME-1613 — replay a published run with `evaluate(pinned_cache=…)` and send author and paper metadata
+
+## Intent
+
+E14 (OME-1307) follow-up, SDK half. A researcher replays a published leaderboard run at $0 with
+`sf.evaluate(pinned_cache="<id>")` and gets the results plus a verdict against the published
+score. `sf.reproduce` is deprecated in favour of it. `submit` and `leaderboards.edit` gain the
+`authors_metadata` and `paper_metadata` fields the scoreboard accepts (OME-1596, PR #1440).
+Decisions S1–S9 are on the ticket; the spec is
+`docs/spec/2026-10-20-OME-1613-evaluate-pinned-cache.md`.
+
+## Planned changes
+
+- `packages/screamingface/src/screamingface/client.py` — `evaluate` (sync and async): `pinned_cache`,
+  `record_reproduction`, `candidates` optional when `pinned_cache` is given, `capture` default
+  follows S6; `reproduce` deprecated.
+- `packages/screamingface/src/screamingface/_reproduction.py` — a replay entry shared by
+  `evaluate(pinned_cache=…)` and the deprecated `reproduce`; verdict and recording reused.
+- `packages/screamingface/src/screamingface/_scoreboard/leaderboards.py` — the public pinned-cache
+  lookup (`GET /v1/public/scores/by-pinned-cache/{id}`), metadata on submit and edit.
+- `packages/screamingface/src/screamingface/report.py`, `leaderboard.py` — `pinned_cache` and
+  `reproduction` fields; `frozen_copy_id` kept as a deprecated alias.
+- Tests under `packages/screamingface/tests/` (see Test plan). Notebooks only if their output changes.
+
+## Test plan
+
+- RED first, against fake transports and a fake scoreboard (no network, no spend):
+  - happy path: lookup → replay with the board's url4 and seed → `reproduction.outcome == "exact"`,
+    recorded by default; `record_reproduction=False` records nothing.
+  - S2: a passed `answer_seed` that disagrees with the board → error before any run.
+  - S3: a passed url4 that differs from the board's → error before any run; omitted → board's used.
+  - S4: lookup 404 with url4 + seed passed → replay runs, `reproduction` is `None`; without them →
+    error naming what to pass.
+  - S6: `pinned_cache` turns capture off; explicit `capture=True` with it → error.
+  - a changed result → `failed` with its reason; a copy miss → `missed_cases`.
+  - S8: `sf.reproduce` warns `DeprecationWarning` and still works; `frozen_copy_id` warns.
+  - S9: metadata round-trips through submit and edit (wire payload asserted field by field).
+  - invariant: no `pinned_cache` path ever schedules a run without the replay header.
+
+## Acceptance
+
+- As on the ticket. SDK gates green. Release only after OME-1596 is live in production.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:**
+- **Commits:**
+- **Gates:**
+- **Deviations:**
+
+## Design review (owner, 2026-10-21)
+
+- Taken over from the session that wrote the spec on 2026-10-20 (owner stopped it). Decisions Q1–Q10
+  and resolutions R1–R4 are in spec §6. Ticket acceptance, S3, S4 and S7 updated in Linear to match.
+- New scope from the review: `score_id=` (public read first, gated read on 404) for a private
+  score's owner; `limit=n` partial replay that rebuilds the url4 and is never judged or recorded;
+  two `@overload`s for the replay forms.
+- Facts checked: the gated and public score reads both return the replay fields
+  (`apps/scoreboard/src/scoreboard/scores/schemas.py` `ScoreSchema`); on production 2026-10-21 the
+  public read returns all of them, and both captured rows have no `answer_seed` (omitted when null;
+  the Engine then stamps no seed, `world/request_parameters.py` `apply_answer_seed`).
+- Partial-replay feasibility (research 2026-10-21): the copy's replay key is the case id and Attempt
+  (`docs/spec/2026-10-06-e14-reproducible-submission/02-frozen-copy-design.md` §5.4); the case
+  count is stripped before the model input (`benchmarks/case_request.py`); nothing compares the url4
+  against the copy (`apps/aigateway/.../frozen_copy/models.py`); n is written in several places of
+  the url4 (`benchmarks/protocol.py:243-296`), so the SDK rebuilds rather than edits it.
+- Follow-up filed: `OME-1699` (per-case results on the board); its mirror rides with this unit's docs.
