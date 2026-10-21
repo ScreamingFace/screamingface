@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 860" role="img" aria-labelledby="t d" font-family="JetBrains Mono, Menlo, SF Mono, monospace">
 <title id="t">File input path: url4, engine, gateway, provider (OME-1535)</title>
-<desc id="d">Top row, TODAY at main ec4b632b2 (2026-10-21): a caller can only send text in the URL; url4 payloads are strings and an unquoted data: source is a ParseError; the engine connector refuses non-text content; the gateway carries native image and PDF parts for Gemini, Antigravity and Codex and refuses the rest with a typed 422; Ollama answers a PDF with 422 since #1447. Bottom rows, TARGET v1: two separate ingress paths. Case ingress puts inline data: parts in the run spec, straight into the engine run blob store. url4 ingress resolves src= blob refs at the evaluating node, local authority only; a non-local authority fails with remote_blob_unsupported before any network I/O. The engine keeps run-scoped blobs, verifies sha256 and carries an ordered attachments list beside the string payload; every model-calling node sends attachments first, then the text, through the gateway to the provider.</desc>
+<desc id="d">Top row, TODAY at main ec4b632b2 (2026-10-21): a caller can only send text in the URL; url4 payloads are strings and an unquoted data: source is a ParseError; the engine connector refuses non-text content; the gateway carries native image and PDF parts for Gemini, Antigravity and Codex and refuses the rest with a typed 422; Ollama answers a PDF with 422 since #1447. Bottom rows, TARGET v1: two separate ingress paths. Case ingress puts inline data: parts in the run spec, straight into the engine run blob store. url4 ingress resolves authority-less src= blob refs at the evaluating node; every url4:// blob ref, the node's own authority included, fails with x.remote_blob_unsupported before any network I/O. The engine keeps run-scoped blobs, verifies sha256 and carries an ordered attachments list beside the string payload; every model-calling node sends attachments first, then the text, through the gateway to the provider.</desc>
 <style>text{fill:#e2e8f0}.t{font-size:18px;font-weight:700}.s{font-size:15px;font-weight:700}.h{font-size:15px;font-weight:700;text-anchor:middle}.l{font-size:13px;text-anchor:middle;fill:#cbd5e1}.a{font-size:13px;text-anchor:middle;fill:#94a3b8}.c{font-size:13px;fill:#94a3b8}</style>
 <rect width="1500" height="860" fill="#0f172a"/>
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>
@@ -49,13 +49,13 @@
 <text class="h" x="170.0" y="575">url4 ingress</text>
 <text class="l" x="170.0" y="605">(img:src=/blob/sha256/&lt;hex&gt;)</text>
 <text class="l" x="170.0" y="627">blob:sha256/&lt;hex&gt;</text>
-<text class="l" x="170.0" y="649">url4://&lt;self&gt;/blob/…</text>
+<text class="l" x="170.0" y="649">(no url4:// refs in v1)</text>
 <text class="l" x="170.0" y="671">refs as AST bindings</text>
 <rect x="360" y="545" width="260" height="150" rx="10" fill="#1e293b" stroke="#3e8ed0" stroke-width="2.5"/>
 <text class="h" x="490.0" y="575">url4 node resolver</text>
-<text class="l" x="490.0" y="605">local authority → store read</text>
-<text class="l" x="490.0" y="627">non-local authority →</text>
-<text class="l" x="490.0" y="649">remote_blob_unsupported</text>
+<text class="l" x="490.0" y="605">no authority → store read</text>
+<text class="l" x="490.0" y="627">any url4:// ref →</text>
+<text class="l" x="490.0" y="649">x.remote_blob_unsupported</text>
 <text class="l" x="490.0" y="671">(no network I/O)</text>
 <line x1="304" y1="620" x2="356" y2="620" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
 <rect x="680" y="345" width="300" height="350" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
@@ -100,5 +100,5 @@
 <text class="c" x="552" y="790">blocks files today</text>
 <rect x="800" y="778" width="22" height="14" rx="3" fill="#1e293b" stroke="#3e8ed0" stroke-width="2.5"/>
 <text class="c" x="832" y="790">url4 resolution (target)</text>
-<text class="c" x="40" y="824">Remote blobs (non-local url4 authority) are deferred from v1 to their own spec with a normative egress policy.</text>
+<text class="c" x="40" y="824">Remote blobs (every url4:// blob ref) are deferred from v1 to their own spec with a normative egress policy.</text>
 </svg>
