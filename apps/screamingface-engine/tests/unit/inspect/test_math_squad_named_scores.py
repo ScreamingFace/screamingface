@@ -9,10 +9,12 @@ equivalence, with the self-grading `expression_equivalance` dropped by name.
 
 INVARIANT (spec §8.2, conservation): for each row, every declared scorer's per-Case value
 equals inspect's OWN scorer's value on the same answer and target. For MATH that now holds
-only on a reply whose ANSWER: line has no wrapping: since OME-1701 PR 3 its scorers read that
-line through our Named Deviation, which sees through a boxed answer, outer LaTeX delimiters
-and markdown bold that inspect's own scorer reads as written. Three hand-written Cases per
-row, all unwrapped; no network, no model. The rows' Revisions are frozen in
+only on a reply whose ANSWER: line has no wrapping and no trailing carriage return or tab:
+since OME-1701 PR 3 its scorers read that line through our Named Deviation, which sees
+through a boxed answer, outer LaTeX delimiters, markdown bold and a trailing carriage return
+or tab that inspect's own scorer reads as written (so an unwrapped Windows line,
+`ANSWER: 42\\r\\n`, does not match inspect_evals). Three hand-written Cases per row, all
+unwrapped; no network, no model. The rows' Revisions are frozen in
 test_published_revisions.
 """
 

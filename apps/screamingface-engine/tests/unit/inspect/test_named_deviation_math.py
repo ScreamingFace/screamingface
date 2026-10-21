@@ -5,14 +5,16 @@
 
 What these tests pin, and why:
 
-- a right answer boxed, wrapped in \\( \\) or \\[ \\], or in markdown bold on the ANSWER: line is
-  right under both of our scorers;
+- a right answer boxed, wrapped in \\( \\) or \\[ \\], in markdown bold, or followed by a carriage
+  return or tab (a Windows line ending) on the ANSWER: line is right under both of our scorers;
 - the TRIPWIRES: v0.20.0's exact match still marks each of those wrong; when a pin bump makes
   one of those asserts fail, inspect_evals has that fix and its step of the Named Deviation
   can go (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2199,
   https://github.com/UKGovernmentBEIS/inspect_evals/pull/2340);
 - a wrong answer stays wrong through the same wrapping, and a box off the ANSWER: line is
-  still not read;
+  still not read; an ANSWER: line holding only wrapping is wrong and says so;
+- the stated limitation: with two boxes on the ANSWER: line the last one is graded, as
+  inspect_evals PR #2199 and the MATH paper's grader read it;
 - the row grades with these scorers, keeps its Named Score names, and pins antlr4 beside sympy.
 
 Runs only with the `inspect` extra installed.
@@ -38,6 +40,7 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     imported_benchmark,
 )
 from screamingface_engine_inspect.named_deviations.math.math import (  # noqa: E402
+    EMPTY_ANSWER_LINE,
     expression_exact_match,
     expression_exact_match_sympy,
     extract_answer,
@@ -55,11 +58,20 @@ _WRAPPED_RIGHT: list[tuple[str, str]] = [
     # Ours: markdown bold, which v0.20.0 copies as `42**`.
     ("6 times 7.\n**ANSWER: 42**", "42"),
     ("6 times 7.\n**ANSWER:** 42", "42"),
+    # Ours: a Windows line ending or a trailing tab, which v0.20.0 copies as `42\r` / `42\t`.
+    ("6 times 7.\r\nANSWER: 42\r\n", "42"),
+    ("6 times 7.\nANSWER: 42\t", "42"),
 ]
 
 
 async def _graded(scorer: Scorer, reply: str, key: str) -> object:
     """The grade one scorer gives one reply against one key."""
+
+    return (await _score(scorer, reply, key)).value
+
+
+async def _score(scorer: Scorer, reply: str, key: str) -> Score:
+    """The whole Score one scorer gives one reply against one key."""
 
     state = TaskState(
         model="none/none",  # type: ignore[arg-type]  # ModelName is a str alias at runtime
@@ -71,7 +83,7 @@ async def _graded(scorer: Scorer, reply: str, key: str) -> object:
     )
     score: Score | None = await scorer(state, Target(key))
     assert score is not None
-    return score.value
+    return score
 
 
 @pytest.mark.asyncio
@@ -99,6 +111,33 @@ async def test_tripwire_a_wrapped_right_answer_inspect_evals_fails_is_right_unde
 async def test_a_wrong_or_unmarked_answer_stays_wrong(reply: str) -> None:
     assert await _graded(expression_exact_match(), reply, "42") == INCORRECT
     assert await _graded(expression_exact_match_sympy(), reply, "42") == INCORRECT
+
+
+@pytest.mark.asyncio
+async def test_two_boxes_on_the_answer_line_grade_the_last_one() -> None:
+    """LIMITATION, kept on purpose: a reply hedging between two boxed answers is graded on the
+    last, as inspect_evals PR #2199 and the MATH paper's `last_boxed_only_string` read it, so
+    hedging toward the key scores right; v0.20.0 copied the whole line and marked it wrong."""
+
+    reply: str = "ANSWER: \\boxed{41} or \\boxed{42}"
+
+    assert extract_answer(reply) == "42"
+    assert await _graded(inspect_evals_exact(), reply, "42") == INCORRECT
+    assert await _graded(expression_exact_match(), reply, "42") == CORRECT
+    assert await _graded(expression_exact_match_sympy(), reply, "42") == CORRECT
+    assert await _graded(expression_exact_match(), reply, "41") == INCORRECT
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", ["ANSWER: \\boxed{}", "ANSWER: ****"])
+async def test_an_answer_line_holding_only_wrapping_is_wrong_and_says_so(reply: str) -> None:
+    """The verdict stays 0; the explanation names an empty answer line, not a missing one."""
+
+    for scorer in (expression_exact_match(), expression_exact_match_sympy()):
+        score: Score = await _score(scorer, reply, "42")
+        assert score.value == INCORRECT
+        assert score.explanation is not None
+        assert score.explanation.startswith(EMPTY_ANSWER_LINE)
 
 
 @pytest.mark.parametrize(

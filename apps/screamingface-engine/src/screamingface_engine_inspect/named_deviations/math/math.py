@@ -12,7 +12,10 @@ answer wrong.
 Copying, in execution order (`extract_answer`):
 
     1. the text after the LAST `ANSWER:` that ends the reply, as v0.20.0 reads it, with the
-       spaces around it trimmed (both compare steps ignore them).
+       whitespace around it trimmed. Spaces both compare steps ignore anyway, but a trailing
+       carriage return or tab they do not: on a Windows line ending (`ANSWER: 42\\r\\n`)
+       v0.20.0 copies `42\\r`, which its exact match marks wrong and sympy marks right. Ours
+       copies `42` for both. (Ours; part of this Named Deviation, no inspect_evals item.)
     2. markdown bold around it is dropped: `**ANSWER: 42**` copies `42**` in v0.20.0, which no
        compare step can match to 42. (Ours; no inspect_evals PR or issue yet.)
     3. a paired outer `\\(...\\)` or `\\[...\\]` is dropped: `ANSWER: \\[\\frac{1}{2}\\]` scored 0
@@ -22,9 +25,15 @@ Copying, in execution order (`extract_answer`):
 
 Worked example, key 42: "6 times 7.\\nANSWER: \\boxed{42}" copies `42` and is right;
 "**ANSWER: \\(41\\)**" copies `41` and is wrong; "The box says \\boxed{42}." has no ANSWER: line,
-copies nothing, and is wrong, as in v0.20.0.
+copies nothing, and is wrong, as in v0.20.0; "ANSWER: \\boxed{}" copies an empty answer and is
+wrong, explained as an empty ANSWER: line rather than a missing one.
 
-NAMED DEVIATION — steps 2 to 4 (links above:
+LIMITATION, kept on purpose: with two boxes on the ANSWER: line the LAST one is copied, so
+"ANSWER: \\boxed{41} or \\boxed{42}" is right for 42 (v0.20.0 copies the whole line and marks
+it wrong). inspect_evals PR #2199 and the MATH paper's own grader (`last_boxed_only_string`)
+read the last box the same way, so we keep their rule rather than invent a stricter one.
+
+NAMED DEVIATION — the whitespace trim of step 1, and steps 2 to 4 (links above:
 https://github.com/UKGovernmentBEIS/inspect_evals/pull/2199,
 https://github.com/UKGovernmentBEIS/inspect_evals/pull/2340, both open). The compare helpers
 are imported from inspect_evals v0.20.0, so only the copying is ours.
@@ -61,19 +70,28 @@ from inspect_evals.math.utils import (
 _BOLD: str = "**"
 #: The paired outer delimiters step 3 drops: LaTeX inline and display math.
 _DELIMITERS: tuple[tuple[str, str], ...] = ((r"\(", r"\)"), (r"\[", r"\]"))
+#: Why a reply whose ANSWER: line holds only wrapping is wrong (the line exists, the answer not).
+EMPTY_ANSWER_LINE: str = "Empty answer on the ANSWER: line once its wrapping is dropped"
 
 
 def extract_answer(completion: str) -> str:
     """The answer copied off the reply's last ANSWER: line, wrapping dropped; "" when none."""
 
-    # Stage 1: v0.20.0's own read.
+    line: str | None = _last_answer_line(completion)
+    return "" if line is None else _unwrapped(line)
+
+
+def _last_answer_line(completion: str) -> str | None:
+    """Stage 1: the text after the reply's last ANSWER:, as v0.20.0 reads it; None when absent."""
+
     matches: list[re.Match[str]] = list(re.finditer(AnswerPattern.LINE, completion))
-    return _unwrapped(matches[-1].group(1)) if matches else ""
+    return matches[-1].group(1) if matches else None
 
 
 def _unwrapped(line: str) -> str:
     """Stages 2 to 4: the ANSWER: line's text with its bold, delimiters and box dropped."""
 
+    # Stage 1, trim: all whitespace, so `42\r` from a CRLF line copies `42` (see docstring).
     # Stage 2: bold on either side (`**ANSWER:** 42` copies `** 42`).
     answer: str = line.strip().removeprefix(_BOLD).removesuffix(_BOLD).strip()
     # Stage 3: one paired outer delimiter.
@@ -95,11 +113,19 @@ def _unwrapped(line: str) -> str:
 async def _graded(state: TaskState, target: Target, *, use_sympy: bool) -> Score:
     """The eval's `score_helper` exact-match branches, fed our copied answer."""
 
-    answer: str = extract_answer(state.output.completion)
-    if not answer:
+    line: str | None = _last_answer_line(state.output.completion)
+    if line is None:
         return Score(
             value=INCORRECT,
             explanation=f"Answer not found in model output: {state.output.completion}",
+        )
+    answer: str = _unwrapped(line)
+    # WHY its own explanation: the line was there, so "not found" would misreport the reply;
+    # an empty box or bare bold (`ANSWER: \boxed{}`, `ANSWER: ****`) answers nothing.
+    if not answer:
+        return Score(
+            value=INCORRECT,
+            explanation=f"{EMPTY_ANSWER_LINE}: {state.output.completion}",
         )
     correct: bool
     if use_sympy:

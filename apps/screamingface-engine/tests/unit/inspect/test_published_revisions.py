@@ -72,7 +72,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1701 PR 3 (2026-10-21): math grades with our answer-line extraction adopting
     # inspect_evals' fixes (a Named Deviation; the scorer source is hashed): 0fb750cf19e00c11
     # moved once.
-    "math": "4974287b20a4f1aa",
+    "math": "414043e2d2a9dbcc",
     "mmlu": "9d4c0946ae71f6fa",
     "arc_easy": "f7d6a5325fb0bcff",
     "arc_challenge": "810d45748fde3b18",
