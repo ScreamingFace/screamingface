@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 from _combine_flow_fixtures import flow_operators
 from _fusion_doc_examples import EXAMPLES, DocExample, compile_example
-from _nodes import FusionNode, MedianNode, VoteNode, frozen_url4, fusion_node
+from _nodes import FusionNode, MedianNode, ReduceNode, VoteNode, frozen_url4, fusion_node
 from test_pipeline_compilation import _whole_candidate_benchmark
 from test_reducer_characterization import _GOLDEN
 
@@ -75,6 +75,22 @@ def test_lo0_lower_is_the_identity_on_every_characterized_golden(golden: str) ->
 )
 def test_lo0_lower_is_the_identity_on_other_values(value: object) -> None:
     assert lower(value) is value  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        fusion_node(_PAIR, VoteNode()),
+        fusion_node(_PAIR, MedianNode()),
+        fusion_node(_PAIR, "provider/w", quorum=1),
+        fusion_node([fusion_node(_PAIR, VoteNode()), "provider/c"], "provider/s"),
+        sf.Pipeline([fusion_node(_PAIR, ReduceNode("context")), "provider/w"]),
+    ],
+    ids=["vote", "median", "writer", "nested", "context-pipeline"],
+)
+def test_lo0_lower_is_the_identity_on_todays_values(value: sf.Recipe) -> None:
+    # WHY the internal nodes: today's values hold no _surface value, so lower returns them as is
+    assert lower(value) is value
 
 
 def test_lo0_a_cyclic_value_is_left_for_the_compiler_to_refuse() -> None:

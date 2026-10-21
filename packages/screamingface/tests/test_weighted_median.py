@@ -9,6 +9,7 @@ through url4; a judge signal is refused because a Median has no judge.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -143,3 +144,10 @@ def test_sdk_median_weights_refuse_bad_input() -> None:
         sx.Median(weights=("a", "b", "c"))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="greater than zero"):
         sx.Median(weights=(1, 0, 1))
+    # a string is a signal key on the surface, so the block refuses a key it does not declare
+    undeclared = (
+        "the synthesizer reads sf.signal('abc'), which this Fusion does not declare "
+        "(declared: none)"
+    )
+    with pytest.raises(ValueError, match=f"^{re.escape(undeclared)}$"):
+        _ = sx.Fanout(_MEMBERS3) >> sx.Median(weights="abc")

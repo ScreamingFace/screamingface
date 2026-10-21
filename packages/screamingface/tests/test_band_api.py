@@ -1,9 +1,11 @@
 """The abstain band on sf.Gate: keyword, compile and rebuild (E4b part 6, unit 5; BA#1-6).
 
-FEATURE: GateNode(..., abstain_band=(lo, hi)) names the numbers that are too close to call. The band
-is data in the spec gate ("abstain_band": [lo, hi]), and Url4.to_python() writes it back.
-STORY: as a benchmark author, I write sf.Gate("mean:risk", "<=", 3.0, abstain_band=(2.5, 3.5)); a
-bad band fails at construction, and the url4 rebuilds the same gate.
+FEATURE: sf.Gate(..., abstain_if=<signal>.between(lo, hi)) names the numbers that are too close to
+call. The band is data in the spec gate ("abstain_band": [lo, hi]), and Url4.to_python() writes it
+back.
+STORY: as a benchmark author, I write sf.Gate(when=risk <= 3.0, then=sf.Vote(),
+abstain_if=risk.between(2.5, 3.5)) with risk = sf.signal("risk").mean(); a bad band fails at
+construction, and the url4 rebuilds the same gate.
 INVARIANT defended: a gate without a band keeps its part 5 bytes, repr and fixtures (BA-D1); a band
 is a closed pair of finite floats with lo <= hi (P7); a hand-edited band never rebuilds as a
 different gate (BA-E2).
