@@ -184,6 +184,37 @@ def test_runtime_cli_scrubs_the_foreign_gateway_database(
     assert env.get("PATH") == os.environ.get("PATH")
 
 
+def test_runtime_cli_child_env_is_an_allowlist_not_the_parent_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Review finding 3: a copied parent env let a forced runtime source, AIGW_* gateway
+    # settings, port overrides and the provider key reach the runtime, so a green bundle
+    # could come from a different source tree or a reconfigured service.
+    leaks = {
+        "SCREAMINGFACE_RUNTIME_SOURCE": "bundled",
+        "SCREAMINGFACE_GATEWAY_PORT": "1",
+        "SCREAMINGFACE_DATA_DIR": "/elsewhere",
+        "AIGW_AUTH_MODE": "jwt",
+        "AIGATEWAY_DATABASE_URL": "postgres://example.invalid/db",
+        "SCOREBOARD_DATABASE_URL": "postgres://example.invalid/sb",
+        "OPENROUTER_API_KEY": "placeholder-not-a-key",
+        "PYTHONPATH": "/foreign/tree",
+        "VIRTUAL_ENV": "/foreign/venv",
+    }
+    for name, value in leaks.items():
+        monkeypatch.setenv(name, value)
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(targets.subprocess, "run", lambda command, **kw: seen.update(kw))
+    targets._runtime_cli("status")
+    env = seen["env"]
+    assert isinstance(env, dict)
+    allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SCREAMINGFACE_RUNTIME_SOURCE"}
+    assert set(env) <= allowed, sorted(set(env) - allowed)
+    # Pinned, not inherited: the runtime serves THIS checkout's code or refuses to start.
+    assert env["SCREAMINGFACE_RUNTIME_SOURCE"] == "checkout"
+    assert env.get("PATH") == os.environ.get("PATH")
+
+
 def test_local_target_fails_and_tears_down_when_the_engine_does_not_list_ifeval(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

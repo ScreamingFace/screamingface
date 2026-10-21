@@ -26,10 +26,12 @@ from typing import Any, Final
 
 import pytest
 from harness._gating import SNAPSHOTS_DIR, require_e2e_stack
+from harness._local_proc import clean_env
 from harness.benchmark_assets import ASSETS_ENV, assets_root
 from harness.cache_seeded import CacheSeededGateway
 from harness.stack import EngineProcess, replay_stack
 
+from screamingface._runtime.source import MODE_CHECKOUT, SOURCE_ENVIRONMENT_VARIABLE
 from workbench.evidence import FileLogSource, LogSource, ServiceLogSource
 
 TARGET_ENV: Final = "SCREAMINGFACE_WORKBENCH_TARGET"
@@ -112,15 +114,20 @@ def _local_unavailable_reason() -> str | None:
 
 
 def _runtime_child_env() -> dict[str, str]:
-    """The environment ``screamingface up``/``down`` run under.
+    """The environment ``screamingface up``/``down`` run under: an ALLOWLIST, never the shell.
 
-    WHY scrub AIGATEWAY_DATABASE_URL: the runtime owns its sqlite gateway DB and REFUSES to boot
-    or adopt while that variable is set (OME-1169); a developer shell that exports it for the
-    aigateway app would otherwise turn every local run into a boot error.
+    Same rule as every other harness child (``harness._local_proc.clean_env``): PATH/HOME/
+    locale basics plus exactly what this target sets. WHY (review finding 3): a copied shell
+    let a forced ``SCREAMINGFACE_RUNTIME_SOURCE``, ``AIGW_*``/``SCOREBOARD_*`` service settings,
+    ``SCREAMINGFACE_*_PORT``/``_DATA_DIR`` overrides, a foreign ``AIGATEWAY_DATABASE_URL`` (which
+    the runtime refuses to boot under, OME-1169) and the provider key reach the runtime, so a
+    green bundle could come from another source tree or a reconfigured service.
+
+    WHY pin the source to ``checkout``: the lane lives in this checkout and vouches for ITS
+    code; pinned, the runtime serves this tree or refuses to start, never a bundled copy.
+    The BYOK key is deliberately absent — the notebook connects it from its own environment.
     """
-    env = dict(os.environ)
-    env.pop("AIGATEWAY_DATABASE_URL", None)
-    return env
+    return clean_env({SOURCE_ENVIRONMENT_VARIABLE: MODE_CHECKOUT})
 
 
 def _runtime_cli(*args: str) -> None:
