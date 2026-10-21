@@ -21,7 +21,7 @@ from aigateway.core.content_parts import (
     text_of,
     text_only,
 )
-from aigateway.core.provider_error_text import error_message_from_body, error_message_from_response
+from aigateway.core.provider_error_text import error_message_from_body
 
 CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
 
@@ -343,11 +343,33 @@ def _model_refusal_text(content: object) -> str | None:
     return None
 
 
-def _relayable_error_text(content: str | bytes) -> str:
-    return error_message_from_body(content) or _model_refusal_text(content) or ""
+def refusal_detail_from_message(message: object) -> str | None:
+    """The refusal sentence a handler error carries in its trusted ``{"detail": ...}`` suffix.
+
+    # INVARIANT (PR #1441 review): this suffix shape is composed ONLY by
+    # ``_relayable_error_text`` from the body's top-level ``detail``; a relayed ``error.message``
+    # that mimics it is withheld there, so the shape keeps the field's provenance.
+    """
+    if not isinstance(message, str):
+        return None
+    _, sep, suffix = message.partition(": ")
+    return _model_refusal_text(suffix) if sep else None
 
 
-def _response_content(response: httpx.Response) -> bytes | None:
+def _relayable_error_text(content: str | bytes | None) -> str:
+    # INVARIANT (PR #1441 review): the top-level ``detail`` refusal is read FIRST and relayed
+    # in its own JSON shape; an ``error.message`` never stands in for it.
+    refusal = _model_refusal_text(content)
+    if refusal is not None:
+        return json.dumps({"detail": refusal})
+    text = error_message_from_body(content) or ""
+    return "" if _model_refusal_text(text) is not None else text
+
+
+def _response_content(response: object) -> bytes | None:
+    # INVARIANT (OME-1136): total, like ``error_message_from_response`` it replaces.
+    if not isinstance(response, httpx.Response):
+        return None
     try:
         return response.content
     except httpx.ResponseNotRead:
@@ -385,9 +407,7 @@ def _status_error_from_exception(exc: httpx.HTTPStatusError) -> CustomLLMError:
     message = f"Codex upstream request failed with status {status_code}"
     # INVARIANT (#1233 review): the response's allowlisted JSON `message` only — never
     # `str(exc)` / raw body text.
-    text = error_message_from_response(exc.response) or _model_refusal_text(
-        _response_content(exc.response)
-    )
+    text = _relayable_error_text(_response_content(exc.response))
     if text:
         message = f"{message}: {text}"
     return CustomLLMError(status_code=status_code, message=message)

@@ -25,9 +25,9 @@ from .auth import (
     plan_type_from_token,
 )
 from .chat_handler import (
-    MODEL_REFUSAL_MARKER,
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
+    refusal_detail_from_message,
 )
 from .live_models import available_models_for
 from .models import MODELS
@@ -192,10 +192,12 @@ class CodexProviderPlugin(ProviderPluginBase):
 
 
 def _is_model_refusal(exc: CustomLLMError) -> bool:
-    # WHY a text marker: the backend answers a model refusal with a plain 400 and no error
-    # code; its sentence (relayed by chat_handler) is what tells it from a malformed request.
-    # INVARIANT: both the 400 and the marker — the text alone on another status stays as is.
-    return exc.status_code == 400 and MODEL_REFUSAL_MARKER in str(exc.message)
+    # WHY the detail shape: the backend answers a model refusal with a plain 400 and no error
+    # code; its top-level ``detail`` sentence is what tells it from a malformed request.
+    # INVARIANT (PR #1441 review): classified ONLY from the trusted ``{"detail": ...}`` carrier
+    # chat_handler composes from that field — the marker inside an ``error.message`` never
+    # re-types an ordinary 400. Both the 400 and the carrier: another status stays as is.
+    return exc.status_code == 400 and refusal_detail_from_message(exc.message) is not None
 
 
 async def _model_unsupported(body: dict[str, Any]) -> HTTPException:

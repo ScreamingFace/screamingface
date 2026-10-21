@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import time
 from typing import Any
 
@@ -20,6 +21,8 @@ from .oauth_config import CODEX_CLIENT_ID, CODEX_REFRESH_SCOPE, CODEX_TOKEN_URL
 
 _ACCOUNT = "default"
 _JWT_AUTH_CLAIMS_KEY = "https://api.openai.com/auth"
+# WHY 32: real plan ids (free, plus, pro, team, enterprise, ...) are one short word.
+_PLAN_ID = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 
 
 def credential_service_for(profile_name: str) -> str:
@@ -54,7 +57,9 @@ def plan_type_from_token(token: str | None) -> str | None:
     # decision — the upstream is the authority on what the plan may do.
     """
     plan = _auth_claims(token).get("chatgpt_plan_type")
-    return plan if isinstance(plan, str) and plan else None
+    # INVARIANT (PR #1441 review): the claim is unsigned and is interpolated into a
+    # gateway-authored message, so only a short lowercase identifier is named; else None.
+    return plan if isinstance(plan, str) and _PLAN_ID.fullmatch(plan) else None
 
 
 def account_id_from_token(token: str | None) -> str | None:
