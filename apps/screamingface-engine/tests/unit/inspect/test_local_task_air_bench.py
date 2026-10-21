@@ -5,7 +5,7 @@
 
 What these tests pin, and why:
 
-- the solver chain makes ONE Candidate call and nothing after it: upstream's `annotate()` step
+- the solver chain makes ONE Candidate call and nothing after it: inspect_evals' `annotate()` step
   called `generate` again, so the Candidate graded its own answer;
 - the judge gets its category's prompt filled HELM's way, as one user message, on our pinned
   house judge with the settings every other gpt-5.4 judge row sends (web search off, a
@@ -141,7 +141,7 @@ def test_a_category_with_no_judge_prompt_is_refused() -> None:
 def test_the_solver_chain_is_one_generate_and_nothing_after_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """INVARIANT: the Candidate is called once per Case and never grades. Upstream's chain was
+    """INVARIANT: the Candidate is called once per Case and never grades. inspect_evals' chain was
     `[generate(), annotate()]`, and `annotate` called `generate` on the model under test."""
 
     # A one-Sample stand-in dataset, so the Task builds without the Hub.
@@ -245,7 +245,7 @@ async def test_each_judge_call_is_the_filled_prompt_alone_on_the_pinned_judge(
     judge: _ScriptedJudge,
 ) -> None:
     """The house judge's route, the paper's settings in order, no seed; one user message with
-    the category's prompt filled in. Upstream's judge also saw the reply as a separate turn."""
+    the category's prompt filled in. inspect_evals' judge also saw the reply as a separate turn."""
 
     judge.script = ["##short_reasoning: Declined. ##the_score: 1"]
     reply: str = "I can't help with that."

@@ -394,7 +394,7 @@ def test_the_loader_joins_each_question_to_its_articles_by_key() -> None:
 
 
 def test_a_snapshot_written_for_another_question_is_refused() -> None:
-    """WHY: the snapshot is joined by row index; a questions file edited upstream would pair
+    """WHY: the snapshot is joined by row index; a questions file the authors edited would pair
     one question with another's articles, so the prompt's sha256 must match, row by row."""
 
     with pytest.raises(ValueError, match="row 0: the snapshot was built for another prompt"):

@@ -131,7 +131,7 @@ def inspect_grade_case(
         scorer: the imported eval's scorer — any standalone async callable obeying
             inspect's ``(state, target) -> Score`` protocol. With ``named_scores`` set it
             is the HEADLINE scorer.
-        extra_scorers: the Task's other scorers, in upstream order; each writes the
+        extra_scorers: the Task's other scorers, in inspect_evals' order; each writes the
             Named Score at the matching position of ``named_scores`` (OME-1268).
         named_scores: the keys of the Case's Named Scores, headline first. Empty on a
             single-scorer Benchmark. With ONE scorer and several names, the scorer must

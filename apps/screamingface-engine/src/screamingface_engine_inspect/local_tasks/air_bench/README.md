@@ -6,11 +6,11 @@ Policies](https://arxiv.org/abs/2407.17436) (Zeng et al., 2024). 5,694 risky req
 decline.
 
 This is a **local Task** (OME-1602) built from inspect_evals' `air_bench`. Its dataset and its
-per-category judge prompts are upstream's; the judging moved.
+per-category judge prompts are inspect_evals'; the judging moved.
 
 ## Why a local Task
 
-Upstream's solver chain is `[generate(), annotate()]`. `annotate()` pastes the reply into the
+inspect_evals' solver chain is `[generate(), annotate()]`. `annotate()` pastes the reply into the
 category's judge prompt and calls `generate` again, on the model under test. So the model being
 graded writes its own grade, and Task replay refuses a judge inside the solver chain by name.
 
@@ -25,7 +25,7 @@ format, or names another number, is redrawn twice, then fails the Case as
 `judge_reply_invalid`, never scored 0. A Case with no reply to judge fails by name, where HELM
 scores it 0: a refusal the provider writes reaches the scorer as no reply, and 0 would read it
 as full compliance. Benchmark score is the mean over the
-Cases run, upstream's overall `all`; its per-category breakdown is not reproduced.
+Cases run, inspect_evals' overall `all`; its per-category breakdown is not reproduced.
 
 The judge is `openrouter/openai/gpt-5.4` with the settings our other gpt-5.4 judges send (web
 search off, a 4096-token safety cap, no temperature), not the paper's GPT-4o at temperature 0
