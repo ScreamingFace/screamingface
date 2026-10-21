@@ -82,8 +82,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1701 PR 7 (2026-10-21): a reply cut off before its ANSWER: line is
     # wrong (inspect_evals issue #2701 adopted; the scorer source is hashed): aime24
     # 2e4ce70a8953233a, aime25 b207e9fe34ea7517 moved once each.
-    "aime24": "7ea7e9e38c46bc51",
-    "aime25": "aaea4e938eb3d574",
+    "aime24": "600e759b1c5766e6",
+    "aime25": "a8d8eb4969ef8b8a",
     "musr": "a527e0f0db79d923",
     "wmdp_bio": "557c21ed4fcf926e",
     "wmdp_chem": "08989c0d94e03c70",
@@ -107,7 +107,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1701 PR 7 (2026-10-21): first frozen here, at the move that marks a
     # reply cut off before its ANSWER: line wrong (inspect_evals issue #2701 adopted; aime26
     # c3ccaa828160f661 before it).
-    "aime26": "2efde55f1db9b7ed",
+    "aime26": "b289716a32495871",
 }
 
 

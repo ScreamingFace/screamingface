@@ -10,6 +10,8 @@ What these tests pin, and why:
   bump makes the first assert fail, inspect_evals has the fix and the Named Deviation can go
   (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701);
 - a reply cut off right after its ``ANSWER:`` line keeps its credit (the model did answer);
+- the stated limitation, faithful to #2701: a reply cut off inside its ``ANSWER:`` line keeps
+  the credit its truncated digits earn;
 - every reply that finished on its own grades exactly as v0.20.0 grades it, ``\\boxed{}``
   included, as does one whose stop reason is unknown;
 - the three AIME rows grade with this scorer.
@@ -68,6 +70,18 @@ async def test_tripwire_a_cut_off_reply_inspect_evals_credits_is_wrong_under_our
     assert ours.value == INCORRECT
     # WHY the answer is None: the model never gave one, so nothing was read off the reply.
     assert ours.answer is None
+
+
+@pytest.mark.asyncio
+async def test_a_reply_cut_off_inside_its_answer_line_keeps_the_truncated_credit() -> None:
+    """LIMITATION, kept as #2701 proposes: the stop reason says the reply was cut, not where,
+    so "ANSWER: 1" cut while writing 104 reads as an answer of 1."""
+
+    reply: str = "So the count is 104.\nANSWER: 1"
+
+    score: Score = await _scored(aime_cut_off_scorer(), reply, "1", "max_tokens")
+
+    assert score.value == CORRECT
 
 
 @pytest.mark.asyncio

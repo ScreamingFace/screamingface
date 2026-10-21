@@ -27,6 +27,11 @@ Worked example, key 1: "Try n = 3: then 3^2 + 7 = 16, so the remainder is 1" cut
 (v0.20.0: right). The same text finished → right, as v0.20.0. "...\\nANSWER: 1" cut off →
 right, as v0.20.0.
 
+LIMITATION, faithful to #2701: a reply cut off INSIDE its ANSWER: line keeps the credit that
+line's digits earn. A model writing "ANSWER: 104" that the limit stops after "ANSWER: 1" is
+right on a Case whose answer is 1, because the line carries the mark; the stop reason says the
+reply was cut, not where, so the guard cannot tell a finished answer line from a truncated one.
+
 INVARIANT: this file's source is hashed into the aime24, aime25 and aime26 revisions.
 """
 
@@ -51,7 +56,8 @@ def aime_cut_off_scorer() -> Scorer:
         # Stage 1: an empty reply is the eval's own case.
         if raw.strip().splitlines():
             last_line: str = _find_last_substantive_line(raw)
-            # Stage 2: cut off before the answer line, so no answer was ever given.
+            # Stage 2: cut off before the answer line, so no answer was ever given. A cut
+            # INSIDE the answer line ("ANSWER: 1" of 104) passes, as in #2701 (docstring).
             if state.output.stop_reason == "max_tokens" and ANSWER_LINE_MARK not in last_line:
                 return Score(
                     value=INCORRECT,

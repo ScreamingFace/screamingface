@@ -25,7 +25,8 @@ brings the fix. Seven stacked PRs, one fix each:
   #2340, and ours).
 - PR 4: worldsense keeps every trial, 40,176 → 87,048 Cases (#2507).
 - PR 5: stereoset keeps every record, 2,115 → 2,123 Cases (#2524).
-- PR 6: onet_m6 leaves out 18 more questions whose options v0.20.0 misparses, 391 → 373 (#2590).
+- PR 6: onet_m6 leaves out 18 more questions whose options v0.20.0 misparses (#2590), and 1
+  whose source gives its key's text to two options, 391 → 372.
 - PR 7: a reply cut off before its answer reaches the scorer as cut off, and AIME scores it
   wrong (issue #2701).
 
@@ -35,3 +36,6 @@ Each PR moves only its own rows' revisions. Work ledger:
 - 2026-10-21: owner approved the split into seven PRs and every prior-test edit in session; the
   stack was rebuilt on main after OME-1698. Merging the stack and any paid re-run of the moved
   rows are owner steps.
+- 2026-10-21: review fixes applied on every PR (one commit each). After the deploy, the owner
+  retires the orphaned scoreboard rows `inspect-worldsense` and `inspect-stereoset` (see the
+  ledger's owner-verify note).

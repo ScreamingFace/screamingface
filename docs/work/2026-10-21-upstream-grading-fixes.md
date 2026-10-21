@@ -400,10 +400,12 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   only `utils/scorers.py` (`_is_grader_refusal`, under `schema_tool_graded_scorer`) reads one,
   on the JUDGE's own generate output, not the state; our local Tasks, Named Deviations and
   combine operators read none. So `unknown` grades as the old `stop` did on every other row.
-- **Revisions:** aime24 2e4ce70a8953233a → 7ea7e9e38c46bc51; aime25 b207e9fe34ea7517 →
-  aaea4e938eb3d574; aime26 c3ccaa828160f661 → 2efde55f1db9b7ed. All 85 computed before and
-  after: only these three moved (the adapter is not a revision input).
-- **Gates:** relevant tests only (owner rule): `test_finish_reason_reaches_scorer.py` and `test_named_deviation_aime.py` (new), `test_benchmark_answer_rules.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 706 passed, 0 skipped with the inspect extra; 21 passed extra-less (the 10 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): the adapter writing `stop` fails 3 tests; dropping the aggregate's pass-through fails 3; dropping the check surface's fails 1.
+- **Revisions:** aime24 2e4ce70a8953233a → 600e759b1c5766e6; aime25 b207e9fe34ea7517 →
+  a8d8eb4969ef8b8a; aime26 c3ccaa828160f661 → b289716a32495871. All 85 computed before and
+  after: only these three moved (the adapter is not a revision input). The review's docstring
+  edit moved them once more (from 7ea7e9e38c46bc51, aaea4e938eb3d574, 2efde55f1db9b7ed).
+- **Review fixes:** the scorer's docstring and a test state the limitation below.
+- **Gates:** relevant tests only (owner rule): `test_finish_reason_reaches_scorer.py` and `test_named_deviation_aime.py` (new), `test_benchmark_answer_rules.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 709 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 10 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): the adapter writing `stop` fails 3 tests; dropping the aggregate's pass-through fails 3; dropping the check surface's fails 1.
 - **Deviations:** the combine operator `inspect_aime@1` is unchanged. Its vendored copy is only
   the eval's line-finding helpers, which #2701's fix does not touch, and an extract operator
   reads a member's text alone, never its finish reason; marking a cut-off member there needs a
@@ -411,3 +413,13 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   is proposed to the owner as its own change. A fusion Candidate whose model calls stopped for
   different reasons records no finish reason, so its cut-off reply reaches the scorer as
   `unknown` and AIME grades it as v0.20.0 does.
+- **Known limitations:** a reply cut off INSIDE its ANSWER: line keeps the credit its truncated
+  digits earn (a model writing `ANSWER: 104` that the limit stops at `ANSWER: 1` is right on a
+  Case whose answer is 1): the stop reason says the reply was cut, not where. Faithful to
+  #2701's proposed fix; pinned by a test.
+- **Owner verify (after the deploy):** the catalogue ids `inspect-worldsense` and
+  `inspect-stereoset` are now `worldsense` and `stereoset`, so the scoreboard keeps two orphaned
+  rows no score references. Retire each with
+  `python -m scoreboard.retire_benchmark --benchmark inspect-worldsense` (a dry run first),
+  then again with `--yes`; add `--include-engine-owned` if the dry run says the row carries an
+  Engine revision (the Engine no longer publishes either id). Same for `inspect-stereoset`.
