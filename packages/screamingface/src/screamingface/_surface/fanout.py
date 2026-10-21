@@ -2,8 +2,8 @@
 
 FEATURE: ``Fanout(members, *, signals=None, quorum="all", name=None, prompt=None)`` sends the
 input to every member and declares the signals that the later steps of its block read. The
-member, quorum and signal rules of today's Fusion apply here, when the Fanout is built; the rules
-that need the terminal step run when the block closes (CH-9).
+member, quorum and signal rules of the internal FusionNode apply here, when the Fanout is built;
+the rules that need the terminal step run when the block closes (CH-9).
 """
 
 from __future__ import annotations

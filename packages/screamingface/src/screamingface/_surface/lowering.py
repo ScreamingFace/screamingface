@@ -1,4 +1,4 @@
-"""The lowering: a chain of the new surface → the internal values that today's compiler reads.
+"""The lowering: a chain of the new surface → the internal node values that the compiler reads.
 
 FEATURE (E4b surface, lowering §1–§2): ``lower()`` turns a chain into the internal ``FusionNode``
 and reducer nodes that the compiler reads, inside a ``Pipeline`` that holds only recipes (D7-2).
@@ -96,17 +96,17 @@ def block_node(block: _Block) -> Recipe:
 
 
 def step_node(step: Step, judge: JudgeNode | None) -> Reducer:
-    """Today's reducer for a reduce or narrow step. ``judge`` is the block's scores judge of
-    today; only a step that reads ``score:judge`` gets it."""
+    """The reducer node of a reduce or narrow step. ``judge`` is the block's scores judge node;
+    only a step that reads ``score:judge`` gets it."""
 
     return _NODES[type(step)](step, judge if step._reads_judge() else None)
 
 
 def check_step(step: Step) -> None:
-    """Build today's reducer once, so a bad option raises when the step is built.
+    """Build the reducer node once, so a bad option raises when the step is built.
 
     WHY the probe judge: a step that reads ``score:judge`` needs the block's ``sf.Judge``, which
-    comes at block close (CH-10); with the probe, today's constructor checks every other option
+    comes at block close (CH-10); with the probe, the node constructor checks every other option
     now.
     """
 
@@ -160,7 +160,7 @@ def _writer(step: Synthesize) -> Recipe:
 
 
 def _vote_node(step: Vote, judge: JudgeNode | None, gate: GateNode | None = None) -> Reducer:
-    """A rule name lowers to today's named Vote, a field or an extract to the block form.
+    """A rule name lowers to the named VoteNode, a field or an extract to the ReduceNode block.
 
     WHY the block form for ``"field:<path>"`` and ``sf.Extract``: the named reducers store an
     operator name only (``S/reducer.py``), so ``sf.Reduce`` is the one path that compiles an
@@ -169,7 +169,7 @@ def _vote_node(step: Vote, judge: JudgeNode | None, gate: GateNode | None = None
 
     if is_rule_name(step.over):
         over = cast("str", step.over)
-        # WHY the default marker for "benchmark": today's Vote takes the benchmark's normalizer only
+        # WHY the default marker for "benchmark": VoteNode takes the benchmark's normalizer only
         # when no normalize= was passed (GP-E2); the step holds None for it.
         normalize = _DEFAULT_NORMALIZE if over == BENCHMARK_EXTRACT else step.normalize
         return VoteNode(
@@ -209,7 +209,7 @@ def _statistic_node(step: Median | Mean, _judge: JudgeNode | None) -> Reducer:
 
 
 def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
-    """Today's gated vote: ``sf.Vote(..., gate=sf.Gate(observe, cmp, threshold, otherwise=,
+    """The gated VoteNode: ``VoteNode(..., gate=GateNode(observe, cmp, threshold, otherwise=,
     abstain_band=))``; a judge-weighted ``then`` keeps its judge."""
 
     when, band = step.when, step.abstain_if
@@ -224,7 +224,7 @@ def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
 
 
 def _fallback_node(otherwise: Fallback) -> Literal["abstain"] | JudgeNode | Model:
-    """The part 5 fallback: today's label judge, or the writer Model (GA-4: one model call)."""
+    """The part 5 fallback: the label JudgeNode, or the writer Model (GA-4: one model call)."""
 
     if isinstance(otherwise, JudgePick):
         return otherwise._node
@@ -250,7 +250,7 @@ def _concat_node(step: Concat, _judge: JudgeNode | None) -> Reducer:
 
 
 def _pick_node(step: _ArgBest, judge: JudgeNode | None) -> Reducer:
-    """ArgMax/ArgMin by a signal is today's Pick by signal; by ``score:judge`` it is today's scores
+    """ArgMax/ArgMin by a signal is the PickNode by signal; by ``score:judge`` it is the scores
     judge as the synthesizer, with ArgMin's ``order="min"`` (select ``best_holder{order:min}``)."""
 
     if judge is None:
@@ -280,7 +280,7 @@ def _judge_pick_node(step: JudgePick, _judge: JudgeNode | None) -> Reducer:
     return step._node
 
 
-# Each reduce and narrow step, and how it lowers to today's reducer (lowering §2.2).
+# Each reduce and narrow step, and the reducer node it lowers to (lowering §2.2).
 _NODES: Mapping[type, Callable[[Any, JudgeNode | None], Reducer]] = MappingProxyType(
     {
         Vote: _vote_node,
@@ -299,8 +299,7 @@ _NODES: Mapping[type, Callable[[Any, JudgeNode | None], Reducer]] = MappingProxy
 )
 
 
-# AIDEV-NOTE: the walk over the recipe containers mirrors S/_evaluation/fusion_recipe.py, with its
-# name rule (_kept_name). Unit 7 deletes fusion_recipe.py, so this becomes the only walker.
+# The one walk over the recipe containers, with the name rule (_kept_name).
 def _lower(value: Recipe, active: _Active) -> Recipe:
     # WHY the active ids: a cyclic value (only built by hand) must reach the compiler, which names
     # the cycle; the lowering leaves a value it is already inside as it is.

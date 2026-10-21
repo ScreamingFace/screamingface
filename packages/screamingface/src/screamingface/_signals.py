@@ -256,8 +256,8 @@ def _rejection(key: str) -> str:
 
 def signal(key: str) -> Signal:
     """A named number on a member Answer, read by a reducer: cost_usd, latency_ms, tokens_in,
-    tokens_out, score:judge, field:<path>, or a name that the Fusion declares in ``signals=``.
-    A missing value is None, never an error."""
+    tokens_out, score:judge, field:<path>, or a name that the ``sf.Fanout`` declares in
+    ``signals=``. A missing value is None, never an error."""
 
     return Signal(key)
 

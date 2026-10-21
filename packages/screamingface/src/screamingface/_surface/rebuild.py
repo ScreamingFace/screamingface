@@ -2,13 +2,13 @@
 
 FEATURE: ``rebuild(url4)`` gives the chain value a url4 describes and the code that builds it,
 with every step named through the module alias ``sf`` (``candidate = sf.Fanout(...) >> ...``).
-WHY one decode path: the url4 decode and today's rebuild (``S/url4.py``) give today's values, and
-``surface_value`` converts them with the inverse of the lowering table (lowering §2.2). So the url4
-checks of today run once, and only the conversion is new.
+WHY one decode path: the url4 decode and the node rebuild (``S/url4.py``) give the internal node
+values, and ``surface_value`` converts them with the inverse of the lowering table (lowering §2.2).
+So the url4 checks run once, and only the conversion is new.
 INVARIANT (RB-1): the rebuilt value compiles to the url4 it came from, byte for byte, or the
 rebuild is refused with the "cannot rebuild" message.
-``Url4.to_python()`` is ``import screamingface as sf`` and this code (unit 7e), so the alias
-``sf`` is the real ``screamingface``.
+``Url4.to_python()`` is ``import screamingface as sf`` and this code, so the alias ``sf`` is the
+real ``screamingface``.
 """
 
 from __future__ import annotations
@@ -112,7 +112,8 @@ def rebuild_decoded(decoded: _DecodedCandidate) -> Rebuilt:
 
 
 def surface_value(value: Recipe) -> Recipe:
-    """Today's ``value`` in the new surface: a Fusion becomes a block, a Pipeline a chain."""
+    """An internal node ``value`` in the new surface: a FusionNode becomes a block, a Pipeline a
+    chain."""
 
     convert = dispatch(_RECIPES, value)
     if convert is None:  # pragma: no cover - the url4 topology has no other kind
@@ -146,7 +147,7 @@ def _solo(solo: SelfCorrective) -> SelfCorrective:
 
 
 def _chain(pipeline: Pipeline) -> Pipeline:
-    """Today's stages as one chain: a selection Fusion and the stage after it are one block,
+    """The node stages as one chain: a selection FusionNode and the stage after it are one block,
     ``Fanout >> <narrow> >> Synthesize(next stage)`` (rebuild-display §1)."""
 
     items: list[Recipe | Step] = []

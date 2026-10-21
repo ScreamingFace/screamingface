@@ -221,9 +221,9 @@ def _candidate_members(
     if kind == "model" and selected:
         raise ValueError("a planned Model Candidate cannot contain members")
     if kind == "pipeline" and selected:
-        raise ValueError("a planned Pipeline Candidate cannot contain direct Fusion members")
+        raise ValueError("a planned Pipeline Candidate cannot contain direct fanout members")
     if kind == "fusion" and not selected:
-        raise ValueError("a planned Fusion Candidate requires at least one direct member")
+        raise ValueError("a planned fanout Candidate requires at least one direct member")
     return selected
 
 
@@ -310,9 +310,7 @@ def _reject_reducers(value: object) -> None:
         value if isinstance(value, Sequence) and not isinstance(value, str | bytes) else (value,)
     )
     if any(isinstance(item, Reducer) for item in items):
-        raise TypeError(
-            "a reducer is not a complete Candidate: a reducer must be a Fusion synthesizer"
-        )
+        raise TypeError("a reducer is not a complete Candidate: it closes a sf.Fanout block")
 
 
 def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:

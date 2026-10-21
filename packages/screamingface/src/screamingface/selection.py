@@ -53,9 +53,9 @@ def _check_rank_source(by: object, by_signal: object) -> None:
     # INVARIANT: the lowering and the url4 rebuild give a scores judge (the sf.Judge step).
     assert by is None or (isinstance(by, JudgeNode) and by.returns == "scores")
     if by_signal is not None and not isinstance(by_signal, Signal):
-        raise TypeError("Rank by_signal must be an sf.signal")
+        raise TypeError("Rank by must be an sf.signal")
     if isinstance(by_signal, Signal):
-        _refuse_judge_signal(by_signal, "Rank", "sf.Rank(k, by=sf.Judge(..., returns='scores'))")
+        _refuse_judge_signal(by_signal, "sf.Rank", "sf.Judge(...) after sf.Fanout")
 
 
 def _check_rank_order(order: object) -> Literal["max", "min"]:
@@ -117,7 +117,7 @@ class RankNode(Reducer):
 
     def _check_members(self, count: int) -> None:
         if self.k > count:
-            raise ValueError(f"Rank keeps k={self.k} members but the Fusion has {count}")
+            raise ValueError(f"sf.Rank keeps k={self.k} members but the sf.Fanout has {count}")
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> RankNode:

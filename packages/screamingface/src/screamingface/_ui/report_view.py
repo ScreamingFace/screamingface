@@ -551,8 +551,13 @@ def _grading_html(metrics: Any) -> str:
     )
 
 
+# The label a reader sees for a wire kind: a fanout block is "fusion" on the wire (it stays, the
+# report schema pins it) and "fanout" on the page (O13).
+_KIND_LABELS: Mapping[str, str] = {"fusion": "fanout"}
+
+
 def _members_html(candidate: CandidateResult) -> str:
-    """A Fusion's direct members — the participants behind a fused answer."""
+    """A fanout block's direct members — the participants behind a fused answer."""
 
     if not candidate.members:
         return ""
@@ -564,7 +569,7 @@ def _members_html(candidate: CandidateResult) -> str:
     rows = "".join(
         "<div class='sf-member'>"
         f"<span class='sf-member__n'>{escape(_member_display_name(member, duplicated))}</span>"
-        f"<span class='sf-member__k'>{escape(member.kind)}</span>"
+        f"<span class='sf-member__k'>{escape(_KIND_LABELS.get(member.kind, member.kind))}</span>"
         f"<span class='sf-member__m'>{escape(', '.join(member.models))}</span>"
         f"<span class='sf-member__d'>"
         f"{'—' if member.duration_ms is None else _duration(member.duration_ms)}</span>"

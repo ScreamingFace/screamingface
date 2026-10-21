@@ -115,7 +115,7 @@ class Extract:
 
         operator = _RULES[self.rule][0]
         if operator is None:
-            raise ValueError("extract='benchmark' needs a benchmark")
+            raise ValueError("over='benchmark' needs a benchmark")
         normalize = None if self.normalize is None else _Step(self.normalize)
         return _Step(operator, self.args), normalize
 
@@ -127,7 +127,7 @@ def _check_normalizer(rule: str, normalize: object) -> None:
         raise ValueError(f"sf.Extract normalize must be one of {', '.join(_NORMALIZERS)}")
     if rule == "benchmark":
         raise ValueError(
-            "extract='benchmark' takes the benchmark's own normalizer; "
+            "sf.Extract('benchmark') takes the benchmark's own normalizer; "
             "v1 does not let a recipe change it"
         )
 
@@ -214,19 +214,29 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
 # INVARIANT: the Engine's top_k@1 `_MAX_K` (operators/selection.py), copied; it is also the most
 # members a reducer Fusion takes, so one constant serves both. sf.Rank reads it from here.
 _MAX_K = _MAX_REDUCER_MEMBERS
+# The step each op is the block form of: a message names the step the user wrote (O13).
+_STEPS_OF_OPS: Mapping[str, str] = MappingProxyType(
+    {"plurality": "sf.Vote", "weighted": "sf.Vote", "median": "sf.Median", "mean": "sf.Mean"}
+)
 # INVARIANT: the Engine's join@1 `_MAX_SEPARATOR_CHARS` (operators/selection.py), copied; a longer
 # separator is refused before any call is made. sf.Concat reads it from here.
 _MAX_SEPARATOR_CHARS = 1024
 
 
+def _step_of(op: str) -> str:
+    """The step a block op lowers from (``sf.Vote``, ``sf.Median``, ``sf.Mean``)."""
+
+    return _STEPS_OF_OPS[op]
+
+
 def _check_extract(op: str, value: object) -> Extract:
     if not isinstance(value, Extract):
-        raise TypeError(f"sf.Reduce({op!r}) option 'extract' must be an sf.Extract")
+        raise TypeError(f"{_step_of(op)} over= must be an sf.Extract")
     return value
 
 
 def _check_weights(op: str, value: object) -> Signal | tuple[float, ...]:
-    return _weights_option(value, f"sf.Reduce({op!r}) weights")
+    return _weights_option(value, f"{_step_of(op)} weights")
 
 
 def _check_judge(op: str, value: object) -> object:
@@ -234,7 +244,7 @@ def _check_judge(op: str, value: object) -> object:
     from screamingface.judge import JudgeNode
 
     if not isinstance(value, JudgeNode):
-        raise TypeError(f"sf.Reduce({op!r}) option 'judge' must be an sf.Judge")
+        raise TypeError(f"{_step_of(op)} judge must be an sf.Judge")
     return value
 
 
@@ -254,7 +264,7 @@ class ReduceNode(Reducer):
     block keeps only the mode, so both spellings are one block, with one repr and one url4.
     """
 
-    _public_name: ClassVar[str] = "Reduce"
+    _public_name: ClassVar[str] = "Vote"
     name: str
     op: str
     mode: ReduceMode
@@ -264,10 +274,10 @@ class ReduceNode(Reducer):
 
     def __init__(self, op: str, mode: ReduceMode | None = None, **options: object) -> None:
         if not isinstance(op, str):
-            raise TypeError("sf.Reduce op must be text")
+            raise TypeError("a ReduceNode op must be text")
         row = _OPS.get(op)
         if row is None:
-            raise ValueError(f"unknown sf.Reduce op {op!r}; the v1 ops are {', '.join(_OPS)}")
+            raise ValueError(f"unknown ReduceNode op {op!r}; the ops are {', '.join(_OPS)}")
         mode, options = _numeric_select(op, mode, options)
         selected_mode = _resolve_mode(op, row, mode)
         _check_option_names(op, row, options)
@@ -310,15 +320,16 @@ class ReduceNode(Reducer):
         parts.extend(f"{name}={value!r}" for name, value in self.options.items())
         return f"Reduce({', '.join(parts)})"
 
+    def _step_name(self) -> str:
+        return _step_of(self.op).removeprefix("sf.")
+
     def _plan(self) -> _ReducerPlan:
         return _PLANS[self.op](self)
 
     def _check_members(self, count: int) -> None:
         weights = self.options.get("weights")
         if isinstance(weights, tuple) and len(weights) != count:
-            raise ValueError(
-                f"sf.Reduce({self.op!r}) has {len(weights)} weights for {count} members"
-            )
+            raise ValueError(f"{_step_of(self.op)} has {len(weights)} weights for {count} members")
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> ReduceNode:
@@ -335,7 +346,7 @@ def _resolve_mode(op: str, row: _OpRow, mode: object) -> ReduceMode:
     if mode is None:
         return row.modes[0]
     if mode not in ("select", "compute"):
-        raise ValueError("sf.Reduce mode must be 'select' or 'compute'")
+        raise ValueError("a ReduceNode mode must be 'select' or 'compute'")
     if mode not in row.modes:
         raise ValueError(f"{op!r} is a {'/'.join(row.modes)} op, not {mode}")
     return mode
@@ -347,10 +358,10 @@ def _check_option_names(op: str, row: _OpRow, options: Mapping[str, object]) -> 
         if name not in allowed:
             named = (*allowed, "select") if op in _SELECT_CHOICES else allowed
             takes = ", ".join(named) if named else "no options"
-            raise ValueError(f"sf.Reduce({op!r}) does not take option {name!r}; it takes {takes}")
+            raise ValueError(f"ReduceNode({op!r}) does not take option {name!r}; it takes {takes}")
     for name in row.required:
         if name not in options:
-            raise ValueError(f"sf.Reduce({op!r}) needs option {name!r}")
+            raise ValueError(f"ReduceNode({op!r}) needs option {name!r}")
 
 
 # op -> its select words as an error names them, the default first (the sf.Median / sf.Mean order)
@@ -375,9 +386,9 @@ def _numeric_select(
     rest = dict(options)
     select = rest.pop("select")
     if mode is not None:
-        raise ValueError(f"sf.Reduce({op!r}) takes mode or select, not both")
+        raise ValueError(f"ReduceNode({op!r}) takes mode or select, not both")
     if not isinstance(select, str) or select not in _NUMERIC_MODES:
-        raise ValueError(f"sf.Reduce({op!r}) option 'select' must be {choices}, not {select!r}")
+        raise ValueError(f"{_step_of(op)} select= must be {choices}, not {select!r}")
     return _NUMERIC_MODES[select], rest
 
 
@@ -386,7 +397,7 @@ def _numeric_extract(extract: object, op: str) -> Extract:
     benchmark's."""
     assert isinstance(extract, Extract)
     if extract.rule == "benchmark" or extract.normalize not in (None, "numeric"):
-        raise ValueError(f"sf.Reduce({op!r}) needs a numeric Extract that is not 'benchmark'")
+        raise ValueError(f"{_step_of(op)} needs a numeric sf.Extract that is not 'benchmark'")
     return Extract(extract.rule, normalize="numeric", **extract.args)
 
 
@@ -398,11 +409,11 @@ def _canonical_statistic(checked: dict[str, object], statistic: _Statistic, use:
     checked["extract"] = _numeric_extract(checked["extract"], statistic)
     weights = checked.get("weights")
     if isinstance(weights, Signal):
-        _refuse_judge_signal(weights, f"sf.Reduce({statistic!r})", use)
+        _refuse_judge_signal(weights, _step_of(statistic), use)
 
 
 def _canonical_weighted(checked: dict[str, object]) -> None:
-    _check_judge_weights(checked["weights"], checked.get("judge"), "sf.Reduce('weighted')")
+    _check_judge_weights(checked["weights"], checked.get("judge"), "sf.Vote")
 
 
 # op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
@@ -516,7 +527,7 @@ def _rebuild_vote(spec: Mapping[str, object], *, judge: JudgeNode | None = None)
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
 
-# The select op of a median or a mean block -> its sf.Reduce mode.
+# The select op of a median or a mean block -> its ReduceNode mode.
 _NUMERIC_MODES: Mapping[str, ReduceMode] = MappingProxyType(
     {"nearest": "select", "value": "compute"}
 )

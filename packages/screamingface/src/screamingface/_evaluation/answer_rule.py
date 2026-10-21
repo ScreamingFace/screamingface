@@ -83,14 +83,14 @@ def resolve_benchmark_rule(
         return plan
     if benchmark is None:
         raise ValueError(
-            "extract='benchmark' needs a benchmark; "
+            "over='benchmark' needs a benchmark; "
             "evaluate the Candidate with client.evaluate(..., benchmark=...)"
         )
     rule = benchmark.rule
     if rule is None:
         raise ValueError(
             f"benchmark {benchmark.benchmark_id!r} declares no answer rule, so "
-            "extract='benchmark' cannot be used on it; "
+            "over='benchmark' cannot be used on it; "
             f"use a named extract rule: {', '.join(NAMED_EXTRACT_RULES)}"
         )
     pairs: tuple[tuple[Stage, str | None], ...] = (
@@ -111,7 +111,7 @@ def resolve_benchmark_rule(
 def _missing_operator(benchmark_id: str, stage: Stage, op: str) -> EngineCapabilityError:
     return EngineCapabilityError(
         f"this SF Engine does not serve {op!r}, the {stage} operator benchmark {benchmark_id!r} "
-        "declares for extract='benchmark'",
+        "declares for over='benchmark'",
         permanent=True,
         details={"benchmark": benchmark_id, "stage": stage, "operator": op},
         hint=(

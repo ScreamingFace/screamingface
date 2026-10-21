@@ -193,9 +193,7 @@ def _otherwise(value: object) -> Literal["abstain"] | JudgeNode | Model:
         return _ABSTAIN
     if isinstance(value, JudgeNode):
         if value.returns != "label":
-            raise ValueError(
-                "a gate fallback judge needs sf.Judge(..., returns='label'): it names one member"
-            )
+            raise ValueError("a gate fallback judge must be a sf.JudgePick: it names one member")
         return value
     if isinstance(value, Model):
         # WHY _sample_id: it holds an explicit name= (Model.__repr__ reads it the same way).

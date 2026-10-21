@@ -67,7 +67,7 @@ type RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 @dataclass(frozen=True, slots=True, init=False)
 class MemberResult:
-    """Compact outcome for one direct Fusion member.
+    """Compact outcome for one direct member of a fanout block.
 
     Usage is derived only from retained accounting uniquely attributed to this member's
     operation ID in every Case; unsupported ownership remains ``None``.
@@ -874,12 +874,12 @@ def _validate_model_candidate(models: Sequence[str], members: Sequence[MemberRes
 
 def _validate_fusion_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
     if not members:
-        raise ValueError("a Fusion Candidate requires at least one direct member")
+        raise ValueError("a fanout block Candidate requires at least one direct member")
 
 
 def _validate_pipeline_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
     if members:
-        raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
+        raise ValueError("a Pipeline Candidate cannot contain direct fanout members")
 
 
 def _validate_corrective_loop_candidate(

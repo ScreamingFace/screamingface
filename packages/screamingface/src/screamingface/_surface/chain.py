@@ -2,7 +2,7 @@
 
 FEATURE (E4b surface, surface §2): ``a >> b`` is ``Pipeline([a, b])``. A chain is read left to
 right. A ``Fanout`` opens a block, and a reducer or ``Synthesize`` closes it. A closed block is one
-``_Block`` record that holds its lowered node, so every rule of today's Fusion raises at the ``>>``
+``_Block`` record that holds its lowered node, so every rule of the FusionNode raises at the ``>>``
 that closes the block (CH-9).
 INVARIANT: ``lower()`` (``lowering.py``) is the only way from a chain to the compiler; a lowered
 chain holds only recipes (D7-2: one ``Pipeline`` class, ``S/pipeline.py`` re-exports it).

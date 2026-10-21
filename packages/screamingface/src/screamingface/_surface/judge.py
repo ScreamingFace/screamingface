@@ -3,10 +3,9 @@
 FEATURE: ``Judge(model, *, rubric, params=None)`` scores every member of its block in one call and
 puts ``score:judge`` on each member; it does not pick. ``JudgePick(model, *, rubric, params=None)``
 asks a judge model to name one member, and copies that member's text.
-INVARIANT: both hold today's ``sf.Judge`` as their compile node, built when the step is built, so
-today's rules raise here and equality uses today's typed key (a bool param is not a number).
-AIDEV-NOTE: before the swap the scores judge keeps today's ``@1`` template; unit 7 brings the
-neutral ``@2`` template (D2) and the ``JudgeNode`` name (O7).
+INVARIANT: both hold a ``JudgeNode`` as their compile node, built when the step is built, so the
+node rules raise here and equality uses the node's typed key (a bool param is not a number). The
+scores judge writes the neutral ``judge-template@2`` (D2).
 """
 
 from __future__ import annotations

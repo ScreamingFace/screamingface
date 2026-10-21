@@ -159,7 +159,7 @@ def extractor(value: object) -> Extractor:
 
 
 def is_rule_name(over: Extractor) -> bool:
-    """Whether ``over`` names a rule (pinned or not): it lowers to today's named reducer."""
+    """Whether ``over`` names a rule (pinned or not): it lowers to the named reducer node."""
 
     return isinstance(over, str) and not over.startswith(FIELD_SIGNAL_PREFIX)
 
@@ -244,7 +244,7 @@ class FieldEquals:
     value: str | int | float | bool
 
     def _key(self) -> tuple[object, ...]:
-        # WHY the JSON text: the value compares as that text (today's Pick), so == 7 and == "7"
+        # WHY the JSON text: the value compares as that text (the PickNode), so == 7 and == "7"
         # are one condition with one url4, and == 1 and == True are two.
         return (self.path, self.normalize, _target_text(self.value))
 
@@ -259,8 +259,8 @@ class FieldEquals:
 class FieldRef:
     """A JSON field of each member, for ``sf.First(where=sf.field(path) == value)``.
 
-    It compares with ``==`` only (SI-2): the value compares as text, with today's
-    ``Pick(equals=)`` rules. For a number, use ``sf.signal("field:<path>")``.
+    It compares with ``==`` only (SI-2): the value compares as text. For a number, use
+    ``sf.signal("field:<path>")``.
     """
 
     path: str
@@ -288,7 +288,7 @@ class FieldRef:
 
 
 def _field_value(value: object, normalize: FieldNormalizer | None) -> str | int | float | bool:
-    """The value of ``sf.field(path) == value``, checked with today's ``Pick(equals=)`` rules."""
+    """The value of ``sf.field(path) == value``, checked with the rules of the field pick node."""
 
     if not isinstance(value, str | int | float | bool):
         raise TypeError(f"sf.field compares with a string, a number or a bool, not {value!r}")

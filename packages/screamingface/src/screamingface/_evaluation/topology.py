@@ -497,14 +497,14 @@ def _decode_fusion(
 ) -> _RecipeTopology:
     expected = {"binding", "kind", "members", "name", "synthesizer"}
     if set(value) not in (expected, expected | {"quorum"}):
-        raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
+        raise ValueError("URL4 Candidate has invalid fusion topology metadata")
     members_value = value["members"]
     if not isinstance(members_value, list):
-        raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
+        raise ValueError("URL4 Candidate has invalid fusion topology metadata")
     members = tuple(_decode_node(member) for member in members_value)
     synthesizer = _decode_synthesizer(value["synthesizer"])
     if not members or binding != synthesizer.binding:
-        raise ValueError("URL4 Candidate has invalid Fusion topology metadata")
+        raise ValueError("URL4 Candidate has invalid fusion topology metadata")
     return _RecipeTopology(
         quorum=_quorum(value.get("quorum", "all"), len(members)),
         kind="fusion",

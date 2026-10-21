@@ -433,7 +433,10 @@ def _next_cache(
             status=404,
             permanent=True,
             details={"path": _OPERATORS_PATH},
-            hint="Use an SF Engine that serves GET /v1/operators, or use a Model synthesizer.",
+            hint=(
+                "Use an SF Engine that serves GET /v1/operators, or close the block with "
+                "sf.Synthesize."
+            ),
         )
     catalog = decode_operator_catalog(_response_json(response, "operator catalog"))
     return _CachedOperators(catalog, etag, fresh_until)
