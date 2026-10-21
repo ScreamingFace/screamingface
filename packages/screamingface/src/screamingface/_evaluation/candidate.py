@@ -1062,11 +1062,13 @@ def _warn_judge_writers(recipe: Recipe) -> None:
             continue
         seen.add(id(value))
         if isinstance(value, Pipeline):
-            # WJ-1: the chain before the lowering: a closed block is one stage.
-            _warn_judge_writer(value.name, value._stage_values())
-            # E6: a block that lowers to Pipeline([FusionNode, writer]) holds a judge and a writer;
-            # it is named by its stage in the user's chain, never by its inferred name (gap b).
+            # gap b: an unnamed chain is never named by its inferred name, which lists the member
+            # routes; the message names only its stages.
             named = value.name if value._is_named else None
+            # WJ-1: the chain before the lowering: a closed block is one stage.
+            _warn_judge_writer(named, value._stage_values())
+            # E6: a block that lowers to Pipeline([FusionNode, writer]) holds a judge and a writer;
+            # it is named by its stage in the user's chain.
             for position, inner in value._block_pipelines():
                 _warn_block_judge_writer(named, position, inner._stage_values())
             pending.extend(reversed(value._held_recipes()))
@@ -1074,15 +1076,15 @@ def _warn_judge_writers(recipe: Recipe) -> None:
             pending.extend(reversed(_children(value)))
 
 
-def _warn_judge_writer(name: str, stages: tuple[Recipe, ...]) -> None:
+def _warn_judge_writer(name: str | None, stages: tuple[Recipe, ...]) -> None:
     """Warn when a stage writes with the model that judged the stage just before it (JW-1).
 
     WHY a warning and not an error (ans:Q1): one strong model in two roles is a legal recipe,
     but the epic rule is "the writer is not the scorer", so the researcher must hear it before
     the run is paid. Only adjacent stages count, and only a direct Model writer (P10). Both
     sides go through _canonical_model, so "/a/b" and "a/b" are one model (review M2). The
-    message names the Pipeline, the two stage positions and the route, never a prompt, a
-    rubric or a member.
+    message names the Pipeline (only when the user named it: ``name`` is None for an unnamed
+    chain), the two stage positions and the route, never a prompt, a rubric or a member.
     """
 
     for position, (stage, following) in enumerate(itertools.pairwise(stages), start=1):
@@ -1091,11 +1093,12 @@ def _warn_judge_writer(name: str, stages: tuple[Recipe, ...]) -> None:
         route = _canonical_model(following.model)
         if route not in _judge_routes(stage):
             continue
+        pair = f"stages {position} and {position + 1}"
+        subject = f"Pipeline {name!r}: {pair}" if name is not None else pair[:1].upper() + pair[1:]
         warnings.warn(
-            f"Pipeline {name!r}: stages {position} and {position + 1} use the same "
-            f"model {route!r}: stage {position} scores the members as the judge, and stage "
-            f"{position + 1} writes the answer, so the writer is also the scorer. Give one of "
-            "the two stages another model, or keep both and ignore this warning.",
+            f"{subject} use the same model {route!r}: stage {position} scores the members as the "
+            f"judge, and stage {position + 1} writes the answer, so the writer is also the scorer. "
+            "Give one of the two stages another model, or keep both and ignore this warning.",
             JudgeWriterWarning,
             skip_file_prefixes=(SDK_PACKAGE_ROOT,),
         )

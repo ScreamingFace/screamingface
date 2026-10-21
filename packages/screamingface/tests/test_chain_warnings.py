@@ -68,7 +68,20 @@ def test_wj1_compile_names_the_users_chain_positions() -> None:
     assert judge_writer[0].filename == __file__
 
 
-def test_wj1_an_unnamed_chain_names_its_inferred_name() -> None:
+def _unnamed_message(first: int) -> str:
+    """The text for an unnamed chain: no Pipeline name, so no inferred name (final review 3)."""
+
+    second = first + 1
+    return (
+        f"Stages {first} and {second} use the same model 'openrouter/a/b': stage {first} scores "
+        f"the members as the judge, and stage {second} writes the answer, so the writer is also "
+        "the scorer. Give one of the two stages another model, or keep both and ignore this "
+        "warning."
+    )
+
+
+def test_wj1_an_unnamed_chain_names_its_stages_only() -> None:
+    # the inferred name ("x->a+b->m1+m2+m3->b") lists the member routes, so it is never shown
     chain = (
         "provider/x"
         >> (sf.Fanout(["provider/a", "provider/b"]) >> sf.Vote())
@@ -79,7 +92,7 @@ def test_wj1_an_unnamed_chain_names_its_inferred_name() -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         compile_candidate(chain, operators=flow_operators())
 
-    assert _messages(recorded) == [_message("x->a+b->m1+m2+m3->b", 3)]
+    assert _messages(recorded) == [_unnamed_message(3)]
 
 
 def test_wj1_the_evaluation_entry_warns_once_with_the_users_positions() -> None:
@@ -150,3 +163,36 @@ def test_e6_the_judge_and_writer_inside_one_block_still_warn() -> None:
         "so the writer is also the scorer. Give the judge or the writer another model, or keep "
         "both and ignore this warning."
     ]
+
+
+def test_wj1_a_two_stage_unnamed_chain_shows_no_member_route() -> None:
+    chain = (
+        sf.Fanout(_MEMBERS)
+        >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+        >> sf.ArgMax("score:judge")
+        >> sf.Model(_JUDGE_ROUTE)
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    messages = _messages(recorded)
+    assert messages == [_unnamed_message(1)]
+    assert not any(route in messages[0] for route in ("m1", "m2", "m3", "->"))
+
+
+def test_wj1_a_named_two_stage_chain_keeps_its_name() -> None:
+    chain = sf.Pipeline(
+        [
+            sf.Fanout(_MEMBERS)
+            >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+            >> sf.ArgMax("score:judge"),
+            sf.Model(_JUDGE_ROUTE),
+        ],
+        name="judged",
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    assert _messages(recorded) == [_message("judged", 1)]
