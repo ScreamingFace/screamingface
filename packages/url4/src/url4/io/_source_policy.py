@@ -24,9 +24,12 @@ IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 # `ipaddress` reports 64:ff9b::7f00:1 as global although it reaches 127.0.0.1 through NAT64.
 _NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
 
-# WHY: the deprecated IPv4-compatible ``::/96`` and SIIT ``::ffff:0:0:0/96`` forms also embed an
-# IPv4 address in their last 32 bits (``::7f00:1``, ``::ffff:0:7f00:1``) and are judged as it.
-_EMBEDS_IPV4 = (_NAT64, ipaddress.IPv6Network("::/96"), ipaddress.IPv6Network("::ffff:0:0:0/96"))
+# WHY: the IPv4-compatible ``::/96`` (deprecated, RFC 4291) and SIIT ``::ffff:0:0:0/96``
+# (obsolete, RFC 6145) forms embed an IPv4 address too, but no legitimate source uses them, and
+# what a host stack does with one varies. They are refused OUTRIGHT, whatever they embed; the one
+# exception is the loopback escape hatch, which still admits their loopback embeddings.
+_DEPRECATED = (ipaddress.IPv6Network("::/96"), ipaddress.IPv6Network("::ffff:0:0:0/96"))
+_EMBEDS_IPV4 = (_NAT64, *_DEPRECATED)
 
 # WHY: ``ipaddress`` reports these as global although no source fetch may target them.
 _ALSO_REFUSED = (ipaddress.IPv4Network("192.88.99.0/24"),)  # deprecated 6to4 relay (RFC 7526)
@@ -123,13 +126,15 @@ def check_url(url: str, guard: SourceGuard, *, peer: bool = False) -> None:
 def vet_address(address: IPAddress, guard: SourceGuard) -> None:
     """Refuse loopback, private, link-local, CGNAT, unspecified, multicast and reserved.
 
-    INVARIANT: an IPv4 address embedded in IPv6 (mapped ``::ffff:a.b.c.d``, IPv4-compatible
-    ``::a.b.c.d``, SIIT ``::ffff:0:a.b.c.d`` or NAT64) is judged as the IPv4 address it reaches.
+    INVARIANT: an IPv4 address embedded in IPv6 (mapped ``::ffff:a.b.c.d`` or NAT64) is judged
+    as the IPv4 address it reaches. The deprecated IPv4-compatible ``::a.b.c.d`` and SIIT
+    ``::ffff:0:a.b.c.d`` forms are refused whatever they embed (only the loopback escape hatch
+    admits their loopback embeddings); ``::`` and ``::1`` keep IPv6's own rules.
     """
     effective = _unwrap(address)
     if guard.allow_loopback and effective.is_loopback:
         return
-    if _refused(effective):
+    if _refused(effective) or _deprecated(address):
         raise destination_blocked(f"address {address} is in a refused range")
 
 
@@ -179,6 +184,10 @@ def _refused(address: IPAddress) -> bool:
         or not address.is_global
         or any(address in network for network in _ALSO_REFUSED)
     )
+
+
+def _deprecated(address: IPAddress) -> bool:
+    return address not in _NOT_EMBEDDED and any(address in net for net in _DEPRECATED)
 
 
 def _unwrap(address: IPAddress) -> IPAddress:

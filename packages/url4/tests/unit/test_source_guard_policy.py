@@ -164,3 +164,29 @@ def test_embedded_loopback_forms_follow_the_escape_hatch() -> None:
     vet_address(ipaddress.ip_address("::1"), hatch)  # plain IPv6 loopback is not unwrapped
     with pytest.raises(ResolutionError):
         vet_address(ipaddress.ip_address("::a9fe:a9fe"), hatch)
+
+
+# --- review hardening 2: deprecated embedded forms refused outright (OME-1544) ----------------
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "::8.8.8.8",  # IPv4-compatible ::/96 (RFC 4291 deprecated), public embedded address
+        "::ffff:0:808:808",  # SIIT ::ffff:0:0/96 (RFC 6145 obsolete), public embedded address
+        "::1:0:0",  # just outside ::/96, inside the reserved ::/8: refused by the reserved rule
+    ],
+)
+def test_deprecated_embedded_forms_are_refused_whatever_they_embed(address: str) -> None:
+    for guard in (SourceGuard(), SourceGuard(allow_loopback=True)):
+        with pytest.raises(ResolutionError) as caught:
+            vet_address(ipaddress.ip_address(address), guard)
+        assert caught.value.code == ErrorCode.SOURCE_DESTINATION_BLOCKED
+
+
+def test_unspecified_and_ipv6_loopback_keep_their_own_rules() -> None:
+    with pytest.raises(ResolutionError):
+        vet_address(ipaddress.ip_address("::"), SourceGuard(allow_loopback=True))
+    with pytest.raises(ResolutionError):
+        vet_address(ipaddress.ip_address("::1"), SourceGuard())
+    vet_address(ipaddress.ip_address("::1"), SourceGuard(allow_loopback=True))

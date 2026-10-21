@@ -797,3 +797,10 @@ async def test_one_huge_raw_chunk_is_decoded_a_step_at_a_time(net: _Net) -> None
     data = _gzip_of_zeros()
     peak = await _peak_while_blocked(net, [data], "gzip", _MIB)
     assert peak < 2 * _MIB
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", ["https://[::8.8.8.8]/", "https://[::ffff:0:808:808]/"])
+async def test_deprecated_embedded_ipv6_forms_are_refused_outright(net: _Net, url: str) -> None:
+    await _blocked(_io(net), url)
+    assert net.sent == [] and net.lookups == []
