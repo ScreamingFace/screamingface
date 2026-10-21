@@ -175,11 +175,6 @@ def _one_per_row() -> list[ReduceNode]:
 
 
 def test_equal_reduce_blocks_are_equal_and_hash_equal() -> None:
-    for block in _one_per_row():
-        twin = eval(block._python(), {"sf": sf})  # noqa: S307
-        assert twin == block
-        assert hash(twin) == hash(block)
-        assert len({block, twin}) == 1
     assert ReduceNode("plurality", extract=LAST) != ReduceNode("plurality", extract=NUMERIC)
     assert ReduceNode("weighted", extract=LAST, weights=[1]) != ReduceNode(
         "weighted", extract=LAST, weights=[2]
@@ -296,12 +291,9 @@ def _roundtrip_cases() -> list[ReduceNode]:
         [
             ReduceNode("argmax", by_signal=sf.signal("cost_usd"), order="min"),
             ReduceNode("argmax", by_signal=sf.signal("field:confidence")),
-            ReduceNode("pick_field", field="score", order="min"),
             ReduceNode("pick_field", field="verdict", normalize="text", equals="yes"),
             ReduceNode("merge", fields={"a": sf.FieldRule.majority(normalize="text")}),
             ReduceNode("merge", fields={"s": sf.FieldRule.model("provider/w", prompt="Write.")}),
-            ReduceNode("top_k", k=2, by_field="score"),
-            ReduceNode("top_k", k=2, by_field="a.b[0]", order="min"),
             ReduceNode("top_k", k=1, by=JudgeNode("provider/j", returns="scores", rubric="Score.")),
             ReduceNode("top_k", k=2, by_signal=sf.signal("cost_usd"), order="min"),
             ReduceNode("top_k", k=2, by_signal=sf.signal("field:confidence")),

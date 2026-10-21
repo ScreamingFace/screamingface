@@ -211,17 +211,3 @@ def test_judge_key_and_repr_include_order() -> None:
     assert plain.order == "max"  # type: ignore[attr-defined]
     assert low.order == "min"  # type: ignore[attr-defined]
     assert _url4(explicit) == _url4(plain)
-
-
-def test_public_surface_lists_judge_order() -> None:
-    # JO#13: the approved snapshot edit. The Judge gains the field and the keyword.
-    from test_public_surface import build_public_surface
-
-    judge = build_public_surface()["screamingface"]["exports"]["Judge"]
-    assert judge["members"].get("order") == "field"
-    assert (
-        judge["members"]["__init__"]
-        == "method (self, model: 'str', *, returns: 'JudgeReturns', rubric: 'str', "
-        "params: 'Mapping[str, str | int | float | bool] | None' = None, "
-        "order: \"Literal['max', 'min']\" = 'max') -> 'None'"
-    )

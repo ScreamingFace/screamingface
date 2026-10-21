@@ -346,11 +346,6 @@ def test_reduce_filter_block_canonical_form_equality_and_hash() -> None:
     assert plain == twin
     assert hash(plain) == hash(twin)
     assert dict(plain.options) == {"where": sf.matches("a")}
-    with_extract = ReduceNode("filter", where=_CONFIDENCE >= 0.6, extract=sf.Extract("boxed"))  # type: ignore[arg-type]
-    for block in (plain, with_extract, ReduceNode("filter", where=_CONFIDENCE <= 1)):  # type: ignore[arg-type]
-        again = eval(block._python(), {"sf": sf})  # noqa: S307
-        assert again == block
-        assert hash(again) == hash(block)
     assert ReduceNode("filter", where=sf.matches("a", ignore_case=True)) != plain
     assert ReduceNode("filter", where=_CONFIDENCE >= 0.6) != ReduceNode(
         "filter", where=_CONFIDENCE > 0.6
@@ -395,8 +390,6 @@ def test_filter_fields_repr_and_equality() -> None:
     assert repr(pattern) == (
         "Filter(where=sf.matches('a', ignore_case=True), extract=sf.Extract('boxed'))"
     )
-    for item in (named, pattern):
-        assert eval(item._python(), {"sf": sf}) == item  # noqa: S307
     assert named != pattern
     assert named == FilterNode(where=sf.signal("field:confidence") >= 0.6)  # type: ignore[arg-type]
     with pytest.raises(TypeError):

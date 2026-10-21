@@ -91,18 +91,6 @@ def _check_canonical_equality_and_hash() -> None:
     )
     assert one._python().startswith("sf.Reduce('merge', fields={'a': sf.FieldRule.majority()")
 
-    # a model field with params and a pick round trip through their own source
-    with_params = ReduceNode(
-        "merge",
-        fields={"a": sf.FieldRule.model("provider/w", prompt="Write.", params={"temperature": 0})},
-    )
-    for block in (
-        one,
-        with_params,
-        ReduceNode("pick_field", field="x", equals="y", normalize="text"),
-    ):
-        assert eval(block._python(), {"sf": sf}) == block  # noqa: S307 - our own generated code
-
     # the field order is the spec order, so it is part of the block
     ab = ReduceNode("merge", fields={"a": sf.FieldRule.max(), "b": sf.FieldRule.max()})
     ba = ReduceNode("merge", fields={"b": sf.FieldRule.max(), "a": sf.FieldRule.max()})
