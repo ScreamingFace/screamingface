@@ -6291,6 +6291,75 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
     ),
+    BenchmarkSpec(
+        key="medmcqa",
+        title="MedMCQA",
+        description=(
+            "4,183 four-option multiple-choice questions from Indian medical entrance exams "
+            "(AIIMS and NEET PG), across 21 subjects such as anatomy, pharmacology and "
+            "surgery: the full validation split, since the test split's answers are withheld. "
+            "Served as a local Task in inspect's shape: each question is shown with its "
+            "options lettered A to D, in the dataset's order, under inspect's standard "
+            "multiple-choice instruction, and graded by inspect's choice scorer against the "
+            "letter of the correct option, so no judge tokens are spent. Benchmark score = "
+            "plain accuracy over the cases run, comparable with papers that report on the "
+            "validation (dev) split. No mid-run check surface (elimination attack over four "
+            "options)."
+        ),
+        focus="Medical entrance exam questions (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/openlifescienceai/medmcqa",
+        # Professional-exam medicine like medqa; the best published dev score is about 0.84,
+        #  so frontier models pass comfortably but not at ceiling (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.medmcqa.medmcqa:medmcqa,
+        #   a LOCAL Task we wrote in inspect's shape (OME-1696): inspect_evals has no MedMCQA.
+        # License: apache-2.0, the openlifescienceai/medmcqa card header at the pinned revision
+        #   (owner decision on OME-1696, 2026-10-21).
+        scorer="inspect_ai.scorer:choice",
+        paper_url="https://arxiv.org/abs/2203.14371",
+        authors="Pal et al., 2022",
+        citation=(
+            "@misc{pal2022medmcqalargescalemultisubject,\n"
+            "      title={MedMCQA : A Large-scale Multi-Subject Multi-Choice Dataset for "
+            "Medical domain Question Answering}, \n"
+            "      author={Ankit Pal and Logesh Kumar Umapathi and Malaikannan "
+            "Sankarasubbu},\n"
+            "      year={2022},\n"
+            "      eprint={2203.14371},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2203.14371}, \n"
+            "}"
+        ),
+        origin="screamingface",
+        homepage_url="https://medmcqa.github.io",
+        # The authors' repository (their baselines; no LLM harness), at its last commit.
+        harness_url="https://github.com/medmcqa/medmcqa/tree/c59ef14ca1990266c4107c7864b45a20fd93e5e0",
+        license="Apache-2.0",
+        license_note=(
+            "openlifescienceai/medmcqa card header at the pinned revision; its Licensing "
+            "section is blank, and the authors' GitHub repository is MIT (owner decision on "
+            "OME-1696, 2026-10-21)"
+        ),
+        human_baseline=NotPublished(
+            reason=(
+                "the paper says merit candidates average 90% marks on the real exams, but "
+                "measures no human accuracy on these questions"
+            ),
+        ),
+        # Frontier score: o1-preview, zero-shot, MedMCQA Dev in Table 1 of "From Medprompt to
+        # o1" (Nori et al., 2024); the same table puts GPT-4 Turbo with Medprompt at 0.791 and
+        # GPT-4o zero-shot at 0.764.
+        frontier_score=FrontierScore(
+            score=0.839,
+            model="o1-preview",
+            source_url="https://arxiv.org/abs/2411.03590",
+            as_of="2024-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

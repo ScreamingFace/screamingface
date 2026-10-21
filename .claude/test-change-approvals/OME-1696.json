@@ -1,26 +1,26 @@
 {
   "issue": "OME-1696",
-  "branch": "OME-1696-pr1-bbh",
+  "branch": "OME-1696-pr2-medmcqa",
   "approver": "owner, to confirm on the PR (requested in the OME-1696 session)",
   "date": "2026-10-21",
-  "scope": "Prior-test edits for the new bbh Benchmark and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, medium), test_inspect_imported_benchmarks.py (family mcq), test_failure_policy_rows.py (Group A, plus the row counts 83→84 and 66→67 its invariant asserts) and test_published_revisions.py (its revision literal); one stand-in metadata entry in replayed_cases_helpers.py, because bbh's scorer reads dataset_type. No existing row changes.",
+  "scope": "Prior-test edits for the two new Benchmarks, bbh (PR 1) and medmcqa (PR 2), and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, medium), test_inspect_imported_benchmarks.py (family mcq), test_failure_policy_rows.py (Group A, plus the row counts 83→85 and 66→68 its invariant asserts) and test_published_revisions.py (their revision literals); one stand-in metadata entry in replayed_cases_helpers.py, because bbh's scorer reads dataset_type. No existing row changes.",
   "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as frames_oracle, musique and infinite_bench_math_find did); the rows are the review act for its declaration, family, policy and revision.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
       "base_blob": "77c68cecbecfa67ada1c6522d42dcf5a4e08e64f",
-      "approved_blob": "fd36d05f83dedfa20dc38c4deb2a26b551486b8c"
+      "approved_blob": "9d4c035dc6d1d0bc5d31e70e742d04b5d8d5c016"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
       "base_blob": "1571f5c7f2ab80f50cc71cd6a89a7820f89f14c0",
-      "approved_blob": "d4b0343e107b91c8bd3627f2b6ba7ec71b18165e"
+      "approved_blob": "be5c3acb44a600818d14289850e09c18dcd929d8"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
       "base_blob": "ab8664f31fccc6f73a41e5ee589179b2d397b3d7",
-      "approved_blob": "2874eb382a9ec3fc1a7ad31dd8a207fc84da2eb1"
+      "approved_blob": "d6732ce52c7401ccdd790fe31ed484ed808c90bf"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "172505b9e25114482b8298f8e69beceb582a1986",
-      "approved_blob": "6bc5a6c5d8c6f7f17b4a29e7182e138e7bc5a77a"
+      "approved_blob": "70a6c7704c68e331a58fa41f5e43eca290dec343"
     },
     "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
       "base_blob": "3edb324fa79b5f894bd442205ee97662ff2b2f7e",

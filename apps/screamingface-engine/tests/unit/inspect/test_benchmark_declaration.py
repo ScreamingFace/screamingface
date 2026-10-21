@@ -259,6 +259,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1696: BIG-Bench Hard, a local Task built from inspect_evals' own (bare key);
         # frontier models pass 0.9 with chain of thought but not at ceiling, like MMLU.
         "bbh": ("withhold", "single_shot", "medium"),
+        # OME-1696: MedMCQA, a local Task we wrote (bare key); professional-exam medicine
+        # like medqa.
+        "medmcqa": ("withhold", "single_shot", "medium"),
         # OME-1602 PR 5: the multi-letter-key imports; StereoSet's coherence score is near its
         # ceiling, the malware questions are hard for every model the paper ran.
         "inspect-truthfulqa_mc1": ("withhold", "single_shot", "medium"),
