@@ -11,6 +11,7 @@ import math
 import os
 import sys
 import tempfile
+import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -23,6 +24,22 @@ from nbclient.exceptions import CellExecutionError, CellTimeoutError, DeadKernel
 
 RESULT_PREFIX = "WORKBENCH_RESULT="
 _KERNEL = "sf-workbench"
+
+DEADLINE_ENV = "SCREAMINGFACE_WORKBENCH_DEADLINE_S"
+# WHY 600: the CI job is capped at 30 min (screamingface-e2e-replay.yml) and its whole e2e
+# pytest step takes ~7 min today; 10 min for one notebook leaves room for a cold asset cache
+# and still ends the notebook — and writes its bundle — well before the job is killed.
+_DEFAULT_DEADLINE_S = 600
+
+
+def notebook_deadline_s() -> int:
+    """The whole-notebook deadline in seconds: ``SCREAMINGFACE_WORKBENCH_DEADLINE_S`` or 600."""
+    raw = os.environ.get(DEADLINE_ENV)
+    if raw is None or raw == "":
+        return _DEFAULT_DEADLINE_S
+    if not (raw.isascii() and raw.isdigit()) or int(raw) <= 0:
+        raise ValueError(f"{DEADLINE_ENV}={raw!r} must be a positive whole number of seconds")
+    return int(raw)
 
 
 @dataclass(frozen=True)
@@ -119,28 +136,51 @@ def _result(nb: nbformat.NotebookNode) -> tuple[dict[str, Any] | None, str | Non
     return None, None
 
 
-def run_notebook(path: Path, params: Mapping[str, Any], *, timeout_s: int = 900) -> NotebookRun:
+def run_notebook(
+    path: Path,
+    params: Mapping[str, Any],
+    *,
+    timeout_s: int = 900,
+    deadline_s: int = _DEFAULT_DEADLINE_S,
+) -> NotebookRun:
     """Run ``path`` with ``params`` injected after its ``parameters`` cell.
 
+    ``timeout_s`` bounds one cell; ``deadline_s`` bounds the WHOLE notebook (gap b): nbclient
+    only knows per-cell timeouts, so each cell's timeout is capped at what is left of the
+    deadline. A run stopped by it is an ordinary execution failure that names the deadline.
+
     Raises only for caller mistakes (no parameters cell, non-literal parameter); every
-    execution failure — a failing cell, a cell timeout, a dead kernel, a malformed
-    ``WORKBENCH_RESULT`` payload — is returned in ``NotebookRun.error`` alongside the
-    (partially) executed notebook.
+    execution failure — a failing cell, a cell timeout, the notebook deadline, a dead kernel,
+    a malformed ``WORKBENCH_RESULT`` payload — is returned in ``NotebookRun.error`` alongside
+    the (partially) executed notebook.
     """
     nb = nbformat.read(path, as_version=4)
     _inject(nb, params)
+    deadline = time.monotonic() + deadline_s
+    capped = False
+
+    def cell_timeout(cell: nbformat.NotebookNode) -> int:
+        nonlocal capped
+        left = math.ceil(deadline - time.monotonic())
+        capped = left < timeout_s
+        return max(1, min(timeout_s, left))
+
     error: str | None = None
     with _private_kernelspec():
         client = NotebookClient(
             nb,
             kernel_name=_KERNEL,
             timeout=timeout_s,
+            timeout_func=cell_timeout,
             resources={"metadata": {"path": str(path.parent)}},
         )
         try:
             client.execute()
         except (CellExecutionError, CellTimeoutError, DeadKernelError) as exc:
             error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, CellTimeoutError) and capped:
+                # Last line on purpose: the verdict surfaces it as the root cause.
+                error += f"\nnotebook deadline of {deadline_s}s exceeded across all cells"
     result, malformed = _result(nb)
     if malformed:
         # The cell error stays last: callers surface the last line as the root cause.

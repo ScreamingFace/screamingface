@@ -59,6 +59,7 @@ non-initial conftest cannot register them when the invocation is `pytest tests/e
 |---|---|
 | `SCREAMINGFACE_WORKBENCH_TARGET` | `replay` (default) or `local`. `local` also needs `SCREAMINGFACE_TEST_PAID=1` and `OPENROUTER_API_KEY`. |
 | `SCREAMINGFACE_WORKBENCH_OUT` | Bundle root. Default: a pytest tmp dir. Printed in the terminal summary. |
+| `SCREAMINGFACE_WORKBENCH_DEADLINE_S` | Whole-notebook deadline in seconds (default `600`), across all cells; the per-cell timeout is capped at what is left, so a slow run still writes its bundle before the 30-min CI job ends. |
 | `SCREAMINGFACE_WORKBENCH_REQUIRE_ALL` | `1` turns every workbench skip (no docker, no assets, no key) into a failure, so an all-skipped run is never green. |
 
 The replay target goes through the usual e2e gate (`SCREAMINGFACE_TEST_E2E=1` + docker).

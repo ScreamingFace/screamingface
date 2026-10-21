@@ -24,7 +24,7 @@ from workbench.bundle import write_bundle
 from workbench.evidence import collect
 from workbench.redaction import redact
 from workbench.result_check import check_result
-from workbench.runner import run_notebook
+from workbench.runner import notebook_deadline_s, run_notebook
 from workbench.targets import LiveTarget
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")  # nbclient tracebacks carry colour codes
@@ -45,7 +45,7 @@ def judge_notebook(
     if target.name not in meta.get("targets", []):
         pytest.skip(f"{path.stem} does not declare target {target.name}")
     params = {"ENGINE_URL": target.engine_url, "SCOREBOARD_URL": target.scoreboard_url}
-    run = run_notebook(path, params | target.params)
+    run = run_notebook(path, params | target.params, deadline_s=notebook_deadline_s())
 
     trace_ids, result_reasons = check_result(run.result, meta.get("required_result", []))
     # Spec §3.3: the junit entry carries the trace id(s), so CI links a test row to its trace.

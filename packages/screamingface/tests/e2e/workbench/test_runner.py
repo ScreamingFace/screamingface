@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import nbformat
 import pytest
 
-from workbench.runner import RESULT_PREFIX, run_notebook
+from workbench.runner import DEADLINE_ENV, RESULT_PREFIX, notebook_deadline_s, run_notebook
 
 
 def _write(tmp_path: Path, *cells: nbformat.NotebookNode) -> Path:
@@ -90,6 +91,26 @@ def test_a_malformed_payload_keeps_the_cell_error_last(tmp_path: Path) -> None:
     assert "band" in run.error.strip().splitlines()[-1]
 
 
+def test_the_whole_notebook_has_one_deadline_across_cells(tmp_path: Path) -> None:
+    """Gap (b): nbclient's timeout is per cell, so N slow cells could outlive the CI job and
+    no bundle would be written. The deadline spans the notebook and still returns the run."""
+    slow = [nbformat.v4.new_code_cell("import time; time.sleep(2)") for _ in range(4)]
+    path = _write(tmp_path, _params("X = 1"), *slow)
+    started = time.monotonic()
+    run = run_notebook(path, {}, timeout_s=60, deadline_s=3)
+    elapsed = time.monotonic() - started
+    # 4 x 2s of cells against a 3s budget: stopped in the second cell, not after all four.
+    assert elapsed < 7.5, elapsed
+    assert run.error is not None and "deadline" in run.error and "3s" in run.error
+    assert run.executed.cells, "the executed notebook is kept for the bundle"
+
+
+def test_a_notebook_within_its_deadline_is_untouched(tmp_path: Path) -> None:
+    path = _write(tmp_path, _params("X = 1"), _result(f"print({RESULT_PREFIX + '{}'!r})"))
+    run = run_notebook(path, {}, timeout_s=60, deadline_s=60)
+    assert run.error is None and run.result == {}
+
+
 def test_the_kernel_runs_on_this_interpreter(tmp_path: Path) -> None:
     """Review Focus 4: a user-level ``python3`` kernelspec must not win over the SDK venv."""
     path = _write(
@@ -102,3 +123,20 @@ def test_the_kernel_runs_on_this_interpreter(tmp_path: Path) -> None:
     run = run_notebook(path, {})
     assert run.error is None
     assert run.result == {"exe": sys.executable}
+
+
+def test_the_lane_deadline_defaults_inside_the_ci_job_and_is_overridable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(DEADLINE_ENV, raising=False)
+    # The CI job is capped at 30 min and the whole e2e pytest step takes ~7 min today.
+    assert notebook_deadline_s() == 600
+    monkeypatch.setenv(DEADLINE_ENV, "1200")
+    assert notebook_deadline_s() == 1200
+
+
+@pytest.mark.parametrize("bad", ["0", "-5", "ten", "1.5"])
+def test_a_bad_lane_deadline_is_refused(monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+    monkeypatch.setenv(DEADLINE_ENV, bad)
+    with pytest.raises(ValueError, match=DEADLINE_ENV):
+        notebook_deadline_s()
