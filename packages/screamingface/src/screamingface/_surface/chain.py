@@ -231,13 +231,14 @@ class Pipeline(Recipe):
         assert not self._open, "an open chain has no stages"
         return tuple(stage.node if isinstance(stage, _Block) else stage for stage in self._stages)
 
-    def _block_pipelines(self) -> tuple[Pipeline, ...]:
+    def _block_pipelines(self) -> tuple[tuple[int, Pipeline], ...]:
         """The lowered values of the blocks that lower to two stages, ``Pipeline([FusionNode,
-        writer])``: a judge and a writer inside one block (WJ-1, erratum E6)."""
+        writer])``: a judge and a writer inside one block (WJ-1, erratum E6). Each with its
+        stage number in the user's chain (1-based), which names it in the warning."""
 
         return tuple(
-            stage.node
-            for stage in self._stages
+            (position, stage.node)
+            for position, stage in enumerate(self._stages, start=1)
             if isinstance(stage, _Block) and isinstance(stage.node, Pipeline)
         )
 
