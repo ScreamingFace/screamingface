@@ -105,3 +105,9 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
      `[a-z][a-z0-9_-]{0,31}`, else `unknown`.
   4. *Plan doc (fixed, non-blocking):* the superseded shared-`latest()` listing step is struck
      through and replaced with the per-account refusal-only directory.
+- **2026-10-21 approval manifest (process correction):** earlier "ALL GATES GREEN" entries after the
+  seed swap ran with `--skip-append-only`, so the append-only check was not green on its own. Added
+  `.claude/test-change-approvals/OME-1634.json` pinning the base/approved blobs of exactly
+  `tests/unit/test_codex_provider.py` and `tests/unit/test_plugin_loader.py` (owner approval
+  2026-10-17). `run_gates.py aigateway --base <pre-push merge-base 637594595>` → both transitions
+  approved, append-only check green, ALL GATES GREEN, no `--skip-append-only`.
