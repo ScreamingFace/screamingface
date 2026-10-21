@@ -48,7 +48,6 @@ def test_sdk_median_without_weights_compiles_the_same_bytes() -> None:
     )
     assert value_text == _VALUE_SELECT_TEXT
     assert repr(MedianNode()) == "Median(extract='last_number', select='nearest')"
-    assert MedianNode()._python() == "sf.Median(extract='last_number', select='nearest')"
 
 
 def test_sdk_median_with_weights_compiles_weighted_median() -> None:

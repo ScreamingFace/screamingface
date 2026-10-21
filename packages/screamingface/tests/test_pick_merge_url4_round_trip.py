@@ -271,13 +271,19 @@ def _pick_edits() -> dict[str, dict[str, Any]]:
         "equals without value": {"select": {"op": "by_field@1", "args": {"order": "equals"}}},
         # the constructor refuses these; a url4 decode says "cannot rebuild", never its text
         "bad field path": _pick_path("a..b"),
+        "blank value": {
+            "select": {
+                "op": "by_field@1",
+                "args": {"normalize": None, "order": "equals", "value": " "},
+            }
+        },
     }
 
 
 @pytest.mark.parametrize("name", sorted(_pick_edits()))
 def test_a_pick_spec_edited_by_hand_is_refused(name: str) -> None:
-    # group F (7f): the field order form of Pick is deleted code (D7-8)
-    pick = PickNode("confidence", order="max")
+    # WHY the equals form: it is the one field pick (sf.First) since unit 7f deleted the order form
+    pick = PickNode("confidence", equals="yes")
     spec = _spec_of(pick)
     assert PickNode._from_spec(spec) == pick
     assert pick._plan().kind == "answer"

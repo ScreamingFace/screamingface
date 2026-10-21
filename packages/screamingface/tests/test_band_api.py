@@ -106,7 +106,6 @@ def test_a_gate_without_a_band_keeps_its_part_5_form() -> None:
     assert spec == {"cmp": ">=", "observe": "agreement", "otherwise": "abstain", "threshold": 0.7}
     assert list(spec) == ["cmp", "observe", "otherwise", "threshold"]
     assert repr(gate) == "Gate('agreement', '>=', 0.7)"
-    assert gate._python() == "sf.Gate('agreement', '>=', 0.7)"
     for name in _PART5_GATE_FIXTURES:
         assert_fixture_matches(name)
 
@@ -120,7 +119,6 @@ def test_gate_takes_a_closed_band() -> None:
     assert gate.abstain_band == (0.6, 0.7)
     assert isinstance(gate.abstain_band, tuple)
     assert repr(gate) == "Gate('agreement', '>=', 0.7, abstain_band=(0.6, 0.7))"
-    assert gate._python() == "sf.Gate('agreement', '>=', 0.7, abstain_band=(0.6, 0.7))"
     assert gate._spec() == {
         "cmp": ">=",
         "observe": "agreement",

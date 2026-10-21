@@ -73,7 +73,6 @@ def test_consistency_holds_n_and_the_temperature() -> None:
     assert five.temperature == 1.0
     assert type(five.temperature) is float
     assert repr(five) == "Consistency(n=5, temperature=1.0)"
-    assert five._python() == "sf.Consistency(n=5, temperature=1.0)"
     assert five.source == "consistency"
     assert isinstance(five, sf.Consistency)
     assert five._spec() == {"source": "consistency", "n": 5, "temperature": 1.0}

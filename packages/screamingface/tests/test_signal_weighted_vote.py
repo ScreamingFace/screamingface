@@ -72,8 +72,6 @@ def test_signal_weights_value_repr_python_and_recovery() -> None:
     vote = VoteNode(weights=sf.signal("cost_usd"))
     assert repr(vote) == "Vote(extract='last_line', normalize='text', weights=signal('cost_usd'))"
     assert eval(repr(vote), {"Vote": VoteNode, "signal": sf.signal}) == vote  # noqa: S307
-    assert "weights=sf.signal('cost_usd')" in vote._python()
-    assert vote._python().startswith("sf.Vote(")
     assert vote == VoteNode(weights=sf.signal("cost_usd"))
     assert vote != VoteNode(weights=sf.signal("latency_ms"))
     assert vote != VoteNode(weights=[1.0])

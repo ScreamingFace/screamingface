@@ -13,28 +13,21 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from types import SimpleNamespace
 from typing import Any, Literal
 
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import FilterNode, FusionNode, JudgeNode, ReduceNode, fusion_node, lowered
+from _nodes import FilterNode, FusionNode, JudgeNode, lowered
 from url4 import Expression, build
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface.reducer import Reducer
 from screamingface.url4 import _calls
 
 RUBRIC = "Score each draft."
 SECRET = "SECRET-RUBRIC-TEXT"
 J = sf.Judge("provider/j", rubric=RUBRIC)
 JUDGED = sf.signal("score:judge") >= 7
-# group F (7f): the old renderer (_python) writes ``sf.<today's class>``; these rows read it with
-# the node classes, so they keep working after the swap until 7f deletes them.
-_NODES_AS_SF = SimpleNamespace(
-    Filter=FilterNode, Judge=JudgeNode, Reduce=ReduceNode, signal=sf.signal, matches=sf.matches
-)
 
 
 def _filter_by_judge() -> FilterNode:
@@ -55,14 +48,6 @@ def _judge_filter(
         >> sf.Filter(where=JUDGED)
         >> sf.Synthesize("provider/next")
     )
-
-
-def _wrapped(reducer: Reducer) -> sf.Pipeline:
-    return sf.Pipeline([fusion_node(members3(), reducer), "provider/next"])
-
-
-def _url4(reducer: Reducer) -> str:
-    return compile_candidate(_wrapped(reducer), operators=flow_operators()).url4
 
 
 def _recovered(url4: str) -> sf.Recipe:
@@ -120,11 +105,6 @@ def test_sdk_filter_score_judge_without_judge_is_refused() -> None:
             >> sf.Filter(where=sf.signal("score:judge") < 3)
             >> sf.Synthesize("provider/next")
         )
-    # group F (7f): the filter block form is deleted code (D7-8)
-    with pytest.raises(
-        ValueError, match=r"^sf\.Reduce\('filter'\): Filter where=.*add judge=sf\.Judge"
-    ):
-        ReduceNode("filter", where=JUDGED)
 
 
 # --- FJ-E4: a judge needs a score:judge comparison ----------------------------------------------
@@ -146,40 +126,6 @@ def test_sdk_filter_judge_without_score_judge_where_is_refused() -> None:
                 >> sf.Synthesize("provider/next")
             )
         assert SECRET not in str(caught.value)
-
-    # group F (7f): the rest reads the Filter judge= parameter and the filter block (D7-8)
-    old_secret = JudgeNode("provider/j", returns="scores", rubric=SECRET)
-    refusal = r"Filter judge is read only by a where=sf\.signal\('score:judge'\) comparison"
-    with pytest.raises(ValueError, match=r"^sf\.Reduce\('filter'\): " + refusal) as caught:
-        ReduceNode("filter", where=sf.matches("yes"), judge=old_secret)
-    assert SECRET not in str(caught.value)
-
-    with pytest.raises(TypeError, match=r"Filter judge must be an sf\.Judge"):
-        FilterNode(where=JUDGED, judge="provider/j")  # type: ignore[arg-type]
-    with pytest.raises(
-        TypeError, match=r"sf\.Reduce\('filter'\) option 'judge' must be an sf\.Judge"
-    ):
-        ReduceNode("filter", where=JUDGED, judge="provider/j")
-
-
-# --- FJ-D2: a label judge is refused --------------------------------------------------------------
-
-
-def test_sdk_filter_refuses_a_label_judge() -> None:
-    # group F (7f): it reads only the Filter judge= parameter, which the chain has no place for
-    label = JudgeNode("provider/j", returns="label", rubric=SECRET)
-
-    with pytest.raises(
-        ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
-    ) as caught:
-        FilterNode(where=JUDGED, judge=label)
-    assert SECRET not in str(caught.value)
-
-    with pytest.raises(
-        ValueError, match=r"Filter judge needs sf\.Judge\(\.\.\., returns='scores'\)"
-    ) as caught:
-        ReduceNode("filter", where=JUDGED, judge=label)
-    assert SECRET not in str(caught.value)
 
 
 # --- FJ#11: the url4 round trip rebuilds a judge Filter and the filter block --------------------

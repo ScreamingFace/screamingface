@@ -176,7 +176,6 @@ def _recompiled(url4: str) -> str:
 @requires_engine_app
 def test_vote_without_gate_keeps_its_bytes_repr_and_rebuild() -> None:
     assert repr(sf.Vote()) == "Vote()"
-    assert VoteNode()._python() == "sf.Vote(extract='last_line', normalize='text')"
     for name in _L43:
         assert _recompiled(read_contract(name)) == read_contract(name), name
 
@@ -419,9 +418,6 @@ def test_gate_repr_and_python_form() -> None:
     assert repr(writer) == (
         "Gate('agreement', '>=', 0.7, otherwise=Model('prov/w', prompt='Write.'))"
     )
-    assert writer._python() == (
-        "sf.Gate('agreement', '>=', 0.7, otherwise=sf.Model('prov/w', prompt='Write.'))"
-    )
     judge = GateNode(
         "agreement",
         ">",
@@ -431,15 +427,10 @@ def test_gate_repr_and_python_form() -> None:
     assert repr(judge) == (
         "Gate('agreement', '>', 0.5, otherwise=Judge('prov/j', returns='label', rubric='Pick.'))"
     )
-    assert judge._python() == (
-        "sf.Gate('agreement', '>', 0.5, otherwise=sf.Judge('prov/j', returns='label', "
-        "rubric='Pick.'))"
-    )
     whole = GateNode("agreement", ">=", 1)
     assert whole.threshold == 1.0
     assert type(whole.threshold) is float
     assert repr(whole) == "Gate('agreement', '>=', 1.0)"
-    assert whole._python() == "sf.Gate('agreement', '>=', 1.0)"
     explicit = GateNode("chosen:conf", "<=", 5, otherwise="abstain")
     assert repr(explicit) == "Gate('chosen:conf', '<=', 5.0)"
     assert explicit == GateNode("chosen:conf", "<=", 5.0)
@@ -450,9 +441,6 @@ def test_gate_repr_and_python_form() -> None:
     ]
     assert repr(VoteNode(gate=GateNode("agreement", ">=", 0.7))) == (
         "Vote(extract='last_line', normalize='text', gate=Gate('agreement', '>=', 0.7))"
-    )
-    assert VoteNode(gate=GateNode("agreement", ">=", 0.7))._python() == (
-        "sf.Vote(extract='last_line', normalize='text', gate=sf.Gate('agreement', '>=', 0.7))"
     )
     assert repr(VoteNode(extract="benchmark", gate=GateNode("agreement", ">", 0.5))) == (
         "Vote(extract='benchmark', gate=Gate('agreement', '>', 0.5))"
@@ -512,7 +500,6 @@ def test_vote_repr_and_rebuild_leave_verify_out() -> None:
     assert repr(sf.Vote(verify=None)) == "Vote()"
     vote = sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(verify=None))
     assert "verify" not in repr(vote)
-    assert "verify" not in VoteNode(verify=None, gate=GateNode("agreement", ">=", 0.7))._python()
     url4 = _compiled(_fusion(vote))
     assert "verify" not in url4
     assert "verify" not in sf.Url4(url4).to_python()

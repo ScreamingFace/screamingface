@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
-from _nodes import FilterNode, FusionNode, ReduceNode, fusion_node, lowered
+from _nodes import FilterNode, FusionNode, fusion_node, lowered
 from _reducer_fixtures import evidence_wire
 from _vote_run_fixtures import (
     ScriptedTransport,
@@ -42,15 +42,6 @@ _SURFACE = _CheckSurface(
 _CONFIDENCE = sf.signal("field:confidence")
 _CMPS = ["gt", "ge", "lt", "le", "eq"]
 _OPEN_BLOCK = "the chain ends inside a sf.Fanout block: add a reducer or sf.Synthesize"
-
-
-def _wrapped(reducer: Reducer) -> sf.Pipeline:
-    """An internal reducer node in a block, then a next stage (the block-form rows, group F)."""
-    return sf.Pipeline([fusion_node(members3(), reducer), "provider/next"])
-
-
-def _url4(reducer: Reducer) -> str:
-    return compile_candidate(_wrapped(reducer), operators=flow_operators()).url4
 
 
 def _chain(step: Step) -> sf.Pipeline:
@@ -148,16 +139,11 @@ def test_comparisons_compare_and_hash_by_a_typed_key() -> None:
     assert (_CONFIDENCE >= 0.6) != (sf.signal("cost_usd") >= 0.6)
     assert (_CONFIDENCE >= 0.6) == (sf.signal("field:confidence") >= 0.6)
 
-    # a Filter and a block that hold the comparisons keep them apart too
+    # a Filter that holds the comparisons keeps them apart too
     assert sf.Filter(where=as_true) != sf.Filter(where=as_one)  # type: ignore[arg-type]
     assert sf.Filter(where=as_one) == sf.Filter(where=as_float)  # type: ignore[arg-type]
-    blocks = [ReduceNode("filter", where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
     filters = [sf.Filter(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
     nodes = [FilterNode(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
-    assert blocks[0] != blocks[1]
-    assert blocks[1] == blocks[2]
-    assert len({hash(blocks[0]), hash(blocks[1])}) == 2 or len(set(blocks)) == 2
-    assert len(set(blocks)) == 2
     # equal values compile to equal bytes, and different values to different bytes
     assert _chain_url4(filters[1]) == _chain_url4(filters[2])
     assert _chain_url4(filters[0]) != _chain_url4(filters[1])
@@ -248,13 +234,6 @@ def test_filter_benchmark_extract_resolves_from_the_benchmark_rule() -> None:
         "inspect_number@1" in compiled.url4
     )
     assert "inspect_numeric@1" in compiled.url4
-    block = ReduceNode("filter", where=sf.matches("42"), extract=sf.Extract("benchmark"))
-    assert (
-        compile_candidate(
-            _wrapped(block), operators=flow_operators(), benchmark_rule=_GSM8K_RULE
-        ).url4
-        == compiled.url4
-    )
 
 
 # --- FL#6: the last-stage rule -----------------------------------------------------------------
@@ -266,12 +245,6 @@ def test_filter_as_last_stage_is_rejected() -> None:
 
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(fusion, operators=flow_operators())
-    block = fusion_node(
-        members3(),
-        ReduceNode("filter", where=_CONFIDENCE >= 0.6),  # type: ignore[arg-type]
-    )
-    with pytest.raises(ValueError, match=r"a Reduce\('filter'\) must be followed by another stage"):
-        compile_candidate(block, operators=flow_operators())
     # a Fanout member and a corrective-loop judge are refused too
     with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(
@@ -284,8 +257,11 @@ def test_filter_as_last_stage_is_rejected() -> None:
             check_surface=_SURFACE,
             operators=flow_operators(),
         )
-    # group F (7f): the Filter Fusion node as a member and as a loop judge (D7-8)
+    # the compiler's own guard on the internal node, which only a hand-built url4 reaches: alone,
+    # as a member and as a loop judge
     node = fusion_node(members3(), FilterNode(where=_CONFIDENCE >= 0.6))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="a Filter must be followed by another stage"):
+        compile_candidate(node, operators=flow_operators())
     with pytest.raises(ValueError, match="a Filter Fusion cannot be a Fusion member"):
         compile_candidate(
             fusion_node([node, "provider/d"], "provider/s"), operators=flow_operators()
@@ -298,58 +274,6 @@ def test_filter_as_last_stage_is_rejected() -> None:
         )
     followed = fusion >> sf.Synthesize("provider/next")
     assert compile_candidate(followed, operators=flow_operators()).operations
-
-
-# --- FL#9 / BK#4: the block form ---------------------------------------------------------------
-
-
-def test_reduce_filter_block_equals_sf_filter() -> None:
-    pairs: list[tuple[Reducer, Reducer]] = []
-    for built in (
-        _CONFIDENCE > 0.6,
-        _CONFIDENCE >= 0.6,
-        _CONFIDENCE < 0.6,
-        _CONFIDENCE <= 0.6,
-        _CONFIDENCE == 0.6,
-        _CONFIDENCE == True,  # noqa: E712
-        _CONFIDENCE == False,  # noqa: E712
-        sf.signal("cost_usd") < 0.01,
-    ):
-        pairs.append(
-            (ReduceNode("filter", where=built), FilterNode(where=built))  # type: ignore[arg-type]
-        )
-    for matcher in (sf.matches("a+"), sf.matches("a+", ignore_case=True)):
-        pairs.append((ReduceNode("filter", where=matcher), FilterNode(where=matcher)))
-    extract = sf.Extract("field", "text", path="answer")
-    pairs.append(
-        (
-            ReduceNode("filter", where=sf.matches("yes"), extract=extract),
-            FilterNode(where=sf.matches("yes"), extract=extract),
-        )
-    )
-    pairs.append(
-        (
-            ReduceNode("filter", where=_CONFIDENCE >= 0.6, extract=sf.Extract("last_number")),  # type: ignore[arg-type]
-            FilterNode(where=_CONFIDENCE >= 0.6, extract=sf.Extract("last_number")),  # type: ignore[arg-type]
-        )
-    )
-
-    for block, named in pairs:
-        assert _url4(block) == _url4(named)
-        assert block._plan() == named._plan()
-
-
-def test_reduce_filter_block_canonical_form_equality_and_hash() -> None:
-    plain = ReduceNode("filter", where=sf.matches("a"))
-    twin = ReduceNode("filter", where=sf.matches("a", ignore_case=False))
-
-    assert plain == twin
-    assert hash(plain) == hash(twin)
-    assert dict(plain.options) == {"where": sf.matches("a")}
-    assert ReduceNode("filter", where=sf.matches("a", ignore_case=True)) != plain
-    assert ReduceNode("filter", where=_CONFIDENCE >= 0.6) != ReduceNode(
-        "filter", where=_CONFIDENCE > 0.6
-    )  # type: ignore[arg-type]
 
 
 # --- validation, round trip, decode ------------------------------------------------------------
@@ -370,12 +294,6 @@ def test_filter_validation() -> None:
         ValueError, match=re.escape("score:judge needs sf.Judge(...) after sf.Fanout")
     ):
         _chain(sf.Filter(where=sf.signal("score:judge") >= 0.5))  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="score:judge"):
-        ReduceNode("filter", where=sf.signal("score:judge") >= 0.5)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="option 'where' must be"):
-        ReduceNode("filter", where="x")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="needs option 'where'"):
-        ReduceNode("filter")
     with pytest.raises(ValueError, match="sf.matches"):
         sf.matches("(")
 
@@ -386,7 +304,6 @@ def test_filter_fields_repr_and_equality() -> None:
 
     assert (named.name, named.where, named.extract) == ("filter", _CONFIDENCE >= 0.6, None)
     assert repr(named) == "Filter(where=sf.signal('field:confidence') >= 0.6)"
-    assert named._python() == "sf.Filter(where=sf.signal('field:confidence') >= 0.6)"
     assert repr(pattern) == (
         "Filter(where=sf.matches('a', ignore_case=True), extract=sf.Extract('boxed'))"
     )

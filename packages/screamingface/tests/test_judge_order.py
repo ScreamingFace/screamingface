@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, members3
-from _nodes import FusionNode, JudgeNode, ReduceNode, fusion_node, lowered
+from _nodes import FusionNode, JudgeNode, fusion_node, lowered
 from url4 import Expression, build
 
 import screamingface as sf
@@ -39,7 +39,6 @@ _MIN_SPEC = (
     + _SCHEMA
     + '"select":{"args":{"order":"min"},"op":"best_holder@1"},"weights":null}'
 )
-_OTHER_RUBRIC = "Prefer the shortest correct answer."
 
 
 def _judge(**kw: Any) -> JudgeNode:
@@ -103,14 +102,6 @@ def test_sdk_judge_label_refuses_an_order() -> None:
     # JO-E1: a label names one member, so it has no order.
     with pytest.raises(ValueError, match=r"Judge order='min' needs returns='scores'"):
         JudgeNode("provider/j", returns="label", rubric=RUBRIC, order="min")
-    with pytest.raises(
-        ValueError, match=r"sf\.Reduce\('judge'\): Judge order='min' needs returns='scores'"
-    ):
-        ReduceNode(
-            "judge",
-            judge=JudgeNode("provider/j", returns="label", rubric=RUBRIC),
-            order="min",
-        )
     # control: order="max" on a label is the same judge as no order
     assert JudgeNode("provider/j", returns="label", rubric=RUBRIC, order="max") == JudgeNode(
         "provider/j", returns="label", rubric=RUBRIC
@@ -123,7 +114,7 @@ def test_sdk_judge_label_refuses_an_order() -> None:
     ids=["lowest", "upper", "empty", "none", "int"],
 )
 def test_sdk_judge_refuses_an_unknown_order(order: object) -> None:
-    # JO-E2: only "max" and "min" are orders. The block form checks the same way (blocks.py).
+    # JO-E2: only "max" and "min" are orders.
     with pytest.raises(ValueError, match="Judge order must be 'max' or 'min', not "):
         JudgeNode(
             "provider/j",
@@ -131,14 +122,10 @@ def test_sdk_judge_refuses_an_unknown_order(order: object) -> None:
             rubric=RUBRIC,
             order=order,  # type: ignore[arg-type]
         )
-    with pytest.raises(
-        ValueError, match=r"sf\.Reduce\('judge'\) option 'order' must be 'max' or 'min'"
-    ):
-        ReduceNode("judge", judge=_judge(), order=order)
 
 
 def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
-    # JO-D2 (H x M): the url4 keeps the order; the SDK rebuilds it, and the judge block keeps it.
+    # JO-D2 (H x M): the url4 keeps the order; the SDK rebuilds it.
     low = _judge(order="min", params={"temperature": 0})
     url4 = _url4(low)
     source = sf.Url4(url4).to_python()
@@ -156,16 +143,6 @@ def test_url4_round_trip_rebuilds_an_order_min_judge_and_judge_block() -> None:
     assert rebuilt.synthesizer.order == "min"  # type: ignore[attr-defined]
     assert isinstance(rebuilt.synthesizer, JudgeNode)
     assert _url4(rebuilt.synthesizer) == url4
-
-    block = ReduceNode("judge", judge=_judge(params={"temperature": 0}), order="min")
-    assert dict(block.options) == {"judge": low}
-    assert _url4(block) == url4
-
-    # the block's rubric override keeps the order; the block's order override replaces it
-    assert ReduceNode("judge", judge=low, rubric=_OTHER_RUBRIC).options["judge"].order == "min"  # type: ignore[attr-defined]
-    assert ReduceNode("judge", judge=low, order="max").options["judge"] == _judge(
-        params={"temperature": 0}
-    )
 
 
 def test_panel_judge_order_min_first_line() -> None:
