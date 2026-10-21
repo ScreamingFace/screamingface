@@ -21,20 +21,22 @@ tag is the enum's name, a string.
 | | inspect_evals | this Benchmark | why |
 | -- | -- | -- | -- |
 | Multiple-choice instruction (17 subsets, 4,071 Cases) | "The entire content of your response should be … 'ANSWER: $LETTER'", above worked examples that reason step by step | inspect's `multiple_choice(cot=True)`: "Think step by step before answering", answer on the last line | the paper's headline setting is chain of thought; the answer-only instruction contradicts the examples |
-| Free-form grading (Dyck languages, multistep arithmetic, object counting, word sorting; 750 Cases) | `match(location="end")`: lowercase, trim punctuation off both ends, then "does the reply end with the key?" | exact match on the final answer (after the last `ANSWER:`, else the paper's "the answer is"), one trailing period dropped | the paper grades by exact match (§3, "Evaluation protocol") |
+| Free-form grading (Dyck languages, multistep arithmetic, object counting, word sorting; 1,000 Cases) | `match(location="end")`: lowercase, trim punctuation off both ends, then "does the reply end with the key?" | exact match on the final answer (after the last `ANSWER:`, else the paper's "the answer is"; either label in any case), with spaces, `**` and backticks trimmed and one trailing period dropped | the paper grades by exact match (§3, "Evaluation protocol") |
 
 What upstream's free-form grading marks correct:
 
-- Dyck languages: the key `ANSWER: ] ]` trims to `answer`, so "I do not know the answer." is right.
+- Dyck languages: the key `ANSWER: ] ]` trims to `answer`, so any reply ending on an `ANSWER:` line of
+  brackets is right, a bracket missing (`ANSWER: ]`) or extra (`ANSWER: ] ] ]`), and so is "I do not
+  know the answer.".
 - multistep arithmetic: `ANSWER: 25` for the key `-25`, and `ANSWER: 125` for `25`.
 - object counting: `ANSWER: 12` for the key `2`.
-- word sorting: `ANSWER: elizabeth kenya` for the key `beth kenya`.
+- word sorting: `ANSWER: elizabeth kenya`, or any extra word in front, for the key `beth kenya`.
 
 The evidence: the authors publish no grading code, but
 [their repository](https://github.com/suzgunmirac/BIG-Bench-Hard/tree/9ee07bd481feebf959a6b59d61ea57bdcf30964d)
 ships Codex's replies with their accuracy per subset. Our rule reproduces all four of those
-numbers (Dyck 56.8, multistep 47.6, object counting 93.2, word sorting 40.4); upstream's gives
-Dyck 100.0. `tests/unit/inspect/test_local_task_bbh.py` pins this on those replies, kept in
+numbers (Dyck 56.8, multistep 47.6, object counting 93.2, word sorting 40.4).
+`tests/unit/inspect/test_local_task_bbh.py` pins this on those replies, kept in
 `tests/unit/data/bbh_codex_cot_free_form_replies.json` (MIT).
 
 Unchanged from upstream: the multiple-choice subsets grade the chosen letter (`choice()`), the 6

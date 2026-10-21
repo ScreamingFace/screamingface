@@ -3,7 +3,7 @@
   "branch": "OME-1696-pr1-bbh",
   "approver": "owner, to confirm on the PR (requested in the OME-1696 session)",
   "date": "2026-10-21",
-  "scope": "Prior-test edits for the new bbh Benchmark and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, medium), test_inspect_imported_benchmarks.py (family mcq), test_failure_policy_rows.py (Group A, plus the row counts 83\u219284 and 66\u219267 its invariant asserts) and test_published_revisions.py (its revision literal); one stand-in metadata entry in replayed_cases_helpers.py, because bbh's scorer reads dataset_type. No existing row changes.",
+  "scope": "Prior-test edits for the new bbh Benchmark and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, medium), test_inspect_imported_benchmarks.py (family mcq), test_failure_policy_rows.py (Group A, plus the row counts 83→84 and 66→67 its invariant asserts) and test_published_revisions.py (its revision literal); one stand-in metadata entry in replayed_cases_helpers.py, because bbh's scorer reads dataset_type. No existing row changes.",
   "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as frames_oracle, musique and infinite_bench_math_find did); the rows are the review act for its declaration, family, policy and revision.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
@@ -20,7 +20,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "172505b9e25114482b8298f8e69beceb582a1986",
-      "approved_blob": "6065ee0a470c5e39d405f1226b0f66451ec3116a"
+      "approved_blob": "580cb63bbc0c356c21b5208debfd0db09db36194"
     },
     "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
       "base_blob": "3edb324fa79b5f894bd442205ee97662ff2b2f7e",

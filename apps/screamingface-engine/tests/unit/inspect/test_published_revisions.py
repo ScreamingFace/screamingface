@@ -64,7 +64,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "frames_oracle": "6541f5df078dfabd",
     # OME-1696: BIG-Bench Hard, a local Task asked and graded the paper's way (two Named
     # Deviations from inspect_evals' bbh); its source is hashed, so a scorer edit moves this.
-    "bbh": "40e861dd1810fd0a",
+    "bbh": "0b71d073d7cd962a",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "0fb750cf19e00c11",

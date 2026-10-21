@@ -203,6 +203,7 @@ def test_a_yes_no_answer_is_marked_as_upstream_marks_it(target: str, reply: str)
     [
         # Dyck: upstream's key trims to "answer", so any reply ending in that word passes.
         ("DYCK", "ANSWER: ] ]", "ANSWER: ]"),
+        ("DYCK", "ANSWER: ] ]", "ANSWER: ] ] ]"),
         ("DYCK", "ANSWER: ] ]", "I do not know the answer."),
         # multistep arithmetic: the minus sign trims off, and "ends with" accepts a longer number.
         ("EXACT_MATCH", "-25", "ANSWER: 25"),
@@ -251,7 +252,14 @@ def test_a_right_free_form_answer_is_marked_right_by_both(
         ('So, we need "]", "]". So the answer is ] ].', "] ]"),
         # Only the committing line is read, never what follows it.
         ("ANSWER: 7\nThat is seven objects.", "7"),
-        # Case is kept: the paper compares the exact string.
+        # The label is found ignoring case, and emphasis around the answer is trimmed: inspect's
+        # multiple-choice parser reads these forms too.
+        ("Answer: 25", "25"),
+        ("**ANSWER: -25**.", "-25"),
+        ("**ANSWER:** `] ]`", "] ]"),
+        # A label that ends its line: the answer is the next non-empty line.
+        ("ANSWER:\n\n-25", "-25"),
+        # Case is kept inside the answer: the paper compares the exact string.
         ("ANSWER: Beth kenya", "Beth kenya"),
         # Neither keyword: the whole reply, stripped.
         ("  ] ]  ", "] ]"),
@@ -259,6 +267,14 @@ def test_a_right_free_form_answer_is_marked_right_by_both(
 )
 def test_the_final_answer_is_read_from_the_committing_line(reply: str, expected: str) -> None:
     assert final_answer(reply) == expected
+
+
+def test_a_tag_the_scorer_does_not_know_is_refused() -> None:
+    """Upstream falls through to its last rule for any tag; ours names its four kinds and
+    refuses a fifth, so a new upstream kind is never marked by a rule nobody chose for it."""
+
+    with pytest.raises(ValueError, match="not one of upstream's four kinds"):
+        _scored(bbh_scorer(), "NEW_KIND", "NEW_KIND", "x", "ANSWER: x")
 
 
 #: The authors' Codex (code-davinci-002) chain-of-thought replies for the four free-form subsets,
@@ -275,29 +291,26 @@ def _codex_subsets() -> dict[str, Any]:
 def test_the_rule_reproduces_the_papers_accuracy_on_the_authors_codex_replies(subset: str) -> None:
     """NAMED DEVIATION 2's evidence: the authors publish no grading code, only Codex's replies
     and their accuracy per subset. Our rule must give exactly those numbers (Dyck 56.8,
-    multistep 47.6, object counting 93.2, word sorting 40.4). Upstream's match(location="end")
-    gives Dyck 100.0, asserted so the size of the gap stays visible.
+    multistep 47.6, object counting 93.2, word sorting 40.4).
 
     The replies carry no ANSWER: line (the paper's prompts have none), so this pins the
-    fallback to the paper's own keyword. Keys are the authors' (Dyck without upstream's
-    `ANSWER: ` prefix, which our rule removes)."""
+    fallback to the paper's own keyword. Each key is given in the form a real Case stores it:
+    the authors' key, with upstream's `ANSWER: ` prefix on Dyck. (Upstream's own rule is not
+    compared here: it reads replies in its ANSWER: format, which these are not; its holes are
+    pinned by the wrong-answer test above.)"""
 
     data: dict[str, Any] = _codex_subsets()[subset]
     replies: list[list[str]] = data["replies"]
-    kind: str = "DYCK" if subset == "dyck_languages" else "EXACT_MATCH"
+    dyck: bool = subset == "dyck_languages"
+    kind: str = "DYCK" if dyck else "EXACT_MATCH"
 
     ours: int = sum(
-        _scored(bbh_scorer(), kind, kind, key, reply) == CORRECT for reply, key in replies
-    )
-    upstream: int = sum(
-        _scored(upstream_scorer(), kind, DatasetType[kind], key, reply) == CORRECT
+        _scored(bbh_scorer(), kind, kind, f"ANSWER: {key}" if dyck else key, reply) == CORRECT
         for reply, key in replies
     )
 
     assert len(replies) == 250
     assert round(100 * ours / len(replies), 1) == data["reported_accuracy"]
-    if subset == "dyck_languages":
-        assert upstream == 250
 
 
 #: Real BBH questions, one or two per answer kind, as Case Preparation writes them (the
