@@ -47,6 +47,12 @@ class FetchState:
 
     peer: bool = False
     previous_scheme: str | None = None
+    trusted_first_hop: bool = False
+    """Set by HttpIOLayer for a relative fetch: its first hop goes to the operator's base_url.
+
+    INVARIANT: consumed by the first hop, so no redirect hop is ever trusted — not even one
+    back into the base_url origin.
+    """
 
 
 async def system_resolver(host: str, port: int) -> Sequence[str]:
@@ -92,24 +98,13 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         if not isinstance(state, FetchState):
             state = FetchState()
         previous, state.previous_scheme = state.previous_scheme, url.scheme
-        if origin_of(url) in self._trusted:
+        trusted, state.trusted_first_hop = state.trusted_first_hop, False
+        if trusted and origin_of(url) in self._trusted:
             # WHY: the operator's own base_url origin (spec F1b leaves it out of the guard).
-            return await self._pool(url.host).handle_async_request(request)
-        address = check_destination(
-            url.scheme, url.host, self._guard, peer=state.peer, previous_scheme=previous
-        )
-        extensions = dict(request.extensions)
-        if address is None:
-            address = await self._resolve(url.host, url.port or _DEFAULT_PORTS[url.scheme])
-            extensions["sni_hostname"] = url.host
-        pinned = httpx.Request(
-            request.method,
-            url.copy_with(host=str(address)),
-            headers=request.headers,
-            stream=request.stream,
-            extensions=extensions,
-        )
-        response = await self._pool(url.host).handle_async_request(pinned)
+            outbound = request
+        else:
+            outbound = await self._pinned(request, state, previous)
+        response = await self._pool(url.host).handle_async_request(outbound)
         stream = response.stream
         if not isinstance(stream, httpx.AsyncByteStream):
             # INVARIANT: fail closed — a body the cap cannot wrap is never handed on.
@@ -119,6 +114,26 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             headers=response.headers,
             stream=_CappedStream(stream, self._guard.max_bytes),
             extensions=response.extensions,
+        )
+
+    async def _pinned(
+        self, request: httpx.Request, state: FetchState, previous: str | None
+    ) -> httpx.Request:
+        """``request`` re-addressed to its vetted IP, keeping SNI and ``Host``."""
+        url = request.url
+        address = check_destination(
+            url.scheme, url.host, self._guard, peer=state.peer, previous_scheme=previous
+        )
+        extensions = dict(request.extensions)
+        if address is None:
+            address = await self._resolve(url.host, url.port or _DEFAULT_PORTS[url.scheme])
+            extensions["sni_hostname"] = url.host
+        return httpx.Request(
+            request.method,
+            url.copy_with(host=str(address)),
+            headers=request.headers,
+            stream=request.stream,
+            extensions=extensions,
         )
 
     async def _resolve(self, host: str, port: int) -> IPAddress:

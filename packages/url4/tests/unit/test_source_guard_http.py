@@ -534,3 +534,48 @@ async def test_an_injected_client_keeps_its_own_timeouts() -> None:
     io = HttpIOLayer(client=client, guard=SourceGuard(total_timeout=0.01))
     assert await io.fetch("https://anything/", relative=False) == "ok"
     await client.aclose()
+
+
+# --- review hardening: only the first hop of a relative fetch is trusted (OME-1544) ------------
+
+
+@pytest.mark.asyncio
+async def test_redirect_into_base_origin_still_checked(net: _Net) -> None:
+    # An expression-named public source must not reach the operator's loopback node by redirect.
+    net.dns["example.com"] = [[PUBLIC]]
+    net.handler = _redirects({"/": "https://127.0.0.1:9105/admin"})
+    io = HttpIOLayer("https://127.0.0.1:9105", resolver=net.resolve)
+    await _blocked(io, "https://example.com/")
+    assert [r.url.host for r in net.sent] == [PUBLIC]
+
+
+@pytest.mark.asyncio
+async def test_a_redirect_after_the_trusted_first_hop_is_checked(net: _Net) -> None:
+    net.handler = _redirects({"/claude": "/elsewhere"})
+    io = HttpIOLayer("https://127.0.0.1:9105", resolver=net.resolve)
+    with pytest.raises(ResolutionError) as caught:
+        await io.fetch("/claude", relative=True)
+    await io.aclose()
+    assert caught.value.code == ErrorCode.SOURCE_DESTINATION_BLOCKED
+    assert [r.url.path for r in net.sent] == ["/claude"]
+
+
+@pytest.mark.asyncio
+async def test_an_absolute_target_on_the_base_origin_is_checked(net: _Net) -> None:
+    # Trust follows the operator's relative fetch, not an expression that spells the origin out.
+    io = HttpIOLayer("https://127.0.0.1:9105", resolver=net.resolve)
+    await _blocked(io, "https://127.0.0.1:9105/admin")
+    assert net.sent == []
+
+
+@pytest.mark.asyncio
+async def test_a_transport_without_fetch_state_trusts_no_origin(net: _Net) -> None:
+    origin = ("https", "127.0.0.1", 9105)
+    transport = guarded_mod.GuardedTransport(
+        SourceGuard(), resolver=net.resolve, trusted=frozenset({origin})
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(ResolutionError) as caught:
+            await client.get("https://127.0.0.1:9105/")
+    assert caught.value.code == ErrorCode.SOURCE_DESTINATION_BLOCKED
+    assert net.sent == []

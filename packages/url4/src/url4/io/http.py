@@ -120,11 +120,13 @@ class HttpIOLayer:
         return self._owned
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        response = await self._get(self._transport_url(target, relative))
+        response = await self._get(self._transport_url(target, relative), relative=relative)
         return response.text
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        response = await self._get(self._transport_url(request.target, request.relative))
+        response = await self._get(
+            self._transport_url(request.target, request.relative), relative=request.relative
+        )
         content_type = response.headers.get("content-type", "")
         media_type = content_type.split(";", 1)[0].strip().lower() or None
         return FetchResult(response.text, media_type=media_type)
@@ -133,7 +135,7 @@ class HttpIOLayer:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
         return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, target: str) -> httpx.Response:
+    async def _get(self, target: str, *, relative: bool) -> httpx.Response:
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
         key = idempotency_key(url)
@@ -142,21 +144,25 @@ class HttpIOLayer:
         deadline = self._guard.total_timeout if self._client is None else None
         try:
             async with asyncio.timeout(deadline):
-                return await self._send(url, headers, peer=peer)
+                return await self._send(url, headers, peer=peer, relative=relative)
         except TimeoutError as exc:
             raise source_timeout(
                 f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
             ) from exc
 
     async def _send(
-        self, url: str, headers: dict[str, str] | None, *, peer: bool
+        self, url: str, headers: dict[str, str] | None, *, peer: bool, relative: bool
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
+        # WHY relative only: the operator chose base_url; an expression that spells its origin
+        # out (or redirects into it) is checked like any other destination.
+        trusted = relative and self._is_trusted(url)
         try:
-            if guarded and not self._is_trusted(url):
+            if guarded and not trusted:
                 check_url(url, self._guard, peer=peer)
-            extensions = {FETCH_STATE: FetchState(peer=peer)} if guarded else None
+            state = FetchState(peer=peer, trusted_first_hop=trusted)
+            extensions = {FETCH_STATE: state} if guarded else None
             request = client.build_request("GET", url, headers=headers, extensions=extensions)
             response = await client.send(request, stream=True)
             # A reply came back (any status): the next request to url is a new one.
