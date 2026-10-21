@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import logging
@@ -14,6 +15,12 @@ from urllib.parse import urlparse
 import httpx
 
 from aigateway.core.input_modalities import InputModality, normalize_input_modalities
+from aigateway.core.parameter_discovery import (
+    DiscoveryError,
+    DiscoveryLimits,
+    DiscoveryPostClient,
+)
+from aigateway.core.plugin_base import ModelDiscoverySource
 
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 POSITIVE_DISCOVERY_TTL_SECONDS = 10.0
@@ -46,6 +53,110 @@ _MODALITIES_CONDITION = threading.Condition()
 # hostile or broken remote host cannot force an unbounded buffer (OME-1537 review).
 SHOW_MAX_BYTES = 1_000_000
 
+# OME-1537 review (findings 1-2): the LISTING-time probes run only in the async
+# ``model_discovery_source`` below, through the ``ModelCatalog`` — never in
+# ``register_models()``, so ``AIGW_DISCOVERY_ENABLED=false`` (no catalog) means zero
+# ``/api/show`` calls and the event loop is never blocked by a probe.
+# WHY 4: a local Ollama serves ``/api/show`` from disk; four in flight finishes a
+# typical install in one or two round trips without letting a remote host with
+# dozens of models fan out unbounded.
+OLLAMA_SHOW_CONCURRENCY = 4
+# WHY 5 s: ONE deadline for the whole round, on top of each probe's own total
+# timeout — a host that answers every probe just inside its budget, or dribbles
+# bytes, cannot hold a cold ``/v1/models`` open for N x timeout.
+OLLAMA_SHOW_DEADLINE_S = 5.0
+_SHOW_SOURCE_REVISION = "ollama:api-show:modalities-v1"
+
+
+def ollama_model_discovery_source(host: str) -> ModelDiscoverySource:
+    """The listing source for one resolved Ollama host (OME-1537).
+
+    # WHY host-scoped key: the snapshot is evidence about THAT host's installed
+    # models; a host change must not serve the previous host's snapshot.
+    # WHY ttl = the tag TTL: the snapshot IS the listing, so a newly pulled model
+    # appears as fast as it did before the source existed. Re-asking is cheap —
+    # recent per-model answers are reused (``MODALITIES_POSITIVE_TTL_SECONDS``).
+    """
+    return ModelDiscoverySource(
+        key=f"ollama:{host}:api-show",
+        revision=_SHOW_SOURCE_REVISION,
+        ttl_s=POSITIVE_DISCOVERY_TTL_SECONDS,
+        stale_ttl_s=600.0,
+        failure_ttl_s=30.0,
+    )
+
+
+# Async per-(host, model) memo of SUCCESSFUL answers only; a failure is never
+# memoized — it fails the round and the catalog keeps the last-good snapshot.
+# AIDEV-NOTE: no lock — it is touched only on the event loop, and the catalog's
+# single-flight refresh already serializes rounds per provider.
+_SHOW_MEMO: dict[tuple[str, str], tuple[tuple[InputModality, ...] | None, float]] = {}
+
+
+async def discover_ollama_show_modalities(
+    host: str,
+    names: list[str],
+    *,
+    client: DiscoveryPostClient,
+    limits: DiscoveryLimits | None = None,
+) -> dict[str, tuple[InputModality, ...] | None]:
+    """Every installed model's modalities via bounded async ``POST /api/show``.
+
+    INVARIANT: all-or-nothing. Any failed probe (transport fault, non-200,
+    malformed body) or the round deadline raises a sanitized ``DiscoveryError``,
+    so the catalog keeps serving its last-good snapshot instead of storing a
+    partially text-only listing as fresh.
+    """
+    bounds = limits if limits is not None else DiscoveryLimits()
+    gate = asyncio.Semaphore(OLLAMA_SHOW_CONCURRENCY)
+    found: dict[str, tuple[InputModality, ...] | None] = {}
+
+    async def probe(name: str) -> None:
+        key = (host, name)
+        memo = _SHOW_MEMO.get(key)
+        if memo is not None and memo[1] > time.monotonic():
+            found[name] = memo[0]
+            return
+        async with gate:
+            response = await client.post(
+                f"{host}/api/show",
+                json_body={"model": name},
+                timeout_s=bounds.timeout_s,
+                max_bytes=SHOW_MAX_BYTES,
+            )
+        modalities = _show_modalities(response.status, response.body)
+        _SHOW_MEMO[key] = (modalities, time.monotonic() + MODALITIES_POSITIVE_TTL_SECONDS)
+        found[name] = modalities
+
+    try:
+        async with asyncio.timeout(OLLAMA_SHOW_DEADLINE_S):
+            try:
+                async with asyncio.TaskGroup() as group:
+                    for name in names:
+                        group.create_task(probe(name))
+            except* Exception as failed:
+                # The first failure cancels its siblings; re-raise it UNWRAPPED so the
+                # catalog sees the sanitized ``DiscoveryError`` (or a test tripwire's
+                # ``AssertionError``) rather than an opaque ExceptionGroup.
+                raise failed.exceptions[0] from None
+    except TimeoutError:
+        raise DiscoveryError("timeout") from None
+    return found
+
+
+def _show_modalities(status: int, body: str) -> tuple[InputModality, ...] | None:
+    """One ``/api/show`` answer -> modalities; a bad answer raises sanitized."""
+    if status != 200:
+        raise DiscoveryError("bad_status", status=status)
+    try:
+        payload = json.loads(body)
+    except (ValueError, RecursionError):
+        # RecursionError: a pathologically nested document inside the byte cap.
+        raise DiscoveryError("malformed_json") from None
+    if not isinstance(payload, dict):
+        raise DiscoveryError("malformed_json")
+    return ollama_input_modalities(payload.get("capabilities"))
+
 
 def clear_ollama_discovery_cache() -> None:
     with _CACHE_CONDITION:
@@ -56,6 +167,7 @@ def clear_ollama_discovery_cache() -> None:
         _MODALITIES_CACHE.clear()
         _MODALITIES_IN_FLIGHT.clear()
         _MODALITIES_CONDITION.notify_all()
+    _SHOW_MEMO.clear()
 
 
 def ollama_input_modalities(capabilities: object) -> tuple[InputModality, ...] | None:
@@ -78,7 +190,12 @@ def discover_ollama_input_modalities(
     http_client_factory: Callable[[float], httpx.Client] | None = None,
     timeout_seconds: float = 2.0,
 ) -> tuple[InputModality, ...] | None:
-    """One installed model's input modalities via ``POST /api/show`` (cached).
+    """One installed model's input modalities via sync ``POST /api/show`` (cached).
+
+    AIDEV-NOTE: no listing path calls this since the OME-1537 review — listing-time
+    probes run only in the async ``discover_ollama_show_modalities`` (catalog-gated,
+    kill-switch-silenced). Kept, bounded (byte cap + total deadline), because removing
+    it means deleting this PR's own tests, which the approved change set did not cover.
 
     ``/api/tags`` carries no capabilities, so each model is asked once per TTL.
     Every failure (unreachable, non-2xx, malformed) is ``None`` -> text-only.
@@ -120,6 +237,9 @@ def _fetch_ollama_input_modalities(
     timeout_seconds: float,
 ) -> tuple[InputModality, ...] | None:
     factory = http_client_factory or (lambda timeout: httpx.Client(timeout=timeout))
+    # WHY a whole-request deadline: httpx's read timeout restarts on every chunk, so
+    # a host dribbling one byte at a time would never trip it (OME-1537 review).
+    deadline = time.monotonic() + timeout_seconds
     try:
         with (
             factory(timeout_seconds) as client,
@@ -127,13 +247,17 @@ def _fetch_ollama_input_modalities(
         ):
             if response.status_code < 200 or response.status_code >= 300:
                 return None
-            body = _read_capped(response, SHOW_MAX_BYTES)
+            body = _read_capped(response, SHOW_MAX_BYTES, deadline=deadline)
     except httpx.HTTPError as exc:
         logger.warning("Ollama /api/show failed for %s at %s: %s", name, host, type(exc).__name__)
         return None
     if body is None:
         logger.warning(
-            "Ollama /api/show for %s at %s exceeded %d bytes", name, host, SHOW_MAX_BYTES
+            "Ollama /api/show for %s at %s exceeded %d bytes or %.1f s",
+            name,
+            host,
+            SHOW_MAX_BYTES,
+            timeout_seconds,
         )
         return None
     try:
@@ -146,12 +270,13 @@ def _fetch_ollama_input_modalities(
     return ollama_input_modalities(payload.get("capabilities"))
 
 
-def _read_capped(response: httpx.Response, max_bytes: int) -> bytes | None:
-    """The streamed body, or ``None`` as soon as it exceeds ``max_bytes`` (stops reading)."""
+def _read_capped(response: httpx.Response, max_bytes: int, *, deadline: float) -> bytes | None:
+    """The streamed body, or ``None`` once it exceeds ``max_bytes`` or passes
+    ``deadline`` (a ``time.monotonic()`` instant); reading stops either way."""
     buffer = bytearray()
     for chunk in response.iter_bytes():
         buffer.extend(chunk)
-        if len(buffer) > max_bytes:
+        if len(buffer) > max_bytes or time.monotonic() > deadline:
             return None
     return bytes(buffer)
 

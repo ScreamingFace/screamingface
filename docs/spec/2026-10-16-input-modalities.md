@@ -42,8 +42,12 @@ Every `/v1/models` row gains `input_modalities: list[str]`.
 | Codex | declared family table, hook only (`models.py`/`chat_handler.py` untouched — another unit owns them) | `gpt-5*`, `gpt-6*` -> text, image, pdf (verified live with `gpt-6-astra`) |
 | OpenAI (direct) | declared family table | `gpt-5*`, `gpt-4.1*`, `gpt-4o*`, `o3*`, `o4*` -> text, image, pdf (OpenAI documents image + PDF file input for these families) |
 
-Failure modes stay conservative: OpenRouter/HF listing failure -> seed fallback -> `["text"]`;
-an Ollama `/api/show` failure for one model -> that model `["text"]`.
+Failure modes stay conservative: OpenRouter/HF listing failure -> seed fallback -> `["text"]`.
+Ollama (review round 2, owner decision 2026-10-21): `/api/show` probes run only in the async
+Ollama `model_discovery_source` through the `ModelCatalog` — `register_models()` returns
+probe-free text-only seeds, so `AIGW_DISCOVERY_ENABLED=false` means zero probes. A probe round is
+bounded (4 in flight, one 5 s deadline for the round, each body <= 1 MB with a total per-request
+deadline) and all-or-nothing: any failed probe keeps the last-good snapshot, or the seeds when cold.
 
 ## Out of scope
 

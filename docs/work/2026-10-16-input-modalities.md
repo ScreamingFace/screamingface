@@ -90,3 +90,34 @@ Unknown is `["text"]`, never vision. Spec: `docs/spec/2026-10-16-input-modalitie
   this unit's scope — candidate follow-up).
 - **Gates:** `run_gates.py aigateway` ALL GATES GREEN.
 - **Deviations:** none beyond the owner-decision items above.
+
+## Review round 2 (owner decision 2026-10-21) — outcome
+
+- **F1 + F2 kill switch, fixed (tests first):** `/api/show` probes moved off `register_models()`
+  (now probe-free seeds) into an async Ollama `model_discovery_source` / `discover_live_models`
+  run by the `ModelCatalog`: off-loop, single-flight per provider, last-good on failure, and
+  absent under `AIGW_DISCOVERY_ENABLED=false` (no catalog). Round bounds:
+  `OLLAMA_SHOW_CONCURRENCY = 4`, `OLLAMA_SHOW_DEADLINE_S = 5.0` for the whole round, each body
+  `SHOW_MAX_BYTES` (1 MB) under the transport's total deadline; any failed probe fails the round
+  (all-or-nothing) so a partial text-only listing is never cached as fresh. Successful per-model
+  answers are memoized 60 s so the 10 s listing TTL does not re-probe unchanged models.
+- **Port:** a bounded POST for the core transport — `DiscoveryPostClient` (runtime-checkable
+  Protocol, core) + `HttpxDiscoveryClient.post` (same envelope as `get`: no redirects, identity
+  encoding, byte cap counted before retained, total deadline, sanitized errors). Plugin narrows
+  with `isinstance`; a GET-only transport -> `DiscoveryError("unsupported_transport")`.
+- **Slow drip:** the sync `_read_capped` also stops at a whole-request deadline.
+- **Tests (new):** `tests/unit/ollama/test_ollama_show_source.py`,
+  `tests/unit/ollama/test_ollama_show_sync_deadline.py`, `tests/unit/core/test_parameter_discovery_post.py`,
+  helper `tests/unit/ollama/_show_client.py`; `tests/conftest.py` appended an autouse POST egress
+  guard (default transport -> `unreachable`, so route tests on a machine running Ollama fall back to
+  seeds instead of dialing it).
+- **Approved prior-test edit:** `test_rows_publish_ollama_vision_as_image_only` now drives the async
+  source — manifest `.claude/test-change-approvals/OME-1537.json`.
+- **Gates:** `run_gates.py aigateway` ALL GATES GREEN (append-only vs HEAD with the approved
+  transition, ruff, format, pyright, no-enterprise, pytest + coverage).
+- **Deviations:** (1) POST is a sibling core Protocol, not a new member of `DiscoveryHttpClient`:
+  adding the member broke 132 pyright checks on prior-test GET-only doubles (append-only). (2)
+  `register_models()` still makes the pre-existing cached `/api/tags` call (it is how seeds are
+  found); "no network" is enforced for `/api/show`. (3) The sync `discover_ollama_input_modalities`
+  has no listing caller now but is kept (bounded) because deleting it means deleting this PR's own
+  tests, outside the approved change set — candidate cleanup with owner approval.

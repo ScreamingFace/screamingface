@@ -10,6 +10,7 @@ file parts on Ollama (OME-1641). Any failure to ask is unknown -> text-only.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -24,6 +25,8 @@ from aigateway.plugins.ollama_provider.discovery import (
     ollama_input_modalities,
 )
 from aigateway.plugins.ollama_provider.plugin import OllamaProviderPlugin
+
+from ._show_client import ShowClient
 
 
 @pytest.fixture(autouse=True)
@@ -116,19 +119,17 @@ def test_malformed_show_body_is_unknown() -> None:
 
 
 def test_rows_publish_ollama_vision_as_image_only(monkeypatch) -> None:
+    # OME-1537 review (owner-approved edit, 2026-10-21): the evidence now comes from the
+    # async listing source, not register_models() (which returns probe-free seeds).
     monkeypatch.setattr(ollama_plugin, "resolve_ollama_host", lambda: DEFAULT_OLLAMA_HOST)
     monkeypatch.setattr(
         ollama_plugin, "discover_ollama_models", lambda _host: ["qwen2.5vl:3b", "qwen3:14b"]
     )
-    evidence = {"qwen2.5vl:3b": ("text", "image"), "qwen3:14b": ("text",)}
-    monkeypatch.setattr(
-        ollama_plugin,
-        "discover_ollama_input_modalities",
-        lambda _host, name: evidence[name],
+    client = ShowClient(
+        {"qwen2.5vl:3b": ["completion", "vision"], "qwen3:14b": ["completion", "tools"]}
     )
     plugin = OllamaProviderPlugin()
-    rows = {
-        r["id"]: r["input_modalities"]
-        for r in map(lambda e: model_row(plugin, e), plugin.register_models())
-    }
+    entries = asyncio.run(plugin.discover_live_models(client=client))
+    assert entries is not None
+    rows = {r["id"]: r["input_modalities"] for r in map(lambda e: model_row(plugin, e), entries)}
     assert rows == {"ollama/qwen2.5vl:3b": ["text", "image"], "ollama/qwen3:14b": ["text"]}
