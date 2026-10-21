@@ -1,7 +1,7 @@
 ---
 id: OME-1655
 linear_url: https://linear.app/openmined/issue/OME-1655/turn-on-the-reproduce-button-on-the-leaderboard
-status: backlog
+status: in_review
 type: task
 priority: medium
 labels: [scoreboard, agentic, deferred]
@@ -18,3 +18,4 @@ closed:
 Blocked by `OME-1613`.
 
 - 2026-10-19: filed by the owner, split out of `OME-1596`'s acceptance.
+- 2026-10-21: built; draft PR held until the SDK release with `OME-1613` is on PyPI.

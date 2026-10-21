@@ -189,16 +189,25 @@ function buttons(cell) {
   return found;
 }
 
-test("the switch ships off", async () => {
+// OME-1655: the switch ships on, now that the SDK runs the snippet (`OME-1613`).
+test("the switch ships on", async () => {
   const { page } = await renderBoard([]);
 
-  assert.equal(page.SHOW_REPRODUCE_BUTTON, false);
+  assert.equal(page.SHOW_REPRODUCE_BUTTON, true);
 });
 
-test("with the switch off a captured row shows only the Copy button", async () => {
+test("the shipped board shows Reproduce under Copy on a captured row", async () => {
   const { body } = await renderBoard([entry("captured", { pinned_cache: COPY })]);
 
   const cell = runCell(body.children[0]);
+  assert.deepEqual(buttons(cell).map((b) => b.textContent), ["Copy", "Reproduce"]);
+});
+
+test("with the switch off a captured row shows only the Copy button", async () => {
+  const { page } = await renderBoard([]);
+
+  // OME-1655: the switch is passed off explicitly, now that the shipped value is on.
+  const cell = page.renderRunCell(entry("captured", { pinned_cache: COPY }), false);
   assert.deepEqual(buttons(cell).map((b) => b.textContent), ["Copy"]);
 });
 
