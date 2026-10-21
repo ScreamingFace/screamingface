@@ -118,7 +118,9 @@ jobs:
         # --extra runtime: test_local_boot (tests/e2e/workbench) runs the real `screamingface up`,
         # whose servers live in that extra. Declared here rather than inherited from the prepare
         # step's `uv run --extra runtime`, which only left them installed by an inexact sync.
-        run: uv run --extra runtime pytest tests/e2e -rs -v
+        # --junitxml lands inside the evidence dir, so the upload below carries it; the
+        # workbench conftest redacts every report before it reaches JUnit.
+        run: uv run --extra runtime pytest tests/e2e -rs -v --junitxml=$SCREAMINGFACE_WORKBENCH_OUT/junit.xml
 
       - name: Upload workbench evidence
         if: always()
@@ -126,5 +128,6 @@ jobs:
         with:
           name: workbench-evidence
           path: ${{ runner.temp }}/workbench-out
-          # REQUIRE_ALL means every notebook ran and wrote a bundle; none is a broken lane.
+          # Bundles + summary.md + junit.xml (the whole e2e run). REQUIRE_ALL means every
+          # notebook ran and wrote a bundle, or setup_error.txt says why; none is a broken lane.
           if-no-files-found: error

@@ -102,6 +102,7 @@ Each notebook writes a bundle, whether it passes or fails:
 ```
 <out>/
   summary.md                    # one row per notebook: target | notebook | outcome | trace ids | reasons
+  junit.xml                     # CI only: the whole e2e run's JUnit (--junitxml in the workflow)
   setup_error.txt               # only when the target errored/skipped while booting (+ a SETUP-ERROR/SETUP-SKIP summary row)
   <target>/<notebook>/
     executed.ipynb              # the run with outputs, tracebacks included
@@ -109,7 +110,9 @@ Each notebook writes a bundle, whether it passes or fails:
     logs/<hop>.txt              # the log lines matching the trace ids (engine, aigateway | runtime)
 ```
 
-With `--junitxml`, each `test_notebook` entry also carries the properties `trace_ids`
+CI (`screamingface-e2e-replay.yml`) passes `--junitxml=$SCREAMINGFACE_WORKBENCH_OUT/junit.xml`,
+so the JUnit is uploaded with the bundles on pass and fail. With `--junitxml`, each
+`test_notebook` entry also carries the properties `trace_ids`
 (comma-joined) and `bundle` (the bundle path).
 
 Secrets are redacted before anything leaves the test, by one redactor (`redaction.py`):
