@@ -941,3 +941,60 @@ references on `Signal`). 7d–7h are not in this round.
   ALL GATES GREEN (pyright needed `uv sync --frozen` once: the inspect pitfall);
   `run_gates.py screamingface --base e4d44281c --skip-append-only` ALL GATES GREEN (coverage floor
   95 met); `run_gates.py repo --base e4d44281c` ALL GATES GREEN.
+
+### Final review fixes (7f–7h)
+
+- **Commits:** `db40f0461` fix (items 1, 2, 4, 6), `cdedd3924` fix (item 3), `bb8a420df` test
+  (item 5), this ledger commit.
+- **(1) Runtime step names:** `_check_members` of VoteNode/MedianNode/MeanNode and the combine
+  spec builder (`_evaluation/combine_spec.py`) write `sf.{_step_name()}`: "sf.Vote has 2 weights
+  for 3 members", never the wire name "vote".
+- **(2) JU-1 and labels:** a `score:judge` weight on sf.Median / sf.Mean (node and block) raises
+  "sf.Median does not read a judge's scores as weights; use sf.Vote(weights='score:judge') or
+  sf.ArgMax('score:judge')" (new `_refuse_judge_weights`; `_MEDIAN_JUDGE_USE`,
+  `_MEAN_SIGNAL_USE` and the `judge_use` parameter are gone). The quote style is single quotes,
+  as in the other messages. Every step label in a message reads `sf.<Step>` (Vote, Median, Mean,
+  Rank, Concat, Filter, Merge, Gate, Judge, Fanout, Synthesize; also the internal-only GateNode
+  and JudgeNode option messages). The article before `sf.` is "a" in all of `src/screamingface`
+  (38 sites, messages, docstrings and comments). README:353 says the new JU-1 rule. `Pipeline`
+  and `Model` labels (not steps) are unchanged.
+- **(3) Judge-writer warning:** an unnamed chain warns "Stages 1 and 2 use the same model ...";
+  "Pipeline '<name>': stages ..." only for a named Pipeline (the `named` value of gap b).
+  **Not done (not small):** the fanout-member NIT. The walk does not know where a nested
+  Pipeline sits (a block member, a `sf.Synthesize` writer recipe or a corrective-loop member),
+  and one Pipeline object can sit in two places; it needs the parent position threaded through
+  `_warn_judge_writers`. Follow-up.
+- **(4) Field paths:** `refs.extractor` uses `_checked_field_path` ("over= field path 'x' must be
+  a JSON path like 'score', 'a.b' or 'a[0].b' (at most 256 characters)"); `sf.Extract("field",
+  path=...)` uses `reducer._field_path` ("sf.Extract('field') path ..."; the TypeError is now
+  "... path must be a string"); `sf.Filter(where=sf.signal("field:<path>") >= x)` goes through
+  `signal_key` ("sf.Filter where= field path ..."). The `test_signal_key_paths.py` docstring now
+  says the Engine has no cap and the SDK refuses before the compile for consistency. This closes
+  the 7f–7h follow-ups "over= has no 256-character cap" and "the unnamed chain names its
+  inferred name".
+- **(5) PickNode output:** new tamper row (`"output": "a.b"` → "pick spec ... cannot rebuild",
+  cause is the "top-level field name" ValueError).
+- **(6) One step-name mechanism:** `_public_name` and `Reducer.__init_subclass__` are gone;
+  `Reducer._step_name()` is `type(self).__name__.removesuffix("Node")`; PickNode, ReduceNode
+  and JudgeNode override it. `JudgeNode._step_name()` is "JudgePick" for a label judge and
+  "ArgMax"/"ArgMin" (by order) for a scores judge. A custom reducer shows its class name
+  (`sf.FixtureVote has 1 weights ...` in `test_reducer_slot.py`).
+- **New rows:** `test_surface_messages.py` (weight count x6 + combine spec; JU-1 x5; step labels
+  x8; the article scan; the candidate type message; `_step_name` x4; no `_public_name`),
+  `test_chain_warnings.py` (two-stage unnamed chain shows no member route; named two-stage chain
+  keeps its name), `test_signal_key_paths.py` (over=, Filter where=, Extract path),
+  `test_pick_output.py` (tamper row).
+- **Pre-existing test files edited (owner list):** `test_band_api.py`, `test_blocks_extract.py`,
+  `test_blocks_reduce.py`, `test_chain_rules.py`, `test_chain_warnings.py` (the unnamed-chain row
+  renamed to `test_wj1_an_unnamed_chain_names_its_stages_only` with the new text),
+  `test_corrective_recipes.py`, `test_fanout.py`, `test_filter.py`, `test_gate_api.py`,
+  `test_judge_step.py`, `test_judge_weighted_vote.py`, `test_mean.py`, `test_rank_by_signal.py`,
+  `test_recipes.py`, `test_reducer_slot.py`, `test_signal_key_paths.py` (labels + docstring),
+  `test_signal_sum_api.py`, `test_signal_weighted_vote.py`, `test_surface_extract.py`,
+  `test_weighted_median.py`, `test_weighted_vote.py`: each pins a reworded message (the article,
+  a `sf.` label, JU-1, the over= path text). Append-only: `test_surface_messages.py`,
+  `test_pick_output.py`.
+- **Tests:** SDK full suite 5576 passed, 31 skipped.
+- **Gates (HEAD `bb8a420df`):** `run_gates.py screamingface --base e4d44281c --skip-append-only`
+  ALL GATES GREEN (coverage floor 95 met); `run_gates.py repo --base e4d44281c
+  --skip-append-only` ALL GATES GREEN. Engine not touched.
