@@ -35,7 +35,7 @@ Every `/v1/models` row gains `input_modalities: list[str]`.
 |---|---|---|
 | OpenRouter | live catalogue `architecture.input_modalities` (verified 2026-10-16: list of `text`/`image`/`file`/`audio`/`video`) | `text`, `image`; `file` -> `pdf` (OpenRouter's PDF guide: PDFs travel as the `file` content type and go to the model natively when it "supports file input natively"); audio/video dropped |
 | HuggingFace | router catalogue `architecture.input_modalities` (the parser already reads it) via a new listing-discovery source that enriches the configured entries | `text`, `image`; anything else dropped |
-| Ollama | `POST /api/show` `capabilities` per installed model (verified live: `qwen2.5vl:3b` -> `[completion, vision]`, `qwen3:14b` -> `[completion, tools, thinking]`) | `vision` -> `image`; never `pdf` (the gateway refuses file parts on Ollama, OME-1641) |
+| Ollama | `POST /api/show` `capabilities` per installed model (verified live: `qwen2.5vl:3b` -> `[completion, vision]`, `qwen3:14b` -> `[completion, tools, thinking]`) | `vision` -> `image`; never `pdf` (no working PDF path: LiteLLM's Ollama path silently drops file parts today; the explicit refusal lands with OME-1641 / PR #1447) |
 | Anthropic | declared family table | `claude-*` -> text, image, pdf |
 | Antigravity | declared family table | `gemini-*` -> text, image, pdf; anything else text |
 | Gemini (gemini-cli) | declared family table | `gemini-*` -> text, image, pdf |

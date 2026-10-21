@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import threading
@@ -36,7 +37,14 @@ _CACHE_CONDITION = threading.Condition()
 # once per installed model; a failure is retried soon so a cold host recovers.
 MODALITIES_POSITIVE_TTL_SECONDS = 60.0
 _MODALITIES_CACHE: dict[tuple[str, str], tuple[tuple[InputModality, ...] | None, float]] = {}
-_MODALITIES_LOCK = threading.Lock()
+# Per-key single-flight: concurrent cold lookups of one (host, model) wait for the
+# leader's answer instead of each dialing ``/api/show``.
+_MODALITIES_IN_FLIGHT: set[tuple[str, str]] = set()
+_MODALITIES_CONDITION = threading.Condition()
+# WHY 1 MB: ``/api/show`` carries the modelfile, template, license and metadata —
+# tens of KB for real models. The body is streamed and reading STOPS at the cap, so a
+# hostile or broken remote host cannot force an unbounded buffer (OME-1537 review).
+SHOW_MAX_BYTES = 1_000_000
 
 
 def clear_ollama_discovery_cache() -> None:
@@ -44,15 +52,19 @@ def clear_ollama_discovery_cache() -> None:
         _CACHE.clear()
         _IN_FLIGHT.clear()
         _CACHE_CONDITION.notify_all()
-    with _MODALITIES_LOCK:
+    with _MODALITIES_CONDITION:
         _MODALITIES_CACHE.clear()
+        _MODALITIES_IN_FLIGHT.clear()
+        _MODALITIES_CONDITION.notify_all()
 
 
 def ollama_input_modalities(capabilities: object) -> tuple[InputModality, ...] | None:
     """Ollama ``capabilities`` -> gateway modalities, or ``None`` when unknown.
 
     INVARIANT: only ``vision`` -> ``image`` is mapped. ``pdf`` is never reported,
-    whatever Ollama says, because the gateway refuses file parts on Ollama (OME-1641).
+    whatever Ollama says: the gateway has no working PDF path to Ollama — at this head
+    LiteLLM's Ollama path silently drops file parts, and the explicit refusal lands
+    with OME-1641 (PR #1447). Either way, claiming ``pdf`` would be false.
     """
     if not isinstance(capabilities, list):
         return None
@@ -72,22 +84,32 @@ def discover_ollama_input_modalities(
     Every failure (unreachable, non-2xx, malformed) is ``None`` -> text-only.
     """
     key = (host, name)
-    now = time.monotonic()
-    with _MODALITIES_LOCK:
-        cached = _MODALITIES_CACHE.get(key)
-        if cached is not None and cached[1] > now:
-            return cached[0]
-    modalities = _fetch_ollama_input_modalities(
-        host, name, http_client_factory=http_client_factory, timeout_seconds=timeout_seconds
-    )
-    ttl = (
-        MODALITIES_POSITIVE_TTL_SECONDS
-        if modalities is not None
-        else NEGATIVE_DISCOVERY_TTL_SECONDS
-    )
-    with _MODALITIES_LOCK:
-        _MODALITIES_CACHE[key] = (modalities, time.monotonic() + ttl)
-    return modalities
+    while True:
+        now = time.monotonic()
+        with _MODALITIES_CONDITION:
+            cached = _MODALITIES_CACHE.get(key)
+            if cached is not None and cached[1] > now:
+                return cached[0]
+            if key not in _MODALITIES_IN_FLIGHT:
+                _MODALITIES_IN_FLIGHT.add(key)
+                break
+            _MODALITIES_CONDITION.wait()
+    try:
+        modalities = _fetch_ollama_input_modalities(
+            host, name, http_client_factory=http_client_factory, timeout_seconds=timeout_seconds
+        )
+        ttl = (
+            MODALITIES_POSITIVE_TTL_SECONDS
+            if modalities is not None
+            else NEGATIVE_DISCOVERY_TTL_SECONDS
+        )
+        with _MODALITIES_CONDITION:
+            _MODALITIES_CACHE[key] = (modalities, time.monotonic() + ttl)
+        return modalities
+    finally:
+        with _MODALITIES_CONDITION:
+            _MODALITIES_IN_FLIGHT.discard(key)
+            _MODALITIES_CONDITION.notify_all()
 
 
 def _fetch_ollama_input_modalities(
@@ -99,20 +121,39 @@ def _fetch_ollama_input_modalities(
 ) -> tuple[InputModality, ...] | None:
     factory = http_client_factory or (lambda timeout: httpx.Client(timeout=timeout))
     try:
-        with factory(timeout_seconds) as client:
-            response = client.post(f"{host}/api/show", json={"model": name})
+        with (
+            factory(timeout_seconds) as client,
+            client.stream("POST", f"{host}/api/show", json={"model": name}) as response,
+        ):
+            if response.status_code < 200 or response.status_code >= 300:
+                return None
+            body = _read_capped(response, SHOW_MAX_BYTES)
     except httpx.HTTPError as exc:
         logger.warning("Ollama /api/show failed for %s at %s: %s", name, host, type(exc).__name__)
         return None
-    if response.status_code < 200 or response.status_code >= 300:
+    if body is None:
+        logger.warning(
+            "Ollama /api/show for %s at %s exceeded %d bytes", name, host, SHOW_MAX_BYTES
+        )
         return None
     try:
-        payload = response.json()
-    except ValueError:
+        payload = json.loads(body)
+    except (ValueError, RecursionError):
+        # RecursionError: a pathologically nested document inside the byte cap.
         return None
     if not isinstance(payload, dict):
         return None
     return ollama_input_modalities(payload.get("capabilities"))
+
+
+def _read_capped(response: httpx.Response, max_bytes: int) -> bytes | None:
+    """The streamed body, or ``None`` as soon as it exceeds ``max_bytes`` (stops reading)."""
+    buffer = bytearray()
+    for chunk in response.iter_bytes():
+        buffer.extend(chunk)
+        if len(buffer) > max_bytes:
+            return None
+    return bytes(buffer)
 
 
 def resolve_ollama_host(environ: Mapping[str, str] | None = None) -> str:

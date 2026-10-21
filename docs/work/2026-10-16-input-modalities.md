@@ -61,3 +61,32 @@ Unknown is `["text"]`, never vision. Spec: `docs/spec/2026-10-16-input-modalitie
   text-only. (2) OpenAI direct got a declared table too (the ticket names it; the dispatch brief
   did not). (3) Admitted OpenRouter models report text-only (no evidence threaded through
   admission).
+
+## Review round 1 (HupBaHa 2026-10-20T15:50Z) — outcome
+
+- **Fixed (tests first, new files only):**
+  - F4 family boundaries: `core/input_modalities.py` `matches_family` — a family key matches only
+    as the whole id or followed by `- . : @ / _` (`gpt-50`, `o30`, `o40`, `gpt-4oo`, `gpt-4.10` ->
+    text). Anthropic classifies `litellm_params["model"]` (the routed target), not the alias.
+    Tests: `tests/unit/test_declared_input_modalities_boundaries.py`.
+  - F3 HF envelope: `discover_router_input_modalities` raises `DiscoveryError("malformed_json")`
+    for a 200 that is not `{"data": [...]}`; the catalog keeps the last-good snapshot. Parser
+    leniency kept for per-row fields (so the existing `test_parser_tolerates_a_non_catalogue`
+    still holds unchanged). Tests: `tests/unit/huggingface/test_huggingface_input_modalities_envelope.py`.
+  - F2 (bounds half) + F1 (single-flight half): `/api/show` is streamed under a 1 MB cap
+    (`SHOW_MAX_BYTES`, reading stops at the cap), nested-JSON `RecursionError` -> unknown, and
+    concurrent cold lookups of one (host, model) share one call. Tests:
+    `tests/unit/ollama/test_ollama_show_bounds.py`.
+  - Note: Ollama PDF wording in `ollama_provider/discovery.py` + spec no longer claims the gateway
+    already refuses PDFs (that lands with #1447).
+- **Not changed — needs owner decision:** F1 (probes still sync on the event loop) and the
+  kill-switch half of F2. The clean fix moves `/api/show` probes into an Ollama
+  `model_discovery_source` / async `discover_live_models` (ModelCatalog: off-loop, single-flight,
+  last-good, `None` under `AIGW_DISCOVERY_ENABLED=false`) with `register_models()` returning
+  probe-free seeds. That breaks this PR's `test_rows_publish_ollama_vision_as_image_only`
+  (asserts `register_models()` carries `/api/show` evidence) and needs a POST-capable bounded
+  transport (core `DiscoveryHttpClient` is GET-only) — a test change + port decision.
+- **Not changed:** `/v1/models` OpenAPI stays a generic object (pre-existing route schema; out of
+  this unit's scope — candidate follow-up).
+- **Gates:** `run_gates.py aigateway` ALL GATES GREEN.
+- **Deviations:** none beyond the owner-decision items above.

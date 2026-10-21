@@ -89,8 +89,13 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
         # OME-1537: declared family table; a model outside it is unknown -> text-only.
+        # WHY the routed target, not the name: ``settings.models`` lets an operator
+        # alias any name to any upstream model, so only ``litellm_params["model"]``
+        # says which model actually reads the request.
+        target = entry.litellm_params.get("model")
+        model = target if isinstance(target, str) else entry.model_name
         return declared_family_modalities(
-            entry.model_name.removeprefix("anthropic/"), _INPUT_MODALITY_FAMILIES
+            model.removeprefix("anthropic/"), _INPUT_MODALITY_FAMILIES
         )
 
     def oauth_config(self) -> OAuthConfig:

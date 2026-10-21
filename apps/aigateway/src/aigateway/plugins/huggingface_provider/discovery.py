@@ -259,6 +259,12 @@ async def discover_router_input_modalities(
         client=client,
         limits=limits or DiscoveryLimits(),
     )
+    # INVARIANT: an HTTP 200 that is not a ``{"data": [...]}`` catalogue (maintenance
+    # page, envelope change) is a FAILED read, not fresh "no evidence" — returning
+    # ``{}`` would let the catalog replace a last-good image-capable snapshot with
+    # text-only rows for a whole TTL. Leniency stays on optional per-row fields only.
+    if not isinstance(catalog, Mapping) or not isinstance(catalog.get("data"), list):
+        raise DiscoveryError("malformed_json")
     return parse_router_input_modalities(catalog)
 
 

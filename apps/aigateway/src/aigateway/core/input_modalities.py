@@ -46,16 +46,37 @@ def normalize_input_modalities(values: object) -> tuple[InputModality, ...]:
     return tuple(modality for modality in INPUT_MODALITY_ORDER if modality in claimed)
 
 
+# The characters that END a model family name inside a model id (``gpt-5`` in
+# ``gpt-5.1``, ``gpt-5-mini``, ``gpt-5:latest``, ``gpt-5@2026-01-01``, ``gpt-5_preview``).
+FAMILY_DELIMITERS = frozenset("-.:@/_")
+
+
+def matches_family(model: str, family: str) -> bool:
+    """Whether ``model`` belongs to ``family`` — a prefix match AT A FAMILY BOUNDARY.
+
+    The model is the family itself, or the family followed by a delimiter. A key that
+    already ends in a delimiter (``claude-``) names its own boundary.
+    WHY not plain ``startswith``: ``gpt-5`` would claim ``gpt-50`` and ``o3`` would
+    claim ``o30`` — unknown models published as multimodal (OME-1537 review).
+    """
+    if not family or not model.startswith(family):
+        return False
+    if len(model) == len(family) or family[-1] in FAMILY_DELIMITERS:
+        return True
+    return model[len(family)] in FAMILY_DELIMITERS
+
+
 def declared_family_modalities(
     model: str, table: Sequence[tuple[str, tuple[InputModality, ...]]]
 ) -> tuple[InputModality, ...]:
-    """A provider's DECLARED modalities for ``model``: first matching family prefix wins.
+    """A provider's DECLARED modalities for ``model``: first matching family wins.
 
     For providers whose catalogue publishes no modality field, the plugin declares a
     reviewed per-family table. A model outside every declared family is unknown and
-    therefore text-only — a new family is never assumed to see.
+    therefore text-only — a new family is never assumed to see. Families match only at
+    a family boundary (``matches_family``).
     """
-    for prefix, modalities in table:
-        if prefix and model.startswith(prefix):
+    for family, modalities in table:
+        if matches_family(model, family):
             return modalities
     return TEXT_ONLY
