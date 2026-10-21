@@ -170,7 +170,8 @@ def test_every_pull_in_a_process_shares_one_signed_in_session(
     built = _counting_clients(monkeypatch, tmp_path)
 
     pull_module.pull_into((), url=None, data_dir=tmp_path, progress=False)
-    pull_module.pull_into(("m1",), url=None, data_dir=tmp_path, progress=False)
+    with pytest.warns(UserWarning, match="m1"):  # the empty page matches no m1 rows
+        pull_module.pull_into(("m1",), url=None, data_dir=tmp_path, progress=False)
 
     assert len(built) == 1
     assert not built[0].closed

@@ -229,3 +229,19 @@ Four findings; the owner chose the approach for 1 and 3. One commit.
   the same origin and not on another, blank URL refused, CLI usage error, interrupt counts, file
   identity across replace and symlink retarget. `test_cache_local.py` (pinned in `OME-1639.json`)
   only gains tests; its approved blob is refreshed.
+
+## Review comments by khoaguin (PR #1446, 2026-10-21)
+
+- **What a hit needs (README):** a few lines after the pull example: a row answers only the exact
+  request (model, prompt, parameters, Benchmark revision, `answer_seed`); the rows cannot say
+  which configurations they cover; two ways to land on one that does (a standard Benchmark with a
+  bare `sf.Model`, or a leaderboard entry's `url4`, with its caveats: only hosted runs are in the
+  hosted cache, and an entry does not carry its `answer_seed`). The longer-term ideas (configs
+  suggested from the leaderboard after a pull, an `evaluate(..., cache_only=True)` dry run) are
+  not in this PR.
+- **A filter that matches nothing:** a filtered pull that finishes with zero rows read raises a
+  `UserWarning` naming the filter. The page reports one total, not one per model, so the warning
+  names the whole filter rather than the one model that matched nothing.
+- **Tests (files this PR added):** the warning with a filter and zero rows; none without a filter
+  or with rows; the existing session-sharing test now expects the warning for its empty filtered
+  page.

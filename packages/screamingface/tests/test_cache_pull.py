@@ -435,3 +435,26 @@ def test_a_retry_waits_for_the_engines_retry_after_within_a_cap(
 
     assert slept == [waited]
     assert result.complete is True
+
+
+# --- a filter that matches nothing (PR #1446 review, khoaguin) -----------------------------------
+
+
+def test_a_filtered_pull_that_matches_no_rows_warns_naming_the_filter() -> None:
+    source = _Source({None: [_page([], None, remaining=0)]})
+
+    with pytest.warns(UserWarning, match="openrouter/typo"):
+        result = _run(source, _Gateway(), models=("openrouter/typo",))
+
+    assert result.complete and result.rows_read == 0
+
+
+@pytest.mark.parametrize(
+    ("models", "keys"), [((), []), (("openrouter/m",), ["a"])], ids=["unfiltered", "matched"]
+)
+def test_no_warning_without_a_filter_or_with_rows(
+    models: tuple[str, ...], keys: list[str], recwarn: pytest.WarningsRecorder
+) -> None:
+    _run(_Source({None: [_page(keys, None)]}), _Gateway(), models=models)
+
+    assert not [w for w in recwarn if issubclass(w.category, UserWarning)]

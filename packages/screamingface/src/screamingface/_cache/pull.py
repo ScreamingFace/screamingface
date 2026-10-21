@@ -19,6 +19,7 @@ a page that did not are still valid entries, and loading them again adds nothing
 from __future__ import annotations
 
 import time
+import warnings
 from collections.abc import Callable, Hashable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -149,7 +150,18 @@ def run_pull(
     report.preparing(source.origin)
     try:
         destination.prepare()
-        return loop.walk(sleep)
+        result = loop.walk(sleep)
+        if models and result.rows_read == 0:
+            # WHY: the filter is exact, so a typo matches nothing and the pull still finishes;
+            # the runs that follow would then miss on every call with nothing to say why.
+            warnings.warn(
+                f"no rows in the hosted cache matched {', '.join(models)}; model names must "
+                "match the hosted cache exactly (for example "
+                "'openrouter/anthropic/claude-opus-5.5')",
+                UserWarning,
+                stacklevel=2,
+            )
+        return result
     except CachePullError as error:
         report.stopped(loop.snapshot(), error.message)
         raise

@@ -63,6 +63,21 @@ If it stops, calling it again in the same process continues where it left off; a
 starts over, re-reading but not re-adding what is already local. One evaluation opts out of the
 cache with `evaluate(..., use_cache=False)`.
 
+A pulled row answers only the exact request it was stored for: the same model, prompt and
+parameters, the same Benchmark revision, and the same `answer_seed` if the run used one. Change
+any of them (even `temperature`) and every call misses and is paid. The rows hold a one-way hash
+of the request, not the request, so a pull cannot tell you which configurations it covers. Two
+ways to land on one that does:
+
+- Run a standard Benchmark with a bare `sf.Model("…")`: the Benchmark fixes the prompts and
+  parameters, so this is the most common configuration.
+- Re-run a published leaderboard entry with `sf.evaluate(entry.url4)`. Only runs made on the
+  hosted Engine are in the hosted cache, so an entry that was run locally and submitted gives no
+  hits; and a leaderboard entry does not carry its `answer_seed`, so a seeded run re-run from its
+  `url4` alone misses.
+
+A filtered pull that matches no rows says so (a model name with a typo matches nothing).
+
 For scripts and troubleshooting:
 
 ```bash
