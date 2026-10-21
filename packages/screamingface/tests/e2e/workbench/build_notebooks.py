@@ -269,7 +269,13 @@ if EXPECT_CACHED:
 report
 """
 
+# WHY `_usd`: the SDK's None means nothing priceable was observed, which is not zero, so it
+# stays null in the payload (str(None) would read as the amount "None").
 _QUICKSTART_RESULT = """
+def _usd(amount):
+    return None if amount is None else str(amount)
+
+
 ran = list(report.candidates) if report is not None else []
 error_trace_id = evaluate_error.trace_id if evaluate_error is not None else None
 trace_ids = [c.trace_id for c in ran if c.trace_id] + [error_trace_id]
@@ -282,8 +288,9 @@ print(
             "candidates": {
                 c.name: {
                     "score": c.score,
+                    "cost_usd": _usd(c.usage.cost_usd),
                     "cache_hits": c.cache_hits,
-                    "cache_saved_cost_usd": str(c.cache_saved_cost_usd),
+                    "cache_saved_cost_usd": _usd(c.cache_saved_cost_usd),
                 }
                 for c in ran
             },

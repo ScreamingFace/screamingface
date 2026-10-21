@@ -571,6 +571,62 @@ def test_bundle_page_shows_hops_logs_and_a_sandboxed_notebook(rig: _Rig) -> None
     assert "AssertionError: the client minted no trace id" in page
 
 
+def _candidate_rows(page: str) -> dict[str, list[str]]:
+    body = page.split("<th>Candidate</th>", 1)[1].split("</table>", 1)[0]
+    rows = re.findall(r"<tr>(.*?)</tr>", body)
+    cells = [re.findall(r"<td>(.*?)</td>", row) for row in rows]
+    return {c[0]: c[1:] for c in cells if c}
+
+
+def test_the_bundle_page_shows_each_candidates_spend(rig: _Rig) -> None:
+    trace = _FULL_TRACE | {
+        "result": {
+            "candidates": {
+                "priced": {"score": 0.5, "cost_usd": "0.0421", "cache_hits": 2,
+                           "cache_saved_cost_usd": "0.0100"},
+                "free": {"score": 0.5, "cost_usd": "0", "cache_hits": 0,
+                         "cache_saved_cost_usd": "0"},
+            }
+        }
+    }  # fmt: skip
+    _bundle(rig.root, "local/quickstart", trace)
+    page = rig.client.get("/bundles/local/quickstart").text
+    assert "<th>Spend (USD)</th>" in page
+    rows = _candidate_rows(page)
+    assert rows["priced"] == ["0.5", "$0.0421", "2", "$0.0100"]
+    assert rows["free"] == ["0.5", "$0", "0", "$0"]  # a real zero stays zero
+    assert "Total spend: <b>$0.0421</b>" in page
+
+
+@pytest.mark.parametrize(
+    "money",
+    [
+        {"cost_usd": None, "cache_saved_cost_usd": None},
+        {},
+        {"cost_usd": "lots", "cache_saved_cost_usd": 3},
+    ],
+    ids=["null", "absent", "malformed"],
+)
+def test_unknown_spend_renders_as_unknown_never_zero_or_none(
+    rig: _Rig, money: dict[str, Any]
+) -> None:
+    trace = _FULL_TRACE | {
+        "result": {
+            "candidates": {
+                "unpriced": {"score": None, "cache_hits": None} | money,
+                "priced": {"score": 0.5, "cost_usd": "0.0421"},
+            }
+        }
+    }
+    _bundle(rig.root, "local/quickstart", trace)
+    page = rig.client.get("/bundles/local/quickstart").text
+    spend, saved = _candidate_rows(page)["unpriced"][1], _candidate_rows(page)["unpriced"][3]
+    assert spend == saved == "unknown"
+    # One unknown amount makes the total unknown too: a partial sum would read as complete.
+    assert "Total spend: <b>unknown</b>" in page
+    assert "None" not in page.split("<th>Candidate</th>", 1)[1].split("</table>", 1)[0]
+
+
 def test_a_hostile_notebook_output_stays_inert(rig: _Rig) -> None:
     d = _bundle(rig.root, "replay/evil", {"passed": True})
     _notebook(d, '<script>alert(1)</script><img src=x onerror="alert(2)">'

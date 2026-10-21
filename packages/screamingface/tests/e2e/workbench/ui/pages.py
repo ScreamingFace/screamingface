@@ -16,6 +16,7 @@ import json
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import quote
 
@@ -428,7 +429,28 @@ def past_run_page(run_id: str, bundles: Sequence[BundleSummary], *, token: str |
 
 
 def _scalar(value: object) -> str:
-    return _e(value) if isinstance(value, str | int | float | bool) or value is None else "?"
+    if value is None:
+        return "—"
+    return _e(value) if isinstance(value, str | int | float | bool) else "?"
+
+
+def _money(value: object) -> Decimal | None:
+    """A USD amount from the payload (a decimal string); None when unknown or malformed.
+
+    WHY strict: the SDK's None means "nothing priceable was observed", which is not zero, so
+    anything that is not a finite decimal string must read as unknown, never as 0 or "None".
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        amount = Decimal(value)
+    except InvalidOperation:
+        return None
+    return amount if amount.is_finite() else None
+
+
+def _usd(amount: Decimal | None) -> str:
+    return "unknown" if amount is None else _e(f"${amount}")
 
 
 def _dicts(value: object) -> list[Mapping[str, Any]]:
@@ -477,17 +499,25 @@ def _candidates(trace: Mapping[str, Any]) -> str:
     candidates = result.get("candidates") if isinstance(result, dict) else None  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     if not isinstance(candidates, dict) or not candidates:
         return "<p class='muted'>No candidate results reported by the notebook.</p>"
-    rows = []
+    rows, spends = [], []
     for name, raw in candidates.items():  # pyright: ignore[reportUnknownVariableType]
         c: Mapping[str, Any] = raw if isinstance(raw, dict) else {}  # pyright: ignore[reportUnknownVariableType]
+        spend = _money(c.get("cost_usd"))
+        spends.append(spend)
         rows.append(
             f"<tr><td>{_e(name)}</td><td>{_scalar(c.get('score'))}</td>"
-            f"<td>{_scalar(c.get('cache_hits'))}</td>"
-            f"<td>{_scalar(c.get('cache_saved_cost_usd'))}</td></tr>"
+            f"<td>{_usd(spend)}</td><td>{_scalar(c.get('cache_hits'))}</td>"
+            f"<td>{_usd(_money(c.get('cache_saved_cost_usd')))}</td></tr>"
         )
+    # One unknown amount makes the total unknown: a partial sum would read as the whole spend.
+    known = [s for s in spends if s is not None]
+    total = sum(known, Decimal(0)) if len(known) == len(spends) else None
     return (
-        "<table><thead><tr><th>Candidate</th><th>Score</th><th>Cache hits</th>"
-        f"<th>Cache-saved cost (USD)</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        f"<p>Total spend: <b>{_usd(total)}</b> <span class='note'>(what the provider billed; "
+        "the cache-saved amount is reported separately and never included)</span></p>"
+        "<table><thead><tr><th>Candidate</th><th>Score</th><th>Spend (USD)</th>"
+        "<th>Cache hits</th><th>Cache-saved cost (USD)</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 

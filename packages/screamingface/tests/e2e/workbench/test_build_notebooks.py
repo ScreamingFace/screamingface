@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 
 import nbformat
@@ -141,14 +142,25 @@ _TID = "4bf92f3577b34da6a3ce929d0e0e4736"
 _TID2 = "00f067aa0ba902b7aaaaaaaaaaaaaaaa"
 
 
+class _Usage:
+    def __init__(self, cost_usd: Decimal | None) -> None:
+        self.cost_usd = cost_usd
+
+
 class _Candidate:
-    def __init__(self, trace_id: str | None) -> None:
+    def __init__(
+        self,
+        trace_id: str | None,
+        cost_usd: Decimal | None = Decimal("0.0123"),
+        cache_saved_cost_usd: Decimal | None = Decimal("0"),
+    ) -> None:
         self.name = "c"
         self.trace_id = trace_id
         self.run_id = "r1"
         self.score = 0.5
         self.cache_hits = 0
-        self.cache_saved_cost_usd = "0"
+        self.cache_saved_cost_usd = cache_saved_cost_usd
+        self.usage = _Usage(cost_usd)
 
 
 class _Report:
@@ -209,6 +221,25 @@ def test_quickstart_success_path_reports_the_report_ids(capsys) -> None:
     assert payload["trace_ids"] == [_TID]
     assert payload["evaluate_error"] is None
     assert ns["evaluate_error"] is None
+
+
+def test_quickstart_reports_each_candidates_spend_and_cache_savings(capsys) -> None:
+    payload, _ = _evaluate_then_report(_Report(_TID), capsys)
+    assert payload["candidates"]["c"] == {
+        "score": 0.5,
+        "cost_usd": "0.0123",
+        "cache_hits": 0,
+        "cache_saved_cost_usd": "0",
+    }
+
+
+def test_quickstart_reports_unknown_money_as_null_never_the_string_none(capsys) -> None:
+    # The SDK's None means "nothing priceable was observed", which is not zero (report.py).
+    report = _Report()
+    report.candidates = [_Candidate(_TID, cost_usd=None, cache_saved_cost_usd=None)]
+    payload, _ = _evaluate_then_report(report, capsys)
+    candidate = payload["candidates"]["c"]
+    assert candidate["cost_usd"] is None and candidate["cache_saved_cost_usd"] is None
 
 
 def test_quickstart_does_not_swallow_non_sdk_errors(capsys) -> None:
