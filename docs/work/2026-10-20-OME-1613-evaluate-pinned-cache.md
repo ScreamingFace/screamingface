@@ -123,3 +123,14 @@ Decisions S1–S9 are on the ticket; the spec is
   Spec R3 narrowed and marked pending.
 - Tests: `tests/test_replay_partial.py` (fake catalog whose url4 depends on the asked limit: happy
   path, revision drift, protocol drift, bounds, types, S4 refusal, seedless run, async).
+
+## Row 6: submission metadata (2026-10-21)
+
+- New `_scoreboard/credit_metadata.py`: shape checks only (flat objects of text, finite numbers or
+  booleans; `authors_metadata` one object per author email). The board's validator
+  (`apps/scoreboard/.../scores/credit_metadata.py`) stays the authority on keys, bounds, matching
+  and the paper link; the SDK copies none of those rules.
+- `submit` (omit when None), `edit` (`_UNSET` keeps, None clears, an object replaces) on both
+  clients; `LeaderboardScore.authors_metadata` / `.paper_metadata` decoded and frozen on read, so
+  the metadata round-trips (ticket acceptance).
+- Tests: `tests/test_submission_credit_metadata.py`.

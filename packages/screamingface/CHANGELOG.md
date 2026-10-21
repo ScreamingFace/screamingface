@@ -36,6 +36,14 @@
 
 ### Features
 
+* **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
+  `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:
+  `full_name`, `institution`, any other key) and the paper (`title`, `url`, `citation`, any other
+  key) (`OME-1613`). On `edit`, an omitted field is unchanged, `None` clears it and an object
+  replaces it whole. `LeaderboardScore.authors_metadata` and `.paper_metadata` read them back. The
+  board checks keys, bounds and email matching; the SDK refuses only a shape the board never
+  accepts. Needs a board with credit metadata (`OME-1596`).
+
 * **screamingface:** replay a published leaderboard run at $0 from its pinned cache (`OME-1613`).
   `sf.evaluate(pinned_cache="<id>")` reads the run's recipe and answer seed from the public board,
   replays every call from the answers the run captured, and judges the result against the

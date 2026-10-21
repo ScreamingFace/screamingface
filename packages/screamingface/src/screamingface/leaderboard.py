@@ -146,6 +146,10 @@ class LeaderboardScore:
     # FEATURE: OME-1307 — absent on a board that predates the field; decoded as None.
     paper_url: str | None = None
     metadata_updated_at: datetime | None = None
+    # FEATURE: OME-1613 S9 / OME-1596 — open metadata about the credited authors (keyed as the
+    # board publishes them: the local part on a public read) and about the paper. None when absent.
+    authors_metadata: Mapping[str, Mapping[str, object]] | None = None
+    paper_metadata: Mapping[str, object] | None = None
     # FEATURE: OME-1307 — the frozen copy of the run and its reproductions. An older board leaves
     # them absent: None, and a count of 0. A null `capture_status` means "unknown".
     pinned_cache: str | None = None
@@ -208,6 +212,7 @@ class LeaderboardScore:
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
             )
+        _credit_metadata_fields(self)
         if self.authors is not None:
             object.__setattr__(
                 self,
@@ -387,6 +392,14 @@ def _aware_datetime(value: object, label: str) -> None:
 def _optional_aware_datetime(value: object, label: str) -> None:
     if value is not None:
         _aware_datetime(value, label)
+
+
+def _credit_metadata_fields(score: LeaderboardScore) -> None:
+    """Freeze the OME-1613 S9 metadata objects, so a read score cannot be changed in place."""
+    for name in ("authors_metadata", "paper_metadata"):
+        value = getattr(score, name)
+        if value is not None:
+            object.__setattr__(score, name, freeze_mapping(value, f"Leaderboard score {name}"))
 
 
 def _reproduction_fields(score: LeaderboardScore) -> None:

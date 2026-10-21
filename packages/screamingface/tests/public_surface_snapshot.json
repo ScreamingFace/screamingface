@@ -575,9 +575,10 @@
       "LeaderboardScore": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, case_digest: 'str | None' = None, answer_seed: 'int | None' = None, reproduction_count: 'int' = 0, last_reproduced_at: 'datetime | None' = None, benchmark_revision: 'str | None' = None) -> None",
+          "__init__": "method (self, id: 'UUID', version: 'int', benchmark_id: 'str', spec_id: 'str', url4: 'Url4', submitted_by: 'str | None', submitted_at: 'datetime', score: 'float', total_questions: 'int', correct_questions: 'int | None', ran_with_providers: 'tuple[str, ...]', ran_at_local: 'datetime | None', client_name: 'str | None', client_version: 'str | None', client_platform: 'str | None', verified_by_screamingface: 'bool', metadata: 'Mapping[str, object] | None', scoreboard_url: 'str | None' = None, authors: 'tuple[str, ...] | None' = None, ranking_notice: 'LeaderboardRankingNotice | None' = None, paper_url: 'str | None' = None, metadata_updated_at: 'datetime | None' = None, authors_metadata: 'Mapping[str, Mapping[str, object]] | None' = None, paper_metadata: 'Mapping[str, object] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, case_digest: 'str | None' = None, answer_seed: 'int | None' = None, reproduction_count: 'int' = 0, last_reproduced_at: 'datetime | None' = None, benchmark_revision: 'str | None' = None) -> None",
           "answer_seed": "field",
           "authors": "field",
+          "authors_metadata": "field",
           "benchmark_id": "field",
           "benchmark_revision": "field",
           "capture_status": "field",
@@ -590,6 +591,7 @@
           "last_reproduced_at": "field",
           "metadata": "field",
           "metadata_updated_at": "field",
+          "paper_metadata": "field",
           "paper_url": "field",
           "pinned_cache": "field",
           "ran_at_local": "field",

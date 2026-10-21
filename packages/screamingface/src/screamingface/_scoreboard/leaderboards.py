@@ -151,8 +151,16 @@ class Leaderboards:
         *,
         authors: Sequence[str] | None = None,
         paper_url: str | None = None,
+        authors_metadata: Mapping[str, Mapping[str, object]] | None = None,
+        paper_metadata: Mapping[str, object] | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors, paper_url=paper_url)
+        payload = _submission(
+            candidate_result,
+            authors=authors,
+            paper_url=paper_url,
+            authors_metadata=authors_metadata,
+            paper_metadata=paper_metadata,
+        )
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -200,9 +208,11 @@ class Leaderboards:
         *,
         authors: Sequence[str] | None | _Unset = _UNSET,
         paper_url: str | None | _Unset = _UNSET,
+        authors_metadata: Mapping[str, Mapping[str, object]] | None | _Unset = _UNSET,
+        paper_metadata: Mapping[str, object] | None | _Unset = _UNSET,
     ) -> LeaderboardScore:
         selected = _score_id(score_id)
-        payload = _edit_payload(authors, paper_url)
+        payload = _edit_payload(authors, paper_url, authors_metadata, paper_metadata)
         return _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=_sync_json(
@@ -303,8 +313,16 @@ class AsyncLeaderboards:
         *,
         authors: Sequence[str] | None = None,
         paper_url: str | None = None,
+        authors_metadata: Mapping[str, Mapping[str, object]] | None = None,
+        paper_metadata: Mapping[str, object] | None = None,
     ) -> LeaderboardScore:
-        payload = _submission(candidate_result, authors=authors, paper_url=paper_url)
+        payload = _submission(
+            candidate_result,
+            authors=authors,
+            paper_url=paper_url,
+            authors_metadata=authors_metadata,
+            paper_metadata=paper_metadata,
+        )
         notebook_notice = prepare_submission_notice(candidate_result)
         score = _decode_score(
             scoreboard_url=self._scoreboard_url,
@@ -354,9 +372,11 @@ class AsyncLeaderboards:
         *,
         authors: Sequence[str] | None | _Unset = _UNSET,
         paper_url: str | None | _Unset = _UNSET,
+        authors_metadata: Mapping[str, Mapping[str, object]] | None | _Unset = _UNSET,
+        paper_metadata: Mapping[str, object] | None | _Unset = _UNSET,
     ) -> LeaderboardScore:
         selected = _score_id(score_id)
-        payload = _edit_payload(authors, paper_url)
+        payload = _edit_payload(authors, paper_url, authors_metadata, paper_metadata)
         return _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=await _async_json(
@@ -613,6 +633,8 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             authors=_decode_authors(root.get("authors"), "Leaderboard score authors"),
             ranking_notice=_decode_ranking_notice(root),
             paper_url=_optional_text(root.get("paper_url"), "Leaderboard score paper_url"),
+            authors_metadata=_optional_authors_object(root.get("authors_metadata")),
+            paper_metadata=_optional_object(root.get("paper_metadata")),
             metadata_updated_at=_optional_timestamp(
                 root.get("metadata_updated_at"), "Leaderboard score metadata_updated_at"
             ),
@@ -744,11 +766,14 @@ def _submission(
     *,
     authors: Sequence[str] | None = None,
     paper_url: str | None = None,
+    authors_metadata: Mapping[str, Mapping[str, object]] | None = None,
+    paper_metadata: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
         raise TypeError("candidate_result must be an sf.CandidateResult")
     selected_authors = _submission_authors(authors)
     selected_paper_url = None if paper_url is None else _paper_url(paper_url)
+    selected_credit = _credit_fields(authors_metadata, paper_metadata)
     payload: dict[str, object] = {
         "version": 1,
         "benchmark_id": candidate_result.benchmark.id,
@@ -779,6 +804,9 @@ def _submission(
     # predates `paper_url` 422s only a submission that names one.
     if selected_paper_url is not None:
         payload["paper_url"] = selected_paper_url
+    # FEATURE (OME-1613 S9): omitted when absent, like `paper_url`. On a same-owner resubmit the
+    # board keeps the stored objects for an omitted field (OME-1596).
+    payload.update(selected_credit)
     # INVARIANT (OME-1326, OME-1251 D5): sent beside the spend, never added to it; the board sums
     # the two at the point of use. Omitted when absent rather than sent as null, so an uncached
     # run's payload is unchanged and a board that predates the field 422s only cached runs.
@@ -925,9 +953,28 @@ def _paper_url(value: object) -> str:
     return value
 
 
+def _credit_fields(
+    authors_metadata: Mapping[str, Mapping[str, object]] | None,
+    paper_metadata: Mapping[str, object] | None,
+) -> dict[str, object]:
+    from screamingface._scoreboard.credit_metadata import (
+        authors_metadata_value,
+        paper_metadata_value,
+    )
+
+    fields: dict[str, object] = {}
+    if authors_metadata is not None:
+        fields["authors_metadata"] = authors_metadata_value(authors_metadata)
+    if paper_metadata is not None:
+        fields["paper_metadata"] = paper_metadata_value(paper_metadata)
+    return fields
+
+
 def _edit_payload(
     authors: Sequence[str] | None | _Unset,
     paper_url: str | None | _Unset,
+    authors_metadata: Mapping[str, Mapping[str, object]] | None | _Unset = _UNSET,
+    paper_metadata: Mapping[str, object] | None | _Unset = _UNSET,
 ) -> dict[str, object]:
     """The PATCH body: an absent key means "unchanged", `paper_url=None` sends null to clear it.
 
@@ -942,8 +989,23 @@ def _edit_payload(
         payload["authors"] = list(selected)
     if not isinstance(paper_url, _Unset):
         payload["paper_url"] = None if paper_url is None else _paper_url(paper_url)
+    # OME-1596: omitted keeps the stored object, None clears it, an object replaces it whole.
+    if not isinstance(authors_metadata, _Unset):
+        payload["authors_metadata"] = (
+            None
+            if authors_metadata is None
+            else _credit_fields(authors_metadata, None)["authors_metadata"]
+        )
+    if not isinstance(paper_metadata, _Unset):
+        payload["paper_metadata"] = (
+            None
+            if paper_metadata is None
+            else _credit_fields(None, paper_metadata)["paper_metadata"]
+        )
     if not payload:
-        raise ValueError("edit needs at least one of authors or paper_url")
+        raise ValueError(
+            "edit needs at least one of authors, paper_url, authors_metadata or paper_metadata"
+        )
     return payload
 
 
@@ -1040,6 +1102,22 @@ def _decode_baseline(value: object) -> LeaderboardBaseline:
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _optional_authors_object(value: object) -> Mapping[str, Mapping[str, object]] | None:
+    """`authors_metadata` as read: an object of one object per author, or None when absent."""
+    if value is None:
+        return None
+    root = _mapping(value, "Leaderboard score authors_metadata")
+    return {
+        author: _mapping(entry, "Leaderboard score authors_metadata entry")
+        for author, entry in root.items()
+    }
+
+
+def _optional_object(value: object) -> Mapping[str, object] | None:
+    # The board omits a null object; whatever it returns, `LeaderboardScore` freezes it.
+    return None if value is None else _mapping(value, "Leaderboard score metadata object")
 
 
 def _mapping(value: object, label: str) -> Mapping[str, object]:
