@@ -22,6 +22,7 @@ from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
 from screamingface._signals import signal
 from screamingface._surface.fanout import Fanout
+from screamingface._surface.fusion import Fusion
 from screamingface._surface.gate import Gate
 from screamingface._surface.judge import Judge, JudgePick
 from screamingface._surface.refs import agreement, field
@@ -156,6 +157,7 @@ __all__ = [
     "Filter",
     "First",
     "FixedSeedSittingWarning",
+    "Fusion",
     "Gate",
     "Judge",
     "JudgePick",
