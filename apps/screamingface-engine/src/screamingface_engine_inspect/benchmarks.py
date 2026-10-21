@@ -6205,7 +6205,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "6,508 questions from all 23 BIG-Bench Hard tasks (27 subsets: two tasks come in three "
             "sizes each), the BIG-Bench tasks where language models trailed average human "
             "raters, such as date arithmetic, logical deduction, boolean expressions and word "
-            "sorting. Served as a local Task built from the inspect_evals eval, with upstream's "
+            "sorting. Served as a local Task built from the inspect_evals eval, with that eval's "
             "questions and its 3-shot chain-of-thought examples, the setting of the paper's "
             "headline numbers: the model reasons step by step and ends on an 'ANSWER:' line. "
             "Two choices follow the paper (arXiv 2210.09261) where the inspect_evals eval "
@@ -6239,7 +6239,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   a LOCAL Task built from inspect_evals' bbh: its answer-kind tag is retyped from a
         #   Python enum to the enum's name, because Case Preparation seals Sample metadata as
         #   JSON, and two Named Deviations below follow the paper (OME-1696). Its code lives
-        #   here, so its origin is ours; it reuses upstream's loader and prompts, and the
+        #   here, so its origin is ours; it reuses inspect_evals' loader and prompts, and the
         #   harness link names that eval.
         # License: mit, the Joschka/big_bench_hard card at the pinned revision.
         scorer="screamingface_engine_inspect.local_tasks.bbh.bbh:bbh_scorer",

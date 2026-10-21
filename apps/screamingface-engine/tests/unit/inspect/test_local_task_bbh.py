@@ -5,12 +5,12 @@
 
 What these tests pin, and why:
 
-- the tag retype changes nothing else: every other field of the Sample is upstream's, so the
-  Cases are upstream's own questions and worked examples;
-- yes/no and free-form questions are sent as upstream sends them; multiple-choice questions are
-  sent under inspect's think-step-by-step instruction (Named Deviation 1);
-- multiple-choice and yes/no answers are marked as upstream marks them; free-form answers by
-  exact match, as the paper grades (Named Deviation 2): each wrong shape upstream passes is
+- the tag retype changes nothing else: every other field of the Sample is inspect_evals', so the
+  Cases are inspect_evals' own questions and worked examples;
+- yes/no and free-form questions are sent as inspect_evals sends them; multiple-choice questions
+  are sent under inspect's think-step-by-step instruction (Named Deviation 1);
+- multiple-choice and yes/no answers are marked as inspect_evals marks them; free-form answers by
+  exact match, as the paper grades (Named Deviation 2): each wrong shape inspect_evals passes is
   marked wrong, and the rule reproduces the paper's accuracy on the authors' Codex replies;
 - real BBH questions of every answer kind grade through the production aggregate route with
   the network blocked: right replies score 1, wrong ones 0;
@@ -36,8 +36,8 @@ from inspect_ai.model import ChatMessageUser, ModelOutput  # noqa: E402
 from inspect_ai.scorer import CORRECT, INCORRECT, Target  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 from inspect_evals.bbh.bbh import DatasetType  # noqa: E402
-from inspect_evals.bbh.bbh import bbh_scorer as upstream_scorer  # noqa: E402
-from inspect_evals.bbh.bbh import bbh_solver as upstream_solver  # noqa: E402
+from inspect_evals.bbh.bbh import bbh_scorer as inspect_evals_scorer  # noqa: E402
+from inspect_evals.bbh.bbh import bbh_solver as inspect_evals_solver  # noqa: E402
 from test_inspect_task_replay_benchmarks import _node, _scores  # noqa: E402
 
 from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
@@ -67,7 +67,7 @@ def _state(sample_input: str, kind: str, *, choices: list[str] | None = None) ->
 
 
 def _tagged(state: TaskState, tag: object) -> TaskState:
-    """The same state with its answer-kind tag replaced (enum for upstream, text for ours)."""
+    """The same state with its answer-kind tag replaced (enum for inspect_evals, text for ours)."""
 
     state.metadata = {**state.metadata, "dataset_type": tag}
     return state
@@ -75,7 +75,7 @@ def _tagged(state: TaskState, tag: object) -> TaskState:
 
 def test_the_tag_becomes_the_enum_name_and_nothing_else_changes() -> None:
     """INVARIANT: the retype is the whole deviation. Input, target, choices, id and every other
-    metadata key stay upstream's, so the Case Digest seals upstream's own question."""
+    metadata key stay inspect_evals', so the Case Digest seals inspect_evals' own question."""
 
     sample = Sample(
         id="date_understanding_001",
@@ -102,13 +102,13 @@ def test_the_tag_becomes_the_enum_name_and_nothing_else_changes() -> None:
     )
 
 
-def test_a_tag_that_is_not_upstreams_enum_is_refused() -> None:
-    """A changed upstream (a string tag, a new kind) would be marked by the fall-through
+def test_a_tag_that_is_not_inspect_evals_enum_is_refused() -> None:
+    """A changed inspect_evals (a string tag, a new kind) would be marked by the fall-through
     exact-match scorer without a word; refusing it makes the change loud at import."""
 
     sample = Sample(input="q", target="a", metadata={"dataset_type": "MULTIPLE_CHOICE"})
 
-    with pytest.raises(ValueError, match="not upstream's enum"):
+    with pytest.raises(ValueError, match="not inspect_evals' enum"):
         _with_text_tag(sample)
 
 
@@ -134,14 +134,14 @@ def _sent(solver: Any, state: TaskState) -> list[str]:
         ("DYCK", "Complete the rest of the sequence. Input: [ ["),
     ],
 )
-def test_a_free_form_or_yes_no_question_is_sent_as_upstream_sends_it(
+def test_a_free_form_or_yes_no_question_is_sent_as_inspect_evals_sends_it(
     kind: str, sample_input: str
 ) -> None:
-    """Upstream's solver (enum tag) and ours (text tag) hand the model the same messages for
+    """inspect_evals' solver (enum tag) and ours (text tag) hand the model the same messages for
     every subset that is not multiple choice: its prompt already lets the model reason."""
 
     theirs: list[str] = _sent(
-        upstream_solver(), _tagged(_state(sample_input, kind), DatasetType[kind])
+        inspect_evals_solver(), _tagged(_state(sample_input, kind), DatasetType[kind])
     )
     ours: list[str] = _sent(bbh_solver(), _tagged(_state(sample_input, kind), kind))
 
@@ -149,15 +149,15 @@ def test_a_free_form_or_yes_no_question_is_sent_as_upstream_sends_it(
 
 
 def test_a_multiple_choice_question_asks_the_model_to_think_step_by_step() -> None:
-    """NAMED DEVIATION 1 pinned: the options are listed as upstream lists them, but under the
-    instruction to reason first. Upstream's instruction, "The entire content of your response
+    """NAMED DEVIATION 1 pinned: the options are listed as inspect_evals lists them, but under the
+    instruction to reason first. inspect_evals' instruction, "The entire content of your response
     should be ... 'ANSWER: $LETTER'", contradicts its own chain-of-thought examples."""
 
     sample_input: str = "Tomorrow is 11/12/2019. What is the date yesterday?\nOPTIONS:"
     choices: list[str] = ["11/10/2076", "11/10/2019", "09/10/2019"]
 
     theirs: str = _sent(
-        upstream_solver(),
+        inspect_evals_solver(),
         _tagged(
             _state(sample_input, "MULTIPLE_CHOICE", choices=choices), DatasetType.MULTIPLE_CHOICE
         ),
@@ -190,18 +190,18 @@ def _scored(scorer: Any, kind: str, tag: object, target: str, reply: str) -> obj
         ("no", "Adam Thielen is a football player.\nANSWER: No"),
     ],
 )
-def test_a_yes_no_answer_is_marked_as_upstream_marks_it(target: str, reply: str) -> None:
-    """The yes/no subsets keep upstream's rule, the word after ANSWER:, right or wrong."""
+def test_a_yes_no_answer_is_marked_as_inspect_evals_marks_it(target: str, reply: str) -> None:
+    """The yes/no subsets keep inspect_evals' rule, the word after ANSWER:, right or wrong."""
 
     assert _scored(bbh_scorer(), "BINARY_CHOICE", "BINARY_CHOICE", target, reply) == _scored(
-        upstream_scorer(), "BINARY_CHOICE", DatasetType.BINARY_CHOICE, target, reply
+        inspect_evals_scorer(), "BINARY_CHOICE", DatasetType.BINARY_CHOICE, target, reply
     )
 
 
 @pytest.mark.parametrize(
     ("kind", "target", "reply"),
     [
-        # Dyck: upstream's key trims to "answer", so any reply ending in that word passes.
+        # Dyck: inspect_evals' key trims to "answer", so any reply ending in that word passes.
         ("DYCK", "ANSWER: ] ]", "ANSWER: ]"),
         ("DYCK", "ANSWER: ] ]", "ANSWER: ] ] ]"),
         ("DYCK", "ANSWER: ] ]", "I do not know the answer."),
@@ -214,14 +214,14 @@ def test_a_yes_no_answer_is_marked_as_upstream_marks_it(target: str, reply: str)
         ("EXACT_MATCH", "beth kenya", "ANSWER: elizabeth kenya"),
     ],
 )
-def test_a_wrong_free_form_answer_upstream_passes_is_marked_wrong(
+def test_a_wrong_free_form_answer_inspect_evals_passes_is_marked_wrong(
     kind: str, target: str, reply: str
 ) -> None:
-    """NAMED DEVIATION 2 pinned: each reply is wrong by the paper's exact match. Upstream's
-    match(location="end") marks it right (asserted, so a fixed upstream shows up here); ours
-    marks it wrong."""
+    """NAMED DEVIATION 2 pinned: each reply is wrong by the paper's exact match. inspect_evals'
+    match(location="end") marks it right (asserted, so a fixed inspect_evals release shows up
+    here); ours marks it wrong."""
 
-    assert _scored(upstream_scorer(), kind, DatasetType[kind], target, reply) == CORRECT
+    assert _scored(inspect_evals_scorer(), kind, DatasetType[kind], target, reply) == CORRECT
     assert _scored(bbh_scorer(), kind, kind, target, reply) == INCORRECT
 
 
@@ -237,10 +237,10 @@ def test_a_wrong_free_form_answer_upstream_passes_is_marked_wrong(
 def test_a_right_free_form_answer_is_marked_right_by_both(
     kind: str, target: str, reply: str
 ) -> None:
-    """The strict rule takes nothing away from a reply upstream's prompt asks for."""
+    """The strict rule takes nothing away from a reply inspect_evals' prompt asks for."""
 
     assert _scored(bbh_scorer(), kind, kind, target, reply) == CORRECT
-    assert _scored(upstream_scorer(), kind, DatasetType[kind], target, reply) == CORRECT
+    assert _scored(inspect_evals_scorer(), kind, DatasetType[kind], target, reply) == CORRECT
 
 
 @pytest.mark.parametrize(
@@ -270,10 +270,10 @@ def test_the_final_answer_is_read_from_the_committing_line(reply: str, expected:
 
 
 def test_a_tag_the_scorer_does_not_know_is_refused() -> None:
-    """Upstream falls through to its last rule for any tag; ours names its four kinds and
-    refuses a fifth, so a new upstream kind is never marked by a rule nobody chose for it."""
+    """inspect_evals falls through to its last rule for any tag; ours names its four kinds and
+    refuses a fifth, so a new inspect_evals kind is never marked by a rule nobody chose for it."""
 
-    with pytest.raises(ValueError, match="not one of upstream's four kinds"):
+    with pytest.raises(ValueError, match="not one of inspect_evals' four kinds"):
         _scored(bbh_scorer(), "NEW_KIND", "NEW_KIND", "x", "ANSWER: x")
 
 
@@ -295,8 +295,8 @@ def test_the_rule_reproduces_the_papers_accuracy_on_the_authors_codex_replies(su
 
     The replies carry no ANSWER: line (the paper's prompts have none), so this pins the
     fallback to the paper's own keyword. Each key is given in the form a real Case stores it:
-    the authors' key, with upstream's `ANSWER: ` prefix on Dyck. (Upstream's own rule is not
-    compared here: it reads replies in its ANSWER: format, which these are not; its holes are
+    the authors' key, with inspect_evals' `ANSWER: ` prefix on Dyck. (inspect_evals' own rule is
+    not compared here: it reads replies in its ANSWER: format, which these are not; its holes are
     pinned by the wrong-answer test above.)"""
 
     data: dict[str, Any] = _codex_subsets()[subset]
@@ -315,7 +315,7 @@ def test_the_rule_reproduces_the_papers_accuracy_on_the_authors_codex_replies(su
 
 #: Real BBH questions, one or two per answer kind, as Case Preparation writes them (the
 #: 3-shot prompt is cut from `input` to keep the file short; grading never reads it). WHY real:
-#: the targets carry upstream's exact casing and spacing, which is what the marking reads.
+#: the targets carry inspect_evals' exact casing and spacing, which is what the marking reads.
 _REAL_CASES: list[PreparedCase] = [
     {
         "case": {

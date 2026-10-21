@@ -16,10 +16,10 @@ Grantee applicants keep asking for two Benchmarks we don't have. Two PRs: BBH fi
 MedMCQA. Both are local Tasks fed to the same importer.
 
 - PR 1: BIG-Bench Hard, 23 tasks, 6,508 Cases, 3-shot chain of thought. A local Task built
-  from inspect_evals' `bbh`, because upstream's Samples carry a Python enum the Case Digest
-  cannot seal. Two Named Deviations follow the paper where upstream differs: multiple choice
+  from inspect_evals' `bbh`, because inspect_evals' Samples carry a Python enum the Case Digest
+  cannot seal. Two Named Deviations follow the paper where inspect_evals differs: multiple choice
   asks the model to think step by step, and the 4 free-form subsets grade by exact match
-  (upstream's suffix match lets wrong answers through on all 1,000 of them).
+  (inspect_evals' suffix match lets wrong answers through on all 1,000 of them).
 - PR 2: MedMCQA, a local Task we wrote in inspect's shape: the full validation split (4,183
   questions; the test split's answers are withheld), file pinned by Hub commit and sha256,
   inspect's standard multiple-choice instruction and choice scorer.
