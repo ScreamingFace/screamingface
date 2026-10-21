@@ -1,13 +1,13 @@
 ---
 id: OME-1703
 linear_url: https://linear.app/openmined/issue/OME-1703/give-the-plugin-hooks-neutral-credential-names-stage-e-e4c
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-21
-closed:
+closed: 2026-10-21
 ---
 
 # Give the plugin hooks neutral credential names (Stage E, E4c)
