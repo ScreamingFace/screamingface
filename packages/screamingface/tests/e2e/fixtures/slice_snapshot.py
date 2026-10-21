@@ -953,6 +953,13 @@ def _parse_args() -> argparse.Namespace:
         "replayed expression / statuses / counters / score differ from the committed file",
     )
     parser.add_argument(
+        "--accept-expression",
+        action="store_true",
+        help="with --refresh-golden: an INTENDED protocol change re-rendered the board's "
+        "expression (OME-1692) — let the golden's expression_sha move, while statuses, "
+        "counters, revision and score must still replay identical from the committed snapshot",
+    )
+    parser.add_argument(
         "--dump-judge-bodies",
         type=Path,
         help="PHASE A of a judge re-key: after the verified replay, write every "
@@ -1733,6 +1740,36 @@ def _differing(committed: Any, replayed: Any) -> str:
     return f"committed {committed!r}, replay {replayed!r}"
 
 
+def _refuse_pinned_drift(
+    args: argparse.Namespace, committed: dict[str, Any], golden: dict[str, Any]
+) -> None:
+    """Refuse a refresh whose replay moved any fact the committed golden pinned.
+
+    WHY --accept-expression may free ``expression_sha`` alone: the owner declares the
+    expression change intended (OME-1692), and the keyless replay still had to hit every
+    committed cache row — so the model-call bytes did not move, only the expression's text.
+    """
+    pinned_keys = tuple(
+        key
+        for key in _REFRESH_PINNED_KEYS
+        if not (args.accept_expression and key == "expression_sha")
+    )
+    if args.accept_expression and golden["expression_sha"] != committed.get("expression_sha"):
+        print(
+            f"[refresh] {args.board}: expression_sha "
+            f"{str(committed.get('expression_sha'))[:12]}… → {golden['expression_sha'][:12]}… "
+            "(accepted: intended expression change)",
+            flush=True,
+        )
+    for key in pinned_keys:
+        if golden[key] != committed.get(key):
+            raise SystemExit(
+                f"REFRESH REFUSED — replayed {key} differs from the committed golden: "
+                f"{_differing(committed.get(key), golden[key])}. A refresh may only add "
+                f"failure codes; investigate the drift, then re-bless from the recordings."
+            )
+
+
 def _refresh_golden(args: argparse.Namespace) -> None:
     """Re-author one board's golden from its COMMITTED snapshot — no recording needed.
 
@@ -1804,14 +1841,9 @@ def _refresh_golden(args: argparse.Namespace) -> None:
         case_statuses={str(case.case_id): str(case.status) for case in candidate.cases},
         case_failures=failure_document(candidate.cases),
     )
-    # Stage 4 — INVARIANT: only the failure map may be new.
-    for key in _REFRESH_PINNED_KEYS:
-        if golden[key] != committed.get(key):
-            raise SystemExit(
-                f"REFRESH REFUSED — replayed {key} differs from the committed golden: "
-                f"{_differing(committed.get(key), golden[key])}. A refresh may only add "
-                f"failure codes; investigate the drift, then re-bless from the recordings."
-            )
+    # Stage 4 — INVARIANT: only the failure map may be new (and, with --accept-expression,
+    # the expression's own text).
+    _refuse_pinned_drift(args, committed, golden)
     # Stage 5 — write.
     golden_path.write_text(json.dumps(golden, indent=2) + "\n")
     pinned = sum(len(entries) for entries in golden["case_failures"].values())
@@ -1856,6 +1888,8 @@ def _run_gated_bless(args: argparse.Namespace) -> None:
             "re-authors from the COMMITTED snapshot and would silently ignore the "
             "fresh recording; run one mode at a time"
         )
+    if args.accept_expression and not args.refresh_golden:
+        raise SystemExit("--accept-expression only applies to --refresh-golden")
     if args.refresh_golden:
         _run_exclusive_mode(
             args,
