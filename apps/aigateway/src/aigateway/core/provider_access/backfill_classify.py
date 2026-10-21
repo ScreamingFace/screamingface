@@ -37,7 +37,7 @@ _Verdict = tuple[Disposition, str, Action, UUID | None, Profile | None]
 
 @dataclass(frozen=True)
 class BackfillContext:
-    """The three reads the tool needs — the app's stores, or a CLI-built equivalent."""
+    """The three reads the tool needs, built by the CLI from its own stores."""
 
     credential_store: CredentialBlobStore
     profile_index: ProfileIndexStore
@@ -45,13 +45,9 @@ class BackfillContext:
     providers: Any
 
     @classmethod
-    def from_app(cls, app: Any) -> BackfillContext:
-        return cls(app.state.credential_store, app.state.profile_index, app.state.providers)
-
-    @classmethod
     def from_stores(cls, credential_store: CredentialBlobStore, providers: Any) -> BackfillContext:
-        # WHY here and not in the CLI: the A2 import boundary lets only this package (and the
-        # legacy modules it adapts) name `ProfileIndexStore`; the CLI is a consumer of the port.
+        # WHY here and not in the CLI: since OME-1209 E4b only the offline backfill imports the
+        # legacy index (`ProfileIndexStore`); the app no longer wires one.
         return cls(
             credential_store, ProfileIndexStore(credential_store=credential_store), providers
         )

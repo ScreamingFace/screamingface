@@ -24,7 +24,6 @@ from aigateway.plugins.taxonomy import (
 
 from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
-from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import (
     apply_anthropic_dispatch_controls,
     chat_completion,
@@ -48,7 +47,6 @@ if TYPE_CHECKING:
         ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_index import ProfileIndexStore
 
 
 # OME-305: this provider's contribution to a global cache key. The date names the
@@ -295,20 +293,6 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def requires_oauth_connection_label(self) -> bool:
         return True
-
-    async def bootstrap_profiles(
-        self,
-        *,
-        account_id: str,
-        credential_store: CredentialBlobStore | None = None,
-        index_store: ProfileIndexStore | None = None,
-    ) -> None:
-        await bootstrap_from_claude_code(
-            account_id=account_id,
-            credential_store=credential_store,
-            index_store=index_store,
-            settings=self.settings,
-        )
 
 
 PLUGIN = AnthropicProviderPlugin()

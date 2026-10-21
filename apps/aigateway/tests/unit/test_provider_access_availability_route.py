@@ -50,7 +50,8 @@ class _Edge:
         self.client = client
         self.app = _app(client)
         self.account_id: str = client.get("/v1/auth/me").json()["id"]
-        self.index: ProfileIndexStore = self.app.state.profile_index
+        # WHY a store built here (OME-1209 E4b): the app wires no Profile index.
+        self.index = ProfileIndexStore(credential_store=self.app.state.credential_store)
         self.registered: set[str] = {
             plugin.custom_llm_provider for plugin in self.app.state.providers.all()
         }

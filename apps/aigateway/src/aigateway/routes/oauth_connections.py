@@ -376,7 +376,7 @@ async def _replace_api_key(
     strategy,
     api_key: str,
 ) -> OAuthConnection:
-    """The publication boundary of a key replacement — marker → index → row → blob."""
+    """The publication boundary of a key replacement — marker → row → blob."""
     latest_connection = await store.get(account_id, connection_id)
     if (
         latest_connection is None
@@ -392,9 +392,9 @@ async def _replace_api_key(
         )
     # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed here, after the validation.
     await claim_for_connection(latest_connection)
-    # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair and mirrors the
-    # compat document FIRST (marker, index), then the row, then the blob — a no-op otherwise.
-    await republish_effective_api_key(request.app, latest_connection, raw_api_key=api_key)
+    # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair FIRST (marker),
+    # then the row, then the blob — a no-op otherwise.
+    await republish_effective_api_key(latest_connection)
     connection = await store.reactivate(latest_connection)
     if connection is None:
         raise HTTPException(
@@ -462,11 +462,11 @@ async def _delete_connection(
     # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed FIRST (marker → row → blob).
     await claim_for_connection(connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
-    # (effective → None) and compat document — before the row and the blob; no-op otherwise.
-    await retire_effective(request.app, connection)
-    # WHY (D-R1-2): several rows — and, after an R1 rollback, the legacy Profile — may address ONE
-    # blob; the blob goes with its LAST live addresser. The pair's live rows lock in ascending id
-    # order around the revoke (lower here, own in mark_revoked, higher in the owner check).
+    # (effective → None) — before the row and the blob; no-op otherwise.
+    await retire_effective(connection)
+    # WHY (D-R1-2): several rows may address ONE blob; the blob goes with its LAST live
+    # addresser. The pair's live rows lock in ascending id order around the revoke (lower here,
+    # own in mark_revoked, higher in the owner check).
     await lock_lower_addressers(connection)
     # INVARIANT (OME-307 Blocker 3): mark the ALWAYS-PRESENT connection row revoked FIRST
     # (mark_revoked UPDATEs by PK and takes its row lock, held until commit), THEN delete the
@@ -476,7 +476,7 @@ async def _delete_connection(
     # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
     # so nothing is orphaned or resurrected.
     await store.mark_revoked(connection)
-    keep_blob = await credential_has_other_owner(request.app, connection)
+    keep_blob = await credential_has_other_owner(connection)
     if not keep_blob:
         await _delete_credentials(request, connection.credential_locator)
     return connection

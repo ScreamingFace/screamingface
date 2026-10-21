@@ -9,8 +9,8 @@ with them.
 Successor coverage (the D18 admin PUT and DELETE, `pair_admin_writes`):
 - a key on an empty or sole-Profile pair: `test_pair_admin_mutations.py`
   (`test_put_on_an_empty_pair_creates_one_connection_at_the_default_address`,
-  `test_put_adopts_a_sole_profile_on_its_own_name_and_address`);
-- write order, index conflicts, a provider without API keys:
+  `test_put_beside_a_sole_profile_mints_at_the_default_address_and_leaves_it`);
+- a provider without API keys (write order and index conflicts retired at E4b):
   `test_pair_admin_publication.py`, `test_admin_connections_mutation_routes.py`;
 - races with a concurrent delete or live row: `test_pair_admin_mutations.py`
   (`test_a_live_row_added_after_the_capture_supersedes_the_publication`,

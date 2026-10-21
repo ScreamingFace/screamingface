@@ -56,7 +56,3 @@ class ProfileNotFoundError(AigwError):
 
 class ProfilePendingAuthError(AigwError):
     """Profile exists but is still in 'pending' state — auth not complete."""
-
-
-class BootstrapError(AigwError):
-    """Failed to bootstrap the gateway profile index from provider credentials."""

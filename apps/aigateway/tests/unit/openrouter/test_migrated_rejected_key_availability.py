@@ -28,6 +28,7 @@ from aigateway.core.oauth.store import (
     credential_key_for,
     credential_locator_for,
 )
+from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
@@ -68,7 +69,8 @@ def _migrated_profile_slot(
             "default",
             json.dumps({"auth_type": "api_key", "api_key": KEY}),
         )
-        await client.app.state.profile_index.upsert(
+        index = ProfileIndexStore(credential_store=client.app.state.credential_store)
+        await index.upsert(
             Profile(
                 id=profile_id_for(account_id, PROVIDER, "default"),
                 account_id=account_id,

@@ -6,6 +6,8 @@
 # Stage E, E4a deleted the Profile-backed one without touching a route.
 # INVARIANT (hexagonal): core defines the port; nothing in this package imports a route or a
 # plugin. THIS module is the public surface — import from here, never from a half.
+# WHY the backfill is not re-exported (OME-1209 E4b): it reads the legacy Profile index, which is
+# offline-only until E5, so importing the app must not load it; the CLI imports its modules.
 """
 
 from __future__ import annotations
@@ -20,8 +22,6 @@ from .auth_mode import (
     profileless_auth_mode,
     provider_name_of,
 )
-from .backfill_apply import BackfillReport, all_account_ids, run_backfill
-from .backfill_classify import BackfillContext, PairPlan, classify_account
 from .connection_backed import (
     ConnectionBackedProviderAccess,
     operational_access_for,
@@ -92,20 +92,9 @@ from .types import (
     UnsupportedAuthMode,
     WriteConflict,
 )
-from .writer_floor import (
-    bootstrap_under_the_floor,
-    claim_observed,
-    claim_pair,
-    fences_writer,
-)
+from .writer_floor import claim_observed, claim_pair, fences_writer
 
 __all__ = [
-    "BackfillContext",
-    "BackfillReport",
-    "PairPlan",
-    "all_account_ids",
-    "classify_account",
-    "run_backfill",
     "DEFAULT_SELECTOR_NAME",
     "Authorization",
     "AvailabilityRow",
@@ -150,7 +139,6 @@ __all__ = [
     "auth_mode_for",
     "auth_type_of",
     "available_auth_modes",
-    "bootstrap_under_the_floor",
     "claim_for_connection",
     "claim_native_write",
     "claim_observed",

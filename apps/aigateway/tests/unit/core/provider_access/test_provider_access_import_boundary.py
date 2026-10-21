@@ -36,23 +36,14 @@ _OWNERS: dict[str, str] = {
     "core/profile_index.py": "the legacy index store",
     "core/oauth/": "the Connection row, its store and the OAuth flows",
     # Management surfaces reduced to shells at A3 and retired at Stage E (OME-1209).
-    "routes/auth.py": "legacy Profile management routes; shells at A3, retired at Stage E",
     "routes/admin.py": "tenant admin listing; moves onto the admin port at A3",
     "routes/oauth_connections.py": "Connection-native management routes; owner of that row",
     "core/admin_schemas.py": (
         "the legacy admin listing's WIRE schema — `AdminProfileOut.state` is `ProfileState`, so "
         "changing it would change OpenAPI; moves onto the admin port at A3 with `routes/admin.py`"
     ),
-    # Wiring and bootstrap: they CONSTRUCT the store, they do not resolve credentials with it.
-    "main.py": "builds `app.state.profile_index` at startup; moves with the backing at Stage B",
-    "core/plugin_base/": "the provider contract's own type surface",
-    "plugins/anthropic_provider/bootstrap.py": (
-        "seeds a Profile for the bundled Anthropic credential; migrates with the backing at Stage B"
-    ),
-    "plugins/anthropic_provider/plugin.py": (
-        "calls its own bootstrap with an injected index store; same removal point as the "
-        "bootstrap above"
-    ),
+    # WHY no wiring or bootstrap owner (OME-1209 E4b): `main.py`, `core/plugin_base/`, the
+    # Anthropic plugin and `routes/auth.py` no longer name the store or the row.
     "migrations/": "schema history — the rows as they were when each migration ran",
 }
 

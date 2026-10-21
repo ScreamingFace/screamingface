@@ -1,6 +1,6 @@
 """OME-307 Unit 2 — a cancelled OAuth callback keeps its flow completable.
 
-FEATURE: OAuth Connection authentication with its D14 compat-document mirror.
+FEATURE: OAuth Connection authentication (no compat-document mirror since OME-1209 E4b).
 STORY: as a user whose OAuth callback is cancelled during the token exchange, I can retry the same
 flow instead of being stranded with a consumed state.
 
@@ -28,10 +28,7 @@ import httpx
 import pytest
 
 import aigateway.routes.auth as auth_module
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 
@@ -52,33 +49,20 @@ def _token_factory(token: str):
     )
 
 
-# WHY a seeded PENDING document: the native callback mirrors its success onto a same-named compat
-# document (D14), so the `anthropic/work` Profile observes the flow's outcome.
-def _open_flow(client, account_id: str) -> tuple[str, str]:
+def _open_flow(client) -> tuple[str, str]:
     """Open one native OAuth flow labelled `work`; returns its `state` and `connection_id`."""
-    index: ProfileIndexStore = client.app.state.profile_index
-    client.portal.call(
-        index.upsert,
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "work"),
-            account_id=account_id,
-            provider="anthropic",
-            name="work",
-            state=ProfileState.PENDING,
-        ),
-    )
     started = client.post("/v1/oauth/connections", json={"provider": "anthropic", "label": "work"})
     assert started.status_code == 201, started.text
     body = started.json()
     return body["state"], body["connection_id"]
 
 
-def _profile(client, account_id: str) -> dict[str, Any]:
-    """The `anthropic/work` Profile as the retired status route rendered it."""
-    index: ProfileIndexStore = client.app.state.profile_index
-    profile = client.portal.call(index.get, account_id, "anthropic", "work")
-    assert profile is not None, "profile anthropic/work is missing from the index"
-    return profile.model_dump(mode="json")
+# WHY the Connection (OME-1209 E4b): the callback mirrors its outcome onto no Profile document, so
+# the flow's own Connection is what observes it.
+def _connection(client, connection_id: str) -> dict[str, Any]:
+    response = client.get(f"/v1/oauth/connections/{connection_id}")
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 def test_oauth_callback_cancellation_restores_consumed_pending_state(
@@ -105,7 +89,7 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
     authenticated_client.app.state.anthropic_http_factory = _token_factory("oauth-A-token")
 
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    state, connection_id = _open_flow(authenticated_client, account_id)
+    state, connection_id = _open_flow(authenticated_client)
     service = credential_service_for(credential_key_for(account_id, connection_id))
 
     async def _cancel_during_exchange(*_args, **_kwargs):
@@ -125,9 +109,8 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
 
     # INVARIANT (Blocker 5): the consumed state is restored, so the flow is still completable.
     assert authenticated_client.app.state.pending_auth.peek(state) is not None
-    # The profile is untouched and no credential was written or corrupted.
-    profile = _profile(authenticated_client, account_id)
-    assert profile["state"] == "pending"
+    # The Connection is untouched and no credential was written or corrupted.
+    assert _connection(authenticated_client, connection_id)["status"] == "pending"
     assert credential_blobs.read(service, "default") is None
 
     # Retrying the SAME flow with a working exchange completes — the restored entry still owns it.
@@ -139,7 +122,7 @@ def test_oauth_callback_cancellation_restores_consumed_pending_state(
         follow_redirects=False,
     )
     assert retry.status_code == 200
-    profile_done = _profile(authenticated_client, account_id)
-    assert profile_done["state"] == "authenticated"
-    assert profile_done["auth_type"] == "oauth"
+    done = _connection(authenticated_client, connection_id)
+    assert done["status"] == "active"
+    assert done["auth_type"] == "oauth"
     assert "oauth-A-token" in json.loads(credential_blobs.read(service, "default"))["access_token"]

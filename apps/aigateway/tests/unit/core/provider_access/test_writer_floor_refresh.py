@@ -423,9 +423,10 @@ def test_a_key_replacement_right_after_a_refresh_publication_is_not_reverted(
     migrated, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # INVARIANT (§5.3): tokens and `last_refreshed_at` publish in one transaction; nothing after it
-    # rewrites the document from the snapshot read before the fetch.
+    # rewrites the credential from the snapshot read before the fetch.
     h = migrated
     h.seed_profile()
+    effective = h.migrated["default"]
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_tokens(h, "fresh-tok")
     real_publish = GuardedRefreshPublication.publish
@@ -438,8 +439,8 @@ def test_a_key_replacement_right_after_a_refresh_publication_is_not_reverted(
 
     resolve_and_authorize(h)
 
-    doc = document(h)
-    assert doc is not None and doc.auth_type == "api_key"
+    # WHY the Connection (OME-1209 E4b): the key replacement mirrors no document any more.
+    assert connection(h, effective).auth_type == "api_key"
     blob = blob_at_profile_address(h)
     assert blob is not None and json.loads(blob)["api_key"] == KEY
 

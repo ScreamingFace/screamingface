@@ -31,7 +31,8 @@ class _Seam:
         self.app = client.app
         self.access = client.app.state.provider_access
         self.account_id: str = client.get("/v1/auth/me").json()["id"]
-        self.index: ProfileIndexStore = client.app.state.profile_index
+        # WHY a store built here (OME-1209 E4b): the app wires no Profile index.
+        self.index = ProfileIndexStore(credential_store=client.app.state.credential_store)
         self.registered: set[str] = {
             plugin.custom_llm_provider for plugin in client.app.state.providers.all()
         }
