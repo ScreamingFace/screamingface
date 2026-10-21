@@ -257,25 +257,13 @@ _NEW_FORM: dict[str, Callable[[], sf.Recipe]] = {
 _EXAMPLES = {example.slug: example for example in EXAMPLES}
 
 
-# The doc examples whose bytes change at the swap (overview §4.2): a field pick or a field rank
-# reads a signal in the new surface. Before the swap their new form compiles to the bytes of
-# today's by_signal rewrite (frozen in 7d-0), not to the golden.
-_TODAY_REWRITE = ("readme-418-pick-confidence", "readme-528-rank-by-field")
-
-
 def test_every_doc_example_is_in_the_new_form() -> None:
     assert set(_NEW_FORM) == set(_EXAMPLES)
-    assert set(_TODAY_REWRITE) <= set(_NEW_FORM)
 
 
-@pytest.mark.parametrize("slug", sorted(_TODAY_REWRITE))
-def test_lop2_a_field_pick_example_compiles_to_todays_by_signal_bytes(slug: str) -> None:
-    example: DocExample = _EXAMPLES[slug]
-
-    assert compile_example(example, _NEW_FORM[slug]()) == frozen_url4(f"surface_parity:{slug}")
-
-
-@pytest.mark.parametrize("slug", sorted(set(_NEW_FORM) - set(_TODAY_REWRITE)))
+# LO-P3: every doc example equals its golden and its frozen row. The field pick (418) and the field
+# rank (528) read a signal since the swap (overview §4.2): their goldens hold those new bytes.
+@pytest.mark.parametrize("slug", sorted(_NEW_FORM))
 def test_lop1_doc_example_compiles_to_the_bytes_of_today(slug: str) -> None:
     example: DocExample = _EXAMPLES[slug]
     golden = (_GOLDEN_DIR / f"{slug}.url4").read_text(encoding="utf-8").removesuffix("\n")
@@ -286,7 +274,7 @@ def test_lop1_doc_example_compiles_to_the_bytes_of_today(slug: str) -> None:
     assert new == golden
 
 
-# ---------------------------------------- LO-P2 (lowering §3, before the swap)
+# ---------------------------------------- LO-P2 and LO-P3 (lowering §3, swap §1 7h)
 
 _W = "openrouter/openai/gpt-5.5"
 _P = "Write the final answer from the selected drafts."
@@ -299,7 +287,6 @@ def _writer() -> sf.Synthesize:
     return sf.Synthesize(_W, prompt=_P)
 
 
-# S5 and S7 compared with today's by_signal form, S10, S10', S11 and S11' with today's judge form.
 _STEPS: dict[str, Callable[[], sf.Recipe]] = {
     "S5": lambda: sf.Fanout(_json_members()) >> sf.ArgMax("field:confidence", output="answer"),
     "S7": lambda: sf.Fanout(_json_members()) >> sf.Rank(2, by="field:confidence") >> _writer(),
@@ -328,6 +315,29 @@ _STEPS: dict[str, Callable[[], sf.Recipe]] = {
 }
 
 
-@pytest.mark.parametrize("case", sorted(_STEPS))
+# LO-P3: the rows whose bytes changed at the swap. S5 and S7 read the field as a signal (overview
+# §4.2); S10, S10', S11 and S11' write the neutral judge-template@2 (§4.1). Their rows in
+# surface_parity.json were frozen after those changes, so the frozen rows are their new goldens.
+_CHANGED = ("S5", "S7", "S10", "S10'", "S11", "S11'")
+
+
+@pytest.mark.parametrize("case", sorted(set(_STEPS) - set(_CHANGED)))
 def test_lop2_notebook_case_compiles_to_the_bytes_of_today(case: str) -> None:
     assert _url4(_STEPS[case]()) == frozen_url4(f"surface_parity:{case}")
+
+
+@pytest.mark.parametrize("case", _CHANGED)
+def test_lop3_a_row_that_changed_at_the_swap_equals_its_new_golden(case: str) -> None:
+    url4 = _url4(_STEPS[case]())
+
+    assert url4 == frozen_url4(f"surface_parity:{case}")
+    if case in ("S5", "S7"):
+        assert "by_signal@1" in url4
+        assert "json_field@1" not in url4
+    else:
+        assert url4.count("judge-template@2") == 1
+        assert "judge-template@1" not in url4
+
+
+def test_lop3_the_field_pick_s5_is_the_signal_pick_s8() -> None:
+    assert _url4(_STEPS["S5"]()) == _url4(_STEPS["S8"]())
