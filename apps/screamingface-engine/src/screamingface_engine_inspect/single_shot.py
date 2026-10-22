@@ -378,6 +378,7 @@ def single_shot_benchmark(
     multiple_correct: bool = False,
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
+    unlisted: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
     extra_scorer_factories: Sequence[Callable[[], Any]] = (),
     named_scores: Sequence[str] = (),
@@ -427,6 +428,8 @@ def single_shot_benchmark(
         inverted_grade: the eval's grade counts the unwanted behaviour (a should-refuse
             safety benchmark); passed to the scorer adapter, which scores 1 − grade. The
             caller carries it into ``revision_pins`` (OME-1400).
+        unlisted: off the catalogue index, still served by id (OME-1714); passed to the
+            Benchmark unchanged and NOT a revision pin — the listing changes, the run does not.
         verdict_grades: the judge's verdict word → grade map for a judge that answers
             in words (coconot); passed to the scorer adapter, which then grades by it
             instead of inspect's letters. The caller carries it into ``revision_pins``
@@ -604,6 +607,10 @@ def single_shot_benchmark(
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,
+        # FEATURE: Unlisted Benchmark (OME-1714) — a listing decision threaded through verbatim.
+        # WHY not a revision pin: the mark changes what the catalogue shows, never what a run
+        # does, so a Benchmark taken off the index keeps its published revision.
+        unlisted=unlisted,
         build=_build(routes, case_count, attempts, retrieval_policy),
         install=install,
         focus=focus,

@@ -118,6 +118,12 @@ class BenchmarkSpec:
     #: The description must name what the flipped score means (refusal rate, or
     #: sosbench's safe-reply rate): the flag flips, it never names.
     inverted_grade: bool = False
+    #: Off the public catalogue index, still runnable by id (OME-1714): `GET /v1/benchmarks`
+    #: skips the Benchmark, so no SDK listing and no Leaderboard shows it. An owner decision
+    #: written on the row by name, never inferred from a family or a content warning; a row
+    #: that sets True carries a comment naming the ticket. Not Benchmark identity: no revision
+    #: moves, and the mark is never served.
+    unlisted: bool = False
     #: Attempts per Case (OME-1458): the Task's any-match epochs. Each Case is asked this many
     #: times and a Check is met if any Attempt met it; 1 is an ordinary Benchmark.
     attempts: int = 1
@@ -1139,6 +1145,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1273,
+        # OME-1714 (product, 2026-10-22): off the public catalogue — listed, the three WMDP
+        # Benchmarks read as an invitation to optimise Fusions for hazardous-knowledge
+        # elicitation. Still installed and runnable by id; the revision does not move.
+        unlisted=True,
     ),
     BenchmarkSpec(
         key="wmdp_chem",
@@ -1208,6 +1218,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=408,
+        # OME-1714: off the public catalogue, same decision as wmdp_bio.
+        unlisted=True,
     ),
     BenchmarkSpec(
         key="wmdp_cyber",
@@ -1277,6 +1289,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1987,
+        # OME-1714: off the public catalogue, same decision as wmdp_bio.
+        unlisted=True,
     ),
     BenchmarkSpec(
         key="hellaswag",
@@ -6542,6 +6556,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         multiple_correct=spec.multiple_correct,
         judge=spec.judge,
         inverted_grade=spec.inverted_grade,
+        unlisted=spec.unlisted,
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
