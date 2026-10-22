@@ -1,12 +1,12 @@
 ---
 id: OME-1544
 linear_url: https://linear.app/openmined/issue/OME-1544/fetch-remote-url4-sources-once-per-run-with-an-ssrf-guard
-status: in_review
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, url4-sdk, agentic, autonomous]
 created: 2026-10-09
-closed:
+closed: 2026-10-22
 ---
 
 # url4 source destination guard (SSRF) for https sources and url4:// peer calls
@@ -25,3 +25,5 @@ Typed errors: `x.source_destination_blocked`, `x.source_redirect_limit`, `x.sour
 
 The "fetched once per run" acceptance moved to `OME-1543`. Parent epic `OME-1529`.
 Ledger: `../work/2026-10-21-url4-source-guard.md`.
+
+Merged in PR #1521 as `506c09178` on 2026-10-22.
