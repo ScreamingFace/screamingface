@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1770 1030" role="img" aria-labelledby="t d" font-family="JetBrains Mono, Menlo, SF Mono, monospace">
 <title id="t">File input path: url4, engine, gateway, provider (OME-1535)</title>
-<desc id="d">Top row, TODAY at main ec4b632b2 (2026-10-21): a caller can only send text in the URL; url4 payloads are strings and an unquoted data: source is a ParseError; the engine connector refuses non-text content; the gateway carries native image and PDF parts for Gemini, Antigravity and Codex and refuses the rest with a typed 422; Ollama answers a PDF with 422 since #1447. Bottom rows, TARGET v1: two separate ingress paths. Case ingress reads Cases from cases.json; a Case with pictures or PDFs is a v2 candidate-input envelope (spec 2.7) whose typed parts go straight to the engine connector in their written position, never through the run spec and never into attachments. url4 ingress resolves authority-less src= blob refs at the evaluating node; every url4:// blob ref, the node's own authority included, fails with x.remote_blob_unsupported before any network I/O. An https:// value in a src= binding is fetched at run start through the url4 HTTP transport destination guard (https only, DNS vetted and pinned, at most 3 hops, deadline, byte cap; refusals are typed x.source_* errors) and its non-text bytes are written through to the store. A url4:// remote-node call (C6) fails with x.remote_node_unsupported before any I/O. The engine run blob store keeps these url4 and https blobs, run-scoped and sha256-verified, as an ordered attachments list beside the string payload. The engine connector keeps v2 envelope parts as written and puts url4 attachment parts on the last user message, data: URIs only, refuses parts on judge calls, and authorizes and verifies every blob before forming a request key; requests pass the gateway (content-part gate, 8 MiB body cap) to every model-calling node.</desc>
+<desc id="d">Top row, TODAY at main ec4b632b2 (2026-10-21): a caller can only send text in the URL; url4 payloads are strings and an unquoted data: source is a ParseError; the engine connector refuses non-text content; the gateway carries native image and PDF parts for Gemini, Antigravity and Codex and refuses the rest with a typed 422; Ollama answers a PDF with 422 since #1447. Bottom rows, TARGET v1: two separate ingress paths. Case ingress reads Cases from cases.json; a Case with pictures or PDFs is a v2 candidate-input envelope (spec 2.7) whose typed parts go straight to the engine connector in their written position, never through the run spec and never into attachments. url4 ingress resolves authority-less src= blob refs at the evaluating node; every url4:// blob ref, the node's own authority included, fails with x.remote_blob_unsupported before any network I/O. An https:// source stays a lazy fetch, as today, through the url4 HTTP transport destination guard (https only, DNS vetted and pinned, at most 3 hops, deadline, byte cap; refusals are typed x.source_* errors); a non-text body is hashed, written through to the store and appended to attachments at its source position, and a text body stays text. src= is not preserved by the grammar, so src=https and bare https sources behave the same. A url4:// remote-node call (C6) fails with x.remote_node_unsupported before any I/O. The engine run blob store keeps these url4 and https blobs, run-scoped and sha256-verified, as an ordered attachments list beside the string payload. The engine connector keeps v2 envelope parts as written and puts url4 attachment parts on the last user message, data: URIs only, refuses parts on judge calls, and authorizes and verifies every blob before forming a request key; requests pass the gateway (content-part gate, 8 MiB body cap) to every model-calling node.</desc>
 <style>text{fill:#e2e8f0}.t{font-size:18px;font-weight:700}.s{font-size:15px;font-weight:700}.h{font-size:15px;font-weight:700;text-anchor:middle}.l{font-size:13px;text-anchor:middle;fill:#cbd5e1}.a{font-size:13px;text-anchor:middle;fill:#94a3b8}.c{font-size:13px;fill:#94a3b8}</style>
 <rect width="1770" height="1030" fill="#0f172a"/>
 <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/></marker></defs>
@@ -38,7 +38,7 @@
 <text class="l" x="1350.0" y="160">Antigravity · Codex ·</text>
 <text class="l" x="1350.0" y="182">Claude · OpenRouter ✓</text>
 <text class="l" x="1350.0" y="204">Ollama PDF → 422 (#1447)</text>
-<text class="s" x="40" y="320">TARGET v1: Case parts ride the v2 envelope; only url4 and https src= refs become run-scoped blobs in attachments[]</text>
+<text class="s" x="40" y="320">TARGET v1: Case parts ride the v2 envelope; only url4 blob refs and non-text https bodies become run-scoped blobs in attachments[]</text>
 <rect x="40" y="345" width="260" height="150" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="h" x="170.0" y="375">Case ingress (engine)</text>
 <text class="l" x="170.0" y="405">cases.json → v2 candidate-</text>
@@ -107,9 +107,9 @@
 <text class="l" x="1645.0" y="578"> OME-1271)</text>
 <rect x="40" y="790" width="260" height="130" rx="10" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="h" x="170.0" y="820">https ingress (F1b)</text>
-<text class="l" x="170.0" y="850">(img:src=https://…/a.png)</text>
-<text class="l" x="170.0" y="872">src= only, fetched at run start</text>
-<text class="l" x="170.0" y="894">other https: lazy text fetch</text>
+<text class="l" x="170.0" y="850">(src=https://…) ≡ (https://…)</text>
+<text class="l" x="170.0" y="872">lazy fetch, as today</text>
+<text class="l" x="170.0" y="894">text body stays text (no D5)</text>
 <line x1="304" y1="855" x2="356" y2="855" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
 <rect x="360" y="790" width="260" height="130" rx="10" fill="#1e293b" stroke="#3e8ed0" stroke-width="2.5"/>
 <text class="h" x="490.0" y="820">url4 HTTP transport guard</text>
@@ -119,7 +119,7 @@
 <path d="M624,855 H820 V714" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
 <text class="c" x="834" y="800">non-text bytes: hashed and</text>
 <text class="c" x="834" y="818">written through to the store</text>
-<text class="c" x="834" y="836">(OME-1540) → attachments[]</text>
+<text class="c" x="834" y="836">(OME-1540) → attachments[] at source pos.</text>
 <rect x="40" y="948" width="22" height="14" rx="3" fill="#1e293b" stroke="#30a46c" stroke-width="2.5"/>
 <text class="c" x="72" y="960">works / target</text>
 <rect x="300" y="948" width="22" height="14" rx="3" fill="#1e293b" stroke="#f5a524" stroke-width="2.5"/>

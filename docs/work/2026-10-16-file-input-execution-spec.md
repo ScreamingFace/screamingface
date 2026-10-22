@@ -79,6 +79,13 @@ with the 2026-10-16 live evidence. Docs only.
   read-time digest mismatch is 500 / run `failed`). Diagram gains the https ingress → transport guard →
   store write-through row and the C6 refusal; PNG re-rendered with `rsvg-convert`. Linear bodies stale
   vs the spec are listed in the PR comment for the owner (not edited here).
+- **Owner decision Q-B (2026-10-22, `OME-1543` comment "Owner decisions"):** the grammar does not
+  preserve `src=` (`(src=https://a)` and `(https://a)` parse to the same `Url`, `grammar.py:186-188`),
+  so F1b's "only an `https://` value in a `src=` binding is fetched at run start" is replaced:
+  `https://` sources stay lazy text fetches as today; a non-text body is hashed into the tenant+run
+  store (write-through) and appended to `attachments[]` at its source position; a text body is
+  unchanged and exempt from D5. F2 structure rule, Propagation and §3 url4 ingress aligned; diagram
+  https row and description updated, PNG re-rendered with `rsvg-convert`.
 - **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
   attachments under `OME-1271` v1; a remote nested expression (C6), once enabled, does not receive the outer run's
   attachments; a request with no non-text part keeps today's key (adapter revision enters only
