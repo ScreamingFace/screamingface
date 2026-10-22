@@ -115,6 +115,10 @@ _SPEC_COUNTS = {
     "corrective_vote_candidate.url4": 2,
     "model_synthesizer_candidate.url4": 0,
     "two_reducers_candidate.url4": 2,
+    # E4c (OME-1291, lazy-fallback #23, owner-approved edit): a judge or writer fallback compiles
+    # to call #1 and call #2, which carry the same spec (FB-I1).
+    "gate_judge_vote_candidate.url4": 2,
+    "gate_writer_vote_candidate.url4": 2,
 }
 _SPEC_START = '{"extract":'  # canonical JSON sorts the keys, so every spec starts here
 
@@ -147,7 +151,9 @@ def test_existing_specs_and_evidence_have_no_sum_source() -> None:
             signals = parse_spec(text).signals or {}
             assert all(entry.source != "sum" for entry in signals.values()), name
         total += len(specs)
-    assert total == 48
+    # E4c (OME-1291, lazy-fallback #23, owner-approved edit): the two fallback fixtures hold call #1
+    # and call #2 (the same spec), so 48 -> 50.
+    assert total == 50
 
     cases = json.loads((_DATA / "evidence_cases.json").read_text(encoding="utf-8"))
     for name in L37:

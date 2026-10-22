@@ -14,7 +14,8 @@ from screamingface_engine.benchmarks.contract import DECLARED_FAILURE_CODES
 
 
 def test_declared_failure_codes_gain_only_logprobs_unsupported_in_e4b() -> None:
-    assert len(DECLARED_FAILURE_CODES) == 66
+    # E4c (OME-1291, guards #4, skip-members #2a) adds `fail_closed` and `quorum_not_met`: 66 -> 68.
+    assert len(DECLARED_FAILURE_CODES) == 68
     assert "logprobs_unsupported" in DECLARED_FAILURE_CODES
     assert {code for code in DECLARED_FAILURE_CODES if code.startswith("combine_")} == {
         "combine_spec_invalid",

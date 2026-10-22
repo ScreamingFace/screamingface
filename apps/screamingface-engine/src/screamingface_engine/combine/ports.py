@@ -52,8 +52,12 @@ AnswerStatus = Literal["answered", "abstain", "fail"]
 MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
 # E4b part 5 (P13): gate_not_met = the vote gate took the abstain fallback. E4b part 6 (P12):
 # in_band = the gate number was inside the abstain band. Both are scored declines, never a failure
-# code (E4c's fail_closed will be a failure code, so they never share a status).
-AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
+# code (fail_closed is a failure code, so they never share a status).
+# E4c (OME-1291, budget BU-5): budget_refused = a Budget refused the branch a Gate wanted and no
+# branch that makes no call could answer; a scored decline, never a failure code.
+AbstainReason = Literal[
+    "no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band", "budget_refused"
+]
 AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -68,6 +72,7 @@ AnswerReason = Literal[
     "output_missing",
     "gate_not_met",
     "in_band",
+    "budget_refused",
 ]
 ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
     "no_votes",
@@ -75,6 +80,7 @@ ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
     "output_missing",
     "gate_not_met",
     "in_band",
+    "budget_refused",
 )
 # E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
 # ``observed cmp threshold`` holds, the step keeps the majority (P4).
@@ -139,6 +145,12 @@ class NoVotes(Exception):
             raise ValueError("unknown abstain reason")
         super().__init__(message or reason)
         self.reason: AbstainReason = reason
+
+
+class QuorumNotMet(CombineError):
+    """E4c skip members (SM-11): fewer selected members answered than a numeric quorum asks."""
+
+    code = "quorum_not_met"
 
 
 class InputTooLarge(CombineError):
@@ -668,6 +680,41 @@ def parse_label(raw: str, members: Sequence[str]) -> str:
     return label
 
 
+# --- selector replies (E4c, OME-1291) ---------------------------------------------------------
+# What a selector reply parsed to: ok, unrecognized (a token not in the labels), unparsed (no
+# token, or a reply over the judge cap). A Keywords selector also writes no_match; DECIDE does.
+SelectorParse = Literal["ok", "no_match", "unrecognized", "unparsed"]
+MAX_SELECTOR_RAW_CHARS = 64
+# Separators between the labels of a multi reply; a single reply reads its first token.
+_SELECTOR_TOKENS = re.compile(r"[\s,;]+")
+# Characters a model may wrap a label in ("Math.", '"code"', "**web**").
+_SELECTOR_TRIM = " \t\r\n.,;:!?\"'`()[]{}<>*"
+
+
+def parse_selector_reply(
+    reply: str, labels: Sequence[str], *, multi: bool
+) -> tuple[list[str], SelectorParse, str | None]:
+    """The declared labels a LabelModel reply names, its parse state and its first unknown token.
+
+    FEATURE: E4c selectors SL-5, SL-6, SL-9 - SL-11, SL-22, SL-24. A reply is untrusted text: it
+    can only select declared labels (case and wrapping punctuation ignored), in DECLARED order,
+    each once. A single selector reads the first token only. ``raw`` is the first token that is
+    not a declared label, cut at 64 characters; it is never the whole reply. Never raises.
+    """
+    if utf8_exceeds(reply, MAX_JUDGE_REPLY_BYTES):
+        return [], "unparsed", None
+    tokens = [token.strip(_SELECTOR_TRIM) for token in _SELECTOR_TOKENS.split(reply)]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return [], "unparsed", None
+    named = tokens if multi else tokens[:1]
+    unknown = next((token for token in named if token.lower() not in labels), None)
+    wanted = {token.lower() for token in named}
+    chosen = [label for label in labels if label in wanted]
+    raw = None if unknown is None else unknown[:MAX_SELECTOR_RAW_CHARS]
+    return chosen, "ok" if raw is None else "unrecognized", raw
+
+
 def _unfenced_judge_reply(text: str) -> str:
     """``text`` itself, or the body of it when the WHOLE reply is one fence (no tag or ``json``)."""
     fence = _JUDGE_FENCE
@@ -831,6 +878,10 @@ def utf8_exceeds(text: str, limit: int) -> bool:
 
 
 __all__ = [
+    "QuorumNotMet",
+    "MAX_SELECTOR_RAW_CHARS",
+    "SelectorParse",
+    "parse_selector_reply",
     "ABSTAIN_REASONS",
     "ACCOUNTING_SIGNALS",
     "DECIMAL_CONTEXT",

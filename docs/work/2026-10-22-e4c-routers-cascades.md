@@ -1,7 +1,7 @@
 ---
 ticket: unfiled
 stack: screamingface
-status: planned
+status: in-progress
 started: 2026-10-22
 finished:
 ---
@@ -67,3 +67,68 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   #26, test-plan §5, contracts C5; F8 min–max `model_calls` — erd §3 NOT_RUN_ENTRY, branch-core D9,
   lazy-fallback and guards not-run lines, report RP-6/RP-15; F9 guards #10 GREEN note — the tree's
   KEYWORDS source (branch-core D6); F14 SagaLLM note — guards §5 follows P1/BC-5.
+- 2026-10-22: owner approved P1–P32 as written and the §7 budget default; scope = all three PRs
+  (units 1–15). Build started.
+- 2026-10-22: units 1-5 built (uncommitted). Engine: `combine/decision.py` (`gate-decision.v1`),
+  `world/branch.py` (AFTER/DECIDE/OPEN/JOIN/KEYWORDS), attribution walk through Gate blocks,
+  `fail_closed` code + helper, `OperationCall.decision/pending/gate_record`, `record_gate_call`.
+  SDK: `_surface/selectors.py`, `branch.py` (`BranchNode`), `_evaluation/branch.py` (renderer),
+  topology kind `gate`, candidate kind `gate`. Fixtures `ET/data/gate_contract/*.url4` (SDK
+  compile, drift guard `ST/test_e4c_gate_fixtures.py`); Engine-world runs `ET/test_e4c_gate_runs.py`.
+  Deviations from the contracts, by url4 facts found in the build:
+  (1) url4 structs have no null, so DECIDE/JOIN contexts leave out an absent key, and the decision
+  call's binding moves into GATE_SPEC `panel: {"binding"}`; GATE_SPEC also gains `calls` (the
+  NOT_RUN `model_calls` per branch), `selectors` (kind, labels, multi, LabelModel binding) and
+  `reads` (the selectors read inside each body), which DECIDE needs to write the record.
+  (2) An iterate result reaches JOIN as a JSON array text (`[]` or `["<text>"]`), not joined text.
+  (3) JOIN and DECIDE find a recorded call by its `binding=<name>` param, not by a full fingerprint.
+  (4) A failed Case keeps no operations (a raised Candidate failure is a url4 collected error), so
+  BC-10 / GU-20 / RP-8 records exist only on a refusal; a `fail_closed` Case shows the RP-18 line.
+  Changing that is a Candidate invocation contract change (all benchmarks): proposed follow-up.
+  (5) BC-16: an operation inside a branch that did not run is absent (attribution drops a gated
+  binding with no recorded call).
+- 2026-10-22: units 6-11 and 13 built (uncommitted); forks wrote most test files and units 9, 12,
+  14, 15. More deviations found in the build:
+  (6) The gate spec is the INTENT of DECIDE and JOIN (as a combine spec is a combine call's
+  intent), so the url4 decode reads it from the JOIN call; GATE_SPEC repeats each Keywords
+  selector's `rules` so the decode can rebuild the selector.
+  (7) A `gate_N_block` reference reads the JOIN `gate_N` in the url4 call decode and the topology
+  walker (a later stage, a Fanout member).
+  (8) Skip members: the combine call reads `selection` (member -> DECIDE record) and, under a
+  numeric quorum, `floor` (a second context key, not in C11). A writer block gets an implicit
+  labelled `sf.Concat()` (joined text of the selected members), not the SM-4 selection envelope.
+  (9) The Budget sits on a marker source `_sf_budget:0.0:usd=..:tokens=..:'budget';budget_mode=
+  advisory`, not on the candidate's result source: url4 cannot render `;budget_mode` on an
+  expression-valued source (it would re-scope to the expression).
+  (10) LF-16: call #2 of a lazy fallback reuses call #1's signal calls (a scores judge runs once).
+  (11) `sf.answered()` is a panel condition (no number); its decision call has no combine gate.
+  (12) RP-17 card keeps the E4b " · N abstained" text and adds " · fail_closed N".
+- 2026-10-22: units 12, 14, 15 done (forks). The budget tests found 4 bugs in main-loop code, all
+  fixed: a refused judge fallback now answers with the majority (BU-18); `candidate_budgets` walks
+  every iterate body (BU-15); `Estimate` is in the Gate `Branch` type; `to_python()` keeps the
+  `Estimate` of a judge fallback. Opus design review: ACCEPT-WITH-FIXES. Fixed: AFTER also
+  references every ancestor source under a Budget (finding 1); a refusal falls back only to a step
+  slot (finding 2); C9 `decision_cases.json` + tests on both sides (finding 3); JOIN validates its
+  record (finding 5); one provider-call index (finding 6); the fold reuses the E4a ledger rule
+  (finding 7); the selection parse uses `GateDecision` (finding 8); one recorder loop (finding 9);
+  the DECIDE budget log line and the once-per-Case unpriced warning (finding 10); one `_deep`
+  body rule (finding 13); two `_sf_budget` sources are refused (finding 15); a pending decision
+  call is its own type `PendingCombine` from `run_combine_call`, and `CombineOutcome.evidence` is
+  required again (finding 11). Not changed: 12 (panel scan), 14 (public names), 16 (the helper
+  keeps `build_world` short).
+  More deviations:
+  (13) BU-18: a pending decision call keeps its majority answer in-process
+  (`OperationCall.kept_output`, never on the wire). When the Budget refuses the fallback, JOIN
+  returns that text, answered. `op_synthesis_N` keeps output `""` and no evidence (LF-13), so the
+  report shows the answer on `op_gate_N` with no vote evidence. A majority answer over 8 MiB is
+  not kept, and the Gate abstains `budget_refused`.
+  (14) D10: under a Budget, AFTER also references every named source in scope that holds a model
+  call (the ancestors), so the spend DECIDE folds is the same on every run and replay (BU-8). With
+  no Budget, AFTER is as D10 says.
+  (15) GD-I2 allows `fail_closed` beside `wanted` null for the D4 null + `fail_closed` row (CA-30),
+  on both sides. GD-I3 cannot hold there (no branch ran).
+  (16) P11 / BU-4 / BU-5: a refused branch falls back only to a step slot that makes no call. A
+  word (`abstain`, `fail_closed`, skip) is no current answer, so the Gate abstains
+  `budget_refused` (BU-5 input gate, BU-10).
+  Environment note: `tests/unit/inspect` fails 2 metric-identity tests on the base commit too
+  (pre-existing, not E4c). Run lane 1 after `uv sync --dev`, as CI does.

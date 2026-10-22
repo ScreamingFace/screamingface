@@ -1,4 +1,4 @@
-# PRD: Docs — README, CHANGELOG, notebook 19, docstrings
+# PRD: Docs — README, CHANGELOG, notebook 20, docstrings
 
 **Source:** epic OME-1291, OME-1357 (routing vs orchestration definitions), ans:Q4, ans:Q5,
 ans:Q7, ans:Q9, ans:Q12, ans:Q16–Q19 · **Priority:** P2 (ships with PR-3, the last PR, ans:Q11)
@@ -66,7 +66,7 @@ CHANGELOG to tell me what changed in E4b recipes that I already have.
 - No README section, recipe, notebook or CHANGELOG entry for routing or cascades [existing].
 
 Delta: one new README section, three rewritten README sentences (each pinned by an existing test,
-so three owner-approved pinned edits), CHANGELOG Unreleased entries, notebook 19, the Examples
+so three owner-approved pinned edits), CHANGELOG Unreleased entries, notebook 20, the Examples
 list, and the docstrings above rewritten to the shipped behavior.
 
 ## 3. Scenarios and acceptance criteria
@@ -139,8 +139,8 @@ list, and the docstrings above rewritten to the shipped behavior.
   bullet names the new failure code `fail_closed` and the abstain reason `budget_refused`, and says
   that the SDK release with both words ships before the Engine (OME-1233). E4c bullets go first in
   their sections (E4b precedent: commit `ea90188c1`). [proposed — gap §per-connection/dependency]
-- **DC-10 Notebook 19.** Given `scripts/build_notebooks.py`, Then it builds
-  `examples/19_routers_cascades.ipynb` from a new `_routers_cascades()` builder, registered in the
+- **DC-10 Notebook 20.** Given `scripts/build_notebooks.py`, Then it builds
+  `examples/20_routers_cascades.ipynb` from a new `_routers_cascades()` builder, registered in the
   notebook map beside `18_map_select_reduce.ipynb` (`:67`): every DC-3 recipe in its own cell with
   `repr` and the compiled url4, a cell that shows the Gate form behind one `sf.Cascade`, and one
   evaluation cell that is off by default (`RUN_EVALUATION = False`). The README `## Examples` list
@@ -158,7 +158,7 @@ list, and the docstrings above rewritten to the shipped behavior.
 - **DC-13 Stale url4 bytes.** Given a flow PRD changes the compiled shape of a Gate, When the docs
   test compiles the README block, Then it fails with the recipe name and the first differing byte
   offset against the Engine fixture, so README and fixture move together. [proposed]
-- **DC-14 Notebook drift.** Given a hand edit to `19_routers_cascades.ipynb`, When
+- **DC-14 Notebook drift.** Given a hand edit to `20_routers_cascades.ipynb`, When
   `scripts/check_notebooks.py` runs, Then it fails because the file differs from the builder
   output. [existing `scripts/check_notebooks.py`]
 
@@ -167,7 +167,7 @@ list, and the docstrings above rewritten to the shipped behavior.
 | # | Title | Tag | I×L | G/W/T |
 |---|---|---|---|---|
 | DC-15 | Pinned README sentences change with approval | [implied] | H×H | Given the three sentences of §2.1, When they are rewritten, Then `test_gate_docs.py:50-52`, `test_signal_recipes_readme.py:38` and `test_sum_band_docs.py:76-79` change only through owner-approved pinned edits (manifest under `.claude/test-change-approvals/`), and the new text keeps every other pinned token ("larger model still runs" stays, now followed by "write it as a `sf.Cascade` to skip it"). |
-| DC-16 | Notebook evaluation cell stays off | [proposed — gap §security] | H×M | Given notebook 19, When the offline test runs its code cells, Then no cell makes a request; the evaluation cell is guarded by `RUN_EVALUATION = False`. |
+| DC-16 | Notebook evaluation cell stays off | [proposed — gap §security] | H×M | Given notebook 20, When the offline test runs its code cells, Then no cell makes a request; the evaluation cell is guarded by `RUN_EVALUATION = False`. |
 | DC-17 | Every recipe in the README is compiled | [proposed] | M×M | Given the section's code block, Then the set of assigned `d*` names equals the DC-3 table; a new recipe without a fixture, or a fixture without a recipe, fails the test. |
 | DC-18 | Section reads in STE and has no forward reference | [proposed] | M×M | Given the section, Then it does not contain "E4c", "will", "comes with" or "later" about skipping; it uses the words of the report ("Branches", `not_selected`, `budget_refused`). |
 | DC-19 | Definitions match the code | [proposed] | M×M | Given the DC-1 definitions, Then each term appears in `S/_surface/gate.py`'s class docstring with the same meaning (routing = input gate, cascade = panel gate). |
@@ -200,12 +200,12 @@ None.
 Order: outside-in on the reader's path: pinned characterization first, then the guard that keeps
 docs tests offline (highest risk: a live login), then recipe bytes, then prose, then notebook.
 New test files: `ST/test_routers_cascades_docs.py` (README section + CHANGELOG),
-`ST/test_example_19_recipes.py` (notebook cells). RED first, always.
+`ST/test_example_20_recipes.py` (notebook cells). RED first, always.
 
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | 1 | CHAR `gate_section_states_the_e4b_fallback_cost` (today's `test_gate_docs.py` pins pass) | unit | [existing `ST/test_gate_docs.py:50-52`] | H×M | passes today |
-| 2 | `docs_blocks_with_network_markers_are_refused_before_exec` (README section + notebook 19 cells scanned for `sf.Client(`, `sf.evaluate(`, `.connect(`, `login`, `https://`) | unit | DC-12 | H×H | marker scan before `exec`; reuse the `_STORY_MARKERS` idea of `scripts/check_notebooks.py` |
+| 2 | `docs_blocks_with_network_markers_are_refused_before_exec` (README section + notebook 20 cells scanned for `sf.Client(`, `sf.evaluate(`, `.connect(`, `login`, `https://`) | unit | DC-12 | H×H | marker scan before `exec`; reuse the `_STORY_MARKERS` idea of `scripts/check_notebooks.py` |
 | 3 | `readme_router_recipes_compile_to_the_engine_fixtures` (parametrized over the DC-3 names) | unit | DC-3, DC-4 | H×H | README code block; fixtures from contract C9 |
 | 4 | `stale_recipe_bytes_name_the_recipe_and_offset` | unit | DC-13 | H×M | custom assertion message |
 | 5 | PIN `gate_section_says_the_fallback_runs_only_when_taken` (owner-approved edit of `test_gate_docs.py:50-52`) | unit | DC-5, DC-15 | H×H | rewrite README `:1097-1099` |
@@ -219,7 +219,7 @@ New test files: `ST/test_routers_cascades_docs.py` (README section + CHANGELOG),
 | 13 | `readme_recipe_set_equals_the_table` | unit | DC-17 | M×M | — |
 | 14 | `section_has_no_forward_reference_to_skipping` | unit | DC-18 | M×M | — |
 | 15 | `changelog_unreleased_has_the_breaking_and_feature_bullets_first` | unit | DC-9 | M×M | reuse `_unreleased`, `_first_features_bullets` (`ST/test_show_signals_docs.py`) |
-| 16 | `notebook_19_recipes_build_and_compile_offline` | integration | DC-10, DC-16 | H×M | `_routers_cascades()` builder; exemplar `ST/test_example_18_recipes.py` |
+| 16 | `notebook_20_recipes_build_and_compile_offline` | integration | DC-10, DC-16 | H×M | `_routers_cascades()` builder; exemplar `ST/test_example_18_recipes.py` |
 | 17 | `notebook_19_matches_its_builder` | unit | DC-14 | M×M | `scripts/check_notebooks.py` covers it once registered |
 | 18 | `examples_list_names_notebook_19` | unit | DC-21 | L×M | README `## Examples` line |
 | 19 | `no_docstring_or_message_names_e4c_as_future_work` (grep of `S/` and `E/` src for "E4c will", "until E4c", "E4c removes", "E4c can", "comes with E4c") | unit | DC-11 | M×M | rewrite the §2.1 sites |

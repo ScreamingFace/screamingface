@@ -225,6 +225,15 @@ def check_regex_pattern(args: OpArgs) -> None:
     _compile(args)
 
 
+def regex_finds_head(text: str, args: OpArgs, size: int) -> bool:
+    """Whether the rule finds a match in the FIRST ``size`` characters of ``text`` (E4c Keywords).
+
+    WHY the head: a Keywords selector labels the question, whose topic sits at its start; the
+    answer rules read the end of a reply (``_re2_window``).
+    """
+    return _compile(args).search(_SURROGATE.sub("\ufffd", text[:size])) is not None
+
+
 def regex_finds(text: str, args: OpArgs) -> bool:
     """Whether the regex@1 rule finds a match in the last 1024 characters of ``text``."""
     return _compile(args).search(_re2_window(text, _REGEX_WINDOW)) is not None

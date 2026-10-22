@@ -3,6 +3,7 @@
 from screamingface import (
     analytics,
     benchmarks,
+    budget,
     cache,
     connections,
     events,
@@ -23,11 +24,14 @@ from screamingface._default_client import (
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
 from screamingface._signals import signal
+from screamingface._surface.budget import Budget, Estimate
+from screamingface._surface.cascade import Cascade
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.fusion import Fusion
 from screamingface._surface.gate import Gate
 from screamingface._surface.judge import Judge, JudgePick
-from screamingface._surface.refs import agreement, field
+from screamingface._surface.refs import agreement, answered, field
+from screamingface._surface.selectors import Keywords, LabelModel, label, labels
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -104,6 +108,7 @@ from screamingface.runs import CandidateRun, Run, RunProgress
 from screamingface.signal_sources import Consistency, Entropy, Logprob, Sum, Verbalized
 from screamingface.url4 import Url4
 from screamingface.warnings import (
+    CascadeSeedWarning,
     DuplicateMembersWarning,
     EvaluationWarning,
     FixedSeedSittingWarning,
@@ -172,7 +177,13 @@ __all__ = [
     "First",
     "FixedSeedSittingWarning",
     "Fusion",
+    "Budget",
+    "Cascade",
+    "CascadeSeedWarning",
+    "Estimate",
     "Gate",
+    "Keywords",
+    "LabelModel",
     "Judge",
     "JudgePick",
     "JudgeWriterWarning",
@@ -223,10 +234,14 @@ __all__ = [
     "Vote",
     "Verbalized",
     "agreement",
+    "answered",
     "benchmarks",
+    "budget",
     "cache",
     "events",
     "field",
+    "label",
+    "labels",
     "leaderboards",
     "models",
 ]

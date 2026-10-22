@@ -12,11 +12,12 @@ round trip, but one per-operation record that carries its :class:`CombineEvidenc
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from screamingface_engine.combine.evidence import CombineEvidence
+from screamingface_engine.combine.decision import GateDecision
+from screamingface_engine.combine.evidence import CombineEvidence, GateRecord
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     ReplyLogprobs,
@@ -40,6 +41,16 @@ class OperationCall:
     ``reply_logprobs`` is the token log-probability numbers of the TERMINAL round, when the call
     asked for ``logprobs`` and the reply carried them (E4b part 3). In-process only, numbers only.
 
+    ``decision`` is set only by :func:`record_gate_call` (E4c): a Gate's DECIDE or JOIN record,
+    published under the JOIN fingerprint so the last call wins (JOIN's record when JOIN ran).
+
+    ``pending`` marks a ``phase=decide`` combine call that took the fallback branch (E4c lazy
+    fallback): its output is ``""`` and it has no evidence, so it is not a provider call; the
+    accounting index and the budget fold skip it. ``gate_record`` is that call's E4b gate record,
+    which DECIDE reads by the call's fingerprint (a complete call carries it in ``combine.gate``).
+    ``kept_output`` is the majority answer of that call, which JOIN copies when the Budget refuses
+    the fallback branch (budget BU-18); None when the majority answer is too large to keep.
+
     ``params`` is the request's parameter set sorted by name — the half of the
     OME-843 attribution fingerprint that distinguishes two members on the same
     model route (e.g. different temperatures).
@@ -53,6 +64,10 @@ class OperationCall:
     combine: CombineEvidence | None = None
     signal_accounting: SignalAccounting | None = None
     reply_logprobs: ReplyLogprobs | None = None
+    decision: GateDecision | None = None
+    pending: bool = False
+    gate_record: GateRecord | None = None
+    kept_output: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,8 +197,7 @@ def record_operation_call(
             signal_accounting=signal_accounting,
             reply_logprobs=reply_logprobs,
         )
-        for recorder in _recorders.get():
-            recorder.append(call)
+        _publish(call)
     if identity.request_key is not None:
         request_accounting = RequestAccounting(identity.request_key, accounting)
         for recorder in _accounting_recorders.get():
@@ -202,18 +216,86 @@ def record_combine_call(
     no request key and no accounting; it only joins the Candidate's per-operation record.
     """
 
-    recorders = _recorders.get()
-    if not recorders:
-        return
-    call = OperationCall(
-        path=path,
-        params=tuple(sorted(params.items())),
-        output=output,
-        finish_reason="stop",
-        accounting=None,
-        combine=evidence,
+    _publish(
+        OperationCall(
+            path=path,
+            params=tuple(sorted(params.items())),
+            output=output,
+            finish_reason="stop",
+            accounting=None,
+            combine=evidence,
+        )
     )
-    for recorder in recorders:
+
+
+def record_gate_call(
+    path: str,
+    params: Mapping[str, str],
+    output: str,
+    decision: GateDecision,
+) -> None:
+    """Publish one Gate decision record to every active capture scope (E4c, branch-core D3).
+
+    WHY the JOIN fingerprint for both DECIDE and JOIN: attribution keeps the last call of a
+    fingerprint, so JOIN's completed record wins when JOIN ran and DECIDE's record stays when a
+    body failed before JOIN.
+    """
+
+    _publish(
+        OperationCall(
+            path=path,
+            params=tuple(sorted(params.items())),
+            output=output,
+            finish_reason="stop",
+            accounting=None,
+            decision=decision,
+        )
+    )
+
+
+def record_pending_combine_call(
+    path: str,
+    params: Mapping[str, str],
+    gate_record: GateRecord,
+    kept_output: str | None,
+) -> None:
+    """Publish a ``phase=decide`` combine call that took the fallback branch (E4c lazy fallback).
+
+    Output ``""``, no evidence; ``gate_record`` is what DECIDE reads (branch-core D11).
+    """
+
+    _publish(
+        OperationCall(
+            path=path,
+            params=tuple(sorted(params.items())),
+            output="",
+            finish_reason="stop",
+            accounting=None,
+            pending=True,
+            gate_record=gate_record,
+            kept_output=kept_output,
+        )
+    )
+
+
+def provider_calls_by_fingerprint(
+    calls: Iterable[OperationCall],
+) -> dict[tuple[str, tuple[tuple[str, str], ...]], list[OperationCall]]:
+    """The provider calls among ``calls`` by fingerprint (path, params), in record order.
+
+    E4c (BC-29, branch-core D7): a combine call, a pending combine call and a Gate record are not
+    provider calls; the combine accounting index and the budget fold both read this one rule.
+    """
+
+    index: dict[tuple[str, tuple[tuple[str, str], ...]], list[OperationCall]] = {}
+    for call in calls:
+        if call.combine is None and call.decision is None and not call.pending:
+            index.setdefault((call.path, call.params), []).append(call)
+    return index
+
+
+def _publish(call: OperationCall) -> None:
+    for recorder in _recorders.get():
         recorder.append(call)
 
 
@@ -246,7 +328,10 @@ __all__ = [
     "current_request_accounting",
     "current_model_request_key",
     "operation_call_identity",
+    "provider_calls_by_fingerprint",
     "record_combine_call",
+    "record_gate_call",
     "record_operation_call",
+    "record_pending_combine_call",
     "suspend_request_accounting",
 ]

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import math
 import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from url4 import (
     Binding,
@@ -69,11 +70,14 @@ from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
     from screamingface._evaluation.benchmark import _CheckSurface
+    from screamingface.combine_evidence import GateCmp
     from screamingface.recipe import Recipe
 
 _BINDING = OPERATION_BINDING
 # A quorum panel (OME-1557) gathers member results; it is a reference, never an operation.
-_REFERENCE = re.compile(rf"\$({OPERATION_BINDING.pattern.strip('^$')}|panel_\d+)")
+_REFERENCE = re.compile(
+    rf"\$({OPERATION_BINDING.pattern.strip('^$')}|panel_\d+|gate_\d+_block)(?![A-Za-z0-9_])"
+)
 _BENCHMARK_ROUTE = re.compile(
     r"/benchmarks/([A-Za-z0-9._~/-]+?)/"
     r"(?:cases|tasks|aggregate|criterion-verdict|criterion-evaluation|case-evaluation)\b"
@@ -89,7 +93,10 @@ _NESTED_RECIPE_ROUTES = frozenset(
 _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
 # The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
-_PROVED_SPEC_KEYS = frozenset({"signals", "narrow"})
+_PROVED_SPEC_KEYS = frozenset({"signals", "narrow", "gate"})
+# E4c: a Gate's JOIN call (``gate_N``) and its result binding (``gate_N_block``).
+_JOIN_MODEL = "ensemble/branch/v1/join"
+_GATE_BLOCK = re.compile(r"gate_\d+_block")
 # WHY the optional sources tail: the combine context is {input, outputs or panel, samples,
 # signals, sources} (E4b part 7 writes `samples` before `signals`), and `signals` holds only
 # '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
@@ -200,7 +207,7 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
             dict.fromkeys(
                 dependency
                 for reference in _REFERENCE.findall(context)
-                for dependency in panels.get(reference, (reference,))
+                for dependency in panels.get(reference, (_gate_join(reference),))
             )
         )
         calls[node.name] = _Call(
@@ -217,6 +224,12 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
     return calls
 
 
+def _gate_join(reference: str) -> str:
+    """A Gate block reference reads the Gate's JOIN call (E4c); any other name is itself."""
+
+    return reference.removesuffix("_block") if _GATE_BLOCK.fullmatch(reference) else reference
+
+
 def _panel_dependencies(candidate: Expression) -> dict[str, tuple[str, ...]]:
     panels: dict[str, tuple[str, ...]] = {}
     for node in _executable_nodes(candidate):
@@ -231,7 +244,10 @@ def _panel_dependencies(candidate: Expression) -> dict[str, tuple[str, ...]]:
         for slot in node.value.sources:
             if isinstance(slot, Source | Binding) and isinstance(slot.value, Expression):
                 if isinstance(slot.value.intent, Text):
-                    references.extend(_REFERENCE.findall(slot.value.intent.value))
+                    references.extend(
+                        _gate_join(reference)
+                        for reference in _REFERENCE.findall(slot.value.intent.value)
+                    )
         panels[node.name] = tuple(references)
     return panels
 
@@ -282,11 +298,17 @@ def _final_binding(
 ) -> str:
     if not isinstance(candidate.intent, Text):
         raise ValueError("URL4 Candidate has an unsupported result binding")
-    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate)", candidate.intent.value)
+    match = re.fullmatch(
+        r"\$(model_\d+|synthesis_\d+|loop_candidate|gate_\d+_block)", candidate.intent.value
+    )
     if match is None:
         raise ValueError("URL4 Candidate has an unsupported result binding")
     selected = match.group(1)
-    if topology.kind in {"corrective_loop", "self_corrective"}:
+    if _GATE_BLOCK.fullmatch(selected):
+        # E4c: a Gate block is one named inner expression, not a call.
+        if not _has_binding(candidate, selected):
+            raise ValueError("URL4 Candidate has an unsupported result binding")
+    elif topology.kind in {"corrective_loop", "self_corrective"}:
         if selected != topology.binding or not _has_binding(candidate, selected):
             raise ValueError("URL4 Candidate has an unsupported result binding")
     elif selected not in calls:
@@ -318,10 +340,12 @@ def _validate_topology(
     bindings = _topology_bindings(value)
     if set(bindings) != set(calls):
         raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
+    gated = _gated_bindings(value)
+    budgeted = _candidate_budget(candidate) is not None
     for name, binding in bindings.items():
         if calls[name].dependencies != binding.context_dependencies:
             raise ValueError("URL4 Candidate Recipe topology does not match its model calls")
-        _require_call_kind(binding.node, calls[name])
+        _require_call_kind(binding.node, calls[name], gated=budgeted or name in gated)
     # INVARIANT: default-valued metadata cannot conceal executable policy.
     # WHY the signals clause (E4b part 7 unit 5): a declared source adds calls, so it must prove
     # its bytes. Hand edit: add a consistency entry to the spec of a plain Median url4; without
@@ -332,7 +356,9 @@ def _validate_topology(
     # a spec with ``narrow`` proves its bytes too. The cost: an unpinned or wrong-stage operator
     # in a narrow spec shows as this recompile's metadata error, not as its operator error.
     if (
-        _has_fusion_policy(value)
+        budgeted
+        or _has_gate(value)
+        or _has_fusion_policy(value)
         or _has_executable_fusion_policy(candidate)
         or any(
             not _PROVED_SPEC_KEYS.isdisjoint(decode_combine_spec(call.raw_intent))
@@ -341,7 +367,9 @@ def _validate_topology(
         )
     ):
         # WHY the pinned catalog (OME-1289 unit 13): a quorum Fusion may end in a reducer.
-        _require_recompiles(candidate, _recipe_from_topology(value, calls), calls)
+        _require_recompiles(
+            candidate, _with_budget(candidate, _recipe_from_topology(value, calls)), calls
+        )
 
 
 def _require_recompiles(
@@ -414,14 +442,110 @@ def _binding_first(call: _Call) -> bool:
     return call.params[:1] == ((OPERATION_BINDING_PARAM, call.binding),)
 
 
-def _require_call_kind(node: _RecipeTopology, call: _Call) -> None:
-    """A reducer node is exactly a combine call (and its intent a valid spec), and only that."""
+def _candidate_budget(candidate: Expression) -> tuple[float | None, int | None] | None:
+    """The (usd, tokens) caps of the candidate's ``_sf_budget`` source (E4c BU-1), or None."""
 
+    source = next(
+        (
+            node
+            for node in candidate.sources
+            if isinstance(node, Source) and node.name == "_sf_budget"
+        ),
+        None,
+    )
+    if source is None:
+        return None
+    caps = dict(source.budgets)
+    if not set(caps) <= {"usd", "tokens"} or not caps:
+        raise ValueError("URL4 Candidate has an invalid budget")
+    usd, tokens = caps.get("usd"), caps.get("tokens")
+    return (
+        None if usd is None else float(str(usd)),
+        None if tokens is None else int(float(str(tokens))),
+    )
+
+
+def _with_budget(candidate: Expression, recipe: Recipe) -> Recipe:
+    """``recipe`` wrapped in the candidate's ``sf.Budget``, when the url4 declares one."""
+
+    from screamingface._surface.budget import Budget
+
+    caps = _candidate_budget(candidate)
+    if caps is None:
+        return recipe
+    return Budget(recipe, usd=caps[0], tokens=caps[1])
+
+
+def _has_gate(value: _RecipeTopology) -> bool:
+    """Whether the topology holds an E4c Gate: its url4 must then recompile byte for byte."""
+
+    return value.kind == "gate" or any(_has_gate(child) for child in _topology_children(value))
+
+
+def _topology_children(value: _RecipeTopology) -> tuple[_RecipeTopology, ...]:
+    children = (*value.members, *value.stages)
+    for child in (value.synthesizer, value.judge, value.panel):
+        if child is not None:
+            children += (child,)
+    for branch in (value.then_branch, value.otherwise_branch):
+        if isinstance(branch, _RecipeTopology):
+            children += (branch,)
+    return children
+
+
+def _gated_bindings(value: _RecipeTopology) -> frozenset[str]:
+    """The bindings that run only inside a Gate's branch bodies: their model calls carry the
+    binding param. A step body lists the panel members again; they run outside, so they are not
+    gated."""
+
+    inside: set[str] = set()
+    outside: set[str] = set()
+
+    def visit(node: _RecipeTopology, gated: bool) -> None:
+        if node.kind in {"model", "reducer"}:
+            (inside if gated else outside).add(node.binding)
+        for child in _leaf_holders(node):
+            visit(child, gated)
+        for branch in (node.then_branch, node.otherwise_branch):
+            if isinstance(branch, _RecipeTopology):
+                visit(branch, True)
+
+    visit(value, False)
+    return frozenset(inside - outside)
+
+
+def _leaf_holders(node: _RecipeTopology) -> tuple[_RecipeTopology, ...]:
+    """Every child node of ``node`` outside a Gate's branches: recipes, signals, samples."""
+
+    signals = tuple(
+        child
+        for signal in node.signals
+        for child in (signal.source, signal.projection)
+        if child is not None
+    )
+    samples = tuple(source for sample in node.samples for source in sample.sources)
+    others = tuple(
+        child for child in (node.synthesizer, node.judge, node.panel) if child is not None
+    )
+    return (*node.members, *node.stages, *others, *node.selectors, *signals, *samples)
+
+
+def _require_call_kind(node: _RecipeTopology, call: _Call, *, gated: bool = False) -> None:
+    """A reducer node is exactly a combine call (and its intent a valid spec), and only that.
+
+    E4c: a Gate's JOIN is exactly one join call with the one param ``binding=gate_N``; a LabelModel
+    selector call and every model call inside a Gate's branch carry the binding param first.
+    """
+
+    if node.role == "gate":
+        if call.model != _JOIN_MODEL or call.params != ((OPERATION_BINDING_PARAM, call.binding),):
+            raise ValueError(_MODEL_CALLS)
+        return
     if (node.kind == "reducer") != (call.model == COMBINE_MODEL):
         raise ValueError(_MODEL_CALLS)
     if node.kind == "reducer":
         _require_reducer_call(node, call)
-    elif node.role in _SIGNAL_ROLES or node.role == "sample":
+    elif node.role in _SIGNAL_ROLES or node.role in ("sample", "selector") or gated:
         # INVARIANT: the binding param also keeps a signal or a sample call apart from a
         # same-route member (a sample repeats its member's route and prompt; E4b part 7 SC-I1).
         if not _binding_first(call):
@@ -437,7 +561,12 @@ def _require_reducer_call(node: _RecipeTopology, call: _Call) -> None:
     # the spec's reducer, and the context's signal keys are the node's: any of them drifting means
     # the url4 was edited by hand.
     if (
-        call.params != ((OPERATION_BINDING_PARAM, call.binding),)
+        call.params
+        not in (
+            ((OPERATION_BINDING_PARAM, call.binding),),
+            # E4c lazy fallback: call #1 of a gated vote with a judge or writer fallback.
+            ((OPERATION_BINDING_PARAM, call.binding), ("phase", "decide")),
+        )
         or node.name != spec["reducer"]
         or _context_signal_keys(call.context) != tuple(signal.key for signal in node.signals)
     ):
@@ -476,9 +605,9 @@ def _rebuilt_reducer(  # noqa: PLR0911
     "not this named form"; sf.Reduce then rebuilds it. When both refuse, the named class's error
     is the one raised, because it says what the spec was meant to be.
 
-    A spec with ``gate`` rebuilds only through sf.Vote (P17): sf.Reduce has no gate and would drop
-    it, so there is no sf.Reduce fallback, and a gate on another reducer is that reducer's
-    "cannot rebuild" error.
+    A spec with ``gate`` rebuilds through sf.Vote when the vote holds it (P17, E4b's fallbacks);
+    E4c: an ``abstain`` gate on any other reducer (or on a vote that reads an extractor) is a
+    panel gate's decision reducer: the reducer without the gate, wrapped with its gate (P3).
     """
 
     if "narrow" in spec:
@@ -486,9 +615,7 @@ def _rebuilt_reducer(  # noqa: PLR0911
     # WHY through the module: the registry may be replaced as a whole (tests do).
     named = reducer_module._REDUCER_CLASSES.get(str(spec["reducer"]))
     if "gate" in spec:
-        if named is None or spec["reducer"] != "vote":
-            raise reducer_module._cannot_rebuild(str(spec["reducer"]))
-        return named._rebuild(spec, signals)
+        return _rebuilt_gated(spec, signals, named)
     if named is None:
         return ReduceNode._rebuild(spec, signals)
     try:
@@ -497,6 +624,44 @@ def _rebuilt_reducer(  # noqa: PLR0911
         with contextlib.suppress(TypeError, ValueError):
             return ReduceNode._rebuild(spec, signals)
         raise
+
+
+def _rebuilt_gated(
+    spec: dict[str, object], signals: tuple[_ModelSignal, ...], named: type[Reducer] | None
+) -> Reducer:
+    from screamingface.branch import DecisionReducer
+    from screamingface.gate import GateNode
+
+    gate = spec["gate"]
+    reducer = str(spec["reducer"])
+    abstain = isinstance(gate, dict) and gate.get("otherwise") == "abstain"
+    if named is not None and reducer == "vote":
+        try:
+            return named._rebuild(spec, signals)
+        except (TypeError, ValueError):
+            if not abstain:
+                raise
+    keys = {"cmp", "observe", "otherwise", "threshold"}
+    if (
+        not abstain
+        or not isinstance(gate, dict)
+        or not keys <= set(gate) <= keys | {"abstain_band"}
+    ):
+        raise reducer_module._cannot_rebuild(reducer)
+    band = gate.get("abstain_band")
+    try:
+        decision = GateNode(
+            cast("str", gate["observe"]),
+            cast("GateCmp", gate["cmp"]),
+            cast("float", gate["threshold"]),
+            abstain_band=None if band is None else cast("tuple[float, float]", band),
+        )
+    except (TypeError, ValueError) as exc:
+        raise reducer_module._cannot_rebuild(reducer) from exc
+    if "abstain_band" in gate and band is None:
+        raise reducer_module._cannot_rebuild(reducer)
+    inner = _rebuilt_reducer({key: value for key, value in spec.items() if key != "gate"}, signals)
+    return DecisionReducer(inner, decision)
 
 
 def _rebuilt_narrowed(spec: dict[str, object], signals: tuple[_ModelSignal, ...]) -> Reducer:
@@ -655,7 +820,8 @@ def _recipe_from_topology(
             call.model,
             name=value.name if value.named else None,
             prompt=None if default else call.prompt,
-            params=_editable_params(call, drop_params),
+            # E4c: a call inside a Gate branch carries the binding param; the compile adds it.
+            params=_editable_params(call, drop_params | {OPERATION_BINDING_PARAM}),
             optional=value.optional,
         )
     elif value.kind == "pipeline":
@@ -666,6 +832,8 @@ def _recipe_from_topology(
         )
     elif value.kind == "fusion":
         selected = _fusion_from_topology(value, calls, editable=editable)
+    elif value.kind == "gate":
+        selected = _branch_from_topology(value, calls, editable=editable)
     elif value.kind == "self_corrective":
         assert value.max_rounds is not None
         member = _recipe_from_topology(value.members[0], calls, editable=editable)
@@ -687,8 +855,115 @@ def _recipe_from_topology(
     return selected
 
 
-def _fusion_from_topology(
+def _branch_from_topology(
     value: _RecipeTopology, calls: dict[str, _Call], *, editable: bool = False
+) -> Recipe:
+    """One Gate (E4c): its spec is the JOIN call's intent, its branches the topology's."""
+
+    from screamingface.branch import BranchNode
+    from screamingface.fusion import FusionNode
+
+    spec = _gate_spec(value, calls)
+    panel = None
+    if value.panel is not None:
+        lazy = _lazy_decision(value, calls)
+        panel = _fusion_from_topology(value.panel, calls, editable=editable, synthesizer=lazy)
+    decision = None if not isinstance(panel, FusionNode) else panel.synthesizer
+
+    def body(branch: object, kind: str) -> object:  # noqa: PLR0911
+        if isinstance(branch, _RecipeTopology):
+            # A step body with its own combine call (a lazy fallback's call #2) is its reducer.
+            if kind == "step" and branch.kind == "fusion" and branch.synthesizer is not None:
+                return _reducer_from_topology(branch.synthesizer, calls)
+            return _recipe_from_topology(branch, calls, editable=editable)
+        if branch == "step":
+            return decision
+        return None if branch == "skip" else branch
+
+    return BranchNode(
+        condition=_gate_condition(spec, calls),
+        then=cast("Any", body(value.then_branch, spec["then"])),
+        otherwise=cast("Any", body(value.otherwise_branch, spec["otherwise"])),
+        panel=cast("Any", panel),
+        name=value.name,
+        estimates=(spec["estimate"]["then"], spec["estimate"]["otherwise"]),
+    )
+
+
+def _gate_spec(value: _RecipeTopology, calls: dict[str, _Call]) -> dict[str, Any]:
+    join = calls.get(value.join_binding)
+    if join is None:
+        raise ValueError(_MODEL_CALLS)
+    try:
+        spec = json.loads(join.raw_intent)
+        when = spec["when"]
+        _ = (when["observe"], when["cmp"], when["value"], spec["then"], spec["otherwise"])
+    except (ValueError, KeyError, TypeError) as exc:
+        raise ValueError("URL4 Candidate has an invalid gate spec") from exc
+    return cast("dict[str, Any]", spec)
+
+
+def _gate_condition(spec: Mapping[str, Any], calls: dict[str, _Call]) -> Any:
+    from screamingface.branch import BranchCondition
+
+    when = spec["when"]
+    form, _, selector_id = str(when["observe"]).partition(":")
+    if form in ("label", "labels"):
+        selector = _rebuilt_selector(spec["selectors"][selector_id], calls)
+        return BranchCondition(form, when["cmp"], when["value"], selector)
+    return BranchCondition(when["observe"], when["cmp"], when["value"])
+
+
+def _lazy_decision(value: _RecipeTopology, calls: dict[str, _Call]) -> Any:
+    """Call #1 of a lazy E4b fallback (``phase=decide``) as the LazyDecision of its call #2."""
+
+    from screamingface.branch import LazyDecision
+
+    panel, otherwise = value.panel, value.otherwise_branch
+    if panel is None or panel.synthesizer is None or not isinstance(otherwise, _RecipeTopology):
+        return None
+    call = calls.get(panel.synthesizer.binding)
+    if call is None or ("phase", "decide") not in call.params or otherwise.synthesizer is None:
+        return None
+    return LazyDecision(_reducer_from_topology(otherwise.synthesizer, calls))
+
+
+def _rebuilt_selector(entry: Mapping[str, Any], calls: dict[str, _Call]) -> Any:
+    """A sf.Keywords from its rules in the gate spec, or a sf.LabelModel from its call (E4c)."""
+
+    from screamingface._surface.selectors import _MAX_TOKENS, Keywords, LabelModel, label_intent
+
+    if entry["kind"] == "keywords":
+        return Keywords(
+            [
+                (rule["label"], rule["pattern"], {"ignore_case": True})
+                if rule.get("ignore_case")
+                else (rule["label"], rule["pattern"])
+                for rule in entry["rules"]
+            ],
+            multi=entry["multi"],
+        )
+    call = calls.get(entry["binding"])
+    if call is None:
+        raise ValueError(_MODEL_CALLS)
+    labels, multi = list(entry["labels"]), bool(entry["multi"])
+    task = call.prompt.rpartition("Task:\n")[2]
+    prompt = None if label_intent(labels, None, multi=multi) == call.prompt else task
+    params = {
+        name: value
+        for name, value in _editable_params(call).items()
+        if name != OPERATION_BINDING_PARAM
+        and not (name == "max_tokens" and value == _MAX_TOKENS[multi])
+    }
+    return LabelModel(call.model, labels=labels, prompt=prompt, params=params or None, multi=multi)
+
+
+def _fusion_from_topology(
+    value: _RecipeTopology,
+    calls: dict[str, _Call],
+    *,
+    editable: bool = False,
+    synthesizer: Reducer | None = None,
 ) -> Recipe:
     """One Fusion; its members show only the params the author wrote (P16, DS-D10)."""
 
@@ -705,7 +980,10 @@ def _fusion_from_topology(
         ],
         name=value.name if value.name != inferred_name else None,
         signals=declared,
-        synthesizer=_synthesizer_from_topology(value.synthesizer, calls, editable=editable),
+        # E4c: a lazy fallback's call #1 is rebuilt from its call #2 (the caller passes it).
+        synthesizer=synthesizer
+        if synthesizer is not None
+        else _synthesizer_from_topology(value.synthesizer, calls, editable=editable),
         quorum=value.quorum,
         optional=value.optional,
     )

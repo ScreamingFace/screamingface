@@ -90,6 +90,7 @@ from screamingface_engine.combine.ports import (
     NoVotes,
     OpArgs,
     OperatorDescriptor,
+    QuorumNotMet,
     ReadingStatus,
     RecordStatus,
     ReduceOp,
@@ -114,6 +115,8 @@ from screamingface_engine.combine.ports import (
 from screamingface_engine.combine.registry import OperatorRegistry
 from screamingface_engine.combine.signal_sum import sum_value
 from screamingface_engine.combine.spec import (
+    FALLBACK_JUDGE,
+    FALLBACK_WRITER,
     MAX_MEMBERS,
     MAX_WEIGHT,
     NARROW_JUDGE_REDUCE,
@@ -240,6 +243,9 @@ class _Recorded(Mapping[str, Mapping[str, float | None]]):
     # WHY here too (narrow.md §3.2): the narrow outcome must reach ``_evidence`` from every exit,
     # as the sample counts do. None: the spec has no narrow step.
     narrowed: _Narrowed | None = None
+    # E4c skip members (C11): the members a skip-Gate did not select; every exit's evidence lists
+    # them as excluded / not_selected in ``skipped``.
+    skipped: frozenset[str] = frozenset()
 
     def __getitem__(self, key: str, /) -> Mapping[str, float | None]:
         return self.numbers[key]
@@ -361,6 +367,20 @@ class CombineOutcome:
     evidence: CombineEvidence
 
 
+@dataclass(frozen=True, slots=True)
+class PendingCombine:
+    """E4c lazy fallback (OME-1291): a ``phase=decide`` call whose gate took the fallback branch.
+
+    It answers ``""`` with no evidence; ``record`` is its gate record, which DECIDE reads
+    (branch-core D11). The fallback call and the full combine call run only in that branch.
+    ``kept`` is the majority answer: when the Budget refuses the fallback, the Gate's step slot
+    answers with it (budget BU-18). None when that answer is over 8 MiB.
+    """
+
+    record: GateRecord
+    kept: str | None
+
+
 def run_combine(
     registry: OperatorRegistry,
     params: Mapping[str, str],
@@ -369,6 +389,24 @@ def run_combine(
     *,
     accounting: AccountingReader | None = None,
 ) -> CombineOutcome:
+    """Run one complete combine call; a decision call that would be pending is a caller error.
+
+    The url4 route runs :func:`run_combine_call`, which also returns a pending decision call.
+    """
+    outcome = run_combine_call(registry, params, context, intent, accounting=accounting)
+    if isinstance(outcome, PendingCombine):
+        raise RuntimeError("a pending decision call runs through run_combine_call")
+    return outcome
+
+
+def run_combine_call(
+    registry: OperatorRegistry,
+    params: Mapping[str, str],
+    context: str,
+    intent: str,
+    *,
+    accounting: AccountingReader | None = None,
+) -> CombineOutcome | PendingCombine:
     """Run one combine spec. Raises ``CombineError`` (a declared code) on any declared failure.
 
     Logs the one documented line (FW-17) for a success and for each ``CombineError``.
@@ -383,6 +421,9 @@ def run_combine(
         # A plugin bug: log the one line, then let it travel unchanged (it is not a declared code).
         trace.log("internal_error")
         raise
+    if isinstance(outcome, PendingCombine):
+        trace.log("fallback_pending")
+        return outcome
     result = outcome.evidence.result
     trace.log("ok" if result.status == "answered" else f"abstain_{result.reason}")
     return outcome
@@ -395,8 +436,8 @@ def _combine(
     intent: str,
     trace: _Trace,
     accounting: AccountingReader | None,
-) -> CombineOutcome:
-    trace.binding = _binding(params)
+) -> CombineOutcome | PendingCombine:
+    trace.binding, decide_only = _binding(params)
     _check_sizes(intent, context_text)
     spec = parse_spec(intent)
     trace.reducer, trace.members = spec.reducer, str(len(spec.members))
@@ -410,9 +451,15 @@ def _combine(
         sources_expected=_reads_accounting(plan) or declares_reply_sources(spec),
         samples_n=None if sample is None else sample.n,
     )
+    if decide_only and any(key in context.signals for key in (FALLBACK_JUDGE, FALLBACK_WRITER)):
+        # LF-9: a decision call decides; only the full call in the fallback branch reads the reply.
+        raise SpecInvalid("a decision call reads no fallback signal")
     check_fallback_signals(spec.gate, context.signals)
     counts = None if sample is None else _sample_counts(sample, spec, context)
-    recorded = _Recorded(_signal_values(plan, spec, context, accounting, counts), counts)
+    recorded = _Recorded(
+        _signal_values(plan, spec, context, accounting, counts), counts, skipped=context.skipped
+    )
+    _check_floor(spec, context)
     combine_input = _read_members(spec, plan, context, recorded)
     trace.voters = str(len(combine_input.voters))
     if plan.narrow:
@@ -434,7 +481,9 @@ def _combine(
         return _abstain(
             spec, plan, combine_input, None, "no_votes", recorded=recorded, gate=_not_run(spec)
         )
-    return _decide(spec, plan, combine_input, context, trace, recorded=recorded)
+    return _decide(
+        spec, plan, combine_input, context, trace, recorded=recorded, decide_only=decide_only
+    )
 
 
 def _signal_values(
@@ -794,7 +843,8 @@ def _decide(
     trace: _Trace,
     *,
     recorded: _Recorded,
-) -> CombineOutcome:
+    decide_only: bool = False,
+) -> CombineOutcome | PendingCombine:
     """Run reduce, then select, then the gate when the spec has one (E4b part 5).
 
     Three things may abstain: the reduce and the select steps (by raising ``NoVotes``) and the gate
@@ -825,6 +875,7 @@ def _decide(
             selection,
             trace,
             recorded=recorded,
+            decide_only=decide_only,
         )
         if spec.gate is not None
         else _majority(
@@ -873,14 +924,15 @@ def _gated(
     trace: _Trace,
     *,
     recorded: _Recorded,
-) -> CombineOutcome:
+    decide_only: bool = False,
+) -> CombineOutcome | PendingCombine:
     """Check the band, then compare the gate number with the threshold; record it and take one
     branch (ans:Q1; E4b part 6 ans:Q2).
 
     Inside the band (P8, P9): an abstain with ``in_band`` for every ``otherwise``; no comparison.
     Outside it: true keeps the majority answer; false takes the fallback (abstain, judge or writer).
-    FB-I1: the majority and the band branches never read a fallback reply, so E4c can skip that
-    call with no wire change (C8).
+    FB-I1: the majority and the band branches never read a fallback reply, so the gated branch
+    shape skips that call with no wire change (C8).
     """
     observed = observed_number(gate, selection, recorded, combine_input.members)
     # Part 5 erratum E2: the log fields are set before any branch, so an abstain logs them too.
@@ -915,7 +967,16 @@ def _gated(
             gate=record,
         )
     return _fallback(
-        gate, record, spec, plan, combine_input, context, reduction, selection, recorded=recorded
+        gate,
+        record,
+        spec,
+        plan,
+        combine_input,
+        context,
+        reduction,
+        selection,
+        recorded=recorded,
+        decide_only=decide_only,
     )
 
 
@@ -930,14 +991,24 @@ def _fallback(
     selection: Selection,
     *,
     recorded: _Recorded,
-) -> CombineOutcome:
+    decide_only: bool = False,
+) -> CombineOutcome | PendingCombine:
     """The judge or the writer fallback answer (gate-decision §2 delta 4, P14).
+
+    E4c lazy fallback (LF-2): a decision call (``phase=decide``) stops here with a pending outcome;
+    the Gate's fallback branch runs the judge or writer call and the full combine call.
 
     Judge: the label member's text, byte for byte; the reading goes into the evidence ``judge``.
     Writer: the reply text is the output (8 MiB cap first); the value is the vote's own extract and
     normalize of that text (``_stages``), None when nothing is extracted.
     The vote's tally, agreement and tie stay in the evidence.
     """
+    if decide_only:
+        try:
+            kept: str | None = _output(selection, plan.select.op_id, context)
+        except InputTooLarge:
+            kept = None  # BU-18: a refused fallback then abstains budget_refused
+        return PendingCombine(record, kept)
     if gate.otherwise == "judge":
         reading = fallback_label(context.signals, _kept(combine_input, plan.excludes))
         final = Selection(
@@ -1037,11 +1108,19 @@ def _abstain(
     return CombineOutcome(output, evidence)
 
 
-def _binding(params: Mapping[str, str]) -> str:
+def _binding(params: Mapping[str, str]) -> tuple[str, bool]:
+    """The call's binding, and whether it is a gate's decision call (E4c ``phase=decide``)."""
+
     binding = params.get("binding")
-    if set(params) != {"binding"} or binding is None or _BINDING.fullmatch(binding) is None:
-        raise SpecInvalid("a combine call takes exactly one param: binding=synthesis_N")
-    return binding
+    keys = set(params)
+    if (
+        keys not in ({"binding"}, {"binding", "phase"})
+        or binding is None
+        or _BINDING.fullmatch(binding) is None
+        or params.get("phase", "decide") != "decide"
+    ):
+        raise SpecInvalid("a combine call takes binding=synthesis_N and optionally phase=decide")
+    return binding, "phase" in keys
 
 
 def _check_sizes(intent: str, context: str) -> None:
@@ -1461,7 +1540,7 @@ def _evidence(
     narrowed = recorded.narrowed
     whole = combine_input if narrowed is None else narrowed.whole
     left_out = {} if narrowed is None else narrowed.left_out
-    return CombineEvidence(
+    evidence = CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
         operators=list(plan.operators),
@@ -1503,6 +1582,48 @@ def _evidence(
         dropped=sum(answer.status == "fail" for answer in whole.answers),
         finish_reason="stop",
     )
+    return _with_skipped(evidence, recorded.skipped)
+
+
+def _with_skipped(evidence: CombineEvidence, skipped: frozenset[str]) -> CombineEvidence:
+    """E4c skip members (SM-2, SM-12, SM-13): a member a skip-Gate did not select is excluded with
+    ``not_selected``, has no raw, value, score, weight or signal value, is not ``dropped``, and is
+    listed in ``skipped`` (the last key, only when not empty)."""
+
+    if not skipped:
+        return evidence
+    wire = evidence.model_dump(by_alias=True)
+    for row in wire["members"]:
+        if row["member_id"] in skipped:
+            row.update(
+                status="excluded",
+                reason="not_selected",
+                raw=None,
+                value=None,
+                score=None,
+                weight=None,
+                signals=dict.fromkeys(row["signals"]),
+            )
+            row.pop("rank", None)
+    wire["dropped"] = sum(row["status"] == "fail" for row in wire["members"])
+    wire["skipped"] = [row["member_id"] for row in wire["members"] if row["member_id"] in skipped]
+    return CombineEvidence.model_validate(wire)
+
+
+def _check_floor(spec: CombineSpec, context: CombineContext) -> None:
+    """SM-11: under a numeric quorum, at least ``min(floor, selected)`` selected members answered.
+
+    The url4 panel carries ``quorum=0`` with optional slots, so this call checks the floor over the
+    members a skip-Gate selected (plain members count as selected, SM-18).
+    """
+    if context.floor is None:
+        return
+    selected = len(spec.members) - len(context.skipped)
+    if len(context.outputs) < min(context.floor, selected):
+        raise QuorumNotMet(
+            f"{len(context.outputs)} of {selected} selected members answered; the quorum asks "
+            f"{min(context.floor, selected)}"
+        )
 
 
 def _presentation_order(
@@ -1629,5 +1750,7 @@ __all__ = [
     "MAX_RESULT_BYTES",
     "MAX_SPEC_BYTES",
     "CombineOutcome",
+    "PendingCombine",
     "run_combine",
+    "run_combine_call",
 ]

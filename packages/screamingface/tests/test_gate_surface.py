@@ -21,6 +21,7 @@ from _nodes import FusionNode, GateNode, JudgeNode, RankNode, VoteNode, frozen_u
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
+from screamingface.branch import BranchNode, LazyDecision
 from screamingface.signal_sources import SignalSource
 
 _PANEL = ["prov/alpha", "prov/beta", "prov/gamma"]
@@ -183,8 +184,24 @@ _RECIPES: dict[str, tuple[Callable[[], sf.Recipe], Callable[[], sf.Recipe]]] = {
 @pytest.mark.parametrize("case", sorted(_RECIPES))
 def test_gap_a_gate_recipe_compiles_to_the_bytes_of_today(case: str) -> None:
     new, today = _RECIPES[case]
+    lowered, e4b = lower(new()), today()
+    assert isinstance(e4b, FusionNode)
+    assert isinstance(e4b.synthesizer, VoteNode)
 
-    assert lower(new()) == today()
+    # E4c (OME-1291, lazy-fallback #24, owner-approved edit): a judge or writer fallback is lazy.
+    # The gate lowers to a BranchNode around today's FusionNode: call #1 decides (a LazyDecision
+    # of today's gated vote) and the otherwise body is today's gated vote (call #2); the four
+    # fallback rows of data/surface_parity.json hold the lazy compile. Every other row is today's.
+    gate = e4b.synthesizer.gate
+    if gate is not None and gate.otherwise != "abstain":
+        assert isinstance(lowered, BranchNode)
+        assert lowered.panel is not None
+        assert lowered.panel.members == e4b.members
+        assert lowered.panel.synthesizer == LazyDecision(e4b.synthesizer)
+        assert lowered.then is lowered.panel.synthesizer
+        assert lowered.otherwise == e4b.synthesizer
+    else:
+        assert lowered == e4b
     assert _url4(new()) == frozen_url4(f"gate_surface:{case}")
 
 
@@ -311,12 +328,14 @@ def test_ga2_a_gate_reads_a_declared_name_of_its_block() -> None:
         _ = sf.Fanout(_PANEL) >> gate
 
 
+# E4c (OME-1291, gate #7, owner-approved edit): GA-3 is gone; then= takes any reducer step, a
+# recipe (a route string is a model) or a word.
 @pytest.mark.parametrize(
     "then", [sf.Median(), sf.ArgMax("cost_usd"), "vote"], ids=["median", "argmax", "text"]
 )
-def test_ga3_then_takes_a_vote(then: object) -> None:
-    with pytest.raises(TypeError, match=r"^sf\.Gate then= takes sf\.Vote until E4c$"):
-        sf.Gate(when=sf.agreement() >= 0.7, then=then)  # type: ignore[arg-type]
+def test_then_takes_any_reducer_step(then: object) -> None:
+    gate = sf.Gate(when=sf.signal("conf").mean() >= 0.7, then=then)  # type: ignore[arg-type]
+    assert gate.then == (sf.Model("vote") if then == "vote" else then)
 
 
 @pytest.mark.parametrize(
@@ -336,14 +355,13 @@ def test_ga4_a_writer_fallback_is_one_model_call(writer: sf.Recipe) -> None:
         sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(), otherwise=sf.Synthesize(writer))
 
 
-@pytest.mark.parametrize(
-    "otherwise", ["fallback", sf.Vote(), sf.Model("prov/w")], ids=["text", "vote", "model"]
-)
-def test_otherwise_takes_abstain_a_judge_pick_or_a_writer(otherwise: object) -> None:
+# E4c (gate #13, owner-approved edit): otherwise= takes a step, a recipe or a word; anything else
+# names the four kinds.
+@pytest.mark.parametrize("otherwise", ["skip", 42, sf.Concat()], ids=["skip", "number", "concat"])
+def test_otherwise_names_the_four_kinds(otherwise: object) -> None:
     with pytest.raises(
-        (TypeError, ValueError),
-        match=r"^sf\.Gate otherwise= takes 'abstain', sf\.JudgePick\(\.\.\.\) or "
-        r"sf\.Synthesize\(\.\.\.\)$",
+        TypeError,
+        match=r"^sf\.Gate otherwise= takes a step, a recipe, 'abstain' or 'fail_closed'$",
     ):
         sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(), otherwise=otherwise)  # type: ignore[arg-type]
 
@@ -365,18 +383,21 @@ def test_abstain_if_takes_a_band() -> None:
 def test_when_takes_a_condition() -> None:
     with pytest.raises(
         TypeError,
-        match=r"^sf\.Gate when= takes a condition such as sf\.agreement\(\) >= 0\.7 or "
-        r"sf\.signal\('x'\)\.mean\(\) <= 3\.0$",
+        # E4c (gate #14): the message names an input condition and a budget condition too.
+        match=r"^sf\.Gate when= takes a condition such as sf\.agreement\(\) >= 0\.7, "
+        r"sf\.label\(sel\) == 'x' or sf\.budget\.remaining\(\) >= 0\.02$",
     ):
         sf.Gate(when=sf.agreement(), then=sf.Vote())  # type: ignore[arg-type]
 
 
+# E4c (gate #8, owner-approved edit): GA-6 is gone; a gated vote may read an extractor (P2).
 @pytest.mark.parametrize(
     "over", ["field:answer", sf.Extract("regex", pattern="A: (.*)")], ids=["field", "extract"]
 )
-def test_ga6_a_gated_vote_reads_a_rule_name(over: object) -> None:
-    with pytest.raises(ValueError, match=r"^a gated vote reads a rule name in over= until E4c$"):
-        sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(over=over))  # type: ignore[arg-type]
+def test_gated_vote_takes_an_extractor(over: object) -> None:
+    gate = sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(over=over))  # type: ignore[arg-type]
+    block = sf.Fanout(_PANEL) >> gate
+    assert block.steps[-1] is gate
 
 
 # ---------------------------------------------------------------- the block rules
@@ -429,9 +450,10 @@ def test_ch10_a_judge_pick_fallback_does_not_read_the_judge() -> None:
         _ = sf.Fanout(_PANEL) >> sf.Judge("prov/scorer", rubric="r") >> gate
 
 
-def test_the_docstring_says_the_fallback_runs_on_every_case() -> None:
+# E4c (gate #28, owner-approved edit): the not-taken branch makes no call; no "E4c" future work.
+def test_the_docstring_says_the_branch_not_taken_makes_no_call() -> None:
     doc = inspect.getdoc(sf.Gate)
 
     assert doc is not None
-    assert "every Case" in doc
-    assert "E4c" in doc
+    assert "makes no model call" in doc
+    assert "E4c" not in doc

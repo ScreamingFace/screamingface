@@ -46,12 +46,15 @@ _FIXTURES = {
     "g4_confidence_gate": "gate_verbalized_vote_candidate.url4",
 }
 # Verbatim sentences of PRD docs §2.1 (the cost sentence; the failure sentence of contracts C2).
+# E4c (OME-1291, docs #5-#7, owner-approved edit): the fallback runs only when the gate takes it.
 _COST = (
-    "In this version the fallback call runs on every Case, also when the gate keeps the majority,"
-    " and you pay for it. The gate chooses and records; a cascade that skips the call comes with"
-    " E4c."
+    "The fallback call runs only on the Cases where the gate takes it. When the gate keeps the"
+    " majority, the fallback makes no call and costs nothing."
 )
-_FAILURE = "If the fallback call fails, the Case fails, also when the gate keeps the majority."
+_FAILURE = (
+    "If the fallback call fails, the Case fails, only on the Cases where the gate takes the"
+    " fallback."
+)
 _VERIFIER = (
     "`sf.Vote(verify=None)` is a reserved place for a later verifier; any other value raises"
     " `ValueError`."

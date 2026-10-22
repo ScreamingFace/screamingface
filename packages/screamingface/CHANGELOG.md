@@ -4,6 +4,10 @@
 
 ### Breaking changes
 
+* **screamingface:** `sf.Gate` is the one branch construct (E4c, `OME-1291`). `then=` and `otherwise=` each take a reducer step (after a `sf.Fanout`), a recipe (a route, a `sf.Model`, a chain or another `sf.Gate`), `"abstain"` or `"fail_closed"`. The E4b limits are gone: `then=` is not only `sf.Vote()`, and a gated vote can read `over=sf.Extract(...)`. A Gate whose condition reads a label of the input (`sf.label(sel) == "x"`) is a recipe, and nested Gates give an N-way choice. See the README section "Choose whether a model runs".
+
+* **screamingface:** the E4b gate fallback runs only on the Cases where the gate takes it (E4c, `OME-1291`). An `sf.JudgePick` or `sf.Synthesize` in `otherwise=` makes no call when the gate keeps the majority or the number is in the abstain band, and its failure fails only the Cases that take it. The cost of a gated recipe goes down, and its operation list changes: the fallback operation is not in the Cases that did not run it. A url4 that an E4b SDK compiled runs as before, with the fallback on every Case.
+
 * **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
   opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to
   store the run's answers so the score can be reproduced. A run without `capture=True` has no
@@ -120,6 +124,20 @@
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** route a question before any model answers (E4c, `OME-1291`). `sf.Keywords([(label, pattern), ...])` gives the label of the first RE2 pattern that matches, with no model call; `sf.LabelModel(model, labels=[...])` asks one model for a declared label. `sf.Gate(when=sf.label(sel) == "x", then=..., otherwise=...)` runs one branch, and the branch that is not selected makes zero model calls. A reply that is not a declared label, or a failed label call, takes `otherwise=`. `multi=True` gives a set of labels that `sf.labels(sel).has("x")` and `.empty()` read. See the README section "Choose whether a model runs".
+
+* **screamingface:** add `sf.Cascade(stages, escalate_if=..., otherwise=None)` (E4c, `OME-1291`). The first stage answers; the next stage answers the original question only when `escalate_if` holds (`sf.agreement() < 0.8`, `sf.signal("lp").chosen() < 0.7`), or when the stage fails or abstains. Only the failure of the last stage fails the Case. With no `escalate_if=`, the next stage runs only when a stage fails or abstains (first success). `otherwise="abstain"` or `"fail_closed"` gates the last stage too. `sf.Cascade` returns nested `sf.Gate` values, so `repr`, `==` and the url4 show the Gate form. `sf.CascadeSeedWarning` warns when two stages ask for the same samples; give the later stage new `seeds=`.
+
+* **screamingface:** skip a `sf.Fanout` member with a Gate (E4c, `OME-1291`). A member `sf.Gate(when=sf.labels(sel).has("x"), then=agent)` with no `otherwise=` runs only when its condition holds; a skipped member makes no call, and a numeric `quorum=` counts only the members that were selected. A writer after such a block gets the answers of the members that ran, with their names.
+
+* **screamingface:** guard a recipe and fail closed (E4c, `OME-1291`). `then="fail_closed"` fails the Case with the code `fail_closed` when a guard label holds; no model runs after the Gate. A guard reads a label (`sf.Keywords` or `sf.LabelModel`), never Python code.
+
+* **screamingface:** cap the spend of each Case (E4c, `OME-1291`). `sf.Budget(recipe, usd=..., tokens=...)` wraps the whole candidate one time, at the root, and the SDK writes the cap one time, on the candidate. Before each call that a Gate can skip, the Engine adds the spend so far and the branch's `sf.Estimate(branch, usd=...)`; a branch that would pass the cap is not sent. `sf.Gate(when=sf.budget.remaining() >= 0.02, ...)` reads what the cap has left. A call with an unknown cost counts as $0 against a USD cap, and the report warns.
+
+* **screamingface:** show each Gate in the report (E4c, `OME-1291`). The Case pane has a "Branches" section for every Gate that ran: the condition, the label or number it read, the branch it took, and each branch that did not run, with its reason (`not_selected` or `budget_refused`). Each Candidate card has a summary of the branches over the Cases, and `report.export()` adds the decision record of each Gate.
+
+* **screamingface:** new outcome words for a branch (E4c, `OME-1291`). The failure code `fail_closed` marks a Case that a guard stopped, and `quorum_not_met` marks a block with skip-Gate members where fewer selected members answered than its `quorum=`. The abstain reason `budget_refused` marks a Case whose Budget refused the branch and no branch that makes no call could answer. The SDK release that knows these words ships before the Engine that writes them (`OME-1233`). **Requires an SF Engine with the E4c branch calls.**
 
 * **screamingface:** show the combine steps in the report (E4b part 4). The Case pane has a Combine section for every reducer step, with the step facts and one row per member (status and reason, value, weight, score, rank, each signal, chosen). Each Candidate card has a summary per reducer step: how often each member was chosen and excluded, and the mean of each declared signal with its count. Numbers show 4 significant digits, the exact value on hover, and a missing value is an em dash with its reason. `report.export()` adds a `trace` key to each Case with a combine step (the `report.trace_dict()` entries); the schema stays `report.v1`. No new Python API. No Engine change.
 

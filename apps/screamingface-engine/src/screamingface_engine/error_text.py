@@ -82,6 +82,12 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # benchmarks/failure_classes.py::logprobs_unsupported (E4b part 3) — a member call refused
         # for its logprobs. One fixed message, nothing interpolated, never the upstream text.
         "logprobs_unsupported",
+        # world/branch.py JOIN via benchmarks/failure_classes.py::fail_closed (E4c) — a guard took
+        # the sf.Gate word "fail_closed". One fixed message plus the gate id, never input text.
+        "fail_closed",
+        # combine/endpoint.py::_check_floor via combine/ports.py::QuorumNotMet (E4c skip members) —
+        # member counts only, never a member text.
+        "quorum_not_met",
     }
 )
 

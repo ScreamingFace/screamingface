@@ -23,11 +23,17 @@ _SOURCE_NAME = "_sf_recipe"
 # (model_N, synthesis_N, judge_N, writer_N).
 _BINDING = TOPOLOGY_BINDING
 type _TopologyKind = Literal[
-    "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer"
+    "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "reducer", "gate"
 ]
 # `sample`: one consistency sample call of a member (E4b part 7). It is never a Recipe node;
 # it is only in a reducer node's `samples`.
-type _OperationRole = Literal["model", "synthesis", "judge", "writer", "sample"]
+# `gate`: a Gate's JOIN (E4c), the operation that carries the gate-decision record; `selector`: a
+# LabelModel call (E4c). Neither is ever a Recipe node of its own.
+type _OperationRole = Literal["model", "synthesis", "judge", "writer", "sample", "gate", "selector"]
+# A Gate branch that is not a recipe (E4c, gate-spec.v1): the panel's own reducer, or a word.
+type _BranchWord = Literal["step", "abstain", "fail_closed", "skip"]
+_BRANCH_WORDS: tuple[str, ...] = ("step", "abstain", "fail_closed", "skip")
+_GATE_BLOCK = re.compile(r"gate_(\d+)_block")
 # The roles of the model calls a reducer reads (its signals); each is also an _OperationRole.
 type _SignalRole = Literal["judge", "writer"]
 _SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
@@ -85,6 +91,21 @@ class _RecipeTopology:
     signals: tuple[_SignalTopology, ...] = ()
     # The consistency sample calls a reducer node reads, one entry per member (E4b part 7).
     samples: tuple[_SampleTopology, ...] = ()
+    # E4c Gate (kind "gate"): the decision block of a panel gate, each branch (a recipe node or a
+    # word), and the LabelModel calls of the Gate tree (listed on the tree's outermost Gate).
+    panel: _RecipeTopology | None = None
+    then_branch: _RecipeTopology | _BranchWord | None = None
+    otherwise_branch: _RecipeTopology | _BranchWord | None = None
+    selectors: tuple[_RecipeTopology, ...] = ()
+
+    @property
+    def join_binding(self) -> str:
+        """A Gate's JOIN binding ``gate_N`` (the block binding is ``gate_N_block``)."""
+
+        block = _GATE_BLOCK.fullmatch(self.binding)
+        if self.kind != "gate" or block is None:
+            raise ValueError("only a gate node has a JOIN binding")
+        return f"gate_{block.group(1)}"
 
 
 def _writer_key(field: str) -> str:
@@ -122,8 +143,9 @@ def _operation_shape(node: _RecipeTopology, signal: str | None = None) -> tuple[
         shape = ("judge", "fallback judge" if signal == _FALLBACK_JUDGE_KEY else "judge")
     elif node.role == "synthesis":
         shape = ("synthesis", "synthesis")
-    elif node.role == "sample":
-        shape = ("sample", "sample")
+    elif node.role in ("sample", "gate", "selector"):
+        # E4b part 7 sample calls; E4c Gate JOINs and LabelModel selector calls.
+        shape = (node.role, node.role)
     else:
         shape = ("model", "answer")
     return shape
@@ -192,6 +214,8 @@ class _TopologyWalker:
             self._visit(node.members[0], context, operations)
         elif node.kind == "corrective_loop":
             self._corrective(node, context, operations)
+        elif node.kind == "gate":
+            self._gate(node, context, operations)
         else:
             self._fusion(node, context, operations)
 
@@ -216,8 +240,32 @@ class _TopologyWalker:
         stage_context, stage_operations = context, operations
         for stage in node.stages:
             self._visit(stage, stage_context, stage_operations)
-            stage_context = (stage.binding,)
-            stage_operations = (stage.binding,)
+            # E4c: a Gate stage's result is its JOIN (the block is not a call).
+            stage_context = (_result_binding(stage),)
+            stage_operations = (_result_binding(stage),)
+
+    def _gate(
+        self,
+        node: _RecipeTopology,
+        context: tuple[str, ...],
+        operations: tuple[str, ...],
+    ) -> None:
+        """A Gate (E4c): its selector calls read only the Case input; the panel and both bodies
+        read the Gate's input; the JOIN reads no binding (its context names only Gate helpers)
+        and depends on the decision call and each recipe body's result."""
+
+        for selector in node.selectors:
+            self._model(selector, (), ())
+        results: list[str] = []
+        if node.panel is not None:
+            self._visit(node.panel, context, operations)
+            results.append(node.panel.binding)
+        for branch in (node.then_branch, node.otherwise_branch):
+            if isinstance(branch, _RecipeTopology):
+                self._visit(branch, context, operations)
+                results.append(_result_binding(branch))
+        join = _RecipeTopology(kind="model", name=node.name, binding=node.join_binding, role="gate")
+        self._model(join, (), (*operations, *dict.fromkeys(results)))
 
     def _corrective(
         self,
@@ -248,7 +296,7 @@ class _TopologyWalker:
         context: tuple[str, ...],
         operations: tuple[str, ...],
     ) -> None:
-        member_bindings = tuple(member.binding for member in members)
+        member_bindings = tuple(_result_binding(member) for member in members)
         fusion_context = tuple(dict.fromkeys((*context, *member_bindings)))
         # A sample call repeats its member's call, so it reads what a member reads (the Fusion's
         # context and operations). WHY before the signals: the compile adds the sample calls before
@@ -285,6 +333,12 @@ class _TopologyWalker:
         projection = signal.projection.binding
         self._model(signal.projection, context, members, signal.key)
         self._model(signal.source, (projection,), (projection,), signal.key)
+
+
+def _result_binding(node: _RecipeTopology) -> str:
+    """The operation binding a node's result names: a Gate block names its JOIN."""
+
+    return node.join_binding if node.kind == "gate" else node.binding
 
 
 def _topology_source(value: _RecipeTopology) -> Node:
@@ -415,6 +469,32 @@ def _encode_signal(signal: _SignalTopology) -> dict[str, object]:
     return encoded
 
 
+def _encode_gate(value: _RecipeTopology) -> dict[str, object]:
+    encoded: dict[str, object] = {
+        "binding": value.binding,
+        "kind": value.kind,
+        "name": value.name,
+        "otherwise": _encode_branch(value.otherwise_branch),
+        "then": _encode_branch(value.then_branch),
+    }
+    if value.panel is not None:
+        encoded["panel"] = _encode_node(value.panel)
+    if value.selectors:
+        encoded["selectors"] = [
+            {"binding": node.binding, "kind": node.kind, "name": node.name, "role": node.role}
+            for node in value.selectors
+        ]
+    return encoded
+
+
+def _encode_branch(value: _RecipeTopology | str | None) -> object:
+    if isinstance(value, _RecipeTopology):
+        return _encode_node(value)
+    if value is None:
+        raise AssertionError("a gate node has both branches")
+    return value
+
+
 _ENCODERS: dict[str, Callable[[_RecipeTopology], dict[str, object]]] = {
     "model": _encode_model,
     "reducer": _encode_reducer,
@@ -422,6 +502,7 @@ _ENCODERS: dict[str, Callable[[_RecipeTopology], dict[str, object]]] = {
     "fusion": _encode_fusion,
     "corrective_loop": _encode_corrective_loop,
     "self_corrective": _encode_self_corrective,
+    "gate": _encode_gate,
 }
 
 
@@ -441,6 +522,7 @@ def _decode_node(value: object) -> _RecipeTopology:
         "fusion": _decode_fusion,
         "corrective_loop": _decode_corrective_loop,
         "self_corrective": _decode_self_corrective,
+        "gate": _decode_gate,
     }.get(kind if isinstance(kind, str) else "")
     if decoder is None:
         raise ValueError("URL4 Candidate has invalid Recipe topology metadata")
@@ -727,6 +809,68 @@ def _decode_self_corrective(
         check_route=_check_route(value["check_route"]),
         protocol=_text(value["protocol"]),
     )
+
+
+_GATE_INVALID = "URL4 Candidate has invalid Gate topology metadata"
+
+
+def _decode_gate(value: dict[object, object], name: str, binding: str) -> _RecipeTopology:
+    """A Gate node (E4c): both branches, an optional panel block, optional selector calls."""
+
+    required = {"binding", "kind", "name", "otherwise", "then"}
+    if not required <= set(value) <= required | {"panel", "selectors"}:
+        raise ValueError(_GATE_INVALID)
+    if _GATE_BLOCK.fullmatch(binding) is None:
+        raise ValueError(_GATE_INVALID)
+    panel = None
+    if "panel" in value:
+        panel = _decode_node(value["panel"])
+        if panel.kind != "fusion":
+            raise ValueError(_GATE_INVALID)
+    then = _decode_branch(value["then"])
+    otherwise = _decode_branch(value["otherwise"])
+    if then == "skip" or (panel is None and "step" in (then, otherwise)):
+        raise ValueError(_GATE_INVALID)
+    return _RecipeTopology(
+        kind="gate",
+        name=name,
+        binding=binding,
+        panel=panel,
+        then_branch=then,
+        otherwise_branch=otherwise,
+        selectors=_decode_selectors(value.get("selectors", [])),
+    )
+
+
+def _decode_branch(value: object) -> _RecipeTopology | _BranchWord:
+    if isinstance(value, str):
+        if value not in _BRANCH_WORDS:
+            raise ValueError(_GATE_INVALID)
+        return cast(_BranchWord, value)
+    return _decode_node(value)
+
+
+def _decode_selectors(value: object) -> tuple[_RecipeTopology, ...]:
+    if not isinstance(value, list):
+        raise ValueError(_GATE_INVALID)
+    nodes: list[_RecipeTopology] = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"binding", "kind", "name", "role"}:
+            raise ValueError(_GATE_INVALID)
+        binding = item["binding"]
+        if (
+            item["kind"] != "model"
+            or item["role"] != "selector"
+            or not isinstance(binding, str)
+            or re.fullmatch(r"selector_\d+", binding) is None
+        ):
+            raise ValueError(_GATE_INVALID)
+        nodes.append(
+            _RecipeTopology(
+                kind="model", name=_text(item["name"]), binding=binding, role="selector"
+            )
+        )
+    return tuple(nodes)
 
 
 def _max_rounds(value: object) -> int:

@@ -425,6 +425,17 @@ def _members(values: object, kind: str = "Fanout") -> tuple[Recipe, ...]:
     if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
         raise TypeError(f"sf.{kind} members must be an ordered sequence of model routes or Recipes")
     selected = tuple(_recipe(value, f"sf.{kind} member", allow_optional=True) for value in values)
+    # WHY lazy: the surface Gate builds on this module's recipes.
+    from screamingface._surface.gate import Gate
+
+    for position, member in enumerate(selected, start=1):
+        if isinstance(member, Gate) and not member._is_skip_member():
+            # GT-15 (ans:Q10), SM-8, GU-17: a Gate is a recipe stage or a branch; the one Fanout
+            # member Gate is a skip-Gate (ans:Q16).
+            raise ValueError(
+                f"sf.{kind} member {position}: a sf.Fanout member may be a sf.Gate only without "
+                "otherwise= and with a recipe in then="
+            )
     if not selected:
         raise ValueError(f"a sf.{kind} requires at least one member")
     return selected

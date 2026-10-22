@@ -2,7 +2,7 @@
 
 **Status:** draft, written from the owner interview of 2026-10-22 (Q1–Q26); review round 1
 (Opus, ESCALATE: 1 blocker, 10 major), review round 2 (Opus, ESCALATE: 2 blockers, 5 major) and
-review round 3 (targeted Opus, ESCALATE: 1 blocker, 4 major) fixed. Waiting for owner review. **Epic:** E4c (OME-1291). **Leaves:** filed at PR-open.
+review round 3 (targeted Opus, ESCALATE: 1 blocker, 4 major) fixed. Owner approved P1–P32 as written on 2026-10-22; build of all three PRs started. **Epic:** E4c (OME-1291). **Leaves:** filed at PR-open.
 **Base:** branch `e4c-routers-cascades`, worktree `.claude/worktrees/e4c-routers-cascades`, on ref
 `e4b-integrated` (`031780873` = origin/main `bdf5746a4` + the E4b stack #1409, #1460, #1461
 merged). When E4b lands on main: `git rebase --onto origin/main e4b-integrated`.
@@ -84,7 +84,7 @@ sample panels, no reuse; incremental top-up stays a follow-up. OME-1470 → out 
 | SDK surface (`S/_surface/`) | `sf.Gate`, `sf.Cascade`, selectors, `sf.Budget`, `sf.Estimate` | gate, cascade, selectors, skip-members, budget |
 | SDK compiler (`S/_evaluation/`) | the gated url4 shape, rebuild | branch-core, gate, lazy-fallback |
 | SDK report (`S/_ui/`, `S/report.py`) | decode, Branches section, run summary, export | report |
-| Docs | README section, recipes, notebook 19, CHANGELOG | docs |
+| Docs | README section, recipes, notebook 20, CHANGELOG | docs |
 
 ## 4. Doc index and reading order
 
@@ -132,8 +132,8 @@ Plan: [docs/plan/2026-10-22-e4c-routers-cascades.md](../../plan/2026-10-22-e4c-r
 
 ## 6. Decisions made while writing the spec (owner review)
 
-These are `[proposed]` in the PRDs. Each changes behavior a reader would notice; the owner
-confirms or changes them before code. P15–P21 were made explicit after review round 1.
+These are `[proposed]` in the PRDs. Each changes behavior a reader would notice. The owner
+approved all of them as written on 2026-10-22. P15–P21 were made explicit after review round 1.
 
 | # | Decision | PRD |
 |---|---|---|
@@ -175,7 +175,8 @@ confirms or changes them before code. P15–P21 were made explicit after review 
 - **url4 owner (Kevin):** (a) heads-up that E4c emits gated `iterate` shapes and typed budget
   annotations, with no grammar change; (b) Part E §24 (budget scoping, `budget_mode`) is not in the
   repo: does `;budget_mode=advisory` plus "never send an optional call that would pass the cap"
-  conform? Default until answered: as specified in [budget](prd/budget.md).
+  conform? Default until answered: as specified in [budget](prd/budget.md). The owner chose to build
+  with this default (2026-10-22).
 
 ## 8. Global assumptions
 
@@ -189,7 +190,7 @@ confirms or changes them before code. P15–P21 were made explicit after review 
 |---|---|
 | PR-1 branch core | branch-core (incl. attribution), selectors, gate, lazy-fallback, cascade, the `fail_closed` vocabulary, report (decode, Gate sections, summary), CHANGELOG |
 | PR-2 selection | guards, skip-members, report (skip lines), CHANGELOG |
-| PR-3 budget and docs | budget (with the budget rows of guards and skip-members), report (budget lines), docs (README section, recipes, notebook 19), CHANGELOG |
+| PR-3 budget and docs | budget (with the budget rows of guards and skip-members), report (budget lines), docs (README section, recipes, notebook 20), CHANGELOG |
 
 Input gates need a selector to read, so the selectors are in PR-1; the `fail_closed` code is in
 PR-1 because the Gate word exists from PR-1 (plan §1).

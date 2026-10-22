@@ -16,7 +16,9 @@ from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
 
-type CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+type CandidateKind = Literal[
+    "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "gate"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +395,7 @@ _CANDIDATE_KINDS: dict[str, CandidateKind] = {
     "pipeline": "pipeline",
     "corrective_loop": "corrective_loop",
     "self_corrective": "self_corrective",
+    "gate": "gate",
 }
 
 
@@ -401,7 +404,7 @@ def _candidate_kind(value: object) -> CandidateKind:
         return _CANDIDATE_KINDS[value]
     raise ValueError(
         "Candidate kind must be 'model', 'fusion', 'pipeline', 'corrective_loop', "
-        "or 'self_corrective'"
+        "'self_corrective' or 'gate'"
     )
 
 

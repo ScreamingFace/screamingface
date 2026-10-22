@@ -35,6 +35,7 @@ from pydantic import (
     model_validator,
 )
 
+from screamingface_engine.combine.decision import GateDecision
 from screamingface_engine.combine.ports import (
     GATE_OBSERVE,
     MAX_DECLARED_SIGNALS,
@@ -62,7 +63,9 @@ FALLBACK_WRITER = "fallback_writer"
 # WHY "writer_" and not "writer.": the SDK builds the context with url4 struct, whose keys are
 # [A-Za-z0-9_]+ only, so a dotted signal key cannot be written (OME-1289 unit 8-10 spec, P1).
 _SIGNAL = re.compile(r"judge|fallback_judge|fallback_writer|writer_[A-Za-z_][A-Za-z0-9_]*")
-_CONTEXT_KEYS = frozenset({"input", "outputs", "panel", "samples", "signals", "sources"})
+_CONTEXT_KEYS = frozenset(
+    {"input", "outputs", "panel", "samples", "signals", "sources", "selection", "floor"}
+)
 _PANEL_ROW_KEYS = frozenset({"source_position", "source_name", "result"})
 _CALL_KEY = re.compile(r"[A-Za-z0-9_]+")
 _MAX_ERRORS_SHOWN = 5
@@ -435,6 +438,23 @@ def _check_sum(entry: SumSource, signals: Mapping[str, DeclaredSource]) -> None:
             raise ValueError("a sum coefficient is not zero")  # 0.0 == -0.0, so both fail
 
 
+# E4c: the reducers a gate may sit on (they answer), and those that choose one member.
+_GATED_REDUCERS = frozenset({"vote", "median", "mean", "judge", "pick", "merge"})
+_CHOOSING_REDUCERS = frozenset({"vote", "judge", "pick"})
+
+
+def _check_gate_reducer(reducer: str, observe: str) -> None:
+    """E4c (OME-1291, gate GT-6, P3): a gate sits on any reducer that answers; an agreement reads
+    a vote's tally, and chosen:<name> reads the one member the reducer chose."""
+
+    if reducer not in _GATED_REDUCERS:
+        raise ValueError("a gate needs a reducer that answers")
+    if observe == "agreement" and reducer != "vote":
+        raise ValueError("an agreement gate needs a vote")
+    if observe.startswith("chosen:") and reducer not in _CHOOSING_REDUCERS:
+        raise ValueError("a chosen:<name> gate needs a reducer that chooses one member")
+
+
 def _check_gate(spec: CombineSpec) -> None:
     if "gate" not in spec.model_fields_set:
         return
@@ -442,10 +462,9 @@ def _check_gate(spec: CombineSpec) -> None:
     # WHY an explicit null is refused although the schema types it: as for ``signals``.
     if gate is None:
         raise ValueError("gate must be an object when present")
-    if spec.reducer != "vote":
-        raise ValueError("only a vote takes a gate")
     if GATE_OBSERVE.fullmatch(gate.observe) is None:
         raise ValueError("gate observe must be agreement, chosen:<name> or mean:<name>")
+    _check_gate_reducer(spec.reducer, gate.observe)
     if gate.observe == "agreement":
         _check_agreement_gate(gate)
     elif gate.observe.partition(":")[2] not in (spec.signals or {}):
@@ -592,6 +611,10 @@ class CombineContext:
     signals: Mapping[str, str]
     sources: MemberSources | None = None
     samples: Mapping[str, tuple[str, ...]] | None = None
+    # E4c skip members (C11): the members a skip-Gate did not select (never voters, never read),
+    # and the numeric quorum the selected members must meet (None: the url4 panel checked it).
+    skipped: frozenset[str] = frozenset()
+    floor: int | None = None
 
 
 def canonical_params(pairs: Iterable[tuple[str, str]]) -> str:
@@ -645,9 +668,56 @@ def parse_context(
             "combine context samples are present exactly when the spec declares consistency"
         )
     samples = None if samples_n is None else _parse_samples(decoded["samples"], members, samples_n)
+    skipped = _parse_selection(decoded.get("selection"), members)
+    floor = _parse_floor(decoded)
+    kept = {member: text for member, text in outputs.items() if member not in skipped}
     return CombineContext(
-        question, MappingProxyType(outputs), MappingProxyType(signals), sources, samples
+        question,
+        MappingProxyType(kept),
+        MappingProxyType(signals),
+        sources,
+        samples,
+        skipped=skipped,
+        floor=floor,
     )
+
+
+def _parse_selection(value: object, members: Sequence[str]) -> frozenset[str]:
+    """E4c skip members (C11): ``{member: <its Gate's DECIDE record>}``; the members not selected.
+
+    A member is selected when its Gate's decision took ``then``. WHY the record and not a word:
+    the combine call reads the decision the report shows, so the two can never disagree.
+    """
+    if value is None:
+        return frozenset()
+    records = _text_map(value)
+    if not records or not set(records) <= set(members):
+        raise SpecInvalid("combine context selection names the spec members")
+    skipped: set[str] = set()
+    for member, text in records.items():
+        try:
+            record = GateDecision.model_validate_json(text)
+        except ValidationError as exc:
+            raise SpecInvalid("combine context selection holds gate decision records") from exc
+        if record.branch != "then":
+            skipped.add(member)
+    return frozenset(skipped)
+
+
+def _parse_floor(decoded: Mapping[str, object]) -> int | None:
+    if "floor" not in decoded:
+        return None
+    value = decoded["floor"]
+    if isinstance(value, str) and value.isdigit():
+        value = int(value)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or "selection" not in decoded
+    ):
+        raise SpecInvalid("combine context floor is a member count beside a selection")
+    return value
 
 
 def _parse_samples(

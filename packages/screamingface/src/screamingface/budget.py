@@ -1,9 +1,9 @@
 """screamingface.budget.v1: the method-owner Budget records, SDK side (OME-1289, erd s11).
 
-FEATURE/STORY: the four records an E4c call layer writes and a compare reads (``Budget`` declared on
+FEATURE/STORY: the four records the E4c call layer writes and a Gate reads (``Budget`` declared on
 a request, one ``BudgetCharge`` per sent call, one ``BudgetRefusal`` per call not sent, and the
 ``BudgetState`` that holds them). They mirror ``screamingface_engine.budget``: the same fields,
-field order and rules. There is no charge rule here: the E4c call layer is the producer, and
+field order and rules. There is no charge rule here: the Engine call layer is the producer, and
 ``budget_cases.json`` (an Engine contract fixture) binds the two mirrors.
 INVARIANT: a ``BudgetState`` equals the fold of its own charges (``remaining = max(cap - spent,
 0)``; ``None`` is unpriced, never zero), so a decoded ledger cannot disagree with itself.
@@ -16,13 +16,13 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from screamingface._report_primitives import _optional_number, _required_number
 
 type BudgetUnit = Literal["usd", "tokens"]
 type ChargeSource = Literal["live", "cache_reference", "unpriced"]
-type BudgetStage = Literal["model", "synthesis", "judge", "writer"]
+type BudgetStage = Literal["model", "synthesis", "judge", "writer", "selector"]
 
 BUDGET_SCHEMA = "screamingface.budget.v1"
 
@@ -153,7 +153,7 @@ _REFUSAL_KEYS = ("operation_id", "member_id", "stage", "estimated", "reason")
 
 @dataclass(frozen=True, slots=True)
 class BudgetRefusal:
-    """One call that was not sent because it would exceed the cap (written by E4c)."""
+    """One call that was not sent because it would exceed the cap (the Engine writes it)."""
 
     operation_id: str
     member_id: str | None
@@ -260,4 +260,15 @@ class BudgetState:
         return cls(**_fields(value, _STATE_KEYS, "BudgetState"))  # type: ignore[arg-type]
 
 
-__all__ = ["BUDGET_SCHEMA", "Budget", "BudgetCharge", "BudgetRefusal", "BudgetState"]
+def remaining(unit: Literal["usd", "tokens"] | None = None) -> Any:
+    """``sf.budget.remaining()``: what the candidate's ``sf.Budget`` has left after the calls that
+    already ran, as a number a ``sf.Gate`` condition compares (E4c, BU-6). Name the unit when the
+    Budget declares both: ``sf.budget.remaining("usd")``."""
+
+    # WHY lazy: the surface builds on the recipe machinery; this module is a leaf of the report.
+    from screamingface._surface.budget import budget as refs
+
+    return refs.remaining(unit)
+
+
+__all__ = ["BUDGET_SCHEMA", "Budget", "BudgetCharge", "BudgetRefusal", "BudgetState", "remaining"]

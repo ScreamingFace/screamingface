@@ -5,6 +5,11 @@ class EvaluationWarning(UserWarning):
     """An Evaluation planning or result condition needs the caller's attention."""
 
 
+class CascadeSeedWarning(EvaluationWarning):
+    """A sf.Cascade stage repeats the sample seeds of an earlier stage, so it may reuse cached
+    answers instead of fresh samples (E4c, CA-23)."""
+
+
 class DuplicateMembersWarning(EvaluationWarning):
     """Two members of a sf.Fanout send the same request, so they may be one cached answer."""
 
@@ -19,6 +24,7 @@ class JudgeWriterWarning(EvaluationWarning):
 
 
 __all__ = [
+    "CascadeSeedWarning",
     "DuplicateMembersWarning",
     "EvaluationWarning",
     "FixedSeedSittingWarning",

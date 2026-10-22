@@ -1,5 +1,6 @@
 {
   "abstain_reason": [
+    "budget_refused",
     "cut_not_met",
     "gate_not_met",
     "in_band",
@@ -21,6 +22,7 @@
     "fail"
   ],
   "reason": [
+    "budget_refused",
     "cut_not_met",
     "empty",
     "field_missing",

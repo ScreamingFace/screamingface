@@ -123,6 +123,13 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # and that the gateway refused for its parameters (HTTP 404 `unsupported_parameters`).
         # Engine-authored fixed text, permanent (no retry without logprobs).
         "logprobs_unsupported",
+        # WHY declared (E4c, OME-1291): a guard took the sf.Gate word "fail_closed": the Case is
+        # an error, never a scored decline (abstain). Engine-authored fixed text naming only the
+        # gate id, permanent (the same Case takes the same guard again).
+        "fail_closed",
+        # WHY declared (E4c, OME-1291, skip members SM-11): fewer selected skip-Gate members
+        # answered than a numeric quorum asks. Engine-authored counts only, permanent.
+        "quorum_not_met",
     }
 )
 # WHY a pattern beside the set: the engine's connector mints one code per HTTP status

@@ -19,7 +19,10 @@ from screamingface._report_primitives import CaseId
 from screamingface._scoreboard.leaderboards import _client_info
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from screamingface._scoreboard.replay_reads import PublishedScore
+    from screamingface.case_result import CaseOperation
     from screamingface.client import AsyncClient, Client
     from screamingface.report import CandidateResult
 
@@ -85,6 +88,40 @@ def _classify(
         reason,
         missed if reason == "frozen_copy_miss" else (),
     )
+
+
+def budget_view_differences(
+    captured: CandidateResult, replayed: CandidateResult
+) -> dict[CaseId, frozenset[str]]:
+    """The Gates whose replayed budget view differs from the captured run, per Case (BU-27).
+
+    FEATURE: E4c (OME-1291, ans:Q21). A replay never reuses a captured view: DECIDE recomputes it
+    (a call that was priced live can come back unpriced). Only a Gate the captured Case holds a
+    record for is compared; a Case or a Gate missing from the captured report is not a difference.
+    """
+
+    before = {case.case_id: _budget_views(case.operations) for case in captured.cases}
+    differs: dict[CaseId, frozenset[str]] = {}
+    for case in replayed.cases:
+        held = before.get(case.case_id)
+        if held is None:
+            continue
+        changed = frozenset(
+            gate
+            for gate, view in _budget_views(case.operations).items()
+            if gate in held and held[gate] != view
+        )
+        if changed:
+            differs[case.case_id] = changed
+    return differs
+
+
+def _budget_views(operations: Sequence[CaseOperation] | None) -> dict[str, object]:
+    return {
+        operation.decision.gate_id: operation.decision.to_dict()["budget"]
+        for operation in operations or ()
+        if operation.decision is not None
+    }
 
 
 def _record_sync(

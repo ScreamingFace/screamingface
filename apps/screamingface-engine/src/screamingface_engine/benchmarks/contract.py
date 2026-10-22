@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from screamingface_engine.combine.decision import GateDecision
 from screamingface_engine.combine.evidence import CombineEvidence
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
@@ -162,6 +163,13 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # and that the gateway refused for its parameters (HTTP 404 `unsupported_parameters`).
         # Engine-authored fixed text, permanent (no retry without logprobs).
         "logprobs_unsupported",
+        # WHY declared (E4c, OME-1291): a guard took the sf.Gate word "fail_closed": the Case is
+        # an error, never a scored decline (abstain). Engine-authored fixed text naming only the
+        # gate id, permanent (the same Case takes the same guard again).
+        "fail_closed",
+        # WHY declared (E4c, OME-1291, skip members SM-11): fewer selected skip-Gate members
+        # answered than a numeric quorum asks. Engine-authored counts only, permanent.
+        "quorum_not_met",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status
@@ -365,6 +373,10 @@ class OperationOutput(_StrictWireModel):
     set only on a combine operation the Engine attributed to ONE binding, and it is left out of
     the wire (not written as null) when absent, so an envelope with no reducer is byte-identical
     to the pre-E4a contract.
+
+    FEATURE: OME-1291 (E4c) ``decision`` is the ``gate-decision.v1`` record of one sf.Gate, set
+    only on that Gate's JOIN operation ``op_gate_<n>``. Left out of the wire when absent (the
+    ``combine`` rule), so an envelope with no Gate keeps its bytes.
     """
 
     operation_id: str = Field(min_length=1)
@@ -372,6 +384,7 @@ class OperationOutput(_StrictWireModel):
     finish_reason: str | None
     accounting: OperationAccounting | None
     combine: CombineEvidence | None = Field(default=None, exclude_if=lambda value: value is None)
+    decision: GateDecision | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("finish_reason")
     @classmethod

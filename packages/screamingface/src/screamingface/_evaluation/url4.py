@@ -37,8 +37,8 @@ from screamingface.errors import ExecutionError
 from screamingface.events import Event
 from screamingface.operation import OperationInfo
 from screamingface.report import Report
+from screamingface.url4 import _JOIN_MODEL, _combine_operator_pairs, _has_gate, _validate_topology
 from screamingface.url4 import _calls as _url4_calls
-from screamingface.url4 import _combine_operator_pairs, _validate_topology
 
 #: What a raw-URL4 or replay evaluation is called before it runs: in the progress output, and as
 #: its Run's benchmark, with 0 (unknown) Cases.
@@ -248,9 +248,12 @@ def _replayed_url4(value: str) -> _Replay:
     calls = {name: (call.model, call.dependencies) for name, call in parsed_calls.items()}
     final = _final_binding(candidate.intent.value, calls, topology)
     _validate_topology(candidate, topology, parsed_calls, final)
+    # WHY every binding for a Gate (E4c): the JOIN's context names only Gate helpers, so the
+    # dependency closure of the result cannot reach the branch bodies; every branch operation is
+    # part of the Candidate even when a Case does not run it.
     selected = (
         set(_topology_bindings(topology))
-        if topology.kind in {"corrective_loop", "self_corrective"}
+        if topology.kind in {"corrective_loop", "self_corrective"} or _has_gate(topology)
         else _dependency_closure(final, calls)
     )
     pinned = _combine_operator_pairs(parsed_calls)
@@ -346,8 +349,7 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
     def visit(node: _RecipeTopology) -> None:
         if node.kind in {"model", "reducer"}:
             return
-        children = node.stages if node.kind == "pipeline" else node.members
-        for child in children:
+        for child in _child_nodes(node):
             visit(child)
         if node.synthesizer is not None:
             visit(node.synthesizer)
@@ -362,6 +364,18 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
 
     visit(value)
     return selected
+
+
+def _child_nodes(node: _RecipeTopology) -> tuple[_RecipeTopology, ...]:
+    """The recipe children a Fusion name walk enters (E4c: a Gate's panel and recipe branches)."""
+
+    if node.kind == "gate":
+        return tuple(
+            child
+            for child in (node.panel, node.then_branch, node.otherwise_branch)
+            if isinstance(child, _RecipeTopology)
+        )
+    return node.stages if node.kind == "pipeline" else node.members
 
 
 def _candidate_text(root: object) -> str:
@@ -387,11 +401,15 @@ def _final_binding(
     calls: dict[str, tuple[str, tuple[str, ...]]],
     topology: _RecipeTopology,
 ) -> str:
-    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate)", intent)
+    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate|gate_\d+_block)", intent)
     if match is None:
         raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     selected = match.group(1)
-    if topology.kind in {"corrective_loop", "self_corrective"}:
+    if selected.startswith("gate_"):
+        # E4c: the result of a Gate block is its JOIN call, which must be a decoded call.
+        if selected.removesuffix("_block") not in calls:
+            raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
+    elif topology.kind in {"corrective_loop", "self_corrective"}:
         if selected != topology.binding:
             raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     elif selected not in calls:
@@ -422,11 +440,15 @@ def _models(
     name: str,
     calls: dict[str, tuple[str, tuple[str, ...]]],
 ) -> tuple[str, ...]:
-    selected = _dependency_closure(name, calls)
+    # E4c: a Gate block's models are every model the candidate may call (its branches' too);
+    # the dependency closure cannot see through the JOIN.
+    selected = set(calls) if name.startswith("gate_") else _dependency_closure(name, calls)
     # INVARIANT: the combine route is a join, never a model a Run needs available.
     return tuple(
         dict.fromkeys(
-            route for key, (route, _) in calls.items() if key in selected and route != COMBINE_MODEL
+            route
+            for key, (route, _) in calls.items()
+            if key in selected and route not in (COMBINE_MODEL, _JOIN_MODEL)
         )
     )
 

@@ -95,12 +95,16 @@ def _keyword(value: object, kind: type, name: str, text: str | None = None) -> l
     return [f"{name}={repr(value) if text is None else text}"]
 
 
-def code(value: Recipe, target: str, *, width: int = 100) -> str:
+def code(value: Recipe, target: str, *, width: int = 100) -> str:  # noqa: PLR0911
     """``<target> = <value>`` as Python with the ``sf.`` prefix: one line when it fits in
     ``width``, else a chain shows one stage per line (a step inside a stage stays on its line)."""
 
     line = f"{target} = {render(value, 'sf.')}"
-    if len(line) <= width or not isinstance(value, Pipeline):
+    if len(line) <= width:
+        return line
+    if isinstance(value, Gate):
+        return f"{target} = " + "\n".join(_gate_lines(value, "sf.", ""))
+    if not isinstance(value, Pipeline):
         return line
     stages = [_stage(step, "sf.") for step in value.steps]
     if not _explicit(value):
@@ -154,7 +158,7 @@ def _member(value: Recipe, prefix: str) -> str:
     return _stage(value, prefix)
 
 
-def _recipe(value: Recipe, prefix: str) -> str:
+def _recipe(value: Recipe, prefix: str) -> str:  # noqa: PLR0911
     if isinstance(value, CorrectiveLoop):
         arguments = [
             _members(value.members, prefix),
@@ -170,6 +174,9 @@ def _recipe(value: Recipe, prefix: str) -> str:
             *_name(value.name, _inferred_self_name(value.member)),
         ]
         return _call(prefix, "SelfCorrective", arguments)
+    rendered = getattr(value, "_render", None)
+    if rendered is not None:
+        return str(rendered(prefix))  # E4c sf.Budget: the wrapper and its recipe, prefixed
     # A Model, or an internal node in a chain (only built by hand): its own repr.
     return prefix + repr(value)
 
@@ -234,12 +241,63 @@ def _merge(step: Merge, prefix: str) -> list[str]:
 
 
 def _gate(step: Gate, prefix: str) -> list[str]:
-    arguments = [f"when={_leaf(step.when, prefix)}", f"then={render(step.then, prefix)}"]
-    if not isinstance(step.otherwise, str):
-        arguments.append(f"otherwise={render(step.otherwise, prefix)}")
+    then_estimate, otherwise_estimate = step.estimates
+    arguments = [
+        f"when={_leaf(step.when, prefix)}",
+        f"then={_with_estimate(_branch(step.then, prefix), then_estimate, prefix)}",
+    ]
+    # GT-9: otherwise= shows only when the author gave it (the sentinel None is left out).
+    if step.otherwise is not None:
+        text = _with_estimate(_branch(step.otherwise, prefix), otherwise_estimate, prefix)
+        arguments.append(f"otherwise={text}")
     if step.abstain_if is not None:
         arguments.append(f"abstain_if={_leaf(step.abstain_if, prefix)}")
     return arguments
+
+
+def _gate_lines(gate: Gate, prefix: str, indent: str) -> list[str]:
+    """A Gate as ``sf.Gate(`` plus one argument per line; a nested Gate in a branch opens one
+    level deeper (GT-9, GT-22: linear in the number of Gates)."""
+
+    inner = indent + "    "
+    lines = [f"{prefix}Gate("]
+    for name, value in (("when", gate.when), ("then", gate.then), ("otherwise", gate.otherwise)):
+        if value is None:
+            continue
+        if isinstance(value, Gate):
+            nested = _gate_lines(value, prefix, inner)
+            lines.append(f"{inner}{name}={nested[0]}")
+            lines.extend(nested[1:-1])
+            lines.append(f"{nested[-1]},")
+            continue
+        text = _leaf(value, prefix) if name == "when" else _branch(value, prefix)
+        if name != "when":
+            estimate = gate.estimates[0 if name == "then" else 1]
+            text = _with_estimate(text, estimate, prefix)
+        lines.append(f"{inner}{name}={text},")
+    if gate.abstain_if is not None:
+        lines.append(f"{inner}abstain_if={_leaf(gate.abstain_if, prefix)},")
+    lines.append(f"{indent})")
+    return lines
+
+
+def _with_estimate(text: str, estimate: Any, prefix: str) -> str:
+    """A Gate branch with its ``sf.Estimate`` (E4c budget BU-3) as the author wrote it."""
+
+    if estimate is None:
+        return text
+    caps = ", ".join(f"{unit}={value!r}" for unit, value in estimate._spec().items())
+    return f"{prefix}Estimate({text}, {caps})"
+
+
+def _branch(value: object, prefix: str) -> str:  # noqa: PLR0911
+    """A Gate branch as the author wrote it: a word, a route string, a recipe or a step."""
+
+    if isinstance(value, str):
+        return repr(value)
+    if isinstance(value, Recipe) and not isinstance(value, Step):
+        return _member(value, prefix)
+    return render(value, prefix)
 
 
 def _synthesize(step: Synthesize, prefix: str) -> list[str]:
@@ -272,6 +330,9 @@ def _leaf(value: object, prefix: str) -> str:
     starts with the name they are built by (``agreement()``, ``signal(...)``).
     """
 
+    rendered = getattr(value, "_render", None)
+    if rendered is not None and not isinstance(value, Step):
+        return str(rendered(prefix))
     if isinstance(value, FieldEquals):
         normalize = "" if value.normalize is None else f", normalize={value.normalize!r}"
         return f"{prefix}field({value.path!r}{normalize}) == {value.value!r}"

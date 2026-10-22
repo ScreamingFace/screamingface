@@ -342,6 +342,8 @@ ALLOWLISTED_CODES = (
     "frozen_copy_miss",
     "frozen_copy_unavailable",
     "logprobs_unsupported",
+    "fail_closed",
+    "quorum_not_met",
 )
 
 

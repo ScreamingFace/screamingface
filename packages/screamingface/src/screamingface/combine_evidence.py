@@ -483,6 +483,9 @@ class CombineEvidence:
     result: CombineResult
     dropped: int
     finish_reason: str
+    # E4c skip members (SM-2, SM-13): the members a skip-Gate did not select, in author order;
+    # written last, and only when not empty.
+    skipped: tuple[str, ...] | None
 
     def __init__(
         self,
@@ -511,6 +514,7 @@ class CombineEvidence:
         gate: CombineGate | None = None,
         consistency: Mapping[str, Sequence[CombineSampleCount]] | None = None,
         narrow: Sequence[CombineNarrow] | None = None,
+        skipped: Sequence[str] | None = None,
     ) -> None:
         _one_of(kind, REDUCER_KINDS, "Combine evidence kind")
         _one_of(reducer, REDUCER_NAMES, "Combine evidence reducer")
@@ -570,13 +574,20 @@ class CombineEvidence:
             ),
             "signal": selected_signal,
             "cut": _optional_instance(cut, CombineCut, "Combine evidence cut"),
-            "narrow": _narrow(narrow, selected_members, gate=selected_gate, result=selected_result),
+            "narrow": _narrow(
+                narrow,
+                selected_members,
+                gate=selected_gate,
+                result=selected_result,
+                skipped=frozenset(_skipped(skipped, selected_members) or ()),
+            ),
             "consistency": _consistency_map(consistency, selected_declared, selected_members),
             "declared": selected_declared,
             "gate": selected_gate,
             "result": selected_result,
             "dropped": selected_dropped,
             "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
+            "skipped": _skipped(skipped, selected_members),
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -626,7 +637,33 @@ class CombineEvidence:
             "result": self.result.to_dict(),
             "dropped": self.dropped,
             "finish_reason": self.finish_reason,
+            # E4c skip members (SM-2): optional on the wire, the last key, only when not empty
+            **({} if self.skipped is None else {"skipped": list(self.skipped)}),
         }
+
+
+def _skipped(
+    value: Sequence[str] | None, members: tuple[CombineAnswerRow, ...]
+) -> tuple[str, ...] | None:
+    """SM-13, the twin of the Engine ``_check_skipped``: a skipped member is excluded with
+    not_selected and has no raw, value, score or weight of its own."""
+    if value is None:
+        return None
+    if isinstance(value, str) or not isinstance(value, Sequence):
+        raise TypeError("Combine evidence skipped must be a sequence of member ids")
+    selected = tuple(value)
+    rows = {row.member_id: row for row in members}
+    if not selected or len(set(selected)) != len(selected) or not set(selected) <= set(rows):
+        raise ValueError("Combine evidence skipped lists distinct members of the evidence")
+    for member in selected:
+        row = rows[member]
+        if (row.status, row.reason) != ("excluded", "not_selected") or any(
+            item is not None for item in (row.raw, row.value, row.score, row.weight)
+        ):
+            raise ValueError(
+                "Combine evidence skipped member is excluded, not_selected, with no value"
+            )
+    return selected
 
 
 def _narrow(
@@ -635,14 +672,17 @@ def _narrow(
     *,
     gate: CombineGate | None,
     result: CombineResult,
+    skipped: frozenset[str] = frozenset(),
 ) -> tuple[CombineNarrow, ...] | None:
     """NR-I1..NR-I5 of the narrow PRD §4.3, the twin of the Engine ``_check_narrow``.
 
     NR-I6 is ``_dropped``; AR-I3′ is ``CombineAnswerRow``; the main-step score check of NR-I5
-    reads the rows.
+    reads the rows. E4c: a skipped member is outside the narrow rules (``_skipped`` checks it).
     """
+    if skipped:
+        members = tuple(row for row in members if row.member_id not in skipped)
     if value is None:
-        # NR-I4
+        # NR-I4 (E4c: widened, a skipped member is not_selected with no narrow record)
         if any(row.reason == "not_selected" for row in members):
             raise ValueError(
                 "Combine evidence not_selected goes with a narrow record, and only with it"

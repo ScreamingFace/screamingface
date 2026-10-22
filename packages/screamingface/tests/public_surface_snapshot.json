@@ -9,8 +9,11 @@
       "AuthenticationError",
       "Benchmark",
       "BenchmarkInfo",
+      "Budget",
       "CandidateResult",
       "CandidateRun",
+      "Cascade",
+      "CascadeSeedWarning",
       "CaseGrade",
       "CaseMedia",
       "CaseResult",
@@ -26,6 +29,7 @@
       "EngineCapabilityError",
       "EngineUnavailableError",
       "Entropy",
+      "Estimate",
       "EvaluationWarning",
       "Event",
       "Evidence",
@@ -44,6 +48,8 @@
       "Judge",
       "JudgePick",
       "JudgeWriterWarning",
+      "Keywords",
+      "LabelModel",
       "LabelScore",
       "Leaderboard",
       "LeaderboardBaseline",
@@ -91,7 +97,9 @@
       "__version__",
       "agreement",
       "analytics",
+      "answered",
       "benchmarks",
+      "budget",
       "cache",
       "classify",
       "close",
@@ -103,6 +111,8 @@
       "events",
       "fetch_media",
       "field",
+      "label",
+      "labels",
       "leaderboards",
       "matches",
       "models",
@@ -213,6 +223,18 @@
           "revision": "field"
         }
       },
+      "Budget": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, recipe: 'str | Recipe', *, usd: 'float | None' = None, tokens: 'int | None' = None) -> 'None'",
+          "name": "property",
+          "optional": "property",
+          "recipe": "field",
+          "tokens": "field",
+          "units": "method (self) -> 'tuple[BudgetUnit, ...]'",
+          "usd": "field"
+        }
+      },
       "CandidateResult": {
         "kind": "class",
         "members": {
@@ -263,6 +285,20 @@
           "name": "field",
           "state": "field"
         }
+      },
+      "Cascade": {
+        "kind": "function",
+        "signature": "(stages: 'Sequence[Stage]', *, escalate_if: 'Escalation' = None, otherwise: \"Literal['abstain', 'fail_closed'] | None\" = None) -> 'Recipe'"
+      },
+      "CascadeSeedWarning": {
+        "catches_as": [
+          "EvaluationWarning",
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
       },
       "CaseGrade": {
         "kind": "class",
@@ -447,6 +483,15 @@
           "top_logprobs": "field"
         }
       },
+      "Estimate": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, branch: 'object', *, usd: 'float | None' = None, tokens: 'int | None' = None) -> 'None'",
+          "branch": "field",
+          "tokens": "field",
+          "usd": "field"
+        }
+      },
       "EvaluationWarning": {
         "catches_as": [
           "UserWarning",
@@ -597,8 +642,11 @@
       "Gate": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, when: 'GateCondition', then: 'Vote', otherwise: 'Fallback' = 'abstain', abstain_if: 'GateBand | None' = None) -> 'None'",
+          "__init__": "method (self, *, when: 'Condition', then: 'Branch', otherwise: 'Branch | None' = None, abstain_if: 'GateBand | None' = None) -> 'None'",
           "abstain_if": "field",
+          "estimates": "field",
+          "name": "property",
+          "optional": "property",
           "otherwise": "field",
           "then": "field",
           "when": "field"
@@ -631,6 +679,25 @@
         ],
         "kind": "class",
         "members": {}
+      },
+      "Keywords": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, rules: 'Sequence[Sequence[object]]', *, multi: 'bool' = False) -> 'None'",
+          "labels": "property",
+          "multi": "field",
+          "rules": "field"
+        }
+      },
+      "LabelModel": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str | Model', *, labels: 'Sequence[str]', prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None, multi: 'bool' = False) -> 'None'",
+          "labels": "field",
+          "model": "field",
+          "multi": "field",
+          "prompt": "field"
+        }
       },
       "LabelScore": {
         "kind": "class",
@@ -1160,9 +1227,17 @@
         "kind": "module",
         "module": "screamingface.analytics"
       },
+      "answered": {
+        "kind": "function",
+        "signature": "() -> 'AnsweredCondition'"
+      },
       "benchmarks": {
         "kind": "module",
         "module": "screamingface.benchmarks"
+      },
+      "budget": {
+        "kind": "module",
+        "module": "screamingface.budget"
       },
       "cache": {
         "kind": "module",
@@ -1207,6 +1282,14 @@
       "field": {
         "kind": "function",
         "signature": "(path: 'str', *, normalize: 'FieldNormalizer | None' = None) -> 'FieldRef'"
+      },
+      "label": {
+        "kind": "function",
+        "signature": "(selector: 'Selector') -> 'LabelRef'"
+      },
+      "labels": {
+        "kind": "function",
+        "signature": "(selector: 'Selector') -> 'LabelsRef'"
       },
       "leaderboards": {
         "kind": "module",
@@ -1670,7 +1753,7 @@
       "CombineEvidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None, consistency: 'Mapping[str, Sequence[CombineSampleCount]] | None' = None, narrow: 'Sequence[CombineNarrow] | None' = None) -> 'None'",
+          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None, consistency: 'Mapping[str, Sequence[CombineSampleCount]] | None' = None, narrow: 'Sequence[CombineNarrow] | None' = None, skipped: 'Sequence[str] | None' = None) -> 'None'",
           "agreement": "field",
           "built": "field",
           "chosen": "field",
@@ -1693,6 +1776,7 @@
           "result": "field",
           "separator_collision": "field",
           "signal": "field",
+          "skipped": "field",
           "tally": "field",
           "tie": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"

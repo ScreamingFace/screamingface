@@ -117,6 +117,24 @@ class GateBand:
         return f"{self.ref!r}.between({self.lo!r}, {self.hi!r})"
 
 
+@dataclass(frozen=True, slots=True)
+class AnsweredCondition:
+    """``sf.answered()``: the block's reducer gave an answer (E4c, a cascade's first success).
+
+    A panel condition with no number: it holds when the reducer answered, and fails when the
+    reducer abstained or no member answered, so a ``sf.Cascade`` stage escalates on a failure.
+    """
+
+    def __repr__(self) -> str:
+        return "answered()"
+
+
+def answered() -> AnsweredCondition:
+    """The condition that the block's reducer answered (``sf.Cascade`` first success, CA-10)."""
+
+    return AnsweredCondition()
+
+
 def agreement() -> GateRef:
     """The share of the members that hold the vote's answer: a gate reference in [0, 1]."""
 
@@ -317,4 +335,4 @@ def _rule_name(value: str) -> str:
     return value if pinned is None else pinned.group(1)
 
 
-__all__ = ["Extract", "agreement", "field"]
+__all__ = ["Extract", "agreement", "answered", "field"]

@@ -14,11 +14,12 @@ real ``screamingface``.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from screamingface._signals import signal
+from screamingface._surface.budget import Estimate, budget
 from screamingface._surface.chain import Pipeline, Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Fallback, Gate
@@ -28,10 +29,13 @@ from screamingface._surface.refs import (
     GateRef,
     _condition,
     agreement,
+    answered,
     field,
     with_normalizer,
 )
 from screamingface._surface.render import code, dispatch, model_options
+from screamingface._surface.selectors import label as label_ref
+from screamingface._surface.selectors import labels as labels_ref
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -46,6 +50,7 @@ from screamingface._surface.steps import (
 )
 from screamingface._surface.synthesize import Synthesize
 from screamingface.blocks import _REVERSE_RULES, Extract, ReduceNode
+from screamingface.branch import BranchNode, DecisionReducer, LazyDecision
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fields import MergeNode, PickNode
 from screamingface.fusion import FusionNode
@@ -99,11 +104,16 @@ def rebuild(url4: str) -> Rebuilt:
 def rebuild_decoded(decoded: _DecodedCandidate) -> Rebuilt:
     """``rebuild`` of a url4 that ``S/url4.py`` decoded and checked (``Url4.to_python()``)."""
 
-    from screamingface.url4 import _recipe_from_topology, _recompiles, _replay_check_surface
+    from screamingface.url4 import (
+        _recipe_from_topology,
+        _recompiles,
+        _replay_check_surface,
+        _with_budget,
+    )
 
     # editable: a model call whose prompt is its role's default comes back with no prompt
     node = _recipe_from_topology(decoded.topology, decoded.calls, editable=True)
-    value = surface_value(node)
+    value = _with_budget(decoded.candidate, surface_value(node))
     check_surface = _replay_check_surface(decoded.topology)
     if not _recompiles(decoded.candidate, value, decoded.calls, check_surface=check_surface):
         raise ValueError(_CANNOT_REBUILD)
@@ -176,8 +186,107 @@ def _writer_of(stages: list[Recipe]) -> Recipe:
     return stage
 
 
+def _gate(node: BranchNode) -> Recipe:
+    """A Gate node as its sf.Gate (E4c): an input gate alone; a panel gate closes its block."""
+
+    judges: list[JudgeNode] = []
+    then, otherwise = _branch_value(node.then, judges), _branch_value(node.otherwise, judges)
+    then, otherwise = _estimated(then, node.estimates[0]), _estimated(otherwise, node.estimates[1])
+    condition = node.condition
+    if node.panel is None:
+        when: Any
+        if condition.observe.startswith("budget.remaining:"):
+            unit = condition.observe.partition(":")[2]
+            when = _input_condition(
+                budget.remaining(cast("Any", unit)), condition.cmp, condition.value
+            )
+        else:
+            selector = cast("Any", condition.selector)
+            reader = label_ref(selector) if condition.observe == "label" else labels_ref(selector)
+            when = _input_condition(reader, condition.cmp, condition.value)
+        return _built(Gate, when=when, then=then, otherwise=otherwise)
+    return _panel_gate(node, node.panel, then, otherwise, judges)
+
+
+def _panel_gate(
+    node: BranchNode, panel: FusionNode, then: Any, otherwise: Any, judges: list[JudgeNode]
+) -> Recipe:
+    fanout = Fanout(
+        [surface_value(member) for member in panel.members],
+        signals=panel.signals,
+        quorum=panel.quorum,
+        name=_kept_name(panel.name, _inferred_name(panel.members)),
+    )
+    if node.condition.observe == "answered":
+        answered_gate = _built(Gate, when=answered(), then=then, otherwise=otherwise)
+        return Pipeline([fanout, *_judge_step(judges), answered_gate])
+    decision = panel.synthesizer
+    gate = (
+        decision.gate if isinstance(decision, DecisionReducer | VoteNode | LazyDecision) else None
+    )
+    if isinstance(decision, LazyDecision):
+        # E4c lazy fallback: the otherwise body is the full vote; the surface writes its fallback.
+        otherwise = _estimated(_fallback(decision.gate.otherwise), node.estimates[1])
+    if gate is None:
+        raise _cannot_rebuild(node.name)
+    ref = _built(_gate_ref, gate.observe)
+    band = gate.abstain_band
+    surface_gate = _built(
+        Gate,
+        when=_built(_condition, ref, gate.cmp, gate.threshold),
+        then=then if then is not None else "abstain",
+        otherwise=otherwise,
+        abstain_if=None if band is None else _built(ref.between, *band),
+    )
+    return Pipeline([fanout, *_judge_step(judges), surface_gate])
+
+
+def _branch_value(value: object, judges: list[JudgeNode]) -> Any:  # noqa: PLR0911
+    """One Gate branch in the new surface: a word, a step or a recipe."""
+
+    if value is None or value == "abstain":
+        return None  # the omitted otherwise= (GT-9); a skip member never reaches here
+    if isinstance(value, str):
+        return value
+    if isinstance(value, DecisionReducer):
+        return _converted(value.step, judges)
+    if isinstance(value, LazyDecision):
+        return _vote(cast("VoteNode", value.full), judges)
+    if isinstance(value, VoteNode):
+        return _vote(value, judges)  # the decision vote; its gate is the Gate's when=
+    if isinstance(value, Reducer):
+        return _converted(value, judges)
+    return surface_value(cast("Recipe", value))
+
+
+def _estimated(value: Any, estimate: Mapping[str, float | int] | None) -> Any:
+    """A branch with its sf.Estimate back on it (BU-3), when the gate spec holds one."""
+
+    if estimate is None:
+        return value
+    tokens = estimate.get("tokens")
+    return Estimate(value, usd=estimate.get("usd"), tokens=None if tokens is None else int(tokens))
+
+
+def _input_condition(reader: Any, cmp: str, value: object) -> Any:
+    """The condition ``reader <cmp> value`` built through the reader's own operators."""
+
+    build = {
+        ">=": lambda: reader >= value,
+        ">": lambda: reader > value,
+        "<=": lambda: reader <= value,
+        "<": lambda: reader < value,
+        "eq": lambda: reader == value,
+        "ne": lambda: reader != value,
+        "has": lambda: reader.has(value),
+        "empty": lambda: reader.empty(),
+    }
+    return build[cmp]()
+
+
 # The recipe kinds of the node values and their new-surface form.
 _RECIPES: tuple[tuple[type, Callable[[Any], Recipe]], ...] = (
+    (BranchNode, _gate),
     (Model, _model),
     (FusionNode, _fusion),
     (Pipeline, _chain),
@@ -325,7 +434,8 @@ def _gated(vote: VoteNode, judges: list[JudgeNode]) -> Vote | Gate:
         Gate,
         when=_built(_condition, ref, gate.cmp, gate.threshold),
         then=_vote(vote, judges),
-        otherwise=_fallback(gate.otherwise),
+        # E4c (GT-9): an abstain fallback rebuilds as the omitted otherwise= (its default).
+        otherwise=None if gate.otherwise == "abstain" else _fallback(gate.otherwise),
         abstain_if=None if band is None else _built(ref.between, *band),
     )
 
@@ -412,7 +522,22 @@ def _merge(node: MergeNode, _judges: list[JudgeNode]) -> Merge:
 
 
 # Each internal reducer node and its step (the inverse of the lowering table, lowering §2.2).
+def _decision(reducer: DecisionReducer, judges: list[JudgeNode]) -> Gate:
+    """A one-call gate on any reducer (E4c P3): ``then`` is the step, ``otherwise`` abstains."""
+
+    gate = reducer.gate
+    ref = _built(_gate_ref, gate.observe)
+    band = gate.abstain_band
+    return _built(
+        Gate,
+        when=_built(_condition, ref, gate.cmp, gate.threshold),
+        then=_converted(reducer.step, judges),
+        abstain_if=None if band is None else _built(ref.between, *band),
+    )
+
+
 _CONVERSIONS: tuple[tuple[type, Callable[[Any, list[JudgeNode]], Step]], ...] = (
+    (DecisionReducer, _decision),
     (VoteNode, _gated),
     (MedianNode, _statistic),
     (MeanNode, _statistic),

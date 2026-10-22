@@ -51,6 +51,7 @@ JUDGE_REPLY_INVALID_CODE = "judge_reply_invalid"
 # The code and the fixed text of a member call refused for its logprobs (E4b part 3, ans:Q5, P13).
 # The text never carries upstream text, so `logprobs_unsupported` is an ENGINE_ERROR_CODES entry.
 LOGPROBS_UNSUPPORTED_CODE = "logprobs_unsupported"
+FAIL_CLOSED_CODE = "fail_closed"
 LOGPROBS_UNSUPPORTED_TEXT = (
     "the model may not return token log-probabilities (sf.Logprob, sf.Entropy), or no endpoint for "
     "the model supports another member parameter; choose another OpenRouter model or remove that "
@@ -97,6 +98,19 @@ def logprobs_unsupported() -> ResolutionError:
     )
 
 
+def fail_closed(gate_id: str) -> ResolutionError:
+    """The failure for a sf.Gate that took the word ``fail_closed`` (E4c guards, GU-16).
+
+    Permanent: the same Case takes the same guard again. The text is fixed engine text plus the
+    gate id; it never holds the Case input, a pattern or a selector reply.
+    """
+    return ResolutionError(
+        f"a guard refused the Case: sf.Gate {gate_id} took fail_closed",
+        code=FAIL_CLOSED_CODE,
+        permanent=True,
+    )
+
+
 # INVARIANT: a helper can never mint an undeclared code — checked at import time so a
 # typo here dies on the first test run, not in a report.
 for _helper in (benchmark_contract_error, benchmark_definition_error, judge_failure):
@@ -107,9 +121,12 @@ if UPSTREAM_FALLBACK_CODE not in DECLARED_FAILURE_CODES:
     raise AssertionError("upstream fallback code is not declared")
 if logprobs_unsupported().code not in DECLARED_FAILURE_CODES:
     raise AssertionError("failure class helper mints undeclared code 'logprobs_unsupported'")
+if fail_closed("gate_1").code not in DECLARED_FAILURE_CODES:
+    raise AssertionError("failure class helper mints undeclared code 'fail_closed'")
 del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [
+    "FAIL_CLOSED_CODE",
     "JUDGE_REPLY_INVALID_CODE",
     "LOGPROBS_UNSUPPORTED_CODE",
     "LOGPROBS_UNSUPPORTED_TEXT",
@@ -117,6 +134,7 @@ __all__ = [
     "UPSTREAM_FALLBACK_CODE",
     "benchmark_contract_error",
     "benchmark_definition_error",
+    "fail_closed",
     "judge_failure",
     "logprobs_unsupported",
 ]

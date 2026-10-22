@@ -4,8 +4,8 @@ The gate is data, never Python code: one named number (``observe``), one compari
 one threshold, written into the combine spec as ``gate``. When ``observed cmp threshold`` holds,
 the vote's majority is the answer. Otherwise the fallback (``otherwise``) gives the answer: an
 abstain with the reason ``gate_not_met``, a label judge that names a member, or a model that
-writes. In this version the fallback call runs on every Case; the gate chooses and records
-(ans:Q1). E4c (OME-1291) removes the unused call with no wire change.
+writes. The fallback call runs only on the Cases where the gate takes it (E4c, OME-1291, lazy
+fallback); the wire is unchanged (ans:Q1).
 ``abstain_band=(lo, hi)`` (E4b part 6, ans:Q2): when the number is inside the closed band, the
 Case abstains with the reason ``in_band``; the Engine checks the band before the comparison.
 """

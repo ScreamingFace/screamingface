@@ -96,6 +96,8 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
     from screamingface._surface.chain import refuse_step
 
     refuse_step(value)
+    if type(value).__name__ == "Budget":
+        raise ValueError("sf.Budget wraps the whole candidate: use it once, at the root")  # BU-11
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route, a sf.Model or a sf.Pipeline")
     assert isinstance(value, Recipe)
@@ -106,7 +108,7 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
 
 def _recipe_kind(
     value: Recipe,
-) -> Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]:
+) -> Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective", "gate"]:
     """The single authority mapping a Recipe value to its kind.
 
     WHY: kinds are the Recipe's type, never its Python class name — a renamed
@@ -115,12 +117,16 @@ def _recipe_kind(
     """
 
     from screamingface._surface.chain import Pipeline
+    from screamingface.branch import BranchNode
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
     from screamingface.fusion import FusionNode
     from screamingface.model import Model
 
     kinds: tuple[
-        tuple[type, Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]],
+        tuple[
+            type,
+            Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective", "gate"],
+        ],
         ...,
     ] = (
         (Model, "model"),
@@ -128,7 +134,12 @@ def _recipe_kind(
         (Pipeline, "pipeline"),
         (CorrectiveLoop, "corrective_loop"),
         (SelfCorrective, "self_corrective"),
+        (BranchNode, "gate"),
     )
+    from screamingface._surface.chain import Step
+
+    if isinstance(value, Step) and value._is_recipe():
+        return "gate"
     for recipe_type, kind in kinds:
         if isinstance(value, recipe_type):
             return kind
@@ -136,13 +147,16 @@ def _recipe_kind(
 
 
 def _is_supported_recipe(value: object) -> bool:
-    from screamingface._surface.chain import Pipeline
+    from screamingface._surface.chain import Pipeline, Step
+    from screamingface.branch import BranchNode
     from screamingface.fusion import FusionNode
     from screamingface.model import Model
 
     # A closed chain is a recipe; lower() turns its blocks into internal nodes before the compile
-    # reads it (E4b surface lowering §2.4).
-    return isinstance(value, Model | FusionNode | Pipeline)
+    # reads it (E4b surface lowering §2.4). E4c: an input sf.Gate and its internal node are too.
+    if isinstance(value, Step):
+        return value._is_recipe()
+    return isinstance(value, Model | FusionNode | Pipeline | BranchNode)
 
 
 def _text(value: object, label: str) -> str:

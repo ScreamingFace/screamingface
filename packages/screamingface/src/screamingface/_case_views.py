@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -116,7 +117,79 @@ def case_trace(
     entries: list[TraceEntry] = []
     for operation in case.operations:
         entries.extend(_operation_entries(operation, graph, member_of, accounting_of))
+        entries.extend(_budget_refusals(operation, graph))
     return tuple(entries)
+
+
+# E4c (OME-1291, budget BU-25): the reserved budget kind gets its first producer. A Gate whose
+# Budget refused a branch writes one row; charges stay in the model_call rows.
+_REFUSAL_STAGES = {"judge": "judge", "writer": "writer", "selector": "selector"}
+
+
+def _budget_refusals(
+    operation: CaseOperation, graph: Mapping[str, OperationInfo] | None
+) -> list[TraceEntry]:
+    decision = operation.decision
+    if decision is None or decision.wanted is None:
+        return []
+    refusing = next((view for view in decision.budget or () if view.refused), None)
+    if refusing is None:
+        return []
+    first = _refused_body_operation(operation.operation_id, decision.wanted, graph)
+    node = None if graph is None or first is None else graph.get(first)
+    left = max(Decimal(repr(refusing.cap)) - Decimal(repr(refusing.spent)), Decimal(0))
+    return [
+        TraceEntry(
+            "budget",
+            {
+                "event": "refusal",
+                "operation_id": first or operation.operation_id,
+                "member_id": None,
+                "stage": _REFUSAL_STAGES.get(node.kind, "model") if node is not None else "model",
+                "amount": None,
+                "estimated": refusing.estimate,
+                "source": None,
+                "remaining_after": float(left),
+            },
+        )
+    ]
+
+
+def _refused_body_operation(
+    gate_operation: str, branch: str, graph: Mapping[str, OperationInfo] | None
+) -> str | None:
+    """The first operation (graph order) of a Gate's ``branch`` body, from the operation graph.
+
+    WHY from the graph: a Gate depends on its upstream inputs and on each branch's terminal. The
+    branch terminals are the dependencies no other dependency reads, ``then`` first; a body is
+    its terminal and what only it reads. None when the graph cannot tell.
+    """
+
+    node = None if graph is None else graph.get(gate_operation)
+    if graph is None or node is None:
+        return None
+    reach = {dep: _upstream(dep, graph) for dep in node.depends_on}
+    terminals = [dep for dep in node.depends_on if not any(dep in reach[other] for other in reach)]
+    if len(terminals) == 1:
+        body_terminal = terminals[0]
+    elif len(terminals) == 2:
+        body_terminal = terminals[0 if branch == "then" else 1]
+    else:
+        return None
+    shared = set().union(*(reach[dep] | {dep} for dep in terminals if dep != body_terminal))
+    body = (reach[body_terminal] | {body_terminal}) - shared
+    return next((operation for operation in graph if operation in body), None)
+
+
+def _upstream(operation: str, graph: Mapping[str, OperationInfo]) -> set[str]:
+    found: set[str] = set()
+    stack = list(graph[operation].depends_on) if operation in graph else []
+    while stack:
+        current = stack.pop()
+        if current not in found:
+            found.add(current)
+            stack.extend(graph[current].depends_on if current in graph else ())
+    return found
 
 
 def accounting_index(

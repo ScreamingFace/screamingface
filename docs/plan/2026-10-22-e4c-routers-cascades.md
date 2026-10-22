@@ -48,7 +48,7 @@ exactly one unit.
 | 12 | PR-2 | report: skip lines | RP#24 | `S/_ui/branch_view.py`, `S/_ui/combine_view.py` | screamingface |
 | 13 | PR-3 | budget | BU#1–#28; SM#18; GU#14 | new `S/_surface/budget.py` (`Budget`, `Estimate`, `budget.remaining`), `E/budget.py` (`BudgetStage`), `E/benchmarks/invocation.py` (bind cap per Attempt in a ContextVar set before the expression runs), `E/world/branch.py` (fold in DECIDE), `S/report_trace.py` producer, reproduction compare | both |
 | 14 | PR-3 | report: budget lines | RP#11a, #15, #19, #21, #27, #28 | `S/_ui/branch_view.py` | screamingface |
-| 15 | PR-3 | docs | DC#1 (CHAR first), DC#2–#21 | `packages/screamingface/README.md`, `CHANGELOG.md`, `examples/19_routers_cascades.ipynb`, `scripts/build_notebooks.py`, docstrings | screamingface, repo |
+| 15 | PR-3 | docs | DC#1 (CHAR first), DC#2–#21 | `packages/screamingface/README.md`, `CHANGELOG.md`, `examples/20_routers_cascades.ipynb`, `scripts/build_notebooks.py`, docstrings | screamingface, repo |
 
 Ordering notes (review 3 F11): BC#17 (body references a hoisted selector) needs selectors, so it
 is in unit 4; BC#9 no longer holds a budget case (it moved to budget #5, unit 13); RP#11 renders

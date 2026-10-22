@@ -165,5 +165,9 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "combine_input_too_large",
             # logprobs capture code declared by E4b part 3 (owner-approved edit, 2026-10-15)
             "logprobs_unsupported",
+            # guard failure code declared by E4c (OME-1291, guards #3)
+            "fail_closed",
+            # skip-member quorum code declared by E4c (OME-1291, skip-members #2a)
+            "quorum_not_met",
         }
     )
