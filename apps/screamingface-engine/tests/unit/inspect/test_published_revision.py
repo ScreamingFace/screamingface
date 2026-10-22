@@ -72,8 +72,9 @@ def test_a_published_revision_is_what_the_benchmark_publishes() -> None:
 
 def test_a_changed_exam_moves_only_an_unset_revision() -> None:
     """Unset, nothing changes: the published revision is the computed fingerprint, so a changed
-    exam moves it, as for every row today but the two healthbench Benchmarks. Set, the same
-    change leaves the published id where it was (WHY: OME-1610, never moved as a side effect)."""
+    exam moves it; only test stand-ins leave it unset, since every catalogue row sets it. Set,
+    the same change leaves the published id where it was (WHY: OME-1610, never moved as a side
+    effect)."""
 
     unset_v1: ImportedBenchmark = _assemble("published-unset-v1", "exam=v1")
     unset_v2: ImportedBenchmark = _assemble("published-unset-v2", "exam=v2")
@@ -84,33 +85,27 @@ def test_a_changed_exam_moves_only_an_unset_revision() -> None:
     assert kept_v2.benchmark.revision == _OLD
 
 
-def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
-    """INVARIANT: a hand-set published id is a per-Benchmark owner decision, never a default,
-    backed by proof that the exam is unchanged (a golden that replays with zero misses) or, for
-    a grading fix that keeps every Case, by the owner's hold with no leaderboard result under the
-    old grading (OME-1701). Any row joining this list is a new decision and must be named here."""
+def test_every_catalogue_row_sets_its_published_revision() -> None:
+    """INVARIANT: no Benchmark publishes a computed id (OME-1610). Every row hand-sets the id
+    submissions and the leaderboard key on, so a code change can never move it; the computed
+    fingerprint is pinned in ``test_benchmark_fingerprints.py`` and is only an alarm. ``None``
+    is for test stand-ins only. A new row sets its own fingerprint here on the day it is added."""
 
-    hand_set: dict[str, str] = {
-        spec.key: spec.published_revision
-        for spec in BENCHMARKS
-        if spec.published_revision is not None
-    }
+    unset: list[str] = [spec.key for spec in BENCHMARKS if spec.published_revision is None]
 
-    # healthbench (OME-1527 row 20) and ifeval (row 15): the hand-built revisions, kept on the
-    # local Tasks.
-    assert hand_set == {
-        "healthbench-worst30": "39cfd96b068f7230",
-        "healthbench-professional": "d8fb037307f35415",
-        "ifeval": "1cba769ece27f7ef",
-        # OME-1701 (owner decision, 2026-10-22: revisions are frozen): grading fixes adopted
-        # from inspect_evals that keep every Case; each computed fingerprint is pinned in
-        # test_benchmark_fingerprints.py.
-        "paws": "8f4e0e9c0864a6e7",
-        "boolq": "00d4443ca7e66d43",
-        "chembench": "a36d91b7eb601253",
-        "infinite_bench_math_find": "eb87494cb4dab437",
-        "math": "0fb750cf19e00c11",
-        "aime24": "2e4ce70a8953233a",
-        "aime25": "b207e9fe34ea7517",
-        "aime26": "c3ccaa828160f661",
-    }
+    assert unset == [], (
+        f"{unset}: set published_revision on each row. A new Benchmark sets the fingerprint it "
+        "computes today (just engine benchmark-bump <key> prints it); an existing one keeps the "
+        "id it already publishes (test_published_revisions.py)."
+    )
+
+
+def test_a_copied_row_that_kept_the_donors_key_and_id_is_refused() -> None:
+    """A copy-pasted row keeps the donor's key AND its hand-set id, so the ids alone cannot
+    tell the two apart; their fingerprints differ, so assembly refuses the second one instead of
+    serving the donor's routes for the wrong exam."""
+
+    _assemble("published-copied", "exam=donor", _OLD)
+
+    with pytest.raises(ValueError, match="duplicate benchmark_key"):
+        _assemble("published-copied", "exam=copy", _OLD)

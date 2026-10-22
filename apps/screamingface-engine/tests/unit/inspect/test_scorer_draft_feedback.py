@@ -283,10 +283,10 @@ def test_the_scorers_words_are_benchmark_identity_and_need_the_offer(
 
     offer_only: str = _stand_in(
         monkeypatch, scorer_draft_feedback=False, envelope_for=_honest
-    ).benchmark.revision
+    ).fingerprint
     with_words: str = _stand_in(
         monkeypatch, scorer_draft_feedback=True, envelope_for=_honest
-    ).benchmark.revision
+    ).fingerprint
     assert with_words != offer_only
 
     spec = replace(

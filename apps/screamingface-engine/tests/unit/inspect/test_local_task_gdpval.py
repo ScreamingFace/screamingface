@@ -500,10 +500,10 @@ def test_the_envelope_is_benchmark_identity_and_refuses_a_check_surface(
         monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
         return imported_benchmark(spec.key)
 
-    plain: str = assembled(replace(gsm8k, with_check_surface=False)).benchmark.revision
+    plain: str = assembled(replace(gsm8k, with_check_surface=False)).fingerprint
     enveloped: str = assembled(
         replace(gsm8k, with_check_surface=False, candidate_input_envelope=True)
-    ).benchmark.revision
+    ).fingerprint
     assert enveloped != plain
     with pytest.raises(ValueError, match="cannot declare a check surface"):
         assembled(replace(gsm8k, with_check_surface=True, candidate_input_envelope=True))

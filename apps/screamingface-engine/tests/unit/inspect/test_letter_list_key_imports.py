@@ -222,9 +222,7 @@ def test_multiple_correct_moves_the_assembled_revision(monkeypatch: pytest.Monke
     from screamingface_engine_inspect import benchmarks
 
     spec = next(row for row in benchmarks.BENCHMARKS if row.key == "cyse4_malware_analysis")
-    with_flag: str = str(_assembled(spec, monkeypatch).benchmark.revision)
-    without: str = str(
-        _assembled(replace(spec, multiple_correct=False), monkeypatch).benchmark.revision
-    )
+    with_flag: str = str(_assembled(spec, monkeypatch).fingerprint)
+    without: str = str(_assembled(replace(spec, multiple_correct=False), monkeypatch).fingerprint)
 
     assert with_flag != without

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+* Every Benchmark now publishes a hand-set revision (`published_revision`), so a code change can no longer move the id its leaderboard results key on; each Benchmark's computed fingerprint is pinned in a test as the alarm, and `just engine benchmark-bump <key>` prints the WARNING and the lines to edit before a deliberate move (OME-1610). No published revision changes.
 * Attribute collected IFEval model-call failures using the existing collected error kind from the candidate execution boundary, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
 
 ## [1.5.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.4.0...screamingface-engine-v1.5.0) (2026-08-27)
