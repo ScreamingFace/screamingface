@@ -97,3 +97,9 @@ is a later unit; `Payload` stays `str`.
 - **Deviations:** behaviour narrowed by design — `charset` now makes only a non-binary
   `application/*` type text (e.g. `message/*; charset=` is now refused, fail-closed);
   `StaticIOLayer.fetch_bytes` (a test double) still reports its configured media type verbatim.
+- **ReDoS fix (security review of c9e01ca12):** the regex's overlapping `[ \t]*;[ \t]*` steps
+  backtracked exponentially (`'text/plain' + '  ;  '*12 + ','`, 70 chars, took 10.9 s). Replaced
+  by a linear hand scanner (every loop advances), and a Content-Type over 1 KiB is not one media
+  type (only the first 1025 chars are ever scanned). Test: `tests/unit/test_io_media_type_redos.py`
+  (six pathological headers incl. `'text/plain; a="' + '\\"'*50_000`, each < 100 ms; the 1 KiB
+  boundary; quoted-pair and malformed-parameter cases). Gates green; `io/media.py` 100%.
