@@ -394,3 +394,45 @@ body is fixed in the shared core session.
   a cacheable instance will also need `cache_reference_from_cached_response`, since the hit
   path logs a mapper warning without it; no streaming; upstream 401 is not mapped to an
   operational outcome or fencing; one httpx client per request.
+
+## PR #1527 follow-up — Unicode response validation (2026-10-22)
+
+Status: verified; owner authorized committing and pushing this correction to PR #1527 after
+review of head `5ea9a3db`.
+
+Intent: reject isolated Unicode surrogate code points in every response string, including
+object keys, before readiness publishes a key or dispatch returns the result. Python's JSON
+decoder accepts these escapes, but the installed Starlette JSON response cannot encode the
+result as UTF-8. The review reproduced a successful key replacement followed by HTTP 500.
+
+Planned changes: add a bounded-tree Unicode check to the existing BYOM completion decoder and
+a new regression test module. Preserve valid Unicode, including escaped surrogate pairs that
+decode to a valid non-BMP character; never replace or normalize model text silently. Keep other
+providers, cache policy and Unit 1 scope unchanged. No dependency or schema change is needed.
+
+Test plan: RED first for isolated high/low surrogates in content, metadata keys/values and nested
+containers; exercise the decoder and both inference paths. Exercise admin replacement against
+the real application/isolated store: reject invalid Unicode, preserve the old key and serve the
+next chat with it. Positive controls cover raw UTF-8, escaped Unicode, emoji, combining marks,
+controls and literal backslash text. Then run AIGateway gates and inspect the actual diff.
+
+Outcome:
+
+- `completion.py` now checks strict UTF-8 representability of all strings and object keys after
+  the existing depth/node bounds. `UnicodeEncodeError` follows the existing `ValueError` refusal
+  path; accepted text is returned unchanged. Both readiness and dispatch use this same decoder.
+- Added `tests/unit/remote_endpoint/test_unicode_response.py`: 30 regression cases. RED was
+  18 failures for the reproduced decoder/readiness/replacement defects and 12 passing positive
+  controls. GREEN: all 326 BYOM tests passed, including the 30 additions.
+- Full `run_gates.py aigateway --base 40908acdd5f2521ed255ae2226393ef4151faa92` passed: append-only,
+  Ruff, format, Pyright, no-Enterprise guard and full pytest/coverage. Overall coverage 93.90%;
+  the modified completion module has 53 statements, all covered (100%). Live/PG opt-in flags
+  were unset; no live keys, paid calls or external test infrastructure were used.
+- Gate attempts: `--base origin/main` first rejected two tests changed/added on main after the
+  PR base, not by this fix. Verified merge-base `40908acdd` and reran against it. The next run
+  found two typing errors in the NEW test file (Response.body may be memoryview; exception
+  detail annotation); fixed by converting the body to bytes and narrowing detail. The final
+  complete gate run was green. No existing test was modified or weakened.
+- Reviewed source/test diff: no core or dependency changes, new source/test files stay below
+  450 lines, and the only production change is the response Unicode check. The publication
+  commit includes this fix, the new regression module and this verification record.
