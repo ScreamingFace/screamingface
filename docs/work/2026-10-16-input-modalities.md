@@ -3,7 +3,7 @@ ticket: OME-1537
 stack: aigateway
 status: done
 started: 2026-10-16
-finished: 2026-10-22
+finished: 2026-10-16
 ---
 
 # input-modalities — expose each model's input modalities on /v1/models

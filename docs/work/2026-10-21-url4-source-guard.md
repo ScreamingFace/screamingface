@@ -3,7 +3,7 @@ ticket: OME-1544
 stack: url4
 status: done
 started: 2026-10-21
-finished: 2026-10-22
+finished: 2026-10-21
 ---
 
 # url4-source-guard — one destination guard for url4 HTTP source fetches
