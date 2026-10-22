@@ -107,4 +107,6 @@ def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
         # test_benchmark_fingerprints.py.
         "paws": "8f4e0e9c0864a6e7",
         "boolq": "00d4443ca7e66d43",
+        "chembench": "a36d91b7eb601253",
+        "infinite_bench_math_find": "eb87494cb4dab437",
     }

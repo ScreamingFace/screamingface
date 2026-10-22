@@ -69,8 +69,9 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - `.../benchmarks.py`: the chembench and infinite_bench_math_find rows grade with them; honest
   descriptions; NAMED DEVIATION comments.
 - tests: `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py`
-  (new); `test_published_revisions.py` (both rows first frozen here); `test_scorer_source_pins.py`
-  (its row set gains chembench).
+  (new); `test_published_revisions.py` (both rows first frozen here, at their held revisions);
+  `test_benchmark_fingerprints.py` and `test_published_revision.py` gain both rows;
+  `test_scorer_source_pins.py` (its row set gains chembench).
 
 ### Test plan
 
@@ -81,7 +82,8 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 
 ### Acceptance
 
-- chembench and infinite_bench_math_find each publish a new revision; no other revision moves.
+- chembench and infinite_bench_math_find keep their published revisions (held); their computed
+  fingerprints move and are pinned; no other revision moves.
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -102,12 +104,13 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Actual files:** as planned, plus two edited prior tests: `test_letter_list_key_imports.py`
   ("A, D" on chembench now scores 1) and `test_local_task_infinite_bench.py` (its row test was
   named for inspect's `exact()`; renamed, and its docstring now says the first-number rule).
-- **Revisions:** chembench a36d91b7eb601253 → 7af1d67ffad68471; infinite_bench_math_find
-  eb87494cb4dab437 → a38b3a6c787f08a8.
+- **Revisions:** held (owner decision, 2026-10-22): chembench publishes a36d91b7eb601253 and
+  infinite_bench_math_find eb87494cb4dab437, as on main; their computed fingerprints moved to
+  7af1d67ffad68471 and a38b3a6c787f08a8, pinned in `test_benchmark_fingerprints.py`.
 - **Review fixes:** the numeric "agrees with inspect_evals" check now carries the eval's real
   1% relative tolerance and an expected verdict per reply (1.505 vs 1.5 right, 1.6 wrong), so
   a numeric path that always marks wrong fails it; the renamed letter-list test names the
   set-of-letters rule; the scorer docstring states the one one-letter difference ("B,B" or
   "B B" against "B" is now right, as the authors mark it), pinned by a test. The docstring
-  edit moved chembench's revision once more (2fdb430f6a3505f0 → 7af1d67ffad68471).
-- **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 736 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 11 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+  edit moved chembench's computed fingerprint once more (2fdb430f6a3505f0 → 7af1d67ffad68471).
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), the yes_no tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 759 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 14 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.

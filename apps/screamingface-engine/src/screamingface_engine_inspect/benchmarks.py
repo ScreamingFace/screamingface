@@ -5709,6 +5709,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench"
             ":math_find_scorer"
         ),
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="eb87494cb4dab437",
         paper_url="https://arxiv.org/abs/2402.13718",
         authors="Zhang et al., 2024",
         citation=(
@@ -5915,6 +5920,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   #2586); numbers stay the eval's own pattern_mae. Drop it when the pin reaches the
         #   fix: the tripwire in tests/unit/inspect/test_named_deviation_chembench.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.chembench.chembench:chembench_letter_set",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="a36d91b7eb601253",
         # NAMED DEVIATION: the eval scores the whole run with grouped accuracy, one mean per
         # topic beside the overall mean; this Benchmark reports the overall mean per-Case
         # score (chosen at import, OME-1527), which is that overall figure.
