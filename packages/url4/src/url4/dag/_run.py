@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import secrets
+from collections.abc import Sequence
 from typing import Literal, cast
 
 from url4.core.nodes import Node as AstNode
@@ -25,6 +26,8 @@ from url4.io.layer import IOLayer
 from url4.observe import Observer, RunFinished, RunStarted
 
 from url4.dag._context import _ObsState  # isort: skip
+from url4.dag.attachment import Attachment  # isort: skip
+from url4.dag.attachments import bind_run_files  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.executor import Executor, _wire_spawn  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -85,6 +88,7 @@ async def run(
     observer: Observer | None = None,
     trace_id: str | None = None,
     root_span_id: str | None = None,
+    attachments: Sequence[Attachment] = (),
 ) -> str:
     """Evaluate a url4 expression (text, parse tree, graph, or node) to a string.
 
@@ -140,6 +144,11 @@ async def run(
     the engine minting fresh ones. Only meaningful together with ``observer``;
     ignored (no-op) when ``observer`` is ``None``, since no ids are ever minted
     or emitted in that case.
+
+    ``attachments`` are the Case's files (supplied by the engine), bound in order as the
+    head of the run's fixed ``attachments[]`` side-channel
+    (:func:`~url4.dag.attachments.current_attachments`), for every model call this run makes.
+    A nested ``run()`` inherits the outer list; binding a different one raises ``ValueError``.
     """
     if ctx is not None and (
         io is not None or processor is not None or process is not default_process
@@ -161,7 +170,8 @@ async def run(
     obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
     _wire_spawn(run_ctx, registry)
     try:
-        result = await Executor(run_ctx).execute(_to_node(target, registry))
+        with bind_run_files(attachments):
+            result = await Executor(run_ctx).execute(_to_node(target, registry))
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
         _finish_observation(obs, status)
