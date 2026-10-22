@@ -38,7 +38,7 @@ from url4.io._source_policy import (
 from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
-from url4.io.media import FetchedBytes, require_text
+from url4.io.media import FetchedBytes, bare_media_type, require_text
 
 # Headers that describe the wire encoding of a body this adapter has already decoded.
 _DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})
@@ -146,7 +146,7 @@ class HttpIOLayer:
             accept=request.accept,
             read=lambda response: _text(request.target, response),
         )
-        return FetchResult(text, media_type=_media_type(response))
+        return FetchResult(text, media_type=_media_type(request.target, response))
 
     async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
         """``GET`` the target and return its body exactly as received, plus its media type.
@@ -159,7 +159,7 @@ class HttpIOLayer:
             accept=request.accept,
             read=_raw_body,
         )
-        return FetchedBytes(body, media_type=_media_type(response))
+        return FetchedBytes(body, media_type=_media_type(request.target, response))
 
     def _transport_url(self, target: str, relative: bool) -> str:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
@@ -319,10 +319,13 @@ def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
     )
 
 
-def _media_type(response: httpx.Response) -> str | None:
-    """The bare, lower-cased media type of ``response`` (parameters dropped), else ``None``."""
-    content_type = response.headers.get("content-type", "")
-    return content_type.split(";", 1)[0].strip().lower() or None
+def _media_type(target: str, response: httpx.Response) -> str | None:
+    """The one bare, lower-cased media type of ``response``, else ``None``.
+
+    A duplicate (comma-joined by HTTPX) or malformed ``Content-Type`` raises
+    ``unsupported_content_type`` rather than leaking a joined value to the caller.
+    """
+    return bare_media_type(target, response.headers.get("content-type"))
 
 
 def _raw_body(response: httpx.Response) -> bytes:

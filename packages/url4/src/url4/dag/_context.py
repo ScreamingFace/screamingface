@@ -158,10 +158,10 @@ class BoundedIOLayer:
         async with self._admitted():
             return await self._inner.fetch(target, relative=relative)
 
-    async def _admit[R](self, call: Callable[..., Awaitable[R]], *args: object) -> R:
-        """``call(*args)`` admitted through the run-wide semaphore, like ``fetch``."""
+    async def _admit[R](self, call: Callable[..., Awaitable[R]], *args: object, **kw: object) -> R:
+        """``call(*args, **kw)`` admitted through the run-wide semaphore (ports take keywords)."""
         async with self._admitted():
-            return await call(*args)
+            return await call(*args, **kw)
 
     @contextlib.asynccontextmanager
     async def _admitted(self) -> AsyncIterator[None]:

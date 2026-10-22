@@ -16,6 +16,7 @@ engine (``url4.dag``) may import only ``io.layer`` and ``io.idempotency``, so it
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -73,32 +74,113 @@ _TEXT_APPLICATION_TYPES = frozenset(
     }
 )
 _TEXT_SUFFIXES = ("+json", "+xml", "+yaml")
+# WHY: a charset parameter is a text hint only for an otherwise-unknown application type.
+# These are binary whatever parameter they carry (review of PR #1478): a server that labels
+# a PNG "image/png; charset=utf-8" still sends PNG bytes.
+_BINARY_APPLICATION_TYPES = frozenset(
+    {
+        "application/octet-stream",
+        "application/pdf",
+        "application/zip",
+        "application/gzip",
+        "application/x-gzip",
+        "application/x-tar",
+        "application/x-bzip2",
+        "application/x-xz",
+        "application/zstd",
+        "application/x-7z-compressed",
+        "application/vnd.rar",
+        "application/wasm",
+        "application/cbor",
+        "application/msgpack",
+        "application/x-protobuf",
+        "application/msword",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+    }
+)
+_BINARY_APPLICATION_PREFIXES = (
+    "application/vnd.openxmlformats-",
+    "application/vnd.oasis.opendocument.",
+)
+
+# RFC 9110 §5.6.2 token / §5.6.4 quoted-string / §8.3.1 media-type, as regular expressions.
+_TOKEN = r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+"
+_QUOTED = r'"(?:[\t \x21\x23-\x5b\x5d-\x7e\x80-\xff]|\\[\t \x20-\x7e\x80-\xff])*"'
+_PARAM_STEP = rf"[ \t]*;[ \t]*(?:({_TOKEN})=(?:{_TOKEN}|{_QUOTED}))?"
+_MEDIA_TYPE = re.compile(rf"({_TOKEN}/{_TOKEN})((?:{_PARAM_STEP})*)")
+_PARAMS = re.compile(_PARAM_STEP)
+_OWS = " \t"
+
+
+def _parse(content_type: str) -> tuple[str, frozenset[str]] | None:
+    """``(bare lower-cased media type, parameter names)``, or ``None`` when invalid.
+
+    RFC 9110 §8.3.1: ``type "/" subtype *( OWS ";" OWS [ name "=" ( token / quoted-string ) ] )``.
+
+    INVARIANT: anything but exactly one media type is ``None`` — notably the comma-joined
+    value HTTPX builds from duplicate ``Content-Type`` fields (``text/plain, image/png``),
+    because a comma is legal only inside a quoted-string. A ``;charset=`` inside a quoted
+    parameter value is data, never a parameter name (each quoted-string is consumed whole).
+    """
+    match = _MEDIA_TYPE.fullmatch(content_type.strip(_OWS))
+    if match is None:
+        return None
+    names = {step.group(1).lower() for step in _PARAMS.finditer(match.group(2)) if step.group(1)}
+    return match.group(1).lower(), frozenset(names)
+
+
+def _is_binary(media_type: str) -> bool:
+    return (
+        media_type.split("/", 1)[0] != "application"
+        or media_type in _BINARY_APPLICATION_TYPES
+        or media_type.startswith(_BINARY_APPLICATION_PREFIXES)
+    )
 
 
 def is_text_media_type(content_type: str | None) -> bool:
     """Whether a ``Content-Type`` (parameters allowed) denotes text the text path may decode.
 
-    Text: no type at all (today's untyped behaviour), ``text/*``, any type declaring a
-    ``charset``, the JSON/XML/YAML/JS/ndjson/form family, and ``+json``/``+xml``/``+yaml``
-    suffixes. Everything else (``image/*``, ``application/pdf``,
-    ``application/octet-stream``, …) is binary.
+    Text: no type at all (today's untyped behaviour), ``text/*``, the JSON/XML/YAML/JS/
+    ndjson/form family, ``+json``/``+xml``/``+yaml`` suffixes, and an otherwise-unknown
+    ``application/*`` type declaring a ``charset``. Everything else is binary, including
+    ``image/png; charset=utf-8`` (the charset never wins over an intrinsically binary type)
+    and any value that is not exactly one valid media type (duplicate headers, ``text/``).
 
     WHY: a binary body must never reach ``response.text`` (``OME-1538``); decoding it
     produces mojibake that a model then reads silently. A text-only consumer refuses it
     with ``unsupported_content_type`` (spec C8) and a file-aware one uses ``fetch_bytes``.
     """
-    head, _, params = (content_type or "").partition(";")
-    media_type = head.strip().lower()
-    declares_charset = any(
-        p.split("=", 1)[0].strip().lower() == "charset" for p in params.split(";")
-    )
+    if not content_type or not content_type.strip(_OWS):
+        return True
+    parsed = _parse(content_type)
+    if parsed is None:
+        return False
+    media_type, params = parsed
     return (
-        not media_type
-        or declares_charset
-        or media_type.startswith("text/")
+        media_type.startswith("text/")
         or media_type in _TEXT_APPLICATION_TYPES
         or media_type.endswith(_TEXT_SUFFIXES)
+        or ("charset" in params and not _is_binary(media_type))
     )
+
+
+def bare_media_type(target: str, content_type: str | None) -> str | None:
+    """The one bare, lower-cased media type of ``content_type``; ``None`` when absent.
+
+    INVARIANT: the bytes path never exposes a comma-joined or malformed value; one that is
+    not exactly one media type raises ``unsupported_content_type`` (permanent, spec C8).
+    """
+    if not content_type or not content_type.strip(_OWS):
+        return None
+    parsed = _parse(content_type)
+    if parsed is None:
+        raise ResolutionError(
+            f"{target!r} has Content-Type {content_type!r}, which is not one valid media type",
+            code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
+            permanent=True,
+        )
+    return parsed[0]
 
 
 def require_text(target: str, content_type: str | None) -> None:
@@ -119,6 +201,7 @@ def require_text(target: str, content_type: str | None) -> None:
 __all__ = [
     "FetchedBytes",
     "SupportsFetchBytes",
+    "bare_media_type",
     "fetch_bytes",
     "is_text_media_type",
     "require_text",
