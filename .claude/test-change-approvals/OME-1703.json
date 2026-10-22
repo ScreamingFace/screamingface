@@ -1,0 +1,70 @@
+{
+  "issue": "OME-1703",
+  "branch": "OME-1703-e4c-neutral-plugin-hooks",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-21",
+  "scope": "Stage E, E4c: the surviving Profile-named plugin hooks take neutral names. Mechanical, rename-only: fake plugins and direct hook calls in the provider-access, no-auth and per-provider suites move from allows_chatless_profile, profileless_auth_mode, invalidate_profile_session and should_mark_profile_error_on_dispatch_status to allows_chatless_credential, credentialless_auth_mode, invalidate_credential_session and should_mark_credential_error_on_dispatch_status, including one monkeypatch target string. Every assertion is kept: reversing the four renames in each file reproduces its base blob byte for byte. Fake plugins keep their profile_name strategy parameter, which core passes by position.",
+  "reason": "OME-1209 Stage E4c (plan section 3 E4c, section 4 E4c row: rename-only). Core looks these hooks up duck-typed with a silent default, so a fake plugin left on an old name would silently fall back to the base default and the test would stop exercising its subject. Owner approval 2026-10-21: the 15 rename-only files as listed.",
+  "files": {
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_fake.py": {
+      "base_blob": "0dc97e19b630d74adf0bd305f5293ebb8e25aa1b",
+      "approved_blob": "72b4bed8fe29bd0f33c7013a57b0d89c6bbb5c72"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_harness.py": {
+      "base_blob": "79f22173e24be86dedcc036f348408a6bdf12906",
+      "approved_blob": "5b0a27fdd9f13dfaf1da0f0004113306b2bda4f7"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_no_auth_provider_access.py": {
+      "base_blob": "38bb50a24b7bb8af3e0cd90f6f8ceccde1a58af8",
+      "approved_blob": "c3bfbe3b0f60fa9796213c79c4f0b6a2c6cd641b"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_authorize_contract.py": {
+      "base_blob": "4be960cd4fb98a9497c8f40408c14007a9ac6e21",
+      "approved_blob": "a2b64f87745769b22b995d55a7b77c16909ce351"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_helpers.py": {
+      "base_blob": "82f42aa6dfe563243e2a891b2c08a92ed5bf55f9",
+      "approved_blob": "093a1aebb14f4ece938f82e27921c051fa89e092"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_port_shape.py": {
+      "base_blob": "04e32c414899139d59efb224a58b997d514a7e9e",
+      "approved_blob": "01c5a5145c4c699e473d80f0c83ac39ad57a1d78"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_resolve_contract.py": {
+      "base_blob": "cf1ee33dd909477e187b963600948e4b807915d0",
+      "approved_blob": "1ee5034e40248ad8befdda4383ad542b46034079"
+    },
+    "apps/aigateway/tests/unit/core/test_no_auth_mode.py": {
+      "base_blob": "290aaa0fd7f22f69f8b6ba33c4567c97941b9dfb",
+      "approved_blob": "822c304df8950090842925112d91c2518b79f901"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_provider.py": {
+      "base_blob": "3365ecbdae40e3868f229a36ed176f5bd878c208",
+      "approved_blob": "3e02c85f143af3fba9562469232531e3e35b2122"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_routes.py": {
+      "base_blob": "3d25a384e5df58a5dcdb77c60ab6c613e3a8f271",
+      "approved_blob": "6cb297576845275545dce1f583e28fa042b9d56c"
+    },
+    "apps/aigateway/tests/unit/huggingface/test_huggingface_dispatch.py": {
+      "base_blob": "9d5cd2feccf45a4aa8154e0e922d3951091cb4f0",
+      "approved_blob": "4e3b6e1d097a687f5dd5b9930805d4d34c5d83cf"
+    },
+    "apps/aigateway/tests/unit/huggingface/test_huggingface_provider.py": {
+      "base_blob": "c20d2ec61c167e820bf8330970edb64347447a91",
+      "approved_blob": "d0fcf3174f359c5044eaf73ed2794f21b3e36408"
+    },
+    "apps/aigateway/tests/unit/ollama/test_ollama_provider.py": {
+      "base_blob": "e5c239da1d5016fc5c2e81c15a3c43cff47bbc4c",
+      "approved_blob": "314997695416c82bd688a22d41fbecfc8cc1dd84"
+    },
+    "apps/aigateway/tests/unit/openai/test_openai_provider.py": {
+      "base_blob": "68818b69be6052997cf621efe6678da90ff1564b",
+      "approved_blob": "080d6d3d553197cde9713a657f11a00e3c556f11"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_dispatch.py": {
+      "base_blob": "32915da160ffd09bfa0612dc9d3455d987828293",
+      "approved_blob": "ebdf7ef553d2f79e8635d16b0e39803af56a57fe"
+    }
+  }
+}

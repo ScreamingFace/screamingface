@@ -316,6 +316,22 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         """
         return None
 
+    def configure_discovery(self, *, enabled: bool) -> None:
+        """Receive the deployment's discovery kill switch (``AIGW_DISCOVERY_ENABLED``).
+
+        For a provider whose discovery dials OUTSIDE the injected runtime — a credentialed,
+        per-account read the shared runtime cannot carry (Codex, OME-1634). ``create_app``
+        calls this on every registered plugin with the setting, so
+        ``AIGW_DISCOVERY_ENABLED=false`` still audits to zero discovery egress of any kind.
+
+        INVARIANT: with ``enabled=False`` the provider opens no discovery connection at all
+        and reports its discovered data as unknown — never as an error.
+
+        Default: no-op — a provider whose discovery only uses the injected runtime is
+        already silenced by its absence.
+        """
+        del enabled
+
     def chat_transport_capabilities(
         self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[TransportCapability, ...]:
@@ -350,8 +366,8 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         # could never advertise a parameter until it had a mode of its own to
         # prove them under.
         # INVARIANT: "none" is derived HERE, from the provider's own declaration —
-        # never from an absent profile. A provider that merely permits a
-        # profile-less request (``allows_chatless_profile``) still declares real
+        # never from an absent credential. A provider that merely permits a
+        # credential-less request (``allows_chatless_credential``) still declares real
         # credential types and keeps them.
         """
         modes: list[AuthMode] = []

@@ -19,7 +19,7 @@ from .auth_mode import (
     auth_type_of,
     available_auth_modes,
     contract_auth_mode,
-    profileless_auth_mode,
+    credentialless_auth_mode,
     provider_name_of,
 )
 from .connection_backed import (
@@ -159,7 +159,7 @@ __all__ = [
     "oauth_connection_store",
     "operational_access_for",
     "pair_inventory",
-    "profileless_auth_mode",
+    "credentialless_auth_mode",
     "provider_access_for",
     "provider_name_of",
     "reauth_url_for",

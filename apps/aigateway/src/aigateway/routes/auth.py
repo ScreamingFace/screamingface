@@ -70,7 +70,7 @@ def _credential_strategy_for_credential_name(app, plugin, provider: str, credent
 
 def _invalidate_credential(app, plugin, credential_name: str) -> None:
     """Evict one credential name — a replaced Connection's locator."""
-    invalidator = getattr(plugin, "invalidate_profile_session", None)
+    invalidator = getattr(plugin, "invalidate_credential_session", None)
     if callable(invalidator):
         invalidator(credential_name)
     # Drop the shared cached strategy so re-auth / api-key change / delete / refresh

@@ -104,10 +104,10 @@ class TaskReplayCasesSpec:
     empty_answer_key_allowed: bool = False
     #: Some multiple-choice Cases key several options: a list of option letters (truthfulqa's
     #: ``["B"]``, stereoset's two related continuations) or one comma-joined string of them
-    #: (chembench's ``"A,D"``, which its pattern scorer compares as text). Accepted only on a
-    #: row that says so, every letter checked against the Case's options (OME-1602, F6); a
-    #: default row still refuses a list beside choices. No identity pin: the Case Digest
-    #: seals the keys.
+    #: (chembench's ``"A,D"``, which its row's scorer compares as a set of letters, our Named
+    #: Deviation adopting inspect_evals PR #2591). Accepted only on a row that says so, every
+    #: letter checked against the Case's options (OME-1602, F6); a default row still refuses a
+    #: list beside choices. No identity pin: the Case Digest seals the keys.
     letter_list_key: bool = False
     #: A NAMED DEVIATION: inspect_evals Sample ids (``str(Sample.id)``)
     #: dropped after the task builds its dataset and before capture (sad_stages_full: three
@@ -431,16 +431,20 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         license="apache-2.0",
     ),
     # worldsense — imported by Task replay on 2026-10-02 from
-    #   inspect_evals.worldsense.worldsense:worldsense.
+    #   inspect_evals.worldsense.worldsense:worldsense; re-pointed on 2026-10-21 to
+    #   screamingface_engine_inspect.local_tasks.worldsense.worldsense:worldsense, inspect_evals'
+    #   Task with every trial kept (NAMED DEVIATION, inspect_evals PR #2507): 40,176 → 87,048.
+    #   Sealed by two build replays of this declaration (the importer cannot read a local
+    #   Task's re-exported inspect_evals scorer), which reproduce the old seal on the old Task.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   url https://github.com/facebookresearch/worldsense/raw/bd81d945077f169cf95ff39207f788f86e4645e9/data/worldsense/test_set/trials.jsonl.bz2
     #     pin sha256 00c94031fc435c5f13156d57fcf61dace875d5e7fa4c218a40029a2eb0f3deb9
     "worldsense": TaskReplayCasesSpec(
-        task="inspect_evals.worldsense.worldsense:worldsense",
+        task="screamingface_engine_inspect.local_tasks.worldsense.worldsense:worldsense",
         task_args={"shuffle": False},
-        case_count=40176,
-        case_digest="426b5a4e50aa171acc180de1e5836eb1f25b605a960ae8c6e08b1f414a3b079c",
-        case_set_digest="dc359e888daa42d4fa6df4c0af21dc2dfba374f2a745b23e9fcc427bfb941963",
+        case_count=87048,
+        case_digest="347a2aa2ab71eb24a902dc8697293cc3f365baabe399929963a8b250a2caf6f1",
+        case_set_digest="a24618fd666142fcac0efd144ba22dc20e5147c2a0b9363b12d7c49ba4ffa9de",
         keep_sample_metadata=True,
         # License: owner decision 2026-10-01: CC-BY-NC-4.0, facebookresearch/worldsense LICENSE;
         #  non-commercial use only.
@@ -1034,13 +1038,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face matichon/thai-onet-m6-exam/default
     #     pin revision 93ffb5e3f3ec630b73e501937805984dd24f2365
+    # Re-sealed 2026-10-21 (OME-1701 PR 6) by two build replays: the 372 are
+    #   the 391 less the 19 ids below, in the same order (positional Case ids renumber).
     "onet_m6": TaskReplayCasesSpec(
         task="inspect_evals.onet.onet:onet_m6",
-        case_count=391,
-        case_digest="92d013fe6efd85165221d02958efaf13df3f31ee25ce4e8868112b92c30e613b",
-        case_set_digest="7a6f28e40396cd9c450e0d4f7948368e22f522cb784636105072b95eb9fc96d9",
+        case_count=372,
+        case_digest="224831b1d7bb097a1dec3eb7e06c4ea3515ecb0e89f7628e08cabc3064c8e116",
+        case_set_digest="89e60804a1506a5fc18503411b3e5687caa30e523c7ea68f0841c5dc920412f8",
         # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
-        # questions, the Benchmark serves 391. Six cannot be graded as published: inspect_evals
+        # questions, the Benchmark serves 372 (391 until the 19 below). Six cannot be graded
+        # as published: inspect_evals
         # split their numbered choices wrongly, so the answer letter points past the last
         # choice (2021_4_b447: answer E, 4 choices).
         excluded_sample_ids=(
@@ -1050,6 +1057,43 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             "2021_10_0325",
             "2021_13_1922",
             "2021_4_b447",
+            # NAMED DEVIATION (OME-1701 PR 6, 2026-10-21): 18 more that
+            # v0.20.0 builds wrongly. Its option split knows only "N. x", so an option
+            # written "1.x" or "1 x" is dropped or merged and a year inside an option is
+            # split off as one; the key letter comes from the record's own number, so it
+            # can land on another option's text. inspect_evals PR #2590 (open) parses the
+            # options in number order: these, with the six above, are every Sample where its
+            # parse differs from v0.20.0's. Left out rather than re-parsed, because the parse
+            # runs inside inspect_evals' Task: re-parsing needs a local Task, so a new origin
+            # and catalogue id for the row, a larger change than leaving 18 questions out (a
+            # scorer fix, by contrast, sits beside inspect_evals' Task, as other rows adopt
+            # open PRs). The other 373 questions parse the same under both. "4 of 5" =
+            # options v0.20.0 reads of the record's five. The test pins each reason.
+            # The key names another option's text (16):
+            "2019_23_38bf",  # D, 4 of 5
+            "2019_27_0cda",  # B, 4 of 5
+            "2019_62_e6f7",  # B, 4 of 5
+            "2020_25_f98b",  # A, 4 of 5
+            "2020_30_aa8d",  # D, 4 of 5
+            "2021_17_309f",  # D is "It has lived", the answer "It lives"
+            "2021_17_b585",  # C, 4 of 5
+            "2021_22_d6cb",  # D, 4 of 5, two options merged into D
+            "2021_29_b28c",  # B, 4 of 5
+            "2021_31_213c",  # C is "2": years in the options split into 22
+            "2021_36_882c",  # A is "covering", the answer "picnic"
+            "2021_37_36fa",  # C is "amusing", the answer "excess"
+            "2021_38_60ca",  # B, two options merged into B
+            "2021_40_e2b5",  # D is "careless", the answer "restless"
+            "2021_5ก_cd35",  # C, 4 of 5
+            "2021_60_3497",  # B, two options merged into B
+            # The key is right, but an option is missing (2):
+            "2019_10ก_6985",  # B, 4 of 5
+            "2020_1ข_eead",  # B, 4 of 5
+            # A SEPARATE NAMED DEVIATION (OME-1701 PR 6 review, 2026-10-21), not #2590's: a
+            # fault in the source data that neither parser catches. Options C and E have the
+            # same text ("สนับสนุน สรุป สนับสนุน") and the key is C, so a reply of E names the
+            # right answer and is marked wrong. The only question whose key text appears twice.
+            "2020_32_08b1",
         ),
         source_pins={
             "matichon/thai-onet-m6-exam": "93ffb5e3f3ec630b73e501937805984dd24f2365",
@@ -1598,15 +1642,19 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         license="mit",
     ),
     # stereoset — imported by Task replay on 2026-10-16 from
-    #   inspect_evals.stereoset.stereoset:stereoset.
+    #   inspect_evals.stereoset.stereoset:stereoset; re-pointed on 2026-10-21 to
+    #   screamingface_engine_inspect.local_tasks.stereoset.stereoset:stereoset, inspect_evals'
+    #   Task with every record kept (NAMED DEVIATION, inspect_evals PR #2524): 2,115 → 2,123.
+    #   Sealed by two build replays of this declaration (the importer cannot read a local
+    #   Task's re-exported inspect_evals scorer), which reproduce the old seal on the old Task.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face McGill-NLP/stereoset/intersentence
     #     pin revision bf6e7ce50491784d094fb7afe60a70ecccb89035
     "stereoset": TaskReplayCasesSpec(
-        task="inspect_evals.stereoset.stereoset:stereoset",
-        case_count=2115,
-        case_digest="1c3774ed7ab9dc0ed30e77707ef33c6b0b0c2b822c9e78b35aceb71196b97f6a",
-        case_set_digest="69db3f56f3d47eede7314c04d9de8d73ce8eb6b3e2bd297a70c6cae0f9cbe548",
+        task="screamingface_engine_inspect.local_tasks.stereoset.stereoset:stereoset",
+        case_count=2123,
+        case_digest="2c8f8b3ba35b7fbe1232c33b6bcc90c31277f254ff37b79cac2ead1419ac7145",
+        case_set_digest="be5e20b59aa859aa64ed382a77ada26880677dd17c9858dd709f366dfb6bdcc4",
         keep_sample_metadata=True,
         letter_list_key=True,
         source_pins={

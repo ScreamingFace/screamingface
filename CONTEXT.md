@@ -325,6 +325,13 @@ It is part of the Benchmark Revision and shown in the Report; it says the score 
 never that anyone should flip it again.
 _Avoid_: Reversed score, lower-is-better Benchmark
 
+**Unlisted Benchmark**:
+A Benchmark that stays installed, revisioned and runnable by id but is absent from the catalogue
+listing, so the SDK listing and the Scoreboard seed never see it. Like an unlisted video: the link
+works, the index does not show it. The mark is declared on the Benchmark in code and never enters
+its Benchmark Revision.
+_Avoid_: Hidden, private, retired (the Scoreboard's private visibility and retire tool are different things)
+
 **Headline Score**:
 The one score of a Benchmark that ranks the Leaderboard, always higher-is-better. For a
 single-scorer Benchmark it is the score; for a Benchmark with several Named Scores it is the one

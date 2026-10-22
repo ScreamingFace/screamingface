@@ -63,7 +63,7 @@ def _body(request: httpx.Request) -> dict[str, Any]:
 
 
 def test_the_submission_sends_the_frozen_copy_and_the_answer_seed() -> None:
-    payload = _submission(_result(frozen_copy_id=_COPY, capture_status="complete", answer_seed=7))
+    payload = _submission(_result(pinned_cache=_COPY, capture_status="complete", answer_seed=7))
 
     assert payload["frozen_copy_id"] == _COPY
     assert payload["capture_status"] == "complete"
@@ -93,7 +93,7 @@ def test_a_zero_answer_seed_is_sent() -> None:
 
 def test_submit_sends_the_case_digest_with_the_capture_fields() -> None:
     # Q29: the digest of the run's own cases travels only with a capture status.
-    result = _result(frozen_copy_id=_COPY, capture_status="complete")
+    result = _result(pinned_cache=_COPY, capture_status="complete")
 
     assert _submission(result)["case_digest"] == case_digest(result.cases)
     assert "case_digest" not in _submission(_result())
@@ -108,7 +108,7 @@ def test_submit_posts_the_fields_to_the_board() -> None:
 
     with _sync_client(handler) as client:
         client.leaderboards.submit(
-            _result(frozen_copy_id=_COPY, capture_status="complete", answer_seed=7)
+            _result(pinned_cache=_COPY, capture_status="complete", answer_seed=7)
         )
 
     assert _body(seen[0])["frozen_copy_id"] == _COPY
@@ -136,7 +136,7 @@ def test_get_score_reads_the_frozen_copy_and_the_reproductions() -> None:
     with _sync_client(lambda _: httpx.Response(200, json=_reproduced_response())) as client:
         score = client.leaderboards.get_score(SCORE_ID)
 
-    assert score.frozen_copy_id == _COPY
+    assert score.pinned_cache == _COPY
     assert score.capture_status == "complete"
     assert score.case_digest == _DIGEST
     assert score.answer_seed == 7
@@ -151,7 +151,7 @@ def test_an_older_board_leaves_the_new_fields_absent() -> None:
     with _sync_client(lambda _: httpx.Response(200, json=_score_response())) as client:
         score = client.leaderboards.get_score(SCORE_ID)
 
-    assert score.frozen_copy_id is None
+    assert score.pinned_cache is None
     assert score.capture_status is None
     assert score.case_digest is None
     assert score.answer_seed is None
@@ -191,7 +191,7 @@ async def test_the_async_client_reads_the_same_fields() -> None:
     async with _async_client(lambda _: httpx.Response(200, json=_reproduced_response())) as client:
         score = await client.leaderboards.get_score(SCORE_ID)
 
-    assert (score.frozen_copy_id, score.reproduction_count) == (_COPY, 3)
+    assert (score.pinned_cache, score.reproduction_count) == (_COPY, 3)
 
 
 def test_get_score_normalises_the_copy_id_as_the_board_does() -> None:
@@ -199,4 +199,4 @@ def test_get_score_normalises_the_copy_id_as_the_board_does() -> None:
     with _sync_client(lambda _: httpx.Response(200, json=response)) as client:
         score = client.leaderboards.get_score(SCORE_ID)
 
-    assert score.frozen_copy_id == _COPY
+    assert score.pinned_cache == _COPY

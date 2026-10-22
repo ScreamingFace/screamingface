@@ -1,12 +1,12 @@
 ---
 id: OME-1649
 linear_url: https://linear.app/openmined/issue/OME-1649/fix-cloudflare-access-authentication-blocking-leaderboard-score
-status: in_review
+status: done
 type: bug
 priority: 3
 labels: [bug, client-sf, agentic, autonomous]
 created: 2026-10-18
-closed:
+closed: 2026-10-21
 ---
 
 # OME-1649 — Fix Cloudflare Access authentication blocking leaderboard score submissions
@@ -25,3 +25,5 @@ staging, then one on production, reported on the issue.
 Spec: ../spec/2026-10-20-OME-1649-access-login-challenged-path.md
 Ledger: ../work/2026-10-20-OME-1649-access-login-challenged-path.md
 Related: `OME-1650` (anonymous `/v1/public/scores` read).
+
+- 2026-10-21: verified on staging (SDK from `main`) and production (SDK 0.1.6, two MuSiQue submits); closed. RC-2 follow-up: `OME-1711`.

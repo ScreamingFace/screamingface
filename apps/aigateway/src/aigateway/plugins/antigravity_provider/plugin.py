@@ -114,13 +114,13 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
 
     def oauth_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AntigravityOAuth(
-            profile_name=profile_name,
+            profile_name=credential_name,
             client_secret=self._client_secret(),
             client_id=self.settings.client_id,
             token_url=self.settings.token_url,
@@ -165,18 +165,18 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         # No Antigravity API-key path; OAuth-only for v1.
         return False
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return False
 
     def supports_chat_streaming(self) -> bool:
         # Upstream SSE is aggregated into a non-streaming response in v1.
         return False
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         return status_code in (401, 403)
 
-    def invalidate_profile_session(self, profile_name: str) -> None:
-        get_litellm_antigravity_handler().invalidate_session(profile_name)
+    def invalidate_credential_session(self, credential_name: str) -> None:
+        get_litellm_antigravity_handler().invalidate_session(credential_name)
 
     def chat_parameter_rules(
         self, *, model: str, auth_type: AuthMode | None = None

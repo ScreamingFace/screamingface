@@ -164,7 +164,7 @@ def test_the_guard_actually_finds_the_plugin_registries() -> None:
     assert len(ids) >= 100
     # Anthropic is prefixed like every other provider — `canonical_model_id` has no exemption.
     assert "anthropic/claude-haiku-4-5" in ids
-    assert "codex/gpt-5.5" in ids
+    assert "codex/gpt-6-astra" in ids
     # The returned-list extractor is the one that would silently contribute nothing.
     assert "openrouter/openai/gpt-5.5" in ids
     # INVARIANT: every provider contributes. A rename in ONE plugin must not go unnoticed just
@@ -280,11 +280,9 @@ _PRE_OME859_DECLARED = frozenset(
         "anthropic/claude-sonnet-4-6",
         "anthropic/claude-sonnet-4-5",
         "anthropic/claude-haiku-4-5",
-        "codex/gpt-5.5",
-        "codex/gpt-5.4",
-        "codex/gpt-5.4-mini",
-        "codex/gpt-5.3-codex",
-        "codex/gpt-5.2",
+        # The five codex ids declared here (gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex,
+        # gpt-5.2) were retired on purpose: every ChatGPT account refuses them, so aigateway
+        # stopped serving them (OME-1634, #1441). The route ids are gone, not renamed.
         "gemini-cli/gemini-3.1-flash-lite",
         "gemini-cli/gemini-2.5-pro",
         "gemini-cli/gemini-2.5-flash",

@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1713",
+  "branch": "OME-1713-codex-seed-live-list",
+  "approver": "Khoa Duy Nguyen (owner-approved in session)",
+  "date": "2026-10-22",
+  "scope": "Three edits, each naming the retired Codex models. test_declared_models_match_aigateway.py: (1) in test_the_guard_actually_finds_the_plugin_registries the sample served id codex/gpt-5.5 becomes codex/gpt-6-astra; (2) the five codex ids leave _PRE_OME859_DECLARED, replaced by a comment saying they were retired on purpose. test_model_seeds.py: (3) test_the_shipped_world_totals_match_the_audited_gap's totals go 117 -> 116 and 88 routable -> 87, with a dated comment. No other edits to either file.",
+  "reason": "PR #1441 (OME-1634) made aigateway serve the live Codex list (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna) and drop gpt-5.5, gpt-5.4, gpt-5.4-mini, gpt-5.3-codex, gpt-5.2, which every ChatGPT account refuses. The Engine's Codex seed follows, so these assertions about the old ids no longer describe a served or declared model.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_declared_models_match_aigateway.py": {
+      "base_blob": "4d7253a458ac6f6ff3363c808a2c4ab701296389",
+      "approved_blob": "71c866e6545de35bd806fbca733f1aa183ad0953"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_seeds.py": {
+      "base_blob": "967991660ff10770d188d0d82c03ddc08470ad24",
+      "approved_blob": "c5d999bfd9e391958317119b18e70172d433ca4b"
+    }
+  }
+}

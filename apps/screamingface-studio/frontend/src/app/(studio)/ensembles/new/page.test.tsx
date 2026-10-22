@@ -28,8 +28,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { useBenchmarkStore } from "@/lib/benchmark-store";
-import { useEnsembleStore } from "@/lib/ensemble-store";
-import { useModelStore } from "@/lib/model-store";
+import { type SavedEnsemble, useEnsembleStore } from "@/lib/ensemble-store";
+import { toSavedModel, useModelStore } from "@/lib/model-store";
+import { type SoloNode, fusionOf, recipeToUrl4 } from "@/lib/recipe";
 import EnsembleComposerPage from "./page";
 
 const MODELS: EngineModel[] = [
@@ -52,6 +53,11 @@ beforeEach(() => {
   client.listModels.mockResolvedValue(MODELS);
 });
 
+// What Share url4 copies for a fusion of these models: the only form `?recipe=` imports.
+function fusionRecipe(...ids: string[]) {
+  return recipeToUrl4(fusionOf(ids.map((id) => toSavedModel({ id, owned_by: id.split("/")[0] }))));
+}
+
 function openRecipe(recipe: string) {
   search.params = new URLSearchParams({ recipe });
   render(<EnsembleComposerPage />);
@@ -61,26 +67,169 @@ describe("EnsembleComposerPage recipe import", () => {
   it("waits for a failed catalog load and imports once a retry succeeds", async () => {
     client.listConnections.mockRejectedValueOnce(new EngineError("unreachable"));
     const user = userEvent.setup();
-    openRecipe("url4://shared?models=ollama/llama3+ollama/qwen");
+    openRecipe(fusionRecipe("ollama/llama3", "ollama/qwen"));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "this recipe can't be imported yet",
     );
-    expect(screen.queryByText("shared")).not.toBeInTheDocument();
+    expect(screen.queryByText("2 models · 0 runs")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
-    expect(await screen.findByText("shared")).toBeInTheDocument();
     expect(await screen.findByText("2 models · 0 runs")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // The recipe's own name, as the SDK infers it from the members.
+    expect(screen.getByText("llama3+qwen")).toBeInTheDocument();
   });
 
   it("names the models it left out because the catalog doesn't have them", async () => {
-    openRecipe("url4://shared?models=ollama/llama3+gone/old");
+    openRecipe(fusionRecipe("ollama/llama3", "gone/old"));
 
-    expect(await screen.findByText("shared")).toBeInTheDocument();
     expect(await screen.findByText("1 models · 0 runs")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("gone/old");
+  });
+
+  it("refuses the old url4:// form with a message instead of a guess", async () => {
+    openRecipe("url4://shared?models=ollama/llama3+ollama/qwen");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This isn't a recipe Studio can import",
+    );
+    expect(screen.getByText("0 models · 0 runs")).toBeInTheDocument();
+  });
+});
+
+describe("EnsembleComposerPage recipe parameters", () => {
+  it("shows a parameter url4 cannot carry and will not share the recipe", async () => {
+    const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
+    const root = fusionOf([llama, qwen]);
+    root.members[0] = { ...(root.members[0] as SoloNode), params: [{ key: "stop", value: "a&b" }] };
+    useEnsembleStore.setState({
+      ensembles: [
+        {
+          id: "e1",
+          name: "with-stop",
+          root,
+          slots: [],
+          strategy: "majority_vote",
+          customReduce: false,
+          loopMode: "parallel",
+          judge: null,
+          judgeId: null,
+          runs: 0,
+          runHistory: [],
+          createdAt: 1,
+          updatedAt: 1,
+        } as SavedEnsemble,
+      ],
+    });
+    search.params = new URLSearchParams({ id: "e1" });
+    render(<EnsembleComposerPage />);
+
+    expect(await screen.findByText("with-stop")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("stop");
+    expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
+  });
+
+  function openSaved(params: { key: string; value: string }[]) {
+    const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
+    const root = fusionOf([llama, qwen]);
+    root.members[0] = { ...(root.members[0] as SoloNode), params };
+    useEnsembleStore.setState({
+      ensembles: [
+        {
+          id: "e3",
+          name: "params",
+          root,
+          slots: [],
+          strategy: "majority_vote",
+          customReduce: false,
+          loopMode: "parallel",
+          judge: null,
+          judgeId: null,
+          runs: 0,
+          runHistory: [],
+          createdAt: 1,
+          updatedAt: 1,
+        } as SavedEnsemble,
+      ],
+    });
+    search.params = new URLSearchParams({ id: "e3" });
+    render(<EnsembleComposerPage />);
+  }
+
+  it("keeps a parameter with a name and an empty value in the url4", async () => {
+    openSaved([{ key: "stop", value: "" }]);
+
+    expect(await screen.findByText("params")).toBeInTheDocument();
+    expect(await screen.findByText(/\?stop=&q=\(\$input\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows an issue for a parameter with no name and will not share the recipe", async () => {
+    openSaved([{ key: "", value: "1" }]);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/name/i);
+    expect(screen.getByRole("button", { name: "Share url4" })).toBeDisabled();
+  });
+
+  it("will not go on to Run or start a run while the recipe has an issue", async () => {
+    useBenchmarkStore.setState({ status: "idle", benchmarks: [], error: null });
+    client.listBenchmarks.mockResolvedValue(CATALOG);
+    const user = userEvent.setup();
+    openSaved([{ key: "", value: "1" }]);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/name/i);
+    expect(screen.getByRole("button", { name: /Next: Run/ })).toBeDisabled();
+
+    await user.click(screen.getByRole("tab", { name: "Runs" }));
+    const runButton = await screen.findByRole("button", { name: /Run Evaluation/ });
+    expect(runButton).toBeDisabled();
+    expect(screen.getByText(/Fix the recipe before running/)).toBeInTheDocument();
+    // Even with a runnable benchmark chosen, the recipe's issue keeps Run off.
+    await user.click(await screen.findByRole("radio", { name: "IFEval" }));
+    expect(screen.getByRole("button", { name: /Run Evaluation/ })).toBeDisabled();
+  });
+
+  it("lists two issues of the same kind on one model without a duplicate key", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const [llama, qwen] = MODELS.map((model) => toSavedModel(model));
+    const root = fusionOf([llama, qwen]);
+    root.members[0] = {
+      ...(root.members[0] as SoloNode),
+      params: [
+        { key: "a b", value: "1" },
+        { key: "a b", value: "2" },
+      ],
+    };
+    useEnsembleStore.setState({
+      ensembles: [
+        {
+          id: "e2",
+          name: "twice",
+          root,
+          slots: [],
+          strategy: "majority_vote",
+          customReduce: false,
+          loopMode: "parallel",
+          judge: null,
+          judgeId: null,
+          runs: 0,
+          runHistory: [],
+          createdAt: 1,
+          updatedAt: 1,
+        } as SavedEnsemble,
+      ],
+    });
+    search.params = new URLSearchParams({ id: "e2" });
+    render(<EnsembleComposerPage />);
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(within(screen.getByRole("alert")).getAllByRole("listitem").length).toBeGreaterThan(1);
+    expect(
+      consoleError.mock.calls.some((call) => String(call[0]).includes("same key")),
+    ).toBe(false);
+    consoleError.mockRestore();
   });
 });
 
@@ -124,7 +273,7 @@ describe("EnsembleComposerPage run benchmark picker", () => {
   // A two-model fusion, so only the benchmark choice can hold Run back.
   async function openRuns() {
     const user = userEvent.setup();
-    openRecipe("url4://shared?models=ollama/llama3+ollama/qwen");
+    openRecipe(fusionRecipe("ollama/llama3", "ollama/qwen"));
     expect(await screen.findByText("2 models · 0 runs")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Runs" }));
     return user;

@@ -40,13 +40,13 @@ def available_auth_modes(plugin: Any) -> tuple[AuthMode, ...]:
     return cast("tuple[AuthMode, ...]", tuple(cast(Any, modes)()))
 
 
-def profileless_auth_mode(plugin: Any) -> AuthMode | None:
-    hook = getattr(plugin, "profileless_auth_mode", None)
+def credentialless_auth_mode(plugin: Any) -> AuthMode | None:
+    hook = getattr(plugin, "credentialless_auth_mode", None)
     return cast("AuthMode | None", hook()) if callable(hook) else None
 
 
 def allows_chatless(plugin: Any) -> bool:
-    checker = getattr(plugin, "allows_chatless_profile", None)
+    checker = getattr(plugin, "allows_chatless_credential", None)
     return bool(checker()) if callable(checker) else False
 
 
@@ -67,9 +67,9 @@ def auth_mode_for(auth_type: AuthType | None, *, plugin: Any) -> AuthMode:
     # silently drop a credentialed provider into no-auth.
     """
     if auth_type is None:
-        profileless = profileless_auth_mode(plugin)
-        if profileless is not None:
-            return profileless
+        credentialless = credentialless_auth_mode(plugin)
+        if credentialless is not None:
+            return credentialless
         if available_auth_modes(plugin) == ("none",):
             return "none"
     mode: AuthMode = auth_type or "oauth"
@@ -86,17 +86,17 @@ def auth_mode(target: CredentialTarget, *, plugin: Any) -> AuthMode:
 def contract_auth_mode(target: CredentialTarget, *, plugin: Any) -> AuthMode:
     """The auth mode the published contract is bound to, keyless case included.
 
-    With any stored target — or a provider that permits a chatless profile — this is exactly
+    With any stored target — or a provider that permits a chatless request — this is exactly
     `auth_mode`. The added branch (OME-1167) covers only the target-less answer that used to
     404: the datasheet is published under the provider's own declared preference — its
-    profileless mode when it names one, else its FIRST declared auth mode.
+    credentialless mode when it names one, else its FIRST declared auth mode.
 
     # WHY not `auth_mode` for that case: its target-less fallback is `"oauth"`, which refuses
     # an api-key-only provider — correct for a dispatch target, wrong for a datasheet that
     # merely needs A mode to be published under.
     """
     if target.kind != "stored" and not allows_chatless(plugin):
-        keyless = profileless_auth_mode(plugin)
+        keyless = credentialless_auth_mode(plugin)
         if keyless is not None:
             return keyless
         return available_auth_modes(plugin)[0]

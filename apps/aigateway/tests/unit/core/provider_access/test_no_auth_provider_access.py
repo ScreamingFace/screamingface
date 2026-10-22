@@ -14,10 +14,10 @@ class _NoCredentialPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("none",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
-    def profileless_auth_mode(self) -> None:
+    def credentialless_auth_mode(self) -> None:
         return None
 
 

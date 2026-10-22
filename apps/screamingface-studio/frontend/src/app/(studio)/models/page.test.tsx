@@ -24,6 +24,7 @@ vi.mock("@/lib/tauri", () => ({
 }));
 
 import { useModelStore } from "@/lib/model-store";
+import { type SoloNode, parseRecipe } from "@/lib/recipe";
 import ModelsPage from "./page";
 
 function connection(
@@ -296,5 +297,63 @@ describe("ModelsPage", () => {
         name: "Select openrouter/model-a for composing",
       }),
     ).toBeDisabled();
+  });
+  it("composes the checked models into a recipe the builder can import", async () => {
+    connections = [connection("openrouter", "OpenRouter", { status: "connected" })];
+    useModelStore.setState({
+      library: [
+        {
+          id: "openrouter/model-a",
+          name: "openrouter/model-a",
+          providerId: "openrouter",
+          providerName: "OpenRouter",
+        },
+      ],
+    });
+    const user = await openProvider("OpenRouter");
+    await user.click(screen.getByRole("button", { name: /^Starred/ }));
+    await user.click(
+      within(screen.getByRole("main")).getByRole("checkbox", {
+        name: "Select openrouter/model-a for composing",
+      }),
+    );
+
+    const link = screen.getByRole("link", { name: "Compose a Fusion" });
+    const recipe = new URL(link.getAttribute("href") ?? "", "http://studio").searchParams.get(
+      "recipe",
+    );
+    const parsed = parseRecipe(recipe ?? "");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok || parsed.root.kind !== "fusion") throw new Error("not a fusion");
+    expect(parsed.root.members.map((member) => (member as SoloNode).model?.id)).toEqual([
+      "openrouter/model-a",
+    ]);
+  });
+
+  it("says why a fusion of the checked models can't be composed", async () => {
+    connections = [connection("ollama", "Ollama", { status: "connected" })];
+    client.listModels.mockResolvedValue([{ id: "ollama/llama3:8b", owned_by: "ollama" }]);
+    useModelStore.setState({
+      library: [
+        {
+          id: "ollama/llama3:8b",
+          name: "ollama/llama3:8b",
+          providerId: "ollama",
+          providerName: "Ollama",
+        },
+      ],
+    });
+    const user = await openProvider("Ollama");
+    await user.click(screen.getByRole("button", { name: /^Starred/ }));
+    await user.click(
+      within(screen.getByRole("main")).getByRole("checkbox", {
+        name: "Select ollama/llama3:8b for composing",
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: "Compose a Fusion" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      'The Engine can\'t address the model id "ollama/llama3:8b" in url4.',
+    );
   });
 });

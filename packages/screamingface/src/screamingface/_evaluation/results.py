@@ -214,7 +214,7 @@ def _candidate_result(
             cache_saved_cost_archive_usd=outcome.cache_saved_cost_archive_usd,
             cache_unpriced_hits=outcome.cache_unpriced_hits,
             # OME-1307: the frozen copy, as the Engine's run summary stated it (None = unknown).
-            frozen_copy_id=outcome.frozen_copy_id,
+            pinned_cache=outcome.frozen_copy_id,
             capture_status=outcome.capture_status,
             capture_partial_reasons=outcome.capture_partial_reasons,
         )

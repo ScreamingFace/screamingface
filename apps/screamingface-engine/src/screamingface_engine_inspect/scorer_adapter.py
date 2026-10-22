@@ -26,7 +26,10 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               state their scorer expects. Keyed off the MATERIAL's shape, never off
               which scorer — still zero per-scorer branches. A conversation Case (its
               input is the candidate-input envelope, OME-1527 R14) is opened back into
-              its turns, so the scorer reads the chat the Candidate was shown.
+              its turns, so the scorer reads the chat the Candidate was shown. The reply
+              carries why the Candidate's model stopped, in inspect's words
+              (:func:`_stop_reason`), so a scorer can tell a reply cut off by the token
+              limit from a finished one.
     Stage 3 — await their scorer. A raise becomes the named failure code
               ``scorer_error`` with the exception's words as evidence, never a crash of
               the whole aggregate — except a judge that never gave a parseable verdict
@@ -68,7 +71,9 @@ from inspect_ai.model import (
     ChatMessageSystem,
     ChatMessageUser,
     ModelOutput,
+    StopReason,
 )
+from inspect_ai.model._model_output import as_stop_reason
 from inspect_ai.scorer import SampleScore, Score, Scorer, ScoreReducer, Target, mean_score
 from inspect_ai.solver import TaskState
 from inspect_ai.solver._multiple_choice import (
@@ -590,7 +595,11 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
             [ChatMessageUser(content=input_text)] if conversation is None else _chat(conversation)
         ),
         choices=choices,
-        output=ModelOutput.from_content(model=_CANDIDATE_MODEL, content=completion),
+        output=ModelOutput.from_content(
+            model=_CANDIDATE_MODEL,
+            content=completion,
+            stop_reason=_stop_reason(request.finish_reason),
+        ),
         # WHY: metadata-dispatching scorers (frontierscience's format field) read
         # the Sample's metadata off the state; the prepare step delivers it in the Grading
         # Material record behind TaskReplayCasesSpec.keep_sample_metadata (OME-1240).
@@ -601,6 +610,42 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
         # state.choices; we import no solver, so the marking replays THEIR functions.
         set_choices_based_on_generated_response(state, parse_answers(state, multiple_correct))
     return state, Target(material["target"])
+
+
+def _stop_reason(finish_reason: str | None) -> StopReason:
+    """The Candidate's finish reason, as the stop reason an inspect scorer reads.
+
+    Think of it as the invigilator's note stapled to the exam script: "time ran out" or
+    "handed in". The provider wrote the note in its own words when the Candidate's model
+    stopped; the Case record kept it; this copies it onto inspect's form in inspect's words.
+    Before, the adapter wrote "handed in" (``"stop"``) on every script, so a scorer could never
+    tell that a reply was cut off mid-reasoning (inspect_evals issue #2701).
+
+    Stages, in execution order:
+
+        1. the provider's word arrives on the grade request: ``"stop"``, ``"length"``, or
+           ``None`` when it never reached us (a Candidate whose model calls stopped for
+           different reasons, a provider that omitted it, a request built by hand).
+        2. inspect's own provider mapping translates it, the one its OpenAI-shaped providers
+           use: ``"length"`` → ``"max_tokens"``, ``"stop"`` → ``"stop"``,
+           ``"tool_calls"`` → ``"tool_calls"``, ``"content_filter"`` → ``"content_filter"``.
+        3. anything else, ``None`` included, is ``"unknown"``. WHY not ``"stop"``: an unknown
+           reason is not evidence that the reply finished. No scorer any row grades with reads
+           the Candidate's stop reason except the AIME Named Deviation, which acts only on
+           ``"max_tokens"``, so ``"unknown"`` grades exactly as the old ``"stop"`` did.
+
+    Worked example: an AIME reply "... so the remainder is 1" whose record says
+    ``finish_reason: "length"`` reaches the scorer with ``stop_reason == "max_tokens"``; the
+    same text with ``"stop"`` reaches it with ``"stop"``.
+
+    Args:
+        finish_reason: the provider's finish reason off the grade request, or None.
+
+    Returns:
+        inspect's ``StopReason`` for it.
+    """
+
+    return as_stop_reason(finish_reason)
 
 
 def _chat(conversation: list[dict[str, str]]) -> list[ChatMessage]:

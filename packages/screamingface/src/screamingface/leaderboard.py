@@ -146,9 +146,13 @@ class LeaderboardScore:
     # FEATURE: OME-1307 — absent on a board that predates the field; decoded as None.
     paper_url: str | None = None
     metadata_updated_at: datetime | None = None
+    # FEATURE: OME-1613 S9 / OME-1596 — open metadata about the credited authors (keyed as the
+    # board publishes them: the local part on a public read) and about the paper. None when absent.
+    authors_metadata: Mapping[str, Mapping[str, object]] | None = None
+    paper_metadata: Mapping[str, object] | None = None
     # FEATURE: OME-1307 — the frozen copy of the run and its reproductions. An older board leaves
     # them absent: None, and a count of 0. A null `capture_status` means "unknown".
-    frozen_copy_id: str | None = None
+    pinned_cache: str | None = None
     capture_status: Literal["complete", "partial"] | None = None
     # FEATURE (Q29): the digest of the run's graded cases: 64 lower-case hex, with `capture_status`.
     case_digest: str | None = None
@@ -208,6 +212,7 @@ class LeaderboardScore:
                 "metadata",
                 freeze_mapping(self.metadata, "Leaderboard score metadata"),
             )
+        _credit_metadata_fields(self)
         if self.authors is not None:
             object.__setattr__(
                 self,
@@ -389,13 +394,21 @@ def _optional_aware_datetime(value: object, label: str) -> None:
         _aware_datetime(value, label)
 
 
+def _credit_metadata_fields(score: LeaderboardScore) -> None:
+    """Freeze the OME-1613 S9 metadata objects, so a read score cannot be changed in place."""
+    for name in ("authors_metadata", "paper_metadata"):
+        value = getattr(score, name)
+        if value is not None:
+            object.__setattr__(score, name, freeze_mapping(value, f"Leaderboard score {name}"))
+
+
 def _reproduction_fields(score: LeaderboardScore) -> None:
     """Validate the OME-1307 frozen copy fields; the text ones go through the loop above.
 
     INVARIANT: a copy id is normalised as the board does (`str(UUID(value))`) and an invalid one is
     refused here, so `reproduce` never sends a malformed `X-Replay-Frozen-Copy` header.
     """
-    object.__setattr__(score, "frozen_copy_id", _frozen_copy_id(score.frozen_copy_id))
+    object.__setattr__(score, "pinned_cache", _pinned_cache(score.pinned_cache))
     _optional_aware_datetime(score.last_reproduced_at, "Leaderboard score last_reproduced_at")
     capture_status_value(score.capture_status)
     _case_digest(score.case_digest, score.capture_status)
@@ -418,15 +431,15 @@ def _case_digest(value: object, capture_status: object) -> None:
         raise ValueError("Leaderboard score case_digest requires capture_status")
 
 
-def _frozen_copy_id(value: object) -> str | None:
+def _pinned_cache(value: object) -> str | None:
     if value is None:
         return None
     if not isinstance(value, str):
-        raise TypeError("Leaderboard score frozen_copy_id must be a string or None")
+        raise TypeError("Leaderboard score pinned_cache must be a string or None")
     try:
         return str(UUID(value))
     except ValueError:
-        raise ValueError("Leaderboard score frozen_copy_id must be a UUID") from None
+        raise ValueError("Leaderboard score pinned_cache must be a UUID") from None
 
 
 def _names(values: object, label: str) -> tuple[str, ...]:

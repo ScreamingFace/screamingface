@@ -89,6 +89,20 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # Verified against main 2026-09-30: the inverted-grade pin (OME-1400) exists only
     # when a row sets the flag, so its uninverted sibling keeps this revision.
     "xstest_safe": "1044036b2049e623",
+    # OME-1701 PR 2: first frozen here, at the revision main serves, which the rows hold.
+    "chembench": "a36d91b7eb601253",
+    "infinite_bench_math_find": "eb87494cb4dab437",
+    # OME-1701 PR 5 (2026-10-21): first frozen here, at the move to a local Task
+    # that keeps every record (inspect_evals PR #2524 adopted; 2,115 → 2,123 Cases; stereoset
+    # 6fe6deab5af299e2 before it).
+    "stereoset": "c2bf158bee6d5f8b",
+    # OME-1701 PR 6 (2026-10-21): first frozen here, at the move that left out the
+    # 18 questions v0.20.0 builds wrongly (the questions where inspect_evals PR #2590's parse
+    # differs are excluded; its parser is not adopted) and 1 whose source repeats its key's
+    # text under another letter (391 → 372 Cases; onet_m6 fefdc98fb53b0777 before it).
+    "onet_m6": "cfc5f0da9f9418bd",
+    # OME-1701 PR 7: first frozen here, at the revision main serves, which the row holds.
+    "aime26": "c3ccaa828160f661",
 }
 
 
@@ -125,7 +139,10 @@ _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
     "sad_stages_oversight": "2d5f56c1f30ee5dd",
     "sevenllm_mcq_en": "e0332fcbf2cfbded",
     "sevenllm_mcq_zh": "bf67d1707f236386",
-    "worldsense": "a2f8699ca22f49e5",
+    # OME-1701 PR 4 (2026-10-21): a2f8699ca22f49e5 → ad49b23d305a87dd, served by
+    # a local Task that keeps every trial (inspect_evals PR #2507 adopted; 40,176 → 87,048
+    # Cases). Still no Hub pin: the fetch-pin rule above holds.
+    "worldsense": "ad49b23d305a87dd",
 }
 
 

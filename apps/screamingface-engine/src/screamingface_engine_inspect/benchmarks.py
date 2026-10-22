@@ -47,7 +47,7 @@ from screamingface_engine.benchmarks.provenance import (
     ProvenanceFields,
 )
 from screamingface_engine_inspect.function_references import function_reference_problem
-from screamingface_engine_inspect.local_tasks import task_source_pin
+from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -118,6 +118,12 @@ class BenchmarkSpec:
     #: The description must name what the flipped score means (refusal rate, or
     #: sosbench's safe-reply rate): the flag flips, it never names.
     inverted_grade: bool = False
+    #: Off the public catalogue index, still runnable by id (OME-1714): `GET /v1/benchmarks`
+    #: skips the Benchmark, so no SDK listing and no Leaderboard shows it. An owner decision
+    #: written on the row by name, never inferred from a family or a content warning; a row
+    #: that sets True carries a comment naming the ticket. Not Benchmark identity: no revision
+    #: moves, and the mark is never served.
+    unlisted: bool = False
     #: Attempts per Case (OME-1458): the Task's any-match epochs. Each Case is asked this many
     #: times and a Check is met if any Attempt met it; 1 is an ordinary Benchmark.
     attempts: int = 1
@@ -212,7 +218,8 @@ class BenchmarkSpec:
     #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
     #: deliberate bump with owner sign-off (OME-1610). Never compared with the fingerprint
     #: (owner decision, 2026-10-15). NOT part of the revision.
-    #: None, on every row but the migrated healthbench pair, publishes the computed fingerprint.
+    #: None publishes the computed fingerprint; the rows that set it are named in
+    #: ``tests/unit/inspect/test_published_revision.py``.
     published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
@@ -594,12 +601,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "8,000 sentence pairs asking whether aggressive word reordering "
             "preserved the meaning (the PAWS labeled_final test split), imported "
             "from inspect_evals. The model answers Yes or No through the eval's "
-            "own prompt template; grading is inspect's own includes scorer "
-            "against the published label, so no judge tokens are spent. Cases are "
-            "served in a fixed seeded shuffle (inspect_evals randomizes "
-            "order per run); benchmark score = plain accuracy over the cases "
-            "run. Free-form replies make the mid-run check surface legitimate "
-            "(corrective loop). Dataset: PAWS by Google LLC, used under its own "
+            "own prompt template. Graded on a bare Yes or No against the published "
+            "label, so no judge tokens are spent: the reply must be the one word, with "
+            "only spaces or punctuation around it ('No.' and '**Yes**' count; 'The "
+            "answer is: No' does not). This is inspect_evals' fix (PR #2334, merged "
+            "after the pinned v0.20.0), adopted here: v0.20.0's scorer looks for "
+            "'yes' or 'no' anywhere in the reply, so 'I cannot determine this.' was "
+            "right on every No Case, and a model that always refused that way scored "
+            "55.8% (4,464 of 8,000). Cases are served in a fixed seeded shuffle "
+            "(inspect_evals randomizes order per run); benchmark score = plain "
+            "accuracy over the cases run. Free-form replies make the mid-run check "
+            "surface legitimate (corrective loop). Dataset: PAWS by Google LLC, used under its own "
             "licence."
         ),
         focus="Paraphrase adjudication (yes/no)",
@@ -607,9 +619,18 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Binary adjudication frontier models saturate (OME-1257).
         difficulty="easy",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.paws.paws:paws. License: other.
-        scorer="inspect_ai.scorer:includes",
+        # Provenance: the Task is inspect_evals.paws.paws:paws, whose scorer is
+        #   inspect_ai.scorer:includes. License: other.
+        # NAMED DEVIATION: graded by our bare Yes/No pattern, inspect_evals' merged fix
+        #   (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2334); v0.20.0's includes()
+        #   finds "no" inside "cannot". Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_yes_no.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.yes_no.yes_no:paws_yes_no",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="8f4e0e9c0864a6e7",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1904.01130",
@@ -653,22 +674,35 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         description=(
             "3,270 naturally-occurring yes/no questions, each answered from a "
             "given Wikipedia passage (the BoolQ validation split — test answers "
-            "are withheld by the authors), imported from inspect_evals. Grading is "
-            "inspect's own pattern scorer over the reply's final Yes/No, so no "
-            "judge tokens are spent. Cases are served in a fixed seeded shuffle "
-            "(inspect_evals randomizes order per run); benchmark score = "
-            "plain accuracy over the cases run. Free-form replies make the "
-            "mid-run check surface legitimate (corrective loop)."
+            "are withheld by the authors), imported from inspect_evals. Graded on a bare "
+            "Yes or No, so no judge tokens are spent: the reply must be the one word, "
+            "with only spaces, punctuation or underscores around it ('No.' and "
+            "'**Yes**' count; 'The answer is: No' does not). This is inspect_evals' fix "
+            "(PR #2334, merged after the pinned v0.20.0), adopted here: v0.20.0's "
+            "pattern accepts any reply ending in 'yes' or 'no' plus at most one "
+            "character, so 'I don't know' was right on all 1,237 No Cases. Cases are "
+            "served in a fixed seeded shuffle (inspect_evals randomizes order "
+            "per run); benchmark score = plain accuracy over the cases run. "
+            "Free-form replies make the mid-run check surface legitimate "
+            "(corrective loop)."
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
         # Passage-grounded yes/no frontier models saturate (OME-1257).
         difficulty="easy",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
-        scorer="inspect_ai.scorer:pattern",
-        scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
+        # Provenance: the Task is inspect_evals.boolq.boolq:boolq, whose scorer is
+        #   inspect_ai.scorer:pattern(r"(Yes|No).?\Z"). License: cc-by-sa-3.0.
+        # NAMED DEVIATION: graded by our bare Yes/No pattern, inspect_evals' merged fix
+        #   (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2334); v0.20.0's pattern
+        #   reads "I don't know" as "no". Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_yes_no.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.yes_no.yes_no:boolq_yes_no",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="00d4443ca7e66d43",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1905.10044",
@@ -883,7 +917,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. Cases "
+            "line against the answer key — so no judge tokens are spent. A reply "
+            "the token limit cut off before its 'ANSWER:' line is wrong: it never "
+            "answered, though v0.20.0's scorer would read whatever number ended its "
+            "last line. This is inspect_evals' proposed fix (issue #2701), adopted "
+            "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
             "over the cases run. Free-form replies make the mid-run check "
@@ -896,10 +934,19 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # professional stakes (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.aime2024.aime2024:aime2024.
-        # License: mit.
-        scorer="inspect_evals.aime2024.aime2024:aime_scorer",
+        # Provenance: the Task is inspect_evals.aime2024.aime2024:aime2024, whose scorer
+        #   is inspect_evals.aime2024.aime2024:aime_scorer. License: mit.
+        # NAMED DEVIATION: graded by the eval's scorer behind a cut-off guard, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701): a reply
+        #   stopped at max_tokens with no ANSWER: line is wrong; v0.20.0 credits its last
+        #   number. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_aime.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="2e4ce70a8953233a",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -928,7 +975,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         answer_rule=AnswerRule(
             extract="inspect_aime@1",
             normalize="inspect_numeric@1",
-            grader="inspect_evals.aime2024.aime2024:aime_scorer@0.20.0",
+            grader="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0",
         ),
     ),
     BenchmarkSpec(
@@ -940,7 +987,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. Cases "
+            "line against the answer key — so no judge tokens are spent. A reply "
+            "the token limit cut off before its 'ANSWER:' line is wrong: it never "
+            "answered, though v0.20.0's scorer would read whatever number ended its "
+            "last line. This is inspect_evals' proposed fix (issue #2701), adopted "
+            "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
             "over the cases run. Free-form replies make the mid-run check "
@@ -951,10 +1002,19 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Same tier as aime24 — the sibling year of one competition (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.aime2025.aime2025:aime2025.
-        # License: apache-2.0.
-        scorer="inspect_evals.aime2025.aime2025:aime_scorer",
+        # Provenance: the Task is inspect_evals.aime2025.aime2025:aime2025, whose scorer
+        #   is inspect_evals.aime2025.aime2025:aime_scorer. License: apache-2.0.
+        # NAMED DEVIATION: graded by the eval's scorer behind a cut-off guard, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701): a reply
+        #   stopped at max_tokens with no ANSWER: line is wrong; v0.20.0 credits its last
+        #   number. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_aime.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="b207e9fe34ea7517",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -982,7 +1042,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         answer_rule=AnswerRule(
             extract="inspect_aime@1",
             normalize="inspect_numeric@1",
-            grader="inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
+            grader="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0",
         ),
     ),
     BenchmarkSpec(
@@ -1111,6 +1171,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1273,
+        # OME-1714 (product, 2026-10-22): off the public catalogue — listed, the three WMDP
+        # Benchmarks read as an invitation to optimise Fusions for hazardous-knowledge
+        # elicitation. Still installed and runnable by id; the revision does not move.
+        unlisted=True,
     ),
     BenchmarkSpec(
         key="wmdp_chem",
@@ -1180,6 +1244,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=408,
+        # OME-1714: off the public catalogue, same decision as wmdp_bio.
+        unlisted=True,
     ),
     BenchmarkSpec(
         key="wmdp_cyber",
@@ -1249,6 +1315,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1987,
+        # OME-1714: off the public catalogue, same decision as wmdp_bio.
+        unlisted=True,
     ),
     BenchmarkSpec(
         key="hellaswag",
@@ -1767,13 +1835,18 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="onet_m6",
         title="O-NET M6",
         description=(
-            "391 multiple-choice questions from Thailand's national grade-12 exam "
+            "372 multiple-choice questions from Thailand's national grade-12 exam "
             "(O-NET M6): mathematics, science, social studies, English and Thai "
             "language, in Thai or English, imported from inspect_evals. Like "
-            "inspect, the board keeps only answerable single-answer questions; it "
-            "also leaves out 6 more that inspect keeps but that cannot be graded "
-            "as published (their answer letter points past the last choice), so "
-            "it serves 391 of inspect's 397. Each prompt opens with the eval's "
+            "inspect, the Benchmark keeps only answerable single-answer questions; "
+            "it also leaves out 24 more whose numbered options inspect splits "
+            "wrongly (an option written '1.x' or '1 x' is lost, a year inside one "
+            "is split off), so the answer "
+            "letter points past the last choice (6) or at another option's text "
+            "(16), or an option is missing (2); and 1 more whose source gives two options "
+            "the same text, one of them the key, so the right text under the other letter "
+            "is marked wrong. It serves 372 of inspect's 397. "
+            "Each prompt opens with the eval's "
             "language note and asks the model to think step by step before its "
             "final 'ANSWER: X' line. Serving order is pinned by a policy seed "
             "(inspect_evals shuffles per run). Benchmark score = plain accuracy over "
@@ -3105,14 +3178,18 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="worldsense",
         title="WorldSense",
         description=(
-            "40,176 questions about small described worlds (orderings and spatial relations) from "
-            "the WorldSense test set, each answered with one of three numbered alternatives or a "
-            "truth value, imported from inspect_evals by Task replay: the Cases are fetched the "
-            "way inspect fetches them and sealed by a Case Digest. Each Case keeps the question "
-            "exactly as written, since it already lists its own options. Graded by the eval's own "
-            "pattern scorer, so no judge tokens are spent. Benchmark score = plain accuracy over "
-            "the cases run; the eval's own bias-corrected accuracy and bias metrics are not "
-            "reported. No mid-run check surface (elimination attack over the options)."
+            "87,048 questions about small described worlds (orderings and spatial relations), "
+            "every trial of the WorldSense test set, each answered with one of three numbered "
+            "alternatives or a truth value. Served as a local Task built from the inspect_evals "
+            "eval, with one change: each trial is kept under its own id. The eval at our pinned "
+            "version names a trial after its described world, so it kept one trial per world, "
+            "40,176, all with the answer TRUE, POSSIBLE, 1 or 3; its own fix (inspect_evals PR "
+            "#2507) is adopted here, so every answer appears in the paper's balance. Each Case "
+            "keeps the question exactly as written, since it already lists its own options. "
+            "Graded by the eval's own pattern scorer, so no judge tokens are spent. Benchmark "
+            "score = plain accuracy over the cases run; the eval's own bias-corrected accuracy "
+            "and bias metrics are not reported. No mid-run check surface (elimination attack "
+            "over the options)."
         ),
         focus="Reasoning about described worlds (pick a numbered option)",
         dataset_url="https://github.com/facebookresearch/worldsense",
@@ -3121,7 +3198,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         difficulty="hard",
         failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.worldsense.worldsense:worldsense.
+        #   screamingface_engine_inspect.local_tasks.worldsense.worldsense:worldsense,
+        #   a LOCAL Task that is inspect_evals' worldsense with each trial named by its own Key
+        #   (NAMED DEVIATION in the Task's docstring, adopted from the merged inspect_evals fix
+        #   https://github.com/UKGovernmentBEIS/inspect_evals/pull/2507). Everything else, the
+        #   scorer included, is inspect_evals' own. Its code lives here, so its origin is ours
+        #   (catalogue id `worldsense`, was `inspect-worldsense`) and its source is hashed into
+        #   the revision; the harness link names the eval, ported to inspect by mjbroerman.
         # License: cc-by-nc-4.0 (owner decision 2026-10-01: CC-BY-NC-4.0,
         #  facebookresearch/worldsense LICENSE; non-commercial use only).
         scorer="inspect_evals.worldsense.worldsense:pattern_with_metadata",
@@ -3148,7 +3231,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "      url={https://arxiv.org/abs/2311.15930}, \n"
             "}"
         ),
-        inspect_contributors=("mjbroerman",),
+        origin="screamingface",
         harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/worldsense",
         license="CC-BY-NC-4.0",
         license_note=(
@@ -3156,15 +3239,33 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "OME-1273, 2026-10-01)"
         ),
         human_baseline=NotPublished(reason="the WorldSense paper reports no human study"),
-        # Frontier score: accuracy (tuple-balanced
+        # Frontier score: GPT4's own published replies scored on OUR headline metric, the plain
+        # mean over all 87,048 trials (reply equals the gold answer): 0.730. Derived from the
+        # authors' basic___GPT4___results.jsonl at the pinned commit, joined to
+        # trials.jsonl.bz2 by Key: 63,551 of 87,048 right = 0.7301.
+        # NOT the paper's number. The paper's Table 2 "WS avg." for GPT4 is 0.756, a different
+        # metric in two ways: (1) trial weighting: it averages per tuple, each answer weighted
+        # so a constant answer scores the 0.5 chance level (section 4.2), where we weight every
+        # trial equally (a constant answer per family scores 0.462 here); (2) the Compl
+        # questions are graded know/don't-know: answers "1" and "2" both map to KNOW
+        # (compute_acc_table in the authors' analysis.py), where we need the exact option.
+        # Re-implementing the authors' metric on the same files reproduces 0.756 for GPT4 and
+        # 0.556 for GPT3.5, so the 0.730 is the same replies, our arithmetic. inspect_evals'
+        # ws_accuracy differs again (it weights by the model's reply, on exact match).
         frontier_score=FrontierScore(
-            score=0.756,
+            score=0.730,
             model="GPT4",
-            source_url="https://arxiv.org/abs/2311.15930",
+            source_url=(
+                "https://github.com/facebookresearch/worldsense/blob/"
+                "bd81d945077f169cf95ff39207f788f86e4645e9/data/worldsense/test_set/results/"
+                "basic___GPT4___results.jsonl"
+            ),
             as_of="2023-11",
         ),
         notebook="12_inspect_evals_benchmarks",
-        # eval.yaml says 87,048; the task yields 40,176 Samples at the pinned revision.
+        # eval.yaml's 87,048 is every trial. The eval at v0.20.0 yields 40,176: its Sample id
+        # names the tuple, so its duplicate-id filter keeps one trial per tuple. Fixed above.
+        inspect_evals_case_count=87048,
     ),
     BenchmarkSpec(
         key="coconot_original",
@@ -3936,6 +4037,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "are spent: expression_exact_match (the paper's normalised exact match) is the "
             "Headline Score, and expression_exact_match_sympy (the Minerva-style symbolic "
             "equivalence) is reported beside it as a Named Score, shown but not ranked. "
+            "Both read the answer off the reply's last 'ANSWER:' line as the eval does, "
+            "then see through wrapping the eval's v0.20.0 copies verbatim: a "
+            "'\\boxed{}' on that line, an outer '\\(...\\)' or "
+            "'\\[...\\]', markdown bold ('**ANSWER: 42**' read as '42**') and a "
+            "trailing carriage return or tab (a Windows line ending, read as '42\\r'), "
+            "each of which made a right answer score 0 on exact match (the outer "
+            "delimiters on both scorers). The first two are inspect_evals' proposed fixes "
+            "(PRs #2199 and #2340), the bold and line-ending ones are ours. With two boxes "
+            "on the ANSWER: line the last is graded ('\\boxed{41} or \\boxed{42}' counts "
+            "as 42), as #2199 and the MATH paper's own grader read it. "
             "Benchmark score = mean exact-match accuracy over the cases run. Named "
             "deviations: the eval's first scorer, expression_equivalance, is left out — it "
             "grades with a judge model that, unpinned, is the model under test, so its "
@@ -3987,13 +4098,27 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # + 5,000 test); the Task itself serves the 5,000-problem test split, so that is the
         # size inspect runs and the size this Benchmark declares. Reviewed by hand (OME-1268).
         inspect_evals_case_count=5000,
-        scorer="inspect_evals.math.math:expression_exact_match",
-        extra_scorers=("inspect_evals.math.math:expression_exact_match_sympy",),
+        # NAMED DEVIATION: both scorers read the ANSWER: line through our extraction, which
+        #   unwraps a \boxed{} (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2199),
+        #   strips outer \(..\) and \[..\] (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2340,
+        #   issue #2220) and drops markdown bold (ours); the compare steps stay the eval's. Drop
+        #   it when the pin reaches the fixes: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_math.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.math.math:expression_exact_match",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="0fb750cf19e00c11",
+        extra_scorers=(
+            "screamingface_engine_inspect.named_deviations.math.math:expression_exact_match_sympy",
+        ),
         named_scores=("expression_exact_match", "expression_exact_match_sympy"),
         # The symbolic scorer grades WITH sympy: its installed version is Benchmark identity
         # (review finding on #1251), so a sympy bump moves this revision instead of moving
         # per-Case values under an unchanged one.
-        scorer_dependencies=("sympy",),
+        # antlr4 is the LaTeX parser sympy's parse_latex grades with, pinned beside it.
+        scorer_dependencies=("sympy", "antlr4-python3-runtime"),
         # Named Deviation (OME-1268): the Task also declares expression_equivalance, left out
         # because it grades with a judge model, and a multi-scorer row pins no judge
         # (unpinned, it would grade with the model under test). The description names the
@@ -4901,7 +5026,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer is an integer from 0 to 999; the model solves step by step "
             "and commits its final answer on a closing 'ANSWER:' line. Grading "
             "is the eval's own scorer — a numeric match of the reply's final "
-            "line against the answer key — so no judge tokens are spent. Cases "
+            "line against the answer key — so no judge tokens are spent. A reply "
+            "the token limit cut off before its 'ANSWER:' line is wrong: it never "
+            "answered, though v0.20.0's scorer would read whatever number ended its "
+            "last line. This is inspect_evals' proposed fix (issue #2701), adopted "
+            "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy over the cases run."
         ),
@@ -4910,10 +5039,19 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Same tier as aime24 and aime25 — the sibling year of one competition (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.aime2026.aime2026:aime2026.
-        # License: apache-2.0.
-        scorer="inspect_evals.aime2026.aime2026:aime_scorer",
+        # Provenance: the Task is inspect_evals.aime2026.aime2026:aime2026, whose scorer
+        #   is inspect_evals.aime2026.aime2026:aime_scorer. License: apache-2.0.
+        # NAMED DEVIATION: graded by the eval's scorer behind a cut-off guard, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2701): a reply
+        #   stopped at max_tokens with no ANSWER: line is wrong; v0.20.0 credits its last
+        #   number. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_aime.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="c3ccaa828160f661",
         # Benchmark Provenance (OME-1455): eval.yaml and the Hub card via the importer; the
         # rest by hand, as the aime25 row.
         paper_url="https://huggingface.co/datasets/math-ai/aime26",
@@ -4943,7 +5081,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         answer_rule=AnswerRule(
             extract="inspect_aime@1",
             normalize="inspect_numeric@1",
-            grader="inspect_evals.aime2026.aime2026:aime_scorer@0.20.0",
+            grader="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0",
         ),
     ),
     BenchmarkSpec(
@@ -5652,8 +5790,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "model's context window; this Task cuts every input to one fixed budget, about "
             "446,000 characters (128k tokens by inspect_evals' estimate), whichever model "
             "answers. No Math.Find input is that long (the longest is 120,155 "
-            "characters), so every Case is inspect_evals' whole input. Grading is inspect's own "
-            "exact match against the answer, so no judge tokens are spent. Benchmark score "
+            "characters), so every Case is inspect_evals' whole input. Graded the official "
+            "InfiniteBench way: the first number in the reply, compared with the answer "
+            "by value, so 'The largest number in the list is: 91' is right for 91 and no "
+            "judge tokens are spent. inspect_evals grades with exact match on the whole "
+            "reply, which scores that answer 0; this is its proposed fix (PR #2346), "
+            "adopted here. Benchmark score "
             "= plain accuracy over the cases run. Inputs are long, about 118,000 characters "
             "each: use a model with a long context window."
         ),
@@ -5666,12 +5808,23 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench
         #   :infinite_bench_math_find,
-        #   a LOCAL Task built from inspect_evals' infinite_bench_math_find; only its cut
-        #   differs (OME-1602). Its code lives here, so its origin is ours; it reuses
-        #   inspect_evals' loader and prompts, and the harness link names that eval.
+        #   a LOCAL Task built from inspect_evals' infinite_bench_math_find; its cut differs
+        #   (OME-1602) and so does its grading (NAMED DEVIATION 2 in the Task's docstring:
+        #   the official first-number rule, https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346,
+        #   whose math_find_scorer.py is copied verbatim beside the Task). Its code lives here,
+        #   so its origin is ours; it reuses inspect_evals' loader and prompts, and the harness
+        #   link names that eval.
         # License: apache-2.0, the Hub card's licence line (the card's header is malformed,
         #   so the Hub shows none; owner decision on OME-1602, 2026-10-14).
-        scorer="inspect_ai.scorer:exact",
+        scorer=(
+            "screamingface_engine_inspect.local_tasks.infinite_bench.math_find_scorer"
+            ":math_find_scorer"
+        ),
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="eb87494cb4dab437",
         paper_url="https://arxiv.org/abs/2402.13718",
         authors="Zhang et al., 2024",
         citation=(
@@ -5852,11 +6005,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "2,785 chemistry questions from ChemBench, across topics from general and "
             "organic chemistry to toxicity and safety, imported from inspect_evals. Most are "
             "multiple choice, some with several correct options the model must list "
-            "together (for example A,D); the rest ask for a number. Grading is the eval's "
-            "own scorer: the multiple-choice answer must match the key exactly, ignoring "
-            "letter case, letters in the key's order and comma-joined with no spaces (A,D; "
-            "'A, D' and 'D,A' score 0, as in inspect_evals), and a number "
-            "must fall within 1% of the answer, so no judge tokens are spent. Cases are served "
+            "together (for example A,D); the rest ask for a number. A multiple-choice "
+            "answer is right when it names exactly the key's letters, in any order and "
+            "case, separated by commas or spaces ('A,D', 'A, D', 'D A' and 'd,a' all "
+            "count), as the ChemBench authors grade and as the eval's prompt invites; a "
+            "number must fall within 1% of the answer, as the eval grades. No judge "
+            "tokens are spent. The letter rule is inspect_evals' proposed fix (PR "
+            "#2591), adopted here: the pinned v0.20.0 scorer compares the letters as "
+            "text, so on the 394 Cases with several correct letters a right answer "
+            "written 'A, D' or 'D,A' scored 0. Cases are served "
             "in a fixed seeded shuffle (the eval shuffles per run). Benchmark score = plain "
             "accuracy over the cases run; the eval's per-topic breakdown is not reproduced. "
             "No mid-run check surface."
@@ -5866,10 +6023,20 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The best verified bare model reaches about 0.71: real headroom (OME-1257).
         difficulty="medium",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.chembench.chembench:chembench.
+        # Provenance: the Task is inspect_evals.chembench.chembench:chembench, whose scorer is
+        #   inspect_evals.chembench.chembench:chembench_scorer.
         # License: mit.
-        scorer="inspect_evals.chembench.chembench:chembench_scorer",
+        # NAMED DEVIATION: multiple choice is graded by the set of letters, inspect_evals'
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591, issue
+        #   #2586), its `chembench_scorer` copied verbatim; numbers stay the eval's own
+        #   pattern_mae. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_chembench.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.chembench.chembench:chembench_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="a36d91b7eb601253",
         # NAMED DEVIATION: the eval scores the whole run with grouped accuracy, one mean per
         # topic beside the overall mean; this Benchmark reports the overall mean per-Case
         # score (chosen at import, OME-1527), which is that overall figure.
@@ -5918,13 +6085,22 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="stereoset",
         title="StereoSet (intersentence)",
         description=(
-            "2,115 short contexts from StereoSet's intersentence task, each followed by "
-            "three possible next sentences: a stereotypical one, an anti-stereotypical one "
-            "and an unrelated one, imported from inspect_evals. The model picks one. Grading "
+            "2,123 short contexts from StereoSet's intersentence task, every record of the "
+            "validation split, each followed by three possible next sentences: a "
+            "stereotypical one, an anti-stereotypical one and an unrelated one. Served as a "
+            "local Task built from the inspect_evals eval, with one change: each record is "
+            "kept under the dataset's own id. The eval at our pinned version names a record "
+            "after its context, so of two records sharing one it served only the first, "
+            "2,115 in all; its own fix (inspect_evals PR #2524) is adopted here. The model "
+            "picks one sentence. Grading "
             "is the eval's own multiple-choice scorer: picking either related sentence "
             "scores 1 and the unrelated one 0, so no judge tokens are spent. Benchmark score "
-            "= the paper's language modeling score, the share of related picks. The eval's "
-            "bias score (how often the stereotypical sentence wins) is left out by name, an "
+            "= the share of related picks. That is a multiple-choice adaptation of the "
+            "paper's language modeling score and not comparable with it: here the model "
+            "picks one of three sentences once, where the paper compares the likelihoods a "
+            "model gives the sentences, two comparisons per record, averaged per target "
+            "term. The eval's bias score (how often the stereotypical sentence wins) is "
+            "left out by name, an "
             "owner decision, so this measures coherence, not bias. Cases are served in a "
             "fixed seeded shuffle (the eval shuffles per run). No mid-run check surface "
             "(elimination attack over three options)."
@@ -5935,7 +6111,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         difficulty="easy",
         failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.stereoset.stereoset:stereoset (task_type intersentence).
+        #   screamingface_engine_inspect.local_tasks.stereoset.stereoset:stereoset
+        #   (task_type intersentence), a LOCAL Task that is inspect_evals' stereoset with each
+        #   record named by the dataset's own id (NAMED DEVIATION in the Task's docstring,
+        #   adopted from the merged inspect_evals fix
+        #   https://github.com/UKGovernmentBEIS/inspect_evals/pull/2524). Everything else, the
+        #   scorers included, is inspect_evals' own. Its code lives here, so its origin is ours
+        #   (catalogue id `stereoset`, was `inspect-stereoset`) and its source is hashed into
+        #   the revision; the harness link names the eval, ported to inspect by Xodarap.
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.stereoset.stereoset:multiple_choice_scorer",
         # NAMED DEVIATION (owner decision on OME-1602, 2026-10-14): the Task also declares
@@ -5957,7 +6140,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "      url={https://arxiv.org/abs/2004.09456}, \n"
             "}"
         ),
-        inspect_contributors=("Xodarap",),
+        origin="screamingface",
         harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/stereoset",
         license="CC-BY-SA-4.0",
         content_warning=(
@@ -5977,9 +6160,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             as_of="2025-06",
         ),
         notebook="12_inspect_evals_benchmarks",
-        # No inspect_evals count: eval.yaml's 4,299 is the package's figure, not this task's. The
-        # pinned intersentence split holds 2,123 records, and the eval itself drops 8 that
-        # share a hashed id, so its Task yields the 2,115 Cases served here.
+        # No inspect_evals count: eval.yaml's 4,299 at v0.20.0 is the package's figure, not
+        # this task's (inspect_evals' fix sets it to 2,123). The pinned intersentence split holds
+        # 2,123 records, all served here; the eval at v0.20.0 drops 8 that share a hashed id.
     ),
     BenchmarkSpec(
         key="cyse4_malware_analysis",
@@ -6417,6 +6600,10 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _scorer_function_pins(spec)
             + _scorer_dependency_pins(spec)
             + _whole_run_metric_pins(spec)
+            # WHY last and only when set: a scorer or whole-run metric of ours beside an
+            # inspect_evals Task (a Named Deviation) has no package pin, so its source joins;
+            # no other revision moves.
+            + scorer_source_pins(cases_spec.task, grading_references(spec))
         ),
         scorer_factory=_scorer_factory(spec),
         extra_scorer_factories=_extra_scorer_factories(spec),
@@ -6429,6 +6616,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         multiple_correct=spec.multiple_correct,
         judge=spec.judge,
         inverted_grade=spec.inverted_grade,
+        unlisted=spec.unlisted,
         verdict_grades=spec.verdict_grades,
         origin=spec.origin,
         whole_run_metric_factory=_whole_run_metric_factory(spec),
@@ -7201,6 +7389,16 @@ def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
                 "grade the row (install the `inspect` extra)"
             ) from None
     return tuple(pins)
+
+
+def grading_references(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Every code reference that marks the row: its scorer, its Named-Score scorers and, when
+    the row honours one, its whole-run metric — the code ``scorer_source_pins`` must cover."""
+
+    # WHY the metric too: it computes the published number, so a metric of ours beside an
+    # inspect_evals Task is grading code no package pin covers, exactly like a scorer of ours.
+    metric: tuple[str, ...] = () if spec.whole_run_metric is None else (spec.whole_run_metric,)
+    return (spec.scorer, *spec.extra_scorers, *metric)
 
 
 def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

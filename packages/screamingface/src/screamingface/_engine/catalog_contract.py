@@ -99,6 +99,27 @@ def _decode_benchmarks(payload: object) -> _BenchmarkCatalogData:
         _invalid(str(exc))
 
 
+def _decode_benchmark(payload: object, requested_id: str) -> _BenchmarkEntry:
+    """Decode ONE Benchmark read by id, as the Engine's resource serves it.
+
+    FEATURE: Unlisted Benchmark (OME-1714). An Unlisted Benchmark is absent from the listing
+    and served only by id, so `get` reads the resource when the listing has no entry. The
+    resource spreads the same catalogue keys as a listing entry plus run-time extras (`url4`,
+    `schema`, `selected_case_count`) and no `object` key; the entry decoder reads keys and
+    ignores the rest, so one decoder serves both shapes.
+    INVARIANT: the body's id must be the one asked for — the caller trusts it as the name.
+    """
+    try:
+        entry = _benchmark_entry(
+            _wire_mapping(payload, "Benchmark catalog entry", _catalog_invalid)
+        )
+    except ValueError as exc:
+        _invalid(str(exc))
+    if entry.id != requested_id:
+        _invalid(f"Benchmark resource answered {entry.id!r} for {requested_id!r}")
+    return entry
+
+
 def _decode_benchmark_catalog(payload: object) -> _BenchmarkCatalogData:
     root = _wire_mapping(payload, "Benchmark catalog", _catalog_invalid)
     if root.get("object") != "list":

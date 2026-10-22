@@ -245,7 +245,7 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
             fake_chat_completion,
         ),
         patch(
-            "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.invalidate_profile_session",
+            "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.invalidate_credential_session",
             fake_invalidate,
         ),
     ):
