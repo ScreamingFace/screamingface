@@ -44,6 +44,7 @@ from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
 from ..core.credential_blob import DispatchObservation
 from ..core.credential_blob.store import CredentialBlobMutationConflict
+from ..core.endpoint_access import EndpointOperation, permits
 from ..core.frozen_copy.headers import (
     CAPTURE_HEADER,
     COPY_HEADER,
@@ -115,6 +116,7 @@ router = APIRouter()
 async def _resolve_credential_target(
     access: ProviderAccess,
     *,
+    app: Any,
     account_id: str,
     provider: str,
     selector: Selector,
@@ -124,7 +126,13 @@ async def _resolve_credential_target(
 
     # INVARIANT: both refusals render through the ONE edge table, so the 404/409/401 bodies
     # and the 400 for an undeclared mode stay byte-identical to the pre-port route.
+    # INVARIANT (hosted BYOM): this runs only on a cache miss or bypass, which needs a NEW
+    # upstream call, so the endpoint grant is checked here, before any credential is resolved.
+    # A hit is served earlier to every account: the shared cache has no grant gate. A denial
+    # answers exactly as an unknown provider.
     """
+    if not permits(app, provider, account_id=account_id, operation=EndpointOperation.INVOKE):
+        raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
     with refusals_as_http():
         target = await access.resolve(account_id, provider, selector, plugin=plugin)
         return target, access.auth_mode(target, plugin)
@@ -597,7 +605,12 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # ``defaults`` are NOT merged (OME-1323, D2): the dispatch must be the request the
         # key describes.
         target, auth_mode = await _resolve_credential_target(
-            access, account_id=account_id, provider=provider, selector=selector, plugin=plugin
+            access,
+            app=request.app,
+            account_id=account_id,
+            provider=provider,
+            selector=selector,
+            plugin=plugin,
         )
 
         # OME-479 §4.5: classify every optional parameter against the provider's enabled

@@ -9,6 +9,7 @@ from aigateway.core.api_key_validation import (
     api_key_validation_message,
 )
 from aigateway.core.auth.middleware import CurrentAccount
+from aigateway.core.endpoint_access import EndpointOperation, accessible_plugin
 from aigateway.core.oauth.schemas import ApiKeyValidationResponse, ValidateApiKeyRequest
 
 router = APIRouter()
@@ -105,10 +106,12 @@ async def require_valid_api_key(
 async def validate_api_key(
     body: ValidateApiKeyRequest,
     request: Request,
-    _current: CurrentAccount,
+    current: CurrentAccount,
 ) -> ApiKeyValidationResponse:
     """Validate authentication and readiness; the minimal inference may consume quota or credit."""
-    plugin = request.app.state.providers.get(body.provider)
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.VALIDATE
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404,

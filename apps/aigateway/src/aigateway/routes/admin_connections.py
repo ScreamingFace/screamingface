@@ -31,6 +31,7 @@ from ..core.admin_connection_schemas import (
     SetAdminConnectionApiKeyRequest,
 )
 from ..core.auth.admin import AdminPrincipal, CurrentAdmin
+from ..core.endpoint_access import EndpointOperation, accessible_plugin
 from ..core.provider_access import (
     PairCredential,
     PairMutation,
@@ -265,7 +266,10 @@ async def set_admin_account_connection_api_key(
         with store_reads():
             await _require_account(account_id)
         raw_api_key = normalize_api_key(api_key)
-        plugin = request.app.state.providers.get(provider)
+        # INVARIANT (hosted BYOM): the TARGET account must hold the grant before the key is probed.
+        plugin = accessible_plugin(
+            request.app, provider, account_id=str(account_id), operation=EndpointOperation.ATTACH
+        )
         if plugin is None:
             raise ProviderUnknown(provider)
 
