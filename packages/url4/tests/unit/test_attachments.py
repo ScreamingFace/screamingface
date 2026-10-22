@@ -424,3 +424,39 @@ def test_a_ref_read_in_collection_and_scalar_position_is_attached_at_its_first_p
 
 def test_expand_source_is_collection_position() -> None:
     assert _refs(f"(*src=/blob/sha256/{ROWS_HEX})!'go'") == [(f"/blob/sha256/{ROWS_HEX}", True)]
+
+
+# -- U3 item 9: a blob binding read in collection position (``$x*(…)``) -----------------------
+
+
+@pytest.mark.asyncio
+async def test_bound_blob_in_collection_position_is_read_as_text() -> None:
+    io = _store()
+    payloads: list[str] = []
+
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        payloads.append(sources)
+        return "ok"
+
+    await run(f"(x=/blob/sha256/{ROWS_HEX}, $x*($item)!'d')!'r'", io, process=model)
+    # The rows are the blob's JSON items (D4), not the ref text read as one scalar item.
+    assert any("row a" in p for p in payloads) and any("row b" in p for p in payloads)
+    assert io.byte_targets == [f"/blob/sha256/{ROWS_HEX}"]
+    assert io.text_targets == []
+
+
+@pytest.mark.asyncio
+async def test_bound_png_blob_in_collection_position_fails_unsupported_content_type() -> None:
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(x=blob:sha256/{PNG_HEX}, $x*($item)!'d')!'r'", _store(), process=_Recorder())
+    assert caught.value.code == ErrorCode.UNSUPPORTED_CONTENT_TYPE  # C8
+
+
+@pytest.mark.asyncio
+async def test_bound_blob_used_scalar_and_in_collection_is_attached_once_and_fetched_once() -> None:
+    io, hook = _store(), _Recorder()
+    rows = _att(ROWS.encode(), "application/json")
+    text = f"(x=/blob/sha256/{ROWS_HEX}, $x*($item)!'d', (src=$x)!'e')!'r'"
+    await run(text, io, process=hook)
+    assert hook.seen and all(seen == (rows,) for seen in hook.seen)
+    assert io.byte_targets == [f"/blob/sha256/{ROWS_HEX}"]
