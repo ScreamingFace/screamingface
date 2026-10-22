@@ -121,4 +121,4 @@ def test_plan_refusal_does_not_mark_the_credential_errored() -> None:
     # WHY: the credential is valid; the plan is not. Marking it would force a re-auth that
     # cannot help unless the user picks a different account or upgrades.
     plugin = CodexProviderPlugin.__new__(CodexProviderPlugin)
-    assert plugin.should_mark_profile_error_on_dispatch_status(403) is False
+    assert plugin.should_mark_credential_error_on_dispatch_status(403) is False

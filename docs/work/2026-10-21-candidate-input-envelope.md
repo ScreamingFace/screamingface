@@ -73,5 +73,10 @@ never echoes a URL; one PR.
   spec §2.7 on #1450 now says the same ("`data:` URIs only"). Order the v2 path must follow
   (§2.7 gate 1): this PR, then OME-1679 and OME-1271 PR 1 (the readers), and only then the v2
   importer (OME-1271 PR 2). Nothing writes v2 before that.
+- **Out-of-scope fix, owner's call (2026-10-22):** main's aigateway gates were red after #1441
+  merged behind #1523's hook rename, and this PR's aigateway test file runs those gates. Two
+  one-line test edits fix it: the Codex plan-refusal test calls
+  `should_mark_credential_error_on_dispatch_status`, and the live provider matrix's Codex case
+  uses `codex/gpt-6-astra`. Approvals in `.claude/test-change-approvals/OME-1678.json`.
 - **Owner verify:** OME-1678 acceptance 4 (MMMU `validation_Geography_16` end to end on the local
   stack) needs the importer (OME-1271 PR 2) and a vision model behind the gateway.
