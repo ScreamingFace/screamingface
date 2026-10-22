@@ -22,8 +22,9 @@ from screamingface_engine_inspect.benchmarks import BENCHMARKS, BenchmarkSpec, g
 from screamingface_engine_inspect.local_tasks import scorer_source_pins, source_digest
 from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
 
-#: The rows whose scorer is ours but not their Task's (OME-1701 PR 1).
-_DEVIATING_ROWS: frozenset[str] = frozenset({"paws", "boolq"})
+#: The rows whose scorer is ours but not their Task's (OME-1701: paws and boolq since PR 1,
+#: chembench since PR 2).
+_DEVIATING_ROWS: frozenset[str] = frozenset({"paws", "boolq", "chembench"})
 
 
 def _stand_in_scorer_package(root: Path, name: str) -> Path:

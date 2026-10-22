@@ -7,8 +7,8 @@ Each test prepares a Case the way the image build does (the row's own Case decla
 the opt-in ``letter_list_key`` is exercised) and grades replies through the row's real
 per-Case hook, the eval's own scorer. What they pin, and why:
 
-- chembench: a comma-joined key ("A,D") is compared as the eval's pattern scorer compares it,
-  so naming exactly those options scores 1 and a subset scores 0;
+- chembench: a comma-joined key ("A,D") is compared as a set of letters (our Named Deviation,
+  inspect_evals PR #2591), so naming exactly those options scores 1 and a subset scores 0;
 - cyse4_malware_analysis: with ``multiple_correct`` the grader reads every letter, the
   headline is exact match, and the Jaccard overlap rides beside it as a Named Score;
 - truthfulqa_mc1: a one-letter list key grades as the single right option;
@@ -67,14 +67,14 @@ _FOUR: list[str] = ["benzene", "toluene", "ethanol", "phenol"]
     [
         ("[ANSWER]A,D[/ANSWER]", 1.0),
         ("[ANSWER]A[/ANSWER]", 0.0),
-        # inspect_evals' pattern scorer compares the string, so a space between letters misses;
-        # the row's description says so.
-        ("[ANSWER]A, D[/ANSWER]", 0.0),
-        # ...but it ignores letter case, so "a,d" names the same options.
+        # The letters are compared as a set (inspect_evals PR #2591, adopted): a space between
+        # them names the same options; v0.20.0's pattern scorer compared the string and missed.
+        ("[ANSWER]A, D[/ANSWER]", 1.0),
+        # ...and letter case is ignored, so "a,d" names the same options.
         ("[ANSWER]a,d[/ANSWER]", 1.0),
     ],
 )
-async def test_chembench_grades_a_comma_joined_key_as_its_pattern_scorer_reads_it(
+async def test_chembench_grades_a_comma_joined_key_as_a_set_of_letters(
     reply: str, score: float, no_network: None
 ) -> None:
     sample = Sample(

@@ -40,6 +40,10 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1701 PR 1: paws and boolq grade on a bare Yes or No (inspect_evals PR #2334 adopted).
     "paws": "992540ea3309d384",
     "boolq": "588977e58b380d7f",
+    # OME-1701 PR 2: chembench grades its letters as a set (inspect_evals PR #2591 adopted);
+    # infinite_bench_math_find grades by the first number (inspect_evals PR #2346 adopted).
+    "chembench": "b86658ea78c51962",
+    "infinite_bench_math_find": "1ed274442ad5dba1",
 }
 
 

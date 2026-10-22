@@ -10,7 +10,8 @@ What these tests pin, and why:
 - the Task never asks which model is answering, so its Cases are the same for every Candidate
   (inspect_evals' truncation solver calls `get_model()`, which Task replay refuses by name);
 - the solver chain is inspect_evals', in inspect_evals' order, with only the cut swapped;
-- the row: 350 Cases, graded by inspect's own `exact()`, no judge.
+- the row: 350 Cases, graded by the official first-number rule (the first number in the reply,
+  compared with the answer by value; pinned in test_local_task_infinite_bench_scorer), no judge.
 
 Runs only with the `inspect` extra installed.
 """
@@ -133,7 +134,7 @@ def test_the_solver_chain_is_inspect_evals_with_only_the_cut_swapped(
     ]
 
 
-def test_the_row_serves_350_cases_graded_by_inspects_exact_match() -> None:
+def test_the_row_serves_350_cases_graded_by_the_first_number_rule() -> None:
     benchmark = imported_benchmark("infinite_bench_math_find")
 
     assert benchmark.benchmark.case_count == 350
