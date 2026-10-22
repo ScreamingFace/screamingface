@@ -95,7 +95,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1701 PR 5 (2026-10-21): first frozen here, at the move to a local Task
     # that keeps every record (inspect_evals PR #2524 adopted; 2,115 → 2,123 Cases; stereoset
     # 6fe6deab5af299e2 before it).
-    "stereoset": "dd1c2cc6e587ed15",
+    "stereoset": "c2bf158bee6d5f8b",
 }
 
 

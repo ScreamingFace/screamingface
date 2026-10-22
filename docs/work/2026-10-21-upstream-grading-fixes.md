@@ -273,7 +273,15 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   be5e20b5…), the old 2,115 a subset of the new. Sealed by two build replays of the new
   declaration, which reproduce the old seal exactly on the old Task; hand-edited row, as
   worldsense's.
-- **Revisions:** stereoset 6fe6deab5af299e2 → dd1c2cc6e587ed15; no other moved.
+- **Revisions:** stereoset 6fe6deab5af299e2 → c2bf158bee6d5f8b; no other moved.
+- **Verbatim copy (owner rule 2026-10-22: a ported fix is a verbatim copy with the same
+  names):** `stereoset` and `record_to_sample` are inspect_evals' own, as merged with PR #2524
+  (merge commit 5f2013df; both are v0.20.0's plus the PR's id line), names and bodies unchanged;
+  our earlier wrapper and hoisted `INSTRUCTIONS` table are gone. Ours: the Task's
+  `version=`/`metadata=` lines are left out, marked; the merge commit's later, unrelated scorer
+  changes are not taken (the scorers stay v0.20.0's). Two build replays reproduce the sealed
+  Cases exactly (2,123; case_digest 2c8f8b3b…, case_set_digest be5e20b5…). The copy moved the
+  revision once more (dd1c2cc6e587ed15 → c2bf158bee6d5f8b).
 - **Review fixes:** the row description and the Task README no longer call our score the
   paper's language modeling score: it is a multiple-choice adaptation (the model picks one of
   three sentences once; the paper compares likelihoods, two comparisons per record, averaged
