@@ -166,11 +166,23 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           </td>
         </tr>
         <tr>
-          <td><code>frozen_copy_id</code></td>
+          <td><code>pinned_cache</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The id of the frozen copy that the run opened. <code>None</code> when the run was not
+            The id of the pinned cache that the run opened. <code>None</code> when the run was not
             captured (for example, <code>capture=False</code>) or the copy did not open.
+          </td>
+        </tr>
+        <tr>
+          <td><code>reproduction</code></td>
+          <td><code>Reproduction&nbsp;|&nbsp;None</code></td>
+          <td>
+            Verdict for a full replay of a published score. Read <code>.outcome</code> for
+            <code>"exact"</code> or <code>"failed"</code>, <code>.reason</code> for a failure, and
+            <code>.missed_cases</code> for cases the pinned cache could not answer.
+            <code>None</code> for fresh evaluations, partial replays and captures without a public
+            score. See the
+            <RouterLink to="/sf-client/api/leaderboards">Reproduction reference</RouterLink>.
           </td>
         </tr>
         <tr>
