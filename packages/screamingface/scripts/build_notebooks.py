@@ -1638,8 +1638,7 @@ in section 1 and match the synthesiser's prompt to how that board is graded:
   `inspect-aime25`.
 - **A letter**, graded by the `choice` scorer — `inspect-mmlu`, `inspect-mmlu_pro`,
   `inspect-arc_easy`, `inspect-arc_challenge`, `inspect-commonsense_qa`,
-  `inspect-winogrande`, `inspect-race_h`, `inspect-musr`, `inspect-hellaswag`,
-  `inspect-wmdp_bio`, `inspect-wmdp_chem`, `inspect-wmdp_cyber`.
+  `inspect-winogrande`, `inspect-race_h`, `inspect-musr`, `inspect-hellaswag`.
 - **Yes / No as the last word**, graded by an anchored pattern — `inspect-boolq`.
 - **yes / no anywhere in the reply**, graded by `includes` — `inspect-paws`.
 - **An open science answer**, graded by the eval's own LLM judge through our gateway —

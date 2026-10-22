@@ -993,3 +993,35 @@ def test_restart_refuses_a_foreign_gateway_database_url_before_stopping_anything
 
     # Refusal means the running stack was left untouched.
     assert config.state_path.exists()
+
+
+def test_the_local_projection_skips_an_unlisted_benchmark() -> None:
+    # INVARIANT (OME-1714): the local board must show what the deployed board shows. The
+    # deployed board seeds from the Engine's listing, which skips an Unlisted Benchmark; this
+    # twin reads the registry by import, so it has to apply the same skip or a local
+    # leaderboard shows a board the real one hides.
+    class Listed:
+        id = "draco"
+        title = "DRACO"
+        description = "Research reports"
+        revision = "revision-from-engine"
+        unlisted = False
+
+    class Unlisted:
+        id = "inspect-wmdp_bio"
+        title = "WMDP-Bio"
+        description = "Hazardous biosecurity knowledge"
+        revision = "557c21ed4fcf926e"
+        unlisted = True
+
+    class Undeclared:
+        # A definition with no `unlisted` attribute at all (the Protocol does not name it) is
+        # listed, exactly like `focus`: absent means the default.
+        id = "ifeval"
+        title = "IFEval"
+        description = "Deterministic instruction following"
+        revision = "revision-from-engine"
+
+    rows = json.loads(scoreboard_seed_json([Listed(), Unlisted(), Undeclared()]))
+
+    assert [row["id"] for row in rows] == ["draco", "ifeval"]

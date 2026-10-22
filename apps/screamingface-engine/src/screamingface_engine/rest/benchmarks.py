@@ -27,8 +27,18 @@ async def list_benchmarks(
     request: Request,
     if_none_match: Annotated[str | None, Header(alias="If-None-Match")] = None,
 ) -> Response:
+    # INVARIANT (OME-1714): this listing is the one root every catalogue reader uses (the SDK's
+    # `sf.benchmarks.list()`, the Scoreboard seed), so an Unlisted Benchmark skipped here is off
+    # every public index. `get_benchmark` below still serves it by id — unlisted, not removed.
     return conditional_json_response(
-        {"object": "list", "data": [benchmark.catalog_entry() for benchmark in _registry(request)]},
+        {
+            "object": "list",
+            "data": [
+                benchmark.catalog_entry()
+                for benchmark in _registry(request)
+                if not benchmark.unlisted
+            ],
+        },
         if_none_match,
     )
 
