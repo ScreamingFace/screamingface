@@ -54,7 +54,9 @@ def judge_notebook(
     Telemetry (spec §3.6): the notebook records its SDK events into ``<bundle>/events.jsonl``
     (``EVENTS_PATH``) as it runs; at bundle time the spans of its trace ids are copied in from
     ``spans_for`` (the session's ``OtlpReceiver.spans_for``). Telemetry never decides the
-    verdict: missing spans are explained in ``telemetry.json``, not failed.
+    verdict: missing spans are explained in ``telemetry.json``, not failed, and an ``OSError``
+    writing them (disk full, permission) is a redacted note in the bundle — it never skips
+    ``write_bundle``, so the verdict evidence always lands.
     """
     meta = _meta(path)
     if target.name not in meta.get("targets", []):
@@ -81,7 +83,11 @@ def judge_notebook(
     reasons = [redact(r) for r in raw]
 
     # The services batch their spans: wait (bounded) for the run's last batch to land.
-    write_telemetry(bundle_dir, trace_ids, settled(spans_for) if spans_for else None)
+    notes: list[str] = []
+    try:
+        write_telemetry(bundle_dir, trace_ids, settled(spans_for) if spans_for else None)
+    except OSError as exc:
+        notes.append(redact(f"telemetry not written: {type(exc).__name__}: {exc}"))
     bundle = write_bundle(
         out,
         target=target.name,
@@ -90,6 +96,7 @@ def judge_notebook(
         chain=chain,
         passed=not reasons,
         reasons=reasons,
+        notes=notes,
     )
     record_property("bundle", redact(str(bundle)))
     if reasons:

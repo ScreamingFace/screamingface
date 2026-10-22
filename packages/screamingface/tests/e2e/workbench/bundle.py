@@ -55,8 +55,13 @@ def write_bundle(
     chain: TraceChain,
     passed: bool,
     reasons: Sequence[str],
+    notes: Sequence[str] = (),
 ) -> Path:
-    """Write ``root/<target>/<notebook>/`` and append one row to ``root/summary.md``."""
+    """Write ``root/<target>/<notebook>/`` and append one row to ``root/summary.md``.
+
+    ``notes`` are evidence that never decides the verdict (a telemetry write that failed):
+    kept in ``trace.json`` and appended to the summary row's reasons cell, redacted.
+    """
     out = bundle_dir(root, target, notebook)
     (out / "logs").mkdir(parents=True, exist_ok=True)
 
@@ -69,13 +74,14 @@ def write_bundle(
     trace = chain.to_json() | {
         "passed": passed,
         "reasons": list(reasons),
+        "notes": list(notes),
         "result": run.result,
         "error": run.error,
     }
     (out / "trace.json").write_text(json.dumps(redact_tree(trace), indent=2))
 
     ids = ", ".join(chain.trace_ids) or "—"
-    why = "; ".join(reasons) or "—"
+    why = "; ".join([*reasons, *notes]) or "—"
     _append_row(root, target, notebook, "PASS" if passed else "FAIL", ids, why)
     return out
 

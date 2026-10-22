@@ -15,6 +15,7 @@ from typing import Any
 import nbformat
 import pytest
 
+from workbench import verdict
 from workbench.bundle import EVENTS_FILE, SPANS_FILE, TELEMETRY_FILE
 from workbench.redaction import MASK
 from workbench.targets import LiveTarget
@@ -135,3 +136,23 @@ def test_a_rerun_never_inherits_the_previous_runs_events(tmp_path: Path) -> None
     _judge(tmp_path, spans_for=_spans_for)
     assert len((bundle / EVENTS_FILE).read_text().splitlines()) == 1
     assert not (bundle / "report.json").exists()
+
+
+# Security review: telemetry never decides the verdict, so a telemetry write that fails (disk
+# full, permission) must never skip the verdict evidence. The failure lands as a redacted note.
+def test_an_oserror_writing_telemetry_never_skips_the_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: Any, **kwargs: Any) -> Any:
+        raise OSError(28, f"No space left on device: api_key={OPAQUE}")
+
+    monkeypatch.setattr(verdict, "write_telemetry", broken)
+    bundle = _judge(tmp_path, spans_for=_spans_for)
+
+    trace = json.loads((bundle / "trace.json").read_text())
+    assert (bundle / "executed.ipynb").exists()
+    assert "telemetry" in (tmp_path / "evidence" / "summary.md").read_text()
+    (note,) = trace["notes"]
+    assert note.startswith("telemetry not written: OSError")
+    assert OPAQUE not in (bundle / "trace.json").read_text()
+    assert MASK in note
