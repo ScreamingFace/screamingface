@@ -56,10 +56,22 @@ never echoes a URL; one PR.
 - **Actual files:** as planned. `_json_object`, `_candidate_input_envelope`, `_candidate_messages`
   and `_candidate_message` left the connector; `import json` went with them.
 - **Commits:** see the PR.
-- **Gates:** ruff check, ruff format --check and pyright on the 5 touched files clean;
+- **Gates:** ruff check, ruff format --check and pyright on the touched files clean;
   `check_layering.py` OK; `test_candidate_input.py`, `test_aigateway_connector.py`,
-  `test_request_scope_hardening.py`, `test_failure_classes.py`, `test_terminal_error_detail.py`:
-  172 passed. Full suite left to CI.
-- **Deviations:** none in scope. OME-1678 acceptance 4 (MMMU `validation_Geography_16` end to end
-  on the local stack) is an owner-verify step: it needs the importer (OME-1271 PR 2) to produce
-  the Case and a vision model behind the gateway.
+  `test_data_uri_matches_aigateway.py`, `test_request_scope_hardening.py`,
+  `test_failure_classes.py`, `test_terminal_error_detail.py` pass; aigateway
+  `test_data_uri_matches_engine.py` and `test_content_parts.py`: 57 passed. Full suite left to CI.
+- **Review round 1 (2026-10-22):** a refusal now repeats a role, part type or schema only when it
+  is a short name, else names its type (`<dict>`, `<str>`), so a misplaced picture or URL never
+  reaches the error text. JSON that Python cannot load (digit limit, deep nesting) is a prompt,
+  not a crash. A picture under a grading call is refused by name (spec D6, §2.7 gate 2). Twin
+  tests in the engine and aigateway pin the two `_DATA_URI_RE` patterns together (§2.7 gate 4).
+  The v1 replay test compares serialized text, so key order counts. Declined: a stricter
+  base64-checking pattern on the engine side alone, which would break parity with the gateway;
+  spelling variants are absorbed by F3's decoded-byte identity.
+- **Deviations:** blob refs (`/blob/`, `url4://`) and `https://` are refused rather than resolved;
+  spec §2.7 on #1450 now says the same ("`data:` URIs only"). Order the v2 path must follow
+  (§2.7 gate 1): this PR, then OME-1679 and OME-1271 PR 1 (the readers), and only then the v2
+  importer (OME-1271 PR 2). Nothing writes v2 before that.
+- **Owner verify:** OME-1678 acceptance 4 (MMMU `validation_Geography_16` end to end on the local
+  stack) needs the importer (OME-1271 PR 2) and a vision model behind the gateway.

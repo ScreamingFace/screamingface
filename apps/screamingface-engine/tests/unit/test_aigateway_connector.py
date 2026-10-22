@@ -11,6 +11,7 @@ from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_V2_SCHEMA,
 )
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
+from screamingface_engine.grading_call_scope import grading_call_scope
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, routes_for
 from screamingface_engine.world.connector import (
     AigatewayConfig,
@@ -1184,13 +1185,47 @@ async def test_a_picture_case_with_a_remote_url_is_refused_before_any_gateway_ca
     # INVARIANT: only data: URIs pass. A Case naming an https:// picture must never make the
     # gateway, or Codex behind it, fetch a URL the Case picked.
     context = _picture_case().replace(_PNG_DATA_URI, "https://insecure-website.com/a.png")
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "42"}, web_search=False)
+    cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
+    async with gw.client() as client:
+        handler = _ModelEndpoint(
+            http_client=client,
+            cfg=cfg,
+            routes=routes_for(gw.models),
+            tavily_http=None,
+            tavily_api_key=None,
+        )
 
-    with pytest.raises(ResolutionError, match="message 0 part 1") as caught:
-        _messages(context, None)
+        with pytest.raises(ResolutionError, match="message 0 part 1") as caught:
+            await handler(Request(path=f"/{_MODEL}", context=context, intent="", params={}))
 
+    assert gw.posts_to(_MODEL) == []
     assert caught.value.code == "invalid_candidate_input"
     assert caught.value.permanent is True
     assert "insecure-website.com" not in str(caught.value)
+
+
+async def test_judge_call_with_v2_context_is_refused() -> None:
+    # INVARIANT (spec D6): judges grade text. A picture reaching a grading call fails by name
+    # instead of being dropped by whichever judge writer happens to read only text.
+    with (
+        grading_call_scope("case-1"),
+        pytest.raises(ResolutionError, match="judges read text") as caught,
+    ):
+        _messages(_picture_case(), None)
+
+    assert caught.value.code == "invalid_candidate_input"
+    assert caught.value.permanent is True
+
+
+async def test_judge_call_with_text_context_still_reaches_the_gateway() -> None:
+    # WHY: the refusal is for pictures only; a v1 judge conversation keeps its messages.
+    context = json.dumps(
+        {"schema": CANDIDATE_INPUT_SCHEMA, "messages": [{"role": "user", "content": "Grade this."}]}
+    )
+
+    with grading_call_scope("case-1"):
+        assert _messages(context, None) == [{"role": "user", "content": "Grade this."}]
 
 
 async def test_an_unknown_candidate_input_version_is_still_refused() -> None:

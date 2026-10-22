@@ -854,6 +854,7 @@ def decode_loop_outcome(value: str) -> CorrectiveLoopOutcome | None:
 __all__ = [
     "CANDIDATE_BINDING",
     "CANDIDATE_INPUT_SCHEMA",
+    "CANDIDATE_INPUT_V2_SCHEMA",
     "CANDIDATE_INVOCATION_SCHEMA",
     "CANDIDATE_MESSAGE_ROLES",
     "CANDIDATE_RESULT_SCHEMA",

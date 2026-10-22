@@ -1,4 +1,7 @@
-"""The candidate-input envelope rules (OME-1678, §2.7 of the url4 multimodal spec).
+"""The candidate-input envelope rules (OME-1678).
+
+The v2 shape is §2.7 of the file-input spec on #1450, first proposed in
+https://github.com/ScreamingFace/screamingface/pull/1450#issuecomment-6286823021.
 
 A Case input is either a plain prompt or an envelope naming a candidate-input schema. v1 carries
 text messages; v2 lets a user message carry pictures and PDFs as inline ``data:`` URIs. These
@@ -61,7 +64,9 @@ def test_v1_messages_come_back_exactly_as_written() -> None:
     ]
     text = json.dumps({"schema": CANDIDATE_INPUT_SCHEMA, "messages": messages})
 
-    assert parse_candidate_input(text) == messages
+    # WHY compare serialized text and not only dicts: dict == ignores key order, and a swapped
+    # role/content order would change every recorded request body while == stayed green.
+    assert json.dumps(parse_candidate_input(text)) == json.dumps(messages)
 
 
 def test_v2_user_message_keeps_its_text_and_picture_parts_in_order() -> None:
@@ -132,6 +137,8 @@ def test_unknown_candidate_input_version_is_refused_by_name() -> None:
         ({"type": "file", "file": {"file_data": _PDF, "filename": ""}}, "filename"),
         ({"type": "file", "file": {"file_id": "file-123"}}, "file"),
         ({"type": "input_audio", "input_audio": {"data": "AAAA"}}, "unsupported part type"),
+        # A URL where the part type belongs is named by its type, never repeated.
+        ({"type": "https://example.com/a.png"}, "unsupported part type <str>"),
         ({"type": "text", "text": ""}, "text"),
         ({"type": "text", "text": "hi", "cache_control": {}}, "text"),
     ],
@@ -148,6 +155,48 @@ def test_a_part_that_breaks_a_rule_is_refused_by_position_never_echoing_its_byte
     # a private picture never leaks into a report.
     for leaked in ("example.com", "/blob/", "base64", "iVBOR", "JVBER", "PHN2Zz4"):
         assert leaked not in message
+
+
+_BIG_PNG = "data:image/png;base64," + "iVBORw0KGgo" * 100_000
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [
+        # An importer bug that swaps a message's role and content: the role holds the picture.
+        {
+            "schema": CANDIDATE_INPUT_V2_SCHEMA,
+            "messages": [
+                {"role": [{"type": "image_url", "image_url": {"url": _BIG_PNG}}], "content": "hi"}
+            ],
+        },
+        # A role or schema that is long text, not a name.
+        {"schema": CANDIDATE_INPUT_V2_SCHEMA, "messages": [{"role": _BIG_PNG, "content": "hi"}]},
+        {"schema": "screamingface.candidate-input." + _BIG_PNG, "messages": []},
+    ],
+)
+def test_a_refusal_never_repeats_a_misplaced_picture(envelope: dict[str, Any]) -> None:
+    # INVARIANT: a value in the wrong field is named by its type, so a refusal stays one short
+    # line and never carries a picture into a log or a report.
+    with pytest.raises(CandidateInputError) as caught:
+        parse_candidate_input(json.dumps(envelope))
+
+    message = str(caught.value)
+    assert "base64" not in message
+    assert "iVBOR" not in message
+    assert len(message) < 120
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"schema": ' + "1" * 5000 + "}",  # past Python's int digit limit: a plain ValueError
+        '{"a":' + "[" * 100_000 + "]" * 100_000 + "}",  # deep enough to raise RecursionError
+    ],
+)
+def test_json_that_python_cannot_load_is_a_prompt_not_a_crash(text: str) -> None:
+    # WHY: not an envelope, so it reaches the model as written, as other non-envelope text does.
+    assert parse_candidate_input(text) is None
 
 
 @pytest.mark.parametrize("role", ["system", "developer", "assistant"])

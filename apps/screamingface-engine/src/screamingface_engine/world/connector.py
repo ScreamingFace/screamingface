@@ -46,7 +46,7 @@ from screamingface_engine.capture_outcomes import (
     seal_path,
 )
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
-from screamingface_engine.grading_call_scope import grading_call_log_suffix
+from screamingface_engine.grading_call_scope import current_grading_case, grading_call_log_suffix
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.network_policy import is_numeric_loopback_url
 from screamingface_engine.observations import ModelCall, current_model_call
@@ -1500,9 +1500,18 @@ def _native_messages(context: str | None) -> list[CandidateMessage] | None:
     to the gateway verbatim.
     """
     try:
-        return parse_candidate_input(context)
+        messages: list[CandidateMessage] | None = parse_candidate_input(context)
     except CandidateInputError as exc:
         _invalid_candidate_input(str(exc))
+    # INVARIANT (spec D6): a judge grades the text answer only. A picture reaching a grading call
+    # is refused by name here, not dropped by whichever judge writer happens to read text.
+    if (
+        messages is not None
+        and current_grading_case() is not None
+        and any(not isinstance(message["content"], str) for message in messages)
+    ):
+        _invalid_candidate_input("a grading call carries a picture or file; judges read text only")
+    return messages
 
 
 def _invalid_candidate_input(detail: str) -> NoReturn:

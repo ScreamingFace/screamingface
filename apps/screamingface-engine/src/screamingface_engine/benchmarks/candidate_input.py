@@ -47,6 +47,9 @@ _FILE_MIMES = frozenset({"application/pdf"})
 # WHY: the Chat Completions `image_url.detail` set; anything else fails at the gateway anyway.
 _IMAGE_DETAILS = frozenset({"auto", "low", "high"})
 _MEDIA_PART_TYPES = frozenset({"image_url", "file"})
+# WHY a refusal repeats a value only when it looks like a name: a Case can put a megabyte of
+# base64 or a URL where a role, part type or schema belongs, and the refusal must not carry it.
+_SHOWN_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 
 # The shapes, in one place. WHY TypedDicts and not models: they cost nothing at run time and keep
 # every refusal message under this module's control (a model's validation error would quote the
@@ -156,7 +159,7 @@ def parse_candidate_input(text: str | None) -> list[CandidateMessage] | None:
 
     # Stage 2 — which version?
     if schema not in (CANDIDATE_INPUT_SCHEMA, CANDIDATE_INPUT_V2_SCHEMA):
-        _refuse(f"unsupported schema {schema!r}")
+        _refuse(f"unsupported schema {_shown(schema)}")
     if set(envelope) != {"schema", "messages"}:
         _refuse("the chat envelope must contain only schema and messages")
     raw_messages: object = envelope["messages"]
@@ -184,7 +187,7 @@ def _message(index: int, value: object, *, allows_parts: bool) -> CandidateMessa
     role: object = value["role"]
     content: object = value["content"]
     if not isinstance(role, str) or role not in CANDIDATE_MESSAGE_ROLES:
-        _refuse(f"message {index} has unsupported role {role!r}")
+        _refuse(f"message {index} has unsupported role {_shown(role)}")
     if isinstance(content, str):
         # WHY the cast: the membership check above is what proves the role; pyright cannot
         # narrow a str to a Literal through a frozenset.
@@ -231,8 +234,7 @@ def _part(where: str, value: object) -> ContentPart:
         return {"type": "image_url", "image_url": _picture(where, value)}
     if part_type == "file":
         return {"type": "file", "file": _file(where, value)}
-    shown: str = part_type if isinstance(part_type, str) else "untyped"
-    _refuse(f"{where}: unsupported part type {shown!r}")
+    _refuse(f"{where}: unsupported part type {_shown(part_type)}")
 
 
 def _picture(where: str, part: Mapping[str, Any]) -> ImageUrl:
@@ -303,9 +305,22 @@ def _json_object(text: str | None) -> dict[str, Any] | None:
         return None
     try:
         value: object = json.loads(text)
-    except json.JSONDecodeError:
+    # WHY not only JSONDecodeError: a number past Python's digit limit raises a plain ValueError
+    # and very deep nesting raises RecursionError; both are text that is not an envelope.
+    except (ValueError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
+
+
+def _shown(value: object) -> str:
+    """How a refusal names a value the Case sent: quoted if it looks like a name, else its type.
+
+    e.g. ``'tool'`` → ``'tool'``; a picture part dict → ``<dict>``; ``https://…`` → ``<str>``.
+    """
+
+    if isinstance(value, str) and _SHOWN_NAME_RE.fullmatch(value):
+        return repr(value)
+    return f"<{type(value).__name__}>"
 
 
 def _refuse(detail: str) -> NoReturn:
