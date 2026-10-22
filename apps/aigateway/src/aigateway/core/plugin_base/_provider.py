@@ -204,6 +204,19 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         """
         return body
 
+    def refuse_inadmissible_media(self, body: dict[str, Any]) -> None:
+        """Raise the typed 422 for media this provider can never carry (OME-1542 review 2).
+
+        # FEATURE: image and file input (OME-1529). The chat route calls this at its media
+        # boundary, next to the provider-neutral data:-only guard.
+        # INVARIANT: called BEFORE the cache stage and credential resolution, so a profile or
+        # auth error can never preempt the media 422 and a refused body never reaches the cache.
+        # WHY a hook: which slots hold text only is the provider's wire knowledge (Anthropic's
+        # top-level ``system``); core states the seam, the plugin fills it, and core never
+        # imports the plugin. Default: admit everything.
+        """
+        return None
+
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
         return body

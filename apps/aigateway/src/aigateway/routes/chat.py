@@ -457,6 +457,8 @@ def _admit_media(
             provider=provider,
             allow_remote_image_urls=plugin.forwards_remote_image_urls,
         )
+        # The provider's own slot rules (Anthropic's top-level `system`), at the same boundary.
+        plugin.refuse_inadmissible_media(body)
     except HTTPException:
         if not streaming:
             begin_accounting(request, plugin=plugin, provider=provider, model=body.get("model", ""))

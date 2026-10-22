@@ -194,6 +194,12 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # it lives beside the parameter rules rather than in the classifier.
         raise_on_thinking_conflict(body, model=model, auth_mode=auth_mode)
 
+    def refuse_inadmissible_media(self, body: dict[str, Any]) -> None:
+        # INVARIANT (OME-1542 review 2): system-slot media is refused at the route's media
+        # boundary, before cache planning and credential resolution — not only in
+        # ``prepare_chat_body``, which runs after both.
+        _refuse_system_media(body)
+
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Claude-Code attribution moved to dispatch time (chat_handler):
         # prepare runs before auth resolution, so the OAuth-vs-API-key
