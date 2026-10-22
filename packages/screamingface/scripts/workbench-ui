@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Launch the e2e workbench UI with one command, from anywhere in the repo.
+
+    packages/screamingface/scripts/workbench-ui            # replay only, free
+    packages/screamingface/scripts/workbench-ui --paid     # also enable `local` (OpenRouter)
+    packages/screamingface/scripts/workbench-ui --check    # preflight only, launch nothing
+
+Everything else (`--port`, `--out`, `--no-open`) is passed through to `python -m workbench.ui`.
+
+WHY a script and not just the `just` recipe: the UI needs `PYTHONPATH=tests/e2e`, the
+`runtime` extra, the prepared-assets path and (for `local`) the provider key, and a missing one
+fails late and obscurely. This checks each up front and says exactly what to do.
+
+Stdlib only on purpose: it runs before any virtualenv exists, then hands over to `uv run`.
+Key handling: `--paid` takes `OPENROUTER_API_KEY` from the environment, else reads ONLY the
+`OPENROUTER_API_KEY` / `OPENROUTER_KEY` line from the repo's `.env` — no other variable from
+that file is loaded — and never prints it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import socket
+import subprocess
+import sys
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+
+PACKAGE = Path(__file__).resolve().parents[1]
+REPO = PACKAGE.parents[1]
+DOTENV = REPO / ".env"  # kept for callers/tests; resolution uses dotenv_candidates()
+DEFAULT_PORT = 9112
+KEY_ENV = "OPENROUTER_API_KEY"
+_DOTENV_KEYS = ("OPENROUTER_API_KEY", "OPENROUTER_KEY")
+PREPARE_HINT = (
+    "cd apps/screamingface-engine && uv run --extra benchmarks python -m "
+    "screamingface_engine.benchmarks.prepare --root {root} --bundle ifeval"
+)
+
+
+def default_assets(environ: Mapping[str, str]) -> Path:
+    if environ.get("SCREAMINGFACE_E2E_ASSETS"):
+        return Path(environ["SCREAMINGFACE_E2E_ASSETS"]).expanduser()
+    data = environ.get("SCREAMINGFACE_DATA_DIR")
+    base = Path(data).expanduser() if data else Path.home() / ".screamingface"
+    return base / "benchmark-assets"
+
+
+def _dotenv_value(raw: str) -> str:
+    value = raw.split(" #", 1)[0].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    return value
+
+
+def resolve_key(*, environ: Mapping[str, str], dotenv: Path | Sequence[Path]) -> str | None:
+    if environ.get(KEY_ENV):
+        return environ[KEY_ENV]
+    for path in [dotenv] if isinstance(dotenv, Path) else dotenv:
+        key = _key_from(path)
+        if key is not None:
+            return key
+    return None
+
+
+def _key_from(dotenv: Path) -> str | None:
+    try:
+        lines = dotenv.read_text().splitlines()
+    except OSError:
+        return None
+    found: dict[str, str] = {}
+    for line in lines:
+        stripped = line.strip().removeprefix("export ").strip()
+        name, sep, raw = stripped.partition("=")
+        if sep and name.strip() in _DOTENV_KEYS:
+            value = _dotenv_value(raw)
+            if value:
+                found[name.strip()] = value
+    return next((found[n] for n in _DOTENV_KEYS if n in found), None)
+
+
+def main_checkout() -> Path | None:
+    """The main checkout's root, also from inside a git worktree (its `.env` lives there)."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return Path(out).parent if out else None
+
+
+def dotenv_candidates() -> list[Path]:
+    candidates = [REPO / ".env"]
+    main = main_checkout()
+    if main is not None and main.resolve() != REPO.resolve():
+        candidates.append(main / ".env")
+    return candidates
+
+
+def docker_running() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+
+
+def _port_free(port: int) -> bool:
+    with socket.socket() as probe:
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def free_port_for_tests() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def preflight(*, assets: Path, port: int, docker_ok: bool) -> list[str]:
+    problems: list[str] = []
+    if shutil.which("uv") is None:
+        problems.append("`uv` is not on PATH — install it: https://docs.astral.sh/uv/")
+    if not docker_ok:
+        problems.append("Docker is not running — start Docker Desktop (replay needs Postgres).")
+    if not (assets / "ifeval" / "cases.json").is_file():
+        problems.append(
+            f"ifeval assets are not prepared at {assets / 'ifeval'} — run:\n    "
+            + PREPARE_HINT.format(root=assets)
+        )
+    if not _port_free(port):
+        problems.append(f"port {port} is busy — stop the other UI or pass --port {port + 1}")
+    return problems
+
+
+def build_command(
+    passthrough: Sequence[str], *, environ: Mapping[str, str], assets: Path, key: str | None
+) -> tuple[list[str], dict[str, str]]:
+    args = list(passthrough)
+    if "--out" not in args:
+        args = ["--out", str(PACKAGE / "workbench-out"), *args]
+    argv = ["uv", "run", "--project", str(PACKAGE), "--extra", "runtime"]
+    argv += ["python", "-m", "workbench.ui", *args]
+    env = dict(environ)
+    pythonpath = [str(PACKAGE / "tests" / "e2e"), *filter(None, [env.get("PYTHONPATH")])]
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+    env["SCREAMINGFACE_E2E_ASSETS"] = str(assets)
+    if key is not None:
+        env[KEY_ENV] = key
+    return argv, env
+
+
+def _port_of(passthrough: Sequence[str]) -> int:
+    if "--port" in passthrough:
+        return int(passthrough[list(passthrough).index("--port") + 1])
+    return DEFAULT_PORT
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--paid", action="store_true", help="enable the local target (OpenRouter)")
+    parser.add_argument("--check", action="store_true", help="preflight only; launch nothing")
+    ours, passthrough = parser.parse_known_args(argv)
+
+    environ = dict(os.environ)
+    assets = default_assets(environ)
+    problems = preflight(assets=assets, port=_port_of(passthrough), docker_ok=docker_running())
+    key = None
+    if ours.paid:
+        key = resolve_key(environ=environ, dotenv=dotenv_candidates())
+        if key is None:
+            problems.append(
+                f"--paid needs {KEY_ENV}: export it, or add OPENROUTER_KEY=… to "
+                + " or ".join(str(p) for p in dotenv_candidates())
+            )
+    if problems:
+        print(
+            "workbench UI can't start yet:",
+            *(f"  • {p}" for p in problems),
+            sep="\n",
+            file=sys.stderr,
+        )
+        return 2
+
+    mode = "replay + local (paid)" if key else "replay only (free)"
+    print(f"workbench UI ready — {mode}; assets {assets}")
+    if ours.check:
+        return 0
+    command, env = build_command(passthrough, environ=environ, assets=assets, key=key)
+    os.chdir(PACKAGE)
+    os.execvpe(command[0], command, env)
+    return 0  # unreachable: execvpe replaces this process
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

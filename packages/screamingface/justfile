@@ -284,5 +284,4 @@ workbench target="replay":
 # `just workbench-ui ./workbench-out --port 9113 --no-open`.
 [doc("Open the e2e workbench UI (viewer + launcher) on 127.0.0.1:9112")]
 workbench-ui out="./workbench-out" *args:
-    PYTHONPATH="{{ source_directory() }}/tests/e2e" \
-      uv run --extra runtime python -m workbench.ui --out "{{ out }}" {{ args }}
+    "{{ source_directory() }}/scripts/workbench-ui" --out "{{ out }}" {{ args }}

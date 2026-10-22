@@ -88,21 +88,25 @@ once `up` was invoked, and the Engine is stopped once its start was attempted.
 A local page that launches the lane above and shows its evidence bundles, so you never open
 `trace.json` or `executed.ipynb` by hand. It is dev-only (`ui/`, never in the SDK wheel).
 
-**Start it** (from the repo root):
+**Start it** — one command, from anywhere in the repo:
 
 ```sh
-just screamingface workbench-ui                    # bundles under packages/screamingface/workbench-out
+packages/screamingface/scripts/workbench-ui            # replay only, free
+packages/screamingface/scripts/workbench-ui --paid     # also enable `local` (OpenRouter, spends)
+packages/screamingface/scripts/workbench-ui --check    # preflight only
 ```
 
-From `packages/screamingface`: `just workbench-ui ./my-out --port 9113 --no-open` (extra args
-pass through). Without `just`, from `packages/screamingface`:
-`PYTHONPATH=tests/e2e uv run --extra runtime python -m workbench.ui --out ./workbench-out`.
-A relative `out` resolves from `packages/screamingface`. `PYTHONPATH` is required: `python -m`
-imports the `workbench` package before `__main__` runs, so the module cannot add `tests/e2e` to
-`sys.path` itself. `test_entrypoint.py` boots both commands for real.
+It checks `uv`, Docker, the prepared ifeval assets (printing the exact prepare command if they
+are missing) and the port, then starts the UI and opens `http://127.0.0.1:9112/?token=…`.
+`--port`, `--out` and `--no-open` pass through; bundles default to
+`packages/screamingface/workbench-out`. `--paid` takes `OPENROUTER_API_KEY` from the environment,
+else reads only the `OPENROUTER_API_KEY` / `OPENROUTER_KEY` line from the repo's `.env` (in a git
+worktree, the main checkout's `.env`); nothing else from that file is loaded and the key is never
+printed. `just screamingface workbench-ui` runs the same script.
 
-On start it prints `http://127.0.0.1:9112/?token=…` and opens it (`--no-open` skips that). For
-a `local` run, export `OPENROUTER_API_KEY` in that shell first; the UI never asks for a key.
+Under the hood it is `PYTHONPATH=tests/e2e uv run --extra runtime python -m workbench.ui --out …`
+from `packages/screamingface` (`python -m` imports `workbench` before `__main__` runs, so the
+module cannot add `tests/e2e` to `sys.path` itself; `test_entrypoint.py` boots it for real).
 
 **How to test it** (a human, about 5 minutes, keyless; needs docker and the prepared ifeval
 assets, as for `just screamingface workbench`):
