@@ -74,3 +74,26 @@ is a later unit; `Payload` stays `str`.
   test `tests/unit/test_io_bytes_fetch_guard.py`: `fetch_bytes` to `169.254.169.254` (literal and
   via DNS) is refused with `x.source_destination_blocked`, nothing reaches the wire. Gates:
   `run_gates.py url4` ALL GATES GREEN; `check_module_size.py` / `check_suppressions.py` within baseline.
+
+## Review round 2 (HupBaHa, 2026-10-22T13:47Z) — status: done
+
+- **Planned:** (1) `io/media.py` parses `Content-Type` per RFC 9110 (token `/` token, quoted-string
+  parameters, no new dependency); an invalid or comma-joined (duplicate-header) value is not text;
+  `charset` makes only a non-binary `application/*` type text — `image/*`, `audio/*`, `video/*`,
+  `font/*`, `model/*`, `multipart/*` and binary application types (octet-stream, pdf, zip, …) win;
+  new `bare_media_type()` gives the bytes path one validated bare type or raises
+  `unsupported_content_type`; `io/http.py` `_media_type` uses it. (2) `BoundedIOLayer._admit`
+  forwards `**kwargs`. (3) `RemoteFetchNode.accept`, set by `_push_label`, sent on its `FetchRequest`.
+- **Tests (new file, prior tests untouched):** `tests/unit/test_io_media_type_review.py`.
+- **Outcome:** as planned. The parser is a `re.fullmatch` of the RFC 9110 media-type grammar
+  (a hand scanner tripped ruff's return/branch limits). `HttpIOLayer._media_type(target, response)`
+  goes through `bare_media_type`, so `fetch_bytes` and `fetch_ex` report one bare type or raise.
+  Tests: `tests/unit/test_io_media_type_review.py` (45 cases; the five reviewer values on the
+  classifier, `require_text`, both HTTP text paths and `fetch_bytes`; keyword calls through
+  `BoundedIOLayer`; remote-expression `;accept=` lowering + wire + default). No prior test edited.
+- **Gates:** `run_gates.py url4` ALL GATES GREEN (2160 passed, 17 xfailed; `io/media.py` 100%);
+  `check_module_size.py` within baseline (`dag/_context.py` 453/455, `dag/nodes/fetch.py` 286/290);
+  `check_suppressions.py` 3/3.
+- **Deviations:** behaviour narrowed by design — `charset` now makes only a non-binary
+  `application/*` type text (e.g. `message/*; charset=` is now refused, fail-closed);
+  `StaticIOLayer.fetch_bytes` (a test double) still reports its configured media type verbatim.
