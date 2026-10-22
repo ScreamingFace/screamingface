@@ -40,6 +40,8 @@ Plan: `docs/plan/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md`.
 - `GET /v1/benchmarks/{id}` still answers 200 for an Unlisted Benchmark.
 - The Unlisted spec rows are exactly `wmdp_bio`, `wmdp_chem`, `wmdp_cyber`.
 - The assembled WMDP-Bio Benchmark is unlisted; gsm8k is not (inspect extra).
+- Real rows through the real route (inspect extra): the app booted with every registered
+  Benchmark omits exactly the three WMDP ids from the listing and serves each by id.
 - The three published revisions are unchanged (existing pin).
 - SDK `get` returns an Unlisted Benchmark the listing omits; a 404 still raises `unknown_benchmark`;
   a resource with another id is refused; async twin; the local projection skips an Unlisted row.
