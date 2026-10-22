@@ -34,11 +34,13 @@ Dispatch contract (mirrors the engine's wire conventions):
 from __future__ import annotations
 
 from collections.abc import Awaitable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from inspect import isawaitable
 from typing import TYPE_CHECKING
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.dag.attachment import Attachment
+from url4.dag.attachments import current_attachments
 from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
 from url4.wire.subrequest import (
     TRANSPORT_ONLY_PARAMS,
@@ -63,6 +65,9 @@ class Request:
     context: str
     intent: str
     params: Mapping[str, str]
+    attachments: tuple[Attachment, ...] = field(default=(), repr=False)
+    """The calling run's files, in order (F2): set for an in-process call only. An HTTP
+    ingress has no calling run, so a remote caller's files never arrive here (D6)."""
 
 
 # Transport-level query params a node consumes itself rather than re-attaching
@@ -182,7 +187,13 @@ async def dispatch(node: Url4Node, target: str) -> str:
 
 async def call_endpoint(node: Url4Node, path: str, q: str, params: Mapping[str, str]) -> str:
     context, intent = decode_subrequest_http(q)
-    request = Request(path=path, context=context, intent=intent, params=params)
+    request = Request(
+        path=path,
+        context=context,
+        intent=intent,
+        params=params,
+        attachments=current_attachments(),
+    )
     return await _text(node._endpoints[path](request))
 
 

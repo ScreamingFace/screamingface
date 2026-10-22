@@ -104,6 +104,21 @@ def bind_run_files(
         _RUN_FILES.reset(token)
 
 
+@contextmanager
+def detached_run_files() -> Iterator[None]:
+    """Run the body with NO run bound: the ingress of a request from another node.
+
+    WHY: a served request belongs to no calling run. Over a real socket that is free (a new
+    task), but an in-process transport shares the caller's context; detaching makes the
+    remote-node rule (D6: nothing is shipped to another node) hold for both.
+    """
+    token = _RUN_FILES.set(None)
+    try:
+        yield
+    finally:
+        _RUN_FILES.reset(token)
+
+
 # --- collection: which file refs the run's AST names, in source order -------------------
 
 
@@ -246,6 +261,7 @@ __all__ = [
     "collect_file_refs",
     "current_attachments",
     "current_run_files",
+    "detached_run_files",
     "merge_attachments",
     "refuse_remote",
 ]
