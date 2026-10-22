@@ -240,3 +240,47 @@ def test_long_non_secret_names_are_left_alone(length: int) -> None:
 )
 def test_a_secret_assigned_through_a_subscript_is_masked(line: str) -> None:
     assert "opaque-value-123" not in redact(line)
+
+
+_S = "opaqueSecretValue123"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"OPENROUTER_API_KEY_1={_S}",  # numbered suffix
+        f"GEMINI_API_KEYS={_S}",  # plural key
+        f"secret_value={_S}",  # secret-word prefix
+        f"PASSWORD_HASH_INPUT={_S}",
+        f"--api-key {_S}",  # CLI flag, space-separated
+        f"--token {_S}",
+        f"['curl', '--token', '{_S}']",  # argv repr in a CalledProcessError
+        f"(b'x-api-key', b'{_S}')",  # raw header tuple
+        f"Cookie: session={_S}",
+        f"Set-Cookie: sid={_S}; Path=/",
+        f"{{'name': 'X_API_KEY', 'value': '{_S}'}}",  # k8s-style env entry
+        f'{{"name": "GH_TOKEN", "value": "{_S}"}}',
+    ],
+)
+def test_secret_shapes_from_the_security_review_are_masked(line: str) -> None:
+    assert _S not in redact(line), redact(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "--max-tokens 1000",
+        "--limit 5",
+        "token_count=5",
+        "max_tokens=8192",
+        "['pytest', '-k', 'quickstart']",
+        "{'name': 'LIMIT', 'value': '5'}",
+    ],
+)
+def test_ordinary_flags_and_counts_stay_readable(line: str) -> None:
+    assert redact(line) == line
+
+
+def test_a_k8s_env_entry_keeps_its_keys_readable() -> None:
+    out = redact(f"{{'name': 'X_API_KEY', 'value': '{_S}'}}")
+    assert out == "{'name': 'X_API_KEY', 'value': [REDACTED]}"

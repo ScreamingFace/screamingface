@@ -56,7 +56,7 @@ _SECRET_NAME: Final = r"(?:key|token|secret|password|passwd|pwd|credentials?|aut
 # char, so backtracking only gives back chars of that same run — linear in its length. Each
 # lookbehind is fixed-width (`re` needs that); `[\w-]key` keeps bare `key` out.
 _ASSIGNED_NAME: Final = (
-    r"[\w-]+(?:"
+    r"(?:[\w-]+(?:"
     + "|".join(
         f"(?<={word})"
         for word in (
@@ -73,7 +73,12 @@ _ASSIGNED_NAME: Final = (
             r"[\w-]key",
         )
     )
-    + ")"
+    # A plural API key or a numbered key (`GEMINI_API_KEYS`, `OPENROUTER_API_KEY_1`). Plural only
+    # for `api_key`: `max_tokens` and `num_keys` are counts and must stay readable.
+    + r")(?:(?<=api_key)s|(?<=api-key)s|(?<=apikey)s)?(?:_\d{1,4})?"
+    # A name that STARTS with the secret word (`secret_value`, `PASSWORD_HASH_INPUT`). Only
+    # secret/password: a `token_` prefix is a count (`token_count`).
+    + r"|(?:secret|passw(?:or)?d)[\w-]*)"
 )
 _NOT_MASKED: Final = rf"(?!{re.escape(MASK)})"
 # `"name": `, `name=`, `\"name\": ` (JSON inside a JSON string), `'name': ` (a repr).
@@ -82,6 +87,9 @@ _SEPARATOR: Final = r"((?:\\*['\"])?\]?\s*[=:]\s*)"
 # A quoted value, masked whole: an optional bytes/str prefix, then the opening quote with any
 # backslashes before it (`\"v\"` in escaped JSON, `\'v\'` in a repr), up to the same quote.
 _QUOTED: Final = r"[bBrRuUfF]{0,2}(?P<q>\\*['\"])(?:(?!(?P=q))[^\n])*(?P=q)?"
+# The same, but the closing quote is REQUIRED: inside a sequence the value always closes, and an
+# optional close would let a following `(?!\s*:)` backtrack into the value.
+_QUOTED_CLOSED: Final = r"[bBrRuUfF]{0,2}(?P<q>\\*['\"])(?:(?!(?P=q))[^\n])*(?P=q)"
 # Code in a notebook's source, not a secret, so left readable: a call with no arguments or a
 # quoted first argument, or a subscript by a quoted key (`load_key()`, `os.getenv("K")`,
 # `os.environ["K"]`). Any other value shaped like a call (`opaque(len)`) is masked.
@@ -105,6 +113,25 @@ _ASSIGNMENT: Final = re.compile(
     rf"(?:{_QUOTED}|(?!{_CODE})[^\s'\",;&)}}\]]+)"
 )
 
+# `--api-key VALUE` / `-token VALUE`: a secret-named flag followed by its value (`--name=value`
+# is already an assignment). The value never starts with `-` (the next flag).
+_FLAG: Final = re.compile(
+    rf"(?i)(?<![\w-])(--?{_ASSIGNED_NAME})(\s+){_NOT_MASKED}(?!-)(?:{_QUOTED}|\S+)"
+)
+# A quoted secret name followed by a quoted value in a sequence: an argv repr
+# (`['curl', '--token', 'v']`) or a raw header pair (`(b'x-api-key', b'v')`). A quoted item
+# followed by `:` is a dict KEY (`'value':` in a k8s env entry), never the secret.
+_QUOTED_PAIR: Final = re.compile(
+    rf"(?i)([bB]?(\\*['\"])(?:--?)?{_ASSIGNED_NAME}\2\s*,\s*){_NOT_MASKED}{_QUOTED_CLOSED}(?!\s*:)"
+)
+# `Cookie:` / `Set-Cookie:` — every value on the line is a session credential.
+_COOKIE: Final = re.compile(rf"(?i)\b((?:set-)?cookie\s*:\s*){_NOT_MASKED}[^\r\n]+")
+# A k8s-style env entry: `{'name': 'X_API_KEY', 'value': 'v'}` (and the JSON form).
+_NAMED_VALUE: Final = re.compile(
+    rf"(?i)((['\"])name\2\s*:\s*(['\"]){_ASSIGNED_NAME}\3\s*,\s*(['\"])value\4\s*:\s*)"
+    rf"{_NOT_MASKED}{_QUOTED}"
+)
+
 
 def redact(text: str) -> str:
     """``text`` with every recognised secret replaced by ``MASK``. Idempotent."""
@@ -113,6 +140,10 @@ def redact(text: str) -> str:
     text = _USERINFO.sub(rf"\g<1>{MASK}@", text)
     text = _QUERY.sub(rf"\g<1>{MASK}", text)
     text = _AUTHORIZATION.sub(rf"\g<1>\g<2>{MASK}", text)
+    text = _COOKIE.sub(rf"\g<1>{MASK}", text)
+    text = _NAMED_VALUE.sub(rf"\g<1>{MASK}", text)
+    text = _QUOTED_PAIR.sub(rf"\g<1>{MASK}", text)
+    text = _FLAG.sub(rf"\g<1>\g<2>{MASK}", text)
     return _ASSIGNMENT.sub(rf"\g<1>\g<2>{MASK}", text)
 
 
