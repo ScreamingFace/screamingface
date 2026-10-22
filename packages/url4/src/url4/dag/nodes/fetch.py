@@ -23,6 +23,7 @@ from url4.dag.node import (  # isort: skip
 )
 
 
+from url4.dag.nodes.web_attach import attach_web_body, cached_web_attachment  # isort: skip
 from url4.dag.nodes._shared import (  # isort: skip
     SlotSpec,
     _as_text,
@@ -57,17 +58,35 @@ class WebFetchNode:
     URL4 protocol semantics from the adapter, ``http(s)://`` is a raw read,
     anything else (``s3://``, …) is adapter-defined. ``accept`` carries the
     per-source ``;accept=`` annotation.
+
+    FEATURE: image and PDF inputs (``OME-1543`` U3b, spec F1b, owner decision Q-B). Inside a
+    ``run()``, an ``http(s)://`` source in scalar position whose body is not text is fetched
+    as bytes, attached to the run (:func:`~url4.dag.nodes.web_attach.attach_web_body`) and
+    read as its URL text. ``collection`` is set at lowering (D4): a collection is parsed from
+    text, so there a non-text body stays ``unsupported_content_type`` (C8).
     """
 
     url: str
     accept: str | None = None
+    collection: bool = False
     deps: Mapping[str, DagNode] = field(default_factory=dict)
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        request = FetchRequest(
-            self.url, relative=False, kind=_kind_of(self.url), accept=self.accept
-        )
-        return await _fetch(ctx, request)
+        kind = _kind_of(self.url)
+        attachable = kind == "http" and not self.collection
+        if attachable and cached_web_attachment(self.url):
+            return str(self.url)
+        request = FetchRequest(self.url, relative=False, kind=kind, accept=self.accept)
+        try:
+            return await _fetch(ctx, request)
+        except ResolutionError as exc:
+            # INVARIANT (Q-B): only a body the text path refused as not-text changes route;
+            # a text body, and every other failure (the x.source_* guard codes included),
+            # is exactly what it was.
+            if not attachable or exc.code != ErrorCode.UNSUPPORTED_CONTENT_TYPE:
+                raise
+            await attach_web_body(ctx, request, exc)
+            return str(self.url)
 
 
 def _kind_of(url: str) -> Literal["http", "url4", "other"]:

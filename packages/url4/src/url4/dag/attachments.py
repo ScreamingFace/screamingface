@@ -32,10 +32,13 @@ from url4.core.nodes import (
     Node,
     RelExpr,
     Source,
+    Url,
     VarRef,
 )
 from url4.core.parser import split_top_level_commas
 from url4.dag.attachment import Attachment
+
+_WEB_SCHEMES = ("http://", "https://")
 
 
 @dataclass(frozen=True)
@@ -52,15 +55,44 @@ class CachedBlob:
 
 @dataclass(frozen=True, eq=False)
 class RunFiles:
-    """One run's fixed attachment list plus its file cache.
+    """One run's attachment slots plus its file cache.
 
-    ``cache`` is keyed by blob digest (``sha256:<hex>``) or source URL and holds the verified
-    blob (or a text body). AIDEV-NOTE: only the run-start resolver fills it; nodes read it on a
-    hit and keep their own fetch on a miss (a node evaluated outside ``run()``).
+    ``slots`` is the run-start order: Case attachments, then each source-position entry — an
+    attached blob ref's :class:`Attachment`, or the URL of an ``https://`` source (a slot that
+    holds an attachment only once that source returns a non-text body, Q-B). ``cache`` is keyed
+    by blob digest (``sha256:<hex>``) or source URL and holds the verified blob (or a text
+    body). AIDEV-NOTE: the run-start resolver fills it for blob refs; ``WebFetchNode`` adds a
+    non-text ``https://`` body (:meth:`attach_fetched`); nodes keep their own fetch on a miss.
     """
 
-    attachments: tuple[Attachment, ...]
+    slots: tuple[Attachment | str, ...]
     cache: dict[str, CachedBlob | str] = field(default_factory=dict)
+    fetched: dict[str, Attachment] = field(default_factory=dict)
+
+    @property
+    def attachments(self) -> tuple[Attachment, ...]:
+        """The ordered list: filled slots in order, then unslotted https bodies; one per digest.
+
+        INVARIANT: with no ``https://`` body fetched this is exactly the run-start list.
+        AIDEV-NOTE (Q-B): an ``https://`` source is lazy, so its attachment is visible to the
+        calls that run after its fetch (every call that reads it), not to an earlier sibling.
+        """
+        slotted = {slot for slot in self.slots if isinstance(slot, str)}
+        filled = [
+            slot if isinstance(slot, Attachment) else self.fetched.get(slot) for slot in self.slots
+        ]
+        filled += [att for url, att in self.fetched.items() if url not in slotted]
+        ordered: dict[str, Attachment] = {}
+        for attachment in filled:
+            if attachment is not None:
+                ordered.setdefault(attachment.digest, attachment)
+        return tuple(ordered.values())
+
+    def attach_fetched(self, url: str, blob: CachedBlob, attachment: Attachment) -> None:
+        """Record a non-text ``https://`` body: cached by URL and digest, attached at its slot."""
+        self.cache.setdefault(url, blob)
+        self.cache.setdefault(attachment.digest, blob)
+        self.fetched.setdefault(url, attachment)
 
 
 _RUN_FILES: ContextVar[RunFiles | None] = ContextVar("url4_run_files", default=None)
@@ -79,12 +111,14 @@ def current_attachments() -> tuple[Attachment, ...]:
 
 @contextmanager
 def bind_run_files(
-    attachments: Sequence[Attachment], cache: Mapping[str, CachedBlob | str] | None = None
+    attachments: Sequence[Attachment | str], cache: Mapping[str, CachedBlob | str] | None = None
 ) -> Iterator[RunFiles]:
     """Bind ``attachments`` (and the run's cache) for one top-level run; reset on exit.
 
-    Nested inside a bound run, the outer :class:`RunFiles` is reused verbatim: an empty
-    ``attachments`` means "nothing to add", the same tuple is accepted, anything else raises.
+    ``attachments`` are the run's slots (:attr:`RunFiles.slots`): a ``str`` is the URL of an
+    ``https://`` source that may attach later. Nested inside a bound run, the outer
+    :class:`RunFiles` is reused verbatim: an empty ``attachments`` means "nothing to add", the
+    same tuple is accepted, anything else raises.
     """
     outer = _RUN_FILES.get()
     wanted = tuple(attachments)
@@ -147,15 +181,41 @@ def collect_file_refs(ast: Node) -> tuple[FileRef, ...]:
     the lowering parses it; a segment that does not parse (prose, or a template that only
     parses after row substitution) contributes nothing.
     """
-    found: dict[str, FileRef] = {}
+    return scan_sources(ast).refs
+
+
+@dataclass(frozen=True)
+class SourceScan:
+    """The run's file refs, and the source-order keys of its attachment slots.
+
+    ``order`` holds, at first sight in pre-order, an attachable file ref's :attr:`FileRef.key`
+    and the URL of every ``http(s)://`` source read in scalar position (Q-B: such a source
+    attaches only if its body turns out not to be text; collection position never attaches).
+    """
+
+    refs: tuple[FileRef, ...]
+    order: tuple[str, ...]
+
+
+@dataclass
+class _Found:
+    refs: dict[str, FileRef] = field(default_factory=dict)
+    order: dict[str, None] = field(default_factory=dict)  # an ordered set
+    urls: set[str] = field(default_factory=set)
+
+
+def scan_sources(ast: Node) -> SourceScan:
+    """One structural walk (see :func:`collect_file_refs`) yielding refs and slot order."""
+    found = _Found()
     _walk(ast, {}, False, found)
-    return tuple(found.values())
+    refs = tuple(found.refs.values())
+    attached = {ref.key for ref in refs if not ref.collection}
+    order = tuple(key for key in found.order if key in attached or key in found.urls)
+    return SourceScan(refs, order)
 
 
-def _walk(node: Node, bound: Mapping[str, Node], collection: bool, out: dict[str, FileRef]) -> None:
-    address = address_of(node)
-    if address is not None:
-        _add(out, FileRef(address, collection))
+def _walk(node: Node, bound: Mapping[str, Node], collection: bool, out: _Found) -> None:
+    if _add_leaf(node, collection, out):
         return
     match node:
         case Expression():
@@ -173,7 +233,7 @@ def _walk(node: Node, bound: Mapping[str, Node], collection: bool, out: dict[str
             pass  # Text, RemoteExpr (C6), holdings, VarRef in scalar use, struct, ...
 
 
-def _walk_expression(node: Expression, bound: Mapping[str, Node], out: dict[str, FileRef]) -> None:
+def _walk_expression(node: Expression, bound: Mapping[str, Node], out: _Found) -> None:
     scope = dict(bound) | _bindings(node.sources)
     for source in node.sources:
         _walk(source, scope, False, out)
@@ -181,7 +241,7 @@ def _walk_expression(node: Expression, bound: Mapping[str, Node], out: dict[str,
         _walk(node.intent, scope, False, out)
 
 
-def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: dict[str, FileRef]) -> None:
+def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found) -> None:
     # INVARIANT: a context holding a holdings ref ("@") ships verbatim to the receiving
     # route and is never resolved caller-side (mirrors the lowering's _context_slots).
     if node.context is not None and "@" not in node.context:
@@ -190,7 +250,7 @@ def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: dict[str, File
         _walk(node.intent, bound, False, out)
 
 
-def _walk_collection(items: Node, bound: Mapping[str, Node], out: dict[str, FileRef]) -> None:
+def _walk_collection(items: Node, bound: Mapping[str, Node], out: _Found) -> None:
     if isinstance(items, Expression) and items.intent is None and not items.broadcast:
         _walk(items, bound, False, out)  # an inline collection: its elements are values
         return
@@ -200,7 +260,7 @@ def _walk_collection(items: Node, bound: Mapping[str, Node], out: dict[str, File
     _walk(items, bound, True, out)
 
 
-def _walk_source_list(text: str, bound: Mapping[str, Node], out: dict[str, FileRef]) -> None:
+def _walk_source_list(text: str, bound: Mapping[str, Node], out: _Found) -> None:
     for segment in split_top_level_commas(text):
         if not segment.strip():
             continue
@@ -221,12 +281,31 @@ def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
     return named
 
 
-def _add(out: dict[str, FileRef], ref: FileRef) -> None:
-    seen = out.get(ref.key)
+def _add_leaf(node: Node, collection: bool, out: _Found) -> bool:
+    """Record a file ref or an absolute URL; ``True`` when ``node`` was one (a leaf).
+
+    An ``http(s)://`` source in scalar position takes a slot (Q-B); any other URL takes none.
+    """
+    address = address_of(node)
+    if address is not None:
+        _add(out, FileRef(address, collection))
+        return True
+    if not isinstance(node, Url):
+        return False
+    if not collection and node.value.startswith(_WEB_SCHEMES):
+        out.order.setdefault(node.value)
+        out.urls.add(node.value)
+    return True
+
+
+def _add(out: _Found, ref: FileRef) -> None:
+    if not ref.collection:
+        out.order.setdefault(ref.key)
+    seen = out.refs.get(ref.key)
     if seen is None:
-        out[ref.key] = ref
+        out.refs[ref.key] = ref
     elif seen.collection and not ref.collection:
-        out[ref.key] = FileRef(seen.address, False)  # first position, now attached
+        out.refs[ref.key] = FileRef(seen.address, False)  # first scalar position, now attached
 
 
 def refuse_remote(refs: Sequence[FileRef]) -> None:
@@ -240,17 +319,13 @@ def refuse_remote(refs: Sequence[FileRef]) -> None:
             )
 
 
-def merge_attachments(
-    case: Sequence[Attachment], resolved: Sequence[tuple[FileRef, Attachment]]
-) -> tuple[Attachment, ...]:
-    """Case attachments first, then the attached url4 refs; one entry per digest."""
-    ordered: dict[str, Attachment] = {}
-    for attachment in case:
-        ordered.setdefault(attachment.digest, attachment)
-    for ref, attachment in resolved:
-        if not ref.collection:
-            ordered.setdefault(attachment.digest, attachment)
-    return tuple(ordered.values())
+def attachment_slots(
+    case: Sequence[Attachment], resolved: Mapping[str, Attachment], order: Sequence[str]
+) -> tuple[Attachment | str, ...]:
+    """Case attachments first, then each source-order key: a resolved ref's attachment, or
+    an ``https://`` URL left as a pending slot. Duplicates collapse in :attr:`RunFiles.attachments`.
+    """
+    return (*case, *(resolved.get(key, key) for key in order))
 
 
 __all__ = [
@@ -262,6 +337,8 @@ __all__ = [
     "current_attachments",
     "current_run_files",
     "detached_run_files",
-    "merge_attachments",
+    "SourceScan",
+    "attachment_slots",
     "refuse_remote",
+    "scan_sources",
 ]
