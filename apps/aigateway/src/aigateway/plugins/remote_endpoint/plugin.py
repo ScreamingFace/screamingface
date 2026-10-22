@@ -30,7 +30,7 @@ from .credential import OriginBoundApiKeyStrategy
 from .definitions import ChatTarget, EndpointDefinition
 from .global_cache import project_global_cache_request
 from .request import chat_parameter_rules, chat_request, check_text_messages
-from .transport import post_chat_completion
+from .transport import EndpointClient, post_chat_completion
 from .validation import RemoteEndpointReadiness
 
 _CHAT_FIELDS = ("model", "messages", "max_tokens")
@@ -54,6 +54,7 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         self._definition = definition
         self._enabled = enabled
         self._transport = transport
+        self._client = EndpointClient()
 
     def register_models(self) -> list[ModelEntry]:
         # WHY every declared target: the catalog routes show an instance only to the accounts
@@ -134,8 +135,12 @@ class RemoteEndpointPlugin(ProviderPluginBase):
             self._definition.origin + target.request_path,
             chat_request(target, body.get("messages"), max_tokens=body.get("max_tokens")),
             api_key=api_key,
-            transport=self._transport,
+            client=self._client.open(self._transport),
         )
+
+    async def aclose(self) -> None:
+        """Close this endpoint's client; a chat after this gets a 502 and opens none."""
+        await self._client.aclose()
 
     def _declared(self, model: object) -> ChatTarget | None:
         prefix = f"{self.custom_llm_provider}/"

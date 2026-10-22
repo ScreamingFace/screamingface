@@ -48,7 +48,7 @@ from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .middleware import BodyCapMiddleware, CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
-from .provider_composition import compose_providers
+from .provider_composition import close_remote_endpoints, compose_providers
 from .routes import (
     accounts,
     admin,
@@ -250,6 +250,11 @@ async def _lifespan(app):
         except Exception:
             logger.warning("usage accounting handler did not close cleanly")
         app.state.usage_accounting_handler = None
+        # FEATURE (hosted BYOM): each configured endpoint's reused client closes with the app.
+        try:
+            await close_remote_endpoints(app.state.providers)
+        except Exception:
+            logger.warning("a remote endpoint client did not close cleanly")
         await auth.close_loopback_callbacks(app)
         # Clear the process-wide active store so it does not leak across app
         # instances (e.g. multiple TestClient lifecycles in one process).

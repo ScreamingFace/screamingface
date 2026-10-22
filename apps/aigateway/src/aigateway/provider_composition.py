@@ -40,3 +40,14 @@ def install_remote_endpoints(
         enabled = config.grants[definition.id].enabled
         registry.register(RemoteEndpointPlugin(definition, enabled=enabled))
     return RemoteEndpointAccess(config.grants)
+
+
+async def close_remote_endpoints(registry: ProviderRegistry) -> None:
+    """Close every configured endpoint's HTTP client; the app's lifespan calls it at shutdown.
+
+    # WHY here: this module is the one place that knows the concrete adapter, so the lifespan
+    # needs no attribute probing on plugins and `compose_providers` still returns the policy.
+    """
+    for plugin in registry.all():
+        if isinstance(plugin, RemoteEndpointPlugin):
+            await plugin.aclose()
