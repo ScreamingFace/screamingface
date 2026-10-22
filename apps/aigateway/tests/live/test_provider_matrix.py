@@ -43,7 +43,7 @@ class ProviderCase:
 
 PROVIDERS = (
     ProviderCase("anthropic", "anthropic/claude-haiku-4-5", True),
-    ProviderCase("codex", "codex/gpt-5.4-mini", False),
+    ProviderCase("codex", "codex/gpt-6-astra", False),
     ProviderCase("gemini-cli", "gemini-cli/gemini-2.5-flash-lite", False),
     ProviderCase("antigravity", "antigravity/gemini-3-flash", False),
     ProviderCase("ollama", None, True),
