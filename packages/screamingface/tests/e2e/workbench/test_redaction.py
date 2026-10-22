@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from workbench.redaction import MASK, redact, redact_tree
+from workbench.redaction import MASK, is_secret_name, redact, redact_named_tree, redact_tree
 
 GHP = "ghp_" + "a1B2" * 9
 GH_PAT = "github_pat_" + "Z9y8" * 8
@@ -284,3 +284,45 @@ def test_ordinary_flags_and_counts_stay_readable(line: str) -> None:
 def test_a_k8s_env_entry_keeps_its_keys_readable() -> None:
     out = redact(f"{{'name': 'X_API_KEY', 'value': '{_S}'}}")
     assert out == "{'name': 'X_API_KEY', 'value': [REDACTED]}"
+
+
+# Unit 6 Task 4: a mapping value is masked by its KEY's name, as an assignment is (an SDK Log
+# attribute `{"http.request.header.x-api-key": "<opaque>"}` has no shape the token rules see).
+
+
+@pytest.mark.parametrize(
+    "key", ["http.request.header.x-api-key", "api_key", "OPENROUTER_API_KEY", "client_secret"]
+)
+def test_redact_named_tree_masks_the_string_value_of_a_secret_named_key(key: str) -> None:
+    tree = {"outer": [{key: OPAQUE, "n": 1}]}
+    assert redact_named_tree(tree) == {"outer": [{key: MASK, "n": 1}]}
+
+
+def test_redact_named_tree_keeps_counts_unknowns_and_plain_keys_readable() -> None:
+    tree = {"input_tokens": 3, "max_tokens": 256, "api_key": None, "key": "cache-key-1", "x": "y"}
+    assert redact_named_tree(tree) == tree
+
+
+def test_redact_named_tree_recurses_under_a_secret_named_container() -> None:
+    tree = {"auth": {"user": "u", "detail": f"token={OPAQUE}"}}
+    assert redact_named_tree(tree) == {"auth": {"user": "u", "detail": f"token={MASK}"}}
+
+
+def test_redact_named_tree_still_applies_the_value_rules() -> None:
+    assert redact_named_tree({"msg": f"OPENROUTER_API_KEY={OPAQUE}"}) == {
+        "msg": f"OPENROUTER_API_KEY={MASK}"
+    }
+
+
+@pytest.mark.parametrize(
+    ("name", "secret"),
+    [
+        ("http.request.header.x-api-key", True),
+        ("gen_ai.request.model", False),
+        ("url4.auth", True),
+        ("gen_ai.usage.input_tokens", False),
+        ("key", False),
+    ],
+)
+def test_is_secret_name_reads_the_last_dotted_segment(name: str, secret: bool) -> None:
+    assert is_secret_name(name) is secret

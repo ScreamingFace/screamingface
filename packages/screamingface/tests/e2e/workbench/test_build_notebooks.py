@@ -282,3 +282,100 @@ def test_the_builder_refuses_a_notebook_without_one_result_cell_and_marker(
     cells = [_code(src, *tags) for src, tags in sources]
     with pytest.raises(ValueError, match=why):
         _notebook("bad", cells, {"targets": ["replay"], "required_result": ["trace_ids"]})
+
+
+# Unit 6 Task 4: with EVENTS_PATH set (the workbench sets it), every SDK event is recorded,
+# redacted, as one JSON line, and the result cell writes report.json + accounting.json.
+
+_KEY = "sk-or-v1-" + "f0e1d2c3" * 4  # fake, assembled at runtime (secret scanners)
+
+
+def _log_event(seq: int) -> Any:
+    from datetime import UTC, datetime
+
+    from screamingface import events as ev
+
+    return ev.Log(
+        id=f"e{seq}",
+        run_id="r1",
+        sequence=seq,
+        timestamp=datetime(2026, 10, 22, tzinfo=UTC),
+        source="engine",
+        severity_number=17,
+        severity_text="ERROR",
+        body=f"upstream refused key {_KEY}",
+        attributes={"x-api-key": "opaque-value-123", "attempt": seq},
+    )
+
+
+class _RecordingClient:
+    """Emits two events through ``on_event`` before returning ``outcome``."""
+
+    def __init__(self, outcome: Any) -> None:
+        self._outcome = outcome
+        self.on_event: Any = "unset"
+
+    def evaluate(self, *_: Any, on_event: Any = None, **__: Any) -> Any:
+        self.on_event = on_event
+        if on_event is not None:
+            on_event(_log_event(1))
+            on_event(_log_event(2))
+        if isinstance(self._outcome, BaseException):
+            raise self._outcome
+        return self._outcome
+
+
+class _DictReport(_Report):
+    def to_dict(self) -> dict[str, Any]:
+        return {"schema": "screamingface.report.v1", "candidates": [{"name": "c"}]}
+
+
+def _run_recorded(outcome: Any, events_path: str, capsys: pytest.CaptureFixture[str]) -> Any:
+    client = _RecordingClient(outcome)
+    ns: dict[str, Any] = {"sf": sf, "json": json, "client": client}
+    exec(_quickstart_code(tag="parameters"), ns)
+    ns["EVENTS_PATH"] = events_path
+    ns["candidate"] = object()
+    exec(_quickstart_code(contains="client.evaluate("), ns)
+    exec(_quickstart_code(tag="workbench-result"), ns)
+    assert [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith(RESULT_PREFIX)]
+    return client
+
+
+def test_quickstart_records_nothing_unless_the_workbench_sets_events_path(capsys) -> None:
+    namespace: dict[str, Any] = {}
+    exec(_quickstart_code(tag="parameters"), namespace)
+    assert namespace["EVENTS_PATH"] == ""
+    client = _run_recorded(_DictReport(_TID), "", capsys)
+    assert client.on_event is None
+
+
+def test_quickstart_records_redacted_events_report_and_accounting(tmp_path, capsys) -> None:
+    events = tmp_path / "events.jsonl"
+    client = _run_recorded(_DictReport(_TID), str(events), capsys)
+    assert client.on_event is not None
+    text = events.read_text(encoding="utf-8")
+    assert _KEY not in text and "opaque-value-123" not in text
+    rows = [json.loads(line) for line in text.splitlines()]
+    assert [(r["kind"], r["attributes"]["attempt"]) for r in rows] == [("log", 1), ("log", 2)]
+    assert json.loads((tmp_path / "report.json").read_text())["candidates"] == [{"name": "c"}]
+    recorder = json.loads((tmp_path / "recorder.json").read_text())
+    assert recorder["events"]["recorded"] == 2
+    assert recorder["files"]["report.json"] == "written"
+    # The fake candidates carry no accounting view: recorded as an error, never raised.
+    assert recorder["files"]["accounting.json"].startswith("error: AttributeError")
+
+
+def test_quickstart_records_events_of_a_failed_evaluate_too(tmp_path, capsys) -> None:
+    events = tmp_path / "events.jsonl"
+    error = sf.ScreamingFaceError("run failed", code="run_failed", trace_id=_TID)
+    _run_recorded(error, str(events), capsys)
+    assert len(events.read_text().splitlines()) == 2
+    recorder = json.loads((tmp_path / "recorder.json").read_text())
+    assert recorder["files"] == {"report.json": "no report", "accounting.json": "no report"}
+
+
+def test_the_result_cell_prints_its_marker_before_it_writes_the_files() -> None:
+    """The trace ids reach the evidence even if writing the report files misbehaves."""
+    source = _quickstart_code(tag="workbench-result")
+    assert source.index(RESULT_PREFIX) < source.index(".finish(")

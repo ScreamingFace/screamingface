@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from workbench.build_notebooks import NOTEBOOK_DIR
+from workbench.otlp_receiver import OtlpReceiver
 from workbench.targets import LiveTarget, selected_target
 from workbench.verdict import judge_notebook
 
@@ -24,6 +25,9 @@ def test_notebook(
     path: Path,
     live_target: LiveTarget,
     workbench_out: Path,
+    otlp_receiver: OtlpReceiver,
     record_property: Callable[[str, object], None],
 ) -> None:
-    judge_notebook(path, live_target, workbench_out, record_property)
+    judge_notebook(
+        path, live_target, workbench_out, record_property, spans_for=otlp_receiver.spans_for
+    )

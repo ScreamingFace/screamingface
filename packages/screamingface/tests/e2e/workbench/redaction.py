@@ -161,3 +161,42 @@ def redact_tree(value: Any) -> Any:
         case _:
             out = value
     return out
+
+
+_PROBE: Final = "v4lue"  # a value no token pattern matches: a change means the NAME matched
+
+
+def is_secret_name(key: str) -> bool:
+    """Whether a value bound to ``key`` is a secret by NAME (``x-api-key``, ``client_secret``).
+
+    WHY reuse the assignment rule rather than a second list of secret words: one definition of
+    "a secret-shaped name" for every workbench sink. The last dotted segment is the name an
+    OTel attribute key (``http.request.header.x-api-key``) ends in.
+    """
+    probe = f"{key.rsplit('.', 1)[-1]}={_PROBE}"
+    return redact(probe) != probe
+
+
+def redact_named_tree(value: Any) -> Any:
+    """``redact_tree`` that also masks the STRING value of every secret-named mapping key.
+
+    WHY: an opaque value carries no shape the token rules could recognise, so in a mapping
+    (an SDK ``Log`` attribute, a span attribute) only its key says it is a secret. Numbers and
+    ``None`` stay readable (``max_tokens`` is a count; unknown is not a secret); a container
+    under a secret-named key is recursed into, so its own rules still apply.
+    """
+    match value:
+        case dict():
+            items: dict[Any, Any] = value  # pyright: ignore[reportUnknownVariableType]
+            out: Any = {
+                redact_tree(k): MASK
+                if isinstance(k, str) and isinstance(v, str) and is_secret_name(k)
+                else redact_named_tree(v)
+                for k, v in items.items()
+            }
+        case list() | tuple():
+            seq: Sequence[Any] = value  # pyright: ignore[reportUnknownVariableType]
+            out = [redact_named_tree(v) for v in seq]
+        case _:
+            out = redact_tree(value)
+    return out

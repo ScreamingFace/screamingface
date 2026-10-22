@@ -55,6 +55,9 @@ TELEMETRY_PREFIX: Final = "OTEL_"
 _TRACES_PATH: Final = "/v1/traces"
 
 
+_BATCH_DELAY_MS: Final = "200"
+
+
 def checked_telemetry(telemetry: Mapping[str, str] | None) -> dict[str, str]:
     """``telemetry`` as a plain dict, refusing any name outside ``OTEL_*``.
 
@@ -76,12 +79,17 @@ def telemetry_env(receiver_url: str | None, *, service: str) -> dict[str, str]:
     WHY it is turned into a base: ``OTEL_EXPORTER_OTLP_ENDPOINT`` is a BASE that both the
     engine (``tracing.otlp._endpoint``) and the OTel SDK the gateway uses extend with
     ``/v1/traces``; the full URL would post to ``/v1/traces/v1/traces``.
+
+    WHY ``OTEL_BSP_SCHEDULE_DELAY`` (unit 6 Task 4): both services batch spans, and the SDK's
+    default 5 s delay delivered the gateway's spans after the workbench had already copied the
+    run's spans into its bundle. 200 ms only exports more often; it never blocks a request.
     """
     if not receiver_url:
         return {}
     return {
         "OTEL_EXPORTER_OTLP_ENDPOINT": receiver_url.removesuffix(_TRACES_PATH),
         "OTEL_SERVICE_NAME": service,
+        "OTEL_BSP_SCHEDULE_DELAY": _BATCH_DELAY_MS,
     }
 
 

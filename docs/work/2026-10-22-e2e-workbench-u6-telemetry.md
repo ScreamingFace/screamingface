@@ -30,7 +30,25 @@ Plan: `docs/plan/2026-10-22-e2e-workbench-u6-telemetry.md`. 6a (engine) has its 
   - `workbench/conftest.py`: a session `otlp_receiver` fixture writing `<out>/spans.jsonl`. It is
     a dependency of `live_target`, so it outlives the target's teardown, when the gateway's
     batch exporter flushes.
-- Tasks 4–7: see the plan.
+- Task 4: the notebook records SDK events, report and accounting; the verdict bundles spans.
+  - `workbench/telemetry_recorder.py`: `EventRecorder(path)`, the `on_event` callback (one
+    redacted JSON line per event, written whole and flushed; cap 20 000, then `dropped`; never
+    raises into the SDK) and `finish(report)`, which writes `report.json`, `accounting.json`
+    (by model and by stage, per candidate) and `recorder.json` (counts, per-file outcome).
+  - `build_notebooks.py`: the `EVENTS_PATH` parameter (default `""`, records nothing); the
+    evaluate cell builds the recorder only when it is set; the result cell calls
+    `recorder.finish(report)` after its one marker. Notebook regenerated.
+  - `runner.py`: the private kernelspec puts `tests/e2e` on the kernel's `PYTHONPATH`, so the
+    notebook imports the recorder (and the one redactor) instead of inlining a copy.
+  - `redaction.py`: `is_secret_name` (moved from `otlp_receiver.py`) and `redact_named_tree`,
+    which masks the string value of a secret-NAMED key (`Log` attribute `x-api-key`).
+  - `bundle.py`: `prepare_bundle` (dir before the run; clears a previous run's telemetry),
+    `settled` (bounded wait for the last span batch), `write_telemetry` (exact-trace-id spans,
+    cap 20 000 + `dropped`, `telemetry.json` with a note saying why a file is empty).
+  - `verdict.py`: passes `EVENTS_PATH=<bundle>/events.jsonl`; `judge_notebook(...,
+    spans_for=)`, fed `otlp_receiver.spans_for` by `test_notebooks.py`.
+  - `harness/_local_proc.telemetry_env`: adds `OTEL_BSP_SCHEDULE_DELAY=200` (see Findings).
+- Tasks 5–7: see the plan.
 
 ## Test plan
 
@@ -49,6 +67,14 @@ Plan: `docs/plan/2026-10-22-e2e-workbench-u6-telemetry.md`. 6a (engine) has its 
 - **Replay emits no `chat.completions {provider}` span.** Every model call is a cache hit, served
   before provider dispatch, so the gateway emits only its server span
   (`POST /v1/chat/completions`). The provider span appears only on a real dispatch (local, paid).
+- **Gateway spans landed after bundle time (Task 4).** Both services batch spans with the SDK
+  default 5 s delay. On the first Task 4 replay run the bundle held 35 engine spans and none of
+  the gateway's; the session file got them ~2 s later. Fix: `OTEL_BSP_SCHEDULE_DELAY=200` in
+  the workbench telemetry env (the SDK reads it in `BatchSpanProcessor.__init__`, 1.45.1) plus
+  `bundle.settled` (1 s still window, 10 s cap) before copying.
+- **Replay accounting is empty.** The replay report's cases carry no `operations`, so
+  `CandidateResult.accounting` has no rows; `accounting.json` faithfully says so
+  (`by_model: []`). Task 5 must render that as "no accounting", not zeros.
 - **`InspectEngineProcess`** (`harness/inspect_stack.py`) overrides `start` and ignores
   `telemetry`. The workbench doesn't use it.
 
@@ -59,3 +85,9 @@ Plan: `docs/plan/2026-10-22-e2e-workbench-u6-telemetry.md`. 6a (engine) has its 
   under that trace, including one `url4.run` (service `screamingface-engine`) and two gateway
   `POST /v1/chat/completions` server spans (service `aigateway`). The remaining spans, such as
   snapshot-upload admin calls, sit under other trace ids.
+- **Task 4 real replay lane (2026-10-22):** 460 passed, 2 skipped (`just` not on PATH);
+  quickstart PASS. Bundle: `events.jsonl` 59 events (34 span, 21 log, 2 usage, 1 started,
+  1 terminated; 0 dropped/failed), `spans.jsonl` 39 spans (`url4.run` + 2 gateway
+  `POST /v1/chat/completions` + 2 frozen-copy calls), `report.json` and `accounting.json`
+  written. Package gates: ruff, format, pyright clean; 4706 passed, 39 skipped, cov 97.02%;
+  `check_notebooks.py`, `check_distribution.py` exit 0.

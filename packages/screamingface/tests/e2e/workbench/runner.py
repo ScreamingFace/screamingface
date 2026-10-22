@@ -24,6 +24,8 @@ from nbclient.exceptions import CellExecutionError, CellTimeoutError, DeadKernel
 
 RESULT_PREFIX = "WORKBENCH_RESULT="
 _KERNEL = "sf-workbench"
+# ``tests/e2e``: the root the ``workbench`` package imports from (its notebook recorder).
+_E2E_ROOT = Path(__file__).resolve().parents[1]
 
 DEADLINE_ENV = "SCREAMINGFACE_WORKBENCH_DEADLINE_S"
 # WHY 600: the CI job is capped at 30 min (screamingface-e2e-replay.yml) and its whole e2e
@@ -85,6 +87,13 @@ def _inject(nb: nbformat.NotebookNode, params: Mapping[str, Any]) -> None:
     nb.cells.insert(index + 1, cell)
 
 
+def _kernel_env() -> dict[str, str]:
+    """``PYTHONPATH`` with ``tests/e2e`` first, so a notebook can import
+    ``workbench.telemetry_recorder`` (unit 6 Task 4); the rest of the env is inherited."""
+    previous = os.environ.get("PYTHONPATH")
+    return {"PYTHONPATH": str(_E2E_ROOT) + (os.pathsep + previous if previous else "")}
+
+
 @contextmanager
 def _private_kernelspec() -> Iterator[None]:
     """WHY: a user-level `python3` kernelspec may point at another interpreter; the workbench
@@ -98,6 +107,7 @@ def _private_kernelspec() -> Iterator[None]:
                     "argv": [sys.executable, "-m", "ipykernel_launcher", "-f", "{connection_file}"],
                     "display_name": _KERNEL,
                     "language": "python",
+                    "env": _kernel_env(),
                 }
             )
         )

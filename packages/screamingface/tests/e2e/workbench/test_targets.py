@@ -324,6 +324,7 @@ def test_local_target_downs_the_runtime_when_engine_stop_fails(
 
 _RECEIVER = "http://127.0.0.1:47000/v1/traces"
 _BASE = "http://127.0.0.1:47000"
+_BSP = {"OTEL_BSP_SCHEDULE_DELAY": "200"}  # unit 6 Task 4: spans reach the bundle in time
 
 
 def test_local_target_points_the_runtime_and_the_engine_at_the_receiver(
@@ -349,11 +350,12 @@ def test_local_target_points_the_runtime_and_the_engine_at_the_receiver(
     # `up` (and `down`) carry the gateway's telemetry: the in-process Gateway is served by the
     # runtime's background child, which inherits the env `up` runs under.
     assert [c[0][0] for c in calls] == ["up", "down"]
-    gateway_env = {"OTEL_EXPORTER_OTLP_ENDPOINT": _BASE, "OTEL_SERVICE_NAME": "aigateway"}
+    gateway_env = {"OTEL_EXPORTER_OTLP_ENDPOINT": _BASE, "OTEL_SERVICE_NAME": "aigateway", **_BSP}
     assert calls[0][1] == gateway_env
     assert engines[0].telemetry == {
         "OTEL_EXPORTER_OTLP_ENDPOINT": _BASE,
         "OTEL_SERVICE_NAME": "screamingface-engine",
+        **_BSP,
     }
 
 
@@ -381,7 +383,7 @@ def test_runtime_child_env_admits_the_telemetry_and_nothing_else(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-not-a-key")
-    telemetry = {"OTEL_EXPORTER_OTLP_ENDPOINT": _BASE, "OTEL_SERVICE_NAME": "aigateway"}
+    telemetry = {"OTEL_EXPORTER_OTLP_ENDPOINT": _BASE, "OTEL_SERVICE_NAME": "aigateway", **_BSP}
     seen: dict[str, object] = {}
     monkeypatch.setattr(targets.subprocess, "run", lambda command, **kw: seen.update(kw))
     targets._runtime_cli("up", telemetry=telemetry)
@@ -425,8 +427,10 @@ def test_replay_target_points_the_engine_and_the_gateway_at_the_receiver(
     assert gateways[0]["telemetry"] == {
         "OTEL_EXPORTER_OTLP_ENDPOINT": _BASE,
         "OTEL_SERVICE_NAME": "aigateway",
+        **_BSP,
     }
     assert stacks[0]["engine_telemetry"] == {
         "OTEL_EXPORTER_OTLP_ENDPOINT": _BASE,
         "OTEL_SERVICE_NAME": "screamingface-engine",
+        **_BSP,
     }

@@ -204,6 +204,7 @@ BENCHMARK = "ifeval"
 LIMIT = 1
 SCORE_BAND = [0.0, 1.0]  # hand-set sanity band (owner decision 2026-10-16)
 EXPECT_CACHED = False
+EVENTS_PATH = ""  # set by the workbench: SDK events (and the report files beside them)
 """
 
 _QUICKSTART_CLIENT = """
@@ -241,15 +242,26 @@ else:
 candidate
 """
 
+# WHY the recorder is imported only when EVENTS_PATH is set: outside the workbench the notebook
+# is a plain SDK quickstart; inside it, the private kernel has `tests/e2e` on its PYTHONPATH
+# (runner.py), and `workbench.telemetry_recorder` redacts every event before it is written.
+#
 # WHY catch the SDK error here and re-raise it after the result cell (review gap (a)): a run
 # minted before the failure carries its id on `sf.ScreamingFaceError.trace_id` (OME-967), and
 # the bundle can only correlate the logs of that run if the result cell gets to report it.
 # Only the SDK's public error is held back; anything else is a notebook bug and fails here.
 _QUICKSTART_EVALUATE = """
+recorder = None
+if EVENTS_PATH:  # the workbench records every SDK event, redacted, into the run's bundle
+    from workbench.telemetry_recorder import EventRecorder
+
+    recorder = EventRecorder(EVENTS_PATH)
 report = None
 evaluate_error = None
 try:
-    report = client.evaluate(candidate, benchmark=BENCHMARK, limit=LIMIT, progress=False)
+    report = client.evaluate(
+        candidate, benchmark=BENCHMARK, limit=LIMIT, progress=False, on_event=recorder
+    )
 except sf.ScreamingFaceError as exc:
     evaluate_error = exc
     report = getattr(exc, "partial_report", None)  # ExecutionError: the Candidates that ran
@@ -269,6 +281,9 @@ if EXPECT_CACHED:
 report
 """
 
+# WHY `recorder.finish` after the marker: the trace ids must reach the evidence first; finish()
+# writes report.json and accounting.json, redacted, and records (never raises) any failure.
+#
 # WHY `_usd`: the SDK's None means nothing priceable was observed, which is not zero, so it
 # stays null in the payload (str(None) would read as the amount "None").
 _QUICKSTART_RESULT = """
@@ -300,6 +315,8 @@ print(
         }
     )
 )
+if recorder is not None:  # report.json + accounting.json beside the events; never raises
+    recorder.finish(report)
 """
 
 

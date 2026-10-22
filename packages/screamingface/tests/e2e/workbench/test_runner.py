@@ -231,3 +231,19 @@ def test_a_duplicate_marker_keeps_the_cell_error_last(tmp_path: Path) -> None:
     assert run.result is None
     assert run.error is not None and "found 2" in run.error
     assert "band" in run.error.strip().splitlines()[-1]
+
+
+def test_the_kernel_can_import_the_workbench_package(tmp_path: Path) -> None:
+    """Unit 6 Task 4: the notebook's event recorder lives in ``workbench.telemetry_recorder``,
+    so the private kernel puts ``tests/e2e`` on its ``PYTHONPATH``."""
+    path = _write(
+        tmp_path,
+        _params("X = 1"),
+        _result(
+            "import json, workbench.telemetry_recorder as r\n"
+            f"print('{RESULT_PREFIX}' + json.dumps({{'cap': r.EVENTS_CAP}}))"
+        ),
+    )
+    run = run_notebook(path, {})
+    assert run.error is None, run.error
+    assert run.result == {"cap": 20_000}

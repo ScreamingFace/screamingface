@@ -20,7 +20,14 @@ from typing import Any
 import nbformat
 import pytest
 
-from workbench.bundle import write_bundle
+from workbench.bundle import (
+    EVENTS_FILE,
+    SpansFor,
+    prepare_bundle,
+    settled,
+    write_bundle,
+    write_telemetry,
+)
 from workbench.evidence import collect
 from workbench.redaction import redact
 from workbench.result_check import check_result
@@ -39,12 +46,25 @@ def judge_notebook(
     target: LiveTarget,
     out: Path,
     record_property: Callable[[str, object], None],
+    *,
+    spans_for: SpansFor | None = None,
 ) -> None:
-    """Run ``path`` on ``target``, write its bundle under ``out``; fail (pytest) with reasons."""
+    """Run ``path`` on ``target``, write its bundle under ``out``; fail (pytest) with reasons.
+
+    Telemetry (spec §3.6): the notebook records its SDK events into ``<bundle>/events.jsonl``
+    (``EVENTS_PATH``) as it runs; at bundle time the spans of its trace ids are copied in from
+    ``spans_for`` (the session's ``OtlpReceiver.spans_for``). Telemetry never decides the
+    verdict: missing spans are explained in ``telemetry.json``, not failed.
+    """
     meta = _meta(path)
     if target.name not in meta.get("targets", []):
         pytest.skip(f"{path.stem} does not declare target {target.name}")
-    params = {"ENGINE_URL": target.engine_url, "SCOREBOARD_URL": target.scoreboard_url}
+    bundle_dir = prepare_bundle(out, target.name, path.stem)
+    params = {
+        "ENGINE_URL": target.engine_url,
+        "SCOREBOARD_URL": target.scoreboard_url,
+        "EVENTS_PATH": str(bundle_dir / EVENTS_FILE),
+    }
     run = run_notebook(path, params | target.params, deadline_s=notebook_deadline_s())
 
     trace_ids, result_reasons = check_result(run.result, meta.get("required_result", []))
@@ -60,6 +80,8 @@ def judge_notebook(
     raw += chain.reasons(target.required_hops)
     reasons = [redact(r) for r in raw]
 
+    # The services batch their spans: wait (bounded) for the run's last batch to land.
+    write_telemetry(bundle_dir, trace_ids, settled(spans_for) if spans_for else None)
     bundle = write_bundle(
         out,
         target=target.name,

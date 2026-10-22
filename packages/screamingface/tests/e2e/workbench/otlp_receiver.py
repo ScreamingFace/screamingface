@@ -44,27 +44,17 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
 from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
 from opentelemetry.proto.trace.v1.trace_pb2 import Span, Status
 
-from workbench.redaction import MASK, redact
+from workbench.redaction import MASK, is_secret_name, redact
 
 MAX_BODY_BYTES: Final = 16 * 1024 * 1024
 TRACES_PATH: Final = "/v1/traces"
 _PROTOBUF: Final = "application/x-protobuf"
-_PROBE: Final = "v4lue"  # a value no token pattern matches: a change means the NAME matched
 
 
 class _Refused(Exception):
     def __init__(self, status: HTTPStatus) -> None:
         super().__init__(status)
         self.status = status
-
-
-def _is_secret_name(key: str) -> bool:
-    # WHY reuse the redactor's assignment rule rather than a second list of secret words: one
-    # definition of "a secret-shaped name" for every workbench sink (redaction.py, finding 1).
-    # The last dotted segment is the name an OTel attribute key ends in.
-    name = key.rsplit(".", 1)[-1]
-    probe = f"{name}={_PROBE}"
-    return redact(probe) != probe
 
 
 _SCALARS: Final[dict[str, Callable[[AnyValue], Any]]] = {
@@ -90,7 +80,7 @@ def _any_value(value: AnyValue) -> Any:
 
 def _attributes(pairs: Iterable[KeyValue]) -> dict[str, Any]:
     return {
-        redact(kv.key): MASK if _is_secret_name(kv.key) else _any_value(kv.value) for kv in pairs
+        redact(kv.key): MASK if is_secret_name(kv.key) else _any_value(kv.value) for kv in pairs
     }
 
 

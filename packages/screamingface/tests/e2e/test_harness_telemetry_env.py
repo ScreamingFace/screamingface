@@ -60,7 +60,16 @@ def test_telemetry_env_turns_the_receiver_url_into_the_otlp_base() -> None:
     assert env == {
         "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:5555",
         "OTEL_SERVICE_NAME": "aigateway",
+        "OTEL_BSP_SCHEDULE_DELAY": "200",
     }
+
+
+def test_telemetry_env_shortens_the_batch_delay_so_spans_reach_the_bundle() -> None:
+    # Unit 6 Task 4: the bundle copies a run's spans right after the notebook ends. With the
+    # SDK's default 5 s batch delay the gateway's spans landed ~2 s too late (measured on the
+    # replay lane); 200 ms exports them within the verdict's settle window.
+    env = telemetry_env("http://127.0.0.1:5555/v1/traces", service="screamingface-engine")
+    assert env["OTEL_BSP_SCHEDULE_DELAY"] == "200"
 
 
 def test_engine_process_passes_telemetry_through(
