@@ -94,8 +94,8 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   `\[..\]` (PR #2340) and drops markdown bold (ours); the compare steps stay the eval's.
 - `.../benchmarks.py`: the math row grades with them; antlr4 joins sympy as a pinned scorer
   dependency; description; NAMED DEVIATION comment.
-- tests: `test_named_deviation_math.py` (new); `test_published_revisions.py` (math's literal);
-  `test_scorer_source_pins.py` (its row set gains math).
+- tests: `test_named_deviation_math.py` (new); `test_benchmark_fingerprints.py` and
+  `test_published_revision.py` gain math; `test_scorer_source_pins.py` (its row set gains math).
 
 ### Test plan
 
@@ -104,7 +104,8 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 
 ### Acceptance
 
-- math publishes a new revision; no other revision moves.
+- math keeps its published revision (held); its computed fingerprint moves and is pinned; no
+  other revision moves.
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -150,16 +151,17 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   (the dependency pins now list antlr4 beside sympy; its docstring says the conservation
   invariant holds for MATH only on an unwrapped answer line with no trailing carriage return
   or tab).
-- **Revisions:** math 0fb750cf19e00c11 → 414043e2d2a9dbcc.
+- **Revisions:** held (owner decision, 2026-10-22): math publishes 0fb750cf19e00c11, as on
+  main; its computed fingerprint moved to 414043e2d2a9dbcc, pinned in `test_benchmark_fingerprints.py`.
 - **Review fixes:** the whitespace trim on the answer line is declared part of the Named
   Deviation (v0.20.0's exact match marked `ANSWER: 42\r` wrong, ours right); two boxes on the
   answer line grade the last one (`\boxed{41} or \boxed{42}` is right for 42), kept as
   inspect_evals PR #2199 and the paper's grader read it, stated in the row description and
   the module docstring and pinned by a test; an answer line holding only wrapping
   (`ANSWER: \boxed{}`, `ANSWER: ****`) stays wrong but now says it is an empty answer line,
-  not a missing one. The scorer edits moved math's revision once more
+  not a missing one. The scorer edits moved math's computed fingerprint once more
   (4974287b20a4f1aa → 414043e2d2a9dbcc).
-- **Gates:** relevant tests only (owner rule): `test_named_deviation_math.py` (new), `test_math_squad_named_scores.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 710 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 9 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_math.py` (new), `test_math_squad_named_scores.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), the yes_no and chembench tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 751 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 13 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
 - **Deviations:** `**ANSWER: 42**` (markdown bold on MATH's answer line) and a trailing
   carriage return or tab (`ANSWER: 42\r`) have no inspect_evals item; their fixes are ours
   alone.

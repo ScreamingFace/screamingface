@@ -44,6 +44,9 @@ _FINGERPRINTS: dict[str, str] = {
     # infinite_bench_math_find grades by the first number (inspect_evals PR #2346 adopted).
     "chembench": "b86658ea78c51962",
     "infinite_bench_math_find": "1ed274442ad5dba1",
+    # OME-1701 PR 3: math reads its answer line through a boxed answer, outer delimiters and
+    # bold (inspect_evals' fixes adopted).
+    "math": "414043e2d2a9dbcc",
 }
 
 

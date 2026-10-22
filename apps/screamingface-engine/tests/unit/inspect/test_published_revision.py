@@ -109,4 +109,5 @@ def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
         "boolq": "00d4443ca7e66d43",
         "chembench": "a36d91b7eb601253",
         "infinite_bench_math_find": "eb87494cb4dab437",
+        "math": "0fb750cf19e00c11",
     }

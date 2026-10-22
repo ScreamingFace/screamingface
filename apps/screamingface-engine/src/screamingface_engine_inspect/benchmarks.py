@@ -4032,6 +4032,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   it when the pin reaches the fixes: the tripwire in
         #   tests/unit/inspect/test_named_deviation_math.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.math.math:expression_exact_match",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="0fb750cf19e00c11",
         extra_scorers=(
             "screamingface_engine_inspect.named_deviations.math.math:expression_exact_match_sympy",
         ),
