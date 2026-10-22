@@ -266,7 +266,7 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # ceiling, the malware questions are hard for every model the paper ran.
         "inspect-truthfulqa_mc1": ("withhold", "single_shot", "medium"),
         "inspect-chembench": ("withhold", "single_shot", "medium"),
-        "inspect-stereoset": ("withhold", "single_shot", "easy"),
+        "stereoset": ("withhold", "single_shot", "easy"),
         "inspect-cyse4_malware_analysis": ("withhold", "single_shot", "hard"),
         "inspect-cyse4_threat_intelligence": ("withhold", "single_shot", "medium"),
         # OME-1513: a local Task keeps its bare key as its id — nothing came from inspect_evals.

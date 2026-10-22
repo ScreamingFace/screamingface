@@ -6027,13 +6027,22 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="stereoset",
         title="StereoSet (intersentence)",
         description=(
-            "2,115 short contexts from StereoSet's intersentence task, each followed by "
-            "three possible next sentences: a stereotypical one, an anti-stereotypical one "
-            "and an unrelated one, imported from inspect_evals. The model picks one. Grading "
+            "2,123 short contexts from StereoSet's intersentence task, every record of the "
+            "validation split, each followed by three possible next sentences: a "
+            "stereotypical one, an anti-stereotypical one and an unrelated one. Served as a "
+            "local Task built from the inspect_evals eval, with one change: each record is "
+            "kept under the dataset's own id. The eval at our pinned version names a record "
+            "after its context, so of two records sharing one it served only the first, "
+            "2,115 in all; its own fix (inspect_evals PR #2524) is adopted here. The model "
+            "picks one sentence. Grading "
             "is the eval's own multiple-choice scorer: picking either related sentence "
             "scores 1 and the unrelated one 0, so no judge tokens are spent. Benchmark score "
-            "= the paper's language modeling score, the share of related picks. The eval's "
-            "bias score (how often the stereotypical sentence wins) is left out by name, an "
+            "= the share of related picks. That is a multiple-choice adaptation of the "
+            "paper's language modeling score and not comparable with it: here the model "
+            "picks one of three sentences once, where the paper compares the likelihoods a "
+            "model gives the sentences, two comparisons per record, averaged per target "
+            "term. The eval's bias score (how often the stereotypical sentence wins) is "
+            "left out by name, an "
             "owner decision, so this measures coherence, not bias. Cases are served in a "
             "fixed seeded shuffle (the eval shuffles per run). No mid-run check surface "
             "(elimination attack over three options)."
@@ -6044,7 +6053,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         difficulty="easy",
         failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.stereoset.stereoset:stereoset (task_type intersentence).
+        #   screamingface_engine_inspect.local_tasks.stereoset.stereoset:stereoset
+        #   (task_type intersentence), a LOCAL Task that is inspect_evals' stereoset with each
+        #   record named by the dataset's own id (NAMED DEVIATION in the Task's docstring,
+        #   adopted from the merged inspect_evals fix
+        #   https://github.com/UKGovernmentBEIS/inspect_evals/pull/2524). Everything else, the
+        #   scorers included, is inspect_evals' own. Its code lives here, so its origin is ours
+        #   (catalogue id `stereoset`, was `inspect-stereoset`) and its source is hashed into
+        #   the revision; the harness link names the eval, ported to inspect by Xodarap.
         # License: cc-by-sa-4.0.
         scorer="inspect_evals.stereoset.stereoset:multiple_choice_scorer",
         # NAMED DEVIATION (owner decision on OME-1602, 2026-10-14): the Task also declares
@@ -6066,7 +6082,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "      url={https://arxiv.org/abs/2004.09456}, \n"
             "}"
         ),
-        inspect_contributors=("Xodarap",),
+        origin="screamingface",
         harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/stereoset",
         license="CC-BY-SA-4.0",
         content_warning=(
@@ -6086,9 +6102,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             as_of="2025-06",
         ),
         notebook="12_inspect_evals_benchmarks",
-        # No inspect_evals count: eval.yaml's 4,299 is the package's figure, not this task's. The
-        # pinned intersentence split holds 2,123 records, and the eval itself drops 8 that
-        # share a hashed id, so its Task yields the 2,115 Cases served here.
+        # No inspect_evals count: eval.yaml's 4,299 at v0.20.0 is the package's figure, not
+        # this task's (inspect_evals' fix sets it to 2,123). The pinned intersentence split holds
+        # 2,123 records, all served here; the eval at v0.20.0 drops 8 that share a hashed id.
     ),
     BenchmarkSpec(
         key="cyse4_malware_analysis",
