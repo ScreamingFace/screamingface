@@ -51,9 +51,12 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         self._transport = transport
 
     def register_models(self) -> list[ModelEntry]:
-        # WHY empty: catalog rows would name private targets to every account. Listing arrives
-        # with the grant-filtered catalog; dispatch never depends on it.
-        return []
+        # WHY every declared target: the catalog routes show an instance only to the accounts
+        # its grant names (`EndpointOperation.VIEW`), so the rows reach nobody else.
+        # INVARIANT: an entry carries the canonical model ID only; the origin, request path and
+        # upstream model stay in the definition.
+        model_ids = [self._definition.model_id(target) for target in self._definition.targets]
+        return [ModelEntry(model_name=mid, litellm_params={"model": mid}) for mid in model_ids]
 
     def supports_api_key(self) -> bool:
         return True

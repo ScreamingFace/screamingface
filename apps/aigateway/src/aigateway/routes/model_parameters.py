@@ -21,10 +21,10 @@ from ..core.discovery_runtime import (
     auth_scoped,
     static_discovery_outcome,
 )
+from ..core.endpoint_access import EndpointOperation, accessible_plugin
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
 from ..core.provider_access import ResolvePolicy, provider_access_for
-from ..core.registry import ProviderRegistry
 from .provider_access_http import refusals_as_http, selector_from_request
 
 if TYPE_CHECKING:
@@ -87,8 +87,11 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     if not provider:
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
 
-    registry: ProviderRegistry = request.app.state.providers
-    plugin = registry.get(provider)
+    # INVARIANT: a provider this account may not VIEW (an ungranted or disabled endpoint) gets the
+    # unregistered answer, before the model lookup could tell the two apart.
+    plugin = accessible_plugin(
+        request.app, provider, account_id=account_id, operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 

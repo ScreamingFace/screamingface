@@ -93,7 +93,11 @@ async def start_connection_oauth(
     request: Request,
     current: CurrentAccount,
 ) -> StartOAuthConnectionResponse:
-    plugin = request.app.state.providers.get(body.provider)
+    # WHY VIEW: a provider this account may not see must answer as unregistered here too, not
+    # with the "does not use OAuth" refusal that would confirm it is configured.
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}

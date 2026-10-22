@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.endpoint_access import EndpointOperation, permits
 from ..core.provider_access import AvailabilityStatus, provider_access_for
 from .provider_access_http import refusals_as_http, selector_from_request
 
@@ -57,17 +58,24 @@ async def list_provider_access(
     carries nothing else. The listing is private to the caller and never cached. Nonblank
     `X-Profile` headers are rejected: the listing is per caller, not per selection.
     """
+    account_id = str(current.id)
     try:
         with refusals_as_http():
             selector_from_request(request)
-            rows = await provider_access_for(request.app).availability(str(current.id))
+            rows = await provider_access_for(request.app).availability(account_id)
     except HTTPException as exc:
         exc.headers = {**(exc.headers or {}), **_PRIVATE_CACHE_HEADERS}
         raise
     response.headers.update(_PRIVATE_CACHE_HEADERS)
+    # INVARIANT: a provider this account may not VIEW (an ungranted or disabled endpoint) has no
+    # row, as a provider that is not registered has none.
     return ProviderAccessAvailability(
         providers=[
-            ProviderAccessAvailabilityRow(provider=row.provider, status=row.status) for row in rows
+            ProviderAccessAvailabilityRow(provider=row.provider, status=row.status)
+            for row in rows
+            if permits(
+                request.app, row.provider, account_id=account_id, operation=EndpointOperation.VIEW
+            )
         ]
     )
 

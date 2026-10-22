@@ -57,10 +57,13 @@ def test_without_config_the_app_is_the_bundled_app(byom: Harness) -> None:
     with byom.start(two_endpoint_document()) as client:
         configured_ids, configured_paths, configured_listing = _surface(client)
 
-    # INVARIANT: endpoints join the registry and nothing else — no auth route, no listing row.
+    # INVARIANT: endpoints join the registry and a granted account's listing, nothing else: no
+    # auth route, and every bundled provider's row is unchanged.
     assert configured_ids == sorted([*ids, ENDPOINT_A, ENDPOINT_B])
     assert configured_paths == paths
-    assert configured_listing == listing
+    rows = cast(dict[str, list[dict[str, object]]], configured_listing)["data"]
+    bundled = cast(dict[str, list[dict[str, object]]], listing)["data"]
+    assert [row for row in rows if row["id"] not in (ENDPOINT_A, ENDPOINT_B)] == bundled
     assert all(
         f"/v1/auth/{endpoint}" not in " ".join(paths) for endpoint in (ENDPOINT_A, ENDPOINT_B)
     )
