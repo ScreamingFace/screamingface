@@ -13,6 +13,8 @@ from __future__ import annotations
 import gzip
 import http.client
 import json
+import socket
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,9 @@ from urllib.parse import urlsplit
 import pytest
 from opentelemetry.exporter.otlp.proto.http import Compression
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
+from opentelemetry.proto.common.v1.common_pb2 import AnyValue, KeyValue
+from opentelemetry.proto.trace.v1.trace_pb2 import ResourceSpans, ScopeSpans, Span
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -247,3 +252,100 @@ def test_stop_frees_the_port(tmp_path: Path) -> None:
     rx.stop()
     with pytest.raises(OSError):
         _post(endpoint, b"", {"Content-Type": "application/x-protobuf"})
+
+
+# Unit 6 hardening (security review): bytes, a non-ASCII length, non-finite doubles, dotted
+# secret names, and a stalled body.
+
+
+def _request(*attributes: KeyValue) -> bytes:
+    span = Span(trace_id=bytes.fromhex(TID), span_id=b"\x01" * 8, name="s", attributes=attributes)
+    request = ExportTraceServiceRequest(
+        resource_spans=[ResourceSpans(scope_spans=[ScopeSpans(spans=[span])])]
+    )
+    return request.SerializeToString()
+
+
+TID = "4bf92f3577b34da6a3ce929d0e0e4736"
+_PB = {"Content-Type": "application/x-protobuf"}
+
+
+def test_a_bytes_attribute_is_recorded_by_size_never_by_content(receiver: OtlpReceiver) -> None:
+    secret = b"\x00raw-secret-bytes" + OPAQUE.encode()
+    body = _request(KeyValue(key="payload", value=AnyValue(bytes_value=secret)))
+    assert _post(receiver.endpoint, body, _PB) == 200
+
+    (got,) = receiver.spans_for({TID})
+    raw = receiver.out.read_text()
+    assert secret.hex() not in raw and OPAQUE not in raw
+    assert got["attributes"]["payload"] == f"<{len(secret)} bytes>"
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-strict JSON constant {name}")
+
+
+def test_non_finite_doubles_are_written_as_strict_json(receiver: OtlpReceiver) -> None:
+    body = _request(
+        KeyValue(key="a", value=AnyValue(double_value=float("nan"))),
+        KeyValue(key="b", value=AnyValue(double_value=float("inf"))),
+        KeyValue(key="c", value=AnyValue(double_value=float("-inf"))),
+        KeyValue(key="d", value=AnyValue(double_value=0.5)),
+    )
+    assert _post(receiver.endpoint, body, _PB) == 200
+
+    lines = receiver.out.read_text().splitlines()
+    assert len(lines) == 1
+    for line in lines:
+        span = json.loads(line, parse_constant=_reject_constant)
+        json.dumps(span, allow_nan=False)
+    assert span["attributes"] == {"a": "NaN", "b": "Infinity", "c": "-Infinity", "d": 0.5}
+
+
+@pytest.mark.parametrize("key", ["llm.api.key", "db.password.key", "http.request.header.cookie"])
+def test_a_dotted_secret_name_ending_in_bare_key_is_masked(
+    receiver: OtlpReceiver, key: str
+) -> None:
+    body = _request(KeyValue(key=key, value=AnyValue(string_value=OPAQUE)))
+    assert _post(receiver.endpoint, body, _PB) == 200
+    (got,) = receiver.spans_for({TID})
+    assert got["attributes"][key] == MASK
+    assert OPAQUE not in receiver.out.read_text()
+
+
+def _raw_exchange(endpoint: str, head: bytes, *, wait_s: float = 5.0) -> bytes:
+    parts = urlsplit(endpoint)
+    with socket.create_connection((parts.hostname or "", parts.port or 0), timeout=wait_s) as s:
+        s.sendall(head)
+        chunks: list[bytes] = []
+        while chunk := s.recv(65536):
+            chunks.append(chunk)
+        return b"".join(chunks)
+
+
+def test_a_non_ascii_digit_content_length_is_refused_411(receiver: OtlpReceiver) -> None:
+    head = (
+        b"POST /v1/traces HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-protobuf\r\n"
+        b"Content-Length: \xb2\r\n\r\n"  # '²': str.isdigit() is True, int() raises
+    )
+    reply = _raw_exchange(receiver.endpoint, head)
+    assert reply.startswith(b"HTTP/1.1 411 ")
+
+
+def test_a_stalled_body_never_holds_a_handler_thread(tmp_path: Path) -> None:
+    rx = OtlpReceiver(tmp_path / "spans.jsonl", read_timeout_s=0.3)
+    endpoint = rx.start()
+    try:
+        head = (
+            b"POST /v1/traces HTTP/1.1\r\nHost: x\r\nContent-Type: application/x-protobuf\r\n"
+            b"Content-Length: 100\r\n\r\nonly-a-few-bytes"
+        )
+        started = time.monotonic()
+        _raw_exchange(endpoint, head, wait_s=5.0)  # socket.timeout here = the thread is held
+        assert time.monotonic() - started < 3.0
+    finally:
+        rx.stop()
+
+
+def test_the_default_read_timeout_is_bounded(tmp_path: Path) -> None:
+    assert 0 < OtlpReceiver(tmp_path / "s.jsonl").read_timeout_s <= 30

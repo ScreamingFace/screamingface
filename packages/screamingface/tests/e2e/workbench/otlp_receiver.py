@@ -8,12 +8,19 @@ bundle with :meth:`OtlpReceiver.spans_for`.
 INVARIANT: redaction happens BEFORE a span touches disk. Every string in a span (name,
 attribute keys and values, status message) goes through ``workbench.redaction``; an attribute
 whose NAME is secret-shaped (``http.request.header.x-api-key``) has its value masked whole,
-because an opaque value carries no shape the token patterns could recognise.
+because an opaque value carries no shape the token patterns could recognise. A ``bytes``
+attribute is never written, not even as hex: only its size (``"<N bytes>"``).
+
+INVARIANT: strict JSON. A non-finite double is written as the string ``"NaN"``,
+``"Infinity"`` or ``"-Infinity"``; every line passes ``json.dumps(..., allow_nan=False)``.
 
 INVARIANT: loopback only. Binds ``127.0.0.1`` on a free port; accepts only
 ``POST /v1/traces`` with ``application/x-protobuf`` (identity or gzip); refuses a body over
 ``MAX_BODY_BYTES`` — by ``Content-Length`` before reading it, and after inflating a gzip body
-(a bomb is refused, never inflated past the cap).
+(a bomb is refused, never inflated past the cap). ``Content-Length`` must be ASCII digits
+(``"²"`` passes ``str.isdigit`` but not ``int``) or the request is refused with 411. A
+request that stalls mid-body times out after ``read_timeout_s`` and its connection is dropped,
+so a slow or hostile client never holds a handler thread.
 
 WHY stdlib ``http.server``: dev-only test tooling, one route, no new dependency. Decoding uses
 ``opentelemetry-proto`` (a dev-group dependency; also pulled in by the ``runtime`` extra).
@@ -28,6 +35,7 @@ reader that takes only newline-terminated lines never sees half a span. Shape::
 from __future__ import annotations
 
 import json
+import math
 import threading
 import zlib
 from collections.abc import Callable, Iterable
@@ -47,6 +55,8 @@ from opentelemetry.proto.trace.v1.trace_pb2 import Span, Status
 from workbench.redaction import MASK, is_secret_name, redact
 
 MAX_BODY_BYTES: Final = 16 * 1024 * 1024
+#: Per-socket-operation timeout: a stalled request line, header or body is dropped after this.
+READ_TIMEOUT_S: Final = 10.0
 TRACES_PATH: Final = "/v1/traces"
 _PROTOBUF: Final = "application/x-protobuf"
 
@@ -57,12 +67,22 @@ class _Refused(Exception):
         self.status = status
 
 
+def _double(value: float) -> float | str:
+    """A finite double as is; NaN/±inf as the strict-JSON-safe strings ``JSON.parse`` users know."""
+    if math.isfinite(value):
+        return value
+    if math.isnan(value):
+        return "NaN"
+    return "Infinity" if value > 0 else "-Infinity"
+
+
 _SCALARS: Final[dict[str, Callable[[AnyValue], Any]]] = {
     "string_value": lambda v: redact(v.string_value),
     "bool_value": lambda v: v.bool_value,
     "int_value": lambda v: v.int_value,
-    "double_value": lambda v: v.double_value,
-    "bytes_value": lambda v: v.bytes_value.hex(),
+    "double_value": lambda v: _double(v.double_value),
+    # WHY size only: bytes have no shape the redactor can read, and hex is the content.
+    "bytes_value": lambda v: f"<{len(v.bytes_value)} bytes>",
 }
 
 
@@ -138,6 +158,14 @@ class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server: _Server  # pyright: ignore[reportIncompatibleVariableOverride]
 
+    def setup(self) -> None:
+        # WHY a socket timeout: a stalled read then raises TimeoutError, which
+        # `handle_one_request` turns into a dropped connection instead of a handler thread
+        # blocked forever. Set on the socket (the class-level `timeout` is per class, not
+        # per receiver).
+        self.request.settimeout(self.server.receiver.read_timeout_s)
+        super().setup()
+
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         pass  # WHY silent: request lines on stderr would interleave with test output
 
@@ -173,15 +201,17 @@ class _Handler(BaseHTTPRequestHandler):
         """Why the request is refused from its line and headers alone, before reading a byte."""
         ctype = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         length = self.headers.get("Content-Length", "")
+        # WHY isascii: `"²".isdigit()` is True but `int("²")` raises in the handler thread.
+        numeric = length.isascii() and length.isdigit()
         checks = (
             (self.path.split("?", 1)[0] != TRACES_PATH, HTTPStatus.NOT_FOUND),
             (
                 ctype != _PROTOBUF or self._encoding() not in {"identity", "gzip"},
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
             ),
-            (not length.isdigit(), HTTPStatus.LENGTH_REQUIRED),
+            (not numeric, HTTPStatus.LENGTH_REQUIRED),
             (
-                length.isdigit() and int(length) > MAX_BODY_BYTES,
+                numeric and int(length) > MAX_BODY_BYTES,
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
             ),
         )
@@ -202,8 +232,9 @@ class _Handler(BaseHTTPRequestHandler):
 class OtlpReceiver:
     """``OtlpReceiver(out).start()`` -> endpoint URL; ``.spans_for(trace_ids)``; ``.stop()``."""
 
-    def __init__(self, out: Path) -> None:
+    def __init__(self, out: Path, *, read_timeout_s: float = READ_TIMEOUT_S) -> None:
         self.out = out
+        self.read_timeout_s = read_timeout_s
         self._lock = threading.Lock()
         self._server: _Server | None = None
         self._thread: threading.Thread | None = None
@@ -259,7 +290,7 @@ class OtlpReceiver:
         """Append already-normalized spans: one locked ``write`` + flush, whole lines only."""
         if not spans:
             return
-        payload = "".join(json.dumps(s, sort_keys=True) + "\n" for s in spans)
+        payload = "".join(json.dumps(s, sort_keys=True, allow_nan=False) + "\n" for s in spans)
         with self._lock, self.out.open("a", encoding="utf-8") as fh:
             fh.write(payload)
             fh.flush()
