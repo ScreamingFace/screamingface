@@ -15,7 +15,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.io._guarded_transport import (
     FETCH_STATE,
     FetchState,
@@ -143,11 +143,13 @@ class HttpIOLayer:
         """``GET`` the target and return its body exactly as received, plus its media type.
 
         Goes through :meth:`_get`, so the destination guard and the size cap apply.
+        A 404 / 410 is ``source_not_found`` (C5).
         """
         response = await self._get(
             self._transport_url(request.target, request.relative),
             relative=request.relative,
             accept=request.accept,
+            typed=True,
         )
         # INVARIANT: response.content, never .text — the bytes are the origin's bytes.
         return FetchedBytes(response.content, media_type=_media_type(request.target, response))
@@ -157,7 +159,12 @@ class HttpIOLayer:
         return f"{self._base_url}{target}" if relative else target
 
     async def _get(
-        self, target: str, *, relative: bool, accept: str | None = None
+        self,
+        target: str,
+        *,
+        relative: bool,
+        accept: str | None = None,
+        typed: bool = False,
     ) -> httpx.Response:
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
@@ -172,14 +179,26 @@ class HttpIOLayer:
         deadline = self._guard.total_timeout if self._client is None else None
         try:
             async with asyncio.timeout(deadline):
-                return await self._send(url, headers or None, peer=peer, relative=relative)
+                return await self._send(
+                    url,
+                    headers or None,
+                    peer=peer,
+                    relative=relative,
+                    typed=typed,
+                )
         except TimeoutError as exc:
             raise source_timeout(
                 f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
             ) from exc
 
     async def _send(
-        self, url: str, headers: dict[str, str] | None, *, peer: bool, relative: bool
+        self,
+        url: str,
+        headers: dict[str, str] | None,
+        *,
+        peer: bool,
+        relative: bool,
+        typed: bool = False,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -203,6 +222,10 @@ class HttpIOLayer:
         except httpx.HTTPStatusError as exc:
             raise ResolutionError(
                 f"GET {url!r} failed: {exc}",
+                # WHY typed only on the bytes path: a 404's code on every other URI stays as it was.
+                code=ErrorCode.SOURCE_NOT_FOUND
+                if typed and exc.response.status_code in (404, 410)
+                else None,
                 permanent=_permanent_status(exc.response),
                 retry_after=_retry_after(exc.response),
             ) from exc

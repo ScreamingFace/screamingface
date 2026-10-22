@@ -39,7 +39,7 @@ class StaticIOLayer:
     source (spec §5.6.6). ``media_types`` maps a target to the media type
     ``fetch_ex`` reports for it. ``code`` maps a code path or name to a handler: the test
     double for a node's ``@node.code`` mounts. Missing keys raise
-    :class:`~url4.core.errors.ResolutionError`.
+    :class:`~url4.core.errors.ResolutionError` (``source_not_found`` on the bytes path).
     """
 
     def __init__(
@@ -65,6 +65,13 @@ class StaticIOLayer:
         return body.decode("utf-8")
 
     async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        if request.target not in self._fetch and "?" not in request.target:
+            # C5: the bytes path names a missing source; the text path keeps its old error.
+            raise ResolutionError(
+                f"no fetch mapping for {request.target!r}",
+                code=ErrorCode.SOURCE_NOT_FOUND,
+                permanent=True,
+            )
         body = await self._lookup(request.target)
         raw = body.encode("utf-8") if isinstance(body, str) else body
         return FetchedBytes(raw, media_type=self._media_types.get(request.target))
