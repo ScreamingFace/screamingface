@@ -3,49 +3,32 @@
   "branch": "OME-1610-pr1-hand-set-published-revision",
   "approver": "owner (approved in the OME-1610 session, 2026-10-22)",
   "date": "2026-10-22",
-  "scope": "This branch is stacked on OME-1701 PR 7, so this file pins every prior test the branch edits against main, OME-1701's edits included (their reasons are OME-1701's approval, quoted under 'carried'). OME-1610's own edits: test_published_revision.py: the allow-list test (the exact set of rows that hand-set an id) becomes test_every_catalogue_row_sets_its_published_revision, because every row now hand-sets one; a copied-row test is added and one stand-in docstring says only stand-ins leave the id unset. test_published_revisions.py: the 26 rows not yet frozen join at the id main serves; no literal changes. test_letter_list_key_imports.py, test_local_task_gdpval.py, test_nltk_data_at_image_build.py, test_retrieval_policy_on_row.py, test_scorer_draft_feedback.py, test_whole_run_metric.py: 7 identity tests read .fingerprint instead of .benchmark.revision, because the hash they assert moves is now the fingerprint (the published id is hand-set and holds by design); no assertion is weakened.",
-  "carried": "test_benchmark_answer_rules.py: the three AIME rules pin the cut-off-guarded scorer the rows now declare, because those rows grade with our Named Deviation (inspect_evals issue #2701 adopted). test_benchmark_declaration.py: the worldsense and stereoset row keys lose the inspect- prefix, because a local Task is origin screamingface and its catalogue id has no prefix; the declared policies are unchanged. test_inspect_imported_benchmarks.py: the onet_m6 test now expects 6 + 18 + 1 exclusions and 397 - 25 Cases, with its docstring and a comment saying why, because the row leaves out 18 more questions whose options v0.20.0 misparses (inspect_evals PR #2590) and 1 whose source data gives its key's text to two options (2020_32_08b1). test_letter_list_key_imports.py: chembench's 'A, D' reply now scores 1, not 0, the test is renamed from the pattern scorer to the set-of-letters rule, and the docstring and comment say why, because chembench now grades the letters as a set (inspect_evals PR #2591 adopted). test_local_task_infinite_bench.py: the row test is renamed from inspect's exact match to the first-number rule and the module docstring names that rule, because the row now grades the official InfiniteBench way (inspect_evals PR #2346 adopted); its assertions are unchanged. test_math_squad_named_scores.py: MATH's dependency pins list antlr4 beside sympy and the docstring says the conservation invariant holds only on an unwrapped answer line with no trailing carriage return or tab, because the math row now pins antlr4 and reads its answer line through our Named Deviation. test_published_revision.py: the hand-set list adds paws, boolq, chembench, infinite_bench_math_find, math, aime24, aime25 and aime26, and the invariant's docstring names the second ground for a hold, because the owner held those rows' published revisions on 2026-10-22 (revisions are frozen; each grading fix keeps every Case, and the leaderboard had no result under the old grading). test_published_revisions.py: chembench, infinite_bench_math_find and aime26 join the frozen literals at the revision main serves, which their rows now hold with published_revision; worldsense's literal moves and stereoset and onet_m6 join at their new revisions, each with a comment naming the old value, because their Cases change and so their published revision; no other literal changes.",
+  "scope": "OME-1610's edits to prior tests, against main. test_benchmark_fingerprints.py: the pinned fingerprints grow from OME-1701's held rows to every Benchmark (no existing literal changes); the parametrised test is renamed test_the_fingerprint_follows_the_exam_not_the_published_id and reads the fingerprint the assembled Benchmark now carries instead of re-assembling the row with its id unset, because every row now hand-sets its id; its failure message says never to move published_revision to make it green; the module docstring drops its 'today it pins the rows OME-1701 holds' note; and a coverage test asks for a pin per Benchmark. test_published_revision.py: the allow-list test (the exact set of rows that hand-set an id) becomes test_every_catalogue_row_sets_its_published_revision, because every row now hand-sets one; a copied-row test is added and one stand-in docstring says only stand-ins leave the id unset. test_published_revisions.py: the 26 rows not yet frozen join at the id main serves; no literal changes. test_letter_list_key_imports.py, test_local_task_gdpval.py, test_nltk_data_at_image_build.py, test_retrieval_policy_on_row.py, test_scorer_draft_feedback.py, test_whole_run_metric.py: 7 identity tests read .fingerprint instead of .benchmark.revision, because the hash they assert moves is now the fingerprint (the published id is hand-set and holds by design); no assertion is weakened.",
   "reason": "OME-1610 makes every Benchmark's published revision hand-set; tests that pinned which rows hand-set one, or that read the computed hash through the published id, follow the hash to its new home. No published id moves.",
   "files": {
-    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_answer_rules.py": {
-      "base_blob": "ae8849e14f4953e7fc9f9da70cef786c46819500",
-      "approved_blob": "002859391bd88c8e45f680e187a8454f5928873c"
-    },
-    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "9d4c035dc6d1d0bc5d31e70e742d04b5d8d5c016",
-      "approved_blob": "4d20d9f6d4bbac16aab0cf3dfeb73d2d58c39440"
-    },
-    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "39de15ffe05b5185a216e4b660b2091f17299adf",
-      "approved_blob": "e65216db07e03af90b5259a4e45c39fff8d1c1c5"
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "ca1129979c5e44e317627d74ec0e73a0d3cbc1b2",
+      "approved_blob": "27583a55d9e3d74508401ae51fdf1210ed0119ec"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_letter_list_key_imports.py": {
-      "base_blob": "bba6e1c51fc35347a638d67e59352de5bb7a5376",
+      "base_blob": "1e7def83df8bedbbc49dae99f15ff7fc5cdb3365",
       "approved_blob": "a67f4676141433f73d19418c036bbf5c7e6d9b26"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_local_task_gdpval.py": {
       "base_blob": "06c93e0623ce4161be0dc20c3bb9d5a917f23f8b",
       "approved_blob": "e2c797f1a58ef72b9fd75fa4c4d589ded7244c04"
     },
-    "apps/screamingface-engine/tests/unit/inspect/test_local_task_infinite_bench.py": {
-      "base_blob": "2e4b206bd5c1f8cca9132b5b0ff4f358c211e00a",
-      "approved_blob": "802f6047bf2d59ad9cebe86b4bfdbb35ab1be0d2"
-    },
-    "apps/screamingface-engine/tests/unit/inspect/test_math_squad_named_scores.py": {
-      "base_blob": "19421453706b82f72af1772e58f857162259b029",
-      "approved_blob": "ea05a1c7810f103dbe3369525ab2458162d83628"
-    },
     "apps/screamingface-engine/tests/unit/inspect/test_nltk_data_at_image_build.py": {
       "base_blob": "a116f430caab67db1d7417296e5b3c6450eca825",
       "approved_blob": "7a907e53ba128fd9907b56582a4d68c16e2bd2ef"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
-      "base_blob": "0642ef48a18d86cea3a577973e2ceb5f354ff565",
+      "base_blob": "3975d0b5b71cb5c7fc9eb9684633ce0382aea5fd",
       "approved_blob": "845513d25855580788f346166116b4eeea203801"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "b60981e6787a7f8f0fd1e3e3cc7557e40d2d745e",
-      "approved_blob": "e2670f8c1db3045641fefb46e428d9c2ba9e5821"
+      "base_blob": "6b2ad31d6498d320ffe51620e9e30b355126c1ff",
+      "approved_blob": "4d1426ba148e5aa993128255f6e0d463ffbc3f1b"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_retrieval_policy_on_row.py": {
       "base_blob": "e6ea6e35ce698a34da61a8ca80e1c564ff5ad8e2",

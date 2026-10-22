@@ -46,7 +46,7 @@ def _bump() -> ModuleType:
 def test_a_held_row_is_offered_its_fingerprint_with_the_warning_and_no_file_changes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """paws publishes 8f4e0e9c0864a6e7 and computes ab44cff9bea304ca (OME-1701 held it): the
+    """paws publishes 8f4e0e9c0864a6e7 and computes 992540ea3309d384 (OME-1701 held it): the
     command shows both, the cost of moving, the owner sign-off and every line to edit, and
     writes nothing, so the developer still makes the change by hand in a reviewed PR."""
 
@@ -60,7 +60,7 @@ def test_a_held_row_is_offered_its_fingerprint_with_the_warning_and_no_file_chan
     assert "hides every leaderboard result" in out
     assert "owner" in out and "sign-off" in out
     assert 'published_revision="8f4e0e9c0864a6e7"' in out
-    assert 'published_revision="ab44cff9bea304ca"' in out
+    assert 'published_revision="992540ea3309d384"' in out
     assert "test_published_revisions.py" in out
     assert "test_benchmark_fingerprints.py" in out
     assert "CHANGELOG.md" in out

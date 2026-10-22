@@ -3210,7 +3210,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="worldsense",
-        published_revision="a9ea4fd817d0f54b",
+        published_revision="ad49b23d305a87dd",
         title="WorldSense",
         description=(
             "87,048 questions about small described worlds (orderings and spatial relations), "
@@ -6143,7 +6143,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="stereoset",
-        published_revision="dd1c2cc6e587ed15",
+        published_revision="c2bf158bee6d5f8b",
         title="StereoSet (intersentence)",
         description=(
             "2,123 short contexts from StereoSet's intersentence task, every record of the "
