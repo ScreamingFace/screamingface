@@ -1246,7 +1246,7 @@
     "exports": {
       "edit": {
         "kind": "function",
-        "signature": "(score_id: 'UUID | str', *, authors: 'Sequence[str] | None | _Unset' = UNSET, paper_url: 'str | None | _Unset' = UNSET) -> 'LeaderboardScore'"
+        "signature": "(score_id: 'UUID | str', *, authors: 'Sequence[str] | None | _Unset' = UNSET, paper_url: 'str | None | _Unset' = UNSET, authors_metadata: 'Mapping[str, Mapping[str, object]] | None | _Unset' = UNSET, paper_metadata: 'Mapping[str, object] | None | _Unset' = UNSET) -> 'LeaderboardScore'"
       },
       "get": {
         "kind": "function",
@@ -1266,7 +1266,7 @@
       },
       "submit": {
         "kind": "function",
-        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None, paper_url: 'str | None' = None) -> 'LeaderboardScore'"
+        "signature": "(candidate_result: 'CandidateResult', *, authors: 'Sequence[str] | None' = None, paper_url: 'str | None' = None, authors_metadata: 'Mapping[str, Mapping[str, object]] | None' = None, paper_metadata: 'Mapping[str, object] | None' = None) -> 'LeaderboardScore'"
       }
     }
   },

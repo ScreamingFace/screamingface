@@ -181,3 +181,27 @@ staging check: score `5fc68454-338c-4645-bc10-a58b3e3a74e4`, 1 case, no seed).
   `redirect_url` was `/v1/scores/{id}/reproductions` (the #1486 fix on the recording path). After
   the owner's login: `recorded=True`, no `record_error`.
 - The board reads back `reproduction_count: 1`, `last_reproduced_at: 2026-10-21T20:33:50Z`.
+
+## Review by Dmitry (HupBaHa), 2026-10-22, at `8f6f27c2b` — changes requested, all three fixed
+
+1. **Partial replay ran an unchecked subset.** Both catalog reads are now checked before any run:
+   the whole run rebuilt at its published case count must be the published recipe, and the subset
+   must carry the published revision and the same installed `case_count` as the whole (the Engine
+   sends the installed count on every read, the selection as `selected_case_count`). A split
+   response is refused with `partial_replay_unavailable` (sync and async regressions). Residual,
+   stated in the code: a subset built differently at the same revision can only miss the pinned
+   cache, which answers byte-identical requests alone, so it fails loudly, never as a false replay.
+   The test catalog fake now sends the Engine's real payload shape.
+2. **Module-level `sf.leaderboards.submit` / `.edit` lacked the metadata keywords.** Added and
+   forwarded; `edit` keeps `_UNSET`, so omitted stays distinct from `None`. New
+   `tests/test_leaderboards_module_metadata.py`.
+3. **The lookup did not check its numbers.** `score` must be finite and `total_questions` positive,
+   with the same checks `LeaderboardScore` uses; malformed lookups are `invalid_leaderboard`.
+
+Incident while writing fix 2: the first version of the module test patched
+`_default_client.default_client`, which `sf.leaderboards` imports by name, so the real default
+client tried one `POST /v1/scores` against production. Access refused it (no token; no login was
+completed within the 300 s timeout), so nothing was written; a login tab may have opened in the
+owner's browser. The test now patches `_default_client._client`, as the existing tests do.
+
+Gates: `run_gates.py screamingface --base origin/main` and `run_gates.py repo` ALL GATES GREEN.

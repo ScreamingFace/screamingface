@@ -38,7 +38,7 @@ from screamingface._scoreboard.leaderboards import (
     _text,
 )
 from screamingface.errors import LeaderboardError
-from screamingface.leaderboard import LeaderboardScore, _case_digest
+from screamingface.leaderboard import LeaderboardScore, _case_digest, _positive_int, _score
 
 _LOOKUP_PATH = "/v1/public/scores/by-pinned-cache"
 _PUBLIC_SCORES_PATH = "/v1/public/scores"
@@ -106,6 +106,9 @@ def _decode_lookup(payload: object, pinned_cache: str) -> PublishedScore:
     try:
         published = _lookup_fields(root, pinned_cache)
         _case_digest(published.case_digest, published.capture_status)
+        # Review (#1519): the numbers a replay is judged against, as `LeaderboardScore` checks them.
+        _score(published.score, "Pinned cache lookup score")
+        _positive_int(published.total_questions, "Pinned cache lookup total_questions")
     except (TypeError, ValueError) as exc:
         _invalid(f"pinned cache lookup: {exc}", exc)
     return published

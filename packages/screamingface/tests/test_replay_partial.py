@@ -61,9 +61,19 @@ PUBLISHED_URL4 = _linked(_benchmark_url4(CASE_COUNT))
 class _Catalog:
     """The Engine's `/v1/benchmarks/draco`, rendering the case count it is asked for."""
 
-    def __init__(self, *, revision: str = "fixture-revision", drift: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        revision: str = "fixture-revision",
+        drift: bool = False,
+        subset_revision: str | None = None,
+        subset_count: int | None = None,
+    ) -> None:
         self.revision = revision
         self.drift = drift
+        # Review (Dmitry, #1519): a subset answered by another catalog generation than the whole.
+        self.subset_revision = subset_revision
+        self.subset_count = subset_count
         self.limits: list[int | None] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -73,9 +83,17 @@ class _Catalog:
         limit = None if raw is None else int(raw)
         self.limits.append(limit)
         count = CASE_COUNT if limit is None else limit
-        url4 = _benchmark_url4(count, revision=self.revision)
+        revision = self.revision
+        is_subset = limit is not None and limit < CASE_COUNT
+        if is_subset and self.subset_revision is not None:
+            revision = self.subset_revision
+        url4 = _benchmark_url4(count, revision=revision)
         if self.drift:
-            url4 = _benchmark_url4(count + 100, revision=self.revision)
+            url4 = _benchmark_url4(count + 100, revision=revision)
+        # As the Engine sends it: the installed count on every read, the selection apart.
+        case_count = CASE_COUNT
+        if is_subset and self.subset_count is not None:
+            case_count = self.subset_count
         return httpx.Response(
             200,
             json={
@@ -83,8 +101,9 @@ class _Catalog:
                 "id": "draco",
                 "title": "DRACO",
                 "description": "Fixture DRACO Benchmark.",
-                "revision": self.revision,
-                "case_count": count,
+                "revision": revision,
+                "case_count": case_count,
+                "selected_case_count": count,
                 "url4": url4,
             },
         )
@@ -211,3 +230,38 @@ def test_a_bad_limit_is_refused_before_the_board_is_read(limit: Any) -> None:
 
     assert board.requests == []
     assert catalog.limits == []
+
+
+# --- review (Dmitry, #1519): the subset must come from the checked catalog generation -----------
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [_Catalog(subset_revision="newer-revision"), _Catalog(subset_count=CASE_COUNT + 7)],
+    ids=["subset-on-another-revision", "subset-from-another-installed-count"],
+)
+def test_a_subset_that_does_not_match_the_checked_run_is_refused(catalog: _Catalog) -> None:
+    board = _Board(lookup=_published())
+
+    with _client(_ForbiddenTransport(), catalog, board) as client:
+        with pytest.raises(sf.PlanningError) as caught:
+            client.evaluate(pinned_cache=COPY, limit=2)
+
+    assert caught.value.code == "partial_replay_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_the_async_partial_replay_refuses_a_split_catalog_too() -> None:
+    client = sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_Catalog(subset_revision="newer-revision")),
+        scoreboard_url="https://scoreboard.example",
+        scoreboard_transport=httpx.MockTransport(_Board(lookup=_published())),
+        run_transport=_AsyncReplayer(),  # type: ignore[arg-type]
+    )
+
+    async with client:
+        with pytest.raises(sf.PlanningError) as caught:
+            await client.evaluate(pinned_cache=COPY, limit=2)
+
+    assert caught.value.code == "partial_replay_unavailable"

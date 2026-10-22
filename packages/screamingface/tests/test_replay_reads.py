@@ -11,6 +11,7 @@ The board is faked with `httpx.MockTransport`; every assertion is on parsed fiel
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from uuid import UUID
 
@@ -217,6 +218,11 @@ async def test_the_async_reads_match_the_sync_reads() -> None:
         {"capture_status": None},
         {"capture_status": "pending"},
         {"score_id": "not-a-uuid"},
+        # Review (Dmitry, #1519): the numbers a replay is judged against.
+        {"score": float("nan")},
+        {"score": float("inf")},
+        {"total_questions": 0},
+        {"total_questions": -1},
     ],
     ids=[
         "upper-digest",
@@ -225,13 +231,20 @@ async def test_the_async_reads_match_the_sync_reads() -> None:
         "digest-without-status",
         "unknown-status",
         "bad-score-id",
+        "nan-score",
+        "infinite-score",
+        "no-questions",
+        "negative-questions",
     ],
 )
 def test_a_malformed_lookup_is_a_scoreboard_contract_error(overrides: dict[str, object]) -> None:
     lookup = _lookup()
     lookup.update(overrides)
     payload = {key: value for key, value in lookup.items() if value is not None}
-    handler = _routes({LOOKUP_PATH: httpx.Response(200, json=payload)}, [])
+    # Raw JSON: a board that sends NaN or Infinity sends them as these literals.
+    body = json.dumps(payload).encode()
+    response = httpx.Response(200, content=body, headers={"content-type": "application/json"})
+    handler = _routes({LOOKUP_PATH: response}, [])
 
     with _sync_client(handler) as client, pytest.raises(sf.LeaderboardError) as caught:
         client.leaderboards._published_by_pinned_cache(COPY)
