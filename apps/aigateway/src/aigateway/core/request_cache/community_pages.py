@@ -173,14 +173,20 @@ async def _keys_in(part: QuerySet[RequestCacheEntry], n: int) -> list[dict[str, 
 async def _next_keys(
     eligible: QuerySet[RequestCacheEntry], cursor: PageCursor | None, want: int
 ) -> tuple[list[dict[str, Any]], bool]:
-    """The next keys after ``cursor`` (at most ``want``), and whether fewer than that remain."""
+    """The next keys after ``cursor`` (at most ``want``), and whether fewer than that remain.
+
+    ``exhausted`` counts the keys read, before a duplicate is dropped, so a shorter list is not by
+    itself the end of the rows.
+    """
     keys: list[dict[str, Any]] = []
     for part in _after(eligible, cursor):
         keys += await _keys_in(part, want - len(keys))
         if len(keys) == want:
             break
     # WHY: the parts are read by separate statements, so a row a merge restore moves out of the
-    # tie run between them is read by both; only its later copy is the row as it now stands.
+    # tie run between them can be read by both; its later copy is the row as it now stands. A
+    # new copy beyond the later read leaves only the stale one, which ``_exactly`` then skips and
+    # the walk sends at its new time.
     last = {key["key_hash"]: at for at, key in enumerate(keys)}
     return [key for at, key in enumerate(keys) if last[key["key_hash"]] == at], len(keys) < want
 
