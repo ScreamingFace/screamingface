@@ -123,6 +123,9 @@ class GradeRequest:
         row: the benchmark-decoded evaluation envelope — the judge's work is inside it.
         material: the benchmark's grading material for this Case (rubric points today;
             a label or verifier command for later grading modes). Opaque to the shared grading code.
+        finish_reason: why the Candidate's model stopped, in the provider's own word
+            (``"stop"``; ``"length"`` when the token limit cut the reply off), or ``None``
+            when unknown. A grade may read it: a cut-off reply never gave its final answer.
     """
 
     case_id: CaseId
@@ -130,6 +133,9 @@ class GradeRequest:
     answer: CasePayload | None
     row: Mapping[str, Any]
     material: object
+    # WHY defaulted: only the inspect scorer adapter reads it; every other hook, and every
+    # request built by hand, keeps its shape.
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -520,19 +526,17 @@ class BenchmarkAggregation:
         if result is None:
             # Stage 4 — the hook: the one per-benchmark call, data in, grade out.
             assert row is not None and material is not None
+            fields: CandidateFields = _candidate_fields(row)
             outcome: CaseGradeOutcome = await self.grade_case(
                 GradeRequest(
                     case_id=selected_case.case_id,
                     input=TextPayload(text=selected_case.input),
                     # A refusal or empty answer carries no output payload; its text
                     # rides on the assembled result, not through the hook.
-                    answer=(
-                        TextPayload(text=output)
-                        if (output := _candidate_fields(row).output) is not None
-                        else None
-                    ),
+                    answer=None if fields.output is None else TextPayload(text=fields.output),
                     row=row,
                     material=material,
+                    finish_reason=fields.finish_reason,
                 )
             )
             result = self._graded_result(selected_case, row, outcome, extra_metadata)

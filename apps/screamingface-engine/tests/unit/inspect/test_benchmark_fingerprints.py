@@ -47,6 +47,11 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1701 PR 3: math reads its answer line through a boxed answer, outer delimiters and
     # bold (inspect_evals' fixes adopted).
     "math": "4129dccca9dbb8ce",
+    # OME-1701 PR 7: a reply cut off before its ANSWER: line is wrong (inspect_evals issue
+    # #2701 adopted).
+    "aime24": "600e759b1c5766e6",
+    "aime25": "a8d8eb4969ef8b8a",
+    "aime26": "b289716a32495871",
 }
 
 

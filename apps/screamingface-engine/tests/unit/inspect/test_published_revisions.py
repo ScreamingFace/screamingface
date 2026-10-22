@@ -101,6 +101,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # differs are excluded; its parser is not adopted) and 1 whose source repeats its key's
     # text under another letter (391 → 372 Cases; onet_m6 fefdc98fb53b0777 before it).
     "onet_m6": "cfc5f0da9f9418bd",
+    # OME-1701 PR 7: first frozen here, at the revision main serves, which the row holds.
+    "aime26": "c3ccaa828160f661",
 }
 
 

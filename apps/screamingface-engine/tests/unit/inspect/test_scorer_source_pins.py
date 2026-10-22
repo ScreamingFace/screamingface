@@ -23,8 +23,10 @@ from screamingface_engine_inspect.local_tasks import scorer_source_pins, source_
 from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
 
 #: The rows whose scorer is ours but not their Task's (OME-1701: paws and boolq since PR 1,
-#: chembench since PR 2, math since PR 3).
-_DEVIATING_ROWS: frozenset[str] = frozenset({"paws", "boolq", "chembench", "math"})
+#: chembench since PR 2, math since PR 3, the three AIME rows since PR 7).
+_DEVIATING_ROWS: frozenset[str] = frozenset(
+    {"paws", "boolq", "chembench", "math", "aime24", "aime25", "aime26"}
+)
 
 
 def _stand_in_scorer_package(root: Path, name: str) -> Path:
