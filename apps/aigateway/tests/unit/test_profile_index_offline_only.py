@@ -36,8 +36,11 @@ from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSetting
 from tests.conftest import _prepare_sqlite_db
 
 _SRC = Path(inspect.getfile(aigateway)).resolve().parent
-# The offline tools that still read the index until E5 (`python -m aigateway.migrate_profiles`).
-_OFFLINE_READERS = frozenset({"core/provider_access/backfill_classify.py"})
+# The offline tools that still read the index until E5c (`python -m aigateway.migrate_profiles`,
+# `python -m aigateway.purge_profile_history`).
+_OFFLINE_READERS = frozenset(
+    {"core/provider_access/backfill_classify.py", "core/provider_access/history_purge.py"}
+)
 
 
 def _imports_profile_index(path: Path) -> bool:

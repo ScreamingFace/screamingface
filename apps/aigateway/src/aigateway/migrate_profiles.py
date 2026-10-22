@@ -108,7 +108,7 @@ async def run(
 ) -> BackfillReport:
     await init_db(settings.database_url.get_secret_value())
     try:
-        await _refuse_without_a_key(settings)
+        await refuse_without_a_key(settings)
         # INVARIANT: the secret store is installed BEFORE any credential read.
         set_active_secret_store(
             await build_secret_store(settings.secret_provider, settings.secret_key)
@@ -124,7 +124,7 @@ async def run(
         await close_db()
 
 
-async def _refuse_without_a_key(settings: Settings) -> None:
+async def refuse_without_a_key(settings: Settings) -> None:
     if settings.secret_provider.lower() != "local" or settings.secret_key is not None:
         return
     if not await SecretMasterKey.all().exists():

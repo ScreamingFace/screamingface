@@ -12,7 +12,7 @@ from .profile_models import Profile, ProfileIndex, ProfileState
 logger = logging.getLogger(__name__)
 
 INDEX_CREDENTIAL_SERVICE = "aigateway:index"
-_LEGACY_INDEX_ACCOUNT = "default"
+LEGACY_INDEX_ACCOUNT = "default"
 _INDEX_ACCOUNT_PREFIX = "account:"
 
 
@@ -20,7 +20,7 @@ class ProfileTransitionConflict(RuntimeError):
     """Raised when the document changed or vanished under a conditional write."""
 
 
-def _index_account_for(account_id: str) -> str:
+def index_account_for(account_id: str) -> str:
     return f"{_INDEX_ACCOUNT_PREFIX}{account_id}"
 
 
@@ -34,7 +34,7 @@ async def lock_account_index(account_id: str) -> None:
     """
     await (
         CredentialBlob.filter(
-            service=INDEX_CREDENTIAL_SERVICE, account=_index_account_for(account_id)
+            service=INDEX_CREDENTIAL_SERVICE, account=index_account_for(account_id)
         )
         .select_for_update()
         .first()
@@ -56,7 +56,7 @@ class ProfileIndexStore:
         self._lock = asyncio.Lock()
 
     async def read(self, account_id: str | None = None) -> ProfileIndex:
-        account = _LEGACY_INDEX_ACCOUNT if account_id is None else _index_account_for(account_id)
+        account = LEGACY_INDEX_ACCOUNT if account_id is None else index_account_for(account_id)
         raw = await self._store.read(INDEX_CREDENTIAL_SERVICE, account)
         if raw is None:
             if account_id is not None:
@@ -65,7 +65,7 @@ class ProfileIndexStore:
         return ProfileIndex.model_validate_json(raw)
 
     async def _read_legacy_account_index(self, account_id: str) -> ProfileIndex:
-        raw = await self._store.read(INDEX_CREDENTIAL_SERVICE, _LEGACY_INDEX_ACCOUNT)
+        raw = await self._store.read(INDEX_CREDENTIAL_SERVICE, LEGACY_INDEX_ACCOUNT)
         if raw is None:
             return ProfileIndex()
         legacy = ProfileIndex.model_validate_json(raw)
@@ -99,7 +99,7 @@ class ProfileIndexStore:
 
             await self._store.mutate(
                 INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(profile.account_id),
+                index_account_for(profile.account_id),
                 mutate,
             )
 
@@ -136,7 +136,7 @@ class ProfileIndexStore:
             idx.profiles = [p for p in idx.profiles if p.id != profile_id] + [updated]
             return idx.model_dump_json()
 
-        await self._store.mutate(INDEX_CREDENTIAL_SERVICE, _index_account_for(account_id), mutate)
+        await self._store.mutate(INDEX_CREDENTIAL_SERVICE, index_account_for(account_id), mutate)
         return stamped[0]
 
     async def mark_authenticated_error(
@@ -168,7 +168,7 @@ class ProfileIndexStore:
 
             await self._store.mutate(
                 INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(account_id),
+                index_account_for(account_id),
                 mutate,
             )
 
@@ -185,7 +185,7 @@ class ProfileIndexStore:
 
             await self._store.mutate(
                 INDEX_CREDENTIAL_SERVICE,
-                _index_account_for(account_id),
+                index_account_for(account_id),
                 mutate,
             )
 
