@@ -66,43 +66,43 @@ _ROUTE_ONLY_ACCEPTANCE = {
     "streaming_accounting_bypass",
 }
 _EXPECTED_FIXTURE_SHA256 = {
-    "anthropic_cache_replay": ("942ede46748dff83e43496429a30c6a1b094a07ec3d60921059124ac0617eaab"),
+    "anthropic_cache_replay": ("47c556bed30b8579f1ef0f9559ec0d1348f0d9bb38cbd5720e809e867193b577"),
     "anthropic_full_cache_ttl_success": (
-        "92f94728453f042aa096c939b6a7f172587cad0fda37ca6a9d6dbdeee3506fde"
+        "6d2d385a3b1c2f287b61dbafdcee126bb9b0f6718902b29f890105ebc02ef5d4"
     ),
     "anthropic_missing_cache_evidence": (
-        "1572205e851f8c1b887e1feafed08a36491fe6a0bdf0ac5fc0b996ebe25babe8"
+        "282eb9182ab8e861af349597cf3a52d5f857628acb01a296d6d0884950721349"
     ),
     "anthropic_service_tier_tool_usage": (
-        "1f3c270ee1a39d8c7a45cfef3cfc00cb1f08d95a00695c142f746b77080e89ff"
+        "83c95a166e5fc4858f49babe15b3c414af6ac85ad5a1859dac09a76f3793a7e8"
     ),
-    "bounds_overflow": ("f852cce31b8b01505dec21f0307cc80e00ab00f093a55767785ba905dc953a0e"),
-    "cache_hit_reference": ("a27e53240082b7b6dbab6e6d8ee85239801354bf148ecadf996487c1657a413e"),
-    "conversion_failure": ("5253c1d413f759de4c36653d32979de365843f92f72e47bf0f321da3e77b0713"),
-    "gateway_overload_retry": ("e1fc71b761be4b72145decc49aefa93bfc311425aef50415e6ec2413c3697dd5"),
-    "hidden_transport_resend": ("fc1ab28fac6a815c9adb6be955163013959dd4e28c83899c6c1d671b28b5dd8e"),
+    "bounds_overflow": ("124803ae0df7066773af1d8c016c008f8398e2bc703d558e5df07738bf94ec54"),
+    "cache_hit_reference": ("f8f73e93f1f78efe022b92387c74c04357129cf79012a55b2610675b6ca0d6fe"),
+    "conversion_failure": ("e8d5b40f0ec62aa78aba88d1fe0c8b466621b2e34f9cae55b01d8a548a0e1dff"),
+    "gateway_overload_retry": ("e94349eef821c7d1e5e4767973bd2e33fff03ec573b8122ca53b6bafd5e4f446"),
+    "hidden_transport_resend": ("4db8988561ef08e2df5b1652857747a2ce070f841ed050af722483f865d409ff"),
     "huggingface_pinned_backend": (
-        "8ea5ac09de697f2864c7a299c7b7c70107b1629f72420d3abcdef3979ddcff7b"
+        "ad86415a618a16d3b5f55865e9c4380ad32179944d6d374c1dc6a49175f16176"
     ),
     "huggingface_unpinned_backend": (
-        "89aaf9ddd7f72761026951b417010c71c3258397eae127e9ff80e4a37c8e0e89"
+        "6d719571ce09c812210b59843d20227fa877ada58b5fa53ecd3028955ee89376"
     ),
     "openrouter_explicit_zero": (
-        "74100414162ee4a0bfcbae473db8a9de3a432954d2a826e4257aecb5f8889504"
+        "11cde20368800309d23654b0f41e21ce464d8c48a1364b41dcd9b67239523376"
     ),
     "openrouter_failure_with_usage": (
-        "303c3751a04709922589f0bbc1ed77417ea092cde85250f43d4d10f87649815d"
+        "6cc20ba612e2dcd0dfb51a5862fac5391e13f9d1e1f633448cc8ff7d81405e39"
     ),
-    "openrouter_full_success": ("22a06ad9116daa8c68051a83df2987a1dc97aa5030ccef93aa1173b40e6c664f"),
+    "openrouter_full_success": ("33679566b14a19d4e99a3aef3caeae3f4bd187f6c4f0353454bd6ad55c943987"),
     "openrouter_missing_evidence": (
-        "9c0d75c4f9c47824e422db6cfca2f527077c135b23be766968def88e1b86e6ab"
+        "6b1f9cff9d4c56f3c4540c7bf647ca5c8196eaae913c022f1785fd34afa7c6b7"
     ),
-    "openrouter_retry": ("fc1ab28fac6a815c9adb6be955163013959dd4e28c83899c6c1d671b28b5dd8e"),
+    "openrouter_retry": ("4db8988561ef08e2df5b1652857747a2ce070f841ed050af722483f865d409ff"),
     "response_less_transport_failure": (
-        "ff44733523b789e7ea34a264e2ccf43fb849766f8e789baa507287b8c5204ce7"
+        "d20f7e1c93b53883b3457bfa90018a3905764e43d02ae01c84fb5f668ba2f13c"
     ),
     "unsupported_provider_miss": (
-        "800d4349c1132ca91d62dbafd9c542bb868b21fcc8481727f384ca0ba6fa335c"
+        "9830bed0c2aceb172795a45b513d6ee3e4d9aa918a0218be7988943f81537a97"
     ),
 }
 
@@ -615,5 +615,5 @@ def test_release_fixture_exercises_private_input_without_publishing_it() -> None
     canonical = json.dumps(fixture, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     assert (
         sha256(canonical.encode()).hexdigest()
-        == "8a72010bad168760f2f3a4c436f077890edf0f48994f13993f8281716109e3a5"
+        == "2a38f24ed0da44a4c1057774deffd5a08242235ebebe8b770c430f523c47ece5"
     )

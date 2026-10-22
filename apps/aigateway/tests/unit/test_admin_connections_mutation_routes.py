@@ -140,9 +140,9 @@ def test_a_committed_mutation_drops_only_the_pairs_pending_flows(client, admin_c
             account_id=tenant,
             provider=provider,
             profile_name="default",
-            profile_id=f"{provider}:default",
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
+            connection_id=f"{provider}-unrelated",
         )
 
     pending.put("this-pair", entry("anthropic"))
@@ -336,6 +336,23 @@ def test_an_unknown_provider_or_account_is_404(client, admin_client, operation) 
     assert unknown_account.status_code == 404
     assert unknown_account.json()["detail"] == {"code": "account_not_found"}
     assert unknown_provider.headers["cache-control"] == NO_STORE
+
+
+def test_a_put_for_a_provider_without_api_keys_is_a_400_that_writes_nothing(
+    client, admin_client
+) -> None:
+    # OME-1209 E3b: the publication's `api_key_not_supported` refusal, pinned on the D18 PUT
+    # after the Profile-era admin op that carried it retired.
+    tenant = _tenant(admin_client)
+
+    resp = _put(admin_client, tenant, "codex")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == {"code": "api_key_not_supported", "provider": "codex"}
+    assert KEY not in resp.text
+    assert resp.headers["cache-control"] == NO_STORE
+    assert _list(admin_client, tenant)["connections"] == []
+    assert _call(client, PairAuthorityStore().list, tenant) == ()
 
 
 @pytest.mark.parametrize("operation", ["put", "delete"])

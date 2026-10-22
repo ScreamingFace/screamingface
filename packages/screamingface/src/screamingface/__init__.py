@@ -7,7 +7,6 @@ from screamingface._default_client import (
     connect,
     disconnect,
     evaluate,
-    reproduce,
 )
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
@@ -36,6 +35,7 @@ from screamingface.errors import (
     LeaderboardError,
     PlanningError,
     ProviderConnectionError,
+    ReproductionError,
     ScreamingFaceError,
 )
 from screamingface.events import Event
@@ -115,7 +115,6 @@ __all__ = [
     "Extract",
     "EvaluationWarning",
     "evaluate",
-    "reproduce",
     "samples",
     "Failure",
     "FieldRule",
@@ -146,6 +145,7 @@ __all__ = [
     "PlanningError",
     "Pipeline",
     "ProviderConnectionError",
+    "ReproductionError",
     "Rank",
     "Recipe",
     "Reduce",

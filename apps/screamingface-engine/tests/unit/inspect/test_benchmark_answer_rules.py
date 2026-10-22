@@ -32,6 +32,13 @@ from screamingface_engine_inspect.benchmarks import (  # noqa: E402
 _INSPECT_AI = _inspect_vendor.INSPECT_AI_VERSION
 _INSPECT_EVALS = _inspect_vendor.INSPECT_EVALS_VERSION
 
+#: OME-1701 PR 7: the AIME rows grade with the eval's v0.20.0 scorer behind a
+#: cut-off guard (inspect_evals issue #2701), so their rule pins that scorer; the answer it
+#: reads off a finished reply, the one the combine operators copy, is the eval's own.
+_AIME_GRADER: str = (
+    "screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer@0.20.0"
+)
+
 _RULES: dict[str, dict[str, object]] = {
     "gsm8k": {
         "extract": {"op": "inspect_number@1", "args": {}},
@@ -41,18 +48,18 @@ _RULES: dict[str, dict[str, object]] = {
     "aime24": {
         "extract": {"op": "inspect_aime@1", "args": {}},
         "normalize": {"op": "inspect_numeric@1", "args": {}},
-        "grader": "inspect_evals.aime2024.aime2024:aime_scorer@0.20.0",
+        "grader": _AIME_GRADER,
     },
     "aime25": {
         "extract": {"op": "inspect_aime@1", "args": {}},
         "normalize": {"op": "inspect_numeric@1", "args": {}},
-        "grader": "inspect_evals.aime2025.aime2025:aime_scorer@0.20.0",
+        "grader": _AIME_GRADER,
     },
     # OME-1602: aime2026 imports the same shared aime_scorer as aime2025.
     "aime26": {
         "extract": {"op": "inspect_aime@1", "args": {}},
         "normalize": {"op": "inspect_numeric@1", "args": {}},
-        "grader": "inspect_evals.aime2026.aime2026:aime_scorer@0.20.0",
+        "grader": _AIME_GRADER,
     },
 }
 

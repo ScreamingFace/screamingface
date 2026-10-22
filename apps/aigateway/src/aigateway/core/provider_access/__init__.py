@@ -2,10 +2,12 @@
 "which credential, and may I use it?".
 
 # FEATURE: OME-1138 — deprecate Profiles and converge on Connections, adapter-first. Routes
-# depend on this port; the Profile-backed implementation below is the compatibility-window
-# adapter, swapped at Stage B (D11) without touching a route.
+# depend on this port; the Connection-backed implementation is its only adapter since OME-1209
+# Stage E, E4a deleted the Profile-backed one without touching a route.
 # INVARIANT (hexagonal): core defines the port; nothing in this package imports a route or a
 # plugin. THIS module is the public surface — import from here, never from a half.
+# WHY the backfill is not re-exported (OME-1209 E4b): it reads the legacy Profile index, which is
+# offline-only until E5, so importing the app must not load it; the CLI imports its modules.
 """
 
 from __future__ import annotations
@@ -17,14 +19,14 @@ from .auth_mode import (
     auth_type_of,
     available_auth_modes,
     contract_auth_mode,
-    profileless_auth_mode,
+    credentialless_auth_mode,
     provider_name_of,
 )
-from .backfill_apply import BackfillReport, all_account_ids, run_backfill
-from .backfill_classify import BackfillContext, PairPlan, classify_account
-from .connection_admin import ConnectionBackedCredentialAdmin
-from .connection_backed import ConnectionBackedProviderAccess
-from .connection_facade import FacadeTarget, facade_target, patch_facade, refresh_facade
+from .connection_backed import (
+    ConnectionBackedProviderAccess,
+    operational_access_for,
+    provider_access_for,
+)
 from .connection_native import (
     claim_for_connection,
     claim_native_write,
@@ -39,12 +41,6 @@ from .connection_native import (
     retire_effective,
     retire_replaced,
     take_over_effective,
-)
-from .connection_oauth import (
-    MigratedFlow,
-    begin_connection_oauth,
-    complete_connection_oauth,
-    fail_connection_oauth,
 )
 from .pair_admin import (
     CredentialState,
@@ -64,27 +60,16 @@ from .pair_authority import (
     PairAuthorityConflict,
     PairAuthorityStore,
 )
-from .ports import ProviderAccess, ProviderCredentialAdmin, ProviderOperationalAccess
-from .profile_admin import (
-    ProfileBackedCredentialAdmin,
-    provider_credential_admin_for,
-    summary_of,
-)
+from .ports import ProviderAccess, ProviderOperationalAccess
 from .profile_authorize import (
     apply_authorization,
     invalidate_session,
-    mark_profile_error_fresh,
     oauth_connection_store,
     reauth_url_for,
 )
-from .profile_backed import (
-    ProfileBackedProviderAccess,
-    context_stamp,
-    operational_access_for,
-    provider_access_for,
-)
-from .refresh_guard import ConnectionRefreshOwner, ProfileRefreshOwner, guard_refresh
+from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
+from .targets import context_stamp
 from .types import (
     Authorization,
     AvailabilityRow,
@@ -92,7 +77,6 @@ from .types import (
     CredentialAuthorityUnavailable,
     CredentialStoreReadUnavailable,
     CredentialStoreUnavailable,
-    CredentialSummary,
     CredentialTarget,
     PairNotManageable,
     ProviderAccessRefusal,
@@ -108,27 +92,13 @@ from .types import (
     UnsupportedAuthMode,
     WriteConflict,
 )
-from .writer_floor import (
-    bootstrap_under_the_floor,
-    claim_observed,
-    claim_pair,
-    fences_writer,
-    hold_observed,
-    hold_pair,
-)
+from .writer_floor import claim_observed, claim_pair, fences_writer
 
 __all__ = [
-    "BackfillContext",
-    "BackfillReport",
-    "PairPlan",
-    "all_account_ids",
-    "classify_account",
-    "run_backfill",
     "DEFAULT_SELECTOR_NAME",
     "Authorization",
     "AvailabilityRow",
     "AvailabilityStatus",
-    "ConnectionBackedCredentialAdmin",
     "ConnectionBackedProviderAccess",
     "ConnectionRefreshOwner",
     "CredentialAuthorityUnavailable",
@@ -136,10 +106,7 @@ __all__ = [
     "CredentialStoreReadUnavailable",
     "CredentialStoreUnavailable",
     "MigrationState",
-    "CredentialSummary",
     "CredentialTarget",
-    "FacadeTarget",
-    "MigratedFlow",
     "PairAuthority",
     "PairAuthorityConflict",
     "PairConflict",
@@ -150,12 +117,8 @@ __all__ = [
     "PairMutation",
     "PairNotManageable",
     "PairAuthorityStore",
-    "ProfileBackedCredentialAdmin",
-    "ProfileBackedProviderAccess",
-    "ProfileRefreshOwner",
     "ProviderAccess",
     "ProviderAccessRefusal",
-    "ProviderCredentialAdmin",
     "ProviderOperationalAccess",
     "ProviderUnknown",
     "ResolvePolicy",
@@ -176,8 +139,6 @@ __all__ = [
     "auth_mode_for",
     "auth_type_of",
     "available_auth_modes",
-    "begin_connection_oauth",
-    "bootstrap_under_the_floor",
     "claim_for_connection",
     "claim_native_write",
     "claim_observed",
@@ -185,7 +146,6 @@ __all__ = [
     "classify_pair",
     "delete_pair",
     "set_pair_api_key",
-    "complete_connection_oauth",
     "context_stamp",
     "contract_auth_mode",
     "credential_has_other_owner",
@@ -193,23 +153,15 @@ __all__ = [
     "credential_name_of",
     "effective_pair_of",
     "effective_to_replace",
-    "facade_target",
-    "fail_connection_oauth",
     "fences_writer",
     "guard_refresh",
-    "hold_observed",
-    "hold_pair",
     "invalidate_session",
-    "mark_profile_error_fresh",
     "oauth_connection_store",
     "operational_access_for",
     "pair_inventory",
-    "patch_facade",
-    "profileless_auth_mode",
+    "credentialless_auth_mode",
     "provider_access_for",
-    "provider_credential_admin_for",
     "provider_name_of",
-    "refresh_facade",
     "reauth_url_for",
     "replace_effective",
     "replaced_label",
@@ -217,6 +169,5 @@ __all__ = [
     "retire_effective",
     "retire_replaced",
     "store_reads",
-    "summary_of",
     "take_over_effective",
 ]

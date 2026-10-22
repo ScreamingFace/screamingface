@@ -4,16 +4,18 @@
 # `error` row beside the fresh row a re-auth opened; the backfill's row beside the legacy Profile
 # after an R1 rollback) and by every compat document of a migrated pair. The rows come and go;
 # the blob belongs to the pair.
-# INVARIANT (D14, D5): a blob is deleted only when its LAST live addresser goes; a re-auth under a
-# name RETIRES the errored row that holds it instead of colliding with it; a key written for a
-# migrated pair is mirrored on every document of the pair, so the document at the key's address
-# is coherent after a rollback.
+# INVARIANT (D14, D5): a blob is deleted only when its LAST live Connection addresser goes; a
+# re-auth under a name RETIRES the errored row that holds it instead of colliding with it.
+# WHY no document addresser (OME-1209 E4b): a document neither keeps a blob alive nor receives a
+# mirrored key any more; an R1 rollback is not coherent for a pair changed after E4b (spec §8 Q7).
 # AIDEV-NOTE: "sibling" below means a second non-revoked row whose locator equals the effective
 # row's — pre-fix data, seeded directly, because D-R1-1 now prevents it at the source.
 # WHY finding 2 (re-auth under the name an errored row holds) has no test here: its tests opened
 # the flow through `POST /v1/auth/{provider}/profiles`, retired at OME-1209 Stage E3 (410); the
 # native repair twins in `test_native_oauth_replaces_unusable_effective.py` and
 # `test_native_repair_boundaries.py` cover it.
+# WHY finding 3 (an alias key write mirrored on every document) has no test here: the alias write
+# retired with the Profile-era admin ops at OME-1209 Stage E3b, and the D18 sibling mirror at E4b.
 """
 
 from __future__ import annotations
@@ -25,13 +27,9 @@ import httpx
 import pytest
 from backfill_probes import run
 from connection_backed_admin_probes import (
-    DEFAULT,
-    MASKED,
     blob_at_profile_address,
     connection,
-    document,
     marker,
-    set_api_key,
 )
 from connection_backed_harness import CREDENTIAL_PROVIDER, ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of
@@ -40,7 +38,6 @@ from provider_access_harness import ANTHROPIC, PROVIDER
 from aigateway import migrate_profiles
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import Selector
 from aigateway.core.provider_access.pair_authority import PairAuthorityStore
 
@@ -117,51 +114,9 @@ def test_deleting_an_errored_sibling_keeps_the_blob_the_effective_row_serves(mig
     assert blob_at_profile_address(h) is None
 
 
-def test_deleting_a_rolled_back_connection_keeps_the_legacy_profiles_blob(migrated) -> None:
-    h = migrated
-    h.seed_profile()
-    leftover = h.migrated["default"]
-    rollback(h)
-    assert marker(h).migration_state == "none"
-
-    resp = native_delete(h, leftover)
-
-    assert resp.status_code == 204, resp.text
-    assert connection(h, leftover).status == "revoked"
-    assert access_token_of(blob_at_profile_address(h)) == "tok"
-    assert document(h) is not None
-    shown = document(h)
-    assert shown is not None and shown.state.value == "authenticated"
-    target = h.call(h.access.resolve, h.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC)
-    assert target.credential_name == credential_name_for(h.account_id, "default")
-
-
-# --- finding 3: a key written for the pair is mirrored on every document of the pair -------------
-
-
-def test_an_alias_key_write_mirrors_the_document_at_the_keys_address(migrated) -> None:
-    h = migrated
-    h.seed_document(name="default", auth_type="oauth")
-    h.seed_authority(name="default", auth_type="oauth")
-
-    set_api_key(h, "work")
-
-    default = document(h, "default")
-    assert default is not None
-    assert (default.state, default.auth_type, default.account_label) == (
-        ProfileState.AUTHENTICATED,
-        "api_key",
-        MASKED,
-    )
-    work = document(h, "work")
-    assert work is not None and work.auth_type == "api_key"
-
-    # After an R1 rollback the legacy path reads `default` from its document AND its blob: both
-    # say api_key.
-    rollback(h)
-    body = document(h, "default")
-    assert body is not None
-    assert (body.state.value, body.auth_type) == ("authenticated", "api_key")
+# WHY no "rolled-back Connection keeps the legacy Profile's blob" test (OME-1209 E4b): a document
+# no longer keeps a blob alive; the inverse is pinned in `test_no_profile_writer.py::
+# test_a_native_delete_takes_the_blob_a_document_of_an_unmarked_pair_addresses`.
 
 
 # --- R1 rehearsal over an address a document does not own: refused and reported ---------------
@@ -177,7 +132,7 @@ def test_a_rollback_refuses_a_pair_whose_key_lives_at_another_documents_address(
     h = migrated
     h.seed_document(name="default", auth_type="oauth")
     effective = h.seed_authority(name="default", auth_type="oauth")
-    set_api_key(h, "work")
+    h.seed_document(name="work", auth_type="api_key", credential=None)
     generation = marker(h).generation
 
     report, record = rollback_record(h)
@@ -193,26 +148,19 @@ def test_a_rollback_refuses_a_pair_whose_key_lives_at_another_documents_address(
     pair = marker(h)
     assert (pair.migration_state, pair.generation) == ("migrated", generation)
     assert str(pair.effective_connection_id) == effective
-    # Access through `work` keeps working — through the pair's one Connection, at its address.
+    # Access keeps working — through the pair's one Connection, at its address. WHY the default
+    # selector: a document name no longer selects a target (OME-1209 E4a), and the `work` name
+    # labels no Connection of the pair.
     target = h.call(
-        h.access.resolve, h.account_id, PROVIDER, Selector.from_header("work"), plugin=ANTHROPIC
+        h.access.resolve, h.account_id, PROVIDER, Selector.from_header(None), plugin=ANTHROPIC
     )
     assert target.credential_name == credential_name_for(h.account_id, "default")
     assert h.connection_status(effective) == "active"
 
 
-def test_a_rollback_refuses_a_uuid_addressed_pair_that_gained_a_document(migrated) -> None:
-    h = migrated
-    row = h.seed_connection(label="default", credential="ctok")
-    (applied,) = run(h, "apply").accounts[0].records
-    assert (applied.category, applied.applied) == ("connection_only", True)
-    set_api_key(h, "default")
-    assert blob_at_profile_address(h, "default") is None  # the key went to the UUID address
-
-    _report, record = rollback_record(h)
-
-    assert (record.category, record.applied) == ("rollback_refused_alias_documents", False)
-    assert (marker(h).migration_state, str(marker(h).effective_connection_id)) == ("migrated", row)
+# WHY no "UUID-addressed pair that gained a document" test (OME-1209 E4b): the D18 PUT writes no
+# document, so such a pair gains none; an R1 rollback is not coherent for a pair changed after E4b
+# (spec §8 Q7).
 
 
 def test_a_rollback_without_alias_documents_still_resets_the_marker(migrated) -> None:

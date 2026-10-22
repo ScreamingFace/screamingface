@@ -24,7 +24,6 @@ from aigateway.plugins.taxonomy import (
 
 from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
-from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import (
     apply_anthropic_dispatch_controls,
     chat_completion,
@@ -48,7 +47,6 @@ if TYPE_CHECKING:
         ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_index import ProfileIndexStore
 
 
 # OME-305: this provider's contribution to a global cache key. The date names the
@@ -89,13 +87,13 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def oauth_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AnthropicOAuth(
-            profile_name=profile_name,
+            profile_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
             settings=self.settings,
@@ -106,13 +104,13 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy:
         return ApiKeyStrategy(
-            profile_name,
-            service=credential_service_for(profile_name),
+            credential_name,
+            service=credential_service_for(credential_name),
             account=self.settings.keychain_account,
             header_builder=_api_key_headers,
             credential_store=credential_store,
@@ -124,7 +122,7 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
             registered_models=self.register_models(),
         )
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         # Stored keys/tokens get no validation at set time (plan D6); an
         # upstream 401 after header injection means the credential is bad, so
         # flip the target to ERROR like gemini does (SF-244 audit F14).
@@ -295,20 +293,6 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def requires_oauth_connection_label(self) -> bool:
         return True
-
-    async def bootstrap_profiles(
-        self,
-        *,
-        account_id: str,
-        credential_store: CredentialBlobStore | None = None,
-        index_store: ProfileIndexStore | None = None,
-    ) -> None:
-        await bootstrap_from_claude_code(
-            account_id=account_id,
-            credential_store=credential_store,
-            index_store=index_store,
-            settings=self.settings,
-        )
 
 
 PLUGIN = AnthropicProviderPlugin()

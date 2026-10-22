@@ -70,7 +70,7 @@ class LocalProviderPlugin(ProviderPluginBase[LocalPluginSettings]):
             return None
         return await discover_local_models(self.settings, client=client, limits=limits)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
     def supports_chat_streaming(self) -> bool:

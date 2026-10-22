@@ -270,3 +270,16 @@ distribution gates passed. The append-only check was skipped only for migrating
 the existing, owner-approved disable return-contract assertions to status(); all
 underlying consent and crash-recovery assertions remain. No live browser rerun or
 new PostHog-delivery claim is made for this presentation change.
+
+### Main merge conflict resolution — 22 October 2026
+
+Merged main at 8546bcbbd into the analytics PR. Retained the OME-1613
+pinned-cache replay overloads and implementation, placing analytics tracking on
+the concrete module, synchronous Client and AsyncClient evaluation methods.
+Kept both changelog additions. No analytics behavior or replay logic was changed.
+
+Validation: all 12 Colab browser-script tests passed. Full SDK gates passed:
+lint, formatting, Pyright, parallel tests with the 95% coverage floor, notebook
+validation, build and distribution checks.
+The existing append-only exception is retained for the previously approved
+consent-command return-contract changes; this merge changes no tests.

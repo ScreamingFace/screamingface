@@ -8,7 +8,7 @@
 # the existing superseded conflict (409 `profile_conflict` / `connection_conflict`).
 # WHY no Profile refresh route here: OME-1209 Stage E3 retired `POST …/profiles/{name}/refresh`
 # (410). Its race tests retired with it; their invariants stand on the dispatch and native twins
-# below, and a Profile credential's refresh is driven at dispatch.
+# below, which refresh the Connection a pair resolves to (OME-1209, Stage E, E4a).
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ import httpx
 import pytest
 from connection_backed_admin_probes import (
     KEY,
-    admin_of,
     blob_at_connection_address,
     blob_at_profile_address,
     connection,
@@ -31,7 +30,7 @@ from connection_backed_admin_probes import (
     marker,
 )
 from connection_backed_harness import ConnectionBackedHarness
-from connection_backed_oauth_probes import access_token_of, callback, start, use_tokens
+from connection_backed_oauth_probes import access_token_of, callback, use_tokens
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
 from aigateway.core.credential_names import credential_name_for
@@ -44,6 +43,8 @@ from aigateway.core.provider_access import (
     ResolvePolicy,
     Selector,
     WriteConflict,
+    delete_pair,
+    set_pair_api_key,
 )
 from aigateway.core.provider_access.refresh_guard import (
     ConnectionRefreshOwner,
@@ -113,18 +114,24 @@ def an_ownership_claim(h: Any) -> Intrusion:
     return intrude
 
 
+async def _accept_key() -> None:
+    return None
+
+
 def a_key_replacement(h: Any) -> Intrusion:
+    """The D18 admin PUT of a new key — the surviving key write since OME-1209 E3b."""
+
     async def intrude() -> None:
-        await admin_of(h).set_api_key(
-            h.account_id, PROVIDER, raw_api_key=KEY, legacy_name="default"
-        )
+        await set_pair_api_key(h.client.app, h.account_id, PROVIDER, KEY, validate=_accept_key)
 
     return intrude
 
 
 def a_delete(h: Any) -> Intrusion:
+    """The D18 admin DELETE of the pair's credential."""
+
     async def intrude() -> None:
-        await admin_of(h).delete(h.account_id, PROVIDER, legacy_name="default")
+        await delete_pair(h.client.app, h.account_id, PROVIDER)
 
     return intrude
 
@@ -169,19 +176,19 @@ def test_a_lost_refresh_is_not_an_auth_error() -> None:
     assert not issubclass(RefreshSuperseded, AuthError)
 
 
-# --- the legacy Profile credential, refreshed at dispatch -------------------------------------
+# --- a `none` pair's Connection, refreshed at dispatch ------------------------------------------
 
 
-def test_a_legacy_refresh_of_a_marked_pair_publishes_without_moving_it(legacy) -> None:
+def test_a_dispatch_refresh_of_a_marked_none_pair_publishes_without_moving_it(legacy) -> None:
     h = legacy
-    h.seed_profile()
+    connection_id = h.seed_connection(label="work")
     h.call(an_ownership_claim(h))
-    h.blobs.write(profile_service(h), "default", expired_blob())
+    h.blobs.write(connection_service(h, connection_id), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", nothing())
 
     resolve_and_authorize(h)
 
-    assert access_token_of(blob_at_profile_address(h)) == "fresh-tok"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "fresh-tok"
     pair = marker(h)
     assert (pair.migration_state, pair.generation) == ("none", 1)
 
@@ -252,8 +259,8 @@ def test_a_cached_strategy_refreshes_again_after_an_unrelated_generation_change(
 # --- dispatch (authorize-triggered refresh) ----------------------------------------------------
 
 
-def test_a_dispatch_refresh_on_a_profile_that_lost_the_pair_keeps_the_new_key(legacy) -> None:
-    h = legacy
+def test_a_dispatch_refresh_on_a_profile_that_lost_the_pair_keeps_the_new_key(migrated) -> None:
+    h = migrated
     h.seed_profile()
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", a_key_replacement(h))
@@ -261,7 +268,7 @@ def test_a_dispatch_refresh_on_a_profile_that_lost_the_pair_keeps_the_new_key(le
     with pytest.raises(WriteConflict) as lost:
         resolve_and_authorize(h)
 
-    assert (lost.value.kind, lost.value.subject) == ("superseded", "profile")
+    assert (lost.value.kind, lost.value.subject) == ("superseded", "connection")
     blob = blob_at_profile_address(h)
     assert blob is not None and json.loads(blob)["api_key"] == KEY
     doc = document(h)
@@ -294,7 +301,12 @@ def test_a_reauth_in_flight_survives_an_ordinary_refresh(migrated) -> None:
     # captured still completes after a refresh published in between.
     h = migrated
     h.seed_profile()
-    state = start(h)
+    # WHY the effective row's own label: a native flow named like it re-authenticates the pair.
+    started = h.client.post(
+        "/v1/oauth/connections", json={"provider": PROVIDER, "label": "default"}
+    )
+    assert started.status_code == 201, started.text
+    state, connection_id = started.json()["state"], started.json()["connection_id"]
     before = marker(h).generation
     use_tokens(h, "refreshed")
     effective = h.migrated["default"]
@@ -305,7 +317,7 @@ def test_a_reauth_in_flight_survives_an_ordinary_refresh(migrated) -> None:
     resp = callback(h, state)
 
     assert resp.status_code < 400, resp.text
-    assert access_token_of(blob_at_profile_address(h)) == "reauthed"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "reauthed"
 
 
 # --- a strategy outside the app ---------------------------------------------------------------
@@ -367,8 +379,8 @@ def test_a_guarded_publication_refuses_a_capture_it_did_not_take(legacy) -> None
 # --- a marked pair: the path every pair takes once a G0 writer touched it ----------------------
 
 
-def test_a_dispatch_refresh_of_a_marked_pair_loses_to_a_key_replacement(legacy) -> None:
-    h = legacy
+def test_a_dispatch_refresh_of_a_marked_pair_loses_to_a_key_replacement(migrated) -> None:
+    h = migrated
     h.seed_profile()
     h.call(an_ownership_claim(h))
     h.blobs.write(profile_service(h), "default", expired_blob())
@@ -408,12 +420,13 @@ def test_a_token_refresh_of_a_revoked_non_effective_row_on_a_migrated_pair_write
 
 
 def test_a_key_replacement_right_after_a_refresh_publication_is_not_reverted(
-    legacy, monkeypatch: pytest.MonkeyPatch
+    migrated, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # INVARIANT (§5.3): tokens and `last_refreshed_at` publish in one transaction; nothing after it
-    # rewrites the document from the snapshot read before the fetch.
-    h = legacy
+    # rewrites the credential from the snapshot read before the fetch.
+    h = migrated
     h.seed_profile()
+    effective = h.migrated["default"]
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_tokens(h, "fresh-tok")
     real_publish = GuardedRefreshPublication.publish
@@ -426,20 +439,22 @@ def test_a_key_replacement_right_after_a_refresh_publication_is_not_reverted(
 
     resolve_and_authorize(h)
 
-    doc = document(h)
-    assert doc is not None and doc.auth_type == "api_key"
+    # WHY the Connection (OME-1209 E4b): the key replacement mirrors no document any more.
+    assert connection(h, effective).auth_type == "api_key"
     blob = blob_at_profile_address(h)
     assert blob is not None and json.loads(blob)["api_key"] == KEY
 
 
-def test_a_dispatch_refresh_stamps_the_profile_in_its_publication(legacy) -> None:
-    h = legacy
+def test_a_dispatch_refresh_stamps_the_connection_in_its_publication(migrated) -> None:
+    h = migrated
     h.seed_profile()
+    effective = h.migrated["default"]
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_tokens(h, "fresh-tok")
+    before = connection(h, effective).last_refreshed_at
 
     resolve_and_authorize(h)
 
-    doc = document(h)
-    assert doc is not None and doc.last_refreshed_at is not None
+    after = connection(h, effective).last_refreshed_at
+    assert after is not None and (before is None or after > before)
     assert access_token_of(blob_at_profile_address(h)) == "fresh-tok"

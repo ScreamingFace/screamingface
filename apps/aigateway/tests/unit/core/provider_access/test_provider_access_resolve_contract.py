@@ -1,6 +1,7 @@
 """Port contract — `resolve` (OME-1200, spec §3.3 op 2; op 1 `defaults_for` deleted at E2b).
 
-Runs unchanged over the pure fake and the Profile-backed implementation on the real app.
+Runs over the pure fake here; `test_connection_backed_resolve_contract` re-runs it over the real
+port on a migrated pair (the Profile-backed run retired with its implementation, OME-1209 E4a).
 # INVARIANT: the refusal for each situation is part of the contract; an implementation that
 # cannot honour a selector refuses — it never answers with a different target.
 """
@@ -17,7 +18,6 @@ from provider_access_harness import (
     FakeHarness,
     FakeProviderAccess,
     Harness,
-    ProfileBackedHarness,
 )
 
 from aigateway.core.credential_names import credential_name_for
@@ -44,10 +44,10 @@ class _ApiKeyOnlyPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("api_key",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return False
 
-    def profileless_auth_mode(self) -> str | None:
+    def credentialless_auth_mode(self) -> str | None:
         return None
 
 
@@ -57,10 +57,10 @@ class _NoCredentialPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("none",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
-    def profileless_auth_mode(self) -> str | None:
+    def credentialless_auth_mode(self) -> str | None:
         return None
 
 
@@ -70,22 +70,16 @@ class _AmbientPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("oauth",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
-    def profileless_auth_mode(self) -> str | None:
+    def credentialless_auth_mode(self) -> str | None:
         return "oauth"
 
 
-@pytest.fixture(params=["fake", "profile_backed"])
-def harness(request: pytest.FixtureRequest) -> Harness:
-    if request.param == "fake":
-        return FakeHarness()
-    return ProfileBackedHarness(
-        request.getfixturevalue("authenticated_client"),
-        request.getfixturevalue("credential_blobs"),
-        request.getfixturevalue("monkeypatch"),
-    )
+@pytest.fixture(params=["fake"])
+def harness() -> Harness:
+    return FakeHarness()
 
 
 def _resolve(

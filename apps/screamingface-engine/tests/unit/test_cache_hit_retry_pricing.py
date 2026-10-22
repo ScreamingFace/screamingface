@@ -1,23 +1,19 @@
-"""A cache hit that followed a transport retry cannot prove it cost nothing.
+"""A cache hit that followed a transport retry is priced at zero, like any hit (OME-1687).
 
-FEATURE: per-run cost reporting (OME-849/OME-868) meeting the saved-cost feature (PRD ans:Q2).
-STORY: as an operator reading a run summary I can tell "this call was free" from "we cannot know
-what this call cost", because only one of them is safe to add into a total.
+FEATURE: per-run cost reporting (OME-849/OME-868) meeting the saved-cost feature (PRD ans:Q2),
+under the cost-of-intelligence rule (OME-1687).
+STORY: as a reader of the leaderboard I see the price of a model's successful requests; a
+transport retry before a call is an infrastructure event and changes no price.
 
-The defect this pins (PR #930 review round 3, finding 1): `avoided_usd_for_outcome` already
-WITHDRAWS the saved-cost claim when a round trip was retried — a lost reply may have been
-processed and billed upstream, so the row the next attempt hits may be the one the lost attempt
-paid for and wrote. But `_report_usage` still routed every hit through `_report_served_from_cache`,
-which publishes `cost_usd=Decimal(0)`. The run therefore reported no saving AND an affirmative
-zero spend for a round trip whose spend is precisely what nobody knows.
+History: PR #930 (review round 3) and OME-1220 made a retried hit and a retried miss unpriced,
+because a lost reply may have been billed upstream. OME-1687 (owner decision, 2026-10-20) reversed
+that rule: the price is the successful request's, so a retried hit costs exactly zero and a
+retried miss keeps its provider-authored price. `avoided_usd_for_outcome` no longer withdraws the
+saving either.
 
-INVARIANT under test: withdrawing the saving and asserting the spend are the SAME claim about the
-same ambiguous evidence, so they must move together. `None` ("not priced") is the honest answer;
-`Decimal("0")` ("was genuinely free") is a claim the evidence does not support.
-
-INVARIANT: the withdrawal is scoped to the RETRY, not to hits in general. An unretried hit is
-still priced at zero — that is a real saving and OME-851's P0 — and this file pins both halves so
-the fix cannot over-correct into blanking every cache hit's price.
+INVARIANT: a hit is priced at zero whether or not a retry preceded it, and an unretried hit's zero
+still sums into a priced run total — this file pins both, so no change can blank every cache hit's
+price (OME-851's P0).
 
 A separate module rather than an append to `test_cache_hit_tokens.py`: the repo's append-only gate
 compares file status, so growing an existing test file reads as a modified prior test even when
@@ -160,12 +156,14 @@ def _usage(*, cost_usd: Decimal | None, span: str) -> Usage:
 
 
 @pytest.mark.asyncio
-async def test_a_hit_after_a_retry_reports_an_unknown_price_not_a_zero_one() -> None:
+async def test_a_hit_after_a_retry_is_priced_at_zero() -> None:
+    # OME-1687 (owner-approved flip of the OME-1220 rule): the price is the successful request's,
+    # and a hit's successful request cost nothing.
     rec = _Recorder()
 
     assert await _run(_body(_served_aigw()), _HIT_HEADERS, rec, fail_first=True) == "an answer"
 
-    assert rec.usages[0].cost_usd is None
+    assert rec.usages[0].cost_usd == Decimal("0")
 
 
 @pytest.mark.asyncio
@@ -195,16 +193,14 @@ async def test_a_retried_hit_still_reports_no_tokens_consumed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_retried_miss_is_unpriced_too() -> None:
-    # OME-1220 (owner-approved contract change): a lost reply may have been billed in full
-    # upstream, so the miss's own figure covers only the attempt that answered. "Unknown" beats
-    # a confident undercount; connect-phase failures keep the exact price
-    # (`test_ambiguous_retry_pricing.py`).
+async def test_a_retried_miss_keeps_its_price() -> None:
+    # OME-1687 (owner-approved flip of the OME-1220 rule): a retry is an infrastructure event, so
+    # the miss keeps its provider-authored price (cost of intelligence).
     rec = _Recorder()
 
     await _run(_body(_billed_aigw()), _MISS_HEADERS, rec, fail_first=True)
 
-    assert rec.usages[0].cost_usd is None
+    assert rec.usages[0].cost_usd == Decimal("0.001")
 
 
 def test_a_retried_hit_makes_the_whole_run_total_unpriced() -> None:

@@ -48,7 +48,7 @@ def test_a_row_with_provenance_assembles_into_a_benchmark_that_serves_it() -> No
         human_baseline=NotPublished(reason="the paper reports no human study"),
         frontier_score=FrontierScore(score=0.97, model="m", source_url=_PAPER, as_of="2026-09"),
         notebook="12_inspect_evals_benchmarks",
-        upstream_case_count=1319,
+        inspect_evals_case_count=1319,
     )
 
     benchmark = _assemble(row).benchmark
@@ -76,22 +76,22 @@ def test_provenance_on_a_row_never_moves_the_published_revision() -> None:
             _gsm8k_row(),
             paper_url=_PAPER,
             human_baseline=HumanBaseline(score=0.9, source_url=_PAPER),
-            upstream_case_count=1319,
+            inspect_evals_case_count=1319,
         )
     ).benchmark.revision
 
     assert with_provenance == plain
 
 
-def test_the_upstream_case_count_stays_on_the_row() -> None:
+def test_the_inspect_evals_case_count_stays_on_the_row() -> None:
     # WHY not a Benchmark field: it is inspect's declared size, the thing the conformance
     # test compares `case_count` against (spec §3.1), not a fact the catalogue serves.
-    row = replace(_gsm8k_row(), upstream_case_count=1319)
+    row = replace(_gsm8k_row(), inspect_evals_case_count=1319)
 
     benchmark = _assemble(row).benchmark
 
-    assert row.upstream_case_count == 1319
-    assert "upstream_case_count" not in benchmark.catalog_entry()
+    assert row.inspect_evals_case_count == 1319
+    assert "inspect_evals_case_count" not in benchmark.catalog_entry()
 
 
 def _declares_a_size_deviation(cases_spec: object) -> bool:
@@ -105,7 +105,7 @@ def _declares_a_size_deviation(cases_spec: object) -> bool:
 
 @pytest.mark.parametrize(
     "spec",
-    [spec for spec in BENCHMARKS if spec.upstream_case_count is not None],
+    [spec for spec in BENCHMARKS if spec.inspect_evals_case_count is not None],
     ids=lambda spec: spec.key,
 )
 def test_the_case_count_matches_inspects_declared_size_unless_a_deviation_is_named(
@@ -118,9 +118,9 @@ def test_the_case_count_matches_inspects_declared_size_unless_a_deviation_is_nam
     from screamingface_engine_inspect.benchmarks import _cases_declaration
 
     benchmark = imported_benchmark(spec.key).benchmark
-    if benchmark.case_count == spec.upstream_case_count:
+    if benchmark.case_count == spec.inspect_evals_case_count:
         return
     assert _declares_a_size_deviation(_cases_declaration(spec.key)), (
-        f"{spec.key}: inspect declares {spec.upstream_case_count} Samples, the Benchmark has "
+        f"{spec.key}: inspect declares {spec.inspect_evals_case_count} Samples, the Benchmark has "
         f"{benchmark.case_count} Cases, and the row names no deviation"
     )

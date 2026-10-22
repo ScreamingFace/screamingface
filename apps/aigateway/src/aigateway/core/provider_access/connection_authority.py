@@ -5,10 +5,9 @@ one credential target, lifecycle and revision-fenced operational evidence jointl
 and every read-path mutation lands on that Connection or its exact strategy-declared blob slot.
 
 # FEATURE: Stage B Target — Connection-backed authority behind the unchanged provider-access port.
-# INVARIANT (D14): the legacy document's own state is never authority for a migrated pair; the
-# effective Connection's status is. The document contributes its defaults (D16 (a)) and its name —
-# the selector still names it, so every facade URL stays the legacy one.
-# INVARIANT (facade parity): legacy op 4/5 rules still apply to unclassified failures. A classified
+# INVARIANT (D14): the effective Connection's status is the pair's authority; no legacy document
+# is read (OME-1209, E4a).
+# INVARIANT (legacy parity): legacy op 4/5 rules still apply to unclassified failures. A classified
 # `needs_reauth` outcome instead preserves lifecycle, evicts and invalidates, while resolve exposes
 # the pinned OME-1198 refusal; `insufficient_credits` remains dispatchable for recovery.
 """
@@ -27,7 +26,6 @@ from ..credential_strategy_cache import credential_strategy_cache
 from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
-from ..profile_models import Profile
 from .auth_mode import auth_type_of
 from .connection_locator import (
     credential_blob_address,
@@ -35,9 +33,9 @@ from .connection_locator import (
     credential_strategy_for_connection,
 )
 from .profile_authorize import invalidate_session, oauth_connection_store, reauth_url_for
-from .profile_backed import context_stamp
 from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .selector import Selector
+from .targets import context_stamp
 from .types import (
     Authorization,
     AvailabilityStatus,
@@ -50,14 +48,6 @@ from .types import (
     WriteConflict,
 )
 
-# WHY public: the design card's state mapping in the LEGACY vocabulary (active→authenticated,
-# pending→pending, error→error; revoked/absent have no legacy state) — the admin facade renders a
-# migrated pair's compat document with it.
-LEGACY_STATE_FOR_STATUS: dict[str, str] = {
-    "active": "authenticated",
-    "pending": "pending",
-    "error": "error",
-}
 _AVAILABILITY_FOR_STATUS: dict[str, AvailabilityStatus] = {
     "active": "connected",
     "pending": "pending",
@@ -81,16 +71,15 @@ def migrated_target(
     account_id: str,
     provider: str,
     selector: Selector,
-    document: Profile,
     connection: OAuthConnection | None,
     *,
     plugin: Any,
 ) -> CredentialTarget:
     """The one target of a migrated pair, or the refusal its effective Connection's status names.
 
-    # INVARIANT: no effective Connection, or a revoked one, is "Connection-owned and empty" — the
-    # legitimate post-delete state (S1) — and refuses as MISSING; it never falls back to the
-    # document, whose still-authenticated row is exactly the "old credential reappears" hazard.
+    # INVARIANT: a named effective Connection that is gone or revoked is "Connection-owned and
+    # empty" and refuses as MISSING; it never falls back to another row or to a legacy document,
+    # whose still-authenticated state is exactly the "old credential reappears" hazard.
     """
     if connection is None or connection.status == "revoked":
         raise TargetMissing(provider, selector.name)
@@ -111,7 +100,7 @@ def migrated_target(
             account_id=account_id,
             connection_id=connection.id,
         ),
-        context_stamp=context_stamp(account_id, None, connection),
+        context_stamp=context_stamp(account_id, connection),
         reauth_url=reauth_url_for(auth_type, connection_id=str(connection.id)),
         _backing=MigratedBacking(connection),
     )
@@ -159,7 +148,7 @@ async def authorize_migrated(
         credential_strategy_cache(app).evict(credential_name)
         if isinstance(exc, AuthError):
             # WHY only a REJECTED credential marks: an absent blob is recoverable, and flipping
-            # the authority to error would hide that (the Profile rule, kept for the facade).
+            # the authority to error would hide that (the Profile rule, kept).
             await oauth_connection_store(app).mark_error(backing.connection, str(exc))
             invalidate_session(plugin, credential_name)
         raise TargetReauthRequired(provider, target.reauth_url or "", message=str(exc)) from exc

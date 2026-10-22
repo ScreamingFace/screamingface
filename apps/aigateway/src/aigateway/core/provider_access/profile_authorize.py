@@ -1,9 +1,10 @@
-"""Authorize and failure-marking of the Profile-backed implementation (OME-1200, ops 4–5).
+"""Authorize and failure-marking of a label-path Connection target (OME-1200, ops 4–5).
 
 Relocated from `routes/chat_credentials.py` (`_strategy_for_credential_target`,
-`_inject_credentials`, `_reauth_url_for`, `_mark_profile_error_fresh`,
-`_invalidate_profile_session`, `_oauth_connection_store`) and the STORE half of
-`routes/chat_dispatch.py::_dispatch_failure_response`. Behaviour unchanged.
+`_inject_credentials`, `_reauth_url_for`, the session-invalidation wrapper,
+`_oauth_connection_store`) and the STORE half of
+`routes/chat_dispatch.py::_dispatch_failure_response`. OME-1209 Stage E, E4a removed the
+Profile-target branches: no resolve answers a Profile any more.
 
 # INVARIANT: these are the ONLY writes the read interface performs — strategy-cache eviction,
 # error marking, session invalidation, last-used touch. No HTTP code is chosen here.
@@ -20,14 +21,7 @@ from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore
 from ..plugin_base import credential_strategy_from
-from ..profile_index import ProfileIndexStore, ProfileTransitionConflict
-from ..profile_models import Profile
-from .refresh_guard import (
-    ConnectionRefreshOwner,
-    ProfileRefreshOwner,
-    RefreshOwner,
-    guard_refresh,
-)
+from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .types import (
     Authorization,
     CredentialTarget,
@@ -56,7 +50,7 @@ def reauth_url_for(auth_type: AuthType | None, *, connection_id: str | None = No
 
 
 def invalidate_session(plugin: Any, credential_name: str) -> None:
-    invalidator = getattr(plugin, "invalidate_profile_session", None)
+    invalidator = getattr(plugin, "invalidate_credential_session", None)
     if callable(invalidator):
         invalidator(credential_name)
 
@@ -70,26 +64,10 @@ def oauth_connection_store(app: Any) -> OAuthConnectionStore:
     return store
 
 
-async def mark_profile_error_fresh(index: ProfileIndexStore, *, profile: Profile) -> None:
-    """Mark only the authenticated credential version used by this request."""
-    try:
-        await index.mark_authenticated_error(
-            profile.id,
-            expected_auth_type=profile.auth_type,
-            expected_last_refreshed_at=profile.last_refreshed_at,
-        )
-    except ProfileTransitionConflict:
-        pass
-
-
-def backing_rows(target: CredentialTarget) -> tuple[Profile | None, OAuthConnection | None]:
-    """The stored row behind a target, as today's `(profile, connection)` pair."""
+def _connection_of(target: CredentialTarget) -> OAuthConnection | None:
+    """The Connection behind a label-path target; None for a targetless one."""
     backing = target._backing
-    if isinstance(backing, Profile):
-        return backing, None
-    if isinstance(backing, OAuthConnection):
-        return None, backing
-    return None, None
+    return backing if isinstance(backing, OAuthConnection) else None
 
 
 def _strategy_for(app: Any, plugin: Any, provider: str, target: CredentialTarget) -> Any:
@@ -102,7 +80,6 @@ def _strategy_for(app: Any, plugin: Any, provider: str, target: CredentialTarget
         auth_type=target.auth_type,
         credential_name=name,
         build=lambda: _guarded(
-            app,
             credential_strategy_from(
                 plugin,
                 name,
@@ -116,20 +93,13 @@ def _strategy_for(app: Any, plugin: Any, provider: str, target: CredentialTarget
     )
 
 
-def _refresh_owner(app: Any, target: CredentialTarget, *, provider: str) -> RefreshOwner | None:
-    profile, connection = backing_rows(target)
-    if connection is not None:
-        return ConnectionRefreshOwner(str(connection.account_id), provider, connection.id)
-    if profile is not None:
-        index = app.state.profile_index
-        return ProfileRefreshOwner(profile.account_id, provider, profile.id, index)
-    return None
-
-
-def _guarded(app: Any, strategy: Any, target: CredentialTarget, *, provider: str) -> Any:
+def _guarded(strategy: Any, target: CredentialTarget, *, provider: str) -> Any:
     """A dispatch-triggered refresh publishes only while its owner and credential hold (§5.3)."""
-    owner = _refresh_owner(app, target, provider=provider)
-    return strategy if owner is None else guard_refresh(strategy, owner)
+    connection = _connection_of(target)
+    if connection is None:
+        return strategy
+    owner = ConnectionRefreshOwner(str(connection.account_id), provider, connection.id)
+    return guard_refresh(strategy, owner)
 
 
 def _superseded(app: Any, target: CredentialTarget, *, plugin: Any, provider: str) -> WriteConflict:
@@ -137,16 +107,11 @@ def _superseded(app: Any, target: CredentialTarget, *, plugin: Any, provider: st
     credential_name = str(target.credential_name)
     credential_strategy_cache(app).evict(credential_name)
     invalidate_session(plugin, credential_name)
-    profile, _connection = backing_rows(target)
-    if profile is not None:
-        return WriteConflict(
-            "superseded", subject="profile", provider=provider, requested=profile.name
-        )
     return WriteConflict("superseded", subject="connection", provider=provider)
 
 
 def _reauth_url(target: CredentialTarget) -> str:
-    # INVARIANT: every stored target is built with a reauth_url (see `profile_backed`), so the
+    # INVARIANT: every stored target is built with a reauth_url (see `targets`), so the
     # fallback is unreachable; it exists only to keep the return type honest.
     return target.reauth_url or ""
 
@@ -161,22 +126,18 @@ async def _refuse_unusable(
 ) -> TargetReauthRequired:
     """Today's two `except` branches of `_inject_credentials`, in their exact order of writes.
 
-    # WHY a MISSING credential marks no profile: the index row is fine and only the blob is
-    # absent, so flipping the profile to ERROR would hide a recoverable state. A REJECTED
-    # credential (`AuthError`) is the one that flips it.
+    # WHY the Connection is marked on either failure while only a REJECTED credential
+    # (`AuthError`) invalidates its session: the legacy label-path rule, kept as it was.
     """
     credential_name = str(target.credential_name)
     credential_strategy_cache(app).evict(credential_name)
-    profile, connection = backing_rows(target)
+    connection = _connection_of(target)
     if connection is not None:
         await mark_error_checked(
             oauth_connection_store(app), connection, str(exc), observed=target._observed_pair
         )
         if isinstance(exc, AuthError):
             invalidate_session(plugin, credential_name)
-    elif profile is not None and isinstance(exc, AuthError):
-        await mark_profile_error_fresh(app.state.profile_index, profile=profile)
-        invalidate_session(plugin, credential_name)
     return TargetReauthRequired(provider, _reauth_url(target), message=str(exc))
 
 
@@ -209,7 +170,7 @@ async def authorize(
     # INVARIANT (review F5): the result is proven to be a header mapping BEFORE any write, so a
     # strategy handing back garbage raises here and never leaves a false `last_used`.
     headers = dict(raw_headers)
-    _profile, connection = backing_rows(target)
+    connection = _connection_of(target)
     if connection is not None:
         # WHY the touch precedes body sealing — an ACCEPTED parity exception (owner, 2026-09-14):
         # spec §3.3 op 4 keeps every storage side effect of the read path inside `authorize` and
@@ -243,33 +204,25 @@ async def record_dispatch_failure(
 ) -> dict[str, Any] | None:
     """The store half of today's `_dispatch_failure_response` (spec §3.3 op 5).
 
-    Drops the cached strategy so its (now bad) token is not reused, marks the row, and — for
-    a Profile target only — returns the detail rewritten with a `reauth_url`. The status gate
-    (`should_mark_profile_error_on_dispatch_status`) stays with the caller; `status` travels
-    with the call for a backing that records it — the Profile-backed marker persists only the
-    message, exactly as at 17048f5d.
+    Drops the cached strategy so its (now bad) token is not reused and marks the Connection; the
+    detail is never rewritten for a label-path target. The status gate
+    (`should_mark_credential_error_on_dispatch_status`) stays with the caller; `status` travels
+    with the call for a backing that records it — this one persists only the message, exactly
+    as at 17048f5d.
     """
     if target.kind != "stored" or target.credential_name is None:
         return None
     credential_name = str(target.credential_name)
     credential_strategy_cache(app).evict(credential_name)
     body = detail if isinstance(detail, dict) else {"message": str(detail)}
-    profile, connection = backing_rows(target)
-    if connection is not None:
-        await mark_error_checked(
-            oauth_connection_store(app),
-            connection,
-            str(body.get("message", str(detail))),
-            observed=target._observed_pair,
-        )
-        invalidate_session(plugin, credential_name)
+    connection = _connection_of(target)
+    if connection is None:
         return None
-    if profile is None:
-        return None
-    await mark_profile_error_fresh(app.state.profile_index, profile=profile)
+    await mark_error_checked(
+        oauth_connection_store(app),
+        connection,
+        str(body.get("message", str(detail))),
+        observed=target._observed_pair,
+    )
     invalidate_session(plugin, credential_name)
-    return {
-        "code": body.get("code", "auth_required"),
-        "message": body.get("message", str(detail)),
-        "reauth_url": body.get("reauth_url", target.reauth_url),
-    }
+    return None

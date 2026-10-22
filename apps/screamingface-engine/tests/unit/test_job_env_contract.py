@@ -168,3 +168,22 @@ def test_a_direct_run_message_states_its_shape_and_version() -> None:
     assert env[job_env.SPEC_VERSION] == job_env.CURRENT_SPEC_VERSION
     assert job_env.run_shape_from_env(env) == "direct"
     assert job_env.run_shape_from_env({}) == "expression"
+
+
+# --- upstream headers ----------------------------------------------------------------------------
+
+_TRACE = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+
+def test_upstream_headers_carry_the_verified_identity_then_the_trace() -> None:
+    headers = job_env.upstream_headers(
+        {"X-User-Email": "alice@example.com", "Authorization": "Bearer stolen"}, _TRACE
+    )
+
+    assert headers == {"X-User-Email": "alice@example.com", "traceparent": _TRACE}
+
+
+def test_upstream_headers_omit_an_absent_trace() -> None:
+    assert job_env.upstream_headers({"X-User-Email": "alice@example.com"}, None) == {
+        "X-User-Email": "alice@example.com"
+    }

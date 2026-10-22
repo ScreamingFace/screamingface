@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from ..credential_blob.store import CredentialBlobStore
     from ..oauth.identity import AccountIdentity
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from ..profile_index import ProfileIndexStore
 
 
 class ProviderPluginCore[TSettings: PluginSettings](ABC):
@@ -105,21 +104,21 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
     def oauth_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy | None:
-        """Return a per-profile OAuth strategy. Default: no auth."""
+        """Return a per-credential OAuth strategy. Default: no auth."""
         return None
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy | None:
-        """Return a per-profile API-key strategy, or None when the provider
+        """Return a per-credential API-key strategy, or None when the provider
         does not support API-key auth (e.g. codex subscription endpoints)."""
         return None
 
@@ -129,17 +128,17 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
     def credential_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         auth_type: AuthType = "oauth",
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy | None:
-        """Resolve the credential strategy for ``profile_name`` by auth type."""
+        """Resolve the credential strategy for ``credential_name`` by auth type."""
         if auth_type == "api_key":
-            return self.api_key_strategy_for(profile_name, credential_store=credential_store)
+            return self.api_key_strategy_for(credential_name, credential_store=credential_store)
         return self.oauth_strategy_for(
-            profile_name,
+            credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )
@@ -328,20 +327,20 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         del model
         return True
 
-    def allows_chatless_profile(self) -> bool:
-        """Whether chat may proceed when no gateway OAuth profile exists."""
+    def allows_chatless_credential(self) -> bool:
+        """Whether chat may proceed when no stored credential exists."""
         return False
 
-    def profileless_auth_mode(self) -> AuthMode | None:
+    def credentialless_auth_mode(self) -> AuthMode | None:
         """Return the runtime-selected auth mode when no stored target exists."""
         return None
 
-    def invalidate_profile_session(self, _profile_name: str) -> None:
-        """Drop provider-owned per-profile chat/session cache, if any."""
+    def invalidate_credential_session(self, _credential_name: str) -> None:
+        """Drop provider-owned per-credential chat/session cache, if any."""
         return None
 
-    def should_mark_profile_error_on_dispatch_status(self, _status_code: int) -> bool:
-        """Whether a provider dispatch failure means stored profile auth is unusable."""
+    def should_mark_credential_error_on_dispatch_status(self, _status_code: int) -> bool:
+        """Whether a provider dispatch failure means the stored credential is unusable."""
         return False
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
@@ -364,14 +363,4 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         Handlers should require `CurrentAccount` unless they are OAuth callback
         targets protected by a pending-auth state nonce.
         """
-        return None
-
-    async def bootstrap_profiles(
-        self,
-        *,
-        account_id: str,
-        credential_store: CredentialBlobStore | None = None,
-        index_store: ProfileIndexStore | None = None,
-    ) -> None:
-        """Populate provider-owned profile metadata at startup, if any."""
         return None

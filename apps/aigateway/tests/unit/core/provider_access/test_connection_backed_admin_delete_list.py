@@ -1,10 +1,13 @@
-"""`ConnectionBackedCredentialAdmin` — op 9 `delete`, op 7 `list`, R1 rollback (OME-1208, S2'b1).
+"""A migrated pair's delete (OME-1208, S2'b1).
 
 # FEATURE: OME-1138 Stage B (D14) — a migrated pair's delete clears the marker's effective
-# reference, removes the compat document, revokes the Connection and deletes the ONE blob, in
-# that order and one transaction; `list` renders the pair from its effective Connection.
-# INVARIANT (D5 R1): resetting the marker with every blob kept hands the pair back to the legacy
-# Profile path, which then serves the key the Connection-backed authority stored.
+# reference, revokes the Connection and deletes the ONE blob, in that order and one transaction;
+# since OME-1209 E4b it leaves a compat document as it was. Since OME-1209 E3b both writes run
+# through the D18 admin PUT and DELETE (`set_pair_api_key`, `delete_pair`); the Profile-era ops
+# 7-9 retired with their routes.
+# WHY no rollback test: the D5 R1 legacy Profile reader retired at OME-1209 Stage E4a (spec §9
+# Q10); a reset `none` pair resolves its Connection instead — test_connection_only_resolve.py::
+# test_a_none_pair_resolves_its_connection_even_beside_a_profile_document.
 """
 
 from __future__ import annotations
@@ -12,31 +15,17 @@ from __future__ import annotations
 import pytest
 from connection_backed_admin_probes import (
     DEFAULT,
-    KEY,
     blob_at_profile_address,
     connection,
     delete,
     document,
-    list_summaries,
     marker,
-    seed_legacy_provider,
-    set_api_key,
 )
 from connection_backed_harness import ConnectionBackedHarness
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER
 
 from aigateway.core.credential_names import credential_name_for
-from aigateway.core.profile_models import ProfileState
-from aigateway.core.provider_access import (
-    PairAuthorityStore,
-    ProfileBackedProviderAccess,
-    TargetMissing,
-)
-
-
-@pytest.fixture
-def legacy(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+from aigateway.core.provider_access import TargetMissing
 
 
 @pytest.fixture
@@ -44,7 +33,7 @@ def migrated(authenticated_client, credential_blobs, monkeypatch) -> ConnectionB
     return ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-# --- op 9: delete on a migrated pair --------------------------------------------------------
+# --- the delete of a migrated pair ---------------------------------------------------------
 
 
 def test_delete_revokes_the_effective_connection_and_clears_the_reference(
@@ -52,10 +41,13 @@ def test_delete_revokes_the_effective_connection_and_clears_the_reference(
 ) -> None:
     migrated.seed_document(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
+    before = document(migrated)
 
-    delete(migrated, "default")
+    delete(migrated)
 
-    assert document(migrated) is None
+    # WHY the document stays (OME-1209 E4b): the DELETE removes no document; E5 does.
+    assert before is not None
+    assert document(migrated) == before
     assert blob_at_profile_address(migrated) is None
     assert connection(migrated, connection_id).status == "revoked"
     pair = marker(migrated)
@@ -72,107 +64,3 @@ def test_delete_revokes_the_effective_connection_and_clears_the_reference(
         migrated.call(
             migrated.access.resolve, migrated.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC
         )
-
-
-def test_delete_without_an_effective_connection_removes_the_compat_document_and_its_blob(
-    migrated: ConnectionBackedHarness,
-) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
-    migrated.call(
-        PairAuthorityStore().advance,
-        migrated.account_id,
-        PROVIDER,
-        expected_generation=0,
-        migration_state="migrated",
-    )
-
-    delete(migrated, "default")
-
-    assert document(migrated) is None
-    assert blob_at_profile_address(migrated) is None
-    pair = marker(migrated)
-    assert (pair.migration_state, pair.effective_connection_id, pair.generation) == (
-        "migrated",
-        None,
-        2,
-    )
-
-
-def test_delete_refuses_a_missing_document_and_leaves_the_connection_alone(
-    migrated: ConnectionBackedHarness,
-) -> None:
-    connection_id = migrated.seed_authority(name="default", auth_type="oauth")
-
-    with pytest.raises(TargetMissing) as info:
-        delete(migrated, "default")
-
-    assert (info.value.provider, info.value.requested) == (PROVIDER, "default")
-    assert connection(migrated, connection_id).status == "active"
-    assert marker(migrated).generation == 1
-
-
-# --- op 7: list over a migrated pair --------------------------------------------------------
-
-
-def test_list_renders_migrated_documents_from_the_connection_and_omits_a_pair_without_one(
-    migrated: ConnectionBackedHarness,
-) -> None:
-    document_state_says_authenticated = ProfileState.AUTHENTICATED
-    migrated.seed_document(name="default", state=document_state_says_authenticated)
-    migrated.seed_authority(name="default", state=ProfileState.ERROR, auth_type="oauth")
-    codex = seed_legacy_provider(migrated, "codex")
-
-    anthropic_rows = list_summaries(migrated, PROVIDER)
-    everything = list_summaries(migrated)
-    codex_rows = list_summaries(migrated, "codex")
-
-    assert [(s.selector, s.auth_type, s.state) for s in anthropic_rows] == [
-        ("default", "oauth", "error")
-    ]
-    doc = document(migrated)
-    assert doc is not None
-    errored = doc.model_copy(update={"state": ProfileState.ERROR})
-    assert anthropic_rows[0].legacy_projection == errored.model_dump(mode="json")
-    assert {(s.provider, s.state) for s in everything} == {
-        (PROVIDER, "error"),
-        ("codex", "authenticated"),
-    }
-    assert [s.legacy_projection for s in codex_rows] == [codex.model_dump(mode="json")]
-
-    delete(migrated, "default")
-    migrated.seed_document(name="default")  # a compat document with no effective Connection
-
-    assert list_summaries(migrated, PROVIDER) == ()
-    assert {s.provider for s in list_summaries(migrated)} == {"codex"}
-
-
-# --- rollback availability (D5 R1) ----------------------------------------------------------
-
-
-def test_the_legacy_document_and_blob_serve_the_new_key_after_a_marker_reset(
-    migrated: ConnectionBackedHarness,
-) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
-    migrated.seed_authority(name="default", auth_type="oauth")
-    set_api_key(migrated, "default")
-
-    # R1: reset the marker, keep every blob — the legacy Profile path must serve the new key.
-    migrated.call(
-        PairAuthorityStore().advance,
-        migrated.account_id,
-        PROVIDER,
-        expected_generation=marker(migrated).generation,
-        migration_state="none",
-    )
-    legacy_access = ProfileBackedProviderAccess(migrated.client.app)
-    target = migrated.call(
-        legacy_access.resolve, migrated.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC
-    )
-    authorization = migrated.call(
-        legacy_access.authorize, target, plugin=ANTHROPIC, provider=PROVIDER
-    )
-
-    assert (target.kind, target.auth_type) == ("stored", "api_key")
-    assert target.credential_name == credential_name_for(migrated.account_id, "default")
-    assert any(KEY in value for value in authorization.headers.values())
-    assert marker(migrated).migration_state == "none"

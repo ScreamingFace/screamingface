@@ -16,7 +16,7 @@ from .types import (
     ProviderAttemptRecord,
 )
 
-__all__ = ["METADATA_KEY", "render_aigw_metadata"]
+__all__ = ["METADATA_KEY", "last_succeeded_record", "render_aigw_metadata"]
 
 METADATA_KEY = "_aigw"
 MAX_RENDERED_ATTEMPTS = 64
@@ -95,6 +95,40 @@ def _direct_cost_status(
     return "partial"
 
 
+def last_succeeded_record(
+    records: Sequence[ProviderAttemptRecord],
+) -> ProviderAttemptRecord | None:
+    """The last observed send whose outcome is ``succeeded``: the one that became the answer.
+
+    INVARIANT: the highest ``sequence`` wins. Two successes are not expected (a retry follows
+    only a failure, and the collector downgrades a success the gateway then rejects); the rule
+    keeps the choice deterministic if that ever changes.
+    """
+    return max(
+        (record for record in records if record.outcome == "succeeded"),
+        key=lambda record: record.sequence,
+        default=None,
+    )
+
+
+def _answer_record(
+    records: Sequence[ProviderAttemptRecord], *, cache_status: CacheStatusWord
+) -> ProviderAttemptRecord | None:
+    """The record whose cost and tokens price this call, or ``None`` when no attempt succeeded.
+
+    FEATURE (OME-1686): the cost of intelligence. A model call is priced as if it answered on
+    the first attempt, so its price and token counts are the successful attempt's alone; a
+    retry is an infrastructure event and must not change them. ``attempts[]``,
+    ``direct_cost_status`` and the subtotals keep describing the ACTUAL spend of the request.
+
+    INVARIANT: ONE selection feeds both ``succeeded_attempt_direct_cost`` and
+    ``succeeded_attempt_usage``, so the two keys always describe the same attempt.
+
+    WHY ``None`` on a hit: a hit performs no dispatch, matching ``_direct_cost_status``.
+    """
+    return None if cache_status == "hit" else last_succeeded_record(records)
+
+
 def _serialized_size(metadata: dict[str, Any]) -> int:
     return len(json.dumps(metadata, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
@@ -166,6 +200,7 @@ def render_aigw_metadata(
         omitted_attempts=omitted_attempts,
     )
     may_summarize = capture_status == "complete" and omitted_attempts == 0
+    answer = _answer_record(records, cache_status=cache_status)
     attempts_json = [record.as_json() for record in rendered_records]
     for attempt in attempts_json:
         attempt["provider_extensions_truncated"] = False
@@ -195,12 +230,21 @@ def render_aigw_metadata(
             "rendered_attempts": len(rendered_records),
             "omitted_attempts": omitted_attempts,
             "attempts": attempts_json,
+            # INVARIANT (OME-1686): from ALL `records` (see `answer`), never `rendered_records`;
+            # `_degrade_to_bound` never touches this key.
+            "succeeded_attempt_usage": None if answer is None else answer.usage.as_json(),
         },
         "request_economics": {
             "schema": SCHEMA_REQUEST_ECONOMICS,
             "observed_new_attempts": observed_attempts,
             "direct_cost_status": cost_status,
             "known_direct_cost_subtotals": (_direct_cost_summary(records) if may_summarize else []),
+            # INVARIANT (OME-1686): computed from ALL `records`, never `rendered_records`, and
+            # independent of `capture_status` — so truncation and `_degrade_to_bound` (which
+            # never touches this key) cannot lose the price of the answer.
+            "succeeded_attempt_direct_cost": (
+                None if answer is None else answer.direct_cost.as_json()
+            ),
         },
     }
     _degrade_to_bound(metadata)

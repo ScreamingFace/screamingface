@@ -70,11 +70,11 @@ from screamingface_engine_inspect.single_shot import (  # noqa: E402
 
 #: sha256 of ``src/arc_agi_benchmarking/prompts/system_prompt.txt`` at
 #: arcprize/arc-agi-benchmarking@9e2828fb5bd3ab43f6b9fc545595b82b67473b93.
-_UPSTREAM_TEMPLATE_SHA256 = "065e42f724bcfe3a735ded38d92b34a6a942604e653a0584cc08b1de9bdf70cc"
+_AUTHORS_TEMPLATE_SHA256 = "065e42f724bcfe3a735ded38d92b34a6a942604e653a0584cc08b1de9bdf70cc"
 
 #: The harness's own ``convert_task_pairs_to_prompt`` over ``_FIXTURE_TASK`` (train pairs, test
 #: input 0), run at that same commit with its pydantic ``ARCPair``: sha256 of the returned str.
-_UPSTREAM_FIXTURE_PROMPT_SHA256 = "fc42a381c450d3f952117862ddf96990fb5ba06ade4479cb16051cc0478f19a1"
+_AUTHORS_FIXTURE_PROMPT_SHA256 = "fc42a381c450d3f952117862ddf96990fb5ba06ade4479cb16051cc0478f19a1"
 
 #: A two-grid task, small enough to read. Grid 0's answer is [[3, 3], [0, 3]].
 _FIXTURE_TASK: dict[str, Any] = {
@@ -93,11 +93,11 @@ _FIXTURE_TASK: dict[str, Any] = {
 
 
 def test_the_template_is_the_harness_prompt_file_byte_for_byte() -> None:
-    """INVARIANT: the restated template IS upstream's file (it ends with no newline)."""
+    """INVARIANT: the restated template IS the authors' file (it ends with no newline)."""
 
     digest: str = hashlib.sha256(PROMPT_TEMPLATE.encode("utf-8")).hexdigest()
 
-    assert digest == _UPSTREAM_TEMPLATE_SHA256
+    assert digest == _AUTHORS_TEMPLATE_SHA256
 
 
 def test_a_fixture_prompt_equals_the_harness_builders_output() -> None:
@@ -106,7 +106,7 @@ def test_a_fixture_prompt_equals_the_harness_builders_output() -> None:
 
     prompt: str = build_prompt(_FIXTURE_TASK["train"], _FIXTURE_TASK["test"][0]["input"])
 
-    assert hashlib.sha256(prompt.encode("utf-8")).hexdigest() == _UPSTREAM_FIXTURE_PROMPT_SHA256
+    assert hashlib.sha256(prompt.encode("utf-8")).hexdigest() == _AUTHORS_FIXTURE_PROMPT_SHA256
     assert prompt.endswith("--Test Input--\n[[4, 5, 6]]\n--End of Test Input--\n\nYour response:")
 
 
@@ -141,7 +141,7 @@ def test_one_sample_per_test_grid_in_order_with_its_task() -> None:
         ("The output is a 2 by 2 grid of threes.", None),
         # A flat list is not a grid.
         ("[1, 2, 3]", None),
-        # Upstream quirk kept: a reply ending in "}" is tried as a dict and gives up.
+        # The harness's quirk kept: a reply ending in "}" is tried as a dict and gives up.
         ("[[1]] and then {}", None),
     ],
 )

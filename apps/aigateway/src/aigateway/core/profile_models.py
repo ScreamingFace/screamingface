@@ -43,10 +43,3 @@ class Profile(BaseModel):
 class ProfileIndex(BaseModel):
     version: int = 1
     profiles: list[Profile] = Field(default_factory=list)
-    # WHY: OAuth ownership tokens (profile_id -> monotonic generation) live in the index
-    # document so the ownership decision is atomic with the pending->authenticated CAS
-    # (OME-307 Blocker 1). INVARIANT: this map is an internal operation nonce store — the
-    # ProfileIndex is never returned through the API (only individual Profiles are), so the
-    # generation never leaks. Kept as a sibling map (not a Profile field) precisely to avoid
-    # exposing it via ``Profile.model_dump``.
-    oauth_generations: dict[str, int] = Field(default_factory=dict)

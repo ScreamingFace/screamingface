@@ -119,8 +119,8 @@ def test_unpriced_hit_gives_none_cost(cost: Any) -> None:
 
 
 def test_a_retried_hit_still_gives_the_reference_numbers() -> None:
-    # avoided_usd_for_outcome withdraws a money-saved claim after a retry; a signal wants the
-    # original call's numbers, which the reference holds exactly (F8).
+    # A retry changes no number (OME-1687); a signal wants the original call's numbers, which the
+    # reference holds exactly (F8).
     result = signal_accounting_from_aigw(_hit(), _cache("hit", retried=True))
     assert result == SignalAccounting(0.0042, 850.0, 120.0, 30.0)
 

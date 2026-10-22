@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
+    from screamingface._reproduction import Reproduction
     from screamingface.report import Report
 
 
@@ -184,6 +185,30 @@ class LeaderboardError(_DiagnosticError):
         )
 
 
+class ReproductionError(_DiagnosticError):
+    """A pinned-cache replay could not start, so there is no Report to judge (OME-1613, Q14).
+
+    ``code`` is ``not_reproducible`` (the published capture is ``partial`` or unknown) or
+    ``replay_unsupported`` (the Engine did not replay from the pinned cache). ``reproduction``
+    carries the verdict, with its ``reason``.
+    """
+
+    _default_code: str = "not_reproducible"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reproduction: Reproduction,
+        code: str | None = None,
+        hint: str | None = None,
+    ) -> None:
+        # WHY an error and not a Report (Q14): a Report always means a run happened. These
+        # refusals happen before a run, like the seed and recipe checks, which raise as well.
+        self.reproduction: Reproduction = reproduction
+        super().__init__(message, code=code, permanent=True, hint=hint)
+
+
 class EngineUnavailableError(_DiagnosticError):
     """The configured SF Engine could not be reached."""
 
@@ -244,5 +269,6 @@ __all__ = [
     "LeaderboardError",
     "PlanningError",
     "ProviderConnectionError",
+    "ReproductionError",
     "ScreamingFaceError",
 ]

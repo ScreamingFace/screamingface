@@ -24,21 +24,29 @@ client.engine_url, client.closed, client.authenticated`
 const basicOut = `('${SF_ENGINE_URL}', False, False)`
 
 const evaluateSig = `Client.evaluate(
-    candidates: Recipe | Sequence[Recipe],
+    candidates: Recipe | Sequence[Recipe] | str,
     *,
-    benchmark: str,
+    benchmark: str | None = None,
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool | None = None,
 ) -> Report`
 
-const reproduceSig = `Client.reproduce(
-    score: LeaderboardScore | UUID | str,
+const replaySig = `Client.evaluate(
     *,
-    record: bool = True,
-) -> Reproduction`
+    pinned_cache: str | None = None,
+    score_id: UUID | str | None = None,
+    url4: str | None = None,
+    answer_seed: int | None = None,
+    limit: int | None = None,
+    record_reproduction: bool = True,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+    capture: Literal[False] | None = None,
+) -> Report
+# Supply pinned_cache or score_id (or both, if they agree).`
 
 const withBlock = `with sf.Client() as client:
     report = client.evaluate(
@@ -198,7 +206,8 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td>
             The benchmark id, such as <code>ifeval</code>. A protocol variant is its own id, such as
             <code>ifeval/self-corrective</code>, and it pins a different revision, so it changes
-            what the result is comparable to. Required keyword argument.
+            what the result is comparable to. Required for recipe candidates; omit it when
+            evaluating a complete url4 string or replaying a pinned cache.
           </td>
         </tr>
         <tr>
@@ -230,10 +239,11 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
         </tr>
         <tr>
           <td><code>capture</code></td>
-          <td><code>bool</code></td>
+          <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
-            On by default. <code>False</code> turns capture off. When capture is on, the engine
-            makes a frozen copy of each run, so the score can be reproduced later. Best effort. Read
+            Defaults to <code>None</code>: on for fresh evaluations, off for replays.
+            <code>False</code> turns capture off. When capture is on, the engine makes a pinned
+            cache of each run, so the score can be reproduced later. Best effort. Read
             <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
@@ -242,17 +252,50 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
       </tbody>
     </table>
 
-    <h3>reproduce()</h3>
+    <h3>Replay a captured run with evaluate()</h3>
 
-    <CodeBlock :code="reproduceSig" language="python" />
+    <CodeBlock :code="replaySig" language="python" />
 
     <p>
-      <code>reproduce()</code> runs a submitted score again against its frozen copy and returns a
-      <code>Reproduction</code>. <code>score</code> is a <code>LeaderboardScore</code> or its id.
-      <code>record=True</code> records an exact replay on the leaderboard. A confirmed replay pays
-      no provider. The
+      Call <code>client.evaluate(pinned_cache="…")</code> for a public capture or
+      <code>client.evaluate(score_id="…")</code> for a public score or a private score you
+      submitted. Pass the score's id, not the <code>LeaderboardScore</code> object. A pinned cache
+      id must be a canonical lowercase UUID string. A replay takes no positional candidate or
+      <code>benchmark</code>. It returns a <code>Report</code>; the single
+      <code>CandidateResult.reproduction</code> holds a <code>Reproduction</code> object or
+      <code>None</code>, and the verdict string is <code>.outcome</code>. The
       <RouterLink to="/sf-client/api/leaderboards">Leaderboards reference</RouterLink> lists the
       outcomes and reasons.
+    </p>
+
+    <p>
+      The board supplies the original recipe and seed. A passed <code>url4</code> must match the
+      published parsed recipe, and a passed <code>answer_seed</code> must equal the stored one.
+      <code>None</code> uses the stored seed; <code>0</code> is a seed. A seedless capture replays
+      without one. A capture with no public score needs the original <code>url4</code>
+      and seed if it had one, and is not judged or recorded.
+    </p>
+    <p>
+      <code>limit=n</code> replays the first n cases of a published run, with no verdict or record.
+      It must be a positive integer smaller than the published case count. The Client refuses it
+      with <code>PlanningError</code> (<code>partial_replay_unavailable</code>) if the Engine cannot
+      rebuild the published recipe and a compatible subset. Omit <code>limit</code>
+      for a full replay.
+    </p>
+    <p>
+      A confirmed replay makes no provider or web-search call and costs $0. Only an exact full
+      replay records a reproduction, unless <code>record_reproduction=False</code>. A public score
+      needs leaderboard authentication only for recording; a private score may need it before
+      replay. Engine authentication is separate. Replay never captures, and explicit
+      <code>capture=True</code> is an error.
+    </p>
+    <p>
+      A partial or unknown published capture raises
+      <RouterLink to="/sf-client/api/errors"><code>ReproductionError</code></RouterLink>
+      with code <code>not_reproducible</code>; an Engine that does not acknowledge replay raises it
+      with <code>replay_unsupported</code>. Its <code>.reproduction</code> carries the verdict. Bad
+      argument types or conflicting values raise <code>TypeError</code> or <code>ValueError</code>;
+      a failed score read raises <code>LeaderboardError</code>.
     </p>
 
     <h3>connect() and disconnect()</h3>
@@ -330,9 +373,9 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
     </table>
 
     <p>
-      <code>evaluate()</code>, <code>reproduce()</code>, <code>connect()</code>,
-      <code>disconnect()</code>, <code>login()</code> and <code>logout()</code> are all awaited. The
-      properties (<code>engine_url</code>, <code>closed</code>, <code>authenticated</code>) are not.
+      <code>evaluate()</code>, <code>connect()</code>, <code>disconnect()</code>,
+      <code>login()</code> and <code>logout()</code> are all awaited. The properties
+      (<code>engine_url</code>, <code>closed</code>, <code>authenticated</code>) are not.
     </p>
   </DocLayout>
 </template>

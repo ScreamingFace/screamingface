@@ -31,17 +31,21 @@ from __future__ import annotations
 
 import json
 import time
+from functools import partial
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
 from aigateway.core.auth_types import AuthType
 from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _PLUGIN = "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin"
 _DISPATCH = f"{_PLUGIN}.chat_completion"
@@ -73,6 +77,7 @@ def _service(account_id: str) -> str:
 
 
 async def _seed_profile(
+    client,
     credential_blobs,
     account_id: str,
     *,
@@ -90,9 +95,10 @@ async def _seed_profile(
             defaults=defaults or ProfileDefaults(),
         )
     )
+    seed_migrated_pair(client, account_id, "anthropic", auth_type=auth_type)
 
 
-async def _seed_oauth(credential_blobs, account_id: str, **kwargs) -> None:
+async def _seed_oauth(client, credential_blobs, account_id: str, **kwargs) -> None:
     credential_blobs.write(
         _service(account_id),
         "default",
@@ -106,16 +112,16 @@ async def _seed_oauth(credential_blobs, account_id: str, **kwargs) -> None:
             }
         ),
     )
-    await _seed_profile(credential_blobs, account_id, auth_type="oauth", **kwargs)
+    await _seed_profile(client, credential_blobs, account_id, auth_type="oauth", **kwargs)
 
 
-async def _seed_api_key(credential_blobs, account_id: str, **kwargs) -> None:
+async def _seed_api_key(client, credential_blobs, account_id: str, **kwargs) -> None:
     credential_blobs.write(
         _service(account_id),
         "default",
         json.dumps({"auth_type": "api_key", "api_key": "sk-ant-api03-raw"}),
     )
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key", **kwargs)
+    await _seed_profile(client, credential_blobs, account_id, auth_type="api_key", **kwargs)
 
 
 def _capture(store: dict[str, Any]):
@@ -146,7 +152,7 @@ async def test_a_manual_thinking_model_refuses_a_budget_exceeding_max_tokens(
     # and Anthropic requires budget_tokens < max_tokens. Both fields validate
     # alone; the PAIR is what the provider cannot serve.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -171,7 +177,7 @@ async def test_an_adaptive_thinking_model_accepts_the_same_combination(
     # thinking={"type":"adaptive"} with NO budget, so there is nothing for
     # max_tokens to be smaller than. A provider-wide rule would break them.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -193,7 +199,7 @@ async def test_the_exemption_applies_on_oauth_with_tools(
     # under which budget_tokens may exceed max_tokens. With tools present the
     # feature is actually in effect, so the same body is legal.
     account_id = _account_id(authenticated_client)
-    await _seed_oauth(credential_blobs, account_id)
+    await _seed_oauth(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -212,7 +218,7 @@ async def test_the_exemption_needs_tools(credential_blobs, authenticated_client)
     # Interleaved thinking is extended thinking WITH TOOL USE. The beta header on
     # a tool-less request buys nothing, so the ordinary rule still binds.
     account_id = _account_id(authenticated_client)
-    await _seed_oauth(credential_blobs, account_id)
+    await _seed_oauth(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -228,7 +234,7 @@ async def test_the_exemption_is_oauth_only(credential_blobs, authenticated_clien
     # The api-key credential strategy sends Authorization and nothing else — no
     # beta header — so tools cannot buy the exemption on that path.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -251,7 +257,7 @@ async def test_the_exemption_does_not_extend_to_haiku(
     # the fail-closed reading: an honest 400 on a pair that is invalid on the
     # api-key path regardless, rather than an opaque provider error.
     account_id = _account_id(authenticated_client)
-    await _seed_oauth(credential_blobs, account_id)
+    await _seed_oauth(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -274,7 +280,7 @@ async def test_max_tokens_one_above_the_budget_dispatches(
     # "budget_tokens must be LESS THAN max_tokens" — so budget+1 is the first
     # legal value, and the check must not be off by one in the strict direction.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -295,7 +301,7 @@ async def test_max_tokens_equal_to_the_budget_is_refused(
     # while testing something else entirely; that fixture moved off the boundary
     # and the boundary itself is asserted here.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     with patch(_DISPATCH, _capture({})):
         resp = _post(authenticated_client, _MANUAL, reasoning_effort="high", max_tokens=4096)
@@ -311,7 +317,7 @@ async def test_a_tiny_max_tokens_without_reasoning_effort_dispatches(
     # No thinking requested → no budget → nothing to conflict with. The seam must
     # not become a general max_tokens floor.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -326,7 +332,7 @@ async def test_reasoning_effort_none_dispatches(credential_blobs, authenticated_
     # "none" is in the schema enum and maps to NO thinking at all; the plugin then
     # drops it in prepare_chat_body. It must not be treated as a budget request.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -342,7 +348,7 @@ async def test_an_absent_max_tokens_dispatches(credential_blobs, authenticated_c
     # litellm raises max_tokens above the budget itself when the caller omitted
     # it, so the gateway must not invent a conflict where the transform fixes it.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     captured: dict[str, Any] = {}
     with patch(_DISPATCH, _capture(captured)):
@@ -365,7 +371,7 @@ async def test_the_refusal_precedes_provider_preparation_and_everything_after_it
     # "before provider preparation, cache planning, credential access and
     # dispatch" claim with one assertion.
     account_id = _account_id(authenticated_client)
-    await _seed_api_key(credential_blobs, account_id)
+    await _seed_api_key(authenticated_client, credential_blobs, account_id)
 
     def _tripwire(_self, _body):
         raise AssertionError("prepare_chat_body ran on a refused parameter combination")
@@ -381,11 +387,21 @@ async def test_the_refusal_precedes_provider_preparation_and_everything_after_it
 async def test_the_refusal_precedes_credential_access(
     credential_blobs, authenticated_client
 ) -> None:
-    # Instrumentation-free ordering proof: the profile is AUTHENTICATED but no
+    # Instrumentation-free ordering proof: the api-key Connection is active but no
     # credential blob was ever written, so reaching credential injection would
     # produce a 401. A 400 therefore means no credential was read.
+    # WHY an unmarked Connection: it resolves by label and reads no blob, whereas a migrated
+    # api_key pair refuses its missing blob at resolve, before the parameter contract.
     account_id = _account_id(authenticated_client)
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
+    authenticated_client.portal.call(
+        partial(
+            OAuthConnectionStore().create_api_key,
+            account_id=account_id,
+            provider="anthropic",
+            label="default",
+            connection_id=uuid4(),
+        )
+    )
 
     resp = _post(authenticated_client, _MANUAL, reasoning_effort="high", max_tokens=128)
 

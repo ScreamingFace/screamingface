@@ -9,6 +9,7 @@ from aigateway.core.api_key_validation import (
 )
 from aigateway.core.api_key_validation_service import ApiKeyValidationService
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
+from aigateway.core.profile_index import ProfileIndexStore
 
 _KEY = "sk-ant-api03-synthetic-route-secret"
 
@@ -49,10 +50,8 @@ def test_validation_endpoint_returns_stable_non_persisting_result(
     async def forbidden_async(*_args, **_kwargs):
         raise AssertionError("validation endpoint must not persist state")
 
-    monkeypatch.setattr(
-        authenticated_client.app.state.pending_auth, "pop_for_profile", forbidden_sync
-    )
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", forbidden_async)
+    monkeypatch.setattr(authenticated_client.app.state.pending_auth, "pop_for_pair", forbidden_sync)
+    monkeypatch.setattr(ProfileIndexStore, "upsert", forbidden_async)
     monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", forbidden_async)
     monkeypatch.setattr(
         credential_strategy_cache(authenticated_client.app), "evict", forbidden_sync

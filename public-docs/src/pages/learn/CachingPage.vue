@@ -65,25 +65,42 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A cache saves money, but it is not a record. Its rules can change between releases, and a
-      model can be retired. So a run can make a <strong>frozen copy</strong> of itself. A frozen
+      model can be retired. So a run can make a <strong>pinned cache</strong> of itself. A frozen
       copy keeps every model answer and every web-tool result of the run. It is separate from the
       cache. It does not use the cache's keys or rules, and it is kept forever.
     </p>
 
     <p>
-      <code>sf.evaluate</code> makes a frozen copy of each run by default. Pass
+      <code>sf.evaluate</code> makes a pinned cache of each run by default. Pass
       <code>capture=False</code> to turn this off. A leaderboard submission keeps the copy id and
-      the capture status. <code>sf.reproduce(score)</code> then runs the score's
-      <RouterLink to="/learn/url4">url4</RouterLink> and answer seed against the copy.
-      <code>sf.reproduce</code> never makes a copy. The
+      the capture status. <code>sf.evaluate(pinned_cache="…")</code> reads the published score's
+      <RouterLink to="/learn/url4">url4</RouterLink> and answer seed from the board and replays the
+      captured answers. A replay never captures; explicit <code>capture=True</code> is an error. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
       calls and the outcomes.
     </p>
 
-    <h3>Make a frozen copy</h3>
+    <p>
+      An optional <code>url4=</code> must be the same parsed recipe as the published one. An
+      explicit <code>answer_seed=</code> must match the stored seed; <code>0</code> is a seed, and a
+      seedless capture replays without one. Use <code>score_id=</code> to replay a private score you
+      submitted, logging in when asked. A capture with no public score needs its original
+      <code>url4</code> and seed, and returns no verdict.
+    </p>
 
     <p>
-      When capture is on (the default), the Engine opens a frozen copy in the
+      To inspect the first few cases, pass <code>limit=n</code> with a published score, where
+      <code>0 &lt; n &lt; published case count</code>. A partial replay is never judged or recorded:
+      <code>reproduction</code> is <code>None</code>. The Engine must still be able to rebuild the
+      published recipe and a compatible subset; otherwise the Client raises
+      <code>PlanningError</code> with code <code>partial_replay_unavailable</code>. This is
+      different from a partial capture, which cannot be reproduced.
+    </p>
+
+    <h3>Make a pinned cache</h3>
+
+    <p>
+      When capture is on (the default), the Engine opens a pinned cache in the
       <RouterLink to="/learn/ai-gateway">AI gateway</RouterLink> when the run starts. The gateway
       stores each model answer. It stores the answer that the caller got, whether the answer came
       from the cache or from a live call. Model calls of the benchmark's judges are stored too. The
@@ -124,10 +141,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A captured run has a <code>capture_status</code> and, when the copy opened, a
-      <code>frozen_copy_id</code>. The status is <code>complete</code> only when the copy opened,
-      the copy sealed, every model call and every web-tool result is stored, and the run did not use
-      the local runtime. In all other cases it is <code>partial</code>. A partial score is not
-      replayed: <code>sf.reproduce</code> returns <code>not_reproducible</code> and starts no run.
+      <code>pinned_cache</code>. The status is <code>complete</code> only when the copy opened, the
+      copy sealed, every model call and every web-tool result is stored, and the run did not use the
+      local runtime. In all other cases it is <code>partial</code>. A partial score is not replayed:
+      the Client raises <code>ReproductionError</code> with code <code>not_reproducible</code> and
+      starts no run. Its <code>.reproduction.reason</code> is <code>partial</code>.
     </p>
 
     <table>
@@ -208,26 +226,27 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A run that is not captured has no <code>capture_status</code> (<code>None</code>), and no
-      frozen copy id. A run is not captured when you pass <code>capture=False</code>, or when the
+      pinned cache id. A run is not captured when you pass <code>capture=False</code>, or when the
       Engine did not capture it. <code>None</code> means unknown, not partial. If capture is on and
       the Engine did not capture the run (an older Engine), the Client emits an
       <code>EvaluationWarning</code>, and the result keeps <code>None</code>. A score from a
-      leaderboard that predates frozen copies has no status too. <code>sf.reproduce</code> reports
-      each such score as <code>not_reproducible</code> with the reason <code>unknown</code>. It does
-      the same for a score with no copy id or no benchmark revision.
+      leaderboard that predates pinned caches has no status too. The Client raises
+      <code>ReproductionError</code> with code <code>not_reproducible</code> and
+      <code>.reproduction.reason == "unknown"</code>. It does the same for a score with no pinned
+      cache id or no benchmark revision.
     </p>
 
     <h3>Replay from the copy</h3>
 
     <p>
-      <code>sf.reproduce(score)</code> asks the Engine to run the score's url4 and answer seed
-      against the frozen copy. The Engine must confirm that it runs in replay mode. In a confirmed
-      replay, every model call goes to the copy, and so does every web-tool read. The copy answers
-      each call with the answer that it stored for the same call. A call matches a stored answer
-      when it has the same case, the same Attempt of that case, the same request, and the same
-      position among identical calls in that case. In each case and Attempt, the first identical
-      call gets the first stored answer, the second gets the second, and so on. Nothing calls a
-      provider, and nothing calls the web-search service. A confirmed replay costs
+      <code>sf.evaluate(pinned_cache="…")</code> asks the Engine to run the score's url4 and answer
+      seed against the pinned cache. The Engine must confirm that it runs in replay mode. In a
+      confirmed replay, every model call goes to the copy, and so does every web-tool read. The copy
+      answers each call with the answer that it stored for the same call. A call matches a stored
+      answer when it has the same case, the same Attempt of that case, the same request, and the
+      same position among identical calls in that case. In each case and Attempt, the first
+      identical call gets the first stored answer, the second gets the second, and so on. Nothing
+      calls a provider, and nothing calls the web-search service. A confirmed replay costs
       <strong>$0</strong>.
     </p>
 
@@ -246,29 +265,33 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       If the Engine does not confirm replay mode when the run starts, it may run the url4 as a
-      normal, paid run. So the Client stops the run and reports <code>replay_unsupported</code>. If
-      that stop fails, an <code>EvaluationWarning</code> says that the run may still be running and
-      spending. An Engine can also confirm the start and then finish a run whose summary does not
-      name the copy. That run is already over, and it may have paid providers. The Client reports it
-      as <code>replay_unsupported</code> too, and not as a replay.
+      normal, paid run. So the Client stops the run and raises <code>ReproductionError</code> with
+      code <code>replay_unsupported</code>. If that stop fails, an
+      <code>EvaluationWarning</code> says that the run may still be running and spending. An Engine
+      can also confirm the start and then finish a run whose summary does not name the copy. That
+      run is already over, and it may have paid providers. The Client reports it with the same
+      exception too, rather than returning a replay report.
     </p>
 
     <h3>When a replay fails</h3>
 
     <p>
-      A replay can fail for reasons that do not change the score. Each one is a reason on the
-      <code>Reproduction</code>:
+      A full published replay returns a <code>Report</code>. Its single
+      <code>CandidateResult.reproduction</code> holds the verdict: read <code>.outcome</code> for
+      <code>exact</code> or <code>failed</code>, and <code>.reason</code> for a failure. A replay
+      can fail even when its aggregate score matches:
     </p>
 
     <ul>
       <li>
-        <strong>An older engine</strong> may not know replay. The Client reports
-        <code>replay_unsupported</code>.
+        <strong>An older engine</strong> may not know replay. The Client raises
+        <code>ReproductionError</code> with code <code>replay_unsupported</code>;
+        <code>exc.reproduction</code> carries the failure.
       </li>
       <li>
         <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
         example, the Engine stopped during the original run), or the gateway is older and has no
-        frozen copies. A web-tool lookup or a model call that the gateway does not answer, because
+        pinned caches. A web-tool lookup or a model call that the gateway does not answer, because
         of a transport failure or an error other than not found, is the same. Cases fail, and the
         replay is reported as <code>frozen_copy_unavailable</code>.
       </li>

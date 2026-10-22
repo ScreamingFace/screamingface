@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    # WHY type-only: `provider_access` imports this module while it initialises.
+    # WHY type-only: the pair views are annotations here; nothing needs them at runtime.
     from .provider_access.pair_authority import PairAuthority
 
 
@@ -15,25 +15,15 @@ class PendingAuthEntry:
     account_id: str
     provider: str
     profile_name: str
-    profile_id: str
     code_verifier: str
     redirect_uri: str
-    connection_id: str | None = None
+    # INVARIANT (OME-1209 E3b): every pending flow is a native Connection flow — the start
+    # (`POST /v1/oauth/connections`) creates the pending row before it publishes this entry.
+    connection_id: str
     requested_label: str | None = None
-    compatibility_profile_name: str | None = None
-    # WHY: the ownership generation this flow claimed at begin_pending (OME-307 Blocker 1).
-    # The callback presents it to authenticate_pending so a superseded flow loses inside the
-    # durable CAS. None for connection flows (which do not publish a pending profile).
-    oauth_generation: int | None = None
-    # WHY (OME-1208, D14): the pair-marker generation a MIGRATED pair's Profile-facade flow
-    # claimed at start. The callback compare-and-sets the marker from it, so a newer start, a
-    # delete or an API-key write in between rejects the stale callback at commit time. None for
-    # every flow the legacy Profile (or a Connection flow) owns.
-    pair_generation: int | None = None
-    # WHY (OME-1497, G0 writer floor §5.3): the pair a flow the legacy Profile owns observed at
-    # start. Begin never advances it; the callback's completion claims this generation, so an
-    # ownership change in between makes the stale callback lose. None for migrated flows, which
-    # are fenced by `pair_generation`.
+    # WHY (OME-1497, G0 writer floor §5.3): the pair the start claimed (`claim_native_write`);
+    # the callback's completion claims this generation, so an ownership change in between makes
+    # the stale callback lose. None when the floor does not fence the pair.
     observed_pair: PairAuthority | None = None
     # WHY (OME-1209, E1b, spec R6): the `migrated` pair a native flow observed at start while its
     # effective row was unusable (`error`/`revoked`). The callback switches the effective row to
@@ -51,41 +41,6 @@ class PendingAuthTable:
 
     def put(self, state: str, entry: PendingAuthEntry) -> None:
         self._entries[state] = (entry, time.monotonic())
-
-    def pop_for_profile(
-        self,
-        account_id: str,
-        provider: str,
-        profile_name: str,
-        *,
-        exclude_state: str | None = None,
-    ) -> list[str]:
-        """Remove pending entries for the same account/provider/profile.
-
-        Returns the removed states so callers can tear down any state-scoped
-        loopback listeners without disturbing unrelated in-flight profiles.
-
-        INVARIANT (OME-307 Blocker 5): ``exclude_state`` protects the caller's OWN
-        just-published flow. ``start_oauth`` publishes its pending profile FIRST, then calls
-        this to supersede older flows — passing its fresh state as ``exclude_state`` so it does
-        not evict itself while tearing down the flows it replaced.
-        """
-        removed: list[str] = []
-        now = time.monotonic()
-        for state, (entry, ts) in list(self._entries.items()):
-            if state == exclude_state:
-                continue
-            expired = now - ts > self._ttl
-            matches = (
-                entry.account_id == account_id
-                and entry.provider == provider
-                and entry.profile_name == profile_name
-            )
-            if expired or matches:
-                self._entries.pop(state, None)
-            if matches and not expired:
-                removed.append(state)
-        return removed
 
     def pop_for_pair(
         self,

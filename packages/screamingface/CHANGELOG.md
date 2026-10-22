@@ -9,7 +9,22 @@
   back to the hosted leaderboard, so a local or preview run could publish there.
   `sf.Client(...)` is unchanged.
 
+* **screamingface:** the frozen copy is called a **pinned cache** in the Python API (`OME-1613`).
+  `CandidateResult.frozen_copy_id` and `LeaderboardScore.frozen_copy_id` are renamed to
+  `pinned_cache`, with no alias; the constructor keyword changes the same way. The report JSON
+  (`to_json()` / `to_dict()`) and the Scoreboard wire keep the key `frozen_copy_id`, so exported
+  reports are unchanged.
+
+* **screamingface:** `sf.reproduce`, `Client.reproduce` and `AsyncClient.reproduce` are removed
+  (`OME-1613`). Replay a published run with `sf.evaluate(pinned_cache="<id>")`, or a score you
+  submitted with `sf.evaluate(score_id="<id>")`; `record=` is now `record_reproduction=`. The
+  verdict is on `CandidateResult.reproduction`, and `Reproduction.result` is gone (the result is
+  the object that carries the verdict). A replay that cannot start raises `sf.ReproductionError`
+  instead of returning a `not_reproducible` or `replay_unsupported` verdict.
+
 ### Fixes
+
+* `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.
 
 * Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
 
@@ -26,6 +41,30 @@
   Evaluation/submission events use random installation/process identifiers and bounded
   background delivery to the dev analytics service. Analytics defaults off, respects
   `DO_NOT_TRACK`, and excludes Colab and identity linking in this slice.
+
+* **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
+  `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:
+  `full_name`, `institution`, any other key) and the paper (`title`, `url`, `citation`, any other
+  key) (`OME-1613`). On `edit`, an omitted field is unchanged, `None` clears it and an object
+  replaces it whole. `LeaderboardScore.authors_metadata` and `.paper_metadata` read them back. The
+  board checks keys, bounds and email matching; the SDK refuses only a shape the board never
+  accepts. Needs a board with credit metadata (`OME-1596`).
+
+* **screamingface:** replay a published leaderboard run at $0 from its pinned cache (`OME-1613`).
+  `sf.evaluate(pinned_cache="<id>")` reads the run's recipe and answer seed from the public board,
+  replays every call from the answers the run captured, and judges the result against the
+  published score: `CandidateResult.reproduction` is a `Reproduction` object whose `.outcome` is
+  `"exact"` or `"failed"`, with `.reason` and `.missed_cases` describing failures. It is `None`
+  for unsubmitted captures and partial replays. An exact replay is recorded on the board (a leaderboard
+  login is asked for only then) unless `record_reproduction=False`. `score_id=` replays a private
+  score for its submitter. `url4=` must be the same parsed recipe as the published one, and a
+  passed `answer_seed` must equal the captured run's; both fail before any run otherwise. A
+  capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and has
+  no verdict. `capture` now defaults to `None`, which still means on; `capture=True` is refused on
+  a replay. `limit=n` replays only the first n cases, for debugging: it is never judged or
+  recorded, and it is refused before any run if the Engine can no longer rebuild the published run
+  exactly (`partial_replay_unavailable`). Needs a board with the pinned-cache lookup (`OME-1596`).
+
 * `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
   started can reach a hosted Engine without a browser window. A malformed or expired token fails
   at Client construction with `access_env_token_invalid`.
@@ -45,6 +84,7 @@
 * Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
 
 ### Features
+* **screamingface:** read benchmark datasets from a separate folder. `screamingface up --benchmark-assets-dir PATH` points the Engine's `URL4_BENCHMARK_ASSETS` at `PATH` instead of `<data-dir>/benchmark-assets`, so an app can ship the datasets read-only in its bundle. A missing folder fails `up` before any service starts. The running stack records the folder in `runtime.json`; `status --json` (new `benchmark_assets_dir` key) and `doctor` (a `benchmark assets dir` line) report it and the bundle status from it, and `restart` keeps it. `prepare` still writes to the data directory and refuses the option. Without the option nothing changes.
 
 * **screamingface:** carry each Benchmark's provenance and saturation verdict from the Engine catalogue. `Benchmark.provenance` is a `BenchmarkProvenance` (paper, authors, citation, inspect porters as GitHub handles, website, harness pinned to a commit or tag, licence with any note, content warning, a `PublishedScore` human baseline and frontier score, the SDK notebook that runs it) and `Benchmark.saturation` is the Engine's derived verdict (`saturated` / `open` / `unknown`). An Engine that predates them serves neither: `provenance` reads `None` and `saturation` reads `unknown`. The local Scoreboard seed emits the same keys, so a local board shows what a deployed one shows.
 

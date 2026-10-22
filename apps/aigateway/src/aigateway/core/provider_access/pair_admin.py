@@ -1,16 +1,19 @@
 """The ordered pair disposition behind the D18 successor (OME-1497, G1; contract §4, §5).
 
 # FEATURE: OME-1138 D18 — an admin addresses the ONE effective credential of an
-# `(account, provider)` pair. `classify_pair` reads a pair's marker, legacy documents and live
-# Connections top to bottom through the §5 table; `pair_inventory` projects every pair of an
-# account into a neutral credential, a per-provider conflict, or nothing.
+# `(account, provider)` pair. `classify_pair` reads a pair's marker and live Connections top to
+# bottom through the §5 table; `pair_inventory` projects every pair of an account into a neutral
+# credential, a per-provider conflict, or nothing.
+# INVARIANT (OME-1209 E4a, spec §9 Q8): no legacy Profile document takes part — rows 8 and 10,
+# the document half of row 3 and the row-11 identity proof are gone, so a Profile-only pair is
+# the empty pair (row 7) and a Profile beside one Connection is that Connection's row (9).
 # INVARIANT: read-only — no write, no marker advance, no refresh, and no provider credential is
-# read or decrypted (only the account's metadata index). The first matching row decides.
+# read or decrypted. The first matching row decides.
 # INVARIANT: unknown or inconsistent stored state raises `CredentialAuthorityUnavailable`; it is
 # never rendered as a credential or as its absence. Only expected storage failures become
 # `CredentialStoreReadUnavailable`; a programming error propagates.
-# NOTE: the G1 mutations (PUT/DELETE through the bridge, the shadow identity proof) reuse
-# `classify_pair`; its `row` is the §5 row number, so a mutation dispatches on the same table.
+# NOTE: the G1 mutations (PUT/DELETE through the bridge) reuse `classify_pair`; its `row` is the
+# §5 row number, so a mutation dispatches on the same table.
 """
 
 from __future__ import annotations
@@ -25,9 +28,8 @@ from pydantic import ValidationError
 
 from ..auth_types import AuthType
 from ..oauth.models import OAuthConnection
-from ..oauth.store import DEFAULT_CREDENTIAL_ACCOUNT, OAuthConnectionStore, credential_locator_for
+from ..oauth.store import DEFAULT_CREDENTIAL_ACCOUNT, OAuthConnectionStore
 from ..plugin_base import credential_service_provider_for
-from ..profile_models import Profile, ProfileState
 from ..secrets.mixin import SecretDecryptionError
 from ..storage_outages import STORAGE_OUTAGES
 from .pair_authority import PairAuthority, PairAuthorityDataError, PairAuthorityStore
@@ -43,11 +45,6 @@ _STATE_FOR_STATUS: dict[str, CredentialState] = {
     "error": "error",
 }
 _AUTH_TYPES: dict[str, AuthType] = {"api_key": "api_key", "oauth": "oauth"}
-_STATE_FOR_PROFILE: dict[ProfileState, CredentialState] = {
-    ProfileState.AUTHENTICATED: "active",
-    ProfileState.PENDING: "pending",
-    ProfileState.ERROR: "error",
-}
 # WHY these and no others: an unreachable database, a failed query or an undecodable or invalid
 # metadata index is an outage of the store; anything else is a bug and must not read as "empty".
 _STORE_READ_FAILURES = (*STORAGE_OUTAGES, SecretDecryptionError, ValidationError)
@@ -86,7 +83,6 @@ class PairDisposition:
 
     row: int
     marker: PairAuthority
-    document: Profile | None = None
     connection: OAuthConnection | None = None
 
 
@@ -95,12 +91,11 @@ class PairDisposition:
 
 def classify_pair(
     marker: PairAuthority,
-    documents: Sequence[Profile],
     connections: Sequence[OAuthConnection],
     *,
     credential_provider: str | None,
 ) -> PairDisposition:
-    """The first matching §5 row for one pair (rows 2-11; row 1 is the caller's read).
+    """The first matching §5 row for one pair (rows 2-7, 9 and 11; row 1 is the caller's read).
 
     `connections` are the pair's non-revoked rows; `credential_provider` is None for a provider
     no plugin serves, which LIST renders as an explicit unresolved result.
@@ -111,60 +106,38 @@ def classify_pair(
     locator_provider = credential_provider or credential_service_provider_for(None, provider)
     for connection in connections:
         _require_known(connection, provider, locator_provider, marker.account_id)
-    if len(documents) > 1 or len(connections) > 1:
+    if len(connections) > 1:
         return PairDisposition(3, marker)
     if marker.migration_state == "quarantined":
         return PairDisposition(4, marker)
-    document = documents[0] if documents else None
     connection = connections[0] if connections else None
     if marker.migration_state == "migrated":
-        migrated = _migrated(marker, document, connection)
+        migrated = _migrated(marker, connection)
         if credential_provider is None and migrated.row != 6:
-            return PairDisposition(11, marker, document=document, connection=connection)
+            return PairDisposition(11, marker, connection=connection)
         return migrated
+    if connection is None:
+        return PairDisposition(7, marker)
     if credential_provider is None:
         # WHY after rows 2-4 and migrated validation: an unknown plugin cannot make an
         # inconsistency disappear. Only a structurally valid candidate becomes unresolved.
-        if document is None and connection is None:
-            return PairDisposition(7, marker)
-        return PairDisposition(11, marker, document=document, connection=connection)
-    return _legacy_authority(marker, document, connection, credential_provider)
+        return PairDisposition(11, marker, connection=connection)
+    return PairDisposition(9, marker, connection=connection)
 
 
-def _legacy_authority(
-    marker: PairAuthority,
-    document: Profile | None,
-    connection: OAuthConnection | None,
-    credential_provider: str,
-) -> PairDisposition:
-    """Rows 7-11: a `none` pair with at most one candidate of each kind."""
-    if document is None and connection is None:
-        return PairDisposition(7, marker)
-    if connection is None:
-        return PairDisposition(8, marker, document=document)
-    if document is None:
-        return PairDisposition(9, marker, connection=connection)
-    profile_address = credential_locator_for(credential_provider, marker.account_id, document.name)
-    if _address_of(connection) == profile_address:
-        return PairDisposition(10, marker, document=document, connection=connection)
-    return PairDisposition(11, marker, document=document, connection=connection)
-
-
-def _migrated(
-    marker: PairAuthority, document: Profile | None, connection: OAuthConnection | None
-) -> PairDisposition:
+def _migrated(marker: PairAuthority, connection: OAuthConnection | None) -> PairDisposition:
     if marker.effective_connection_id is None:
         if connection is None:
-            # Row 6: a disconnected pair; a leftover document is never resurrected by a read.
-            return PairDisposition(6, marker, document=document)
+            # Row 6: a disconnected pair.
+            return PairDisposition(6, marker)
         # WHY unresolved: a live row beside a null reference is no row of the table — no
         # effective owner to show and no safe one to pick (row 11, "any other combination").
-        return PairDisposition(11, marker, document=document, connection=connection)
+        return PairDisposition(11, marker, connection=connection)
     if connection is None or connection.id != marker.effective_connection_id:
         # INVARIANT: a referenced row that is missing or revoked is an inconsistency, not a
         # normal post-delete state — a normal delete clears the reference.
         raise CredentialAuthorityUnavailable(marker.provider)
-    return PairDisposition(5, marker, document=document, connection=connection)
+    return PairDisposition(5, marker, connection=connection)
 
 
 def _require_known(
@@ -191,11 +164,6 @@ def _in_scope(locator: object, credential_provider: str, account_id: str) -> boo
     return isinstance(service, str) and service.startswith(prefix) and len(service) > len(prefix)
 
 
-def _address_of(connection: OAuthConnection) -> dict[str, Any]:
-    locator = connection.credential_locator
-    return {"service": locator.get("service"), "account": locator.get("account")}
-
-
 # --- the LIST projection ------------------------------------------------------------------------
 
 
@@ -206,15 +174,6 @@ def listing(disposition: PairDisposition) -> PairCredential | PairConflict | Non
         return PairConflict(provider, "ambiguous")
     if disposition.row in (4, 11):
         return PairConflict(provider, "unresolved")
-    # Rows 8 and 10 show the legacy owner; rows 5 and 9 the Connection.
-    if disposition.row in (8, 10) and disposition.document is not None:
-        document = disposition.document
-        return PairCredential(
-            provider,
-            document.auth_type,
-            _STATE_FOR_PROFILE[document.state],
-            document.last_refreshed_at,
-        )
     if disposition.row in (5, 9) and disposition.connection is not None:
         return connection_credential(disposition.connection)
     return None
@@ -249,19 +208,16 @@ async def pair_inventory(app: Any, account_id: str) -> PairInventory:
     for _attempt in range(_INVENTORY_READ_ATTEMPTS):
         with store_reads():
             before = await _read_generations(markers, account_id)
-            documents = await app.state.profile_index.list(account_id)
             connections = await OAuthConnectionStore().list(account_id)
             providers = sorted(
-                {d.provider for d in documents}
-                | {c.provider for c in connections}
-                | {provider for provider, _generation in before}
+                {c.provider for c in connections} | {provider for provider, _generation in before}
             )
             authorities = {
                 provider: await read_marker(markers, account_id, provider) for provider in providers
             }
             after = await _read_generations(markers, account_id)
         if _stable_inventory_snapshot(before, after, authorities):
-            return _project_inventory(app, documents, connections, authorities)
+            return _project_inventory(app, connections, authorities)
     raise CredentialStoreReadUnavailable()
 
 
@@ -281,7 +237,6 @@ def _stable_inventory_snapshot(
 
 def _project_inventory(
     app: Any,
-    documents: Sequence[Profile],
     connections: Sequence[OAuthConnection],
     authorities: Mapping[str, PairAuthority],
 ) -> PairInventory:
@@ -291,7 +246,6 @@ def _project_inventory(
         plugin = app.state.providers.get(provider)
         disposition = classify_pair(
             marker,
-            [d for d in documents if d.provider == provider],
             [c for c in connections if c.provider == provider],
             credential_provider=(
                 None if plugin is None else credential_service_provider_for(plugin, provider)

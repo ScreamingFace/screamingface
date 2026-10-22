@@ -5,30 +5,35 @@
 for one of seven: the largest three, the smallest three, or the median. 350 Cases.
 
 This is a **local Task** (OME-1602) built from inspect_evals' `infinite_bench_math_find`. It
-reuses upstream's loader, system message and prompt template, so the questions are upstream's
-own. One piece is swapped: the input cut.
+reuses inspect_evals' loader, system message and prompt template, so the questions are
+inspect_evals' own. Two pieces are swapped: the input cut, and the grading (see Scoring).
 
 ## Why a local Task
 
-Upstream's Task cuts each long input to the answering model's context window, and to know the
+inspect_evals' Task cuts each long input to the answering model's context window, and to know the
 window it asks which model is answering (`get_model()`). Task replay seals the Cases with no
 model at all, and the importer refuses a Task whose Cases depend on the model's name: the
 Cases it sealed would be cut for a model that doesn't exist.
 
-Here the cut is fixed: upstream's own character cut, at the budget upstream gives every model
-outside its context table (128k tokens, about 446,250 characters). Every Candidate gets the
-same Cases.
+Here the cut is fixed: inspect_evals' own character cut, at the budget inspect_evals gives every
+model outside its context table (128k tokens, about 446,250 characters). Every Candidate gets
+the same Cases.
 
 ## What that changes
 
 Nothing, today. The longest Math.Find input is 120,155 characters (mean 118,028), so no input
-reaches the cut and every Case is upstream's whole input. The fixed cut keeps that true
+reaches the cut and every Case is inspect_evals' whole input. The fixed cut keeps that true
 whoever answers.
 
 ## Scoring
 
-inspect's own `exact()` against the single answer, as upstream grades. No judge. Benchmark
-score is plain accuracy over the Cases run.
+The official InfiniteBench rule: the first number in the reply, compared with the answer by
+value ([`get_score_one_math_find`](https://github.com/OpenBMB/InfiniteBench/blob/51d9b37b0f1790ead936df2243abbf7f0420e439/src/compute_scores.py#L222-L241)),
+so "The largest number in the list is: 91" is right for 91. inspect_evals grades with inspect's
+`exact()` on the whole reply, which marks that wrong; this is inspect_evals' proposed fix,
+[inspect_evals PR #2346](https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346), adopted
+as a Named Deviation: the PR's `math_find_scorer.py` is copied verbatim into this folder. No
+judge. Benchmark score is plain accuracy over the Cases run.
 
 ## Dataset
 

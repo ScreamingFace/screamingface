@@ -290,6 +290,14 @@ class Benchmark:
     # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
     # resource stay byte-identical.
     inverted_grade: bool = False
+    # FEATURE: Unlisted Benchmark (OME-1714) — off the catalogue index, still served by id.
+    # Like an unlisted video: `GET /v1/benchmarks` skips it, so the SDK listing and the
+    # Scoreboard seed never see it; `GET /v1/benchmarks/{id}` and a run by id keep working.
+    # INVARIANT: never on the wire and never in `revision` — the mark is a listing decision,
+    # not catalogue data, so every listed entry stays byte-identical and no Score moves.
+    # WHY declared here in code, not in deployment configuration: a fresh deploy cannot expose
+    # the row by forgetting a setting. Product's request names the rows (OME-1714).
+    unlisted: bool = False
     # FEATURE: Benchmark Provenance, Human Baseline, Frontier Score (OME-1455). The facts on
     # the exam's cover sheet: who wrote it, who brought it here, where the original code and
     # data live, may you use it, how humans and the best published model scored, and which

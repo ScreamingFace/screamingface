@@ -163,6 +163,10 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "stereoset": "mcq",
     "cyse4_malware_analysis": "mcq",
     "cyse4_threat_intelligence": "mcq",
+    # OME-1696: BIG-Bench Hard mixes multiple choice with yes/no and exact-match answers.
+    "bbh": "mcq",
+    # OME-1696: MedMCQA, four lettered options graded by inspect's choice scorer.
+    "medmcqa": "mcq",
 }
 
 _NEW_KEYS: tuple[str, ...] = tuple(k for k in _EXPECTED_FAMILIES if k not in ("gsm8k", "mmlu"))
@@ -284,7 +288,7 @@ def test_benchmark_row_prose_is_filled_not_todo(key: str) -> None:
 
 
 def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
-    """The upstream evals of these benchmarks randomize question order per run
+    """In inspect_evals, the evals of these benchmarks randomize question order per run
     (hf_dataset shuffle=True); an import must pin one order — a dropped shuffle
     was the 2026-09-17 review blocker, and this set is its regression pin."""
 
@@ -292,7 +296,7 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
     # through inspect's own shuffle on an hf_dataset call that shuffles with none (D1), so
     # exactly the rows whose eval does that carry one. aime24/aime25/hellaswag lost their
     # policy seed (their evals never shuffle: the Hub's order is served, spec Known
-    # limitations); mmlu's eval seeds its own shuffle (seed=42); wmdp serves upstream order.
+    # limitations); mmlu's eval seeds its own shuffle (seed=42); wmdp serves inspect_evals' order.
     seeded: set[str] = {
         key for key, spec in TASK_REPLAY_CASES.items() if spec.shuffle_seed is not None
     }
@@ -341,22 +345,22 @@ def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
         assert TASK_REPLAY_CASES[key].choice_shuffle_seed is not None, key
 
 
-def test_lab_bench_pins_track_upstreams_own_revision_constant() -> None:
+def test_lab_bench_pins_track_inspect_evals_own_revision_constant() -> None:
     """Same drift guard as aime24/25/hellaswag, once for the whole family: every
     lab_bench sha is COPIED from the eval's own pinned constant — a dependency
-    bump that moves upstream's pin must fail here."""
+    bump that moves inspect_evals' pin must fail here."""
 
-    from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as UPSTREAM
+    from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as INSPECT_EVALS
 
     lab_bench_keys = [k for k in TASK_REPLAY_CASES if k.startswith("lab_bench_")]
     assert len(lab_bench_keys) == 6
     for key in lab_bench_keys:
-        assert TASK_REPLAY_CASES[key].source_pins == {"futurehouse/lab-bench": UPSTREAM}, key
+        assert TASK_REPLAY_CASES[key].source_pins == {"futurehouse/lab-bench": INSPECT_EVALS}, key
 
 
-def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
-    """The aime24 sha is COPIED from the eval's own pinned constant (upstream pins
-    win at import time) — a dependency bump that moves upstream's pin must fail
+def test_aime24_pin_tracks_inspect_evals_own_revision_constant() -> None:
+    """The aime24 sha is COPIED from the eval's own pinned constant (inspect_evals' pins
+    win at import time) — a dependency bump that moves inspect_evals' pin must fail
     here instead of silently serving a different benchmark than the eval means."""
 
     from inspect_evals.aime2024.aime2024 import AIME2024_DATASET_REVISION
@@ -365,9 +369,9 @@ def test_aime24_pin_tracks_upstreams_own_revision_constant() -> None:
     assert set(TASK_REPLAY_CASES["aime24"].source_pins.values()) == {AIME2024_DATASET_REVISION}
 
 
-def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
+def test_aime25_pin_tracks_inspect_evals_own_revision_constant() -> None:
     """Same drift guard as aime24: the sha is copied from the eval's own pinned
-    constant — a dependency bump that moves upstream's pin must fail here."""
+    constant — a dependency bump that moves inspect_evals' pin must fail here."""
 
     from inspect_evals.aime2025.aime2025 import AIME2025_DATASET_REVISION
 
@@ -375,27 +379,28 @@ def test_aime25_pin_tracks_upstreams_own_revision_constant() -> None:
     assert set(TASK_REPLAY_CASES["aime25"].source_pins.values()) == {AIME2025_DATASET_REVISION}
 
 
-def test_hellaswag_pin_tracks_upstreams_own_revision_constant() -> None:
+def test_hellaswag_pin_tracks_inspect_evals_own_revision_constant() -> None:
     """Same drift guard as aime24/25: the sha is COPIED from the eval's own
-    pinned constant — a dependency bump that moves upstream's pin must fail
+    pinned constant — a dependency bump that moves inspect_evals' pin must fail
     here, never leave us preparing the old sha with the new scorer."""
 
-    from inspect_evals.hellaswag.hellaswag import HELLASWAG_DATASET_REVISION as UPSTREAM
+    from inspect_evals.hellaswag.hellaswag import HELLASWAG_DATASET_REVISION as INSPECT_EVALS
 
     # OME-1460: the Hub pin now lives on the Task-replay declaration.
-    assert set(TASK_REPLAY_CASES["hellaswag"].source_pins.values()) == {UPSTREAM}
+    assert set(TASK_REPLAY_CASES["hellaswag"].source_pins.values()) == {INSPECT_EVALS}
 
 
 def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     """OME-1269's first question-filter benchmark. Its questions are whatever the eval's own
-    filter keeps, minus the owner-approved named deviation (6 questions inspect keeps
-    whose answer letter lies past their choices), and it renders inspect's own
-    chain-of-thought template because the eval passes multiple_choice(cot=True).
+    filter keeps, minus the owner-approved named deviations (6 questions inspect keeps
+    whose answer letter lies past their choices, 18 more whose options it splits
+    wrongly, and 1 whose source gives its key's text to two options), and it renders
+    inspect's own chain-of-thought template because the eval passes multiple_choice(cot=True).
     The question filter and the exclusion change which questions are served, so both ride its
     revision; the template pointer does not (template pointers predate revision-pin
     coverage — see benchmarks._revision_pins)."""
 
-    from inspect_evals.onet.onet import ONET_DATASET_REVISION as UPSTREAM
+    from inspect_evals.onet.onet import ONET_DATASET_REVISION as INSPECT_EVALS
 
     from screamingface_engine_inspect.benchmarks import _task_replay_pins
 
@@ -403,10 +408,13 @@ def test_onet_m6_filters_through_its_task_with_the_named_exclusion() -> None:
     # pointer to pin) and capture renders its own chain-of-thought template (no template
     # pointer); the exclusion still rides identity.
     row = TASK_REPLAY_CASES["onet_m6"]
-    assert row.source_pins == {"matichon/thai-onet-m6-exam": UPSTREAM}
+    assert row.source_pins == {"matichon/thai-onet-m6-exam": INSPECT_EVALS}
     assert row.task == "inspect_evals.onet.onet:onet_m6"
-    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6
-    assert row.case_count == 397 - 6
+    # OME-1701 PR 6: 18 more ids joined the six (where inspect_evals PR #2590's
+    # number-order parse differs), and 1 duplicate-option question (2020_32_08b1); each is
+    # pinned in test_onet_m6_option_parse_exclusions.
+    assert row.excluded_sample_ids is not None and len(row.excluded_sample_ids) == 6 + 18 + 1
+    assert row.case_count == 397 - 6 - 18 - 1
     assert any(pin.startswith("excluded_sample_ids=") for pin in _task_replay_pins(row))
 
 
@@ -415,14 +423,14 @@ def test_pubmedqa_prepares_the_evals_test_list_through_its_task() -> None:
     test list; the benchmark runs the eval's task so its own filter keeps
     them, the count pins the KEPT 500, and the eval's template renders them."""
 
-    from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as UPSTREAM
+    from inspect_evals.pubmedqa.pubmedqa import PUBMEDQA_DATASET_REVISION as INSPECT_EVALS
 
     from screamingface_engine_inspect.benchmarks import _task_replay_pins
 
     # OME-1460: a Task-replay declaration now; the eval's own task keeps the 500 and its own
     # template renders them, so the task reference rides identity in place of the filter.
     row = TASK_REPLAY_CASES["pubmedqa"]
-    assert row.source_pins == {"qiaojin/PubMedQA": UPSTREAM}
+    assert row.source_pins == {"qiaojin/PubMedQA": INSPECT_EVALS}
     assert row.task == "inspect_evals.pubmedqa.pubmedqa:pubmedqa"
     assert row.case_count == 500
     assert row.excluded_sample_ids is None
@@ -433,16 +441,16 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     """xstest_safe keeps the 250 safe prompts through the eval's own subset filter,
     has no answer key (the judge grades complied / refused from question and reply),
     needs a Hugging Face token (gated dataset), and its judge prompt is a verbatim
-    copy of the eval's — a dependency bump that edits upstream's prompt fails here."""
+    copy of the eval's — a dependency bump that edits inspect_evals' prompt fails here."""
 
-    from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as UPSTREAM
+    from inspect_evals.xstest.xstest import XSTEST_DATASET_REVISION as INSPECT_EVALS
     from inspect_evals.xstest.xstest import scorer_instructions, scorer_template
 
     from screamingface_engine_inspect.benchmarks import BENCHMARKS, _task_replay_pins
 
     # OME-1460: a Task-replay declaration now; the subset is the eval's own task arg.
     row = TASK_REPLAY_CASES["xstest_safe"]
-    assert row.source_pins == {"walledai/XSTest": UPSTREAM}
+    assert row.source_pins == {"walledai/XSTest": INSPECT_EVALS}
     assert row.task == "inspect_evals.xstest.xstest:xstest"
     assert row.task_args == {"subset": "safe"}
     assert row.case_count == 250
@@ -455,12 +463,12 @@ def test_xstest_safe_is_judged_from_the_evals_own_prompt_with_no_answer_key() ->
     assert "{criterion}" not in scorer_template
 
 
-def test_xstest_safe_names_upstreams_own_metric_and_generate_config(
+def test_xstest_safe_names_inspect_evals_own_metric_and_generate_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The benchmark reports the mean grade (C=1, P=0.5, I=0); upstream reports
+    """The benchmark reports the mean grade (C=1, P=0.5, I=0); inspect_evals reports
     refusal_rate and runs at temperature 0 with 256 max tokens. Both deviations are
-    named on the benchmark — if a dependency bump changes either upstream fact, this
+    named on the benchmark — if a dependency bump changes either inspect_evals fact, this
     fails and the benchmark's notes must be revisited (review on PR #1112)."""
 
     from importlib import import_module

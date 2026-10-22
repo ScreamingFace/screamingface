@@ -119,6 +119,21 @@ def identity_for_forwarding(identity: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def upstream_headers(identity: Mapping[str, str], traceparent: str | None) -> dict[str, str]:
+    """The headers for one caller-scoped gateway request: verified identity, then trace context.
+
+    INVARIANT: the Engine-owned headers are written LAST. ``identity`` is built from inbound
+    request headers, and although the mesh guarantees the identity header itself is not forged,
+    nothing guarantees the mapping holds ONLY that key — so a caller cannot displace this
+    request's own trace by sending their own. A caller adding headers of its own writes them
+    after this, for the same reason.
+    """
+    headers = identity_for_forwarding(identity)
+    if traceparent is not None:
+        headers["traceparent"] = traceparent
+    return headers
+
+
 CACHE_PARTICIPATE = "URL4_CLOUD_CACHE_PARTICIPATE"
 """Whether this run may participate in the gateway's response cache — `"true"` / `"false"`.
 
@@ -698,4 +713,5 @@ __all__ = [
     "identity_for_forwarding",
     "identity_to_env",
     "number_from_env",
+    "upstream_headers",
 ]

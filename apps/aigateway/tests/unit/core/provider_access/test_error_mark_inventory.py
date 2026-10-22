@@ -22,7 +22,6 @@ DIRECT = {
     # `migrated` pairs only (§5.3: migrated paths keep the fences they already have).
     "core.provider_access.connection_authority:authorize_migrated": 1,
     "core.provider_access.connection_authority:record_dispatch_failure_migrated": 1,
-    "core.provider_access.connection_facade:_mark_failed": 1,
 }
 
 

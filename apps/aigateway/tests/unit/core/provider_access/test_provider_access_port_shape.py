@@ -1,8 +1,10 @@
 """The port's DECLARED shape against spec §3.3 (OME-1200, review finding F1/F3).
 
-# INVARIANT: the two Protocols name exactly the operations the spec approves, with the spec's
+# INVARIANT: the read Protocol names exactly the operations the spec approves, with the spec's
 # parameter shapes, so A2/A3 add implementations — never re-cut the port. Both witnesses
-# (the fake and the Profile-backed implementation) satisfy the read interface structurally.
+# (the fake and the Connection-backed implementation) satisfy the read interface structurally.
+# WHY no admin shape here: the admin Protocol (ops 7-9) retired with its Profile routes at
+# OME-1209 Stage E3b; the D18 admin PUT and DELETE are pinned in `test_pair_admin_mutations.py`.
 """
 
 from __future__ import annotations
@@ -13,15 +15,14 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from connection_backed_harness import ConnectionBackedHarness
 from provider_access_fake import FakeProviderAccess
-from provider_access_harness import ANTHROPIC, PROVIDER, FakeHarness, Harness, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, FakeHarness, Harness
 
 from aigateway.core.provider_access import (
     AvailabilityRow,
-    CredentialSummary,
-    ProfileBackedProviderAccess,
+    ConnectionBackedProviderAccess,
     ProviderAccess,
-    ProviderCredentialAdmin,
     ProviderOperationalAccess,
     Selector,
     UnsupportedAuthMode,
@@ -126,7 +127,7 @@ def test_both_witnesses_expose_the_optional_outcome_capability() -> None:
     app = SimpleNamespace(state=SimpleNamespace())
 
     assert isinstance(FakeProviderAccess(), ProviderOperationalAccess)
-    assert isinstance(ProfileBackedProviderAccess(app), ProviderOperationalAccess)
+    assert isinstance(ConnectionBackedProviderAccess(app), ProviderOperationalAccess)
 
 
 def test_availability_is_account_scoped_and_returns_rows_only() -> None:
@@ -136,38 +137,6 @@ def test_availability_is_account_scoped_and_returns_rows_only() -> None:
     assert _returns(ProviderAccess.availability) == tuple[AvailabilityRow, ...]
 
 
-# --- ProviderCredentialAdmin (spec ops 7–9) --------------------------------------------------
-
-
-def test_the_admin_listing_returns_a_tuple_of_summaries() -> None:
-    params = _params(ProviderCredentialAdmin.list)
-
-    assert list(params) == ["account_id", "provider"]
-    assert params["provider"].default is None
-    assert _returns(ProviderCredentialAdmin.list) == tuple[CredentialSummary, ...]
-
-
-def test_set_api_key_is_pair_addressed_with_the_window_compatible_keywords() -> None:
-    params = _params(ProviderCredentialAdmin.set_api_key)
-
-    assert [(p.name, p.kind) for p in params.values()] == [
-        ("account_id", POS),
-        ("provider", POS),
-        ("raw_api_key", KW),
-        ("legacy_name", KW),
-    ]
-
-
-def test_delete_is_pair_addressed_and_names_the_legacy_profile_by_keyword() -> None:
-    params = _params(ProviderCredentialAdmin.delete)
-
-    assert [(p.name, p.kind) for p in params.values()] == [
-        ("account_id", POS),
-        ("provider", POS),
-        ("legacy_name", KW),
-    ]
-
-
 # --- both witnesses satisfy the read interface ----------------------------------------------
 
 
@@ -175,14 +144,14 @@ def test_both_witnesses_satisfy_the_read_interface_structurally() -> None:
     app = SimpleNamespace(state=SimpleNamespace())
 
     assert isinstance(FakeProviderAccess(), ProviderAccess)
-    assert isinstance(ProfileBackedProviderAccess(app), ProviderAccess)
+    assert isinstance(ConnectionBackedProviderAccess(app), ProviderAccess)
 
 
-@pytest.fixture(params=["fake", "profile_backed"])
+@pytest.fixture(params=["fake", "connection_backed"])
 def harness(request: pytest.FixtureRequest) -> Harness:
     if request.param == "fake":
         return FakeHarness()
-    return ProfileBackedHarness(
+    return ConnectionBackedHarness(
         request.getfixturevalue("authenticated_client"),
         request.getfixturevalue("credential_blobs"),
         request.getfixturevalue("monkeypatch"),
@@ -195,10 +164,10 @@ class _ApiKeyOnlyPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("api_key",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return False
 
-    def profileless_auth_mode(self) -> str | None:
+    def credentialless_auth_mode(self) -> str | None:
         return None
 
 

@@ -9,17 +9,20 @@ from urllib.parse import urlsplit
 
 from screamingface._analytics.tracking import tracked
 from screamingface._client_connections import _engine_origin
-from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
+from screamingface.client import (
+    DEFAULT_ENGINE_URL,
+    DEFAULT_SCOREBOARD_URL,
+    Client,
+    _evaluation_candidates,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from uuid import UUID
 
-    from screamingface._reproduction import Reproduction
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
-    from screamingface.leaderboard import LeaderboardScore
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -169,16 +172,50 @@ def evaluate(
 ) -> Report: ...
 
 
+@overload
+def evaluate(
+    *,
+    pinned_cache: str,
+    score_id: UUID | str | None = None,
+    url4: str | None = None,
+    answer_seed: int | None = None,
+    record_reproduction: bool = True,
+    limit: int | None = None,
+    capture: Literal[False] | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+) -> Report: ...
+
+
+@overload
+def evaluate(
+    *,
+    score_id: UUID | str,
+    pinned_cache: str | None = None,
+    url4: str | None = None,
+    answer_seed: int | None = None,
+    record_reproduction: bool = True,
+    limit: int | None = None,
+    capture: Literal[False] | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+) -> Report: ...
+
+
 @tracked("evaluation")
 def evaluate(
-    candidates: Recipe | Sequence[Recipe] | str,
+    candidates: Recipe | Sequence[Recipe] | str | None = None,
     *,
     benchmark: str | None = None,
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool | None = None,
+    pinned_cache: str | None = None,
+    score_id: UUID | str | None = None,
+    url4: str | None = None,
+    record_reproduction: bool = True,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -190,6 +227,24 @@ def evaluate(
     """
 
     client = default_client()
+    if pinned_cache is not None or score_id is not None:
+        # The Client checks the replay options; this door passes everything through.
+        return client._evaluate_replay(
+            candidates=candidates,
+            benchmark=benchmark,
+            limit=limit,
+            capture=capture,
+            pinned_cache=pinned_cache,
+            score_id=score_id,
+            url4=url4,
+            answer_seed=answer_seed,
+            record_reproduction=record_reproduction,
+            on_event=on_event,
+            progress=progress,
+        )
+    # One home for these checks: the Client's (review fix, no third copy here).
+    candidates = _evaluation_candidates(candidates, url4, record_reproduction)
+    capture = True if capture is None else capture
     if isinstance(candidates, str):
         if benchmark is not None:
             raise TypeError("benchmark must not be passed when evaluating a complete URL4")
@@ -213,12 +268,6 @@ def evaluate(
         answer_seed=answer_seed,
         capture=capture,
     )
-
-
-def reproduce(score: LeaderboardScore | UUID | str, *, record: bool = True) -> Reproduction:
-    """Reproduce a submitted score from its frozen copy through the lazy default Client."""
-
-    return default_client().reproduce(score, record=record)
 
 
 @overload
@@ -284,4 +333,4 @@ def disconnect(provider: str) -> Connection:
     return default_client().disconnect(provider)
 
 
-__all__ = ["close", "configure", "connect", "disconnect", "evaluate", "reproduce"]
+__all__ = ["close", "configure", "connect", "disconnect", "evaluate"]

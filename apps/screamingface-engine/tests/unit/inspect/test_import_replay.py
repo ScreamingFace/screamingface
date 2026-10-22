@@ -627,7 +627,7 @@ def test_the_import_reads_the_gate_off_the_hub(hub_eval: str) -> None:
 
 
 def test_the_second_run_forces_the_same_seed_as_the_first(hub_eval: str) -> None:
-    """Spec acceptance 6: an unseeded upstream shuffle seals under the declared seed, and
+    """Spec acceptance 6: an unseeded inspect_evals shuffle seals under the declared seed, and
     the image-side run agrees (without the seed the two runs disagree 23 times in 24)."""
 
     imported: TaskReplayImport = import_by_task_replay(

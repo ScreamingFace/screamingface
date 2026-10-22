@@ -139,9 +139,9 @@ def _project(body: dict[str, Any], dotted_target: str, value: Any) -> None:
 def _addressed_request_paths(body: Mapping[str, Any]) -> Iterable[str]:
     """Every optional-parameter request path this body addresses.
 
-    The caller-visible addressing forms are a bare top-level field or a key nested under the
-    ``provider_params`` wrapper. Gateway-owned fields are authorized structurally and are never
-    request paths.
+    The caller-visible addressing forms are a top-level field (including an explicitly ruled
+    dotted path) or a key nested under the ``provider_params`` wrapper. Gateway-owned fields are
+    authorized structurally and are never request paths.
 
     AIDEV-NOTE: this mirrors the enumeration in ``classify_and_project_chat_parameters``. The
     caller-cache policy tests lock them together so a new addressing form cannot drift between
@@ -151,8 +151,8 @@ def _addressed_request_paths(body: Mapping[str, Any]) -> Iterable[str]:
         if key == WRAPPER_KEY or key in GATEWAY_OWNED_FIELDS:
             continue
         if key.startswith(_WRAPPER_PREFIX):
-            # OME-704: dotted top-level keys are not an addressing form; classification rejects
-            # them.
+            # OME-704: only `provider_params.*` top-level keys are not an addressing form;
+            # provider-native fields must arrive inside the wrapper object.
             continue
         yield key
     wrapper = body.get(WRAPPER_KEY)
@@ -256,9 +256,9 @@ def classify_and_project_chat_parameters(
             # field on every provider, outside the published contract and outside
             # every wrapper-shaped protection built on top of it.
             #
-            # Structural, so it fires BEFORE rule resolution: a dotted top-level key
-            # is malformed addressing whether or not any rule owns that path, and one
-            # structural mistake gets one reason code.
+            # Structural, so it fires BEFORE rule resolution: a top-level `provider_params.*`
+            # key is malformed whether or not a rule owns that path. Other dotted top-level
+            # paths are ordinary direct parameters and remain rule-gated (OME-1656).
             rejected[key] = _REASON_UNKNOWN
             continue
         if key in GATEWAY_OWNED_FIELDS:

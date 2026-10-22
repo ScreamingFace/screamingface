@@ -36,6 +36,7 @@ from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _CHAT_PATH = "/v1/chat/completions"
 _MODEL = "anthropic/claude-haiku-4-5"
@@ -70,6 +71,7 @@ def _token_blob() -> str:
 
 
 def _seed(
+    client: TestClient,
     credential_blobs,
     account_id: str,
     *,
@@ -77,10 +79,12 @@ def _seed(
     defaults: ProfileDefaults,
     provider: str = "anthropic",
 ) -> None:
-    """A dispatchable Profile holding HISTORICAL defaults, written straight into the index.
+    """A Profile holding HISTORICAL defaults, written straight into the index, beside its pair.
 
     WHY directly: after Stage C no writer accepts `defaults`, but documents written before it
     still carry them for the compatibility window.
+    WHY the pair: since OME-1209 E4a only the pair's Connection dispatches; it sits at the
+    document's credential address, as the backfill leaves it.
     """
     service_for = (
         credential_service_for if provider == "anthropic" else codex_credential_service_for
@@ -102,6 +106,7 @@ def _seed(
         )
 
     asyncio.run(_upsert())
+    seed_migrated_pair(client, account_id, provider, name=name)
 
 
 def _body(*, system: str | None = None, **extra: Any) -> dict[str, Any]:
@@ -196,13 +201,13 @@ def test_default_target_historical_default_changes_share_one_bare_key(
 ) -> None:
     """RED before Stage C: the merge ran before the key, so the second request MISSED."""
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed(credential_blobs, account_id, name="default", defaults=first_defaults)
+    _seed(cache_client, credential_blobs, account_id, name="default", defaults=first_defaults)
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(f"{_ANTHROPIC_PLUGIN}.chat_completion", new=dispatch):
         filled = _post(cache_client, _body())
-        _seed(credential_blobs, account_id, name="default", defaults=second_defaults)
+        _seed(cache_client, credential_blobs, account_id, name="default", defaults=second_defaults)
         served = _post(cache_client, _body())
 
     assert (filled.status_code, served.status_code) == (200, 200), (filled.text, served.text)
@@ -224,7 +229,11 @@ def test_explicit_system_messages_key_distinctly_and_dispatch_only_the_callers_o
     """GREEN before and after: a caller's system message always won over a stored prompt."""
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed(
-        credential_blobs, account_id, name="default", defaults=ProfileDefaults(system_prompt="arr")
+        cache_client,
+        credential_blobs,
+        account_id,
+        name="default",
+        defaults=ProfileDefaults(system_prompt="arr"),
     )
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
@@ -249,7 +258,7 @@ def test_a_stream_on_a_profile_with_historical_defaults_carries_none_of_them(
 ) -> None:
     """RED before Stage C: the merge ran before the stream/cache split, so it reached the stream."""
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed(credential_blobs, account_id, name="default", defaults=_EVERY_SAVED_FIELD)
+    _seed(cache_client, credential_blobs, account_id, name="default", defaults=_EVERY_SAVED_FIELD)
     store = _install(cache_client, _Store())
     streamed: list[dict[str, Any]] = []
 
@@ -282,11 +291,11 @@ def test_an_index_unreadable_before_planning_causes_no_bypass_and_no_wrong_hit(
     The fault model: in each request, the first profile-index read that happens before the
     request's cache lookup fails (a transient decode fault at planning time); later reads work.
     Stage C performs no such read, so the documented availability change is that an index fault
-    no longer costs a cache hit. The index is still read AFTER the lookup, by credential
-    resolution on a miss, and never on a hit.
+    no longer costs a cache hit. Since OME-1209 E4a credential resolution reads no index either,
+    so neither a miss nor a hit reads it.
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
-    _seed(credential_blobs, account_id, name="default", defaults=ProfileDefaults())
+    _seed(cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults())
     events: list[str] = []
     store = _install(cache_client, _Store(events))
     dispatch = _Dispatch()
@@ -308,7 +317,9 @@ def test_an_index_unreadable_before_planning_causes_no_bypass_and_no_wrong_hit(
         patch.object(ProfileIndexStore, "get", _unreadable_before_planning),
     ):
         filled, _ = _send(_body())
-        _seed(credential_blobs, account_id, name="default", defaults=_EVERY_SAVED_FIELD)
+        _seed(
+            cache_client, credential_blobs, account_id, name="default", defaults=_EVERY_SAVED_FIELD
+        )
         served, served_events = _send(_body())
         other, _ = _send(_body(system="you are a pirate"))
 
@@ -352,7 +363,14 @@ def test_an_invalid_historical_default_neither_refuses_nor_reaches_the_provider(
 ) -> None:
     """RED before Stage C: 400 `invalid_profile_defaults` for a value the caller never sent."""
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    _seed(credential_blobs, account_id, name="default", defaults=defaults, provider=provider)
+    _seed(
+        authenticated_client,
+        credential_blobs,
+        account_id,
+        name="default",
+        defaults=defaults,
+        provider=provider,
+    )
     captured: list[dict[str, Any]] = []
 
     async def _capture(_self, body):

@@ -263,7 +263,7 @@ is passed to `datasets.load_dataset` at
 [`#L215`](https://github.com/UKGovernmentBEIS/inspect_ai/blob/0.3.263/src/inspect_ai/dataset/_sources/hf.py#L215)),
 or through `csv_dataset`, `json_dataset`, `inspect_ai.util.download` and inspect_evals' own
 helpers. Each place a task fetches from is a **Case Source**; the pin is a Hub revision, a commit
-in the URL, or an upstream sha256.
+in the URL, or an inspect_evals sha256.
 
 | | Task replay ✅ (every Imported Benchmark, OME-1460) |
 | -- | -- |

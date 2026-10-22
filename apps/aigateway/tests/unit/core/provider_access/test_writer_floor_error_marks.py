@@ -9,9 +9,9 @@
 # INVARIANT: an API-key Connection is re-keyed IN PLACE (same row, still `active`), so `id` and
 # `status=active` cannot tell the old key's failure from the new key's; the generation can.
 # INVARIANT: a lost check marks nothing and changes no answer; a check never moves the generation.
-# AIDEV-NOTE: `migrated` pairs keep their own fences (§5.3) and are not covered here. The Profile
-# marks and the OAuth-callback failures are already fenced on the credential version and on the
-# flow's own pending row; the pins at the end prove they lose to the same ownership changes.
+# WHY no `migrated` pair here: it keeps its own fences (§5.3). The Profile-mark pin retired with
+# the Profile dispatch target (OME-1209 E4a): a key replaced during dispatch is pinned on its
+# Connection below. The legacy OAuth-callback pin retired with that callback (OME-1209 E3b).
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from connection_backed_admin_probes import document, marker, put_pair_key, set_api_key
-from connection_backed_oauth_probes import callback, start, use_failing_exchange
+from connection_backed_admin_probes import marker
 from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
 
 from aigateway.core.api_key_validation import (
@@ -30,7 +29,6 @@ from aigateway.core.api_key_validation import (
 )
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError, ReauthRequiredError
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     CredentialTarget,
     PairAuthorityStore,
@@ -150,9 +148,11 @@ def test_a_dispatch_failure_after_the_first_marker_appeared_marks_nothing(harnes
 
 
 def test_a_lost_check_on_a_quarantined_pair_keeps_its_state_and_note(harness) -> None:
+    # WHY resolve first: a quarantined pair refuses resolve (spec §9 Q8), so the quarantine lands
+    # while the request is in flight.
     connection_id = harness.seed_connection(label="work")
-    _quarantine(harness, "two candidates")
     target = _resolve(harness)
+    _quarantine(harness, "two candidates")
     _claim(harness)
     before = marker(harness)
 
@@ -278,32 +278,3 @@ class _Rejects:
 
     async def get_token_with_expiry(self) -> tuple[str, int, bool]:
         raise self._exc
-
-
-# --- pins: paths already fenced on the credential version or the flow's own row ---------------
-
-
-def test_a_profile_dispatch_failure_after_a_legacy_key_put_keeps_the_new_key(harness) -> None:
-    harness.seed_profile(auth_type="api_key", credential="sk-ant-api03-old-key-1111")
-    target = _resolve(harness)
-    set_api_key(harness, key=NEW_KEY)
-
-    _record(harness, target)
-
-    current = document(harness)
-    assert current is not None
-    assert current.state is ProfileState.AUTHENTICATED
-
-
-def test_a_legacy_oauth_failure_after_a_legacy_key_put_leaves_the_document_alone(harness) -> None:
-    state = start(harness)
-    put_pair_key(harness, key=NEW_KEY)
-    use_failing_exchange(harness)
-
-    # WHY raises: the failed exchange surfaces as today's 500; this harness re-raises it.
-    with pytest.raises(AuthError):
-        callback(harness, state)
-
-    current = document(harness)
-    assert current is not None
-    assert (current.state, current.auth_type) == (ProfileState.AUTHENTICATED, "api_key")

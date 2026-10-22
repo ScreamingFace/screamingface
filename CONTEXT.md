@@ -183,21 +183,30 @@ _Avoid_: Leaderboard Score when referring specifically to the write request
 The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
-**Frozen Copy**:
+**Pinned Cache**:
 The permanent record of every model answer and web-tool result of one captured run. The AI gateway
-keeps it, and the Engine seals it when the run ends.
-_Avoid_: Cache, snapshot, cache version
+keeps it separately from the ordinary cache, and the Engine seals it when the run ends. The SDK
+exposes its id as `pinned_cache`; internal APIs and saved reports retain `frozen_copy_id`.
+_Avoid_: Frozen Copy in user-facing copy, snapshot, cache version
 
 **Capture Status**:
-Whether a Frozen Copy holds the whole run: complete or partial. A local capture is always partial. A
+Whether a Pinned Cache holds the whole run: complete or partial. A local capture is always partial. A
 Candidate Result carries it, and a Leaderboard Score stores it.
 _Avoid_: Verified (that is the separate `verified_by_screamingface` mark), Partial Report
 
 **Reproduction**:
-A replay of a Leaderboard Score against its Frozen Copy, run with its Candidate URL4 and stored
+A replay of a Leaderboard Score against its Pinned Cache, run with its Candidate URL4 and stored
 answer seed. It is exact when it gives the stored score and case count on the same Benchmark
-Revision, and the same case digest when the score has one.
+Revision, and the same case digest when the score has one. `evaluate(pinned_cache=…)` or
+`evaluate(score_id=…)` returns a Report; its Candidate Result holds a Reproduction object whose
+`outcome` is `exact` or `failed`. A partial replay or an unsubmitted capture has no verdict.
 _Avoid_: Re-run, fresh run, verification, replay alone
+
+**Partial Replay**:
+The first n cases of a published run, requested with `evaluate(pinned_cache=…, limit=n)` for
+debugging. It is never judged or recorded; `CandidateResult.reproduction` is `None`. It requires
+the Engine to rebuild the published recipe and a compatible subset before execution.
+_Avoid_: Partial Capture (a capture that did not store the whole run)
 
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.
@@ -307,23 +316,30 @@ name always means the framework; Sample, Target, Solver and Scorer for our own c
 
 **Imported Benchmark**:
 A Benchmark generated from an external eval catalogue, whose Cases are exactly the items the
-upstream eval would run (apart from any Named Deviation) and whose Grading is the upstream eval's
-own grading code. Today the only source is Inspect.
+inspect_evals eval would run (apart from any Named Deviation) and whose Grading is the inspect_evals
+eval's own grading code. Today the only source is Inspect.
 _Avoid_: Board, inspect board
 
 **Named Deviation**:
-A declared, reviewable difference between an Imported Benchmark and its upstream eval, such as
+A declared, reviewable difference between an Imported Benchmark and its inspect_evals eval, such as
 dropped questions or a system message delivered as input text. It is written on the Benchmark
 and included in its Benchmark Revision.
 _Avoid_: Patch, tweak
 
 **Inverted Grade**:
-A mark on an Imported Benchmark whose upstream grade counts the behaviour we don't want, such as
-a judge's grade for going along with an unsafe prompt. Each Case scores 1 − that grade, so higher
-is still better and the Benchmark's score is a refusal rate, not a compliance rate. It is part of
-the Benchmark Revision and shown in the Report; it says the score is already flipped, never that
-anyone should flip it again.
+A mark on an Imported Benchmark whose grade in the inspect_evals eval counts the behaviour we don't
+want, such as a judge's grade for going along with an unsafe prompt. Each Case scores 1 − that
+grade, so higher is still better and the Benchmark's score is a refusal rate, not a compliance rate.
+It is part of the Benchmark Revision and shown in the Report; it says the score is already flipped,
+never that anyone should flip it again.
 _Avoid_: Reversed score, lower-is-better Benchmark
+
+**Unlisted Benchmark**:
+A Benchmark that stays installed, revisioned and runnable by id but is absent from the catalogue
+listing, so the SDK listing and the Scoreboard seed never see it. Like an unlisted video: the link
+works, the index does not show it. The mark is declared on the Benchmark in code and never enters
+its Benchmark Revision.
+_Avoid_: Hidden, private, retired (the Scoreboard's private visibility and retire tool are different things)
 
 **Headline Score**:
 The one score of a Benchmark that ranks the Leaderboard, always higher-is-better. For a
@@ -341,10 +357,10 @@ _Avoid_: Sub-score, secondary metric, extra metric
 What says where a Benchmark comes from: its paper with the authors and a citation, the links to
 its website, harness, dataset and licence (with any restriction on it) and, for an Imported
 Benchmark, the people who ported it into Inspect. Who typed the row into ScreamingFace is not
-part of it: git holds that. The harness link is always the original upstream code that produced the paper's
-numbers, pinned to a commit or version tag, never ScreamingFace's own translation of it. None of
-it is part of the Benchmark Revision: a link or a baseline says nothing about which Cases are
-asked or how they are graded.
+part of it: git holds that. The harness link is always the authors' original code that produced
+the paper's numbers, pinned to a commit or version tag, never ScreamingFace's own translation of
+it. None of it is part of the Benchmark Revision: a link or a baseline says nothing about which
+Cases are asked or how they are graded.
 _Avoid_: Metadata, sources
 
 **Frontier Score**:

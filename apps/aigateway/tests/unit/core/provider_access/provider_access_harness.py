@@ -126,16 +126,18 @@ class ProfileBackedHarness:
         self._fail = False
         self._evicted: list[str] = []
         self._invalidated: list[str] = []
-        index = client.app.state.profile_index
-        real_get = index.get
+        # WHY the class, not the app's store: since OME-1209 E4b the app wires no index, so a
+        # read could only come through a store built on the spot; the class sees every one.
+        real_get = ProfileIndexStore.get
+        self._real_get = real_get
 
-        async def counting_get(*args: Any, **kwargs: Any) -> Any:
+        async def counting_get(index: ProfileIndexStore, *args: Any, **kwargs: Any) -> Any:
             self._reads += 1
             if self._fail:
                 raise RuntimeError("the profile index blob could not be decoded")
-            return await real_get(*args, **kwargs)
+            return await real_get(index, *args, **kwargs)
 
-        monkeypatch.setattr(index, "get", counting_get)
+        monkeypatch.setattr(ProfileIndexStore, "get", counting_get)
 
         # Recorders: the real cache still evicts; the real plugin hook is a no-op for Anthropic,
         # so recording the call IS the observable.
@@ -147,7 +149,7 @@ class ProfileBackedHarness:
             return real_evict(credential_name)
 
         monkeypatch.setattr(cache, "evict", recording_evict)
-        monkeypatch.setattr(ANTHROPIC, "invalidate_profile_session", self._invalidated.append)
+        monkeypatch.setattr(ANTHROPIC, "invalidate_credential_session", self._invalidated.append)
 
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return self.client.portal.call(partial(fn, *args, **kwargs))
@@ -231,10 +233,10 @@ class ProfileBackedHarness:
         return self._reads
 
     def profile_state(self, name: str = "default") -> str | None:
-        # WHY a fresh store: it reads the same index blob without passing the counting `get`, so
-        # an observation never moves `index_reads()`.
+        # WHY the unspied `get`: an observation reads the same index blob without passing the
+        # counting spy, so it never moves `index_reads()`.
         idx = ProfileIndexStore(credential_store=self.blobs.store)
-        profile = self.call(idx.get, self.account_id, PROVIDER, name)
+        profile = self.call(self._real_get, idx, self.account_id, PROVIDER, name)
         return None if profile is None else profile.state.value
 
     def _connection_row(self, connection_id: str) -> dict[str, Any] | None:

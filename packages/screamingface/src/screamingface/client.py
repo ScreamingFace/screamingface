@@ -30,12 +30,10 @@ if TYPE_CHECKING:
     from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
-    from screamingface._reproduction import Reproduction
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
-    from screamingface.leaderboard import LeaderboardScore
     from screamingface.recipe import Recipe
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -240,22 +238,61 @@ class Client:
         capture: bool = True,
     ) -> Report: ...
 
+    @overload
+    def evaluate(
+        self,
+        *,
+        pinned_cache: str,
+        score_id: UUID | str | None = None,
+        url4: str | None = None,
+        answer_seed: int | None = None,
+        record_reproduction: bool = True,
+        limit: int | None = None,
+        capture: Literal[False] | None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+    ) -> Report: ...
+
+    @overload
+    def evaluate(
+        self,
+        *,
+        score_id: UUID | str,
+        pinned_cache: str | None = None,
+        url4: str | None = None,
+        answer_seed: int | None = None,
+        record_reproduction: bool = True,
+        limit: int | None = None,
+        capture: Literal[False] | None = None,
+        on_event: Callable[[Event], None] | None = None,
+        progress: bool | None = None,
+    ) -> Report: ...
+
     @tracked("evaluation")
     def evaluate(
         self,
-        candidates: Recipe | Sequence[Recipe] | str,
+        candidates: Recipe | Sequence[Recipe] | str | None = None,
         *,
         benchmark: str | None = None,
         limit: int | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool | None = None,
+        pinned_cache: str | None = None,
+        score_id: UUID | str | None = None,
+        url4: str | None = None,
+        record_reproduction: bool = True,
     ) -> Report:
-        """Evaluate Recipes, or replay one complete evaluation URL4 unchanged.
+        """Evaluate Recipes, replay a complete URL4, or replay a published run from a pinned cache.
+
+        `pinned_cache=` (or `score_id=`, for a private score you submitted) replays a published
+        run at $0 from the answers it captured and judges it against the published score:
+        `CandidateResult.reproduction`. An exact replay is recorded on the Scoreboard unless
+        `record_reproduction=False`. A replay that cannot start raises `sf.ReproductionError`.
 
         `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
         `capture=False` turns it off. An Engine that did not capture a run is reported with an
         `EvaluationWarning`.
         """
@@ -264,6 +301,22 @@ class Client:
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
         self._require_open()
+        if pinned_cache is not None or score_id is not None:
+            return self._evaluate_replay(
+                candidates=candidates,
+                benchmark=benchmark,
+                limit=limit,
+                capture=capture,
+                pinned_cache=pinned_cache,
+                score_id=score_id,
+                url4=url4,
+                answer_seed=answer_seed,
+                record_reproduction=record_reproduction,
+                on_event=on_event,
+                progress=progress,
+            )
+        candidates = _evaluation_candidates(candidates, url4, record_reproduction)
+        capture = True if capture is None else capture
         # FEATURE (OME-1193): validate the declared sitting at the door — a bad seed must
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
@@ -295,22 +348,36 @@ class Client:
             load_operators=self._operator_catalog.load,
         )
 
-    def reproduce(
+    def _evaluate_replay(
         self,
-        score: LeaderboardScore | UUID | str,
         *,
-        record: bool = True,
-    ) -> Reproduction:
-        """Run a submitted score again from its frozen copy and judge the replay.
-
-        Returns `exact` when the replay gives the stored score. An exact replay is recorded on the
-        Scoreboard unless `record=False`. A score with no complete frozen copy starts no run.
-        """
-
-        from screamingface._reproduction import reproduce_sync
+        candidates: object,
+        benchmark: str | None,
+        limit: int | None,
+        capture: bool | None,
+        pinned_cache: str | None,
+        score_id: UUID | str | None,
+        url4: str | None,
+        answer_seed: int | None,
+        record_reproduction: bool,
+        on_event: Callable[[Event], None] | None,
+        progress: bool | None,
+    ) -> Report:
+        from screamingface._replay import replay_sync
 
         self._require_open()
-        return reproduce_sync(self, score, record)
+        _replay_options(candidates, benchmark, capture)
+        return replay_sync(
+            self,
+            pinned_cache=pinned_cache,
+            score_id=score_id,
+            url4=url4,
+            answer_seed=answer_seed,
+            record_reproduction=record_reproduction,
+            on_event=on_event,
+            progress=progress,
+            limit=limit,
+        )
 
     @overload
     def connect(
@@ -619,22 +686,56 @@ class AsyncClient:
         capture: bool = True,
     ) -> Report: ...
 
+    @overload
+    async def evaluate(
+        self,
+        *,
+        pinned_cache: str,
+        score_id: UUID | str | None = None,
+        url4: str | None = None,
+        answer_seed: int | None = None,
+        record_reproduction: bool = True,
+        limit: int | None = None,
+        capture: Literal[False] | None = None,
+        on_event: Callable[[Event], None | Awaitable[None]] | None = None,
+        progress: bool | None = None,
+    ) -> Report: ...
+
+    @overload
+    async def evaluate(
+        self,
+        *,
+        score_id: UUID | str,
+        pinned_cache: str | None = None,
+        url4: str | None = None,
+        answer_seed: int | None = None,
+        record_reproduction: bool = True,
+        limit: int | None = None,
+        capture: Literal[False] | None = None,
+        on_event: Callable[[Event], None | Awaitable[None]] | None = None,
+        progress: bool | None = None,
+    ) -> Report: ...
+
     @tracked("evaluation")
     async def evaluate(
         self,
-        candidates: Recipe | Sequence[Recipe] | str,
+        candidates: Recipe | Sequence[Recipe] | str | None = None,
         *,
         benchmark: str | None = None,
         limit: int | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool | None = None,
+        pinned_cache: str | None = None,
+        score_id: UUID | str | None = None,
+        url4: str | None = None,
+        record_reproduction: bool = True,
     ) -> Report:
-        """Asynchronously evaluate Recipes, or replay one complete evaluation URL4.
+        """Asynchronously evaluate Recipes, replay a complete URL4, or replay a pinned cache.
 
         `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a frozen copy (`CandidateResult.frozen_copy_id`), so the score can be reproduced later.
+        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
         `capture=False` turns it off. An Engine that did not capture a run is reported with an
         `EvaluationWarning`.
         """
@@ -643,6 +744,22 @@ class AsyncClient:
         from screamingface._evaluation.url4 import evaluate_url4_async
 
         self._require_open()
+        if pinned_cache is not None or score_id is not None:
+            return await self._evaluate_replay(
+                candidates=candidates,
+                benchmark=benchmark,
+                limit=limit,
+                capture=capture,
+                pinned_cache=pinned_cache,
+                score_id=score_id,
+                url4=url4,
+                answer_seed=answer_seed,
+                record_reproduction=record_reproduction,
+                on_event=on_event,
+                progress=progress,
+            )
+        candidates = _evaluation_candidates(candidates, url4, record_reproduction)
+        capture = True if capture is None else capture
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
         if isinstance(candidates, str):
@@ -673,18 +790,36 @@ class AsyncClient:
             load_operators=self._operator_catalog.load,
         )
 
-    async def reproduce(
+    async def _evaluate_replay(
         self,
-        score: LeaderboardScore | UUID | str,
         *,
-        record: bool = True,
-    ) -> Reproduction:
-        """Asynchronously run a submitted score again from its frozen copy."""
-
-        from screamingface._reproduction import reproduce_async
+        candidates: object,
+        benchmark: str | None,
+        limit: int | None,
+        capture: bool | None,
+        pinned_cache: str | None,
+        score_id: UUID | str | None,
+        url4: str | None,
+        answer_seed: int | None,
+        record_reproduction: bool,
+        on_event: Callable[[Event], None | Awaitable[None]] | None,
+        progress: bool | None,
+    ) -> Report:
+        from screamingface._replay import replay_async
 
         self._require_open()
-        return await reproduce_async(self, score, record)
+        _replay_options(candidates, benchmark, capture)
+        return await replay_async(
+            self,
+            pinned_cache=pinned_cache,
+            score_id=score_id,
+            url4=url4,
+            answer_seed=answer_seed,
+            record_reproduction=record_reproduction,
+            on_event=on_event,
+            progress=progress,
+            limit=limit,
+        )
 
     @overload
     async def connect(
@@ -772,6 +907,30 @@ class AsyncClient:
             headers=headers,
             extensions={_REPLAY_SAFE: replay_safe},
         )
+
+
+def _replay_options(candidates: object, benchmark: str | None, capture: bool | None) -> None:
+    """A replay is one complete published run (spec §1): nothing else selects what runs."""
+
+    if candidates is not None:
+        raise TypeError("candidates must not be passed with pinned_cache= or score_id=")
+    if benchmark is not None:
+        raise TypeError("benchmark must not be passed with pinned_cache= or score_id=")
+    # S6: a replay reads answers and records none; only an explicit request to capture is wrong.
+    if capture:
+        raise TypeError("capture=True cannot be combined with a replay; a replay captures nothing")
+
+
+def _evaluation_candidates(
+    candidates: Recipe | Sequence[Recipe] | str | None, url4: str | None, record: bool
+) -> Recipe | Sequence[Recipe] | str:
+    if url4 is not None or record is not True:
+        raise TypeError("url4= and record_reproduction= apply only with pinned_cache= or score_id=")
+    if candidates is None:
+        raise TypeError(
+            "evaluate needs candidates, or pinned_cache= / score_id= to replay a published run"
+        )
+    return candidates
 
 
 def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:

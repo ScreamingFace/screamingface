@@ -28,14 +28,15 @@ import {
   GROUP_ORDER,
   providerPresentation,
 } from "@/lib/provider-presentation";
+import { fusionOf, renderRecipe } from "@/lib/recipe";
 import { cn } from "@/lib/utils";
 
 const STARRED_VIEW = "__starred__";
 
+// A fusion of the selected models, in the form the builder's `?recipe=` import reads, or the
+// issues that keep the SDK from compiling it. Null when there is nothing to compose.
 function buildRecipe(models: SavedModel[]) {
-  return `url4://ensemble-${models.length}?models=${models
-    .map((model) => model.id)
-    .join("+")}&reduce=majority_vote&loop=parallel`;
+  return models.length === 0 ? null : renderRecipe(fusionOf(models));
 }
 
 function errorDetail(error: unknown) {
@@ -510,8 +511,9 @@ export default function ModelsPage() {
       ),
     [library, checked, load, availableIds],
   );
-  const composeRecipe = buildRecipe(selectedModels);
-  const canCompose = selectedModels.length > 0;
+  const composed = buildRecipe(selectedModels);
+  const composeRecipe = composed?.ok ? composed.url4 : null;
+  const canCompose = composeRecipe !== null;
 
   const unreachable = load === "error" && providers.length === 0;
   const loading = (load === "idle" || load === "loading") && providers.length === 0;
@@ -614,7 +616,7 @@ export default function ModelsPage() {
                     >
                       {canCompose ? (
                         <Link
-                          href={`/ensembles/new/?recipe=${encodeURIComponent(composeRecipe)}`}
+                          href={`/ensembles/new/?recipe=${encodeURIComponent(composeRecipe ?? "")}`}
                           prefetch={false}
                         >
                           <Boxes className="size-3.5" />
@@ -629,6 +631,13 @@ export default function ModelsPage() {
                     </Button>
                   )}
                 </div>
+                {composed && !composed.ok && (
+                  <ul role="alert" className="space-y-1 text-xs text-destructive">
+                    {composed.issues.map((issue, index) => (
+                      <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
+                    ))}
+                  </ul>
+                )}
 
                 {library.length === 0 ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">

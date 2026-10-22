@@ -33,7 +33,7 @@ from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: 
 #: all selected Cases — the failure policy is Benchmark identity (spec R6).
 _PUBLISHED_REVISIONS: dict[str, str] = {
     "gsm8k": "075954bfd63059e0",
-    # OME-1268: the first two Benchmarks with Named Scores (served in upstream order).
+    # OME-1268: the first two Benchmarks with Named Scores (served in inspect_evals' order).
     "squad": "5b97eeadbf95b722",
     # OME-1513: the first LOCAL Task (our own eval in inspect's shape, not an inspect_evals import).
     # OME-1527: 1ae798e073477a54 → 9ba23547b22e70ff, support F1 now raises on a missing
@@ -62,6 +62,11 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "ifeval": "1cba769ece27f7ef",
     # OME-1481: FRAMES with its gold articles given, a local Task judged by the paper's prompt.
     "frames_oracle": "6541f5df078dfabd",
+    # OME-1696: BIG-Bench Hard, a local Task asked and graded the paper's way (two Named
+    # Deviations from inspect_evals' bbh); its source is hashed, so a scorer edit moves this.
+    "bbh": "467f06b54836a6f8",
+    # OME-1696: MedMCQA, a local Task we wrote in inspect's shape (validation split).
+    "medmcqa": "60e9f16fbe7c0227",
     # OME-1476: the first published Benchmark with Attempts and an honoured whole-run metric.
     "arc_agi_2": "4f831492ca42fdf4",
     "math": "0fb750cf19e00c11",
@@ -84,6 +89,20 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # Verified against main 2026-09-30: the inverted-grade pin (OME-1400) exists only
     # when a row sets the flag, so its uninverted sibling keeps this revision.
     "xstest_safe": "1044036b2049e623",
+    # OME-1701 PR 2: first frozen here, at the revision main serves, which the rows hold.
+    "chembench": "a36d91b7eb601253",
+    "infinite_bench_math_find": "eb87494cb4dab437",
+    # OME-1701 PR 5 (2026-10-21): first frozen here, at the move to a local Task
+    # that keeps every record (inspect_evals PR #2524 adopted; 2,115 → 2,123 Cases; stereoset
+    # 6fe6deab5af299e2 before it).
+    "stereoset": "c2bf158bee6d5f8b",
+    # OME-1701 PR 6 (2026-10-21): first frozen here, at the move that left out the
+    # 18 questions v0.20.0 builds wrongly (the questions where inspect_evals PR #2590's parse
+    # differs are excluded; its parser is not adopted) and 1 whose source repeats its key's
+    # text under another letter (391 → 372 Cases; onet_m6 fefdc98fb53b0777 before it).
+    "onet_m6": "cfc5f0da9f9418bd",
+    # OME-1701 PR 7: first frozen here, at the revision main serves, which the row holds.
+    "aime26": "c3ccaa828160f661",
 }
 
 
@@ -120,7 +139,10 @@ _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
     "sad_stages_oversight": "2d5f56c1f30ee5dd",
     "sevenllm_mcq_en": "e0332fcbf2cfbded",
     "sevenllm_mcq_zh": "bf67d1707f236386",
-    "worldsense": "a2f8699ca22f49e5",
+    # OME-1701 PR 4 (2026-10-21): a2f8699ca22f49e5 → ad49b23d305a87dd, served by
+    # a local Task that keeps every trial (inspect_evals PR #2507 adopted; 40,176 → 87,048
+    # Cases). Still no Hub pin: the fetch-pin rule above holds.
+    "worldsense": "ad49b23d305a87dd",
 }
 
 

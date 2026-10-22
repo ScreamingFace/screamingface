@@ -1,5 +1,5 @@
 ---
-status: accepted   # owner approval 2026-10-14; E1b and the E3 catalog delta amended 2026-10-15
+status: accepted   # owner approval 2026-10-14; E1b and the E3 catalog delta amended 2026-10-15; E4 amended 2026-10-20 (§9)
 issue: OME-1209
 parent: OME-1138
 date: 2026-10-14
@@ -151,7 +151,7 @@ are not Profile routes; only their legacy-pending branch retires, at E4.
 | E2a | Neutral core: move `AuthType`, `AuthMode`, `credential_name_for`, `profile_id_for` out of `profile_models.py` | none | none |
 | E2b | Delete the dead shims and the saved-defaults pipeline | none | none |
 | E3 | Route retirement: the 13 rows of §2.1 answer R1; schemas leave OpenAPI; Admin UI `schema.d.ts` regenerated; tests pinning the retired routes retire with an approval manifest | yes (R1) | E1 and E1b merged (sunset: retire on merge, §7 Q1); catalog delta (§7 Q6) |
-| E4 | Authority end: Connection-only resolution and admin; D14 dual write, legacy pending, Profile bootstrap and the D18 none-pair bridge removed; plugin hooks renamed or deleted; `ProfileIndexStore` reachable only from offline tooling until E5 | none for migrated pairs | R4 proven in every environment (§7 Q3) |
+| E4 | Authority end: Connection-only resolution and admin; D14 dual write, legacy pending, Profile bootstrap and the D18 none-pair bridge removed; plugin hooks renamed or deleted; `ProfileIndexStore` reachable only from offline tooling until E5; lands as E4a, E4b and E4c (§9 Q11) | none for migrated pairs | R4 proven in every environment (§7 Q3) |
 | E5 | History cleanup (R5) | none | separately authorised |
 
 E1, E2a and E2b are independent and can land in parallel. E3 follows E1 and E1b. E4 needs evidence from outside
@@ -172,8 +172,9 @@ this repository. E5 is not part of closing this issue (§7 Q4).
   with no storage read (spy) and no audit of a write; OpenAPI contains no `/profiles` path and no
   Profile schema; the successor routes are byte-identical before and after.
 - E4: with every pair `migrated`, chat, D18 and native OAuth never construct or read
-  `ProfileIndexStore`; an absent, `none` or `quarantined` marker fails closed with a coded refusal
-  instead of reading the index; PostgreSQL lane green.
+  `ProfileIndexStore`; an absent or `none` marker resolves through the pair's Connections and a
+  `quarantined` marker fails closed with a coded refusal, neither reading the index (§9 Q8);
+  PostgreSQL lane green.
 
 ## 6. Out of scope
 
@@ -206,9 +207,15 @@ their carriers), a multi-credential policy.
     routes still accept writes until E3 is deployed, so the census is re-run (read-only) right
     before E3 and E4 are deployed to each environment; a new Profile-owned pair is backfilled
     first.
+  - **2026-10-20, before E4 (read-only, every environment):** dev runs E3 and E3b and holds
+    26 pairs `migrated` (each `already_migrated`) and the same `none` pair with no Profile
+    document; stage holds no credential; prod holds its 6 `migrated` pairs. 0 `quarantined`,
+    0 conflicts, and no marker, Connection or blob has changed since 2026-10-15. Stage and prod
+    still run a build without E3, so the census is re-run before E3 and each E4 landing reach them.
 - **E4 constraint found by the census.** A pair with no marker and no Profile document is not
   legacy-owned; it must keep resolving through its Connections. E4 refuses only a pair that still
-  has a Profile document and is not `migrated`.
+  has a Profile document and is not `migrated`. (How E4 meets this without reading the index:
+  §9 Q8.)
 - **Q4 — E5: separate and later.** History cleanup (R5) is not part of `OME-1209`; it gets its own
   issue and its own authorisation, with the reference check and deletion behind one fence and a
   fixture where a migrated Connection still uses a legacy-addressed blob.
@@ -238,3 +245,33 @@ their carriers), a multi-credential policy.
   every pair with a Profile document is `migrated` (§7 Q3), so on every pair the routes are
   already facades over the effective Connection, and the census re-run before each E3 deploy keeps
   it so.
+
+## 9. Owner decisions (2026-10-20)
+
+A read-only map of every Profile-index consumer after E3b (`aac2a1ab2`) showed that §5's E4 line
+and the §7 census constraint cannot both hold. A native write on an unmarked pair publishes a
+`none` marker and never promotes it (`writer_floor.claim_pair` keeps the state), so refusing
+every `none` pair would refuse every natively created pair; and telling a `none` pair that has a
+Profile document from one that has none needs the index read R4 forbids.
+
+- **Q8 — an absent or `none` marker is Connection-owned.** Such a pair resolves through its
+  Connections (the label path, chatless or ambient), and no runtime or admin path reads the index
+  for it. Only `quarantined` fails closed, with 409 `credential_pair_unresolved` as D18 already
+  answers; a quarantine verdict always comes with a Profile document. Whether a non-migrated pair
+  still has a Profile document is the offline census's question, re-run before each E4 landing is
+  deployed: the census reads the index, the runtime does not. D18 keeps adopting an empty pair and
+  a pair with a single Connection; its Profile rows (one Profile, a Profile beside a Connection,
+  the shadow proof) go.
+- **Q9 — a migrated pair resolves from its effective reference.** The Profile document only chose
+  between two branches; the marker chooses now: the effective Connection when the marker names
+  one, otherwise the label path over the pair's active Connections, so a pair whose effective row
+  was deleted keeps serving a row added later.
+- **Q10 — no runtime Profile write.** Every runtime or admin write or removal of a Profile
+  document goes, not only the callback's D14 mirror: the D18 PUT mirror and DELETE removal, the
+  native re-key mirror and the native delete's removal. Documents left behind wait for E5 (R5).
+  The R1 rollback tool is then not coherent for a pair changed after E4, as Q7 already accepts for
+  a native repair.
+- **Q11 — three landings.** E4a moves every reader to the Connection authority; E4b removes the
+  writers and the wiring and makes the index offline-only; E4c renames the plugin hooks. Each is
+  its own PR and leaf under `OME-1138`, in that order: until resolve stops reading the document,
+  dropping a mirror would change which branch a migrated pair takes.

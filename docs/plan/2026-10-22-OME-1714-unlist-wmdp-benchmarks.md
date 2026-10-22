@@ -1,0 +1,63 @@
+---
+ticket: OME-1714
+spec: ../spec/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md
+status: implemented
+date: 2026-10-22
+stack: python (apps/screamingface-engine, packages/screamingface)
+branch: OME-1714-unlist-wmdp-benchmarks
+---
+
+# Plan: unlist the WMDP Benchmarks
+
+One PR, one ticket (small cross-landing work: Engine code + SDK notebook prose).
+
+## U1 — the mark (Engine core)
+
+- `src/screamingface_engine/benchmarks/definition.py`: `Benchmark.unlisted: bool = False`.
+  Not in `_metadata()`, so no wire change (spec R4).
+- `src/screamingface_engine/rest/benchmarks.py`: `list_benchmarks` skips `unlisted` Benchmarks;
+  `get_benchmark` unchanged (spec R1, R2).
+- Test `tests/unit/test_benchmark_unlisted.py` (extra-less): default is listed; the list omits
+  an Unlisted Benchmark; the resource still answers; the listed neighbour's entry is identical
+  with and without the Unlisted sibling; no `unlisted` key on the wire.
+
+## U2 — the three rows (inspect plugin)
+
+- `src/screamingface_engine_inspect/benchmarks.py`: `BenchmarkSpec.unlisted: bool = False`;
+  the three WMDP rows set `unlisted=True` with a comment naming OME-1714; the factory threads
+  it to `single_shot_benchmark`.
+- `src/screamingface_engine_inspect/single_shot.py`: `single_shot_benchmark(unlisted=...)`
+  passes it to `Benchmark`. Not a revision pin (spec R4).
+- Test `tests/unit/inspect/test_unlisted_rows.py`: the Unlisted set read from the spec rows is
+  exactly the three WMDP keys (no assembly, so it runs extra-less); with the extra, the
+  assembled WMDP-Bio Benchmark is unlisted and gsm8k is not.
+
+## U3 — SDK notebook prose
+
+- `packages/screamingface/scripts/build_notebooks.py`: drop the three ids from "The rest of the
+  shelf"; regenerate `examples/12_inspect_evals_benchmarks.ipynb`.
+
+## U3b — SDK `get` by id and the local seed twin (review findings)
+
+- `src/screamingface/_engine/catalog_contract.py`: `_decode_benchmark(payload, requested_id)`
+  decodes one resource as an entry and refuses a body whose id is not the one asked for.
+- `src/screamingface/_engine/catalog.py`: `Benchmarks.get` / `AsyncBenchmarks.get` read the
+  listing first, then `GET /v1/benchmarks/{id}`; a 404 raises the same `unknown_benchmark`.
+- `src/screamingface/_runtime/bootstrap.py`: `scoreboard_seed_json` skips rows with
+  `unlisted` true (read with `getattr`, like `focus`).
+- Tests appended: `tests/test_catalog_discovery.py` (fallback, 404, wrong id, async twin),
+  `tests/test_runtime_cli.py` (the local projection skips an Unlisted row).
+
+## U4 — docs
+
+- `CONTEXT.md`: define **Unlisted Benchmark**.
+- Ledger, task mirror (done at PR-open), this plan and the spec.
+
+## Verification
+
+- Engine: `tests/unit/test_benchmark_unlisted.py`, `tests/unit/inspect/test_unlisted_rows.py`,
+  `tests/unit/inspect/test_published_revisions.py`, `tests/unit/test_benchmark_origin.py`;
+  ruff + pyright on touched files; extra-less pyright + `tests/unit` per the CI rule.
+- SDK: `tests/test_catalog_discovery.py`, `tests/test_runtime_cli.py`,
+  `tests/test_benchmark_provenance_wire.py`, `tests/test_draco_vertical_slice.py`; ruff + pyright on
+  touched files; `uv run --extra notebook python scripts/check_notebooks.py`.

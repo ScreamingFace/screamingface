@@ -259,7 +259,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy | None:
@@ -269,8 +269,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # credentials, without any provider branch in core.
             return None
         return ApiKeyStrategy(
-            profile_name,
-            service=_credential_service_for(profile_name),
+            credential_name,
+            service=_credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
@@ -281,7 +281,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             return None
         return OpenRouterApiKeyValidator(settings=self.settings)
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         # D9: only 401 proves the stored key is bad. 402 (credits), 403
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
@@ -315,6 +315,14 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             raise IncompatibleParametersError(
                 ("logprobs", "top_logprobs"),
                 reason="top_logprobs_requires_logprobs_true",
+            )
+        reasoning = body.get("reasoning")
+        if "reasoning_effort" in body and isinstance(reasoning, Mapping) and "effort" in reasoning:
+            # INVARIANT: OpenRouter accepts two effort spellings, but one request never sends both;
+            # provider precedence is not a stable substitute for an explicit caller choice.
+            raise IncompatibleParametersError(
+                ("reasoning_effort", "reasoning.effort"),
+                reason="reasoning_effort_spellings_conflict",
             )
         if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
             raise IncompatibleParametersError(
@@ -362,6 +370,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                     "n",
                     "logprobs",
                     "top_logprobs",
+                    "reasoning.effort",
                     "web_search",
                     "web_search_excluded_domains",
                 ),

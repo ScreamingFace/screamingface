@@ -10,8 +10,11 @@ from decimal import Decimal
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from screamingface._reproduction import Reproduction
 
 from screamingface._case_views import case_trace
 from screamingface._client_provenance import client_version as _client_version
@@ -230,7 +233,7 @@ def _answer_seed(value: object) -> int | None:
 
 
 def _capture(
-    frozen_copy_id: object, capture_status: object
+    pinned_cache: object, capture_status: object
 ) -> tuple[str | None, Literal["complete", "partial"] | None]:
     """Validate the frozen copy pair; stricter than the Scoreboard on the spelling of the id.
 
@@ -239,14 +242,14 @@ def _capture(
     spellings of a UUID and normalises them; the Client refuses those instead, so the id it stores
     and sends is exactly the id the Engine stated.
     """
-    if frozen_copy_id is not None and (
-        not isinstance(frozen_copy_id, str) or not _is_canonical_uuid(frozen_copy_id)
+    if pinned_cache is not None and (
+        not isinstance(pinned_cache, str) or not _is_canonical_uuid(pinned_cache)
     ):
-        raise ValueError("Candidate frozen_copy_id must be a UUID string or None")
+        raise ValueError("Candidate pinned_cache must be a UUID string or None")
     status = capture_status_value(capture_status)
-    if frozen_copy_id is not None and status is None:
-        raise ValueError("Candidate frozen_copy_id requires capture_status")
-    return frozen_copy_id, status
+    if pinned_cache is not None and status is None:
+        raise ValueError("Candidate pinned_cache requires capture_status")
+    return pinned_cache, status
 
 
 def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
@@ -261,6 +264,13 @@ def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
     if not all(value):
         raise ValueError("Candidate capture_partial_reasons must not name an empty reason")
     return tuple(sorted(set(value)))
+
+
+def _require_reproduction(value: object) -> None:
+    from screamingface._reproduction import Reproduction
+
+    if value is not None and not isinstance(value, Reproduction):
+        raise TypeError("Candidate reproduction must be an sf.Reproduction or None")
 
 
 def _is_canonical_uuid(value: str) -> bool:
@@ -316,12 +326,16 @@ class CandidateResult:
     cache_unpriced_hits: int | None
     # FEATURE (OME-1307): the frozen copy this run captured (`capture=True`) and whether it holds
     # every call of the run. None is "not captured" or "unknown" (an older Engine), never `partial`.
-    frozen_copy_id: str | None
+    pinned_cache: str | None
     capture_status: Literal["complete", "partial"] | None
     # FEATURE (Q23, design §7): the partial reasons the run counted, sorted; `("local",)` for a
     # local capture. Empty when complete, not captured or unknown. Only the submitter sees them:
     # the board does not store them.
     capture_partial_reasons: tuple[str, ...]
+    # FEATURE (OME-1613): the verdict of a replay from a pinned cache against the published
+    # score; None for every other run, and for a replay with no published score (S4). Not
+    # exported: it judges the run, it is not part of the run's data.
+    reproduction: Reproduction | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
     # its column over the Cases the Benchmark's failure policy counts (OME-1642), headline
@@ -357,14 +371,16 @@ class CandidateResult:
         cache_saved_cost_archive_usd: Decimal | str | None = None,
         cache_unpriced_hits: int | None = None,
         scores: Mapping[str, float | None] | None = None,
-        frozen_copy_id: str | None = None,
+        pinned_cache: str | None = None,
         capture_status: Literal["complete", "partial"] | None = None,
         capture_partial_reasons: Sequence[str] = (),
+        reproduction: Reproduction | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
+        _require_reproduction(reproduction)
         _check_cache_counts(cache_hits, cache_unpriced_hits)
-        selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
+        selected_copy, selected_capture = _capture(pinned_cache, capture_status)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -445,9 +461,10 @@ class CandidateResult:
             "cache_hits": cache_hits,
             "cache_saved_cost_archive_usd": selected_archive,
             "cache_unpriced_hits": cache_unpriced_hits,
-            "frozen_copy_id": selected_copy,
+            "pinned_cache": selected_copy,
             "capture_status": selected_capture,
             "capture_partial_reasons": _partial_reasons(capture_partial_reasons),
+            "reproduction": reproduction,
             "_metric_items": metric_items,
             "_scores": selected_scores,
         }
@@ -537,7 +554,8 @@ class CandidateResult:
             ),
             "cache_unpriced_hits": self.cache_unpriced_hits,
             # OME-1307: always emitted (null = not captured or unknown), like the cache fields.
-            "frozen_copy_id": self.frozen_copy_id,
+            # OME-1613: the wire and the export keep the `frozen_copy_id` key (spec Q12).
+            "frozen_copy_id": self.pinned_cache,
             "capture_status": self.capture_status,
             "capture_partial_reasons": list(self.capture_partial_reasons),
         }

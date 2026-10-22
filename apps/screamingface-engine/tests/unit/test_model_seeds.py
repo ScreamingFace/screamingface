@@ -23,15 +23,16 @@ def test_the_shipped_world_declares_every_compiled_provider() -> None:
 
 
 def test_the_shipped_world_totals_match_the_audited_gap() -> None:
-    # INVARIANT: 117 compiled ids, 29 of them colon-bearing (24 HuggingFace + 5 OpenRouter
+    # INVARIANT: 116 compiled ids, 29 of them colon-bearing (24 HuggingFace + 5 OpenRouter
     # `:batch`/`:free`). Audited 2026-08-17 against the plugin seeds at f4684a83; the equality
     # guard is what keeps this true, this test is what makes a change visible.
     #
     # AIDEV-NOTE: these totals move whenever aigateway lands a seed PR — three did on 2026-08-17
     # alone (OME-816/817/818 via #581/#583, then OME-856). Do NOT relax this test to stop it
     # failing; the equality guard names the exact ids to add to a seeds/ module.
-    assert len(BUILTIN_MODEL_WORLD) == 117
-    assert len(BUILTIN_MODEL_WORLD.routable) == 88
+    # 2026-10-22: 117 -> 116, codex's five retired ids replaced by its live four (#1441).
+    assert len(BUILTIN_MODEL_WORLD) == 116
+    assert len(BUILTIN_MODEL_WORLD.routable) == 87
     assert len(BUILTIN_MODEL_WORLD.aigateway_only) == 29
 
 

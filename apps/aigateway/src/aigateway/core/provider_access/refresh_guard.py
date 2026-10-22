@@ -10,9 +10,9 @@
 # never burns a rotating refresh token. Refresh is not an ownership change: nothing here touches
 # the pair marker.
 # INVARIANT (lock order = the ownership writers' order, marker → owner → blob): this publication
-# takes the owner row (a Connection row, or the account index for a Profile), then the blob row —
-# a suffix of the writers' order, so it serializes with them and cannot deadlock against them.
-# AIDEV-NOTE: a lost publication is `RefreshSuperseded`, never `AuthError` — callers answer the
+# takes the owner Connection row, then the blob row — a suffix of the writers' order, so it
+# serializes with them and cannot deadlock against them.
+# INVARIANT: a lost publication is `RefreshSuperseded`, never `AuthError` — callers answer the
 # superseded conflict and mark nothing errored.
 """
 
@@ -30,7 +30,6 @@ from ..credential_blob.model import CredentialBlob
 from ..errors import RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..oauth_base import BaseOAuthStrategy, RefreshPublication
-from ..profile_index import ProfileIndexStore, ProfileTransitionConflict, lock_account_index
 
 
 class _OwnerGone(Exception):
@@ -80,29 +79,8 @@ class ConnectionRefreshOwner:
         )
 
 
-@dataclass(frozen=True)
-class ProfileRefreshOwner:
-    """A legacy Profile document owns the refreshed blob (a `none`/`quarantined` pair)."""
-
-    account_id: str
-    provider: str
-    profile_id: str
-    index: ProfileIndexStore
-
-    async def lock(self) -> None:
-        await lock_account_index(self.account_id)
-        profiles = await self.index.list(self.account_id, self.provider)
-        if not any(profile.id == self.profile_id for profile in profiles):
-            raise _OwnerGone
-
-    async def stamp(self) -> None:
-        try:
-            await self.index.stamp_refreshed(self.profile_id)
-        except ProfileTransitionConflict as exc:
-            raise _OwnerGone from exc
-
-
-RefreshOwner = ConnectionRefreshOwner | ProfileRefreshOwner
+# WHY an alias: a refresh owner is a Connection since the Profile reader was deleted (E4a).
+RefreshOwner = ConnectionRefreshOwner
 
 
 class GuardedRefreshPublication:
@@ -146,9 +124,9 @@ class GuardedRefreshPublication:
 def guard_refresh(strategy: Any, owner: RefreshOwner) -> Any:
     """Bind the owner guard to an OAuth strategy the app built; any other strategy passes through.
 
-    # AIDEV-NOTE: every app site that builds a strategy able to refresh binds it here (the §5.3
-    # inventory: dispatch for a Profile and a Connection, the token service, the migrated facade,
-    # the native and the legacy refresh routes). An unbound strategy writes directly.
+    # INVARIANT: every app site that builds a strategy able to refresh binds it here (the §5.3
+    # inventory: dispatch for a Connection, the token service, the native refresh route). An
+    # unbound strategy writes directly.
     """
     if isinstance(strategy, BaseOAuthStrategy):
         publication: RefreshPublication = GuardedRefreshPublication(
@@ -162,7 +140,6 @@ __all__ = [
     "BlobObservation",
     "ConnectionRefreshOwner",
     "GuardedRefreshPublication",
-    "ProfileRefreshOwner",
     "RefreshOwner",
     "guard_refresh",
 ]
