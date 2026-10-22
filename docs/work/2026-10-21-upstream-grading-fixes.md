@@ -441,14 +441,23 @@ three publish a new revision, the other 82 publish main's.
 
 | Row | Published (main) | Published now | Computed fingerprint | Why |
 | --- | --- | --- | --- | --- |
-| paws | 8f4e0e9c0864a6e7 | held | ab44cff9bea304ca | grading only |
-| boolq | 00d4443ca7e66d43 | held | b4a47768ef2ebf95 | grading only |
-| chembench | a36d91b7eb601253 | held | 7af1d67ffad68471 | grading only |
-| infinite_bench_math_find | eb87494cb4dab437 | held | a38b3a6c787f08a8 | grading only |
-| math | 0fb750cf19e00c11 | held | 414043e2d2a9dbcc | grading only |
+| paws | 8f4e0e9c0864a6e7 | held | 992540ea3309d384 | grading only |
+| boolq | 00d4443ca7e66d43 | held | 588977e58b380d7f | grading only |
+| chembench | a36d91b7eb601253 | held | b86658ea78c51962 | grading only |
+| infinite_bench_math_find | eb87494cb4dab437 | held | 1ed274442ad5dba1 | grading only |
+| math | 0fb750cf19e00c11 | held | 4129dccca9dbb8ce | grading only |
 | aime24 | 2e4ce70a8953233a | held | 600e759b1c5766e6 | grading only |
 | aime25 | b207e9fe34ea7517 | held | a8d8eb4969ef8b8a | grading only |
 | aime26 | c3ccaa828160f661 | held | b289716a32495871 | grading only |
-| worldsense | a2f8699ca22f49e5 | a9ea4fd817d0f54b | same | Cases 40,176 → 87,048 |
-| stereoset | 6fe6deab5af299e2 | dd1c2cc6e587ed15 | same | Cases 2,115 → 2,123 |
+| worldsense | a2f8699ca22f49e5 | ad49b23d305a87dd | same | Cases 40,176 → 87,048 |
+| stereoset | 6fe6deab5af299e2 | c2bf158bee6d5f8b | same | Cases 2,115 → 2,123 |
 | onet_m6 | fefdc98fb53b0777 | cfc5f0da9f9418bd | same | Cases 391 → 372 |
+
+The ported fixes are verbatim copies of inspect_evals' code with the same names (owner rule,
+2026-10-22): PR #2334's patterns, PR #2591's `multiple_choice_letters`/`chembench_scorer`, PR
+#2346's `math_find_scorer.py`, PRs #2199 and #2340's `extract_answer` blocks (with v0.20.0's
+`score_helper` and scorers), and PR #2507's and PR #2524's `worldsense`/`stereoset` and
+`record_to_sample`. What stays ours is named in each file's header and marked `OURS` where it
+runs; the per-PR outcomes above list it. The copies moved the computed fingerprints above (and the worldsense and stereoset
+revisions) once more; the held ids did not move, and the worldsense and stereoset Cases replay
+byte-identical.

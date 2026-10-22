@@ -46,3 +46,8 @@ one (worldsense, stereoset, onet_m6). The per-row table is in the work ledger:
   published revision, each computed fingerprint pinned in `test_benchmark_fingerprints.py`; only
   worldsense, stereoset and onet_m6 publish a new revision. The leaderboard had no entry or
   baseline on any of the eleven.
+- 2026-10-22: owner rule, a ported fix is a verbatim copy with the same names: every fix taken
+  from an inspect_evals PR (#2334, #2591, #2346, #2199, #2340, #2507, #2524) is now that PR's
+  own code, unchanged; what stays ours is named in each file's header, and marked `OURS` where
+  it runs. The held ids did not
+  move; the worldsense and stereoset Cases replay byte-identical.
