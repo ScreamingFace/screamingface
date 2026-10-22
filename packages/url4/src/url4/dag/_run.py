@@ -34,9 +34,9 @@ from url4.dag.attachments import (  # isort: skip
     CachedBlob,
     FileRef,
     bind_run_files,
-    collect_file_refs,
+    attachment_slots,
     current_run_files,
-    merge_attachments,
+    scan_sources,
     refuse_remote,
 )
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
@@ -202,24 +202,29 @@ async def _run_files(
     target: str | AstNode | Graph | DagNode,
     case: Sequence[Attachment],
     run_ctx: ExecutionContext,
-) -> tuple[tuple[Attachment, ...], dict[str, CachedBlob | str] | None]:
+) -> tuple[tuple[Attachment | str, ...], dict[str, CachedBlob | str] | None]:
     """The run's fixed ``attachments[]`` and file cache, resolved BEFORE the first node runs.
 
     INVARIANT (F2 / D5): every file ref the AST names is fetched once (through the run's
     bounded io) and sha256-verified here; any failure — a ``;optional`` source included —
     fails the run before any model call. A ``url4://`` blob ref fails first, with no I/O (D1).
     A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
+    WHY ``https://`` sources are only slotted here, not fetched (owner decision Q-B): they stay
+    lazy, so a text body and a failed ``;optional`` source behave exactly as before (D5 exempt).
     """
     if current_run_files() is not None:
         return tuple(case), None
-    refs = collect_file_refs(ast) if (ast := _ast_of(target)) is not None else ()
+    ast = _ast_of(target)
+    scan = scan_sources(ast) if ast is not None else None
+    refs = () if scan is None else scan.refs
     refuse_remote(refs)
     bodies = await gather_or_cancel(_verify(ref, run_ctx) for ref in refs)
-    resolved = [(ref, _as_attachment(ref, *body)) for ref, body in zip(refs, bodies, strict=True)]
+    resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
     cache: dict[str, CachedBlob | str] = {
         ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
     }
-    return merge_attachments(case, resolved), cache
+    order = () if scan is None else scan.order
+    return attachment_slots(case, resolved, order), cache
 
 
 async def _verify(ref: FileRef, run_ctx: ExecutionContext) -> tuple[bytes, str | None]:

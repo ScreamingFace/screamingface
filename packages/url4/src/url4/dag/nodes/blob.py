@@ -34,6 +34,7 @@ from url4.io.layer import FetchRequest, fetch_result
 
 from url4.dag.node import DagNode, ExecutionContext, Payload  # isort: skip
 from url4.dag.nodes._shared import FetchedText  # isort: skip
+from url4.dag.nodes.fetch import WebFetchNode  # isort: skip
 
 
 @dataclass(eq=False)
@@ -123,6 +124,8 @@ def as_collection(node: DagNode) -> DagNode:
     """
     if isinstance(node, BlobRefNode):
         node.collection = True
+    elif isinstance(node, WebFetchNode):
+        node.collection = True  # U3b: a non-text https body here stays C8, never attached
     return node
 
 
