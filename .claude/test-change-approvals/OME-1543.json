@@ -1,0 +1,15 @@
+{
+  "issue": "OME-1543",
+  "branch": "file-refs-carry",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-10-22",
+  "scope": "one value: the url4 EXPORTS ratchet 59 -> 61 for the two new root exports Attachment and current_attachments; no other test line changes",
+  "reason": "owner decision Q-C (Linear OME-1543 comment 'Owner decisions (Sergey, 2026-10-22)'): export Attachment and current_attachments from url4; the H2 ratchet pins the exact __all__ size",
+  "note": "Pinned against the branch base origin/OME-1539-url4-file-refs; origin/main holds the same base blob. The branch field must follow the PR-open rename to OME-1543-<desc>.",
+  "files": {
+    "packages/url4/tests/unit/test_hygiene_ratchets.py": {
+      "base_blob": "d34dfb6975f758403f1225dec8d1524a2203bdbf",
+      "approved_blob": "c2492021ac0480af78ba3bf7da06ab9273db68ea"
+    }
+  }
+}
