@@ -20,6 +20,7 @@ import os
 import socket
 import subprocess
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
@@ -47,6 +48,41 @@ def clean_env(extra: dict[str, str]) -> dict[str, str]:
     """A from-scratch child environment: passthrough basics + ``extra``, nothing else."""
     base = {name: value for name in _ENV_PASSTHROUGH if (value := os.environ.get(name))}
     return {**base, **extra}
+
+
+#: The only names a caller may add through a ``telemetry`` seam (unit 6, Task 3).
+TELEMETRY_PREFIX: Final = "OTEL_"
+_TRACES_PATH: Final = "/v1/traces"
+
+
+def checked_telemetry(telemetry: Mapping[str, str] | None) -> dict[str, str]:
+    """``telemetry`` as a plain dict, refusing any name outside ``OTEL_*``.
+
+    WHY a refusal and not a filter: the seam exists to point a child at an OTLP receiver. A
+    caller handing it ``OPENROUTER_API_KEY`` or ``AIGW_AUTH_MODE`` is a bug that would break
+    the clean-environment rule, and silently dropping it would hide the bug.
+    """
+    env = dict(telemetry or {})
+    foreign = sorted(name for name in env if not name.startswith(TELEMETRY_PREFIX))
+    if foreign:
+        raise ValueError(f"telemetry may set only {TELEMETRY_PREFIX}* variables, got {foreign}")
+    return env
+
+
+def telemetry_env(receiver_url: str | None, *, service: str) -> dict[str, str]:
+    """The ``OTEL_*`` variables that point one service at an OTLP/HTTP receiver, or ``{}``.
+
+    ``receiver_url`` is the traces URL (``…/v1/traces``, what ``OtlpReceiver.start`` returns).
+    WHY it is turned into a base: ``OTEL_EXPORTER_OTLP_ENDPOINT`` is a BASE that both the
+    engine (``tracing.otlp._endpoint``) and the OTel SDK the gateway uses extend with
+    ``/v1/traces``; the full URL would post to ``/v1/traces/v1/traces``.
+    """
+    if not receiver_url:
+        return {}
+    return {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": receiver_url.removesuffix(_TRACES_PATH),
+        "OTEL_SERVICE_NAME": service,
+    }
 
 
 def free_port() -> int:

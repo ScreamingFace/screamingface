@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -68,7 +70,7 @@ def _paid_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-not-a-key")
 
 
-def _no_boot(*args: str) -> None:
+def _no_boot(*args: str, **kw: object) -> None:
     raise AssertionError(f"the runtime must not be invoked: {args}")
 
 
@@ -103,8 +105,16 @@ class _FakeEngine:
 
     url = "http://127.0.0.1:45678"
 
-    def __init__(self, events: list[tuple[str, ...]], *, work_dir: Path, assets_dir: Path) -> None:
+    def __init__(
+        self,
+        events: list[tuple[str, ...]],
+        *,
+        work_dir: Path,
+        assets_dir: Path,
+        telemetry: dict[str, str] | None = None,
+    ) -> None:
         self._events = events
+        self.telemetry = telemetry
         events.append(("engine-init", str(work_dir), str(assets_dir)))
 
     def start(self, aigateway_base_url: str) -> str:
@@ -120,7 +130,7 @@ def _fake_stack(
 ) -> tuple[list[tuple[str, ...]], list[str]]:
     events: list[tuple[str, ...]] = []
     probed: list[str] = []
-    monkeypatch.setattr(targets, "_runtime_cli", lambda *args: events.append(args))
+    monkeypatch.setattr(targets, "_runtime_cli", lambda *args, **kw: events.append(args))
     monkeypatch.setattr(
         targets,
         "EngineProcess",
@@ -262,7 +272,7 @@ def test_local_target_downs_the_runtime_when_up_fails_partway(
     monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
     events, _ = _fake_stack(monkeypatch, ["ifeval"])
 
-    def up_fails(*args: str) -> None:
+    def up_fails(*args: str, **kw: object) -> None:
         events.append(args)
         if args[0] == "up":
             raise subprocess.CalledProcessError(1, ["screamingface", "up"])
@@ -308,3 +318,115 @@ def test_local_target_downs_the_runtime_when_engine_stop_fails(
         with start_target("local", tmp_path / "work"):
             pass
     assert [e[0] for e in events] == ["up", "engine-init", "engine-start", "engine-stop", "down"]
+
+
+# -- Unit 6 Task 3: both targets export spans to the workbench's OTLP receiver ---------------
+
+_RECEIVER = "http://127.0.0.1:47000/v1/traces"
+_BASE = "http://127.0.0.1:47000"
+
+
+def test_local_target_points_the_runtime_and_the_engine_at_the_receiver(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    calls: list[tuple[tuple[str, ...], object]] = []
+    monkeypatch.setattr(
+        targets, "_runtime_cli", lambda *args, **kw: calls.append((args, kw.get("telemetry")))
+    )
+    engines: list[_FakeEngine] = []
+
+    def engine(**kwargs: object) -> _FakeEngine:
+        built = _FakeEngine([], **kwargs)  # type: ignore[arg-type]
+        engines.append(built)
+        return built
+
+    monkeypatch.setattr(targets, "EngineProcess", engine)
+    monkeypatch.setattr(targets, "_listed_benchmarks", lambda url: ["ifeval"])
+    with start_target("local", tmp_path / "work", otlp_endpoint=_RECEIVER):
+        pass
+    # `up` (and `down`) carry the gateway's telemetry: the in-process Gateway is served by the
+    # runtime's background child, which inherits the env `up` runs under.
+    assert [c[0][0] for c in calls] == ["up", "down"]
+    gateway_env = {"OTEL_EXPORTER_OTLP_ENDPOINT": _BASE, "OTEL_SERVICE_NAME": "aigateway"}
+    assert calls[0][1] == gateway_env
+    assert engines[0].telemetry == {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": _BASE,
+        "OTEL_SERVICE_NAME": "screamingface-engine",
+    }
+
+
+def test_local_target_without_a_receiver_sets_no_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    seen: list[object] = []
+    monkeypatch.setattr(targets, "_runtime_cli", lambda *a, **kw: seen.append(kw.get("telemetry")))
+    engines: list[_FakeEngine] = []
+    monkeypatch.setattr(
+        targets,
+        "EngineProcess",
+        lambda **kw: engines.append(_FakeEngine([], **kw)) or engines[-1],  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(targets, "_listed_benchmarks", lambda url: ["ifeval"])
+    with start_target("local", tmp_path / "work"):
+        pass
+    assert seen == [{}, {}]
+    assert engines[0].telemetry == {}
+
+
+def test_runtime_child_env_admits_the_telemetry_and_nothing_else(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "placeholder-not-a-key")
+    telemetry = {"OTEL_EXPORTER_OTLP_ENDPOINT": _BASE, "OTEL_SERVICE_NAME": "aigateway"}
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(targets.subprocess, "run", lambda command, **kw: seen.update(kw))
+    targets._runtime_cli("up", telemetry=telemetry)
+    env = seen["env"]
+    assert isinstance(env, dict)
+    allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SCREAMINGFACE_RUNTIME_SOURCE"}
+    assert set(env) - allowed == set(telemetry)
+    assert {k: env[k] for k in telemetry} == telemetry
+
+
+def test_runtime_cli_refuses_a_non_otel_telemetry_variable() -> None:
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+        targets._runtime_cli("up", telemetry={"OPENROUTER_API_KEY": "x"})
+
+
+def test_replay_target_points_the_engine_and_the_gateway_at_the_receiver(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    assets = _prepared_assets(tmp_path)
+    monkeypatch.setattr(targets, "require_e2e_stack", lambda: None)
+    monkeypatch.setattr(targets, "assets_root", lambda: assets)
+    gateways: list[dict[str, object]] = []
+    stacks: list[dict[str, object]] = []
+
+    class _Gateway:
+        def __init__(self, **kwargs: object) -> None:
+            gateways.append(kwargs)
+
+    class _Stack:
+        engine_url = "http://127.0.0.1:2"
+
+    @contextmanager
+    def fake_replay_stack(backend: object, **kwargs: object) -> Iterator[_Stack]:
+        stacks.append(kwargs)
+        yield _Stack()
+
+    monkeypatch.setattr(targets, "CacheSeededGateway", _Gateway)
+    monkeypatch.setattr(targets, "replay_stack", fake_replay_stack)
+    with start_target("replay", tmp_path / "work", otlp_endpoint=_RECEIVER) as target:
+        assert target.engine_url == "http://127.0.0.1:2"
+    assert gateways[0]["telemetry"] == {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": _BASE,
+        "OTEL_SERVICE_NAME": "aigateway",
+    }
+    assert stacks[0]["engine_telemetry"] == {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": _BASE,
+        "OTEL_SERVICE_NAME": "screamingface-engine",
+    }

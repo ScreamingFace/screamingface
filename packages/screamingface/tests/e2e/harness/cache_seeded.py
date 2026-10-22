@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 from urllib.parse import quote
@@ -43,6 +44,7 @@ import httpx
 
 from ._local_proc import (
     ManagedProcess,
+    checked_telemetry,
     clean_env,
     free_port,
     repo_root,
@@ -67,9 +69,19 @@ class CacheSeededGateway:
         manifest: the ``.manifest.json`` revision-guard sidecar, or ``None`` to load
             unverified (the job then carries the ``revisions_unverified`` warning).
         work_dir: where child logs land (a pytest ``tmp_path`` works).
+        telemetry: ``OTEL_*`` variables pointing the gateway's span export at an OTLP
+            receiver (``_local_proc.checked_telemetry``); absent, it exports nothing.
     """
 
-    def __init__(self, *, snapshot: Path, manifest: Path | None, work_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        snapshot: Path,
+        manifest: Path | None,
+        work_dir: Path,
+        telemetry: Mapping[str, str] | None = None,
+    ) -> None:
+        self._telemetry = checked_telemetry(telemetry)
         self._snapshot = snapshot
         self._manifest = manifest
         self._work_dir = work_dir
@@ -148,6 +160,7 @@ class CacheSeededGateway:
         port = free_port()
         env = clean_env(
             {
+                **self._telemetry,  # OTEL_* only; the harness's own settings below win
                 "AIGATEWAY_DATABASE_URL": database_url,
                 # Loopback-only anonymous mode: the engine calls with no credential,
                 # and /v1/admin answers this process without identity headers.

@@ -24,7 +24,7 @@ pytest_plugins = ["pytester"]
 
 _ARGS = ("-p", "no:cacheprovider", "--import-mode=importlib", "-rA")
 _CONFTEST = (
-    "from workbench.conftest import live_target, workbench_out  # noqa: F401\n"
+    "from workbench.conftest import live_target, otlp_receiver, workbench_out  # noqa: F401\n"
     "from workbench.conftest import pytest_runtest_makereport  # noqa: F401\n"
 )
 _TEST = """
@@ -36,7 +36,7 @@ SECRET = "sk-or-v1-" + "s3cr3t" * 4  # fake, assembled at runtime
 
 def _failing_target(exc: BaseException):  # type: ignore[no-untyped-def]
     @contextmanager
-    def start(name: str, work_dir: Path) -> Iterator[LiveTarget]:
+    def start(name: str, work_dir: Path, **_: object) -> Iterator[LiveTarget]:
         raise exc
         yield  # pragma: no cover
 

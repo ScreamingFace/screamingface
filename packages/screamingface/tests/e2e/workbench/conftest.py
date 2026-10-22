@@ -16,11 +16,14 @@ from typing import Final
 import pytest
 
 from workbench.bundle import write_setup_failure
+from workbench.otlp_receiver import OtlpReceiver
 from workbench.redaction import redact
 from workbench.targets import LiveTarget, selected_target, start_target
 
 REQUIRE_ALL_ENV: Final = "SCREAMINGFACE_WORKBENCH_REQUIRE_ALL"
 OUT_ENV: Final = "SCREAMINGFACE_WORKBENCH_OUT"
+#: Every span the session's targets export, one JSON per line (spec §3.6).
+SPANS_FILE: Final = "spans.jsonl"
 
 _OUT_KEY: Final = pytest.StashKey[Path]()
 
@@ -35,8 +38,27 @@ def workbench_out(pytestconfig: pytest.Config, tmp_path_factory: pytest.TempPath
 
 
 @pytest.fixture(scope="session")
+def otlp_receiver(workbench_out: Path) -> Iterator[OtlpReceiver]:
+    """The session's loopback OTLP receiver, writing ``<out>/spans.jsonl`` (spec §3.6).
+
+    WHY session scope and a dependency of ``live_target``: pytest tears fixtures down in
+    reverse, so the receiver outlives the target. The gateway's batch exporter flushes its
+    last spans on shutdown, which happens during the target's teardown; a receiver already
+    stopped would lose them.
+    """
+    receiver = OtlpReceiver(workbench_out / SPANS_FILE)
+    receiver.start()
+    try:
+        yield receiver
+    finally:
+        receiver.stop()
+
+
+@pytest.fixture(scope="session")
 def live_target(
-    workbench_out: Path, tmp_path_factory: pytest.TempPathFactory
+    workbench_out: Path,
+    otlp_receiver: OtlpReceiver,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[LiveTarget]:
     """The selected target, booted once per session.
 
@@ -49,7 +71,11 @@ def live_target(
     with ExitStack() as stack:
         try:
             target = stack.enter_context(
-                start_target(name, tmp_path_factory.mktemp("workbench-target"))
+                start_target(
+                    name,
+                    tmp_path_factory.mktemp("workbench-target"),
+                    otlp_endpoint=otlp_receiver.endpoint,
+                )
             )
         except BaseException as exc:  # a skip is a BaseException (pytest OutcomeException)
             skipped = isinstance(exc, pytest.skip.Exception)

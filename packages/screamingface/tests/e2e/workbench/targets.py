@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,7 +26,7 @@ from typing import Any, Final
 
 import pytest
 from harness._gating import SNAPSHOTS_DIR, require_e2e_stack
-from harness._local_proc import clean_env
+from harness._local_proc import checked_telemetry, clean_env, telemetry_env
 from harness.benchmark_assets import ASSETS_ENV, assets_root
 from harness.cache_seeded import CacheSeededGateway
 from harness.stack import EngineProcess, replay_stack
@@ -51,6 +51,11 @@ _LOCAL_SCOREBOARD_PORT: Final = 9106
 # notebook never calls the leaderboard there, so this loopback (discard port) is UNUSED on
 # replay — it only keeps the SDK off its hosted default.
 REPLAY_SCOREBOARD_URL: Final = "http://127.0.0.1:9"
+# Unit 6 (spec §3.6): the service.name each process reports to the workbench's OTLP receiver.
+# The engine's and the gateway's own defaults, set explicitly so a span's service never
+# depends on a default changing under the lane.
+ENGINE_SERVICE: Final = "screamingface-engine"
+GATEWAY_SERVICE: Final = "aigateway"
 
 
 @dataclass(frozen=True)
@@ -71,17 +76,24 @@ def selected_target() -> str:
     return name
 
 
-def start_target(name: str, work_dir: Path) -> AbstractContextManager[LiveTarget]:
-    """Boot ``name`` for the duration of the ``with`` block; skips (pytest) when gated off."""
+def start_target(
+    name: str, work_dir: Path, *, otlp_endpoint: str | None = None
+) -> AbstractContextManager[LiveTarget]:
+    """Boot ``name`` for the duration of the ``with`` block; skips (pytest) when gated off.
+
+    ``otlp_endpoint`` is the workbench receiver's traces URL (``OtlpReceiver.start``); when
+    given, the target's engine and gateway export their spans to it. Absent, they export
+    nothing, as everywhere else.
+    """
     if name == "replay":
-        return _replay(work_dir)
+        return _replay(work_dir, otlp_endpoint)
     if name == "local":
-        return _local(work_dir)
+        return _local(work_dir, otlp_endpoint)
     raise ValueError(f"unknown workbench target {name!r}; known: {', '.join(KNOWN_TARGETS)}")
 
 
 @contextmanager
-def _replay(work_dir: Path) -> Iterator[LiveTarget]:
+def _replay(work_dir: Path, otlp_endpoint: str | None = None) -> Iterator[LiveTarget]:
     require_e2e_stack()
     assets = assets_root()
     if not (assets / "ifeval").is_dir():
@@ -90,8 +102,14 @@ def _replay(work_dir: Path) -> Iterator[LiveTarget]:
         snapshot=SNAPSHOTS_DIR / "ifeval.snapshot.gz",
         manifest=SNAPSHOTS_DIR / "ifeval.manifest.json",
         work_dir=work_dir,
+        telemetry=telemetry_env(otlp_endpoint, service=GATEWAY_SERVICE),
     )
-    with replay_stack(backend, work_dir=work_dir, assets_dir=assets) as stack:
+    with replay_stack(
+        backend,
+        work_dir=work_dir,
+        assets_dir=assets,
+        engine_telemetry=telemetry_env(otlp_endpoint, service=ENGINE_SERVICE),
+    ) as stack:
         yield LiveTarget(
             name="replay",
             engine_url=stack.engine_url,
@@ -113,7 +131,7 @@ def _local_unavailable_reason() -> str | None:
     return None
 
 
-def _runtime_child_env() -> dict[str, str]:
+def _runtime_child_env(telemetry: Mapping[str, str] | None = None) -> dict[str, str]:
     """The environment ``screamingface up``/``down`` run under: an ALLOWLIST, never the shell.
 
     Same rule as every other harness child (``harness._local_proc.clean_env``): PATH/HOME/
@@ -126,15 +144,19 @@ def _runtime_child_env() -> dict[str, str]:
     WHY pin the source to ``checkout``: the lane lives in this checkout and vouches for ITS
     code; pinned, the runtime serves this tree or refuses to start, never a bundled copy.
     The BYOK key is deliberately absent — the notebook connects it from its own environment.
+
+    ``telemetry`` (``OTEL_*`` only, refused otherwise) is the one addition: the runtime's
+    background server inherits this env and serves the Gateway in-process, and
+    ``aigateway.main.create_app`` installs span export from ``os.environ``.
     """
-    return clean_env({SOURCE_ENVIRONMENT_VARIABLE: MODE_CHECKOUT})
+    return clean_env({**checked_telemetry(telemetry), SOURCE_ENVIRONMENT_VARIABLE: MODE_CHECKOUT})
 
 
-def _runtime_cli(*args: str) -> None:
+def _runtime_cli(*args: str, telemetry: Mapping[str, str] | None = None) -> None:
     subprocess.run(
         [sys.executable, "-m", "screamingface._runtime.cli", *args],
         check=True,
-        env=_runtime_child_env(),
+        env=_runtime_child_env(telemetry),
     )
 
 
@@ -165,16 +187,18 @@ def _listed_benchmarks(engine_url: str) -> list[str]:
 
 
 @contextmanager
-def _local(work_dir: Path) -> Iterator[LiveTarget]:
+def _local(work_dir: Path, otlp_endpoint: str | None = None) -> Iterator[LiveTarget]:
     reason = _local_unavailable_reason()
     if reason is not None:
         pytest.skip(f"local workbench target unavailable: {reason}")
-    with local_stack(work_dir, _prepared_ifeval_assets()) as target:
+    with local_stack(work_dir, _prepared_ifeval_assets(), otlp_endpoint=otlp_endpoint) as target:
         yield target
 
 
 @contextmanager
-def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
+def local_stack(
+    work_dir: Path, assets: Path, *, otlp_endpoint: str | None = None
+) -> Iterator[LiveTarget]:
     """``screamingface up`` (Gateway + Scoreboard) plus an inspect-capable Engine; UNGATED.
 
     Same layout as ``just local-stack-notebooks``: the runtime's own Engine serves only the
@@ -200,6 +224,9 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
     # `down` must run even when `up` raises. `engine` stays None until it is built, so a failed
     # construction only downs the runtime; once start is attempted, stop runs (start can fail
     # after spawning the process).
+    # The runtime process holds the Gateway (and its own, unused Engine), so it reports as the
+    # gateway; the notebook's Engine is a separate process with its own service name.
+    runtime_telemetry = telemetry_env(otlp_endpoint, service=GATEWAY_SERVICE)
     engine: EngineProcess | None = None
     try:
         _runtime_cli(
@@ -212,8 +239,13 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
             str(_LOCAL_ENGINE_PORT),
             "--scoreboard-port",
             str(_LOCAL_SCOREBOARD_PORT),
+            telemetry=runtime_telemetry,
         )
-        engine = EngineProcess(work_dir=work_dir, assets_dir=assets)
+        engine = EngineProcess(
+            work_dir=work_dir,
+            assets_dir=assets,
+            telemetry=telemetry_env(otlp_endpoint, service=ENGINE_SERVICE),
+        )
         engine_url = engine.start(f"http://127.0.0.1:{_LOCAL_GATEWAY_PORT}")
         # WHY a hard failure, not a skip: this Engine has the inspect extra and the prepared
         # ifeval root, so an Engine without ifeval is a broken target, not a missing optional.
@@ -243,4 +275,4 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
             if engine is not None:
                 engine.stop()
         finally:
-            _runtime_cli("down", "--data-dir", str(data_dir))
+            _runtime_cli("down", "--data-dir", str(data_dir), telemetry=runtime_telemetry)

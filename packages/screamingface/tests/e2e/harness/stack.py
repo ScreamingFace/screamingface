@@ -24,12 +24,20 @@ Stages of ``replay_stack``, in execution order:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from ._local_proc import ManagedProcess, clean_env, free_port, repo_root, sync_project, venv_bin
+from ._local_proc import (
+    ManagedProcess,
+    checked_telemetry,
+    clean_env,
+    free_port,
+    repo_root,
+    sync_project,
+    venv_bin,
+)
 from .ports import ReplayBackend
 
 
@@ -43,11 +51,22 @@ class ReplayStack:
 
 
 class EngineProcess:
-    """The engine's local mode as a supervised subprocess on a free loopback port."""
+    """The engine's local mode as a supervised subprocess on a free loopback port.
 
-    def __init__(self, *, work_dir: Path, assets_dir: Path | None = None) -> None:
+    ``telemetry`` (``OTEL_*`` only, see ``_local_proc.checked_telemetry``) points the engine's
+    span export at an OTLP receiver; absent, the engine exports nothing (its default).
+    """
+
+    def __init__(
+        self,
+        *,
+        work_dir: Path,
+        assets_dir: Path | None = None,
+        telemetry: Mapping[str, str] | None = None,
+    ) -> None:
         self._work_dir = work_dir
         self._assets_dir = assets_dir
+        self._telemetry = checked_telemetry(telemetry)
         self._process: ManagedProcess | None = None
 
     def start(self, aigateway_base_url: str) -> str:
@@ -59,6 +78,9 @@ class EngineProcess:
         port = free_port()
         env = clean_env(
             {
+                # WHY first: the harness's own variables below win on any overlap (there is
+                # none — telemetry is OTEL_* only — but the order states which side owns it).
+                **self._telemetry,
                 # The App half (catalog, model-parameters, connections routes).
                 "URL4_CLOUD_AIGATEWAY_BASE_URL": aigateway_base_url,
                 # The run half (the actual /v1/chat/completions calls).
@@ -109,6 +131,7 @@ def replay_stack(
     *,
     work_dir: Path,
     assets_dir: Path | None = None,
+    engine_telemetry: Mapping[str, str] | None = None,
 ) -> Iterator[ReplayStack]:
     """Backend up → engine up → yield the URLs → tear both down (reverse order).
 
@@ -116,7 +139,7 @@ def replay_stack(
     fixtures compose ``with`` blocks more honestly than event loops. The backend's
     async Protocol methods are driven through ``asyncio.run``.
     """
-    engine = EngineProcess(work_dir=work_dir, assets_dir=assets_dir)
+    engine = EngineProcess(work_dir=work_dir, assets_dir=assets_dir, telemetry=engine_telemetry)
     aigateway_url = asyncio.run(backend.start())
     try:
         engine_url = engine.start(aigateway_url)
