@@ -30,7 +30,10 @@ brings the fix. Seven stacked PRs, one fix each:
 - PR 7: a reply cut off before its answer reaches the scorer as cut off, and AIME scores it
   wrong (issue #2701).
 
-Each PR moves only its own rows' revisions. Work ledger:
+Published revisions are frozen (owner decision, 2026-10-22). The eight rows whose fix changes
+only the grading (paws, boolq, chembench, infinite_bench_math_find, math, aime24, aime25, aime26)
+keep main's revision through `published_revision`; the three whose Cases change publish a new
+one (worldsense, stereoset, onet_m6). The per-row table is in the work ledger:
 `docs/work/2026-10-21-upstream-grading-fixes.md`.
 
 - 2026-10-21: owner approved the split into seven PRs and every prior-test edit in session; the
@@ -39,3 +42,7 @@ Each PR moves only its own rows' revisions. Work ledger:
 - 2026-10-21: review fixes applied on every PR (one commit each). After the deploy, the owner
   retires the orphaned scoreboard rows `inspect-worldsense` and `inspect-stereoset` (see the
   ledger's owner-verify note).
+- 2026-10-22: owner decision, hold 8 / move 3: the eight grading-only rows hold main's
+  published revision, each computed fingerprint pinned in `test_benchmark_fingerprints.py`; only
+  worldsense, stereoset and onet_m6 publish a new revision. The leaderboard had no entry or
+  baseline on any of the eleven.

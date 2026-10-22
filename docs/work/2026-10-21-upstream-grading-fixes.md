@@ -196,7 +196,9 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - `.../benchmarks.py`: aime24/25/26 grade with it; NAMED DEVIATION comments; descriptions;
   their answer rules name the scorer the row declares.
 - tests: one new file for the pass-through, one for the deviation;
-  `test_published_revisions.py` and `test_benchmark_answer_rules.py` literals for the rows;
+  `test_benchmark_answer_rules.py` literals for the rows; `test_published_revisions.py` (aime26
+  first frozen, at its held revision); `test_benchmark_fingerprints.py` and `test_published_revision.py`
+  gain the three rows;
   `test_scorer_source_pins.py` (its row set gains the three AIME rows).
 
 ### Test plan
@@ -206,11 +208,13 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - deviation: #2701's repro is right under v0.20.0 (TRIPWIRE) and wrong under ours;
   a complete right reply, and a cut-off reply ending on its `ANSWER:` line, stay right.
 - audit: no scorer any row uses reads the Candidate's stop reason, so no other row's grade
-  can change; all revisions computed before and after: only the three aime rows move.
+  can change; all revisions computed before and after: only the three aime rows' computed
+  fingerprints move, and no published revision does.
 
 ### Acceptance
 
-- aime24, aime25, aime26 publish new revisions; no other revision moves.
+- aime24, aime25, aime26 keep their published revisions (held); their computed fingerprints
+  move and are pinned; no other revision moves.
 - the tripwire names #2701.
 
 ## Outcome (fill at the end — required before COMMIT)
@@ -387,8 +391,9 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 
 - **Actual files:** as planned (`benchmark_aggregation.py`, `single_shot.py`,
   `scorer_adapter.py`, `named_deviations/aime/`, `benchmarks.py`, two new test files), plus
-  three edited tests: `test_published_revisions.py` (aime24/25 move, aime26 first frozen
-  here), `test_benchmark_answer_rules.py` (the AIME rules pin the scorer the rows now declare)
+  edited tests: `test_published_revisions.py` (aime26 first frozen here, at its held revision),
+  `test_published_revision.py` and `test_benchmark_fingerprints.py` (the three rows join),
+  `test_benchmark_answer_rules.py` (the AIME rules pin the scorer the rows now declare)
   and `test_scorer_source_pins.py` (its row set gains the three AIME rows).
 - **Where the finish reason comes from:** the provider's `finish_reason` on the chat
   completion (`parse_choice`) → the Candidate's terminal model outcome → the invocation → the
@@ -400,12 +405,14 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   only `utils/scorers.py` (`_is_grader_refusal`, under `schema_tool_graded_scorer`) reads one,
   on the JUDGE's own generate output, not the state; our local Tasks, Named Deviations and
   combine operators read none. So `unknown` grades as the old `stop` did on every other row.
-- **Revisions:** aime24 2e4ce70a8953233a → 600e759b1c5766e6; aime25 b207e9fe34ea7517 →
-  a8d8eb4969ef8b8a; aime26 c3ccaa828160f661 → b289716a32495871. All 85 computed before and
-  after: only these three moved (the adapter is not a revision input). The review's docstring
-  edit moved them once more (from 7ea7e9e38c46bc51, aaea4e938eb3d574, 2efde55f1db9b7ed).
+- **Revisions:** held (owner decision, 2026-10-22): aime24 publishes 2e4ce70a8953233a, aime25
+  b207e9fe34ea7517 and aime26 c3ccaa828160f661, as on main; their computed fingerprints moved
+  to 600e759b1c5766e6, a8d8eb4969ef8b8a and b289716a32495871, pinned in
+  `test_benchmark_fingerprints.py` (the adapter is not a revision input). The review's docstring edit
+  moved those fingerprints once more (from 7ea7e9e38c46bc51, aaea4e938eb3d574,
+  2efde55f1db9b7ed).
 - **Review fixes:** the scorer's docstring and a test state the limitation below.
-- **Gates:** relevant tests only (owner rule): `test_finish_reason_reaches_scorer.py` and `test_named_deviation_aime.py` (new), `test_benchmark_answer_rules.py`, `test_published_revisions.py` and `test_scorer_source_pins.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 709 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 10 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): the adapter writing `stop` fails 3 tests; dropping the aggregate's pass-through fails 3; dropping the check surface's fails 1.
+- **Gates:** relevant tests only (owner rule): `test_finish_reason_reaches_scorer.py` and `test_named_deviation_aime.py` (new), `test_benchmark_answer_rules.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), every earlier PR's deviation and row tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 830 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 21 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): the adapter writing `stop` fails 3 tests; dropping the aggregate's pass-through fails 3; dropping the check surface's fails 1.
 - **Deviations:** the combine operator `inspect_aime@1` is unchanged. Its vendored copy is only
   the eval's line-finding helpers, which #2701's fix does not touch, and an extract operator
   reads a member's text alone, never its finish reason; marking a cut-off member there needs a
@@ -423,3 +430,25 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   `python -m scoreboard.retire_benchmark --benchmark inspect-worldsense` (a dry run first),
   then again with `--yes`; add `--include-engine-owned` if the dry run says the row carries an
   Engine revision (the Engine no longer publishes either id). Same for `inspect-stereoset`.
+
+### Revisions across the stack (owner decision, 2026-10-22)
+
+Published revisions are frozen. A row whose fix changes only its grading keeps every Case and
+had no leaderboard entry or baseline (checked 2026-10-22), so it holds main's revision through
+`published_revision`, and `test_benchmark_fingerprints.py` pins the fingerprint the fix moved. A row
+whose Cases change publishes its new revision. All 85 recomputed on PR 7 against main: these
+three publish a new revision, the other 82 publish main's.
+
+| Row | Published (main) | Published now | Computed fingerprint | Why |
+| --- | --- | --- | --- | --- |
+| paws | 8f4e0e9c0864a6e7 | held | ab44cff9bea304ca | grading only |
+| boolq | 00d4443ca7e66d43 | held | b4a47768ef2ebf95 | grading only |
+| chembench | a36d91b7eb601253 | held | 7af1d67ffad68471 | grading only |
+| infinite_bench_math_find | eb87494cb4dab437 | held | a38b3a6c787f08a8 | grading only |
+| math | 0fb750cf19e00c11 | held | 414043e2d2a9dbcc | grading only |
+| aime24 | 2e4ce70a8953233a | held | 600e759b1c5766e6 | grading only |
+| aime25 | b207e9fe34ea7517 | held | a8d8eb4969ef8b8a | grading only |
+| aime26 | c3ccaa828160f661 | held | b289716a32495871 | grading only |
+| worldsense | a2f8699ca22f49e5 | a9ea4fd817d0f54b | same | Cases 40,176 → 87,048 |
+| stereoset | 6fe6deab5af299e2 | dd1c2cc6e587ed15 | same | Cases 2,115 → 2,123 |
+| onet_m6 | fefdc98fb53b0777 | cfc5f0da9f9418bd | same | Cases 391 → 372 |

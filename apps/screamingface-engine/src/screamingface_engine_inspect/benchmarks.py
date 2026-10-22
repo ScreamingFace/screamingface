@@ -936,6 +936,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   number. Drop it when the pin reaches the fix: the tripwire in
         #   tests/unit/inspect/test_named_deviation_aime.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="2e4ce70a8953233a",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -999,6 +1004,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   number. Drop it when the pin reaches the fix: the tripwire in
         #   tests/unit/inspect/test_named_deviation_aime.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="b207e9fe34ea7517",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -5023,6 +5033,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   number. Drop it when the pin reaches the fix: the tripwire in
         #   tests/unit/inspect/test_named_deviation_aime.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.aime.aime:aime_cut_off_scorer",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="c3ccaa828160f661",
         # Benchmark Provenance (OME-1455): eval.yaml and the Hub card via the importer; the
         # rest by hand, as the aime25 row.
         paper_url="https://huggingface.co/datasets/math-ai/aime26",

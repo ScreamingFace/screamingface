@@ -79,11 +79,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "mmlu_pro": "145edec84bfc2324",
     "winogrande": "4eb60a70db7518d6",
     "race_h": "8c5ebb4a9d38cc6f",
-    # OME-1701 PR 7 (2026-10-21): a reply cut off before its ANSWER: line is
-    # wrong (inspect_evals issue #2701 adopted; the scorer source is hashed): aime24
-    # 2e4ce70a8953233a, aime25 b207e9fe34ea7517 moved once each.
-    "aime24": "600e759b1c5766e6",
-    "aime25": "a8d8eb4969ef8b8a",
+    "aime24": "2e4ce70a8953233a",
+    "aime25": "b207e9fe34ea7517",
     "musr": "a527e0f0db79d923",
     "wmdp_bio": "557c21ed4fcf926e",
     "wmdp_chem": "08989c0d94e03c70",
@@ -104,10 +101,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # differs are excluded; its parser is not adopted) and 1 whose source repeats its key's
     # text under another letter (391 → 372 Cases; onet_m6 fefdc98fb53b0777 before it).
     "onet_m6": "cfc5f0da9f9418bd",
-    # OME-1701 PR 7 (2026-10-21): first frozen here, at the move that marks a
-    # reply cut off before its ANSWER: line wrong (inspect_evals issue #2701 adopted; aime26
-    # c3ccaa828160f661 before it).
-    "aime26": "b289716a32495871",
+    # OME-1701 PR 7: first frozen here, at the revision main serves, which the row holds.
+    "aime26": "c3ccaa828160f661",
 }
 
 

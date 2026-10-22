@@ -110,4 +110,7 @@ def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
         "chembench": "a36d91b7eb601253",
         "infinite_bench_math_find": "eb87494cb4dab437",
         "math": "0fb750cf19e00c11",
+        "aime24": "2e4ce70a8953233a",
+        "aime25": "b207e9fe34ea7517",
+        "aime26": "c3ccaa828160f661",
     }
