@@ -39,7 +39,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from screamingface._runtime.config import default_data_dir as runtime_default_data_dir
-from workbench.ui import pages
+from workbench.ui import pages, telemetry
 from workbench.ui.bundles import BundleNotFound, BundleSummary, discover, load
 from workbench.ui.runs import Run, RunBusy, RunManager, RunRejected, RunRequest, runtime_data_dir
 
@@ -57,6 +57,12 @@ _SECURITY_HEADERS = (
     (b"referrer-policy", b"no-referrer"),
     (b"x-content-type-options", b"nosniff"),
 )
+
+
+def _positive(value: str | None) -> int:
+    """A 1-based page number from the query; anything else is page 1."""
+    ok = value is not None and value.isascii() and value.isdigit() and 0 < len(value) < 7
+    return int(value) if ok and value else 1
 
 
 class _HttpError(Exception):
@@ -260,7 +266,14 @@ class _Workbench:
             detail = load(self.root, key)
         except BundleNotFound as exc:
             raise _HttpError(404, f"no bundle {key!r}") from exc
-        return HTMLResponse(pages.bundle_page(detail, token=self.page_token(request)))
+        view = pages.TelemetryView(
+            spans_page=_positive(request.query_params.get("spans_page")),
+            unfold=request.query_params.get("unfold", "").lower() in _TRUE,
+        )
+        page = pages.bundle_page(
+            detail, telemetry.load(detail.directory), view, token=self.page_token(request)
+        )
+        return HTMLResponse(page)
 
     async def start(self, request: Request) -> RedirectResponse:
         data = await self.authorized_fields(request)

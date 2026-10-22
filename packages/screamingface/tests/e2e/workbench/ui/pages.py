@@ -16,13 +16,17 @@ import json
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 from urllib.parse import quote
 
 from workbench.ui.bundles import BundleDetail, BundleSummary
 from workbench.ui.render import notebook_html, sandboxed_iframe
 from workbench.ui.runs import Run
+from workbench.ui.telemetry import Telemetry, money
+from workbench.ui.telemetry_html import STYLE as TELEMETRY_STYLE
+from workbench.ui.telemetry_html import TelemetryView
+from workbench.ui.telemetry_html import section as telemetry_section
 
 # pytest's exit codes (pytest.ExitCode), worded for a human reading the run page.
 _EXIT_MEANING = {
@@ -139,7 +143,8 @@ def layout(title: str, body: str, *, token: str | None) -> str:
     return (
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{_e(title)} · e2e workbench</title><style>{_STYLE}</style></head><body>"
+        f"<title>{_e(title)} · e2e workbench</title><style>{_STYLE}{TELEMETRY_STYLE}</style>"
+        "</head><body>"
         f"<header><h1><a href='/{_q(token)}'>e2e workbench</a></h1>"
         f"<span class='muted'>{_e(title)}</span></header><main>{body}</main></body></html>"
     )
@@ -434,21 +439,6 @@ def _scalar(value: object) -> str:
     return _e(value) if isinstance(value, str | int | float | bool) else "?"
 
 
-def _money(value: object) -> Decimal | None:
-    """A USD amount from the payload (a decimal string); None when unknown or malformed.
-
-    WHY strict: the SDK's None means "nothing priceable was observed", which is not zero, so
-    anything that is not a finite decimal string must read as unknown, never as 0 or "None".
-    """
-    if not isinstance(value, str):
-        return None
-    try:
-        amount = Decimal(value)
-    except InvalidOperation:
-        return None
-    return amount if amount.is_finite() else None
-
-
 def _usd(amount: Decimal | None) -> str:
     return "unknown" if amount is None else _e(f"${amount}")
 
@@ -502,12 +492,12 @@ def _candidates(trace: Mapping[str, Any]) -> str:
     rows, spends = [], []
     for name, raw in candidates.items():  # pyright: ignore[reportUnknownVariableType]
         c: Mapping[str, Any] = raw if isinstance(raw, dict) else {}  # pyright: ignore[reportUnknownVariableType]
-        spend = _money(c.get("cost_usd"))
+        spend = money(c.get("cost_usd"))
         spends.append(spend)
         rows.append(
             f"<tr><td>{_e(name)}</td><td>{_scalar(c.get('score'))}</td>"
             f"<td>{_usd(spend)}</td><td>{_scalar(c.get('cache_hits'))}</td>"
-            f"<td>{_usd(_money(c.get('cache_saved_cost_usd')))}</td></tr>"
+            f"<td>{_usd(money(c.get('cache_saved_cost_usd')))}</td></tr>"
         )
     # One unknown amount makes the total unknown: a partial sum would read as the whole spend.
     known = [s for s in spends if s is not None]
@@ -572,7 +562,13 @@ def _notebook_section(detail: BundleDetail) -> str:
     )
 
 
-def bundle_page(detail: BundleDetail, *, token: str | None) -> str:
+def bundle_page(
+    detail: BundleDetail,
+    telemetry: Telemetry | None = None,
+    view: TelemetryView | None = None,
+    *,
+    token: str | None,
+) -> str:
     trace = detail.trace
     chain = (
         f"{_hop_table(trace)}{_chain_facts(trace)}"
@@ -585,11 +581,16 @@ def bundle_page(detail: BundleDetail, *, token: str | None) -> str:
         if trace is not None
         else ""
     )
+    telemetry_html = telemetry_section(
+        telemetry or Telemetry(), view or TelemetryView(), key=detail.summary.key, token=token
+    )
     body = (
         f"{_verdict_section(detail)}"
         f"<section><h2>Trace chain</h2>{chain}{raw}</section>"
         f"<section><h2>Result</h2>{_candidates(trace or {})}</section>"
+        f"{telemetry_html}"
         f"<section><h2>Logs</h2>{_logs(detail.logs, _failed_hops(trace))}</section>"
-        f"<section><h2>Executed notebook</h2>{_notebook_section(detail)}</section>"
+        f'<section id="executed-notebook"><h2>Executed notebook</h2>'
+        f"{_notebook_section(detail)}</section>"
     )
     return layout(f"{detail.summary.target}/{detail.summary.notebook}", body, token=token)

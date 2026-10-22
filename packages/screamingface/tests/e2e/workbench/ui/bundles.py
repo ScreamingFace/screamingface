@@ -8,7 +8,7 @@ untrusted: odd shapes degrade to "unreadable", filesystem errors degrade to "not
 at any depth of a key — are never followed, so nothing outside the root is ever read and
 ``load`` serves exactly the keys ``discover`` lists.
 
-Not defended: a file swapped for a symlink between the ``_regular`` check and the read
+Not defended: a file swapped for a symlink between the ``regular_file`` check and the read
 (TOCTOU). Acceptable for a loopback dev tool reading the user's own disk.
 """
 
@@ -47,9 +47,10 @@ class BundleDetail:
     trace: dict[str, Any] | None
     logs: dict[str, str]  # hop name -> text (already redacted by the bundle writer)
     notebook_path: Path | None
+    directory: Path  # the bundle's own directory (resolved, inside the root)
 
 
-def _regular(path: Path) -> bool:
+def regular_file(path: Path) -> bool:
     try:
         return not path.is_symlink() and path.is_file()
     except (OSError, ValueError):
@@ -57,12 +58,12 @@ def _regular(path: Path) -> bool:
 
 
 def _is_bundle(directory: Path) -> bool:
-    return any(_regular(directory / m) for m in _MARKERS)
+    return any(regular_file(directory / m) for m in _MARKERS)
 
 
 def _read_trace(directory: Path) -> dict[str, Any] | None:
     marker = directory / "trace.json"
-    if not _regular(marker):
+    if not regular_file(marker):
         return None
     try:
         value: object = json.loads(marker.read_text())
@@ -82,7 +83,7 @@ def _strings(trace: dict[str, Any], field: str) -> tuple[str, ...]:
 def _mtime(directory: Path) -> float:
     marker = directory / "trace.json"
     try:
-        return (marker if _regular(marker) else directory).stat().st_mtime
+        return (marker if regular_file(marker) else directory).stat().st_mtime
     except OSError:  # vanished between the bundle check and now
         return 0.0
 
@@ -166,7 +167,7 @@ def _logs(directory: Path) -> dict[str, str]:
         paths = sorted(logs_dir.glob("*.txt"))
     except OSError:
         return {}
-    return {p.stem: _read_log(p) for p in paths if _regular(p)}
+    return {p.stem: _read_log(p) for p in paths if regular_file(p)}
 
 
 def load(root: Path, key: str) -> BundleDetail:
@@ -179,5 +180,6 @@ def load(root: Path, key: str) -> BundleDetail:
         summary=_summary(root, directory, trace),
         trace=trace,
         logs=_logs(directory),
-        notebook_path=notebook if _regular(notebook) else None,
+        notebook_path=notebook if regular_file(notebook) else None,
+        directory=directory,
     )
