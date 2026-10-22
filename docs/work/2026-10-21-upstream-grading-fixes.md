@@ -155,6 +155,33 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - stereoset publishes a new revision; no other revision moves.
 - the tripwire names #2524.
 
+## PR 6 — Case-set fix: onet_m6 (fewer Cases)
+
+### Planned changes
+
+- `.../prepare.py`: the onet_m6 row leaves out, by id, every Case whose question as v0.20.0
+  builds it differs from the number-order option parse of inspect_evals PR #2590 (open):
+  the 6 already excluded plus 18 more, each with a short reason, under the same NAMED
+  DEVIATION style; new case_count, case_digest, case_set_digest.
+- `.../benchmarks.py`: the onet_m6 description says the new count and why.
+- tests: one new test file; `test_published_revisions.py` (onet_m6 first frozen here);
+  `test_inspect_imported_benchmarks.py` (its onet test pins 6 exclusions and 391 Cases).
+
+### Test plan
+
+- the excluded ids are exactly the Samples whose input, choices or key differ between
+  v0.20.0's parse and #2590's, over the whole pinned file (network, as the other whole-file
+  tests); each id's reason (key past the end / key names another option / options missing
+  or merged, key right) matches the computed one.
+- 2021_40_e2b5: excluded; v0.20.0 keys it to "careless", #2590's parse to "restless"; the
+  TRIPWIRE (no network, the real record) asserts v0.20.0 still keys "careless".
+- the row: 397 less the excluded ids, the revision moves, no other revision moves.
+
+### Acceptance
+
+- onet_m6 publishes a new revision; every other revision is byte-identical.
+- the tripwire names #2590.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -290,3 +317,37 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Gates:** relevant tests only (owner rule): `test_local_task_stereoset.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 692 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
 - **Deviations:** origin ours, catalogue id `stereoset` (was `inspect-stereoset`),
   `inspect_contributors` moves to a comment, as for worldsense.
+
+### PR 6
+
+- **Actual files:** `prepare.py` (the onet_m6 row: 18 ids with a reason each under a second
+  NAMED DEVIATION block, new count and seals), `benchmarks.py` (the description),
+  one new test file `test_onet_m6_option_parse_exclusions.py`, and two edited prior tests:
+  `test_published_revisions.py` (onet_m6 first frozen here) and
+  `test_inspect_imported_benchmarks.py` (its onet test pinned 6 exclusions and 391 Cases; now
+  6 + 18 + 1 and 397 − 25, docstring says why).
+- **Probe (pinned revision 93ffb5e3, inspect_evals' own Task, both parses):** 24 of 397 Samples
+  differ: the 6 already excluded (key past the last option), 16 whose key names another
+  option's text, 2 whose key is right but an option is missing. The other 373 are identical,
+  question text included. Same ids under both parses (the id hashes the question only).
+- **Cases:** onet_m6 391 → 372 (case_digest 92d013fe… → 224831b1…, case_set_digest
+  7a6f28e4… → 89e60804…). Sealed by two build replays (`replay_with_provenance`), which
+  reproduce the old seal exactly on the old six-id declaration; the 372 are the old 391 less
+  the 19, same bytes and order bar the positional Case ids.
+- **Revisions:** onet_m6 fefdc98fb53b0777 → cfc5f0da9f9418bd; no other moved.
+- **Review fixes:** a 25th exclusion, under its own note (not #2590's): 2020_32_08b1 gives
+  options C and E the same text ("สนับสนุน สรุป สนับสนุน") and the key is C, so an E reply
+  names the right answer and is marked wrong; a source-data fault neither parser catches, and
+  the only question both parses agree on whose key's text sits under two letters (pinned by a
+  test). It took the row 373 → 372 and the revision fa7e02ef6c82f99d → cfc5f0da9f9418bd. The
+  tripwire message now says #2590's parser fixes all 24 parse exclusions (the 18 can come
+  back, the six need the OME-1269 decision owner's OK); the #2590 copy is a faithful copy with
+  annotations, not verbatim; the revision comment says the questions are excluded, the parser
+  not adopted; and the row comment names the deciding reason for not re-parsing (it needs a
+  local Task, so a new origin and catalogue id).
+- **Gates:** relevant tests only (owner rule): `test_onet_m6_option_parse_exclusions.py` (new), `test_inspect_imported_benchmarks.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, benchmark declaration, scorer source pins): 691 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split): un-excluding 2021_40_e2b5 fails 3 of the 5 new tests.
+- **Deviations:** #2590 is still open (not merged), so the tripwire guards a fix inspect_evals
+  has not landed yet. Re-parsing would have changed only these 24 rows (the other 373 are
+  identical under both parses); the deciding reason against it is that it needs a local Task,
+  so a new origin and catalogue id for the row (the stack adopts other open PRs where the fix
+  sits beside inspect_evals' Task); exclusion kept, per the owner's call.

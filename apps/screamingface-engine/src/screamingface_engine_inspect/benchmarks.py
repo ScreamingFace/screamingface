@@ -1795,13 +1795,18 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="onet_m6",
         title="O-NET M6",
         description=(
-            "391 multiple-choice questions from Thailand's national grade-12 exam "
+            "372 multiple-choice questions from Thailand's national grade-12 exam "
             "(O-NET M6): mathematics, science, social studies, English and Thai "
             "language, in Thai or English, imported from inspect_evals. Like "
-            "inspect, the board keeps only answerable single-answer questions; it "
-            "also leaves out 6 more that inspect keeps but that cannot be graded "
-            "as published (their answer letter points past the last choice), so "
-            "it serves 391 of inspect's 397. Each prompt opens with the eval's "
+            "inspect, the Benchmark keeps only answerable single-answer questions; "
+            "it also leaves out 24 more whose numbered options inspect splits "
+            "wrongly (an option written '1.x' or '1 x' is lost, a year inside one "
+            "is split off), so the answer "
+            "letter points past the last choice (6) or at another option's text "
+            "(16), or an option is missing (2); and 1 more whose source gives two options "
+            "the same text, one of them the key, so the right text under the other letter "
+            "is marked wrong. It serves 372 of inspect's 397. "
+            "Each prompt opens with the eval's "
             "language note and asks the model to think step by step before its "
             "final 'ANSWER: X' line. Serving order is pinned by a policy seed "
             "(inspect_evals shuffles per run). Benchmark score = plain accuracy over "

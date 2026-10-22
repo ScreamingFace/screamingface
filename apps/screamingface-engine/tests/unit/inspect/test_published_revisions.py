@@ -96,6 +96,11 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # that keeps every record (inspect_evals PR #2524 adopted; 2,115 → 2,123 Cases; stereoset
     # 6fe6deab5af299e2 before it).
     "stereoset": "c2bf158bee6d5f8b",
+    # OME-1701 PR 6 (2026-10-21): first frozen here, at the move that left out the
+    # 18 questions v0.20.0 builds wrongly (the questions where inspect_evals PR #2590's parse
+    # differs are excluded; its parser is not adopted) and 1 whose source repeats its key's
+    # text under another letter (391 → 372 Cases; onet_m6 fefdc98fb53b0777 before it).
+    "onet_m6": "cfc5f0da9f9418bd",
 }
 
 

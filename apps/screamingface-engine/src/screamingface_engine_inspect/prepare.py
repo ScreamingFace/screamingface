@@ -1038,13 +1038,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face matichon/thai-onet-m6-exam/default
     #     pin revision 93ffb5e3f3ec630b73e501937805984dd24f2365
+    # Re-sealed 2026-10-21 (OME-1701 PR 6) by two build replays: the 372 are
+    #   the 391 less the 19 ids below, in the same order (positional Case ids renumber).
     "onet_m6": TaskReplayCasesSpec(
         task="inspect_evals.onet.onet:onet_m6",
-        case_count=391,
-        case_digest="92d013fe6efd85165221d02958efaf13df3f31ee25ce4e8868112b92c30e613b",
-        case_set_digest="7a6f28e40396cd9c450e0d4f7948368e22f522cb784636105072b95eb9fc96d9",
+        case_count=372,
+        case_digest="224831b1d7bb097a1dec3eb7e06c4ea3515ecb0e89f7628e08cabc3064c8e116",
+        case_set_digest="89e60804a1506a5fc18503411b3e5687caa30e523c7ea68f0841c5dc920412f8",
         # NAMED DEVIATION (owner decision 2026-09-29, OME-1269): inspect keeps 397
-        # questions, the Benchmark serves 391. Six cannot be graded as published: inspect_evals
+        # questions, the Benchmark serves 372 (391 until the 19 below). Six cannot be graded
+        # as published: inspect_evals
         # split their numbered choices wrongly, so the answer letter points past the last
         # choice (2021_4_b447: answer E, 4 choices).
         excluded_sample_ids=(
@@ -1054,6 +1057,43 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
             "2021_10_0325",
             "2021_13_1922",
             "2021_4_b447",
+            # NAMED DEVIATION (OME-1701 PR 6, 2026-10-21): 18 more that
+            # v0.20.0 builds wrongly. Its option split knows only "N. x", so an option
+            # written "1.x" or "1 x" is dropped or merged and a year inside an option is
+            # split off as one; the key letter comes from the record's own number, so it
+            # can land on another option's text. inspect_evals PR #2590 (open) parses the
+            # options in number order: these, with the six above, are every Sample where its
+            # parse differs from v0.20.0's. Left out rather than re-parsed, because the parse
+            # runs inside inspect_evals' Task: re-parsing needs a local Task, so a new origin
+            # and catalogue id for the row, a larger change than leaving 18 questions out (a
+            # scorer fix, by contrast, sits beside inspect_evals' Task, as other rows adopt
+            # open PRs). The other 373 questions parse the same under both. "4 of 5" =
+            # options v0.20.0 reads of the record's five. The test pins each reason.
+            # The key names another option's text (16):
+            "2019_23_38bf",  # D, 4 of 5
+            "2019_27_0cda",  # B, 4 of 5
+            "2019_62_e6f7",  # B, 4 of 5
+            "2020_25_f98b",  # A, 4 of 5
+            "2020_30_aa8d",  # D, 4 of 5
+            "2021_17_309f",  # D is "It has lived", the answer "It lives"
+            "2021_17_b585",  # C, 4 of 5
+            "2021_22_d6cb",  # D, 4 of 5, two options merged into D
+            "2021_29_b28c",  # B, 4 of 5
+            "2021_31_213c",  # C is "2": years in the options split into 22
+            "2021_36_882c",  # A is "covering", the answer "picnic"
+            "2021_37_36fa",  # C is "amusing", the answer "excess"
+            "2021_38_60ca",  # B, two options merged into B
+            "2021_40_e2b5",  # D is "careless", the answer "restless"
+            "2021_5ก_cd35",  # C, 4 of 5
+            "2021_60_3497",  # B, two options merged into B
+            # The key is right, but an option is missing (2):
+            "2019_10ก_6985",  # B, 4 of 5
+            "2020_1ข_eead",  # B, 4 of 5
+            # A SEPARATE NAMED DEVIATION (OME-1701 PR 6 review, 2026-10-21), not #2590's: a
+            # fault in the source data that neither parser catches. Options C and E have the
+            # same text ("สนับสนุน สรุป สนับสนุน") and the key is C, so a reply of E names the
+            # right answer and is marked wrong. The only question whose key text appears twice.
+            "2020_32_08b1",
         ),
         source_pins={
             "matichon/thai-onet-m6-exam": "93ffb5e3f3ec630b73e501937805984dd24f2365",
