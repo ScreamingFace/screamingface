@@ -1,9 +1,9 @@
 ---
 ticket: OME-1542
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-20
-finished: 2026-10-20
+finished: 2026-10-22
 ---
 
 # harden-file-intake — body cap, data: URIs only, Anthropic system images
@@ -78,7 +78,7 @@ body (413 naming the limit), refuses every non-`data:` image/file reference with
   `test_codex_https_only_route.py`, append-only). Strict 422s for opaque `file_id`s, raw base64
   image strings and URL keys in unknown parts are kept (behaviour change, release-noted).
 
-## Review round 2 — HupBaHa changes requested 2026-10-22 (PLANNED)
+## Review round 2 — HupBaHa changes requested 2026-10-22
 
 Five findings on head `8589912db`; append-only tests, no prior test edited.
 
@@ -99,3 +99,19 @@ Five findings on head `8589912db`; append-only tests, no prior test edited.
 5. **MEDIUM** — remote image scheme matched case-insensitively and normalized to lowercase in
    `content_parts`; the intake guard uses the same helper. Route-level mixed-case HTTPS regressions
    for Codex.
+
+### Review round 2 — outcome
+
+- **Commits:** `795cf8b87` (413 `Connection: close` + route-path limit), `e14f3a553` (shared
+  `parse_data_uri` + case-insensitive remote scheme), `bc85f0751` (`refuse_inadmissible_media` hook).
+- **Files:** `middleware/body_cap.py`, `core/content_parts.py`, `core/media_intake.py`,
+  `core/plugin_base/_provider.py`, `plugins/anthropic_provider/plugin.py`, `routes/chat.py`. New
+  tests only: `test_body_cap_connection_close.py` (real uvicorn, httptools + h11),
+  `core/test_data_uri_envelope.py`, `test_chat_media_admission_route.py`. No prior test touched.
+- **Gates:** `run_gates.py aigateway` — ALL GATES GREEN (6688 passed, 109 skipped; total 94 %;
+  body_cap / media_intake / content_parts 100 %).
+- **Deviations:** `_DATA_URI_RE` is unchanged (engine conformance tests pin it on both sides);
+  `parse_data_uri` adds a 1 KiB header bound and strict base64 on top, so the gateway is now
+  stricter than the engine's envelope check (the engine sends real `b64encode` output — no
+  practical gap). Pathological 8 MiB inputs parse in ~10 ms (unbounded regex was ~200 ms).
+  `prepare_chat_body` keeps its own system-media refusal as defense in depth.
