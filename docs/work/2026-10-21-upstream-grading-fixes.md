@@ -107,6 +107,32 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - math keeps its published revision (held); its computed fingerprint moves and is pinned; no
   other revision moves.
 
+## PR 4 — Case-set fix: worldsense keeps every trial (new Cases)
+
+### Planned changes
+
+- `.../local_tasks/worldsense/` (new): inspect_evals' Task with each trial identified by its
+  own `Key` (inspect_evals PR #2507, merged), so no trial is dropped: 87,048 Cases, every gold
+  answer present.
+- `prepare.py`, `benchmarks.py`: the row points at the local Task, new count and digests
+  (re-imported with the importer into a scratch copy, then the row edited by hand), honest
+  description, origin ours, the frontier comment says which accuracy it is.
+- tests: `test_local_task_worldsense.py` (new); `test_published_revisions.py` (its literal);
+  `test_benchmark_declaration.py` (its catalogue id).
+
+### Test plan
+
+- the id is the trial's own; two trials of one tuple get different ids under ours and the SAME
+  id under v0.20.0 (the tripwire, no network); the whole pinned file gives 87,048 Cases under
+  ours and 40,176 under v0.20.0 (tripwire on the count).
+- balance: every gold answer of each family present, in the dataset's own balance (Infer TRUE =
+  FALSE, Consist POSSIBLE = IMPOSSIBLE, Compl "1" = "2" = "3").
+
+### Acceptance
+
+- worldsense publishes a new revision; no other revision moves.
+- the tripwire names #2507.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -174,3 +200,44 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Deviations:** `**ANSWER: 42**` (markdown bold on MATH's answer line) and a trailing
   carriage return or tab (`ANSWER: 42\r`) have no inspect_evals item; their fixes are ours
   alone.
+
+### PR 4
+
+- **Actual files:** as planned (the local Task package with README, the row in `prepare.py` and
+  `benchmarks.py`, one new test file, `test_published_revisions.py`), plus
+  `test_benchmark_declaration.py`: its per-Benchmark table is keyed by catalogue id, and the id
+  loses the `inspect-` prefix (below).
+- **Cases:** 40,176 → 87,048 (case_digest 426b5a4e… → 347a2aa2…, case_set_digest dc359e88… →
+  a24618fd…). Sealed by two build replays of the new declaration (`replay_with_provenance` +
+  `case_digest`/`case_set_digest`). The importer refuses the local Task: its judge reader does
+  not follow a scorer re-exported from another package, so the row is hand-edited (the
+  importer's own "add the row by hand" route).
+- **Balance (all 87,048):** Infer TRUE = FALSE (10,044 normal, 3,348 trivial), Consist POSSIBLE
+  = IMPOSSIBLE (10,044 each grade), Compl "1" = "2" = "3" (3,348 each grade). Best constant
+  answer per family: 0.917 on the 40,176, 0.462 on the 87,048.
+- **Revisions:** worldsense a2f8699ca22f49e5 → ad49b23d305a87dd; no other moved.
+- **Verbatim copy (owner rule 2026-10-22: a ported fix is a verbatim copy with the same
+  names):** `worldsense` and `record_to_sample` are inspect_evals' own, as merged with PR #2507
+  (merge commit 2cb54ae9), names and bodies unchanged; our earlier wrapper (inspect_evals'
+  Sample with its id replaced) is gone. Ours: the Task's `version=`/`metadata=` lines are left
+  out, marked; ruff format rewrapped two copied lines (whitespace only) and a file-level
+  `noqa: E501` keeps their docstring's long lines. Two build replays reproduce the sealed
+  Cases exactly (87,048; case_digest 347a2aa2…, case_set_digest a24618fd…). The copy moved the
+  revision once more (a9ea4fd817d0f54b → ad49b23d305a87dd).
+- **Review fixes:** the frontier score is GPT4's own published replies scored on our headline
+  metric (the plain mean over all 87,048 trials): 0.730 (63,551 right), from the authors'
+  `basic___GPT4___results.jsonl` at the pinned commit. The paper's 0.756 ("WS avg.") weights
+  trials per tuple and grades the Compl questions know/don't-know ("1" and "2" both KNOW in
+  the authors' `compute_acc_table`); re-implementing it on the same files reproduces 0.756
+  (GPT4) and 0.556 (GPT3.5). The provenance change alone keeps the revision; the Task
+  docstring's correction (the Sample id is not inside the Case Digest: served Cases are
+  numbered, the id only decides which trials survive the duplicate filter) moved it once more
+  (c6ed2a98cd4ff1ca → a9ea4fd817d0f54b).
+- **Gates:** relevant tests only (owner rule): `test_local_task_worldsense.py` (new), `test_benchmark_declaration.py` and `test_published_revisions.py` (edited), and the row sweeps (failure-policy rows and revisions, imported benchmarks, scorer source pins): 689 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 8 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file. Mutation (measured before the split, on worldsense and stereoset together): dropping the id override fails 4 of their 14 new tests.
+- **Deviations:** the existing invariant "a Task under `local_tasks/` is origin `screamingface`"
+  (test_inspect_imported_benchmarks) holds, as for infinite_bench and bbh, so the row is now
+  ours: catalogue id `worldsense` (was `inspect-worldsense`), and `inspect_contributors` moves to
+  a comment (the provenance rule allows it only on inspect_evals-origin rows). The on-disk
+  bundle grows about 2.2×, 174 MiB → 376 MiB (cases.json 17.5 MB → 38.2 MB, i.e. 36.4 MiB, plus
+  one ~170-byte target file per Case, each taking a whole disk block); OME-1675 already lists
+  it as an unmeasured large bundle under the per-run memory budget.

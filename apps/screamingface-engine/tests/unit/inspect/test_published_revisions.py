@@ -128,7 +128,10 @@ _URL_ONLY_TASK_REPLAY_REVISIONS: dict[str, str] = {
     "sad_stages_oversight": "2d5f56c1f30ee5dd",
     "sevenllm_mcq_en": "e0332fcbf2cfbded",
     "sevenllm_mcq_zh": "bf67d1707f236386",
-    "worldsense": "a2f8699ca22f49e5",
+    # OME-1701 PR 4 (2026-10-21): a2f8699ca22f49e5 → ad49b23d305a87dd, served by
+    # a local Task that keeps every trial (inspect_evals PR #2507 adopted; 40,176 → 87,048
+    # Cases). Still no Hub pin: the fetch-pin rule above holds.
+    "worldsense": "ad49b23d305a87dd",
 }
 
 

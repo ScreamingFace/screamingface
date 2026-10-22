@@ -3133,14 +3133,18 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         key="worldsense",
         title="WorldSense",
         description=(
-            "40,176 questions about small described worlds (orderings and spatial relations) from "
-            "the WorldSense test set, each answered with one of three numbered alternatives or a "
-            "truth value, imported from inspect_evals by Task replay: the Cases are fetched the "
-            "way inspect fetches them and sealed by a Case Digest. Each Case keeps the question "
-            "exactly as written, since it already lists its own options. Graded by the eval's own "
-            "pattern scorer, so no judge tokens are spent. Benchmark score = plain accuracy over "
-            "the cases run; the eval's own bias-corrected accuracy and bias metrics are not "
-            "reported. No mid-run check surface (elimination attack over the options)."
+            "87,048 questions about small described worlds (orderings and spatial relations), "
+            "every trial of the WorldSense test set, each answered with one of three numbered "
+            "alternatives or a truth value. Served as a local Task built from the inspect_evals "
+            "eval, with one change: each trial is kept under its own id. The eval at our pinned "
+            "version names a trial after its described world, so it kept one trial per world, "
+            "40,176, all with the answer TRUE, POSSIBLE, 1 or 3; its own fix (inspect_evals PR "
+            "#2507) is adopted here, so every answer appears in the paper's balance. Each Case "
+            "keeps the question exactly as written, since it already lists its own options. "
+            "Graded by the eval's own pattern scorer, so no judge tokens are spent. Benchmark "
+            "score = plain accuracy over the cases run; the eval's own bias-corrected accuracy "
+            "and bias metrics are not reported. No mid-run check surface (elimination attack "
+            "over the options)."
         ),
         focus="Reasoning about described worlds (pick a numbered option)",
         dataset_url="https://github.com/facebookresearch/worldsense",
@@ -3149,7 +3153,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         difficulty="hard",
         failure_policy="withhold",
         # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.worldsense.worldsense:worldsense.
+        #   screamingface_engine_inspect.local_tasks.worldsense.worldsense:worldsense,
+        #   a LOCAL Task that is inspect_evals' worldsense with each trial named by its own Key
+        #   (NAMED DEVIATION in the Task's docstring, adopted from the merged inspect_evals fix
+        #   https://github.com/UKGovernmentBEIS/inspect_evals/pull/2507). Everything else, the
+        #   scorer included, is inspect_evals' own. Its code lives here, so its origin is ours
+        #   (catalogue id `worldsense`, was `inspect-worldsense`) and its source is hashed into
+        #   the revision; the harness link names the eval, ported to inspect by mjbroerman.
         # License: cc-by-nc-4.0 (owner decision 2026-10-01: CC-BY-NC-4.0,
         #  facebookresearch/worldsense LICENSE; non-commercial use only).
         scorer="inspect_evals.worldsense.worldsense:pattern_with_metadata",
@@ -3176,7 +3186,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "      url={https://arxiv.org/abs/2311.15930}, \n"
             "}"
         ),
-        inspect_contributors=("mjbroerman",),
+        origin="screamingface",
         harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/worldsense",
         license="CC-BY-NC-4.0",
         license_note=(
@@ -3184,15 +3194,33 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "OME-1273, 2026-10-01)"
         ),
         human_baseline=NotPublished(reason="the WorldSense paper reports no human study"),
-        # Frontier score: accuracy (tuple-balanced
+        # Frontier score: GPT4's own published replies scored on OUR headline metric, the plain
+        # mean over all 87,048 trials (reply equals the gold answer): 0.730. Derived from the
+        # authors' basic___GPT4___results.jsonl at the pinned commit, joined to
+        # trials.jsonl.bz2 by Key: 63,551 of 87,048 right = 0.7301.
+        # NOT the paper's number. The paper's Table 2 "WS avg." for GPT4 is 0.756, a different
+        # metric in two ways: (1) trial weighting: it averages per tuple, each answer weighted
+        # so a constant answer scores the 0.5 chance level (section 4.2), where we weight every
+        # trial equally (a constant answer per family scores 0.462 here); (2) the Compl
+        # questions are graded know/don't-know: answers "1" and "2" both map to KNOW
+        # (compute_acc_table in the authors' analysis.py), where we need the exact option.
+        # Re-implementing the authors' metric on the same files reproduces 0.756 for GPT4 and
+        # 0.556 for GPT3.5, so the 0.730 is the same replies, our arithmetic. inspect_evals'
+        # ws_accuracy differs again (it weights by the model's reply, on exact match).
         frontier_score=FrontierScore(
-            score=0.756,
+            score=0.730,
             model="GPT4",
-            source_url="https://arxiv.org/abs/2311.15930",
+            source_url=(
+                "https://github.com/facebookresearch/worldsense/blob/"
+                "bd81d945077f169cf95ff39207f788f86e4645e9/data/worldsense/test_set/results/"
+                "basic___GPT4___results.jsonl"
+            ),
             as_of="2023-11",
         ),
         notebook="12_inspect_evals_benchmarks",
-        # eval.yaml says 87,048; the task yields 40,176 Samples at the pinned revision.
+        # eval.yaml's 87,048 is every trial. The eval at v0.20.0 yields 40,176: its Sample id
+        # names the tuple, so its duplicate-id filter keeps one trial per tuple. Fixed above.
+        inspect_evals_case_count=87048,
     ),
     BenchmarkSpec(
         key="coconot_original",
