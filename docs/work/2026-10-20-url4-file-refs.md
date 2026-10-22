@@ -129,3 +129,9 @@ blob as a collection iterates (D4) and a PNG is C8.
   `BlobRefNode.attachment` (one fetch per ref until it caches); (4) collection position (D4) is
   marked at lowering for a direct ref only: `$x*(…)` with `x` bound to a blob ref iterates the ref
   text (fails as a scalar collection) — structural, no string scanning, flagged for `OME-1543`.
+- **Rebase on the #1478 head `cb13fa58e` (2026-10-22, after #1521):** `http.py` resolved onto the
+  guarded `_get`/`_send`: the bytes path's `typed=True` (404/410 → `source_not_found`) is threaded
+  `fetch_bytes` → `_get` → `_send`; the interim `blob_peers` / no-redirect `follow` were dropped
+  as `703e3105d` intends (the intermediate commit carries them via `follow_redirects=` on
+  `client.send`). Gates: `run_gates.py url4` ALL GATES GREEN; `check_module_size.py` /
+  `check_suppressions.py` within baseline. Tests vs merge-base: new files only.
