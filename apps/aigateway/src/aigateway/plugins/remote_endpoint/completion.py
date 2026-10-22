@@ -39,9 +39,26 @@ def decode_completion(content_type: str | None, body: bytes) -> dict[str, Any] |
         assert_bounded_json(
             value, max_depth=_MAX_JSON_DEPTH, max_nodes=_MAX_JSON_NODES, require_finite=True
         )
+        _require_utf8_strings(value)
     except (ValueError, RecursionError):
         return None
     return value if _is_chat_completion(value) else None
+
+
+def _require_utf8_strings(value: Any) -> None:
+    # WHY: json.loads accepts isolated surrogate escapes, but the gateway's JSON response
+    # encodes as UTF-8. Validate every string (including keys) after bounding the tree so
+    # readiness cannot publish a key on a response that will fail serialization in chat.
+    # Strict encoding checks representability only; it never normalizes or replaces text.
+    if isinstance(value, str):
+        value.encode("utf-8")
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            key.encode("utf-8")
+            _require_utf8_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            _require_utf8_strings(child)
 
 
 def _reject_non_finite(value: str) -> None:
