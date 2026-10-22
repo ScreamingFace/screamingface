@@ -3964,6 +3964,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "are spent: expression_exact_match (the paper's normalised exact match) is the "
             "Headline Score, and expression_exact_match_sympy (the Minerva-style symbolic "
             "equivalence) is reported beside it as a Named Score, shown but not ranked. "
+            "Both read the answer off the reply's last 'ANSWER:' line as the eval does, "
+            "then see through wrapping the eval's v0.20.0 copies verbatim: a "
+            "'\\boxed{}' on that line, an outer '\\(...\\)' or "
+            "'\\[...\\]', markdown bold ('**ANSWER: 42**' read as '42**') and a "
+            "trailing carriage return or tab (a Windows line ending, read as '42\\r'), "
+            "each of which made a right answer score 0 on exact match (the outer "
+            "delimiters on both scorers). The first two are inspect_evals' proposed fixes "
+            "(PRs #2199 and #2340), the bold and line-ending ones are ours. With two boxes "
+            "on the ANSWER: line the last is graded ('\\boxed{41} or \\boxed{42}' counts "
+            "as 42), as #2199 and the MATH paper's own grader read it. "
             "Benchmark score = mean exact-match accuracy over the cases run. Named "
             "deviations: the eval's first scorer, expression_equivalance, is left out — it "
             "grades with a judge model that, unpinned, is the model under test, so its "
@@ -4015,13 +4025,27 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # + 5,000 test); the Task itself serves the 5,000-problem test split, so that is the
         # size inspect runs and the size this Benchmark declares. Reviewed by hand (OME-1268).
         inspect_evals_case_count=5000,
-        scorer="inspect_evals.math.math:expression_exact_match",
-        extra_scorers=("inspect_evals.math.math:expression_exact_match_sympy",),
+        # NAMED DEVIATION: both scorers read the ANSWER: line through our extraction, which
+        #   unwraps a \boxed{} (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2199),
+        #   strips outer \(..\) and \[..\] (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2340,
+        #   issue #2220) and drops markdown bold (ours); the compare steps stay the eval's. Drop
+        #   it when the pin reaches the fixes: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_math.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.math.math:expression_exact_match",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="0fb750cf19e00c11",
+        extra_scorers=(
+            "screamingface_engine_inspect.named_deviations.math.math:expression_exact_match_sympy",
+        ),
         named_scores=("expression_exact_match", "expression_exact_match_sympy"),
         # The symbolic scorer grades WITH sympy: its installed version is Benchmark identity
         # (review finding on #1251), so a sympy bump moves this revision instead of moving
         # per-Case values under an unchanged one.
-        scorer_dependencies=("sympy",),
+        # antlr4 is the LaTeX parser sympy's parse_latex grades with, pinned beside it.
+        scorer_dependencies=("sympy", "antlr4-python3-runtime"),
         # Named Deviation (OME-1268): the Task also declares expression_equivalance, left out
         # because it grades with a judge model, and a multi-scorer row pins no judge
         # (unpinned, it would grade with the model under test). The description names the

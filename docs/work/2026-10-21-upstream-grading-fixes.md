@@ -85,6 +85,28 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - chembench and infinite_bench_math_find keep their published revisions (held); their computed
   fingerprints move and are pinned; no other revision moves.
 
+## PR 3 — MATH reads its answer line through the wrapping
+
+### Planned changes
+
+- `.../named_deviations/math/` (new): both MATH scorers read the `ANSWER:` line through our
+  extraction, which unwraps `\boxed{}` (inspect_evals PR #2199), strips an outer `\(..\)` or
+  `\[..\]` (PR #2340) and drops markdown bold (ours); the compare steps stay the eval's.
+- `.../benchmarks.py`: the math row grades with them; antlr4 joins sympy as a pinned scorer
+  dependency; description; NAMED DEVIATION comment.
+- tests: `test_named_deviation_math.py` (new); `test_benchmark_fingerprints.py` and
+  `test_published_revision.py` gain math; `test_scorer_source_pins.py` (its row set gains math).
+
+### Test plan
+
+- each wrapping of a right answer scores correct under ours and 0 under v0.20.0 (the tripwires);
+  an unwrapped answer grades exactly as inspect's own scorer grades it.
+
+### Acceptance
+
+- math keeps its published revision (held); its computed fingerprint moves and is pinned; no
+  other revision moves.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 ### PR 1
@@ -122,3 +144,33 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   edit moved chembench's computed fingerprint once more (2fdb430f6a3505f0 → 7af1d67ffad68471;
   the verbatim copy then moved it to b86658ea78c51962).
 - **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), the yes_no tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 759 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 14 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+
+### PR 3
+
+- **Actual files:** as planned, plus one edited prior test: `test_math_squad_named_scores.py`
+  (the dependency pins now list antlr4 beside sympy; its docstring says the conservation
+  invariant holds for MATH only on an unwrapped answer line with no trailing carriage return
+  or tab).
+- **Revisions:** held (owner decision, 2026-10-22): math publishes 0fb750cf19e00c11, as on
+  main; its computed fingerprint moved to 4129dccca9dbb8ce, pinned in `test_benchmark_fingerprints.py`.
+- **Verbatim copies (owner rule 2026-10-22: a ported fix is a verbatim copy with the same
+  names):** the module now holds v0.20.0's two exact-match scorers and `score_helper`, copied
+  unchanged (v0.20.0 binds `extract_answer` in its own module, so its scorers can't be pointed
+  at ours), and `extract_answer` built from v0.20.0's with PR #2199's and PR #2340's blocks,
+  each verbatim and joined the way a merge would. Ours is marked `OURS` where it runs: the
+  whitespace-and-bold step before the PR blocks, and the empty-answer-line explanation after
+  `score_helper`. ruff format rewrapped two copied lines to our 100-column limit (whitespace
+  only), and a file-level pyright directive silences a possibly-unbound warning in the copied
+  `score_helper` rather than editing it.
+- **Review fixes:** the whitespace trim on the answer line is declared part of the Named
+  Deviation (v0.20.0's exact match marked `ANSWER: 42\r` wrong, ours right); two boxes on the
+  answer line grade the last one (`\boxed{41} or \boxed{42}` is right for 42), kept as
+  inspect_evals PR #2199 and the paper's grader read it, stated in the row description and
+  the module docstring and pinned by a test; an answer line holding only wrapping
+  (`ANSWER: \boxed{}`, `ANSWER: ****`) stays wrong but now says it is an empty answer line,
+  not a missing one. The scorer edits moved math's computed fingerprint once more
+  (4974287b20a4f1aa → 414043e2d2a9dbcc; the verbatim copy then moved it to 4129dccca9dbb8ce).
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_math.py` (new), `test_math_squad_named_scores.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), the yes_no and chembench tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 751 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 13 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.
+- **Deviations:** `**ANSWER: 42**` (markdown bold on MATH's answer line) and a trailing
+  carriage return or tab (`ANSWER: 42\r`) have no inspect_evals item; their fixes are ours
+  alone.

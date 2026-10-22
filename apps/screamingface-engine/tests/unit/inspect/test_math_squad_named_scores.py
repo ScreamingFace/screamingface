@@ -8,8 +8,13 @@ MATH reports the paper's normalised exact match (headline) beside Minerva's symb
 equivalence, with the self-grading `expression_equivalance` dropped by name.
 
 INVARIANT (spec §8.2, conservation): for each row, every declared scorer's per-Case value
-equals inspect's OWN scorer's value on the same answer and target. Three hand-written
-Cases per row; no network, no model. The rows' Revisions are frozen in
+equals inspect's OWN scorer's value on the same answer and target. For MATH that now holds
+only on a reply whose ANSWER: line has no wrapping and no trailing carriage return or tab:
+since OME-1701 PR 3 its scorers read that line through our Named Deviation, which sees
+through a boxed answer, outer LaTeX delimiters, markdown bold and a trailing carriage return
+or tab that inspect's own scorer reads as written (so an unwrapped Windows line,
+`ANSWER: 42\\r\\n`, does not match inspect_evals). Three hand-written Cases per row, all
+unwrapped; no network, no model. The rows' Revisions are frozen in
 test_published_revisions.
 """
 
@@ -156,7 +161,10 @@ def test_math_pins_the_installed_sympy_into_its_revision() -> None:
     math_spec = next(spec for spec in BENCHMARKS if spec.key == "math")
     squad_spec = next(spec for spec in BENCHMARKS if spec.key == "squad")
 
-    assert _scorer_dependency_pins(math_spec) == (f"sympy=={version('sympy')}",)
+    assert _scorer_dependency_pins(math_spec) == (
+        f"sympy=={version('sympy')}",
+        f"antlr4-python3-runtime=={version('antlr4-python3-runtime')}",
+    )
     assert _scorer_dependency_pins(squad_spec) == ()  # no other row's revision moves
     with pytest.raises(ValueError, match="no-such-grader-package.*not installed"):
         _scorer_dependency_pins(replace(math_spec, scorer_dependencies=("no-such-grader-package",)))
