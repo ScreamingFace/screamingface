@@ -13,6 +13,7 @@ relative to the package, and read ``OPENROUTER_API_KEY`` from this process's env
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import signal
@@ -98,6 +99,25 @@ def notebook_stems() -> list[str]:
     return sorted(p.stem for p in NOTEBOOK_DIR.glob("*.ipynb"))
 
 
+def expected_failure_stems(directory: Path) -> frozenset[str]:
+    """The notebooks that declare ``workbench.expect`` (spec §3.7): they fail on purpose.
+
+    Only the label of the run form depends on this, so an unreadable notebook is simply not
+    labelled; the verdict reads the declaration itself.
+    """
+    stems: set[str] = set()
+    for path in directory.glob("*.ipynb"):
+        try:
+            meta: Any = json.loads(path.read_text(encoding="utf-8")).get("metadata", {})
+            workbench: Any = meta.get("workbench", {})
+            declared = isinstance(workbench, dict) and "expect" in workbench
+        except (OSError, ValueError, AttributeError):
+            declared = False
+        if declared:
+            stems.add(path.stem)
+    return frozenset(stems)
+
+
 def main(argv: Sequence[str] | None = None, *, serve: Serve = uvicorn.run) -> None:
     args = _parser().parse_args(argv)
     root = Path(args.out).resolve()
@@ -105,7 +125,14 @@ def main(argv: Sequence[str] | None = None, *, serve: Serve = uvicorn.run) -> No
     token = secrets.token_urlsafe(32)
     stems = notebook_stems()
     manager = RunManager(root, workdir=PACKAGE_DIR, environ=os.environ, notebooks=stems)
-    app = create_app(root=root, manager=manager, token=token, port=args.port, notebooks=stems)
+    app = create_app(
+        root=root,
+        manager=manager,
+        token=token,
+        port=args.port,
+        notebooks=stems,
+        expected_failures=expected_failure_stems(NOTEBOOK_DIR),
+    )
     url = f"http://{HOST}:{args.port}/?token={token}"
     print(f"e2e workbench UI: bundles under {root}")
     print("Open this URL (it carries the launch token; keep it to yourself):")

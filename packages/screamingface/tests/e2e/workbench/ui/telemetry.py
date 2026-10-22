@@ -23,14 +23,17 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Final
 
 from workbench.bundle import EVENTS_FILE, SPANS_FILE, TELEMETRY_FILE
-from workbench.redaction import redact_named_tree
+from workbench.evidence import trace_id_tokens
+from workbench.expectation import is_error_log, is_error_span
+from workbench.redaction import redact, redact_named_tree
 from workbench.telemetry_recorder import ACCOUNTING_FILE, REPORT_FILE
 from workbench.ui.bundles import regular_file
 
@@ -464,6 +467,7 @@ class LogEntry:
     severity: str  # one of SEVERITIES, or "unknown"
     body: str
     attributes: Json
+    error: bool = False  # ERROR or above (the verdict's rule), or a failed run's termination
 
 
 def _termination(event: Json) -> LogEntry | None:
@@ -474,7 +478,7 @@ def _termination(event: Json) -> LogEntry | None:
     detail = ": ".join(t for t in (_str(error.get("code")), _str(error.get("message"))) if t)
     body = f"terminated {status}" + (f": {detail}" if detail else "")
     return LogEntry(int_or_none(event.get("sequence")), _str(event.get("timestamp")) or "", "ERROR",
-                    body, {})  # fmt: skip
+                    body, {}, error=True)  # fmt: skip
 
 
 def _log(event: Json) -> LogEntry:
@@ -485,6 +489,7 @@ def _log(event: Json) -> LogEntry:
         severity=severity if isinstance(severity, str) and severity in SEVERITIES else "unknown",
         body=_str(event.get("body")) or "",
         attributes=_dict(event.get("attributes")),
+        error=is_error_log(event),
     )
 
 
@@ -546,3 +551,139 @@ def cases(report: Json | None) -> list[CaseRow]:
         name = _str(c.get("name")) or "unknown"
         rows += [_case(name, case) for case in dicts(c.get("cases"))]
     return rows
+
+
+# --- errors and their gateway calls (unit 7 plan, Task 4) -----------------------------------
+
+# W3C traceparent: version-traceid-parentid-flags; the run's trace id is the second field.
+_TRACEPARENT: Final = re.compile(r"[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}")
+# A call id the page may use as an anchor; anything else (quotes, markup) is no call id.
+CALL_ID: Final = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
+# The gateway's `gateway_call_id=<id>` field: space-joined key=value parts, as `trace_id=`.
+_CALL_TOKEN: Final = re.compile(r"(?<!\S)gateway_call_id=(\S+)")
+GATEWAY_CALLS_CAP: Final = 500
+
+
+@dataclass(frozen=True)
+class ErrorEvent:
+    """One failing ``Span`` or ERROR ``Log`` event: what the verdict counts as error telemetry."""
+
+    kind: str  # "span" or "log"
+    sequence: int | None
+    what: str  # the span name or the log body
+    model: str | None
+    provider: str | None
+    finish: str | None
+    failure: str | None  # refusal, failure code or error type
+    trace_id: str | None  # from the event's traceparent
+    call_ids: tuple[str, ...]  # gateway_call_id values the event itself names
+
+
+def _first(*values: object) -> str | None:
+    return next((v for v in values if isinstance(v, str) and v), None)
+
+
+def _named_call_ids(event: Json, attributes: Json) -> tuple[str, ...]:
+    found = [event.get("gateway_call_id")]
+    found += [v for k, v in attributes.items() if k.split(".")[-1] == "gateway_call_id"]
+    ids = (v for v in found if isinstance(v, str) and CALL_ID.fullmatch(v))
+    return tuple(dict.fromkeys(ids))
+
+
+def _trace_id(event: Json) -> str | None:
+    match = _TRACEPARENT.fullmatch(_str(event.get("traceparent")) or "")
+    return match.group(1) if match else None
+
+
+def _finish(value: object) -> str | None:
+    reasons = [r for r in _list(value) if isinstance(r, str)]
+    return ", ".join(reasons) or _str(value)
+
+
+def _error_event(event: Json) -> ErrorEvent:
+    attrs = _dict(event.get("attributes"))
+    span = event.get("kind") == "span"
+    refusal = event.get("refusal")
+    if span:
+        failure = _first(refusal, attrs.get("error.type")) or (
+            "refused" if refusal else _str(event.get("status"))
+        )
+    else:
+        failure = _first(attrs.get("sf.activity.failure_code"), attrs.get("error.type"))
+    return ErrorEvent(
+        kind="span" if span else "log",
+        sequence=int_or_none(event.get("sequence")),
+        what=(_str(event.get("name")) if span else _str(event.get("body"))) or "",
+        model=_first(
+            event.get("request_model"),
+            event.get("response_model"),
+            attrs.get("sf.activity.model_id"),
+            attrs.get("gen_ai.request.model"),
+            attrs.get("gen_ai.response.model"),
+        ),
+        provider=_first(
+            event.get("provider"), attrs.get("gen_ai.provider.name"), attrs.get("gen_ai.system")
+        ),
+        finish=_finish(event.get("finish_reasons"))
+        or _first(attrs.get("finish_reason"), attrs.get("sf.activity.finish_reason")),
+        failure=failure,
+        trace_id=_trace_id(event),
+        call_ids=_named_call_ids(event, attrs),
+    )
+
+
+def error_events(events: Sequence[Json]) -> list[ErrorEvent]:
+    """The failing ``Span`` and ERROR-or-above ``Log`` events, by the verdict's own predicates
+    (``workbench.expectation``), so the page highlights exactly what the verdict counted."""
+    return [_error_event(e) for e in events if is_error_span(e) or is_error_log(e)]
+
+
+@dataclass(frozen=True)
+class GatewayCall:
+    call_id: str
+    trace_ids: frozenset[str]
+    lines: tuple[str, ...]
+
+
+def gateway_calls(text: str, trace_ids: Iterable[str]) -> dict[str, GatewayCall]:
+    """The gateway log lines of ``trace_ids``, grouped by ``gateway_call_id``, in log order.
+
+    A line belongs to a trace only by an exact ``trace_id=`` token (``evidence.trace_id_tokens``,
+    the verdict's rule): a ``parent_trace_id=`` or a longer id is another run's line. A line
+    without a usable call id is not a call's. Lines are redacted again: the bundle is untrusted.
+    """
+    wanted = frozenset(trace_ids)
+    lines: dict[str, list[str]] = {}
+    traces: dict[str, set[str]] = {}
+    for line in text.splitlines():
+        ids = trace_id_tokens(line) & wanted
+        calls = [c for c in _CALL_TOKEN.findall(line) if CALL_ID.fullmatch(c)]
+        if not ids or not calls:
+            continue
+        call = calls[0]
+        if call not in lines and len(lines) >= GATEWAY_CALLS_CAP:
+            continue
+        lines.setdefault(call, []).append(redact(line))
+        traces.setdefault(call, set()).update(ids)
+    return {c: GatewayCall(c, frozenset(traces[c]), tuple(ls)) for c, ls in lines.items()}
+
+
+@dataclass(frozen=True)
+class CallLinks:
+    linked: tuple[str, ...]  # call ids present in the gateway log
+    absent: tuple[str, ...]  # call ids the event names that the gateway log lacks
+    by: str  # "gateway_call_id", "trace id", or why there is no link
+
+
+def call_links(event: ErrorEvent, calls: Mapping[str, GatewayCall] | None) -> CallLinks:
+    """Which gateway calls an error event points at: exactly the ``gateway_call_id`` it names,
+    else every call of its trace (the SDK's span and log events carry no call id today)."""
+    if calls is None:
+        return CallLinks((), event.call_ids, "no gateway log in this bundle")
+    if event.call_ids:
+        linked = tuple(c for c in event.call_ids if c in calls)
+        absent = tuple(c for c in event.call_ids if c not in calls)
+        return CallLinks(linked, absent, "gateway_call_id")
+    tid = event.trace_id
+    linked = tuple(c for c, call in calls.items() if tid is not None and tid in call.trace_ids)
+    return CallLinks(linked, (), "trace id" if tid is not None else "no trace id on this event")

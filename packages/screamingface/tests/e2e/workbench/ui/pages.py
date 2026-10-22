@@ -18,7 +18,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 from urllib.parse import quote
 
 from workbench.ui.bundles import BundleDetail, BundleSummary
@@ -218,12 +218,23 @@ def error_page(status: int, reason: str, *, token: str | None, back: str | None 
 # --- pills -----------------------------------------------------------------------------------
 
 
-def verdict_pill(passed: bool | None) -> str:
-    if passed is True:
-        return '<span class="pill pass">PASS</span>'
-    if passed is False:
-        return '<span class="pill fail">FAIL</span>'
-    return '<span class="pill unknown" title="trace.json missing or malformed">unreadable</span>'
+_VERDICT_PILLS: Final = {
+    (False, True): '<span class="pill pass">PASS</span>',
+    (False, False): '<span class="pill fail">FAIL</span>',
+    # spec §3.7: a notebook that fails on purpose passes when it failed exactly as declared
+    (True, True): '<span class="pill pass">expected FAIL ✓</span>',
+    (True, False): '<span class="pill fail">expected FAIL ✗</span>',
+}
+_UNREADABLE_PILL: Final = (
+    '<span class="pill unknown" title="trace.json missing or malformed">unreadable</span>'
+)
+
+
+def verdict_pill(passed: bool | None, *, expected: bool = False) -> str:
+    """PASS/FAIL; for a notebook that fails on purpose (spec §3.7) ``expected FAIL ✓``/``✗``."""
+    if passed is None:
+        return _UNREADABLE_PILL
+    return _VERDICT_PILLS[(expected, passed)]
 
 
 def run_pill(run: Run) -> str:
@@ -253,6 +264,7 @@ class LaunchState:
     notebooks: Sequence[str]
     local_blocker: str | None  # why `local` is unavailable, None when it is offered
     active: Run | None
+    fails_on_purpose: frozenset[str] = frozenset()  # notebooks declaring workbench.expect
 
 
 def _target_inputs(state: LaunchState) -> str:
@@ -280,9 +292,15 @@ def _target_inputs(state: LaunchState) -> str:
     return f"<fieldset><legend>Target</legend>{replay}<br>{local}{paid}</fieldset>"
 
 
-def _notebook_inputs(notebooks: Sequence[str]) -> str:
+_FAILS_ON_PURPOSE = "(fails on purpose: debugging example)"
+
+
+def _notebook_inputs(notebooks: Sequence[str], fails_on_purpose: frozenset[str]) -> str:
+    def note(n: str) -> str:
+        return f" <span class='note'>{_FAILS_ON_PURPOSE}</span>" if n in fails_on_purpose else ""
+
     boxes = "".join(
-        f'<label><input type="checkbox" name="notebooks" value="{_e(n)}"> {_e(n)}</label>'
+        f'<label><input type="checkbox" name="notebooks" value="{_e(n)}"> {_e(n)}{note(n)}</label>'
         for n in notebooks
     )
     return (
@@ -312,7 +330,7 @@ def _launcher(state: LaunchState) -> str:
         f"<section><h2>Launch a run</h2>{busy}"
         '<form method="post" action="/runs">'
         f'<input type="hidden" name="token" value="{_e(state.token)}">'
-        f"{_target_inputs(state)}{_notebook_inputs(state.notebooks)}"
+        f"{_target_inputs(state)}{_notebook_inputs(state.notebooks, state.fails_on_purpose)}"
         f'<button class="primary" type="submit"{disabled}>Start run</button>'
         " <span class='note'>Runs <code>pytest tests/e2e/workbench/test_notebooks.py</code>, "
         "exactly the CI lane.</span></form></section>"
@@ -328,7 +346,7 @@ def _bundle_rows(bundles: Sequence[BundleSummary], token: str | None) -> str:
         )
         why = "<br>".join(_e(r) for r in b.reasons) or "<span class=muted>—</span>"
         rows.append(
-            f"<tr><td>{verdict_pill(b.passed)}</td><td>{_e(b.target)}</td>"
+            f"<tr><td>{verdict_pill(b.passed, expected=b.expected)}</td><td>{_e(b.target)}</td>"
             f'<td><a href="/bundles/{_e(quote(b.key))}{_q(token)}">{_e(b.notebook)}</a>'
             f"<div class='note mono'>{_e(b.key)}</div></td>"
             f"<td>{ids}</td><td>{why}</td><td class='mono'>{_when(b.modified)}</td></tr>"
@@ -605,12 +623,44 @@ def _failed_hops(trace: Mapping[str, Any] | None) -> set[str]:
     return {str(h.get("name")) for h in hops if h.get("found") is False}
 
 
+def _failure_pairs(value: object) -> str:
+    """``code at stage`` per failure dict, escaped; "none" for an empty list, "?" otherwise."""
+    if not isinstance(value, list):
+        return "?"
+    pairs = [f"{_scalar(f.get('code'))} at {_scalar(f.get('stage'))}" for f in _dicts(value)]
+    return ", ".join(pairs) or "none"
+
+
+def _expectation(trace: Mapping[str, Any] | None, passed: bool | None) -> str:
+    """Spec §3.7: what the notebook declared, what the run showed, and the ✓ or ✗."""
+    raw_expect = (trace or {}).get("expect")
+    raw_observed = (trace or {}).get("observed")
+    expect: Mapping[str, Any] = raw_expect if isinstance(raw_expect, dict) else {}  # pyright: ignore[reportUnknownVariableType]
+    observed: Mapping[str, Any] = raw_observed if isinstance(raw_observed, dict) else {}  # pyright: ignore[reportUnknownVariableType]
+    codes = ", ".join(_e(c) for c in _strs(expect.get("failure_codes"))) or "?"
+    counts = observed.get("error_telemetry")
+    tele: Mapping[str, Any] = counts if isinstance(counts, dict) else {}  # pyright: ignore[reportUnknownVariableType]
+    outcome = (
+        "<p>✓ It failed exactly as declared, and the telemetry caught the error.</p>"
+        if passed is True
+        else ""
+    )
+    return (
+        "<p>This notebook <b>fails on purpose</b>. Declared: "
+        f"<code>{codes}</code> at stage <code>{_scalar(expect.get('stage'))}</code>. "
+        f"Observed: <code>{_failure_pairs(observed.get('failures'))}</code> · error "
+        f"telemetry: {_scalar(tele.get('spans'))} failing spans, {_scalar(tele.get('logs'))} "
+        f"ERROR logs.</p>{outcome}"
+    )
+
+
 def _verdict_section(detail: BundleDetail) -> str:
     s, trace = detail.summary, detail.trace
-    reasons = "".join(f"<li>{_e(r)}</li>" for r in s.reasons)
+    mark = "✗ " if s.expected else ""
+    reasons = "".join(f"<li>{mark}{_e(r)}</li>" for r in s.reasons)
     error = (trace or {}).get("error")
     parts = [
-        f"<section><h2>{verdict_pill(s.passed)} {_e(s.notebook)} "
+        f"<section><h2>{verdict_pill(s.passed, expected=s.expected)} {_e(s.notebook)} "
         f"<span class='muted'>on {_e(s.target)}</span></h2>"
         f"<p class='note mono'>{_e(s.key)} · written {_when(s.modified)}</p>"
     ]
@@ -619,6 +669,8 @@ def _verdict_section(detail: BundleDetail) -> str:
             "<p class='warn'>trace.json is missing or unreadable, so the verdict is unknown. "
             "The logs and notebook below are shown as found.</p>"
         )
+    if s.expected:
+        parts.append(_expectation(trace, s.passed))
     if reasons:
         parts.append(f"<ul class='err'>{reasons}</ul>")
     if isinstance(error, str) and error:
@@ -657,7 +709,11 @@ def bundle_page(
         else ""
     )
     telemetry_html = telemetry_section(
-        telemetry or Telemetry(), view or TelemetryView(), key=detail.summary.key, token=token
+        telemetry or Telemetry(),
+        view or TelemetryView(),
+        key=detail.summary.key,
+        token=token,
+        gateway_log=detail.logs.get("aigateway"),
     )
     body = (
         f"{_verdict_section(detail)}"

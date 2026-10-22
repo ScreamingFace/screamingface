@@ -39,6 +39,9 @@ class BundleSummary:
     trace_ids: tuple[str, ...]
     reasons: tuple[str, ...]
     modified: float  # mtime of trace.json (or of the dir)
+    # The notebook fails on purpose (spec §3.7): trace.json carries ``expect``, in any shape —
+    # a malformed declaration is still an expected-failure bundle (red), never a plain one.
+    expected: bool = False
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,7 @@ def _summary(root: Path, directory: Path, trace: dict[str, Any] | None) -> Bundl
         trace_ids=_strings(data, "trace_ids"),
         reasons=_strings(data, "reasons"),
         modified=modified,
+        expected="expect" in data,
     )
 
 

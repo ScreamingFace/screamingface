@@ -179,6 +179,35 @@ The probe and all 3 runs were identical, apart from the ids:
   `04fde8793d8a4d70a02d8d88ed92706c`, observed `upstream_error`/`candidate`, error telemetry
   spans 10, logs 2) and quickstart PASS; 622 passed, 2 skipped (`just` not on PATH).
 
+## Task 4 (2026-10-22): UI
+
+- Bundle page and index: a bundle whose `trace.json` carries `expect` (any shape, so a
+  malformed declaration still reads as one) shows `expected FAIL ✓` or `expected FAIL ✗`; the
+  verdict section states declared vs observed codes/stage and the error-telemetry counts, and
+  prefixes each reason with `✗`.
+- Telemetry section: a new **Errors** view lists the failing `Span` and ERROR `Log` events by the
+  verdict's own predicates (`expectation.is_error_span`/`is_error_log`, made public), with model,
+  provider, finish reason and failure code; failing waterfall rows and ERROR log rows are
+  highlighted (`hl-err`). Each error links to a **Gateway calls** table (one row per
+  `gateway_call_id`, anchor `#gw-<id>`, lines matched by the exact `trace_id=` token via
+  `evidence.trace_id_tokens`, redacted again).
+- Run form: notebooks declaring `workbench.expect` (read from their metadata at UI start) are
+  labelled "(fails on purpose: debugging example)".
+- **Deviation: the link is by `gateway_call_id` only when the event names one.** No SDK `Span`
+  or `Log` event carries a `gateway_call_id` today (Task 2; re-checked on the Task 3 bundle:
+  0 occurrences in `events.jsonl`/`spans.jsonl`/`report.json`). So each error links every
+  gateway call of its trace and says "by trace id"; an event that does name one links exactly
+  that call (and says when the gateway log lacks it). Follow-up: have the SDK activity log carry
+  the call's `gateway_call_id`.
+- Proof: RED 16 setup errors + 2 failures (no `expected_failures`/`expected_failure_stems`),
+  then 12 failures after the plumbing; GREEN 18/18 in `ui/test_expected_failure_view.py`; UI +
+  expectation suites 295 passed; ruff + pyright clean on touched files. Real replay lane
+  (`REQUIRE_ALL=1`): 640 passed, 2 skipped (`just` not on PATH); summary `debug_failing_run`
+  `expected FAIL ✓` (trace `7d393cf3b216b0fd1b863da053a154fc`), quickstart PASS. UI smoke on
+  :9114 over those bundles: label on debug only; pills `PASS` / `expected FAIL ✓`; Errors 12
+  rows (2 logs + 10 spans), 2 gateway call anchors, 10 waterfall + 2 log rows highlighted, no
+  raw `<script`. Ports 9105/9106/9108/9114 free afterwards; 9112 untouched.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** this ledger (Task 2).

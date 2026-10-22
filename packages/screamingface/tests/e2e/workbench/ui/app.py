@@ -28,7 +28,7 @@ import secrets
 import shlex
 import sys
 import threading
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Collection, Iterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -189,6 +189,7 @@ class _Workbench:
         manager: RunManager,
         token: str,
         notebooks: Sequence[str],
+        expected_failures: Collection[str],
         default_data_dir: Path,
         telemetry_interval: float,
     ) -> None:
@@ -198,6 +199,7 @@ class _Workbench:
         self.manager = manager
         self.token = token
         self.notebooks = tuple(notebooks)
+        self.expected_failures = frozenset(expected_failures)
         self.run_ids: list[str] = []  # started by this process, oldest first
 
     # --- helpers --------------------------------------------------------------------------
@@ -273,7 +275,13 @@ class _Workbench:
 
     def index(self, request: Request) -> HTMLResponse:
         token = self.page_token(request)
-        state = pages.LaunchState(token, self.notebooks, self.local_blocker(), self.active())
+        state = pages.LaunchState(
+            token,
+            self.notebooks,
+            self.local_blocker(),
+            self.active(),
+            fails_on_purpose=self.expected_failures,
+        )
         bundles = discover(self.root)
         html = pages.index_page(
             state, root=str(self.root), run_ids=self.disk_run_ids(), bundles=bundles
@@ -397,6 +405,7 @@ def create_app(
     token: str,
     port: int,
     notebooks: Sequence[str],
+    expected_failures: Collection[str] = (),
     default_data_dir: Path | None = None,
     telemetry_interval: float = 0.5,
 ) -> FastAPI:
@@ -405,12 +414,15 @@ def create_app(
     ``default_data_dir`` is named in the stop command when a run's own runtime data dir is
     unknown (default: the runtime's, ``SCREAMINGFACE_DATA_DIR`` or ``~/.screamingface``).
     ``telemetry_interval`` is how often the live telemetry stream polls the run's files.
+    ``expected_failures`` are the notebooks that fail on purpose (spec §3.7): the run form
+    labels them so a red-looking run of one is not mistaken for a regression.
     """
     wb = _Workbench(
         root=root.resolve(),
         manager=manager,
         token=token,
         notebooks=notebooks,
+        expected_failures=expected_failures,
         default_data_dir=default_data_dir or runtime_default_data_dir(),
         telemetry_interval=telemetry_interval,
     )

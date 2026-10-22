@@ -85,13 +85,13 @@ def _failures(node: Any) -> Iterator[tuple[str, str]]:
                 yield from _failures(value)
 
 
-def _is_error_span(event: Mapping[str, Any]) -> bool:
+def is_error_span(event: Mapping[str, Any]) -> bool:
     return event.get("kind") == "span" and (
         event.get("status") == "error" or bool(event.get("refusal"))
     )
 
 
-def _is_error_log(event: Mapping[str, Any]) -> bool:
+def is_error_log(event: Mapping[str, Any]) -> bool:
     severity = event.get("severity_number")
     return (
         event.get("kind") == "log"
@@ -113,8 +113,8 @@ def error_telemetry(events_text: str) -> dict[str, int]:
         except ValueError:
             continue
         if isinstance(event, Mapping):
-            spans += _is_error_span(event)  # pyright: ignore[reportUnknownArgumentType]
-            logs += _is_error_log(event)  # pyright: ignore[reportUnknownArgumentType]
+            spans += is_error_span(event)  # pyright: ignore[reportUnknownArgumentType]
+            logs += is_error_log(event)  # pyright: ignore[reportUnknownArgumentType]
     return {"spans": spans, "logs": logs}
 
 

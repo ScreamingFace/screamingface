@@ -38,6 +38,7 @@ STYLE: Final = (
     ".wf svg{display:block;width:100%;height:10px}.bar{fill:var(--link)}"
     ".bar.err{fill:var(--fail)}.bar.fold{fill:var(--muted)}.num{text-align:right}"
     "nav.pages a,nav.pages span{margin-right:12px}"
+    "tr.hl-err>td{background:var(--fail-bg)}tr.gw-call:target>td{outline:2px solid var(--fail)}"
     + "".join(
         f'#tlogs:has(#sev-{name}:checked) tr[data-sev="{sev}"]{{display:none}}'
         for name, level in _FILTERS
@@ -148,8 +149,9 @@ def _status(row: tm.SpanRow) -> str:
 
 def _span_row(row: tm.SpanRow, axis: tuple[int, int] | None) -> str:
     indent = 8 + 14 * min(row.depth, _MAX_INDENT)
+    css = "wf-row hl-err" if row.error is not None else "wf-row"
     return (
-        f'<tr class="wf-row" data-folded="{row.folded}">'
+        f'<tr class="{css}" data-folded="{row.folded}">'
         f'<td class="name" style="padding-left:{indent}px">{_name(row)}</td>'
         f"<td>{_v(row.model)}</td><td class='num'>{_v(row.input_tokens)}</td>"
         f"<td class='num'>{_v(row.output_tokens)}</td><td>{_v(row.cache)}</td>"
@@ -274,6 +276,73 @@ def _accounting(t: tm.Telemetry) -> str:
     return "".join(_candidate_accounting(c) for c in items)
 
 
+# --- errors and their gateway calls (unit 7 plan, Task 4) --------------------------------
+
+_HL: Final = ' class="hl-err"'
+
+
+def _call_cell(links: tm.CallLinks) -> str:
+    parts = [f'<a class="mono" href="#gw-{_e(c)}">{_e(c)}</a>' for c in links.linked]
+    parts += [
+        f"<span class='mono'>{_e(c)}</span> <span class='note'>(not in the gateway log)</span>"
+        for c in links.absent
+    ]
+    if links.by == "trace id":
+        if not links.linked:
+            parts.append("<span class='muted'>none under this trace id</span>")
+        parts.append(
+            "<div class='note'>by trace id: this event carries no gateway_call_id, so every "
+            "call of its trace is linked</div>"
+        )
+    elif links.by != "gateway_call_id":
+        parts.append(f"<span class='muted'>{_e(links.by)}</span>")
+    return "<br>".join(parts)
+
+
+def _gateway_table(calls: Mapping[str, tm.GatewayCall]) -> str:
+    if not calls:
+        return "<p class='muted'>No gateway line of these traces carries a gateway_call_id.</p>"
+    rows = [
+        f'<tr class="gw-call" id="gw-{_e(c.call_id)}"><td class="mono">{_e(c.call_id)}</td>'
+        f"<td><pre>{_e(chr(10).join(c.lines))}</pre></td></tr>"
+        for c in calls.values()
+    ]
+    return _table(("gateway_call_id", "Gateway log lines"), rows)
+
+
+def _errors(t: tm.Telemetry, gateway_log: str | None) -> str:
+    events = tm.error_events(t.events)
+    if not events:
+        return ""
+    trace_ids = {e.trace_id for e in events if e.trace_id is not None}
+    calls = None if gateway_log is None else tm.gateway_calls(gateway_log, trace_ids)
+    rows = [
+        f"<tr{_HL}><td class='mono'>{_v(e.sequence)}</td><td>{_e(e.kind)}</td>"
+        f"<td>{_e(e.what)}</td><td>{_v(e.model)}</td><td>{_v(e.provider)}</td>"
+        f"<td>{_v(e.finish)}</td><td>{_v(e.failure)}</td>"
+        f"<td>{_call_cell(tm.call_links(e, calls))}</td></tr>"
+        for e in events[:TABLE_CAP]
+    ]
+    more = (
+        f"<p class='note'>Showing the first {TABLE_CAP} of {len(events)} errors.</p>"
+        if len(events) > TABLE_CAP
+        else ""
+    )
+    head = ("#", "Kind", "Span or message", "Model", "Provider", "Finish", "Failure",
+            "Gateway calls")  # fmt: skip
+    gateway = (
+        f'<h4 id="gateway-calls">Gateway calls of these traces</h4>{_gateway_table(calls)}'
+        if calls is not None
+        else ""
+    )
+    return (
+        '<h3 id="errors">Errors</h3><p class="note">The failing Span events and ERROR Log '
+        "events in events.jsonl (what the verdict counts as error telemetry), each linked to "
+        "its gateway log lines by gateway_call_id.</p>"
+        f"{more}{_table(head, rows)}{gateway}"
+    )
+
+
 # --- logs and cases -------------------------------------------------------------------------
 
 
@@ -305,7 +374,8 @@ def _logs(t: tm.Telemetry) -> str:
     if not entries:
         return "<p class='muted'>No log events.</p>"
     rows = [
-        f'<tr data-sev="{_e(e.severity)}"><td class="mono">{_v(e.sequence)}</td>'
+        f'<tr data-sev="{_e(e.severity)}"{_HL if e.error else ""}>'
+        f'<td class="mono">{_v(e.sequence)}</td>'
         f"<td class='mono'>{_e(e.timestamp)}</td><td>{_e(e.severity)}</td>"
         f"<td>{_e(e.body)}</td><td class='mono'>"
         + " ".join(f"{_e(k)}={_e(_attr(v))}" for k, v in e.attributes.items())
@@ -342,25 +412,37 @@ def _cases(t: tm.Telemetry) -> str:
     return more + _table(head, body)
 
 
-def section(t: tm.Telemetry, view: TelemetryView, *, key: str, token: str | None) -> str:
+def section(
+    t: tm.Telemetry,
+    view: TelemetryView,
+    *,
+    key: str,
+    token: str | None,
+    gateway_log: str | None = None,
+) -> str:
     """The whole Telemetry ``<section>`` of the bundle page; never raises.
 
     The bundle is untrusted: should any view still trip over it, only this section says so and
     the rest of the bundle page (trace chain, result, logs, notebook) still renders.
+    ``gateway_log`` is the bundle's ``aigateway`` excerpt (``None`` when it has none): the
+    Errors view links each failing span and ERROR log to its lines.
     """
     try:
-        return _section(t, view, key=key, token=token)
+        return _section(t, view, key=key, token=token, gateway_log=gateway_log)
     except Exception as exc:  # noqa: BLE001 - the rest of the page must survive a bad bundle
         body = f"<p class='warn'>Telemetry could not be shown: {_e(type(exc).__name__)}.</p>"
         return f'<section id="telemetry"><h2>Telemetry</h2>{body}</section>'
 
 
-def _section(t: tm.Telemetry, view: TelemetryView, *, key: str, token: str | None) -> str:
+def _section(
+    t: tm.Telemetry, view: TelemetryView, *, key: str, token: str | None, gateway_log: str | None
+) -> str:
     if not t.present:
         body = "<p class='muted'>No telemetry in this bundle (no events, spans or report).</p>"
         return f'<section id="telemetry"><h2>Telemetry</h2>{body}</section>'
     return (
         f'<section id="telemetry"><h2>Telemetry</h2>{_counts(t)}{_notes(t)}'
+        f"{_errors(t, gateway_log)}"
         f'<h3 id="waterfall">Spans</h3>{_waterfall(t, view, key, token)}'
         f"<h3>Usage and cost</h3><p class='note'>By model, from the SDK usage events "
         f"(scope self):</p>{_usage_events(t)}<p class='note'>By model and by stage, from the "
