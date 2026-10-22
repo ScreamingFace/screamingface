@@ -6,5 +6,7 @@ set default-list := true
 
 # Print what moving a Benchmark's published revision costs, and the lines to edit (OME-1610).
 # Edits nothing: the move is a hand edit in a reviewed PR, with the owner's sign-off.
+# AIDEV-NOTE: this installs the inspect extra into the Engine's .venv; run `uv sync` here
+# before pushing, or the pre-push hook's two import-cost tests fail (CI runs without the extra).
 benchmark-bump key:
     uv run --inexact --extra inspect python scripts/benchmark_bump.py {{ key }}

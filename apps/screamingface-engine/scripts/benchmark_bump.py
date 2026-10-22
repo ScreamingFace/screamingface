@@ -41,6 +41,8 @@ class _Ids(NamedTuple):
     #: Where the published id is written, and the line as it reads there.
     home: str
     line: str
+    #: False for a new row that sets no ``published_revision`` yet: it serves its fingerprint.
+    hand_set: bool = True
 
 
 def _ids(key: str) -> _Ids:
@@ -49,29 +51,41 @@ def _ids(key: str) -> _Ids:
     if key == MEDXPERT_KEY:
         from screamingface_engine.benchmarks.medxpert import definition
 
-        return _Ids(definition.REVISION, definition.FINGERPRINT, _MEDXPERT, "REVISION = {!r}")
+        return _Ids(definition.REVISION, definition.FINGERPRINT, _MEDXPERT, 'REVISION = "{}"')
 
-    from screamingface_engine_inspect.benchmarks import imported_benchmark
+    from screamingface_engine_inspect import benchmarks
 
-    imported = imported_benchmark(key)
+    imported = benchmarks.imported_benchmark(key)
+    spec = next(row for row in benchmarks.BENCHMARKS if row.key == key)
     return _Ids(
         str(imported.benchmark.revision),
         imported.fingerprint,
         f"{_ROWS}, the {key} row",
         'published_revision="{}"',
+        hand_set=spec.published_revision is not None,
     )
 
 
 def _report(key: str, ids: _Ids) -> str:
     """The WARNING and both checklists, with the exact old and new lines filled in."""
 
+    if not ids.hand_set:
+        # WHY first: an unset row serves its fingerprint, so the two ids match, but the row is
+        # new and needs its id written down, not told that nothing changed.
+        return (
+            f"{key} sets no published_revision yet, so it serves its fingerprint "
+            f"{ids.fingerprint}. Write the id down by hand, in the PR that adds the row:\n"
+            f"  1. {ids.home}:\n      {ids.line.format(ids.fingerprint)}\n"
+            f'  2. {_PUBLISHED_PINS}:\n      "{key}": "{ids.fingerprint}",\n'
+            f'  3. {_FINGERPRINT_PINS}:\n      "{key}": "{ids.fingerprint}",\n'
+        )
     if ids.published == ids.fingerprint:
         return (
             f"{key} publishes {ids.published} and computes the same fingerprint: nothing to "
             f"bump. Its exam has not changed since the id was set (the id: {ids.home}).\n"
         )
-    old_line: str = ids.line.format(ids.published).replace("'", '"')
-    new_line: str = ids.line.format(ids.fingerprint).replace("'", '"')
+    old_line: str = ids.line.format(ids.published)
+    new_line: str = ids.line.format(ids.fingerprint)
     return f"""\
 WARNING: moving {key}'s published revision hides every leaderboard result under
 {ids.published} and marks every submission to it outdated.

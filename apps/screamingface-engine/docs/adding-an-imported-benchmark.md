@@ -393,8 +393,10 @@ months). Everything else holds the id:
   Case sets changed.
 
 `just engine benchmark-bump <key>` (from the repo root) prints the WARNING, both ids and every
-line to edit for both paths. It never edits a file: the move is a hand edit in a reviewed PR. A
-move ships with:
+line to edit for both paths. It never edits a file: the move is a hand edit in a reviewed PR. It
+installs the Engine's `inspect` extra into `.venv`, so run `uv sync` in `apps/screamingface-engine`
+before you push; otherwise the pre-push hook's two import-cost tests fail (CI runs without the
+extra). A move ships with:
 
 1. The owner's sign-off, named in the PR body.
 2. The new id in the row's `published_revision` (medxpert: `REVISION`), in

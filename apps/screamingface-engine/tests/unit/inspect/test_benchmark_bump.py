@@ -98,3 +98,31 @@ def test_an_unknown_key_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
 
     assert status == 2
     assert "gsm8kk" in capsys.readouterr().err
+
+
+def test_a_new_row_without_an_id_is_told_to_set_one(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A new row with no ``published_revision`` serves its fingerprint, which equals itself, so
+    "nothing to bump" would be wrong: the guide and the catalogue test send new rows here to
+    learn the id to set."""
+
+    from dataclasses import replace
+
+    from screamingface_engine_inspect import benchmarks, single_shot
+
+    # WHY gsm8k as the stand-in: its fingerprint, 075954bfd63059e0, is also its published id,
+    # so unsetting the id leaves a row exactly like a new one.
+    spec = next(row for row in benchmarks.BENCHMARKS if row.key == "gsm8k")
+    monkeypatch.setattr(benchmarks, "BENCHMARKS", (replace(spec, published_revision=None),))
+    monkeypatch.setattr(benchmarks, "_ASSEMBLED", {})
+    monkeypatch.setattr(single_shot, "_BENCHMARKS_BY_ID", {})
+
+    status: int = _bump().main(["gsm8k"])
+
+    out: str = capsys.readouterr().out
+    assert status == 0
+    assert 'published_revision="075954bfd63059e0"' in out
+    assert "test_published_revisions.py" in out
+    assert "test_benchmark_fingerprints.py" in out
+    assert "nothing to bump" not in out
