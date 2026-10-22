@@ -16,18 +16,29 @@ public import path moves.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import secrets
 from collections.abc import Sequence
 from typing import Literal, cast
 
+from url4.core.errors import ParseError
+from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import Node as AstNode
 from url4.io.layer import IOLayer
 from url4.observe import Observer, RunFinished, RunStarted
 
 from url4.dag._context import _ObsState  # isort: skip
-from url4.dag.attachment import Attachment  # isort: skip
-from url4.dag.attachments import bind_run_files  # isort: skip
+from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
+from url4.dag.attachments import (  # isort: skip
+    CachedBlob,
+    FileRef,
+    bind_run_files,
+    collect_file_refs,
+    current_run_files,
+    merge_attachments,
+    refuse_remote,
+)
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.executor import Executor, _wire_spawn  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -37,7 +48,9 @@ from url4.dag.node import (  # isort: skip
     ExecutionContext,
     ProcessFn,
     default_process,
+    gather_or_cancel,
 )
+from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 
 
 def _validate_concurrency(concurrency: int | None) -> None:
@@ -170,7 +183,8 @@ async def run(
     obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
     _wire_spawn(run_ctx, registry)
     try:
-        with bind_run_files(attachments):
+        files, cache = await _run_files(target, attachments, run_ctx)
+        with bind_run_files(files, cache):
             result = await Executor(run_ctx).execute(_to_node(target, registry))
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
@@ -182,6 +196,52 @@ async def run(
     finally:
         if owned_io is not None:
             await owned_io.aclose()
+
+
+async def _run_files(
+    target: str | AstNode | Graph | DagNode,
+    case: Sequence[Attachment],
+    run_ctx: ExecutionContext,
+) -> tuple[tuple[Attachment, ...], dict[str, CachedBlob | str] | None]:
+    """The run's fixed ``attachments[]`` and file cache, resolved BEFORE the first node runs.
+
+    INVARIANT (F2 / D5): every file ref the AST names is fetched once (through the run's
+    bounded io) and sha256-verified here; any failure — a ``;optional`` source included —
+    fails the run before any model call. A ``url4://`` blob ref fails first, with no I/O (D1).
+    A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
+    """
+    if current_run_files() is not None:
+        return tuple(case), None
+    refs = collect_file_refs(ast) if (ast := _ast_of(target)) is not None else ()
+    refuse_remote(refs)
+    bodies = await gather_or_cancel(_verify(ref, run_ctx) for ref in refs)
+    resolved = [(ref, _as_attachment(ref, *body)) for ref, body in zip(refs, bodies, strict=True)]
+    cache: dict[str, CachedBlob | str] = {
+        ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
+    }
+    return merge_attachments(case, resolved), cache
+
+
+async def _verify(ref: FileRef, run_ctx: ExecutionContext) -> tuple[bytes, str | None]:
+    return await BlobRefNode(ref.address).verified(run_ctx)
+
+
+def _as_attachment(ref: FileRef, body: bytes, media_type: str | None) -> Attachment:
+    return Attachment(ref.key, media_type or OCTET_STREAM, body)
+
+
+def _ast_of(target: str | AstNode | Graph | DagNode) -> AstNode | None:
+    """The parse tree to collect file refs from; ``None`` for a pre-built graph or node.
+
+    A text that does not parse yields ``None`` here: compiling it raises the real error.
+    """
+    ast: AstNode | None = None
+    if isinstance(target, str):
+        with contextlib.suppress(ParseError):
+            ast = grammar_parse(target)
+    elif not isinstance(target, (Graph, DagNode)):  # parse-tree nodes have no resolve
+        ast = target
+    return ast
 
 
 def _start_observation(

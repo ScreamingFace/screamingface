@@ -28,6 +28,7 @@ from url4.core.blob_ref import BlobAddress, address_of, token_address
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import RelUrl, Url
 from url4.dag.attachment import OCTET_STREAM, Attachment
+from url4.dag.attachments import CachedBlob, current_run_files
 from url4.dag.semantics.collection import DECLARED_MEDIA_TYPES
 from url4.io.layer import FetchRequest, fetch_result
 
@@ -64,7 +65,7 @@ class BlobRefNode:
 
     async def attachment(self, ctx: ExecutionContext) -> Attachment:
         """The verified file this ref names, as the typed F2 attachment."""
-        body, media_type = await self._verified(ctx)
+        body, media_type = await self.verified(ctx)
         return Attachment(
             digest=f"sha256:{self.address.digest}",
             media_type=media_type or OCTET_STREAM,
@@ -72,12 +73,19 @@ class BlobRefNode:
         )
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        body, media_type = await self._verified(ctx)
+        body, media_type = await self.verified(ctx)
         if self.collection:
             return _collection_text(self.address.ref, body, media_type)
         return str(self.address.ref)
 
-    async def _verified(self, ctx: ExecutionContext) -> tuple[bytes, str | None]:
+    async def verified(self, ctx: ExecutionContext) -> tuple[bytes, str | None]:
+        """The bytes and reported media type, sha256-verified; from the run cache on a hit.
+
+        INVARIANT (plan §2.8): inside a ``run()`` the run-start resolver already fetched and
+        verified every file the AST names, so a node reads the cache and never fetches again,
+        whatever the fan-out width, row count or retries. A miss (a ref only a row template
+        names after substitution, or a node evaluated outside ``run()``) fetches as before.
+        """
         address = self.address
         if address.form == "remote":
             # D1 / F1: checked first, so no store lookup, DNS or connection is ever attempted.
@@ -90,6 +98,10 @@ class BlobRefNode:
         if digest is None:
             # C5: no store holds a ref of another algorithm or a malformed digest; no I/O.
             raise _not_found(address.ref)
+        files = current_run_files()
+        cached = None if files is None else files.cache.get(f"sha256:{digest}")
+        if isinstance(cached, CachedBlob):
+            return cached.body, cached.media_type
         body, media_type = await _fetch_bytes(
             ctx, FetchRequest(address.target, relative=True, kind="relative")
         )
