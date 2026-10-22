@@ -37,5 +37,6 @@ def install_remote_endpoints(
     if any(definition.id in bundled for definition in config.endpoints):
         raise RemoteEndpointConfigError("an endpoint id collides with a bundled provider")
     for definition in config.endpoints:
-        registry.register(RemoteEndpointPlugin(definition))
+        enabled = config.grants[definition.id].enabled
+        registry.register(RemoteEndpointPlugin(definition, enabled=enabled))
     return RemoteEndpointAccess(config.grants)

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -20,12 +21,14 @@ from fastapi import HTTPException
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.auth_types import AuthMode
+from aigateway.core.cache_ports import CacheBypass
 from aigateway.core.chat_parameters import ParameterProjectionRule
 from aigateway.core.credential_blob import CredentialBlobStore
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 
 from .credential import OriginBoundApiKeyStrategy
 from .definitions import ChatTarget, EndpointDefinition
+from .global_cache import project_global_cache_request
 from .request import chat_parameter_rules, chat_request, check_text_messages
 from .transport import post_chat_completion
 from .validation import RemoteEndpointReadiness
@@ -42,12 +45,14 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         self,
         definition: EndpointDefinition,
         *,
+        enabled: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         super().__init__()
         self.custom_llm_provider = definition.id
         self.provider_display_name = definition.display_name
         self._definition = definition
+        self._enabled = enabled
         self._transport = transport
 
     def register_models(self) -> list[ModelEntry]:
@@ -96,6 +101,23 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         check_text_messages(body.get("messages"), provider=self.custom_llm_provider)
         return {key: body[key] for key in _CHAT_FIELDS if key in body}
 
+    def global_cache_projection(self, body: dict[str, Any]) -> dict[str, Any] | CacheBypass:
+        # WHY delegated: the pure module cannot reach the definition or the `enabled` flag.
+        return project_global_cache_request(body)
+
+    def participates_in_global_cache(self, model: object = None) -> bool:
+        # WHY `enabled`: it is the operator's kill switch, and a hit is served before the grant
+        # is checked, so only this gate keeps a disabled endpoint's rows from being served.
+        # WHY a declared alias: a removed alias must not keep answering from the rows it left.
+        # INVARIANT: no grant and no key is read here; False suppresses the lookup and the store
+        # and leaves every row as it was, so re-enabling the same endpoint serves them again.
+        return self._enabled and self._declared(model) is not None
+
+    def cache_reference_from_cached_response(self, cached_response: Mapping[str, Any]) -> None:
+        # WHY explicit: the hit path asks every provider for usage evidence in a stored answer,
+        # and the text contract carries none this gateway could verify.
+        del cached_response
+
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         target = self._target_for(body.get("model"))
         api_key = body.get("api_key")
@@ -115,11 +137,14 @@ class RemoteEndpointPlugin(ProviderPluginBase):
             transport=self._transport,
         )
 
-    def _target_for(self, model: object) -> ChatTarget:
+    def _declared(self, model: object) -> ChatTarget | None:
         prefix = f"{self.custom_llm_provider}/"
-        target = None
         if isinstance(model, str) and model.startswith(prefix):
-            target = self._definition.target(model.removeprefix(prefix))
+            return self._definition.target(model.removeprefix(prefix))
+        return None
+
+    def _target_for(self, model: object) -> ChatTarget:
+        target = self._declared(model)
         if target is None:
             raise HTTPException(
                 status_code=400,
