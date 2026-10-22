@@ -152,6 +152,33 @@ The probe and all 3 runs were identical, apart from the ids:
   - the activity Log's `failure_code` (`internal_error`) disagrees with the report's code
     (`upstream_error`).
 
+## Task 3 (2026-10-22): builder + notebook
+
+- `build_notebooks.py` gains `debug_failing_run` (sections 1–7 of the plan); the notebook is
+  regenerated, output-free, one result cell + marker. Metadata: `targets: [replay]`,
+  `required_result: [trace_ids]`, `expect: {outcome: fail, failure_codes: [upstream_error],
+  stage: candidate}` (the Task 2 findings).
+- The healthy member and the synthesizer are rendered from the ifeval golden
+  (`member_specs[0]`, `judge_spec`); the unservable member is `openrouter/openai/gpt-5.5` with
+  the golden prompt. The fixed recipe (markdown only, not run) swaps in `member_specs[1]`.
+- Section 5's filter regex is rendered from `workbench.evidence._TRACE_ID_TOKEN.pattern`, so the
+  tutorial cannot teach a different rule than the verdict; a test compares it line by line with
+  `trace_id_tokens` on decoys (`parent_trace_id=`, longer id, upper case, other id).
+- Only codes, stages and source codes are printed, never a failure's provider `message`.
+- **Deviation: `targets: [replay]`, not `[replay, local]`.** The open owner question above is
+  unresolved, and declaring `local` would bill `gpt-5.5` and go red as an unexpected pass. With
+  `REQUIRE_ALL=1` on `local`, this notebook is a skip-turned-failure until the owner decides.
+- **Deviation: the result cell runs right after `evaluate`, not last.** The builder's rule (no
+  assert before the result cell, Review Focus 1 of unit 5) wins; section 7 stays as markdown
+  explaining that line.
+- **Deviation: section 5 filters an illustrative excerpt** (the real line shapes from Task 2 plus
+  decoys), and the real `aigateway.log` only when `GATEWAY_LOG` is set. The workbench does not
+  inject `GATEWAY_LOG`; the bundle page is where the real lines are shown (Task 4).
+- Proof: RED 9 failing builder tests before the builder change; GREEN 40/40; real replay lane
+  (`REQUIRE_ALL=1`): `test_notebook[replay-debug_failing_run]` "expected FAIL ✓" (trace
+  `04fde8793d8a4d70a02d8d88ed92706c`, observed `upstream_error`/`candidate`, error telemetry
+  spans 10, logs 2) and quickstart PASS; 622 passed, 2 skipped (`just` not on PATH).
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** this ledger (Task 2).

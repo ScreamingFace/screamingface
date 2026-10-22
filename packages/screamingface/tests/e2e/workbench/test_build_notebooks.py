@@ -379,3 +379,263 @@ def test_the_result_cell_prints_its_marker_before_it_writes_the_files() -> None:
     """The trace ids reach the evidence even if writing the report files misbehaves."""
     source = _quickstart_code(tag="workbench-result")
     assert source.index(RESULT_PREFIX) < source.index(".finish(")
+
+
+# Unit 7 Task 3: `debug_failing_run` fails ON PURPOSE (spec §3.7). Its declaration and its
+# failure shape are the ones discovered on replay (ledger, Task 2), never guessed.
+
+_DEBUG_HEALTHY = "openrouter/mistralai/ministral-3b-2512"
+_DEBUG_UNSERVABLE = "openrouter/openai/gpt-5.5"
+
+
+def _debug_code(tag: str | None = None, contains: str | None = None) -> str:
+    for cell in build()["debug_failing_run"].cells:
+        if cell.cell_type != "code":
+            continue
+        if tag and tag in cell.metadata.get("tags", []):
+            return cell.source
+        if contains and contains in cell.source:
+            return cell.source
+    raise AssertionError(f"no debug cell with tag={tag} contains={contains}")
+
+
+def test_debug_notebook_declares_the_discovered_expected_failure() -> None:
+    from workbench.expectation import parse_expect
+
+    meta = build()["debug_failing_run"].metadata["workbench"]
+    assert meta["expect"] == {
+        "outcome": "fail",
+        "failure_codes": ["upstream_error"],
+        "stage": "candidate",
+    }
+    expect, problems = parse_expect(meta["expect"])
+    assert expect is not None and problems == []
+    assert meta["required_result"] == ["trace_ids"]
+    # Replay only: on `local` the unservable route is a real, billed model (ledger, Task 2).
+    assert meta["targets"] == ["replay"]
+    params: dict[str, Any] = {}
+    exec(_debug_code(tag="parameters"), params)
+    assert params["EXPECTED_CODE"] == "upstream_error"
+    assert params["EXPECTED_STAGE"] == "candidate"
+    assert params["UNSERVABLE_MODEL"] == _DEBUG_UNSERVABLE
+
+
+def test_debug_recipe_pairs_the_golden_member_with_a_route_the_tape_never_recorded() -> None:
+    from harness.goldens import spec_model
+
+    golden = load_golden(GOLDENS_DIR / "ifeval.golden.json")
+    ns: dict[str, Any] = {"sf": sf}
+    exec(_debug_code(tag="parameters"), ns)
+    exec(_debug_code(contains="candidate = sf.Fusion("), ns)
+    candidate = ns["candidate"]
+    healthy, unservable = candidate.members
+    assert healthy == spec_model(golden.member_specs[0])  # the recorded request: a cache hit
+    assert ns["HEALTHY_MODEL"] == _DEBUG_HEALTHY == golden.member_specs[0].model
+    assert unservable.model == _DEBUG_UNSERVABLE
+    taped = {spec.model for spec in golden.member_specs} | {golden.judge_spec.model}  # type: ignore[union-attr]
+    assert _DEBUG_UNSERVABLE not in taped
+
+
+def test_debug_notebook_filters_logs_with_the_verdicts_exact_token_rule() -> None:
+    """Review Focus 3: the tutorial teaches the rule the verdict enforces, never a substring."""
+    from workbench.evidence import trace_id_tokens
+
+    ns: dict[str, Any] = {"trace_id": _TID, "HEALTHY_MODEL": _DEBUG_HEALTHY, "GATEWAY_LOG": ""}
+    cell = _debug_code(contains="TRACE_ID_TOKEN = re.compile(")
+    exec("import re\nfrom pathlib import Path\n" + cell, ns)
+    lines_of = ns["lines_of"]
+    samples = [
+        f"INFO x gateway_call_id=call_1 trace_id={_TID} ok",
+        f"INFO x trace_id={_TID}",
+        f"INFO x parent_trace_id={_TID} decoy",
+        f"INFO x trace_id={_TID}ff decoy",
+        f"INFO x trace_id=aa{_TID} decoy",
+        f"INFO x trace_id={_TID.upper()} decoy",
+        f"INFO x trace_id={_TID2} other run",
+    ]
+    for line in samples:
+        assert bool(lines_of(_TID, line)) == (_TID in trace_id_tokens(line)), line
+
+
+def test_debug_notebook_reads_this_runs_lines_from_a_gateway_log(tmp_path, capsys) -> None:
+    log = tmp_path / "aigateway.log"
+    log.write_text(
+        f"INFO a gateway_call_id=call_x trace_id={_TID} mine\n"
+        f"INFO a gateway_call_id=call_y parent_trace_id={_TID} not mine\n",
+        encoding="utf-8",
+    )
+    ns: dict[str, Any] = {
+        "trace_id": _TID,
+        "HEALTHY_MODEL": _DEBUG_HEALTHY,
+        "GATEWAY_LOG": str(log),
+    }
+    exec(
+        "import re\nfrom pathlib import Path\n"
+        + _debug_code(contains="TRACE_ID_TOKEN = re.compile("),
+        ns,
+    )
+    out = capsys.readouterr().out
+    assert "call_x" in out and "call_y" not in out
+
+
+# A fake run in the discovered shape (ledger, Task 2): evaluate() returns; case 1 failed with
+# upstream_error at candidate; ERROR Logs name the unservable model; the failing span names
+# the healthy member; Usage proves the healthy member ran.
+
+
+class _Case:
+    def __init__(self, failures: tuple[Any, ...]) -> None:
+        self.case_id = "1"
+        self.status = "failed" if failures else "succeeded"
+        self.output = None if failures else "ok"
+        self.failures = failures
+
+
+class _DebugCandidate(_Candidate):
+    def __init__(self, code: str | None) -> None:
+        super().__init__(_TID)
+        self.name = "debug_unservable"
+        self.score = None
+        self.cache_hits = 1
+        self.failures = ()
+        failures = (
+            ()
+            if code is None
+            else (
+                sf.Failure(
+                    stage="candidate",
+                    code=code,
+                    message="aigateway request failed with status 404",
+                    retryable=False,
+                    case_id="1",
+                    metadata={
+                        "source_error": {
+                            "kind": "CandidateExecutionError",
+                            "source_code": "profile_not_found",
+                        }
+                    },
+                ),
+            )
+        )
+        self.cases = [_Case(failures)]
+
+
+class _DebugReport:
+    def __init__(self, code: str | None) -> None:
+        self.candidates = [_DebugCandidate(code)]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"schema": "screamingface.report.v1", "candidates": []}
+
+
+def _debug_events() -> list[Any]:
+    from datetime import UTC, datetime
+
+    from screamingface import events as ev
+
+    at = datetime(2026, 10, 22, tzinfo=UTC)
+    base = {"run_id": "r1", "timestamp": at, "source": "engine"}
+    return [
+        ev.Log(
+            id="e1",
+            sequence=1,
+            severity_number=17,
+            severity_text="ERROR",
+            body="Model call failed",
+            attributes={
+                "sf.activity.model_id": _DEBUG_UNSERVABLE,
+                "sf.activity.failure_code": "internal_error",
+            },
+            **base,
+        ),
+        ev.Span(
+            id="e2",
+            sequence=2,
+            name="/benchmarks/candidate",
+            operation="RelUrlNode",
+            start=at,
+            end=at,
+            status="error",
+            provider="openrouter",
+            request_model=_DEBUG_HEALTHY,
+            response_model=_DEBUG_HEALTHY,
+            finish_reasons=("stop",),
+            cache_status="hit",
+            **base,
+        ),
+        ev.Usage(
+            id="e3",
+            sequence=3,
+            scope="self",
+            provider="openrouter",
+            model=_DEBUG_HEALTHY,
+            pricing_version="v1",
+            usage=sf.Usage(input_tokens=0, output_tokens=0, cost_usd="0"),
+            **base,
+        ),
+    ]
+
+
+class _DebugClient:
+    def __init__(self, report: Any) -> None:
+        self._report = report
+
+    def evaluate(self, *_: Any, on_event: Any = None, **__: Any) -> Any:
+        for event in _debug_events():
+            on_event(event)
+        return self._report
+
+
+def _run_debug(
+    code: str | None, events_path: str, capsys: pytest.CaptureFixture[str]
+) -> tuple[dict, dict]:
+    """Every debug code cell after the recipe, in order, against the fake run."""
+    ns: dict[str, Any] = {"sf": sf, "client": _DebugClient(_DebugReport(code))}
+    exec(_debug_code(tag="parameters"), ns)
+    ns["EVENTS_PATH"] = events_path
+    cells = [c for c in build()["debug_failing_run"].cells if c.cell_type == "code"]
+    start = next(i for i, c in enumerate(cells) if "candidate = sf.Fusion(" in c.source)
+    client_cell = _debug_code(contains="sf.Client(")
+    exec("\n".join(ln for ln in client_cell.splitlines() if ln.startswith(("import", "from"))), ns)
+    payload: dict[str, Any] = {}
+    for cell in cells[start:]:
+        if "client.close()" in cell.source:
+            continue
+        exec(cell.source, ns)
+        if "workbench-result" in cell.metadata.get("tags", []):
+            out = capsys.readouterr().out
+            (line,) = [ln for ln in out.splitlines() if ln.startswith(RESULT_PREFIX)]
+            payload = json.loads(line[len(RESULT_PREFIX) :])
+    return payload, ns
+
+
+@pytest.mark.parametrize("recorded", [True, False], ids=["workbench", "standalone"])
+def test_debug_notebook_walks_the_discovered_failure_green(tmp_path, capsys, recorded) -> None:
+    events = str(tmp_path / "events.jsonl") if recorded else ""
+    payload, _ = _run_debug("upstream_error", events, capsys)
+    assert payload["trace_ids"] == [_TID]
+    assert payload["failure_codes"] == ["upstream_error"]
+    out = capsys.readouterr().out
+    assert _DEBUG_UNSERVABLE in out  # the ERROR Log names the failing model
+    assert "upstream_error" in out and "404" not in out  # code shown; provider text never printed
+    if recorded:
+        assert (tmp_path / "report.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("code", "why"),
+    [(None, "unexpected pass"), ("provider_error", "provider_error")],
+    ids=["unexpected-pass", "wrong-code"],
+)
+def test_debug_notebook_asserts_fail_on_any_other_outcome(tmp_path, capsys, code, why) -> None:
+    with pytest.raises(AssertionError, match=why):
+        _run_debug(code, str(tmp_path / "events.jsonl"), capsys)
+
+
+def test_debug_fixed_recipe_is_markdown_only_and_servable() -> None:
+    nb = build()["debug_failing_run"]
+    fixed = [c.source for c in nb.cells if c.cell_type == "markdown" and "```python" in c.source]
+    assert len(fixed) == 1
+    golden = load_golden(GOLDENS_DIR / "ifeval.golden.json")
+    assert golden.member_specs[1].model in fixed[0]
+    assert _DEBUG_UNSERVABLE not in fixed[0].split("```python", 1)[1]
