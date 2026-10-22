@@ -19,9 +19,15 @@ import re
 
 import pytest
 
+from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.grammar import parse
 from url4.dag._run import run
 from url4.dag.attachment import Attachment
-from url4.dag.attachments import current_attachments, current_run_files
+from url4.dag.attachments import collect_file_refs, current_attachments, current_run_files
+from url4.dag.node import ExecutionContext
+from url4.dag.nodes.blob import BlobRefNode
+from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes
 from url4.io.static import StaticIOLayer
 
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
@@ -163,7 +169,7 @@ async def test_run_file_cache_is_discarded_when_run_exits() -> None:
     async def model(sources: str, intent: str | None, scope: object) -> str:
         files = current_run_files()
         assert files is not None
-        files.cache["k"] = IMG
+        files.cache["k"] = "cached text"
         caches.append(files)
         return "ok"
 
@@ -179,3 +185,242 @@ async def test_run_file_cache_is_discarded_when_run_exits() -> None:
 
     await run("('a')!'go'", _io(), process=again)
     assert second == [{}]
+
+
+# -- U3: collect and resolve url4 refs at run start -------------------------------------------
+
+PNG_HEX = hashlib.sha256(PNG).hexdigest()
+PDF_HEX = hashlib.sha256(PDF).hexdigest()
+ROWS = '["row a", "row b"]'
+ROWS_HEX = hashlib.sha256(ROWS.encode()).hexdigest()
+OTHER_HEX = "b" * 64
+
+
+class _Store(StaticIOLayer):
+    """A fake node store that counts every bytes fetch and every text fetch it serves."""
+
+    def __init__(self, blobs: dict[str, bytes | str], media: dict[str, str] | None = None) -> None:
+        super().__init__(dict(blobs), media_types=media or {})
+        self.byte_targets: list[str] = []
+        self.text_targets: list[str] = []
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        self.byte_targets.append(request.target)
+        return await super().fetch_bytes(request)
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.text_targets.append(target)
+        return await super().fetch(target, relative=relative)
+
+    async def fetch_ex(self, request: FetchRequest) -> FetchResult:
+        self.text_targets.append(request.target)
+        return await super().fetch_ex(request)
+
+    @property
+    def calls(self) -> int:
+        return len(self.byte_targets) + len(self.text_targets)
+
+
+def _store() -> _Store:
+    return _Store(
+        {
+            f"/blob/sha256/{PNG_HEX}": PNG,
+            f"/blob/sha256/{PDF_HEX}": PDF,
+            f"/blob/sha256/{ROWS_HEX}": ROWS,
+            "/list": '["x", "y"]',
+        },
+        {
+            f"/blob/sha256/{PNG_HEX}": "image/png",
+            f"/blob/sha256/{PDF_HEX}": "application/pdf",
+            f"/blob/sha256/{ROWS_HEX}": "application/json",
+            "/list": "application/json",
+        },
+    )
+
+
+def _refs(text: str) -> list[tuple[str, bool]]:
+    return [(ref.address.ref, ref.collection) for ref in collect_file_refs(parse(text))]
+
+
+def test_collects_refs_in_source_order_across_sources_and_iteration_bodies() -> None:
+    text = (
+        f"('q', (src=/blob/sha256/{PNG_HEX})!x, /list*(src=blob:sha256/{PDF_HEX}, $item)!d,"
+        f" /m(src=/blob/sha256/{ROWS_HEX})!e)!r"
+    )
+    assert _refs(text) == [
+        (f"/blob/sha256/{PNG_HEX}", False),
+        (f"blob:sha256/{PDF_HEX}", False),
+        (f"/blob/sha256/{ROWS_HEX}", False),
+    ]
+
+
+def test_collects_both_local_forms() -> None:
+    text = f"(src=/blob/sha256/{PNG_HEX}, img:src=blob:sha256/{PDF_HEX})!d"
+    got = collect_file_refs(parse(text))
+    assert [(r.address.form, r.address.digest) for r in got] == [
+        ("path", PNG_HEX),
+        ("token", PDF_HEX),
+    ]
+
+
+def test_quoted_blob_text_is_not_collected() -> None:
+    assert _refs(f"('blob:sha256/{PNG_HEX}', img:'/blob/sha256/{PDF_HEX}')!d") == []
+
+
+def test_refs_inside_a_remote_nested_expression_are_not_collected() -> None:
+    text = f"(url4://other/m(src=blob:sha256/{PNG_HEX})!d, src=/blob/sha256/{PDF_HEX})!r"
+    assert _refs(text) == [(f"/blob/sha256/{PDF_HEX}", False)]
+
+
+def test_duplicate_digest_is_collected_once_at_its_first_position() -> None:
+    text = f"(src=blob:sha256/{PDF_HEX}, src=/blob/sha256/{PNG_HEX}, src=/blob/sha256/{PDF_HEX})!d"
+    assert _refs(text) == [(f"blob:sha256/{PDF_HEX}", False), (f"/blob/sha256/{PNG_HEX}", False)]
+
+
+@pytest.mark.asyncio
+async def test_case_attachments_precede_url4_refs() -> None:
+    hook = _Recorder()
+    case = _att(b"case-bytes", "image/jpeg")
+    await run(
+        f"(src=/blob/sha256/{PNG_HEX}, src=/blob/sha256/{PDF_HEX})!'d'",
+        _store(),
+        process=hook,
+        attachments=[case, DOC],
+    )
+    # DOC is both a Case part and a url4 ref: kept once, at its Case position.
+    assert hook.seen == [(case, DOC, IMG)]
+    assert [a.body for a in hook.seen[0]] == [b"case-bytes", PDF, PNG]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authority", ["other.node", "me", "me:8080", "user@me"])
+async def test_remote_blob_ref_fails_remote_blob_unsupported_with_no_io(authority: str) -> None:
+    io, hook = _store(), _Recorder()
+    text = f"(src=/blob/sha256/{PNG_HEX}, src=url4://{authority}/blob/sha256/{PDF_HEX})!'d'"
+    with pytest.raises(ResolutionError) as caught:
+        await run(text, io, process=hook)
+    assert caught.value.code == ErrorCode.REMOTE_BLOB_UNSUPPORTED
+    assert caught.value.permanent
+    assert io.calls == 0  # INVARIANT (D1): refused before ANY I/O, even of the local ref
+    assert hook.seen == []
+
+
+@pytest.mark.asyncio
+async def test_url4_blob_ref_naming_the_own_node_is_also_remote_blob_unsupported() -> None:
+    # WHY no node fixture: v1 never compares the authority to the node's own name (D1), so
+    # the self spelling is refused exactly like any other, by the same pre-I/O check.
+    io = _store()
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(src=url4://self.local/blob/sha256/{PNG_HEX})!'d'", io)
+    assert caught.value.code == ErrorCode.REMOTE_BLOB_UNSUPPORTED
+    assert io.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_digest_mismatch_fails_blob_digest_mismatch_permanent() -> None:
+    io, hook = _Store({f"/blob/sha256/{PNG_HEX}": PDF}, {}), _Recorder()
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(src=/blob/sha256/{PNG_HEX}, 'x')!'d'", io, process=hook)
+    assert caught.value.code == ErrorCode.BLOB_DIGEST_MISMATCH
+    assert caught.value.permanent
+    assert hook.seen == []
+
+
+@pytest.mark.asyncio
+async def test_missing_blob_fails_source_not_found_before_any_process_call() -> None:
+    io, hook = _store(), _Recorder()
+    text = f"((src=/blob/sha256/{PNG_HEX})!'a', (src=/blob/sha256/{OTHER_HEX})!'b')!'r'"
+    with pytest.raises(ResolutionError) as caught:
+        await run(text, io, process=hook)
+    assert caught.value.code == ErrorCode.SOURCE_NOT_FOUND
+    assert hook.seen == []
+
+
+@pytest.mark.asyncio
+async def test_failed_optional_blob_source_fails_the_whole_run() -> None:
+    hook = _Recorder()
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(src=/blob/sha256/{OTHER_HEX};optional, 'x')!'d'", _store(), process=hook)
+    assert caught.value.code == ErrorCode.SOURCE_NOT_FOUND  # D5: never dropped from the list
+    assert hook.seen == []
+
+
+@pytest.mark.asyncio
+async def test_blob_in_collection_position_is_text_and_not_attached() -> None:
+    io = _store()
+    payloads: list[str] = []
+    hook = _Recorder()
+
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        payloads.append(sources)
+        return await hook(sources, intent, scope)
+
+    await run(f"(/blob/sha256/{ROWS_HEX}*($item)!'d')!'r'", io, process=model)
+    assert all(seen == () for seen in hook.seen)
+    assert any("row a" in p for p in payloads) and any("row b" in p for p in payloads)
+    assert io.byte_targets == [f"/blob/sha256/{ROWS_HEX}"]
+
+
+@pytest.mark.asyncio
+async def test_blob_ref_payload_is_the_plain_ref_text_and_fetches_once() -> None:
+    io = _store()
+    payloads: list[str] = []
+    hook = _Recorder()
+
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        payloads.append(sources)
+        return await hook(sources, intent, scope)
+
+    await run(f"(img:src=blob:sha256/{PNG_HEX})!'Describe'", io, process=model)
+    assert len(payloads) == 1
+    assert type(payloads[0]) is str
+    assert f"blob:sha256/{PNG_HEX}" in payloads[0]
+    assert PNG.decode("latin-1") not in payloads[0]
+    assert hook.seen == [(IMG,)]
+    assert io.byte_targets == [f"/blob/sha256/{PNG_HEX}"]
+
+
+@pytest.mark.asyncio
+async def test_each_file_is_fetched_and_verified_once_per_run_across_fanout_rows_and_retries() -> (
+    None
+):
+    io, hook = _store(), _Recorder()
+    ref = f"blob:sha256/{PNG_HEX}"
+    text = (
+        f"((src={ref})!'a', (src={ref})!'b', (src={ref})!'c',"
+        f" /list*(src={ref}, $item)!'d', (src=/blob/sha256/{PDF_HEX})!'e')!'r'"
+    )
+    assert await run(text, io, process=hook) == "ok"
+    assert sorted(io.byte_targets) == sorted([f"/blob/sha256/{PNG_HEX}", f"/blob/sha256/{PDF_HEX}"])
+    # 3 members + 2 map rows + the row-group reduce + e + the outer reduce, all the same list
+    assert len(hook.seen) >= 7
+    assert all(seen == (IMG, DOC) for seen in hook.seen)
+
+
+@pytest.mark.asyncio
+async def test_blob_node_outside_a_run_still_fetches_on_a_cache_miss() -> None:
+    io = _store()
+    node = BlobRefNode.token(f"blob:sha256/{PNG_HEX}")
+    ctx = ExecutionContext(io)
+    assert await node.resolve({}, ctx) == f"blob:sha256/{PNG_HEX}"
+    assert (await node.attachment(ctx)) == IMG
+    assert io.byte_targets == [f"/blob/sha256/{PNG_HEX}"] * 2
+
+
+def test_a_prose_or_holdings_context_contributes_no_refs() -> None:
+    # Prose fails to parse as a source-list and ships verbatim; an "@" context is the
+    # receiving route's business (never resolved caller-side).
+    prose = f"(/m(note: run 1, , 'x')!'d', /h(@, src=/blob/sha256/{PNG_HEX})!'e')!'r'"
+    assert _refs(prose) == []
+
+
+def test_a_ref_read_in_collection_and_scalar_position_is_attached_at_its_first_position() -> None:
+    text = f"(/blob/sha256/{ROWS_HEX}*($item)!'d', 'q', src=/blob/sha256/{ROWS_HEX})!'r'"
+    assert _refs(text) == [(f"/blob/sha256/{ROWS_HEX}", False)]
+    assert _refs(f"(/blob/sha256/{ROWS_HEX}*($item)!'d')!'r'") == [
+        (f"/blob/sha256/{ROWS_HEX}", True)
+    ]
+
+
+def test_expand_source_is_collection_position() -> None:
+    assert _refs(f"(*src=/blob/sha256/{ROWS_HEX})!'go'") == [(f"/blob/sha256/{ROWS_HEX}", True)]
