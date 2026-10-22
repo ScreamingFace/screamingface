@@ -48,8 +48,8 @@ BUILDERS = frozenset(
 # Sites that only persist, delete or read an address — they never call a refresh.
 NO_REFRESH = frozenset(
     {
+        "core.provider_access.connection_admin:ConnectionBackedCredentialAdmin._strategy",
         "core.provider_access.connection_locator:credential_blob_address",
-        "core.provider_access.profile_admin:ProfileBackedCredentialAdmin._strategy",
         "routes.auth:_complete_oauth_for_app",
         "routes.auth:_persist_connection_credentials",
         "routes.oauth_connections:create_api_key_connection",

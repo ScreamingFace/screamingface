@@ -48,7 +48,6 @@ def selector_from_request(request: Request) -> Selector:
 _AMBIGUOUS_MESSAGE = "Multiple active Connections exist. Remove extra Connections, then retry."
 _UNSUPPORTED_SELECTOR_MESSAGE = "X-Profile is no longer supported; omit the header."
 _CONNECTION_CONFLICT_MESSAGE = "Connection changed during auth-type repair"
-_INDEX_CONFLICT_MESSAGE = "Profile metadata update conflicted. Try again."
 
 
 def _reauth_detail(exc: TargetReauthRequired) -> dict[str, Any]:
@@ -75,21 +74,12 @@ def _unsupported_detail(exc: UnsupportedAuthMode) -> dict[str, Any]:
     return detail
 
 
-def _write_conflict(exc: WriteConflict) -> HTTPException:
-    if exc.kind == "retry_exhausted":
-        # `main.py::_profile_index_conflict` — the CAS on the index blob ran out of retries.
-        return HTTPException(
-            status_code=503,
-            detail={"code": "profile_index_conflict", "message": _INDEX_CONFLICT_MESSAGE},
-        )
-    if exc.subject == "connection":
-        return HTTPException(
-            status_code=409,
-            detail={"code": "connection_conflict", "message": _CONNECTION_CONFLICT_MESSAGE},
-        )
+def _write_conflict(_exc: WriteConflict) -> HTTPException:
+    # WHY one row (E5a, history cleanup): the Profile-index rows (503 `profile_index_conflict`,
+    # 409 `profile_conflict`) lost their last emitter when E4b ended the Profile writes.
     return HTTPException(
         status_code=409,
-        detail={"code": "profile_conflict", "provider": exc.provider, "profile": exc.requested},
+        detail={"code": "connection_conflict", "message": _CONNECTION_CONFLICT_MESSAGE},
     )
 
 
@@ -196,7 +186,6 @@ _PAIR_CONFLICT_MESSAGES = {
     ),
 }
 _STORE_READ_MESSAGE = "Credential store is temporarily unavailable. Try again."
-_WRITE_CONFLICT_MESSAGE = "Credential update conflicted. Try again."
 _SUPERSEDED_MESSAGE = "Credential state changed. Reload before submitting another change."
 _AUTHORITY_MESSAGE = "Credential state is temporarily unavailable. Retry later."
 
@@ -229,20 +218,11 @@ def render_successor_refusal(exc: ProviderAccessRefusal) -> HTTPException:
 
 
 def _successor_write_conflict(exc: WriteConflict) -> HTTPException:
-    """Both legacy subjects collapse to one superseded 409 (§7); retry exhaustion stays a 503.
+    """A lost write is the superseded 409 (§7): the client reloads, never retries.
 
-    # WHY no subject split: the successor has no Profile or Connection vocabulary — a client only
-    # needs to know whether to retry (503) or reload (409). A superseded 409 is never retried.
+    # WHY no 503 `credential_write_conflict` any more (E5a, history cleanup): it rendered a
+    # Profile-index CAS that ran out of retries, and no request path runs one since E4b.
     """
-    if exc.kind == "retry_exhausted":
-        return HTTPException(
-            status_code=503,
-            detail={
-                "code": "credential_write_conflict",
-                "message": _WRITE_CONFLICT_MESSAGE,
-                "provider": exc.provider,
-            },
-        )
     return HTTPException(
         status_code=409,
         detail={

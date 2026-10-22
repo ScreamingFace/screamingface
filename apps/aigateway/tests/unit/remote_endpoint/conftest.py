@@ -12,8 +12,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import sqlite3
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -129,7 +130,20 @@ class Harness:
         asyncio.run(Tortoise.close_connections())
 
     def stored_key(self, account: str, provider: str) -> str | None:
-        raw = self.blobs.read(f"aigateway:{provider}:{account}:default", "default")
+        # WHY the live row's locator (E5a, history cleanup): a minted row keeps its key at its own
+        # `<account>:<row id>` address, never a Profile name, so the harness reads the address the
+        # row names.
+        with closing(sqlite3.connect(self.blobs.db_path)) as db:
+            rows = db.execute(
+                "SELECT credential_locator FROM oauth_connections"
+                " WHERE account_id = ? AND provider = ? AND status != 'revoked'",
+                (account, provider),
+            ).fetchall()
+        if not rows:
+            return None
+        ((locator,),) = rows
+        address = json.loads(locator)
+        raw = self.blobs.read(address["service"], address["account"])
         return None if raw is None else json.loads(raw)["api_key"]
 
 

@@ -174,12 +174,12 @@ def test_set_api_key_without_a_usable_effective_connection_starts_a_new_one(
         "api_key",
         f"api-key-{new_id}",
     )
-    # INVARIANT (D5): the new Connection addresses the Profile blob, so a rollback still finds it.
-    assert fresh.credential_locator == credential_locator_for(
-        PROVIDER, migrated.account_id, "default"
-    )
-    assert json.loads(blob_at_profile_address(migrated) or "{}")["api_key"] == KEY
-    assert blob_at_connection_address(migrated, new_id) is None
+    # WHY its own address (E5a, history cleanup): a minted row never takes a Profile address. The
+    # R1 rollback tool refuses this pair loudly (its alias document), as it does a native repair
+    # (Stage E spec Q7).
+    assert fresh.credential_locator == credential_locator_for(PROVIDER, migrated.account_id, new_id)
+    assert json.loads(blob_at_connection_address(migrated, new_id) or "{}")["api_key"] == KEY
+    assert blob_at_profile_address(migrated) is None
     assert connection(migrated, old_id).status == "revoked"
     # WHY unchanged (OME-1209 E4b): neither the DELETE nor the PUT writes the document.
     assert before is not None
@@ -217,7 +217,7 @@ def test_a_stale_marker_loses_and_writes_nothing(
         put_pair_key(migrated)
 
     assert (info.value.kind, info.value.subject) == ("superseded", "connection")
-    assert (info.value.provider, info.value.requested) == (PROVIDER, "default")
+    assert (info.value.provider, info.value.requested) == (PROVIDER, None)
     row = connection(migrated, connection_id)
     assert (row.status, row.auth_type) == ("active", "oauth")
     assert json.loads(blob_at_profile_address(migrated) or "{}")["access_token"] == "tok"

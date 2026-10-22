@@ -196,7 +196,6 @@ async def _drop_pending_flows(
     states = request.app.state.pending_auth.pop_for_pair(
         account_id,
         provider,
-        profile_names=mutation.profile_names,
         connection_ids=mutation.connection_ids,
     )
     for state in states:
