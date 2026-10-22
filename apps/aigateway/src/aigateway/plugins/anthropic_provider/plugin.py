@@ -5,6 +5,11 @@ from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.input_modalities import (
+    TEXT_IMAGE_PDF,
+    InputModality,
+    declared_family_modalities,
+)
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
     PROJECTION_BYPASS_REASON,
@@ -67,6 +72,13 @@ def _api_key_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}"}
 
 
+# OME-1537: Anthropic documents image and PDF input for every current Claude model
+# (Messages API ``image`` / ``document`` blocks).
+_INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
+    ("claude-", TEXT_IMAGE_PDF),
+)
+
+
 class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     custom_llm_provider = "anthropic"
     provider_display_name = "Anthropic"
@@ -74,6 +86,17 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def register_models(self) -> list[ModelEntry]:
         return list(self.settings.models)
+
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        # OME-1537: declared family table; a model outside it is unknown -> text-only.
+        # WHY the routed target, not the name: ``settings.models`` lets an operator
+        # alias any name to any upstream model, so only ``litellm_params["model"]``
+        # says which model actually reads the request.
+        target = entry.litellm_params.get("model")
+        model = target if isinstance(target, str) else entry.model_name
+        return declared_family_modalities(
+            model.removeprefix("anthropic/"), _INPUT_MODALITY_FAMILIES
+        )
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(

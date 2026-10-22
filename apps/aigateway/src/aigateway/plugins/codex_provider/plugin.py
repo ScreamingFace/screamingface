@@ -7,6 +7,11 @@ from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
 from aigateway.core.content_parts import check_messages
+from aigateway.core.input_modalities import (
+    TEXT_IMAGE_PDF,
+    InputModality,
+    declared_family_modalities,
+)
 from aigateway.core.oauth.identity import AccountIdentity, identity_from_id_token
 from aigateway.core.plugin_base import (
     ModelEntry,
@@ -51,6 +56,15 @@ if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
 
 
+# OME-1537: the ChatGPT Codex backend serves the GPT-5/6 families, which take image and
+# PDF input (verified live 2026-10-16 with gpt-6-astra). Declared here, beside the hook,
+# so the model list (``models.py``) stays the single owner of WHICH slugs ship.
+_INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
+    ("gpt-5", TEXT_IMAGE_PDF),
+    ("gpt-6", TEXT_IMAGE_PDF),
+)
+
+
 class CodexProviderPlugin(ProviderPluginBase):
     # api_key_strategy_for intentionally stays the base None default: codex
     # subscription models ride the ChatGPT backend Responses endpoint, which
@@ -73,6 +87,12 @@ class CodexProviderPlugin(ProviderPluginBase):
         # so the kill switch is handed to the directory that dials.
         # AIDEV-NOTE: read through the module attribute so tests swap DIRECTORY.
         live_models.DIRECTORY.set_enabled(enabled=enabled)
+
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        # OME-1537: declared family table; a model outside it is unknown -> text-only.
+        return declared_family_modalities(
+            entry.model_name.removeprefix("codex/"), _INPUT_MODALITY_FAMILIES
+        )
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
