@@ -1,13 +1,13 @@
 ---
 id: OME-1715
 linear_url: https://linear.app/openmined/issue/OME-1715/mint-the-d18-puts-connection-at-its-own-address-and-remove-the-dead
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-22
-closed:
+closed: 2026-10-22
 ---
 
 # Mint the D18 PUT's Connection at its own address and remove the dead Profile conflict arms (Stage E, E5a)

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1715  # the spec and plan land with E5a
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-21
-finished:
+finished: 2026-10-22
 ---
 
 # e5-history-cleanup-spec — the spec for purging the retired Profile storage (Stage E, E5)
@@ -39,7 +39,11 @@ spec (and then its plan); no code and no data change here.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** `docs/spec/2026-10-21-OME-1715-e5-history-cleanup.md`,
+  `docs/plan/2026-10-21-OME-1715-e5-history-cleanup.md` (status accepted), this ledger.
+- **Commits:** `46d66aab8` (docs(aigateway): add the E5 history-cleanup spec and plan), landed
+  with E5a in the squash-merge `8cb1e54e0` (#1541).
+- **Gates:** docs only; the E5a gates ran over the same PR (ledger
+  `docs/work/2026-10-22-e5a-put-own-address.md`).
+- **Deviations:** the spec is verified at `b0ce28150` and the plan records the first E5a rebase
+  (`ae1292505`); the second rebase, onto `bdf5746a4`, is recorded in the E5a ledger.

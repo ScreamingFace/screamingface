@@ -1,9 +1,9 @@
 ---
 ticket: OME-1715
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-22
-finished:
+finished: 2026-10-22
 ---
 
 # e5a-put-own-address — the D18 PUT mints a Connection address (Stage E history cleanup, E5a)
@@ -63,9 +63,9 @@ goes with it. Plan `docs/plan/2026-10-21-OME-1715-e5-history-cleanup.md` §3 E5a
   `tests/unit/test_profile_conflict_arms_retired.py` (4). Prior tests: the 11 files of the approved
   test map plus the remote-endpoint harness helper (see Deviations), pinned by the test-change
   manifest.
-- **Commits:** on `OME-1715-e5a-put-own-address`: `docs(aigateway): add the E5 history-cleanup
-  spec and plan`, then `refactor(aigateway): mint a D18 PUT's row at its own address and retire
-  the dead Profile conflict arms`. Shas and the squash-merge are recorded at close.
+- **Commits:** squash-merged as `8cb1e54e0` (#1541) from `46d66aab8` (docs(aigateway): add the
+  E5 history-cleanup spec and plan) and `a3ba63a05` (refactor(aigateway): mint a D18 PUT's row at
+  its own address and retire the dead Profile conflict arms).
 - **Gates:** RED first: the 4 address tests failed 3/4 on the base (the migrated-pair case is a
   guard and passed), the 4 retired-arm tests 3/4. Then the full unit suite before the prior tests
   moved: exactly the map's rows failed (20 tests, 2 collection errors), nothing else. After the
