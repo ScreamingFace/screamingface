@@ -28,6 +28,8 @@ from screamingface_engine.run_evidence import (
     outcome_of,
 )
 from screamingface_engine.subjects import RUN_ROOT_NODE
+from screamingface_engine.tracing.loader import load_span_sink
+from screamingface_engine.tracing.relay import SpanRelay, SpanSink
 from url4.streaming.interfaces import (
     EventPublisher,
     ExecStep,
@@ -53,6 +55,13 @@ verbatim — the same entry point a real Job's process calls, given the same var
 
 ExtraModelRefresh = Callable[[Mapping[str, str]], Awaitable[None]]
 """Refresh dynamic model state for one verified caller before its run env is rendered."""
+
+SpanSinkLoader = Callable[[Mapping[str, str]], SpanSink | None]
+"""Builds a run's span sink from the environment, or ``None`` when no OTLP endpoint is set.
+
+`tracing.loader.load_span_sink` in production — the same loader a Job's `runner.main` calls —
+and a seam for tests, which hand in a recording fake instead of a real exporter.
+"""
 
 
 class _PreparedExecutor(Executor):
@@ -125,8 +134,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         max_history: int = DEFAULT_MAX_HISTORY,
         extra_models: Callable[[], Sequence[str]] | None = None,
         refresh_extra_models: ExtraModelRefresh | None = None,
+        span_sink: SpanSinkLoader = load_span_sink,
     ) -> None:
         self._stream = stream
+        self._span_sink = span_sink
         self._factory = executor_factory
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
         # the app runs, and a model admitted a second ago must reach the very next run.
@@ -323,12 +334,11 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         executor = build() if self._refresh_extra_models is None else _PreparedExecutor(prepare)
         watch = TerminalWatch(self._stream)
         task = asyncio.get_running_loop().create_task(
-            lifecycle_run(
+            self._exported_run(
                 watch,
                 ProvenanceExecutor(executor, client_version),
                 topic,
                 url4,
-                node=RUN_ROOT_NODE,
                 traceparent=run_traceparent,
                 deadline_s=deadline_s,
             ),
@@ -341,6 +351,55 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         self._active += 1
         log_scheduled(_logger, topic=topic, traceparent=run_traceparent, job_name=name)
         return name
+
+    async def _exported_run(
+        self,
+        publisher: EventPublisher,
+        executor: Executor,
+        topic: str,
+        url4: str,
+        *,
+        traceparent: str,
+        deadline_s: int,
+    ) -> None:
+        """`lifecycle.run`, publishing through the run's `SpanRelay` (e2e workbench unit 6a).
+
+        FEATURE: the same wrap `runner.main._run_process` gives a Job, so a local run exports its
+        `url4.run` span tree when `OTEL_EXPORTER_OTLP_ENDPOINT` (or the traces-specific variable)
+        is set, and is a pure passthrough when it is not — the default. Before this, the local
+        engine exported nothing at all.
+
+        WHY the relay is built HERE, inside the task, and not in `schedule`: a run cancelled
+        before its first step never enters this body, so it never builds a sink — and a built
+        sink owns an exporter thread that only `shutdown` stops. Built in `schedule`, that run
+        would leak the thread.
+
+        WHY the relay is OUTSIDE `TerminalWatch` (relay -> watch -> stream): both are transparent
+        proxies, and with the relay outermost the watch and the stream receive the very objects
+        `lifecycle.run` published.
+
+        INVARIANT: telemetry never fails or alters a run (OME-1130 ledger D4). The loader never
+        raises, the relay swallows every sink error, and `shutdown` logs a failed close.
+        """
+        sink = self._span_sink(self._base_env)
+        relay = SpanRelay(publisher, sink, traceparent=traceparent)
+        try:
+            await lifecycle_run(
+                relay,
+                executor,
+                topic,
+                url4,
+                node=RUN_ROOT_NODE,
+                traceparent=traceparent,
+                deadline_s=deadline_s,
+            )
+        finally:
+            if sink is not None:
+                # WHY a thread: `OtlpSpanSink.close` joins its flush for up to its bound, and
+                # every local run shares this one event loop — a blocking flush here would
+                # stall every other run in flight. Awaited (not fire-and-forget) so the run's
+                # task ends only once its trace, root span included, has been handed over.
+                await asyncio.to_thread(relay.shutdown)
 
     async def stop(self, topic: str) -> None:
         """Cancel the run, if one is live. Idempotent — absent or finished is a no-op.
@@ -379,4 +438,5 @@ __all__ = [
     "DEFAULT_MAX_HISTORY",
     "ExecutorFactory",
     "InProcessJobRunner",
+    "SpanSinkLoader",
 ]
