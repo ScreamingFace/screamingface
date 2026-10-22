@@ -65,3 +65,12 @@ is a later unit; `Payload` stays `str`.
   `check_module_size.py`, `check_suppressions.py`). Behaviour change by design: the text paths (`fetch`, `fetch_ex`) now refuse a
   binary media type (incl. `application/octet-stream`) instead of returning mojibake. `;accept=`
   is sent verbatim (no shorthand such as `csv` is expanded).
+- **Rebase on #1521 (2026-10-22):** rebased onto `506c09178` (url4 source guard). `http.py`
+  resolved as the #1521 ledger prescribes: `_get(target, *, relative, accept=None)` translates
+  `url4://` to `https`, builds the headers (`Idempotency-Key` + `Accept`) and calls
+  `_send(url, headers or None, peer=peer, relative=relative)`; both helper blocks kept
+  (`_trusted_origins`/`_read_capped`/`_buffered` and `_media_type`/`_text`). `fetch_bytes` goes
+  through `_get`, so it inherits the destination guard, the total deadline and the size cap. New
+  test `tests/unit/test_io_bytes_fetch_guard.py`: `fetch_bytes` to `169.254.169.254` (literal and
+  via DNS) is refused with `x.source_destination_blocked`, nothing reaches the wire. Gates:
+  `run_gates.py url4` ALL GATES GREEN; `check_module_size.py` / `check_suppressions.py` within baseline.
