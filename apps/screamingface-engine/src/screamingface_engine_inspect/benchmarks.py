@@ -47,7 +47,7 @@ from screamingface_engine.benchmarks.provenance import (
     ProvenanceFields,
 )
 from screamingface_engine_inspect.function_references import function_reference_problem
-from screamingface_engine_inspect.local_tasks import task_source_pin
+from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -212,7 +212,8 @@ class BenchmarkSpec:
     #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
     #: deliberate bump with owner sign-off (OME-1610). Never compared with the fingerprint
     #: (owner decision, 2026-10-15). NOT part of the revision.
-    #: None, on every row but the migrated healthbench pair, publishes the computed fingerprint.
+    #: None publishes the computed fingerprint; the rows that set it are named in
+    #: ``tests/unit/inspect/test_published_revision.py``.
     published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
@@ -594,12 +595,17 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "8,000 sentence pairs asking whether aggressive word reordering "
             "preserved the meaning (the PAWS labeled_final test split), imported "
             "from inspect_evals. The model answers Yes or No through the eval's "
-            "own prompt template; grading is inspect's own includes scorer "
-            "against the published label, so no judge tokens are spent. Cases are "
-            "served in a fixed seeded shuffle (inspect_evals randomizes "
-            "order per run); benchmark score = plain accuracy over the cases "
-            "run. Free-form replies make the mid-run check surface legitimate "
-            "(corrective loop). Dataset: PAWS by Google LLC, used under its own "
+            "own prompt template. Graded on a bare Yes or No against the published "
+            "label, so no judge tokens are spent: the reply must be the one word, with "
+            "only spaces or punctuation around it ('No.' and '**Yes**' count; 'The "
+            "answer is: No' does not). This is inspect_evals' fix (PR #2334, merged "
+            "after the pinned v0.20.0), adopted here: v0.20.0's scorer looks for "
+            "'yes' or 'no' anywhere in the reply, so 'I cannot determine this.' was "
+            "right on every No Case, and a model that always refused that way scored "
+            "55.8% (4,464 of 8,000). Cases are served in a fixed seeded shuffle "
+            "(inspect_evals randomizes order per run); benchmark score = plain "
+            "accuracy over the cases run. Free-form replies make the mid-run check "
+            "surface legitimate (corrective loop). Dataset: PAWS by Google LLC, used under its own "
             "licence."
         ),
         focus="Paraphrase adjudication (yes/no)",
@@ -607,9 +613,18 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Binary adjudication frontier models saturate (OME-1257).
         difficulty="easy",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.paws.paws:paws. License: other.
-        scorer="inspect_ai.scorer:includes",
+        # Provenance: the Task is inspect_evals.paws.paws:paws, whose scorer is
+        #   inspect_ai.scorer:includes. License: other.
+        # NAMED DEVIATION: graded by our bare Yes/No pattern, inspect_evals' merged fix
+        #   (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2334); v0.20.0's includes()
+        #   finds "no" inside "cannot". Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_yes_no.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.yes_no.yes_no:paws_yes_no",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="8f4e0e9c0864a6e7",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1904.01130",
@@ -653,22 +668,35 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         description=(
             "3,270 naturally-occurring yes/no questions, each answered from a "
             "given Wikipedia passage (the BoolQ validation split — test answers "
-            "are withheld by the authors), imported from inspect_evals. Grading is "
-            "inspect's own pattern scorer over the reply's final Yes/No, so no "
-            "judge tokens are spent. Cases are served in a fixed seeded shuffle "
-            "(inspect_evals randomizes order per run); benchmark score = "
-            "plain accuracy over the cases run. Free-form replies make the "
-            "mid-run check surface legitimate (corrective loop)."
+            "are withheld by the authors), imported from inspect_evals. Graded on a bare "
+            "Yes or No, so no judge tokens are spent: the reply must be the one word, "
+            "with only spaces, punctuation or underscores around it ('No.' and "
+            "'**Yes**' count; 'The answer is: No' does not). This is inspect_evals' fix "
+            "(PR #2334, merged after the pinned v0.20.0), adopted here: v0.20.0's "
+            "pattern accepts any reply ending in 'yes' or 'no' plus at most one "
+            "character, so 'I don't know' was right on all 1,237 No Cases. Cases are "
+            "served in a fixed seeded shuffle (inspect_evals randomizes order "
+            "per run); benchmark score = plain accuracy over the cases run. "
+            "Free-form replies make the mid-run check surface legitimate "
+            "(corrective loop)."
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
         # Passage-grounded yes/no frontier models saturate (OME-1257).
         difficulty="easy",
         failure_policy="withhold",
-        # Provenance: this scorer is declared by the Task of
-        #   inspect_evals.boolq.boolq:boolq. License: cc-by-sa-3.0.
-        scorer="inspect_ai.scorer:pattern",
-        scorer_kwargs={"pattern": "(Yes|No).?\\Z"},
+        # Provenance: the Task is inspect_evals.boolq.boolq:boolq, whose scorer is
+        #   inspect_ai.scorer:pattern(r"(Yes|No).?\Z"). License: cc-by-sa-3.0.
+        # NAMED DEVIATION: graded by our bare Yes/No pattern, inspect_evals' merged fix
+        #   (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2334); v0.20.0's pattern
+        #   reads "I don't know" as "no". Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_yes_no.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.yes_no.yes_no:boolq_yes_no",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
+        published_revision="00d4443ca7e66d43",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1905.10044",
@@ -6417,6 +6445,10 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _scorer_function_pins(spec)
             + _scorer_dependency_pins(spec)
             + _whole_run_metric_pins(spec)
+            # WHY last and only when set: a scorer or whole-run metric of ours beside an
+            # inspect_evals Task (a Named Deviation) has no package pin, so its source joins;
+            # no other revision moves.
+            + scorer_source_pins(cases_spec.task, grading_references(spec))
         ),
         scorer_factory=_scorer_factory(spec),
         extra_scorer_factories=_extra_scorer_factories(spec),
@@ -7201,6 +7233,16 @@ def _scorer_dependency_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
                 "grade the row (install the `inspect` extra)"
             ) from None
     return tuple(pins)
+
+
+def grading_references(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """Every code reference that marks the row: its scorer, its Named-Score scorers and, when
+    the row honours one, its whole-run metric — the code ``scorer_source_pins`` must cover."""
+
+    # WHY the metric too: it computes the published number, so a metric of ours beside an
+    # inspect_evals Task is grading code no package pin covers, exactly like a scorer of ours.
+    metric: tuple[str, ...] = () if spec.whole_run_metric is None else (spec.whole_run_metric,)
+    return (spec.scorer, *spec.extra_scorers, *metric)
 
 
 def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

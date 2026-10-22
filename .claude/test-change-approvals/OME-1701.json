@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1701",
+  "branch": "OME-1701-pr1-revision-rule-yes-no",
+  "approver": "owner (approved in the OME-1701 session, 2026-10-21; the revision holds 2026-10-22)",
+  "date": "2026-10-22",
+  "scope": "test_published_revision.py: the hand-set list adds paws and boolq, and the invariant's docstring names the second ground for a hold, because the owner held those rows' published revisions on 2026-10-22 (revisions are frozen; each grading fix keeps every Case, and the leaderboard had no result under the old grading).",
+  "reason": "OME-1701 adopts inspect_evals' grading and Case fixes as Named Deviations, one PR each; every edited prior test follows the row it pins to its new grading, Cases, held or moved revision, or catalogue id, and no assertion is weakened.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
+      "base_blob": "0642ef48a18d86cea3a577973e2ceb5f354ff565",
+      "approved_blob": "2a02afdf03e1c7ae0e7b9f9a2cafe972e26a176a"
+    }
+  }
+}
