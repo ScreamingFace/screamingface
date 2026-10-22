@@ -1,7 +1,7 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1721
 stack: aigateway
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-22
 finished:
 ---
@@ -63,7 +63,11 @@ Owner decisions (2026-10-22):
 - New `plugins/remote_endpoint/global_cache.py`: the body-only projection.
 - `plugins/remote_endpoint/request.py`: `max_tokens` keyed instead of bypassed.
 - `plugins/remote_endpoint/transport.py`, `provider_composition.py`, `main.py`: one reused HTTP
-  client per endpoint, created on first use and closed at application shutdown.
+  client per endpoint, created on first use and closed at application shutdown. Each instance
+  owns its client; `close_remote_endpoints(registry)` in the composition module closes them, so
+  `compose_providers` keeps returning the access policy and `test_composition` stays unchanged.
+  The pool is bounded at httpx's own default (100 connections, 20 kept alive); core admission
+  still caps concurrent calls per provider first (4 by default).
 - Routes `models`, `providers`, `model_parameters`, `model_admission`,
   `provider_access_availability`, `oauth_connections`: a `VIEW` check before a remote endpoint is
   listed, described or admitted, answering as each route answers an unknown provider; the two
@@ -102,7 +106,35 @@ Owner decisions (2026-10-22):
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `global_cache.py` (new) and five new test files:
+  `test_http_origins`, `test_app_catalog`, `test_global_cache`, `test_app_shared_cache`,
+  `test_endpoint_client`. Prior tests changed only as approved: `test_definitions`,
+  `test_reader`, `test_plugin`, `test_app_regressions`.
+- **Commits** (rebased onto `fade16614`):
+  - `8bdb3d8ac` feat(aigateway): accept approved http and https origins by name or address
+  - `bbeadf786` feat(aigateway): show each configured endpoint only to its granted accounts
+  - `52eb5824b` feat(aigateway): share cached chats to configured endpoints across accounts
+  - `0c60b1cb7` feat(aigateway): reuse one bounded HTTP client per configured endpoint
+- **Gates:** `run_gates.py aigateway --base fade16614`: ruff check, ruff format, pyright,
+  `check_no_enterprise`, pytest with coverage at least 80%: all green after each part and again
+  after the rebase; 6912 tests collected, 426 in `tests/unit/remote_endpoint`. With
+  `.claude/test-change-approvals/OME-1721.json` in place, the full run including the append-only
+  check is green and accepts exactly the four approved test transitions.
 - **Deviations:**
+  - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
+    route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
+    `invalid_model` and an account without one gets the no-key refusal. No upstream call either
+    way; the test asserts both.
+  - DNS labels accept `_`, read from "including Docker service names".
+  - A bracketed host that is not an address (`http://[private-host]`) used to put the host
+    text in the config refusal through the URL parser's message; the parse is now wrapped and the
+    refusal echoes nothing. The same echo existed in Unit 0 for HTTPS origins.
+  - The `max_tokens` rule keeps `projection_revision`: its wire mapping is unchanged, and no row
+    was ever stored for this provider.
+  - The pool bound is httpx's own default (100 connections, 20 kept alive); core admission caps
+    concurrent calls per provider first.
+  - Left unchanged, pending owner approval: the docstring of `test_app_cache_order.py` still says
+    the instance inherits `CacheBypass`, which is no longer true. The test itself still passes.
+  - Known limit: a chat already in flight when shutdown closes its endpoint client gets httpx's
+    closed-client error as a 500. The server drains in-flight requests before the lifespan
+    shutdown runs, so this window is not handled in code.

@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1721",
+  "branch": "OME-1721-hosted-byom-unit1",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-22",
+  "scope": "Four prior remote-endpoint tests, approved as shown before any production change. test_definitions: the five origins that become valid (plain HTTP, an IPv4 address, a bracketed IPv6 address, a non-default port and a single-label name) leave the refusal list, and the test is renamed test_non_canonical_origins_are_refused. test_reader: its invalid origin becomes ftp://private-host.example, since http:// is now valid. test_plugin: register_models returns the declared model entry instead of an empty list. test_app_regressions: the configured app's provider listing is compared with the bundled app's on the bundled providers' rows only, since a granted account now also sees its endpoints. Nothing else changes.",
+  "reason": "Hosted BYOM Unit 1 (owner decisions of 2026-10-22): approved HTTP, IP and port origins, a catalog filtered by the account grants, the shared chat cache and a reused client per endpoint. Each edit follows from a contract the owner changed on purpose.",
+  "files": {
+    "apps/aigateway/tests/unit/remote_endpoint/test_app_regressions.py": {
+      "base_blob": "a223610be645bf70a38f82f1a1e15a2027245a25",
+      "approved_blob": "c110aba0898c9822aaf90c92c28d166a2fdd98ef"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_definitions.py": {
+      "base_blob": "f2fccf915d8dbfba366cd5174212a28821483a45",
+      "approved_blob": "8578e02f7f112c108891dcf53adee7cfdb25f44d"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_plugin.py": {
+      "base_blob": "f5fcf7a166bbb065131045ef70d286f75e94e7a8",
+      "approved_blob": "b8a3cf6a2a48958eb8fd3e924d65634b805379ce"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_reader.py": {
+      "base_blob": "b661b3068c0415b969e9cf49f3c45bcbe6766749",
+      "approved_blob": "c98ce8754107c9642358b9ba2f424b8b80513e33"
+    }
+  }
+}
