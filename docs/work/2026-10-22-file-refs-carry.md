@@ -84,6 +84,8 @@ decisions Q-A..Q-D (Linear `OME-1543` comment "Owner decisions (Sergey, 2026-10-
      `x=<blob>` binding is a contributing source (ABNF, `OME-534`), so under "a `src=` value
      in the AST is an attachment" it IS attached. Owner question Q-A below.
   5. U4 golden was recorded by running the DAG on the #1482 base in a scratch worktree.
+  6. U5 adds `detached_run_files()` at the HTTP ingress: an in-process ASGI transport shares
+     the caller's context, so without it a served request would see the caller's files.
   7. U3b fetches a non-text `https://` body twice (text path refuses, then `fetch_bytes`): the
      engine may not import `io.media.is_text_media_type` (layering), and routing text bodies
      through the bytes path would risk changing their decoding. Only binaries, which failed
@@ -93,8 +95,6 @@ decisions Q-A..Q-D (Linear `OME-1543` comment "Owner decisions (Sergey, 2026-10-
      Concurrent first reads of one URL are not single-flighted (plan U3b test 5 is cache-hit
      only); persisting the bytes to the engine's tenant+run store stays engine work (Q7).
   9. The approval pin names branch `file-refs-carry`; it must be updated at the PR-open rename.
-  6. U5 adds `detached_run_files()` at the HTTP ingress: an in-process ASGI transport shares
-     the caller's context, so without it a served request would see the caller's files.
 - **Open for the owner:**
   - **Q-A (U3.16):** should a blob bound by name (`x=…`) and read only as `$x*(…)` be
     attached? The binding contributes its ref text to the payload, so the code attaches it.
