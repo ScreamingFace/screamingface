@@ -5,10 +5,10 @@ Spec: ``docs/spec/2026-10-15-community-cache.md``.
 
 A client walks the shareable rows of ``request_cache_entries`` page after page: each page is the
 rows after a cursor, and the cursor is the last row's ``(updated_at, key_hash)``. Each page is
-read in batches, every batch two short keyset queries on the ``(updated_at, key_hash)`` index
-(migration 0015) — the next keys and their sizes, then the rows themselves — so no connection or
-transaction is held between batches and the caller can write each batch out before the next is
-read.
+read in batches, every batch short keyset reads on the ``(updated_at, key_hash)`` index
+(migration 0015) — the next keys and their sizes (after a cursor, two reads: the rest of its tie
+run, then later rows; see ``_after``), then the rows themselves — so no connection or transaction
+is held between batches and the caller can write each batch out before the next is read.
 INVARIANT: a batch holds at most ``BATCH_BYTES`` of responses (or one row, if a single response is
 larger) and at most ``BATCH_ROWS`` rows. The second query reads exactly the rows the first one
 sized — same ``key_hash``, ``updated_at`` and size — so a row rewritten between the two (a merge

@@ -66,3 +66,16 @@ walk is quadratic today.
   it (ordered on both columns, with its limit), through the new `_keys_in` seam.
 - Not taken: an empty tie-run read per batch (~0.5 ms, ~25 ms a page) and summed counts during a
   restore (`count_rows` is already approximate); avoiding either needs raw SQL.
+
+## Second code review of PR #1525 (2026-10-22)
+
+- **Fixed:** the module docstring's per-batch reads (a key read after a cursor is two
+  statements); the plan test's comment (two ranges, 0.48 ms and 1.28 ms) and an unused unpacking.
+- **Not taken:** a single row-value range `(updated_at, key_hash) > (X, Y)`, raised by both
+  reviews. Tortoise cannot bind parameters inside it, so the timestamp would be inlined as a
+  literal matching SQLite's stored text format and Postgres's `timestamptz` alike; that risk buys
+  ~25 ms a page (the empty tie read). The cross-statement cases it would remove (a moved row's
+  stale copy kept, `exhausted` read before duplicates drop, a moving row counted twice) can only
+  shorten a page or raise the approximate count: the route's `next` comes from the scan cursor and
+  `has_rows_after`, never a page's length, and the moved row is sent later at its new time — the
+  same short page a row rewritten between the key and row reads already makes.

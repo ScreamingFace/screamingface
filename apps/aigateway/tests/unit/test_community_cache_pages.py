@@ -458,11 +458,10 @@ async def test_what_follows_a_cursor_is_read_as_index_ranges_that_start_at_it(
     # WHY: an OR of `updated_at > X` and `updated_at = X AND key_hash > Y` is no index range, so
     # every batch walked the index from its start and dropped the rows before the cursor —
     # ~1.4 s a batch 200k rows into dev's cache, where bulk restores stamped ~188k rows with one
-    # time. A range on both columns starts at the cursor (0.7 ms there).
+    # time. Each of the two parts starts at the cursor (0.48 ms and 1.28 ms there).
     cursor = PageCursor(updated_at=_T0, key_hash="a" * 64)
     eligible = community_pages._eligible((), _NOW)
 
-    ties, later = community_pages._after(eligible, cursor)
     planned: list[str] = []
 
     async def plan(part: Any, n: int) -> list[dict[str, Any]]:
