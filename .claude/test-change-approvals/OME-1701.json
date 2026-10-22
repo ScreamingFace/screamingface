@@ -1,14 +1,14 @@
 {
   "issue": "OME-1701",
   "branch": "OME-1701-pr1-revision-rule-yes-no",
-  "approver": "owner (approved in the OME-1701 session, 2026-10-21)",
-  "date": "2026-10-21",
-  "scope": "test_published_revisions.py: the revision literals of the rows this stack has moved so far (paws, boolq), each with a comment naming the old value, because each Named Deviation changes its rows' grading or Cases and so their published revision; no other literal changes.",
-  "reason": "OME-1701 adopts inspect_evals' grading and Case fixes as Named Deviations, one PR each; every edited prior test follows the row it pins to its new grading, Cases, revision or catalogue id, and no assertion is weakened.",
+  "approver": "owner (approved in the OME-1701 session, 2026-10-21; the revision holds 2026-10-22)",
+  "date": "2026-10-22",
+  "scope": "test_published_revision.py: the hand-set list adds paws and boolq, and the invariant's docstring names the second ground for a hold, because the owner held those rows' published revisions on 2026-10-22 (revisions are frozen; each grading fix keeps every Case, and the leaderboard had no result under the old grading).",
+  "reason": "OME-1701 adopts inspect_evals' grading and Case fixes as Named Deviations, one PR each; every edited prior test follows the row it pins to its new grading, Cases, held or moved revision, or catalogue id, and no assertion is weakened.",
   "files": {
-    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "b60981e6787a7f8f0fd1e3e3cc7557e40d2d745e",
-      "approved_blob": "a261708c5072f5be335d6ac15414f7dbddaf9db0"
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
+      "base_blob": "0642ef48a18d86cea3a577973e2ceb5f354ff565",
+      "approved_blob": "997decb701eca0ec21d1718e1fc1d169bf52f374"
     }
   }
 }

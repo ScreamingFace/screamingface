@@ -212,7 +212,8 @@ class BenchmarkSpec:
     #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
     #: deliberate bump with owner sign-off (OME-1610). Never compared with the fingerprint
     #: (owner decision, 2026-10-15). NOT part of the revision.
-    #: None, on every row but the migrated healthbench pair, publishes the computed fingerprint.
+    #: None publishes the computed fingerprint; the rows that set it are named in
+    #: ``tests/unit/inspect/test_published_revision.py``.
     published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
@@ -619,6 +620,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   finds "no" inside "cannot". Drop it when the pin reaches the fix: the tripwire in
         #   tests/unit/inspect/test_named_deviation_yes_no.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.yes_no.yes_no:paws_yes_no",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_held_revisions.py.
+        published_revision="8f4e0e9c0864a6e7",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1904.01130",
@@ -686,6 +692,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   reads "I don't know" as "no". Drop it when the pin reaches the fix: the tripwire in
         #   tests/unit/inspect/test_named_deviation_yes_no.py fails then.
         scorer="screamingface_engine_inspect.named_deviations.yes_no.yes_no:boolq_yes_no",
+        # Published revision held (owner decision, 2026-10-22: published revisions are
+        # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
+        # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
+        # pinned in tests/unit/inspect/test_held_revisions.py.
+        published_revision="00d4443ca7e66d43",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
         paper_url="https://arxiv.org/abs/1905.10044",

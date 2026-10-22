@@ -74,11 +74,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "arc_easy": "f7d6a5325fb0bcff",
     "arc_challenge": "810d45748fde3b18",
     "commonsense_qa": "203aa920ad7ad52b",
-    # OME-1701 PR 1 (2026-10-21): paws and boolq grade with our bare Yes/No scorers adopting
-    # inspect_evals' merged fix (Named Deviations; the scorer source is hashed): paws
-    # 8f4e0e9c0864a6e7, boolq 00d4443ca7e66d43 moved once each.
-    "paws": "ab44cff9bea304ca",
-    "boolq": "b4a47768ef2ebf95",
+    "paws": "8f4e0e9c0864a6e7",
+    "boolq": "00d4443ca7e66d43",
     "mmlu_pro": "145edec84bfc2324",
     "winogrande": "4eb60a70db7518d6",
     "race_h": "8c5ebb4a9d38cc6f",

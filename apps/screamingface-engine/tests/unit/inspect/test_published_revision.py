@@ -85,9 +85,10 @@ def test_a_changed_exam_moves_only_an_unset_revision() -> None:
 
 
 def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
-    """INVARIANT: a hand-set published id is a per-Benchmark owner decision backed by proof
-    that the exam is unchanged (a golden that replays with zero misses), never a default. Any
-    row joining this list is a new decision and must be named here."""
+    """INVARIANT: a hand-set published id is a per-Benchmark owner decision, never a default,
+    backed by proof that the exam is unchanged (a golden that replays with zero misses) or, for
+    a grading fix that keeps every Case, by the owner's hold with no leaderboard result under the
+    old grading (OME-1701). Any row joining this list is a new decision and must be named here."""
 
     hand_set: dict[str, str] = {
         spec.key: spec.published_revision
@@ -101,4 +102,9 @@ def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
         "healthbench-worst30": "39cfd96b068f7230",
         "healthbench-professional": "d8fb037307f35415",
         "ifeval": "1cba769ece27f7ef",
+        # OME-1701 (owner decision, 2026-10-22: revisions are frozen): grading fixes adopted
+        # from inspect_evals that keep every Case; each computed fingerprint is pinned in
+        # test_held_revisions.py.
+        "paws": "8f4e0e9c0864a6e7",
+        "boolq": "00d4443ca7e66d43",
     }
