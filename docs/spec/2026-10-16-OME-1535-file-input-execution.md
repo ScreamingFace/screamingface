@@ -139,10 +139,14 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   authorization, replay behaviour, typed auth failures and tests at both nodes. The guard's
   operator-configured **peer allowlist** (#1521) stays **empty by default and must not be populated**
   until that spec exists. Blob transfer between nodes stays deferred under F1.
-- **Scope of attachments:** only an `https://` value in a `src=` binding is fetched at run start and
-  attached; other `https://` sources stay lazy text fetches. Attached bytes are also written through to
-  the tenant+run store (`OME-1540`). "Fetched once per run" belongs to the per-run cache in `OME-1543`;
-  `OME-1544` is the guard only. (Owner, 2026-10-21.)
+- **Scope of attachments:** `https://` sources stay **lazy text fetches, as today**. When an `https://`
+  source returns a **non-text** body, the bytes are hashed into the tenant+run store (write-through,
+  `OME-1540`) and appended to `attachments[]` at that source's position. A text body is unchanged: it
+  stays a text source, is not attached, and is exempt from D5, so a failed `;optional` text source does
+  not fail the run. Rationale: the grammar does not preserve `src=`. `(src=https://a)` and `(https://a)`
+  parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so "only in a `src=` binding"
+  cannot be enforced. "Fetched once per run" belongs to the per-run cache in `OME-1543`; `OME-1544` is
+  the guard only. (Owner, 2026-10-21; revised 2026-10-22, `OME-1543` Q-B.)
 
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
@@ -162,8 +166,9 @@ F1's deferred remote blobs and remote-node calls (C6); neither is enabled in v1.
 | `detail` | no | `auto` \| `low` \| `high`, carried to `image_url` parts |
 
 `Payload` stays `str` ([`U/dag/node.py:70`][u-node70]). **Nothing scans strings for blob-looking text**: a ref
-becomes an attachment only from structure (a `src=` binding in the parsed AST, or a typed part in a
-Case envelope), never from the contents of a payload, a member output or a JSON value.
+becomes an attachment only from structure (a source in the parsed AST, such as a `src=` binding or an
+`https://` source whose fetched body is non-text (F1b), or a typed part in a Case envelope), never from
+the contents of a payload, a member output or a JSON value.
 
 **Content layout.** Every model-calling node — ensemble members, model and recipe synthesizers
 (fusion), reducers, and the judge — builds the OpenAI `content` of its user message as
@@ -185,7 +190,9 @@ added to `attachments[]`. Any other type there stays `unsupported_content_type` 
 
 **Propagation (v1).** Attachments are fixed at run start (the url4 refs resolved for that run; Case
 parts travel in the v2 envelope instead, §2.7) and are **inherited unchanged** by every node: pipelines, nested local sub-expressions,
-reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1. Because the list is fixed before execution, a
+reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1.
+The one exception is an `https://` source: it is fetched lazily, as today, and a non-text body joins the
+list at that source's position (F1b). Because the blob list is fixed before execution, a
 blob source marked `;optional` that fails to resolve **fails the whole run** with its own code (§4); it
 is never dropped from the list (D5).
 A nested expression addressed to a **remote** node (C6) is refused in v1 (`x.remote_node_unsupported`,
@@ -313,9 +320,9 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
      at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
      `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
-     An `https://` source is fetched through the url4 transport's destination guard (F1b) and, when it
-     returns a non-text type, is hashed and written through to the tenant + run store (`OME-1540`) and
-     appended to `attachments[]` like a local blob.
+     An `https://` source is fetched lazily, as today, through the url4 transport's destination guard
+     (F1b) and, when it returns a non-text type, is hashed and written through to the tenant + run store
+     (`OME-1540`) and appended to `attachments[]` at its source position; a text body stays text and is exempt from D5.
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
    `data:` URI); v2 envelope parts already have that shape. It is the only shape the gateway sees. The
@@ -427,6 +434,7 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [u-xcode]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/core/errors.py#L48
 [u-intent]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/peer/_http.py#L52
 [u-coll]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/dag/semantics/collection.py#L140-L142
+[u-src]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/core/grammar.py#L186-L188
 [u-artifact]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/streaming/protocol/signals.py#L174-L192
 [u-resultdata]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/url4/src/url4/streaming/protocol/signals.py#L195-L205
 [e-414]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/rest/mounts.py#L277
