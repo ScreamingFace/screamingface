@@ -276,7 +276,7 @@ def _require_reproduction(value: object) -> None:
     from screamingface._reproduction import Reproduction
 
     if value is not None and not isinstance(value, Reproduction):
-        raise TypeError("Candidate reproduction must be an sf.Reproduction or None")
+        raise TypeError("Candidate reproduction must be a sf.Reproduction or None")
 
 
 def _is_canonical_uuid(value: str) -> bool:
