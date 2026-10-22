@@ -215,7 +215,15 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - **Balance (all 87,048):** Infer TRUE = FALSE (10,044 normal, 3,348 trivial), Consist POSSIBLE
   = IMPOSSIBLE (10,044 each grade), Compl "1" = "2" = "3" (3,348 each grade). Best constant
   answer per family: 0.917 on the 40,176, 0.462 on the 87,048.
-- **Revisions:** worldsense a2f8699ca22f49e5 → a9ea4fd817d0f54b; no other moved.
+- **Revisions:** worldsense a2f8699ca22f49e5 → ad49b23d305a87dd; no other moved.
+- **Verbatim copy (owner rule 2026-10-22: a ported fix is a verbatim copy with the same
+  names):** `worldsense` and `record_to_sample` are inspect_evals' own, as merged with PR #2507
+  (merge commit 2cb54ae9), names and bodies unchanged; our earlier wrapper (inspect_evals'
+  Sample with its id replaced) is gone. Ours: the Task's `version=`/`metadata=` lines are left
+  out, marked; ruff format rewrapped two copied lines (whitespace only) and a file-level
+  `noqa: E501` keeps their docstring's long lines. Two build replays reproduce the sealed
+  Cases exactly (87,048; case_digest 347a2aa2…, case_set_digest a24618fd…). The copy moved the
+  revision once more (a9ea4fd817d0f54b → ad49b23d305a87dd).
 - **Review fixes:** the frontier score is GPT4's own published replies scored on our headline
   metric (the plain mean over all 87,048 trials): 0.730 (63,551 right), from the authors'
   `basic___GPT4___results.jsonl` at the pinned commit. The paper's 0.756 ("WS avg.") weights
