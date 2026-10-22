@@ -1,12 +1,14 @@
 {
   "issue": "OME-1634",
-  "branch": "OME-1634-codex-plan-unsupported",
-  "approver": "owner (Sergey, approved in the working session, 2026-10-17)",
-  "date": "2026-10-17",
-  "scope": "test_codex_provider.py: the exact Codex seed set now pins codex/gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna, and the /v1/models owned_by check reads codex/gpt-6-astra instead of codex/gpt-5.4-mini. test_plugin_loader.py: the discovered-name check reads codex/gpt-6-astra instead of codex/gpt-5.4-mini. No test removed.",
-  "reason": "OME-1634: the Codex backend retired the old static slugs (gpt-5.5, 5.4, 5.4-mini, 5.3-codex, 5.2) and refuses them for a plus plan; the static seeds in models.py were swapped to the live models, and these two main tests pinned the old slugs.",
+  "branch": "OME-1634-fix-hook-rename",
+  "approver": "owner (Sergey, approved in the working session, 2026-10-22)",
+  "date": "2026-10-22",
+  "scope": "test_codex_plan_unsupported.py: the 403 dispatch-status assertion calls the hook by its new name should_mark_credential_error_on_dispatch_status (renamed by #1523). The assertion (is False) is unchanged.",
+  "reason": "#1523 renamed the plugin hook while #1441 was in flight; both PRs were green alone and main went red at 40908acdd.",
   "files": {
-    "apps/aigateway/tests/unit/test_codex_provider.py": {"base_blob": "16792bb728bb0c9491f3f3a5943bcc6e8320a436", "approved_blob": "7c7b9e1de1c0e270f3fcfe11cc9c924e5ccc2203"},
-    "apps/aigateway/tests/unit/test_plugin_loader.py": {"base_blob": "19b7874894e6741e45afee8ffef9882d1f5557ae", "approved_blob": "507bba032151521fecbc53270e911a0b83d1aed3"}
+    "apps/aigateway/tests/unit/test_codex_plan_unsupported.py": {
+      "base_blob": "4bb5f6ed8dae8f78c1d85dc35e2903772ad428af",
+      "approved_blob": "b13c9709e508a5039e61301560fa620574cda94e"
+    }
   }
 }
