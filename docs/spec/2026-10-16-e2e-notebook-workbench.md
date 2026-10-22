@@ -149,7 +149,8 @@ Units 1–2 shipped a subset of §3.1–§3.4. These items are still open; none 
 - **Submit guard:** there is no `submit` notebook and no `SUBMIT=1` × `submit_allowed` check.
 - **Scenario set:** only `quickstart` exists; `cached-repro`, `pipeline`, `leaderboard-read` and
   `submit` (§3.2) are not written yet.
-- **OTLP spans:** not collected (open question in §8).
+- **OTLP spans:** not collected by units 1–2. Local and replay capture is §3.6 (unit 6);
+  cloud spans are still the open question in §8.
 - **Hosted / preview targets:** `preview:N` and `hosted-dev`, with their kubectl log sources and
   Access auth, belong to unit 3 (§7). Only `replay` and `local` exist.
 
@@ -192,6 +193,50 @@ Security constraints:
   `X-Frame-Options: DENY`.
 - **Paths:** a bundle path from a URL must resolve inside the output root, else 404.
 - **Dependencies:** no new runtime dependency; `nbconvert` is a `dev`-group dependency.
+
+### 3.6 Telemetry (unit 6, dev-only)
+
+Owner decisions (2026-10-22), plan `docs/plan/2026-10-22-e2e-workbench-u6-telemetry.md`:
+**capture both** the SDK events and the real OTel spans, and show them **live and after**.
+
+Capture paths. Each is redacted with `workbench/redaction.py` before it touches disk:
+
+- **SDK events:** the notebook's `on_event` recorder appends every event (`Started`, `Span`,
+  `Usage`, `Log`, `Terminated`) to `<bundle>/events.jsonl`, live. The result cell writes
+  `report.json` and `accounting.json`.
+- **OTLP spans:** a loopback receiver, `tests/e2e/workbench/otlp_receiver.py`, runs for the
+  workbench session. The engine and aigateway export to it through `OTEL_EXPORTER_OTLP_ENDPOINT`.
+  At bundle time the spans of the run's trace ids are copied to `<bundle>/spans.jsonl`.
+- **Engine (unit 6a):** local in-process runs wrap their publisher in `SpanRelay`, as runner Jobs
+  already do. With no endpoint configured, the relay is a passthrough.
+
+Receiver contract:
+
+- **Loopback only:** binds `127.0.0.1` on a free port. It accepts only `POST /v1/traces` with
+  `Content-Type: application/x-protobuf`, identity or gzip. Anything else is refused with
+  404, 405, 411, 415 or 400.
+- **Body cap 16 MiB:** checked on `Content-Length` before the body is read, and again after a
+  gzip body is inflated, so a gzip bomb is refused and never inflated past the cap (413).
+- **Decoding:** `opentelemetry-proto` `ExportTraceServiceRequest`, a dev-group dependency.
+- **One JSON object per line**, appended in a single locked write and flushed. A reader takes
+  only newline-terminated lines:
+  `{trace_id, span_id, parent_span_id, name, kind, start_ns, end_ns, status, service,
+  attributes}`. Ids are lowercase hex, `parent_span_id` is `null` on a root, `kind` and
+  `status.code` are lowercased OTel enum names, and `service` is the resource's `service.name`.
+- **Redaction:** the span name, every attribute key and string value (nested ones too), and the
+  status message go through `redact`. An attribute whose last dotted segment is a secret-shaped
+  name (`http.request.header.x-api-key`) has its whole value masked.
+- **Selection:** `spans_for(trace_ids)` returns only spans whose trace id equals one of the
+  given ids. Spans of another run sharing the receiver never reach this bundle.
+
+Run invariants:
+
+- **Export never fails or slows a run.** If the receiver is down or returns an error, the run
+  still passes, and the bundle says that no spans were received.
+- **Bounded size:** at most 20 000 events and 20 000 spans per bundle. Anything dropped is
+  counted and shown.
+- **View:** the bundle page gets a Telemetry section: a span waterfall, usage and cost, logs,
+  and cases. The run page tails `events.jsonl` and `spans.jsonl` over SSE.
 
 ## 4. Run lanes
 

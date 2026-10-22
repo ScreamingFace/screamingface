@@ -167,6 +167,12 @@ dev = [
     "nbclient>=0.10",
     "nbconvert>=7.16",
     "nbformat>=5.11.0",
+    # WHY: the workbench OTLP receiver (tests/e2e/workbench/otlp_receiver.py) decodes spans with
+    # opentelemetry-proto, and its tests export through a real OTLPSpanExporter. Both arrive
+    # only transitively through the runtime extra, which the SDK test job does not install.
+    # Same floor as the runtime extra.
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-proto>=1.30.0",
     "pydantic>=2.9",
     "pyright>=1.1.409",
     "pytest>=9.0.3",
