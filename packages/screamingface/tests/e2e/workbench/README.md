@@ -245,12 +245,62 @@ What a replay run shows (observed 2026-10-22, `quickstart`, run in the UI on por
   ("No model rows."). Both appear only on a real dispatch (`local`, paid), which has not been
   run yet.
 
+## Debugging a failing run
+
+`notebooks/debug_failing_run.ipynb` fails **on purpose** and is a tutorial. It runs a fusion
+whose first member is the ifeval golden (a cache hit on replay) and whose second member,
+`openrouter/openai/gpt-5.5`, is an Engine route the replay tape never recorded. The gateway
+refuses that call (404 `profile_not_found`), the engine reports the case as `upstream_error`
+at stage `candidate`, and `client.evaluate()` still returns: a failed member is a case failure,
+not a run failure. The notebook then walks from the symptom to the root cause:
+
+1. **Report.** Which case failed, with code and stage. The candidate has no score (with
+   `quorum="all"` the failed member fails the case before the synthesizer runs).
+2. **Trace id.** `result.trace_id` on the report, or `exc.trace_id` when `evaluate()` raises
+   after the run started.
+3. **SDK telemetry.** Failing `Span`s (`status == "error"` or a refusal) and ERROR `Log`s
+   (`severity_number >= 17`) from the recorded `events.jsonl`. Only the ERROR log
+   `Model call failed` names the failing model; no span does. `Usage` for the healthy member
+   proves it ran.
+4. **Gateway lines.** Filtered by the exact `trace_id=<id>` token, with the same pattern the
+   verdict uses (a substring match would also hit `parent_trace_id=` or a longer id).
+5. **Root cause and fix.** The same fusion with a servable member, as a markdown block that is
+   never executed, so the notebook keeps failing by design.
+
+It declares `workbench.expect = {outcome: fail, failure_codes: [upstream_error], stage:
+candidate}` and `targets: [replay]` (spec §3.7). `test_notebook[replay-debug_failing_run]`
+passes only when the notebook fails **exactly** that way: the declared code at the declared
+stage, a complete trace chain (engine and aigateway, with `gateway_call_id`s), and at least one
+failing span or ERROR log. An unexpected pass (for example after a tape re-bless makes the
+member servable), a different code, or missing evidence is red. `local` is not declared: there
+`gpt-5.5` would be served and billed, and the test would be an unexpected pass.
+
+**In the UI.** The run form labels it "(fails on purpose: debugging example)". Its bundle
+shows the pill `expected FAIL ✓` (or `expected FAIL ✗` with the reasons), the declared and
+observed codes, and in Telemetry an **Errors** view: each failing span and ERROR log is
+highlighted (also in the waterfall and the log list) and links to the **Gateway calls of these
+traces** table (`#gw-<gateway_call_id>`). No SDK event carries a `gateway_call_id` yet, so each
+error links every call of its trace and says "by trace id".
+
+Observed 2026-10-22 (replay, keyless, $0), UI on port 9114, both notebooks in one run: exit 0
+after 12 s; `quickstart` PASS; `debug_failing_run` `expected FAIL ✓`, observed
+`upstream_error`/`candidate`, error telemetry 10 spans and 2 logs. The Errors view had 12 rows
+(10 spans, 2 logs), 10 waterfall rows were highlighted, and 24 links all resolved to the 2
+gateway-call anchors, one per member call. Both gateway lines are `usage accounting started`.
+
+Known gaps (follow-ups, not hidden by the notebook): the failing model has no span of its own;
+the gateway's 404 chat span has status `unset`, and the gateway logs no refusal line; the
+engine's `model call failed` line carries no `trace_id=`; the activity log's failure code
+(`internal_error`) differs from the report's (`upstream_error`).
+
 ## What is verified, and what is not
 
 | Check | Key needed | Status (2026-10-16) |
 |---|---|---|
 | Unit tests (runner, evidence, bundle, targets, builder, result check, `REQUIRE_ALL`) | none | pass |
 | `test_notebook[replay-quickstart]`: notebook + engine/aigateway chain on the replay stack | none | pass locally; CI runs it on every PR |
+| `test_notebook[replay-debug_failing_run]`: fails exactly as declared (`upstream_error`/`candidate`), chain complete, error telemetry present (2026-10-22) | none | pass locally (`expected FAIL ✓`) |
+| UI smoke: both notebooks launched through `POST /runs`, debug bundle `expected FAIL ✓`, Errors view linked to gateway calls, run-form label (2026-10-22) | none | pass locally, by hand on port 9114 |
 | `test_local_boot.py`: real `screamingface up` + inspect Engine boots and lists ifeval | none | pass locally (needs prepared assets) |
 | `ui/test_ui_e2e.py`: a real replay run launched through the UI by node id, a live progress event, bundle listed PASS with a spend total (2026-10-21) | none | pass locally |
 | `ui/test_ui_e2e.py` telemetry: the bundle's Telemetry section (waterfall with `url4.run` and a gateway span, usage, logs, cases) and the run's `/runs/<id>/telemetry` stream (2026-10-22) | none | pass locally |

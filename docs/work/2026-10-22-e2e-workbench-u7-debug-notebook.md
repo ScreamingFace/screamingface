@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-22
-finished:
+finished: 2026-10-22
 ---
 
 # e2e-workbench-u7-debug-notebook — a failing notebook that teaches debugging with telemetry
@@ -208,11 +208,43 @@ The probe and all 3 runs were identical, apart from the ids:
   rows (2 logs + 10 spans), 2 gateway call anchors, 10 waterfall + 2 log rows highlighted, no
   raw `<script`. Ports 9105/9106/9108/9114 free afterwards; 9112 untouched.
 
+## Task 5 (2026-10-22): real proof
+
+- **Replay lane** (`SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_WORKBENCH_REQUIRE_ALL=1`, keyless,
+  $0): 640 passed, 2 skipped (`just` not on PATH), 129.8 s.
+  `test_notebook[replay-quickstart]` PASS (trace `ae7df75ea20db95f0c262f996d93cc67`);
+  `test_notebook[replay-debug_failing_run]` PASSED as `expected FAIL ✓` (trace
+  `b679bd5c47100b6284094f742739a466`, observed `upstream_error`/`candidate`, error telemetry
+  spans 10, logs 2, no reasons).
+- **UI smoke** via `scripts/workbench-ui --port 9114 --no-open --out <scratchpad>`, driven
+  through the API with the launch token (never printed): `POST /runs`
+  `{target: replay, notebooks: [quickstart, debug_failing_run]}` → 303; run
+  `20261022-160518-900a` ended `exit 0` after 12 s. Summary: quickstart PASS (trace
+  `aea9075792c70762c490ff6c78440495`), debug_failing_run `expected FAIL ✓` (trace
+  `18fc62fb8b0b630800712a8861d37302`). Debug bundle page: pill `expected FAIL ✓` (no `✗`);
+  12 highlighted Errors rows (10 spans + 2 ERROR logs, incl. `Model call failed` naming
+  `openrouter/openai/gpt-5.5`), 10 highlighted waterfall rows, 24 `#gw-…` links that all resolve
+  to the 2 gateway-call anchors (both `usage accounting started` lines carrying
+  `gateway_call_id=` + `trace_id=`), 12 "by trace id" notes; 0 raw `<script` tags (the 5
+  escaped ones are inside the sandboxed notebook frame). Run form: only `debug_failing_run`
+  carries "(fails on purpose: debugging example)".
+- **Teardown:** UI stopped with SIGINT (exit 130 = 128 + SIGINT, as documented); ports
+  9105/9106/9108/9114 free, no `test_notebooks.py` left, no workbench containers left; the
+  owner's UI on 9112 (PID 30885) untouched.
+- **README:** new section "Debugging a failing run" + two rows in "What is verified".
+- No code changed in Task 5, so no RED/GREEN: the proof is the real lane and the smoke above.
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** this ledger (Task 2).
-- **Commits:** see `git log`; Task 1 `7ce1e347f`.
-- **Gates:** Task 2 is discovery only. 3/3 real replay runs were identical, and the verdict
-  dry run returned no reasons on each. Ports 9105, 9106 and 9108 were free afterwards.
-- **Deviations:** the discovery used a scratch script, not a notebook, as the plan says
-  ("No notebook yet").
+- **Actual files:** spec §3.7; `workbench/expectation.py`, `verdict.py`, `bundle.py`;
+  `build_notebooks.py` + `notebooks/debug_failing_run.ipynb`; UI (`ui/__main__.py`, `app.py`,
+  `bundles.py`, `pages.py`, `telemetry.py`, `telemetry_html.py`); tests
+  (`test_expectation.py`, `test_verdict_expected_failure.py`, `test_build_notebooks.py`,
+  `ui/test_expected_failure_view.py`); README; this ledger.
+- **Commits:** see `git log`; Task 1 `7ce1e347f`, Task 2 `0e4a7dc4c`, Task 3 `bcd143e4d`,
+  Task 4 `6f1de47dc`, Task 5 (README + ledger).
+- **Gates:** real replay lane with `REQUIRE_ALL=1` green (640 passed, 2 skipped); UI smoke on
+  :9114 green (Task 5). Ports 9105/9106/9108 free afterwards.
+- **Deviations:** `targets: [replay]` only (owner question on `local` still open); the result
+  cell runs right after `evaluate`; error→gateway links are by trace id because no SDK event
+  carries a `gateway_call_id` (follow-up). Discovery used a scratch script (Task 2).
