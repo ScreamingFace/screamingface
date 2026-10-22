@@ -10,12 +10,19 @@ queue and a worker pool.
 # `.claude/scripts/check_layering.py` rather than a hole in the control-plane/
 # run-mode boundary — the one module that fuses the two halves is
 # `screamingface_engine.local`, and it is exempt there by name.
+
+Span export (e2e workbench unit 6a): with an OTLP endpoint configured, each run flushes its span
+tree after its terminal frame, off the event loop but INSIDE the run's task. A slow or down
+collector therefore keeps the run's admission slot (and `exists()` / `status() == "running"`)
+for up to `tracing.otlp.FLUSH_TIMEOUT_MS` after `Terminated` — the same hold a Job's process has
+before it exits. With no endpoint (the default) there is no flush and no hold.
 """
 
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from functools import partial
+from typing import cast
 
 from screamingface_engine import job_env
 from screamingface_engine.client_provenance import ProvenanceExecutor
@@ -103,12 +110,15 @@ def _terminal_status(task: asyncio.Task[None]) -> JobStatus:
     return "failed" if task.exception() is not None else "succeeded"
 
 
-def _map_status(task: asyncio.Task[None] | None) -> JobStatus:
+def _map_status(task: asyncio.Task[None] | None, verdict: JobStatus | None = None) -> JobStatus:
     if task is None:
         return "not_found"
     if not task.done():
         return "running"
-    return _terminal_status(task)
+    # INVARIANT: the run's own terminal frame wins over how its task ended. A stop/aclose that
+    # lands during the post-terminal span flush cancels the task, but the run had already ended
+    # `succeeded`/`failed` — reading the task would rewrite that verdict to `stopped`.
+    return verdict if verdict is not None else _terminal_status(task)
 
 
 class InProcessJobRunner(IdentityAwareJobRunner):
@@ -149,6 +159,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # patching the process environment.
         self._base_env = dict(base_env or {})
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        # The terminal frame's verdict per job name, recorded before the span flush is awaited.
+        # Pruned in step with `_tasks`; replaced when a topic is re-run.
+        self._verdicts: dict[str, JobStatus] = {}
         # WHY a counter and not len(_tasks): _tasks retains completed entries so status() can
         # report a terminal state instead of not_found, which would make an active count O(history).
         # This increments per schedule() and decrements from a done-callback on every completion
@@ -189,6 +202,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 return
             if task.done():
                 del self._tasks[name]
+                self._verdicts.pop(name, None)
 
     def active_count(self) -> int:
         """Runs still in flight — the admission gate's input, and what `/metrics` reports.
@@ -333,8 +347,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
         executor = build() if self._refresh_extra_models is None else _PreparedExecutor(prepare)
         watch = TerminalWatch(self._stream)
+        self._verdicts.pop(name, None)
         task = asyncio.get_running_loop().create_task(
             self._exported_run(
+                name,
                 watch,
                 ProvenanceExecutor(executor, client_version),
                 topic,
@@ -354,7 +370,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
     async def _exported_run(
         self,
-        publisher: EventPublisher,
+        name: str,
+        watch: TerminalWatch,
         executor: Executor,
         topic: str,
         url4: str,
@@ -378,11 +395,24 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         proxies, and with the relay outermost the watch and the stream receive the very objects
         `lifecycle.run` published.
 
-        INVARIANT: telemetry never fails or alters a run (OME-1130 ledger D4). The loader never
-        raises, the relay swallows every sink error, and `shutdown` logs a failed close.
+        INVARIANT: telemetry never fails or alters a run (OME-1130 ledger D4). The relay swallows
+        every sink error and `shutdown` logs a failed close. The production loader never raises,
+        but `span_sink` is an injected seam, so a raising loader is logged here and the run goes
+        ahead unexported rather than dying before its first frame.
+
+        INVARIANT: the terminal verdict is recorded BEFORE the flush is awaited, so a stop or
+        shutdown that cancels the task mid-flush cannot turn a finished run into `stopped`.
         """
-        sink = self._span_sink(self._base_env)
-        relay = SpanRelay(publisher, sink, traceparent=traceparent)
+        try:
+            sink = self._span_sink(self._base_env)
+        except Exception:
+            _logger.warning(
+                "span sink loader raised; run %s proceeds without span export",
+                topic,
+                exc_info=True,
+            )
+            sink = None
+        relay = SpanRelay(watch, sink, traceparent=traceparent)
         try:
             await lifecycle_run(
                 relay,
@@ -394,6 +424,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 deadline_s=deadline_s,
             )
         finally:
+            if watch.outcome is not None:
+                self._verdicts[name] = cast(JobStatus, watch.outcome)
             if sink is not None:
                 # WHY a thread: `OtlpSpanSink.close` joins its flush for up to its bound, and
                 # every local run shares this one event loop — a blocking flush here would
@@ -417,7 +449,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         return task is not None and not task.done()
 
     async def status(self, topic: str) -> JobStatus:
-        return _map_status(self._tasks.get(job_name(topic)))
+        name = job_name(topic)
+        return _map_status(self._tasks.get(name), self._verdicts.get(name))
 
     async def aclose(self) -> None:
         """Cancel every in-flight run and await it — graceful shutdown.

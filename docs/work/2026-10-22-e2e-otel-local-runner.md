@@ -55,3 +55,19 @@ passthrough otherwise (the default).
   through `asyncio.to_thread`, so the shared loop is never blocked. With a dead collector, a
   run's admission slot and `status()` are held for up to `FLUSH_TIMEOUT_MS` (5 s) after its
   terminal frame. That matches a Job; it's flagged for review.
+
+## Review follow-ups (minors)
+
+- **Status race:** the terminal frame's verdict is recorded before the span flush is awaited,
+  and `status()` prefers it over the task's state. A `stop()`/`aclose()` that cancels the task
+  mid-flush no longer turns a `succeeded`/`failed` run into `stopped`. Side effect: `status()`
+  of a finished run now reports the frame's verdict (`failed`, `timed_out`), not a
+  task-derived `succeeded`. `lifecycle.run` catches failures, so the task never raised.
+- **Loader guard:** a raising `span_sink` loader is logged at WARNING and the run goes ahead
+  without export. The production loader never raises, but the injected seam isn't trusted to.
+- **Test hygiene:** the sync lazy-import test moved to
+  `tests/unit/test_inprocess_span_export_lazy_import.py`, so the module-level asyncio mark no
+  longer raises a PytestWarning.
+- **Documented hold:** the module docstring now says that a down collector holds a run's
+  admission slot, `exists()` and `status() == "running"` for up to `FLUSH_TIMEOUT_MS` (5 s)
+  after `Terminated`. That's the same hold a Job's process has before it exits.

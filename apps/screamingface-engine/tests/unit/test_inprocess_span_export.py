@@ -133,10 +133,12 @@ class _Loader:
 
 async def _frames(stream: InMemoryEventStream, topic: str = TOPIC) -> list[OutboundFrame]:
     frames: list[OutboundFrame] = []
-    async for event in stream.subscribe(topic, from_sequence=None):
-        frames.append(event)
-        if isinstance(event, TerminatedEvent):
-            return frames
+    # Bounded: a run that never publishes its terminal frame must fail the test, not hang it.
+    async with asyncio.timeout(10):
+        async for event in stream.subscribe(topic, from_sequence=None):
+            frames.append(event)
+            if isinstance(event, TerminatedEvent):
+                return frames
     raise AssertionError("stream ended without a terminal frame")
 
 
@@ -273,6 +275,95 @@ async def test_a_sink_that_raises_does_not_fail_the_run(kwargs: dict[str, bool])
     assert await runner.status(TOPIC) == "succeeded"
 
 
+class _HeldSink(_FakeSink):
+    """A sink whose `close` blocks until released — a collector that is slow (or down)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.flushing = threading.Event()
+        self.release = threading.Event()
+
+    def close(self) -> None:
+        self.flushing.set()
+        self.release.wait(timeout=5)
+        super().close()
+
+
+class _RaisingExecutor(Executor):
+    async def execute(
+        self, url4: str, *, trace: TraceContext | None = None
+    ) -> AsyncIterator[ExecStep]:
+        raise RuntimeError("the run blew up")
+        yield  # pragma: no cover - makes this an async generator
+
+
+async def _wait_flushing(sink: _HeldSink) -> None:
+    for _ in range(500):
+        if sink.flushing.is_set():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("the sink flush never started")
+
+
+@pytest.mark.parametrize(
+    ("executor", "verdict"),
+    [(_ModelCallExecutor, "succeeded"), (_RaisingExecutor, "failed")],
+    ids=["succeeded", "failed"],
+)
+@pytest.mark.parametrize("cancel", ["stop", "aclose"])
+async def test_a_cancel_during_the_flush_keeps_the_terminal_frame_verdict(
+    executor: type[Executor], verdict: str, cancel: str
+) -> None:
+    """The run already published `Terminated(<verdict>)`; a stop/aclose landing while its span
+    flush is still in flight must not rewrite it to `stopped` from the cancelled task."""
+    stream = InMemoryEventStream()
+    sink = _HeldSink()
+    runner = InProcessJobRunner(
+        stream, lambda _env: executor(), base_env=ENDPOINT_ENV, span_sink=lambda _env: sink
+    )
+
+    await runner.schedule(TOPIC, "x", 30)
+    terminal = (await _frames(stream))[-1]
+    await _wait_flushing(sink)
+    try:
+        if cancel == "stop":
+            await runner.stop(TOPIC)
+        else:
+            await runner.aclose()
+        await _await_task(runner)
+    finally:
+        sink.release.set()
+
+    assert isinstance(terminal, TerminatedEvent)
+    assert terminal.data.status == verdict
+    assert await runner.status(TOPIC) == verdict
+
+
+async def test_a_loader_that_raises_runs_without_export(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The injected seam is not trusted to keep the loader's never-raises promise: a raising
+    loader is logged and the run proceeds unexported (telemetry never fails a run)."""
+
+    def loader(_env: Mapping[str, str]) -> SpanSink | None:
+        raise RuntimeError("no exporter for you")
+
+    stream = InMemoryEventStream()
+    runner = InProcessJobRunner(
+        stream, lambda _env: _ModelCallExecutor(), base_env=ENDPOINT_ENV, span_sink=loader
+    )
+
+    with caplog.at_level("WARNING", logger="screamingface_engine.adapters.inprocess"):
+        await runner.schedule(TOPIC, "x", 30)
+        terminal = (await _frames(stream))[-1]
+        await _await_task(runner)
+
+    assert isinstance(terminal, TerminatedEvent)
+    assert terminal.data.status == "succeeded"
+    assert await runner.status(TOPIC) == "succeeded"
+    assert any("span sink" in r.getMessage() for r in caplog.records)
+
+
 # --- not configured (the default): a byte-identical passthrough -------------------------------
 
 
@@ -363,23 +454,3 @@ async def test_an_active_sink_does_not_alter_a_single_published_byte(
 
     assert actual == expected
     assert loader.sinks[0].spans  # and it really did export
-
-
-# --- the lazy import is kept ------------------------------------------------------------------
-
-
-def test_importing_the_inprocess_adapter_does_not_load_opentelemetry() -> None:
-    """A clean subprocess, as in `test_span_export_wiring`: wiring the relay here must not pull
-    the OTel SDK into every local App's import graph — only a configured endpoint may load it."""
-    import subprocess
-    import sys
-
-    probe = (
-        "import sys; import screamingface_engine.adapters.inprocess; "
-        "print(len([m for m in sys.modules if m.startswith('opentelemetry')]))"
-    )
-    loaded = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
-    )
-
-    assert loaded.stdout.strip() == "0"
