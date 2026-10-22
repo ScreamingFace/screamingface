@@ -180,7 +180,9 @@ if result.reproduction is not None:
           <td><code>Url4</code></td>
           <td>
             The expression that produced it. Pass it to
-            <RouterLink to="/sf-client/api/clients">evaluate()</RouterLink> to reproduce the entry.
+            <RouterLink to="/sf-client/api/clients">evaluate()</RouterLink> for a fresh run that may
+            incur provider costs. To replay the captured answers, use
+            <code>evaluate(pinned_cache=...)</code> or <code>evaluate(score_id=...)</code>.
           </td>
         </tr>
         <tr>
@@ -191,7 +193,10 @@ if result.reproduction is not None:
         <tr>
           <td><code>authors</code></td>
           <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
-          <td>The ordered credit line, with email domains removed by the public leaderboard.</td>
+          <td>
+            The ordered public credit line. Email domains are normally omitted; full addresses
+            distinguish authors whose local parts collide.
+          </td>
         </tr>
         <tr>
           <td><code>verified_by_screamingface</code></td>
@@ -338,8 +343,9 @@ if result.reproduction is not None:
           <td><code>authors</code></td>
           <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
           <td>
-            The ordered, privacy-trimmed credit line. This is separate from
-            <code>submitted_by</code>, which records who sent the result.
+            The ordered public credit line, using local parts unless full addresses are needed to
+            distinguish authors. This is separate from <code>submitted_by</code>, which records who
+            sent the result.
           </td>
         </tr>
         <tr>
@@ -436,9 +442,9 @@ if result.reproduction is not None:
 
     <p>
       One row of a score's edit log, returned by <code>metadata_events(score_id)</code>. Each change
-      to the authors or the paper link writes one row. The log can hold author emails that were
-      removed on purpose, so it is not public: only the submitter and the board's operators can read
-      it.
+      to the authors, paper link or metadata writes one row. The log can hold author emails that
+      were removed on purpose, so it is not public: only the submitter and the board's operators can
+      read it.
     </p>
 
     <table>

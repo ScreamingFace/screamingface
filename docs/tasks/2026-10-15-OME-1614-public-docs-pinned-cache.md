@@ -20,5 +20,6 @@ contains `OME-1613`.
 - 2026-10-21: mirror filed (it was missing); scope updated in Linear after the OME-1613 design review.
 
 - 2026-10-22: implemented the public docs and validated locally against the merged SDK.
-  Draft pending the SDK release, released-SDK snippet verification and the portal snippet update
-  in OME-1655 / PR #1522.
+  Initially draft pending release dependencies. Owner requested ready-for-review after independent
+  review; merging still requires the SDK release, released-SDK snippet verification and the portal
+  snippet update in OME-1655 / PR #1522.

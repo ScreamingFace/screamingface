@@ -324,9 +324,11 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       <code>authors_metadata</code> maps each credited author's full email address to a flat object.
       Known keys are <code>full_name</code> and <code>institution</code>.
       <code>paper_metadata</code> is one flat object with known keys <code>title</code>,
-      <code>url</code> and <code>citation</code>. Known fields take text values. Other keys are
-      stored and returned but are not displayed by the portal. Their values may be text, finite
-      numbers or booleans; nested objects, lists and null values inside an object are not accepted.
+      <code>url</code> and <code>citation</code>. All five key names are reserved in either object:
+      they require text and follow the limits below, even when used outside their usual author or
+      paper context. Other keys are stored and returned but are not displayed by the portal. Their
+      values may be text, finite numbers or booleans; nested objects, lists and null values inside
+      an object are not accepted.
     </p>
     <p>
       Each author metadata key must match a credited author, ignoring case. Removing an author also

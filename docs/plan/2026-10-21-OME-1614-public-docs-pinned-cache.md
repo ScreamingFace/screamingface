@@ -1,7 +1,7 @@
 # OME-1614 plan — public docs for pinned-cache replays and metadata
 
 Implementation authorized 2026-10-22. Spec: `docs/spec/2026-10-21-OME-1614-public-docs-pinned-cache.md`. Branch
-`OME-1614-public-docs-pinned-cache` on `origin/main`. One draft PR; implementation groups:
+`OME-1614-public-docs-pinned-cache` on `origin/main`. One PR (ready for review at the owner's request on 2026-10-22); implementation groups:
 
 | # | Group | Files |
 |---|---|---|
@@ -13,6 +13,6 @@ Implementation authorized 2026-10-22. Spec: `docs/spec/2026-10-21-OME-1614-publi
 
 Validate the final content with `npm run build`, `npm run lint`, offline SDK snippet checks,
 the repository gates, and browser checks in light/dark themes. Commit as one coherent docs update.
-Before un-drafting: re-run the snippet check
+Before merging: re-run the snippet check
 against PyPI 0.1.7. Out of scope: any SDK, scoreboard or Engine change; pages that do not mention
 E14 today.

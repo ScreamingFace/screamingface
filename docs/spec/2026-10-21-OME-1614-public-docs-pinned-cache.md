@@ -65,7 +65,8 @@ One **upgrade note**, on the Leaderboards guide: what changed in which release (
 
 ## Release
 
-Draft PR until 0.1.7 is on PyPI. Merge after the snippets pass against it.
+Owner requested ready-for-review on 2026-10-22. Merge only after the SDK release containing
+#1519 is on PyPI, the snippets pass against it, and the portal snippet update (#1522) is deployed.
 
 Source reconciliation (2026-10-22): public author identifiers normally omit email domains, but
 the scoreboard retains full addresses when local parts collide. Document that actual rule.
