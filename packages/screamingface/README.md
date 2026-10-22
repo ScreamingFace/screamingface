@@ -1110,6 +1110,19 @@ same_submission = sf.leaderboards.get_score(submission.id)
 # Add or fix the paper link and authors of a score you submitted, then read the edit log:
 sf.leaderboards.edit(submission.id, paper_url="https://arxiv.org/abs/2610.01234")
 edit_log = sf.leaderboards.metadata_events(submission.id)
+
+# Attach open metadata about the authors (keyed by email) and the paper:
+sf.leaderboards.edit(
+    submission.id,
+    authors_metadata={"alice@example.com": {"full_name": "Alice Smith", "institution": "Uni"}},
+    paper_metadata={"title": "Our ensemble", "url": "https://arxiv.org/abs/2610.01234"},
+)
+
+# Replay the published run at $0 from its pinned cache and check that it reproduces:
+replay = sf.evaluate(pinned_cache=same_submission.pinned_cache)
+reproduction = replay.candidates.only.reproduction
+if reproduction is not None:
+    verdict = reproduction.outcome  # "exact" or "failed"; failures include .reason
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
 ```
@@ -1166,6 +1179,25 @@ The returned catalogues are immutable ordered sequences: iteration, indexing, sl
 searchable catalogue when the `notebook` extra is installed, with escaped static HTML and compact
 terminal representations as fallbacks. Notebook rendering does not change the underlying values
 or introduce a separate discovery operation.
+
+### Replay a published run
+
+Every `evaluate` captures a **pinned cache** by default: every model and web-tool answer of the
+run, stored with it (`CandidateResult.pinned_cache`). After the result is submitted,
+`sf.evaluate(pinned_cache="<id>")` replays that run at $0: the recipe and answer seed come from the
+public board, and every call is answered from the pinned cache. `CandidateResult.reproduction` then
+says whether the replay gave the published score: `exact`, or `failed` with a `reason` and the
+cases the pinned cache could not answer. An exact replay is recorded on the board (a leaderboard
+login is asked for only then) unless `record_reproduction=False`.
+
+- `score_id="<id>"` replays a score on a private board that you submitted.
+- `url4=` is optional; when passed it must be the same parsed recipe as the published one. A passed
+  `answer_seed` must equal the captured run's; a run captured without a seed replays without one.
+- `limit=n` replays only the first n cases, for debugging. It is never judged or recorded.
+- A capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and
+  has no verdict.
+- A replay that cannot start (a partial capture, or an Engine that does not replay) raises
+  `sf.ReproductionError`. Every other mismatch fails before any run.
 
 ## Examples
 

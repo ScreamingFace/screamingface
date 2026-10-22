@@ -9,6 +9,19 @@
   back to the hosted leaderboard, so a local or preview run could publish there.
   `sf.Client(...)` is unchanged.
 
+* **screamingface:** the frozen copy is called a **pinned cache** in the Python API (`OME-1613`).
+  `CandidateResult.frozen_copy_id` and `LeaderboardScore.frozen_copy_id` are renamed to
+  `pinned_cache`, with no alias; the constructor keyword changes the same way. The report JSON
+  (`to_json()` / `to_dict()`) and the Scoreboard wire keep the key `frozen_copy_id`, so exported
+  reports are unchanged.
+
+* **screamingface:** `sf.reproduce`, `Client.reproduce` and `AsyncClient.reproduce` are removed
+  (`OME-1613`). Replay a published run with `sf.evaluate(pinned_cache="<id>")`, or a score you
+  submitted with `sf.evaluate(score_id="<id>")`; `record=` is now `record_reproduction=`. The
+  verdict is on `CandidateResult.reproduction`, and `Reproduction.result` is gone (the result is
+  the object that carries the verdict). A replay that cannot start raises `sf.ReproductionError`
+  instead of returning a `not_reproducible` or `replay_unsupported` verdict.
+
 ### Fixes
 
 * `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.
@@ -22,6 +35,29 @@
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
+  `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:
+  `full_name`, `institution`, any other key) and the paper (`title`, `url`, `citation`, any other
+  key) (`OME-1613`). On `edit`, an omitted field is unchanged, `None` clears it and an object
+  replaces it whole. `LeaderboardScore.authors_metadata` and `.paper_metadata` read them back. The
+  board checks keys, bounds and email matching; the SDK refuses only a shape the board never
+  accepts. Needs a board with credit metadata (`OME-1596`).
+
+* **screamingface:** replay a published leaderboard run at $0 from its pinned cache (`OME-1613`).
+  `sf.evaluate(pinned_cache="<id>")` reads the run's recipe and answer seed from the public board,
+  replays every call from the answers the run captured, and judges the result against the
+  published score: `CandidateResult.reproduction` is a `Reproduction` object whose `.outcome` is
+  `"exact"` or `"failed"`, with `.reason` and `.missed_cases` describing failures. It is `None`
+  for unsubmitted captures and partial replays. An exact replay is recorded on the board (a leaderboard
+  login is asked for only then) unless `record_reproduction=False`. `score_id=` replays a private
+  score for its submitter. `url4=` must be the same parsed recipe as the published one, and a
+  passed `answer_seed` must equal the captured run's; both fail before any run otherwise. A
+  capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and has
+  no verdict. `capture` now defaults to `None`, which still means on; `capture=True` is refused on
+  a replay. `limit=n` replays only the first n cases, for debugging: it is never judged or
+  recorded, and it is refused before any run if the Engine can no longer rebuild the published run
+  exactly (`partial_replay_unavailable`). Needs a board with the pinned-cache lookup (`OME-1596`).
 
 * `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
   started can reach a hosted Engine without a browser window. A malformed or expired token fails
