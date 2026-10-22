@@ -374,7 +374,26 @@ def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     if isinstance(node, Expression) and node.intent is None and not node.broadcast:
         slots = [_slot_from_ast(source, registry) for source in node.sources]
         return _inline_collection(slots)
+    if (bound := _bound_blob(node, edges)) is not None:
+        return bound
     return as_collection(registry.lower(node, edges))  # a blob ref here is text (D4)
+
+
+def _bound_blob(node: Node, edges: Edges) -> DagNode | None:
+    """``$x*(…)`` with ``x`` bound to a file ref: that use site reads the blob as a collection.
+
+    FEATURE: file refs (``OME-1543``, plan §2.9; #1482 deviation 4). WHY its own node at the use
+    site: the binding's node yields the ref TEXT (F2); reading the same address with
+    ``collection=True`` yields the blob's text body (D4) or C8. Structure only — the edge is
+    the enclosing binding's lowered node, never a payload string.
+    """
+    if not isinstance(node, VarRef) or node.path:
+        return None
+    binding = edges.get(f"bind:{node.name}")
+    value = binding.deps.get("value") if isinstance(binding, BindingNode) else None
+    if not isinstance(value, BlobRefNode):
+        return None
+    return BlobRefNode(value.address, collection=True)
 
 
 def default_registry() -> LoweringRegistry:
