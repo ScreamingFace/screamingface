@@ -13,6 +13,7 @@ const pipelineSig = `sf.Pipeline(
     stages: Sequence[str | Recipe],
     *,
     name: str | None = None,
+    optional: bool = False,
 )`
 
 const pipelineExample = `pipeline = sf.Pipeline(
@@ -59,6 +60,14 @@ report = sf.evaluate(pipeline, benchmark="ifeval", limit=1)`
           <td><code>stages</code></td>
           <td><code>tuple[Recipe, ...]</code></td>
           <td>The ordered stages, each refining the previous answer. At least one.</td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Whether this Pipeline, as a Fusion member, may fail without stopping the Fusion while
+            its <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is met.
+          </td>
         </tr>
       </tbody>
     </table>

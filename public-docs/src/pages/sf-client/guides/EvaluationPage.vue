@@ -18,40 +18,37 @@ const runOut = `Report(benchmark='ifeval', candidates=['claude-haiku-4.5'], ok=T
 
 const score = `c = report.candidates.only
 c.name, c.score, report.case_count, report.benchmark`
-const scoreOut = `('claude-haiku-4.5', 1.0, 3, BenchmarkInfo(id='ifeval', revision='22ca96fe77b0f7de', case_count=541))`
+const scoreOut = `('claude-haiku-4.5', 0.6667, 3, BenchmarkInfo(id='ifeval', revision='1cba769ece27f7ef', case_count=541, inverted_grade=False))`
 
 const metrics = `dict(c.metrics)`
-const metricsOut = `{'inst_level_strict_accuracy': 1.0,
- 'prompt_level_loose_accuracy': 1.0,
- 'inst_level_loose_accuracy': 1.0,
- 'pass_rate': 1.0}`
+const metricsOut = `{'inst_level_strict_accuracy': 0.8,
+ 'prompt_level_loose_accuracy': 0.6667,
+ 'inst_level_loose_accuracy': 0.8,
+ 'pass_rate': 0.8}`
 
 const many = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
 sf.evaluate(
     [opus, gpt, sf.Fusion([opus, gpt], synthesizer="openrouter/openai/gpt-5.5")],
-    benchmark="draco",
+    benchmark="ifeval",
     limit=1,
 )`
 
-const compare = `base = sf.evaluate(haiku, benchmark="ifeval", limit=3)
-corr = sf.evaluate(haiku, benchmark="ifeval/self-corrective", limit=3)
-
-{"canonical":       {"score": base.candidates.only.score, "tokens": base.usage.output_tokens},
- "self-corrective": {"score": corr.candidates.only.score, "tokens": corr.usage.output_tokens,
-                     "corrected": corr.candidates.only.metrics["corrected_cases"]}}`
-const compareOut = `{'canonical': {'score': 1.0, 'tokens': 1167},
- 'self-corrective': {'score': 1.0, 'tokens': 3686, 'corrected': 0.0}}`
-
 const usage = `report.usage`
-const usageOut = `Usage(input_tokens=3691, output_tokens=3686, cache_read_tokens=0,
-      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0'))`
+const usageOut = `Usage(input_tokens=233, output_tokens=1136, cache_read_tokens=0,
+      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.005913'))`
 
 const watch = `def observe(event: sf.Event) -> None:
     print(event.kind)
 
 sf.evaluate(haiku, benchmark="ifeval", limit=1, on_event=observe, progress=False)`
+
+const saved = `ids = sf.reports.list()          # one SavedReportInfo per saved report
+saved = sf.reports.get(ids[0].id)   # the full Report, reopened from disk
+sf.reports.delete(ids[0].id)        # remove it from disk`
+
+const noSave = `client = sf.Client(engine_url="${SF_ENGINE_URL}", save_results=False)`
 
 const clients = `# once, at the top: every later sf.evaluate() call uses it
 sf.configure(
@@ -135,7 +132,7 @@ client.close()`
           <text x="92" y="78">models &amp; fusions</text>
           <text x="92" y="152">cases + rubric</text>
           <text x="350" y="114">run + grade</text>
-          <text x="350" y="158">answer keys + grading stay here</text>
+          <text x="350" y="158">grading stays here</text>
           <text x="600" y="112">score per candidate</text>
         </g>
       </svg>
@@ -159,7 +156,7 @@ client.close()`
     <ul>
       <li>Evaluate one candidate, or run several at once.</li>
       <li>Cap the number of cases with <code>limit</code>.</li>
-      <li>Pick a protocol variant by naming its own benchmark id.</li>
+      <li>Reopen a saved report from disk.</li>
       <li>Watch the run live, or turn off the progress display.</li>
       <li>Use an explicit Client, sync or with <code>await</code>.</li>
     </ul>
@@ -184,10 +181,8 @@ client.close()`
           <td>
             Runs one or more candidates against a benchmark's protocol concurrently, returning a
             single <code>sf.Report</code>. Validates everything before the first paid request.
-            Capture is on by default, so each run makes a frozen copy and a score can be
-            <RouterLink to="/learn/caching">reproduced</RouterLink> later.
-            <code>capture=False</code>
-            turns capture off.
+            Capture is on by default and makes a frozen copy of each run;
+            <code>capture=False</code> turns it off.
           </td>
         </tr>
         <tr>
@@ -204,12 +199,15 @@ client.close()`
           <td>
             Repoints the shared Client so every later <code>sf.evaluate()</code> call uses that
             engine and its leaderboard. A non-default engine without its
-            <code>scoreboard_url</code> raises.
+            <code>scoreboard_url</code> keeps the public leaderboard.
           </td>
         </tr>
         <tr>
           <td><code>sf.close()</code></td>
-          <td>Releases the shared Client.</td>
+          <td>
+            Releases the shared Client and forgets the <code>sf.configure(...)</code> settings, so
+            call <code>sf.configure(...)</code> again before the next call.
+          </td>
         </tr>
       </tbody>
     </table>
@@ -279,44 +277,24 @@ client.close()`
     </div>
 
     <p>
-      Results come back in declared order. Mind the cost here: this is DRACO, where every criterion
-      is graded by five judge passes, so even <code>limit=1</code> is a real spend.
+      Results come back in declared order. IFEval grading is free, so this costs only the answers.
+      On DRACO every criterion is graded by five judge passes, so even <code>limit=1</code> is a
+      real spend.
     </p>
 
-    <h3>4 · Compare two protocols</h3>
-
-    <p>
-      Because each protocol variant is a separate benchmark id, comparing them is two runs. This is
-      IFEval's canonical single-pass protocol against its self-corrective retry chain on the same
-      three cases:
-    </p>
+    <h3>4 · Read what it cost</h3>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="compare"><NbTextOut :text="compareOut" /></NbCell>
+      <NbCell :count="4" :code="usage"><NbTextOut :text="usageOut" /></NbCell>
     </div>
 
     <p>
-      An honest result: identical scores, <strong>3.2× the output tokens</strong>. On this slice the
-      retry loop bought nothing. <code>corrected_cases</code>, a metric only the corrective variants
-      report, is <code>0.0</code>, meaning no case failed first and passed later. That is what a
-      three-case sample of a capable model looks like, and it is the reason to run more cases before
-      concluding anything.
+      <code>cost_usd</code> is the cost the provider reported, for example
+      <code>Decimal('0.005913')</code>. Any field is <code>None</code> if even one candidate run
+      failed to report it, rather than being silently summed as a partial total.
     </p>
 
-    <h3>5 · Read what it cost</h3>
-
-    <div class="not-prose">
-      <NbCell :count="6" :code="usage"><NbTextOut :text="usageOut" /></NbCell>
-    </div>
-
-    <p>
-      <code>cost_usd</code> is <code>Decimal('0')</code> here because this engine has no pricing
-      data: a zero means "not reported", not "free". Token counts are the reliable measure. Any
-      field is <code>None</code> if even one candidate run failed to report it, rather than being
-      silently summed as a partial total.
-    </p>
-
-    <h3>6 · Watch a run</h3>
+    <h3>5 · Watch a run</h3>
 
     <p>
       <code>on_event</code> receives typed events in sequence as the run executes, and
@@ -328,13 +306,14 @@ client.close()`
       <NbCell :count="7" :code="watch" />
     </div>
 
-    <h3>7 · Point at the engine</h3>
+    <h3>6 · Point at the engine</h3>
 
     <p>
       <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured it falls back to
       <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not what you want when the engine
       you mean is your own, so name it once with <code>sf.configure()</code>, together with its
-      scoreboard, and every later call uses it.
+      scoreboard, and every later call uses it. <code>sf.close()</code> forgets that setting, so
+      name the engine again before the next call.
     </p>
 
     <p>
@@ -345,6 +324,29 @@ client.close()`
 
     <div class="not-prose">
       <NbCell :count="8" :code="clients" />
+    </div>
+
+    <h3>7 · Reopen a saved report</h3>
+
+    <p>
+      Every completed evaluation is saved to <code>~/.screamingface/results</code> on your machine,
+      outside the engine's data directory and shared by every environment you use. A run that ends
+      with failures is saved too, so you can still fetch its report. The files hold the prompts and
+      outputs of the run.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="9" :code="saved" />
+    </div>
+
+    <p>
+      <code>sf.reports.get_async(report_id)</code> is the awaitable form. To stop a Client saving
+      reports, build it with <code>save_results=False</code>; <code>sf.configure()</code> does not
+      take that option.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="10" :code="noSave" />
     </div>
 
     <h2>When it fails</h2>
@@ -361,10 +363,10 @@ client.close()`
     <ul>
       <li>
         <a
-          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/05_draco_lite_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/06_draco.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>05_draco_lite_e2e.ipynb</code></a
+          >Companion notebook: <code>06_draco.ipynb</code></a
         >
       </li>
     </ul>

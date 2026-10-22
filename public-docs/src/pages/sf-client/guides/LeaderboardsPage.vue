@@ -10,25 +10,23 @@ import {
 
 const listing = `import screamingface as sf
 
-sf.leaderboards.list()`
-const listingOut = `hle                News Hallucinations
-livetruth          News Livetruth
-livetruth-latest   News Livetruth Latest`
+boards = sf.leaderboards.list()
+len(boards), [b.id for b in boards][:6]`
+const listingOut = `(69, ['arc_agi_2', 'contracteval', 'draco', 'draco-3pass', 'gdpval-text', 'healthbench-professional'])`
 
-const getOne = `board = sf.leaderboards.get("hle", top=5)
+const getOne = `board = sf.leaderboards.get("draco-3pass", top=5)
 board`
-const getOneOut = `Leaderboard('hle', entries=2, baselines=0)`
+const getOneOut = `Leaderboard('draco-3pass', entries=5, baselines=0)`
 
-const rows = `board.entries`
-const rowsOut = `1   filip-cf-access-smoke-1   0.5   unverified   smoke
-2   smoke-test-1             0.5   unverified   smoke`
+const rows = `[(e.rank, e.score, e.verified_by_screamingface) for e in board.entries]`
+const rowsOut = `[(1, 0.6869, True), (2, 0.642, True), (3, 0.6192, True), (4, 0.5853, True), (5, 0.5676, True)]`
 
 const configure = `sf.configure(
     engine_url="http://127.0.0.1:9108",
     scoreboard_url="http://127.0.0.1:9106",
 )`
 
-const publish = `# capture is on by default, so the run keeps a frozen copy that others can reproduce
+const publish = `# capture is on by default, so the run keeps a frozen copy
 report = sf.evaluate(candidate, benchmark="ifeval", limit=3)
 
 # publish one candidate
@@ -43,7 +41,7 @@ sf.leaderboards.submit(
 
 const fetchScore = `score = sf.leaderboards.get_score("57cc25d7-00bf-44ec-bf9d-55d66cd1e003")
 score.score, score.authors, score.verified_by_screamingface`
-const fetchScoreOut = `(1.0, ('alice', 'bob'), False)`
+const fetchScoreOut = `(1.0, ('alice', 'bob'), True)`
 
 const editScore = `score = sf.leaderboards.edit(
     score.id,
@@ -61,11 +59,6 @@ const editLog = `for event in sf.leaderboards.metadata_events(score.id):
 const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
 sf.evaluate(score.url4)        # a new paid run; omit benchmark= and limit=`
 
-const reproduce = `reproduction = sf.reproduce(score)   # or sf.reproduce(score.id)
-reproduction.outcome, reproduction.reason
-
-# replay without recording it on the board
-sf.reproduce(score, record=False)`
 </script>
 
 <template>
@@ -86,17 +79,21 @@ sf.reproduce(score, record=False)`
       Each ranked row keeps the exact
       <RouterLink to="/sf-client/guides/reproduce-and-share"><code>url4</code></RouterLink>
       that produced the score, so anyone can fork or re-run the recipe. The leaderboard also stores
-      whether ScreamingFace independently re-ran it (<code>verified_by_screamingface</code>). That
-      flag is separate from who submitted the row: a submission starts unverified.
+      <code>verified_by_screamingface</code>, which is a property of the engine that ran the
+      submission. It is separate from who submitted the row. A run on the hosted engine is
+      verified. A submission from a run on any other engine stays unverified on the public
+      leaderboard until the hosted engine also runs it.
     </p>
 
     <p>
       The public portal is
       <a href="https://leaderboard.screamingface.ai" target="_blank" rel="noopener"
         >leaderboard.screamingface.ai</a
-      >. The Client's default leaderboard origin is
-      <code>https://leaderboard.dev.screamingface.ai</code>. Point <code>scoreboard_url</code> at
-      your own instance when you run the local stack.
+      >. The Client's default leaderboard is that public portal,
+      <code>https://leaderboard.screamingface.ai</code>. <code>sf.leaderboards.submit()</code>
+      publishes there, with the author emails you pass, unless you point
+      <code>scoreboard_url</code> at your own instance first. Do that before your first submission
+      when you run the local stack.
     </p>
 
     <h2>What you can do with it</h2>
@@ -107,9 +104,6 @@ sf.reproduce(score, record=False)`
       <li>Publish an evaluated <code>CandidateResult</code> as a new score.</li>
       <li>Add a paper link when you publish, and edit the authors and the paper link later.</li>
       <li>Look up one published score by id and reuse its <code>url4</code>.</li>
-      <li>
-        Replay a published score from its frozen copy at no provider cost, and record that it held.
-      </li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -167,14 +161,6 @@ sf.reproduce(score, record=False)`
           </td>
         </tr>
         <tr>
-          <td><code>sf.reproduce(score, *, record=True)</code></td>
-          <td>
-            Replays a published score against its frozen copy and returns a
-            <code>Reproduction</code>. An exact replay is recorded on the score unless you pass
-            <code>record=False</code>.
-          </td>
-        </tr>
-        <tr>
           <td>
             <code>LeaderboardEntry</code> · <code>LeaderboardScore</code> ·
             <code>LeaderboardBaseline</code> · <code>ScoreMetadataEvent</code>
@@ -227,9 +213,8 @@ sf.reproduce(score, record=False)`
     </p>
 
     <p>
-      On this board both rows are unverified smoke submissions. Treat
-      <code>verified_by_screamingface=True</code> as the trust signal, not the mere presence of a
-      row.
+      On this board every row is verified. Treat <code>verified_by_screamingface=True</code> as the
+      trust signal, not the mere presence of a row.
     </p>
 
     <h3>3 · Point the Client at a leaderboard</h3>
@@ -245,9 +230,10 @@ sf.reproduce(score, record=False)`
     </div>
 
     <p>
-      Local writes are typically open. Hosted deployments may require an edge-verified identity
-      before <code>submit</code> succeeds, or they may keep submission closed. Reads stay public
-      either way.
+      Local writes are open. On the public leaderboard, <code>list</code> and <code>get</code>
+      are public. <code>get_score</code>, <code>submit</code>, <code>edit</code> and
+      <code>metadata_events</code> need a Cloudflare Access login, and access is granted by the
+      OpenMined team: reach out to them.
     </p>
 
     <h3>4 · Publish a result</h3>
@@ -278,18 +264,16 @@ sf.reproduce(score, record=False)`
     </div>
 
     <p>
-      Capture is on by default. The Engine makes a frozen copy of each run, so others can reproduce
-      the score. Read <code>capture_status</code> on the result before you publish: a partial or
-      missing copy cannot be reproduced.
-      <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
+      Capture is on by default. The Engine makes a frozen copy of each run. Read
+      <code>capture_status</code> on the result before you publish.
     </p>
 
     <p>
       The Client posts <code>score</code>, <code>total_questions</code>, the compiled
       <code>url4_expression</code>, provider names, required <code>run_cost_usd</code>, optional
       authors, the optional paper link, and client metadata. When the run has them, it also posts
-      the run's frozen copy id, its <code>capture_status</code> and its answer seed. They are what
-      <code>sf.reproduce</code> needs later. Direct submissions require a non-null run cost; a
+      the run's frozen copy id, its <code>capture_status</code> and its answer seed. Direct
+      submissions require a non-null run cost; a
       genuine fully cached run sends zero, while imported and historical rows may still display an
       unknown cost. The <code>Idempotency-Key</code> header is the candidate's <code>run_id</code>,
       so a retry of the same run reuses the original score instead of inserting a duplicate. A
@@ -317,9 +301,11 @@ sf.reproduce(score, record=False)`
     </div>
 
     <p>
-      A fresh submission returns with <code>verified_by_screamingface=False</code>. Verification is
-      a later, independent mark after ScreamingFace re-runs the recipe. Read that field before you
-      trust a number you did not produce yourself.
+      <code>verified_by_screamingface</code> depends on the engine that ran the submission. This
+      sample is read back from a local scoreboard, where the local engine verified it. On the
+      public leaderboard, a submission from a run on another engine stays
+      <code>False</code> until the hosted engine also runs it. Read that field before you trust a
+      number you did not produce yourself.
     </p>
 
     <h3>6 · Edit what you submitted</h3>
@@ -334,6 +320,11 @@ sf.reproduce(score, record=False)`
     <div class="not-prose">
       <NbCell :count="7" :code="editScore" />
     </div>
+
+    <p>
+      A local scoreboard has no identity header, so <code>edit</code> and
+      <code>metadata_events</code> fail there with HTTP 401 (<code>Missing X-User-Email</code>).
+    </p>
 
     <p>
       A new <code>authors</code> list replaces the old one exactly. It follows the same rules as on
@@ -353,76 +344,10 @@ sf.reproduce(score, record=False)`
       <NbCell :count="8" :code="editLog" />
     </div>
 
-    <h3>7 · Reproduce a score, or remix it</h3>
+    <h3>7 · Remix a score</h3>
 
     <p>
-      <code>sf.reproduce</code> runs the score's <code>url4</code> and stored answer seed against
-      the frozen copy of the original run. A confirmed replay pays no provider and costs
-      <strong>$0</strong>. If the Engine does not confirm replay mode, the Client stops the run and
-      reports <code>replay_unsupported</code>, and an <code>EvaluationWarning</code> says so if the
-      stop fails. A finished run whose summary does not name the copy gets the same reason, and it
-      may have paid providers. The <RouterLink to="/learn/caching">caching page</RouterLink> has the
-      mechanics.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="9" :code="reproduce" />
-    </div>
-
-    <p>
-      <code>sf.reproduce</code> accepts a <code>LeaderboardScore</code> or its id. It returns a
-      <code>Reproduction</code>. A replay that does not match is a value, not an exception. Read
-      <code>outcome</code> first:
-    </p>
-
-    <table>
-      <thead>
-        <tr>
-          <th><code>outcome</code></th>
-          <th>Meaning</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>exact</code></td>
-          <td>
-            The replay gave the stored score and the same number of cases, on the same benchmark
-            revision, and the same case digest when the score has one.
-          </td>
-        </tr>
-        <tr>
-          <td><code>failed</code></td>
-          <td>
-            The replay ran, or tried to, and did not match. <code>reason</code> says why, and
-            <code>missed_cases</code> lists the cases that the frozen copy could not answer.
-          </td>
-        </tr>
-        <tr>
-          <td><code>not_reproducible</code></td>
-          <td>
-            The score cannot name everything a replay needs, so no run started.
-            <code>reason</code> is <code>partial</code> or <code>unknown</code>.
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <p>
-      Only an exact replay is recorded. The Client sends the replay's run id, score, case count and
-      case digest, and the score's frozen copy id, to the leaderboard. The leaderboard checks that
-      they match the stored score. It checks the digest only when the score has one. Hosted
-      deployments need a verified identity to record. There is no limit: each exact replay adds one
-      record. The score's page on the portal shows "Reproduced N times", and
-      <code>reproduction_count</code> and <code>last_reproduced_at</code> hold the same facts on
-      <code>LeaderboardScore</code>. If the record fails, the outcome stays <code>exact</code>,
-      <code>recorded</code> is <code>False</code>, and <code>record_error</code> says why. The
-      <RouterLink to="/sf-client/api/leaderboards"><code>Reproduction</code> reference</RouterLink>
-      lists every field and reason.
-    </p>
-
-    <p>
-      To change the recipe instead of checking it, remix it.
-      <code>url4.to_python()</code> is local and free. Passing the same <code>url4</code> to
+      To change the recipe, remix it. <code>url4.to_python()</code> is local and free. Passing the same <code>url4</code> to
       <RouterLink to="/sf-client/guides/running-an-evaluation"><code>sf.evaluate</code></RouterLink>
       is a new paid run. The expression is already linked to its benchmark, so do not pass
       <code>benchmark=</code> or <code>limit=</code> again. Model output can move; the recipe
@@ -437,14 +362,11 @@ sf.reproduce(score, record=False)`
 
     <p>
       Anyone with write access can publish a score. The board stores the claim and the recipe.
-      <code>verified_by_screamingface</code> means ScreamingFace re-executed that recipe and
-      accepted the result. Until that flag is true, treat the row as a submission, not a verified
-      ranking.
-    </p>
-
-    <p>
-      A reproduction count is a different fact. Each record is self-reported by a verified identity,
-      and it is not <code>verified_by_screamingface</code>.
+      <code>verified_by_screamingface</code> is a property of the engine that ran the submission: a
+      run on the hosted engine is verified, because that engine can validate it and replay it from
+      its cache. A submission from a run on any other engine stays unverified on the public
+      leaderboard until the hosted engine also runs it. Until that flag is true, treat the row as a
+      submission, not a verified ranking.
     </p>
 
     <h2>Links</h2>
@@ -468,10 +390,6 @@ sf.reproduce(score, record=False)`
           >Reproduce &amp; share (url4)</RouterLink
         >
         for reading and rebuilding expressions
-      </li>
-      <li>
-        <RouterLink to="/learn/caching">Caching and compute</RouterLink> for how a frozen copy is
-        made, why it can be partial, and why a replay can fail
       </li>
     </ul>
   </DocLayout>

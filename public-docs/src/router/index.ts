@@ -114,6 +114,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/FusionsPage.vue'),
     },
     {
+      path: '/sf-client/api/reducers',
+      name: 'sf-client-api-reducers',
+      component: () => import('@/pages/sf-client/api/ReducersPage.vue'),
+    },
+    {
       path: '/sf-client/api/pipelines',
       name: 'sf-client-api-pipelines',
       component: () => import('@/pages/sf-client/api/PipelinesPage.vue'),

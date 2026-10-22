@@ -67,6 +67,7 @@ There is no automated test setup in this project.
 | `/sf-client/api/reports`                  | `src/pages/sf-client/api/ReportsPage.vue`         |
 | `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
 | `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
+| `/sf-client/api/reducers`                 | `src/pages/sf-client/api/ReducersPage.vue`        |
 | `/sf-client/api/pipelines`                | `src/pages/sf-client/api/PipelinesPage.vue`       |
 | `/sf-client/api/url4`                     | `src/pages/sf-client/api/Url4Page.vue`            |
 | `/sf-client/api/connections`              | `src/pages/sf-client/api/ConnectionsPage.vue`     |
@@ -133,8 +134,10 @@ export const sfClientNavigation: NavEntry[] = [
 
 **Versioning.** `sf-client.ts` also exports `sfClientVersion`
 (`{ prefix, label, url }`), rendered once in the sidebar footer rather than on
-each page. It is a commit while `screamingface` is unpublished; when the package
-ships to PyPI only that object changes.
+each page. Its label is the newest non-rc `screamingface-v*` git tag reachable from
+HEAD, injected at build time as `__SF_CLIENT_VERSION__` by `vite.config.ts`, and the
+link is that release's PyPI page. The build fails when no tag is reachable, so a CI
+checkout needs `fetch-depth: 0`.
 
 **How pages consume it:**
 

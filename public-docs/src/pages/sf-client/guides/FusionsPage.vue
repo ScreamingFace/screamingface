@@ -40,7 +40,18 @@ const fusionSig = `sf.Fusion(
     members: Sequence[str | Recipe],
     *,
     name: str | None = None,
-    synthesizer: str | Recipe,
+    synthesizer: str | Recipe | Reducer,
+    quorum: int | Literal["all"] = "all",
+    optional: bool = False,
+)`
+
+const reducerExample = `fusion = sf.Fusion(
+    [
+        sf.Model("openrouter/deepseek/deepseek-v4-flash", name="a"),
+        sf.Model("openrouter/google/gemini-3.5-flash-lite", name="b"),
+        sf.Model("openrouter/anthropic/claude-haiku-4.5", name="c"),
+    ],
+    synthesizer=sf.Vote(),
 )`
 </script>
 
@@ -322,6 +333,23 @@ const fusionSig = `sf.Fusion(
       member by setting it on that Model.
     </p>
 
+    <p>
+      The synthesizer can also be a <strong>reducer</strong>, which combines the members' answers
+      without a model writing a new one. <code>sf.Vote()</code> returns the answer most members
+      agree on, as that member's text unchanged:
+    </p>
+
+    <CodeBlock :code="reducerExample" language="python" />
+
+    <p>
+      <code>sf.Median</code>, <code>sf.Judge</code>, <code>sf.Pick</code> and <code>sf.Merge</code>
+      work the same way, and <code>sf.Rank</code>, <code>sf.Concat</code> and
+      <code>sf.Filter</code> hand members to a later stage. The
+      <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> lists them all.
+      <code>quorum</code> sets how many members must succeed, and a member built with
+      <code>optional=True</code> may fail without stopping the Fusion.
+    </p>
+
     <h3>4 · Nest a fusion</h3>
 
     <p>
@@ -437,7 +465,8 @@ const fusionSig = `sf.Fusion(
     <p>
       <code>members</code> is a <code>tuple</code> in the order you gave. <code>name</code> is the
       resolved label. <code>synthesizer</code> is the recipe you passed (route strings normalize to
-      <code>Model</code>). No <code>reducer</code> attribute.
+      <code>Model</code>); a reducer stays a reducer. <code>quorum</code> and
+      <code>optional</code> are read back as given.
     </p>
 
     <h3>Raises</h3>

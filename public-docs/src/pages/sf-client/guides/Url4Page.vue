@@ -332,17 +332,11 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
 
     <p>
       A url4 pins the run's <strong>definition</strong>. Pass it to <code>sf.evaluate()</code> and
-      you start a new run. That run goes through the cache like any other. A call that the cache
-      already holds is a hit and costs nothing, and the other calls are paid. A run that bypasses
+      you start a new run. With the cache on, that run goes through it like any other: a call that
+      the cache already holds is a hit and costs nothing, and the other calls are paid. A local
+      engine starts with the cache off, so there every call is paid. A run that bypasses
       the cache asks the same models the same questions under the same protocol. Models are not
       deterministic, so a fresh run can diverge slightly.
-    </p>
-
-    <p>
-      To check a published score, use <code>sf.reproduce(score)</code> instead. It runs the url4
-      against the frozen copy that the original run made. See the
-      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> and the
-      <RouterLink to="/learn/caching">caching page</RouterLink>.
     </p>
 
     <h2>Links</h2>
@@ -350,11 +344,11 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <ul>
       <li>
         <a
-          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
-        >, which prints a full expression
+          >Companion notebook: <code>00_quickstart.ipynb</code></a
+        >, which reads a candidate's url4 and rebuilds it
       </li>
     </ul>
   </DocLayout>

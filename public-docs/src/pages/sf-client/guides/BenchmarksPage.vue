@@ -10,27 +10,15 @@ import {
 
 const listing = `import screamingface as sf
 
-sf.benchmarks.list()`
-const listingOut = `draco                    100 cases   defbb6efdae69211
-draco/lite                 2 cases   6a1c04b9c7f21d83
-draco/smoke                1 case    b2f7d5e10a9c4468
-ifeval                   541 cases   22ca96fe77b0f7de
-ifeval/self-corrective   541 cases   047f1de449639c61
-ifeval/lanl-ensemble     541 cases   9c3ba82f5d0e7716
-healthbench/worst30       30 cases   41e8c96d2b7a5f30`
+[(b.id, b.case_count, b.revision) for b in sf.benchmarks.list()]`
+const listingOut = `[('healthbench-professional', 525, 'd8fb037307f35415'),
+ ('healthbench-worst30', 157, '39cfd96b068f7230'),
+ ('ifeval', 541, '1cba769ece27f7ef'),
+ ('medxpert', 2450, '791a7d5b2e961f1c')]`
 
 const card = `ifeval = sf.benchmarks.get("ifeval")
-ifeval`
-const cardOut = `Benchmark(id='ifeval', title='IFEval',
-description='The canonical 541-prompt instruction-following benchmark
-(https://arxiv.org/abs/2311.07911), graded by deterministic strict and loose
-verification. Each Case invokes the Candidate exactly once. Case ids are the
-official IFEval keys; one pinned-dataset row (key 2785) is patched to the
-official harness prompt, whose text matches its graded constraints.',
-revision='22ca96fe77b0f7de', case_count=541)`
-
-const variants = `sf.benchmarks.get("ifeval").revision, sf.benchmarks.get("ifeval/self-corrective").revision`
-const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
+ifeval.title, ifeval.revision, ifeval.case_count`
+const cardOut = `('IFEval', '1cba769ece27f7ef', 541)`
 </script>
 
 <template>
@@ -55,9 +43,9 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     </p>
 
     <blockquote>
-      <strong>Only a subset of benchmarks is available so far.</strong> This is an early,
-      deliberately small set, and we're working on expanding it massively so fusion research can
-      thrive. If there's a benchmark you'd want to run first,
+      <strong>What you can list depends on the engine.</strong> A local engine serves four
+      benchmarks and the hosted engine serves 69, including DRACO. If there's a benchmark you'd
+      want to run first,
       <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
         >we'd love to hear it</a
       >.
@@ -68,7 +56,6 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     <ul>
       <li>List the benchmarks this engine publishes.</li>
       <li>Read one's identity card: size, revision, and what it actually measures.</li>
-      <li>Pick a protocol variant, which is a benchmark id of its own.</li>
       <li>Check that two results are comparable by comparing revisions.</li>
     </ul>
 
@@ -92,8 +79,7 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
         <tr>
           <td><code>sf.benchmarks.get(benchmark_id)</code></td>
           <td>
-            Fetches one benchmark's identity card. A protocol variant has its own id, such as
-            <code>ifeval/self-corrective</code>, and its own revision.
+            Fetches one benchmark's identity card: its id, title, description, revision and size.
           </td>
         </tr>
         <tr>
@@ -131,14 +117,15 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     </div>
 
     <p>
-      Three benchmarks, listed once per protocol, and they differ in what grading costs.
-      <strong>DRACO</strong> is 100 deep-research tasks graded by a judge model
-      (<code>openrouter/google/gemini-3.1-pro-preview</code>) with five independent passes per
-      criterion: the grading itself is the expensive part, which is why the <code>lite</code> and
-      <code>smoke</code> entries exist for cheap directional runs. <strong>IFEval</strong> is 541
-      instruction-following prompts checked by a deterministic verifier, so its grading is
-      <strong>free</strong> and only the answers cost anything. <strong>HealthBench</strong> exposes
-      the worst-30% subset, rubric-graded by a judge.
+      Benchmarks differ in what grading costs. <strong>IFEval</strong> is 541 instruction-following
+      prompts checked by a deterministic verifier, so its grading is <strong>free</strong> and only
+      the answers cost anything. <strong>HealthBench</strong> is rubric-graded by a judge model: the
+      professional exam is 525 conversations, and <code>healthbench-worst30</code> is the 157
+      hardest of them. <strong>MedXpert</strong> is 2,450 expert-level medical multiple-choice
+      questions. On the hosted engine, <strong>DRACO</strong> is 100 deep-research tasks graded by a
+      judge model (<code>openrouter/google/gemini-3.1-pro-preview</code>) with several independent
+      passes per criterion, five for <code>draco</code> and three for <code>draco-3pass</code>: the
+      grading itself is the expensive part.
     </p>
 
     <h3>2 · Read the identity card</h3>
@@ -153,34 +140,14 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
       name later points at a newer snapshot, your report still names the revision it actually ran.
     </p>
 
-    <h3>3 · Pick a protocol variant</h3>
-
-    <p>
-      Some benchmarks publish more than one protocol, and each one is a separate id rather than a
-      flag on a shared exam. <code>ifeval</code> is the canonical protocol: one answer, one
-      deterministic check, and the only IFEval entry comparable to published numbers.
-      <code>ifeval/self-corrective</code> lets the candidate read the verifier's complaints and
-      retry, bounded at three attempts, and <code>ifeval/lanl-ensemble</code> reproduces the
-      Skurikhin et al. early-exit ensemble protocol.
-    </p>
-
-    <div class="not-prose">
-      <NbCell :count="3" :code="variants"><NbTextOut :text="variantsOut" /></NbCell>
-    </div>
-
-    <p>
-      Notice the revisions differ. A variant is a <strong>different pinned protocol</strong>, with a
-      different cost and a score that means something different. Comparing a self-corrective score
-      against a canonical one is a mistake the revisions let you catch.
-    </p>
-
-    <h3>4 · Know what discovery will not tell you</h3>
+    <h3>3 · Know what discovery will not tell you</h3>
 
     <p>
       A <code>Benchmark</code> carries no case data, so the prompts cannot be paged before a run.
-      Cases and their answer keys stay on the engine, and that separation is what makes a verified
+      Cases stay on the engine and grading runs there, and that separation is what makes a verified
       result meaningful rather than self-reported. The case text a candidate received, its answer,
-      and the grade behind it all arrive with the report afterwards, on
+      and the grade behind it, including the rubric criteria and the judge, all arrive with the
+      report afterwards, on
       <RouterLink to="/sf-client/api/reports">CandidateResult.cases</RouterLink>.
     </p>
 
@@ -189,10 +156,10 @@ const variantsOut = `('22ca96fe77b0f7de', '047f1de449639c61')`
     <ul>
       <li>
         <a
-          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
+          >Companion notebook: <code>07_ifeval.ipynb</code></a
         >
       </li>
     </ul>
