@@ -43,7 +43,6 @@ from litellm.exceptions import (
 from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
 from ..core.credential_blob import DispatchObservation
-from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.endpoint_access import EndpointOperation, permits
 from ..core.frozen_copy.headers import (
     CAPTURE_HEADER,
@@ -288,16 +287,11 @@ def _error_view(exc: Exception) -> tuple[int, Any]:
 
     INVARIANT: each branch mirrors what the app renders for that exception, so a frozen copy
     replays the error a live call produced. ``HTTPException`` is its own status and detail;
-    ``CredentialBlobMutationConflict`` is the 503 of ``main._profile_index_conflict``; anything
-    else is the fixed sanitized 500 of ``unhandled_errors`` (never the exception's message).
+    anything else is the fixed sanitized 500 of ``unhandled_errors`` (never the exception's
+    message).
     """
     if isinstance(exc, HTTPException):
         return exc.status_code, exc.detail
-    if isinstance(exc, CredentialBlobMutationConflict):
-        return 503, {
-            "code": "profile_index_conflict",
-            "message": "Profile metadata update conflicted. Try again.",
-        }
     return 500, generic_detail()
 
 

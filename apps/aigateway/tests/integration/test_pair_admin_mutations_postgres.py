@@ -165,14 +165,14 @@ def test_two_first_bridge_puts_commit_exactly_one_and_leave_no_orphan_on_postgre
     assert _superseded(lost), lost
     # INVARIANT: the loser's Connection INSERT rolled back with its lost first-marker INSERT.
     (row,) = _live(pg_client, account_id)
-    assert row.credential_locator == credential_locator_for(PROVIDER, account_id, "default")
+    assert row.credential_locator == credential_locator_for(PROVIDER, account_id, row.id)
     pair = backing._marker(pg_client, account_id)
     assert (pair.migration_state, pair.effective_connection_id, pair.generation) == (
         "migrated",
         row.id,
         1,
     )
-    assert _blob(pg_client, account_id, "default") == KEY
+    assert _blob(pg_client, account_id, str(row.id)) == KEY
 
 
 @pytest.mark.parametrize("put_first", [True, False], ids=["put-first", "delete-first"])

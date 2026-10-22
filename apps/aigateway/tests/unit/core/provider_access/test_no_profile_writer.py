@@ -188,20 +188,21 @@ def test_the_pair_put_on_an_empty_pair_creates_no_document(legacy: Any) -> None:
     mutation = put_pair(legacy)
 
     assert mutation.credential is not None
-    assert api_key_at(legacy, address(legacy, "default")) == NEW_KEY
+    own = address(legacy, str(marker(legacy).effective_connection_id))
+    assert api_key_at(legacy, own) == NEW_KEY
     assert writes == []
     assert documents(legacy) == []
 
 
-def test_the_pair_put_names_its_row_default_beside_a_leftover_document(legacy: Any) -> None:
+def test_the_pair_put_mints_its_own_address_beside_a_leftover_document(legacy: Any) -> None:
     legacy.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
     before = documents(legacy)
     writes = watch_index_writes(legacy)
 
-    mutation = put_pair(legacy)
+    put_pair(legacy)
 
-    assert mutation.profile_names == ("default",)
-    assert api_key_at(legacy, address(legacy, "default")) == NEW_KEY
+    own = address(legacy, str(marker(legacy).effective_connection_id))
+    assert api_key_at(legacy, own) == NEW_KEY
     assert api_key_at(legacy, address(legacy, "work")) == OLD_KEY
     assert writes == []
     assert documents(legacy) == before
@@ -209,12 +210,13 @@ def test_the_pair_put_names_its_row_default_beside_a_leftover_document(legacy: A
 
 def test_the_pair_delete_removes_no_document(migrated: Any) -> None:
     migrated.seed_profile()
+    effective = str(marker(migrated).effective_connection_id)
     before = documents(migrated)
     writes = watch_index_writes(migrated)
 
     mutation = migrated.call(delete_pair, migrated.client.app, migrated.account_id, PROVIDER)
 
-    assert mutation.profile_names == ()
+    assert mutation.connection_ids == (effective,)
     pair = marker(migrated)
     assert (pair.migration_state, pair.effective_connection_id) == ("migrated", None)
     assert writes == []

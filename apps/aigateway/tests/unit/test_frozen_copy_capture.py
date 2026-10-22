@@ -438,31 +438,6 @@ def test_a_non_dict_success_is_failed_and_still_stamped(
     assert stored_entries(capture_client, open_copy) == []
 
 
-def test_a_mutation_conflict_is_captured_as_the_503_the_app_renders(
-    capture_client: TestClient, open_copy: str, monkeypatch
-) -> None:
-    from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
-
-    async def _conflict(*_args: Any, **_kwargs: Any) -> None:
-        raise CredentialBlobMutationConflict
-
-    monkeypatch.setattr("aigateway.routes.chat._resolve_credential_target", _conflict)
-
-    live = _chat(capture_client, open_copy)
-
-    assert live.status_code == 503
-    assert live.json()["detail"]["code"] == "profile_index_conflict"
-    assert live.headers[CAPTURE_HEADER] == "stored"
-    (entry,) = stored_entries(capture_client, open_copy)
-    assert entry["status_code"] == 503
-    # INVARIANT: the stored detail IS the body the app handler renders (drift guard).
-    assert entry["response"] == {"detail": live.json()["detail"]}
-    seal_copy(capture_client, open_copy)
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
-    assert replay.status_code == 503
-    assert replay.json()["detail"] == live.json()["detail"]
-
-
 def test_an_unexpected_exception_is_captured_as_a_generic_500_and_not_swallowed(
     capture_client: TestClient, open_copy: str, monkeypatch
 ) -> None:

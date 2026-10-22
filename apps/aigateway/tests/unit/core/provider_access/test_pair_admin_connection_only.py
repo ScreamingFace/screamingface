@@ -249,7 +249,6 @@ def test_put_on_a_migrated_pair_keeps_its_row_and_mirrors_no_document(
     h: ProfileBackedHarness,
 ) -> None:
     # The backfill's shape: the effective Connection sits at the `work` document's address.
-    # WHY `default` in `profile_names` (OME-1209 E4b): the PUT reads no document to name it by.
     h.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
     effective = seed_migrated_pair(
         h.client, h.account_id, PROVIDER, name="work", auth_type="api_key"
@@ -262,7 +261,7 @@ def test_put_on_a_migrated_pair_keeps_its_row_and_mirrors_no_document(
     assert _blob(h, _address(h, "work")) == NEW_KEY
     assert _blob(h, _address(h, "default")) is None
     assert _documents(h) == ["work"]
-    assert mutation.profile_names == ("default",)
+    assert mutation.connection_ids == (str(effective),)
     assert _inventory(h).conflicts == ()
 
 

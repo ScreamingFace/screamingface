@@ -29,7 +29,6 @@ from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.provider_access import (
     PairAuthorityStore,
     connection_admin,
-    profile_admin,
     writer_floor,
 )
 from aigateway.core.provider_access.backfill_classify import BackfillContext
@@ -96,7 +95,7 @@ def test_the_profile_writers_and_the_startup_import_are_gone() -> None:
     assert not hasattr(writer_floor, "bootstrap_under_the_floor")
     assert not hasattr(provider_access, "bootstrap_under_the_floor")
     assert not hasattr(errors, "BootstrapError")
-    assert not hasattr(profile_admin, "addressed_by_a_live_connection")
+    assert importlib.util.find_spec("aigateway.core.provider_access.profile_admin") is None
     assert not hasattr(connection_admin, "api_key_mirror")
     assert not hasattr(connection_admin.ConnectionBackedCredentialAdmin, "_mirror_siblings")
     assert not hasattr(BackfillContext, "from_app")
