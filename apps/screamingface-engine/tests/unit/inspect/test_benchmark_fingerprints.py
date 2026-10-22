@@ -38,8 +38,8 @@ from screamingface_engine_inspect.benchmarks import BENCHMARKS, BenchmarkSpec  #
 #: key → the fingerprint the row's inputs compute (what it would publish with no hold).
 _FINGERPRINTS: dict[str, str] = {
     # OME-1701 PR 1: paws and boolq grade on a bare Yes or No (inspect_evals PR #2334 adopted).
-    "paws": "ab44cff9bea304ca",
-    "boolq": "b4a47768ef2ebf95",
+    "paws": "992540ea3309d384",
+    "boolq": "588977e58b380d7f",
 }
 
 

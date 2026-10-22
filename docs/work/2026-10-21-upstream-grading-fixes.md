@@ -62,11 +62,12 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 
 ### PR 1
 
-- **Actual files:** as planned. The paws/boolq Yes/No patterns are inspect_evals' merged ones;
-  they live in our own module only so their source joins the revision (inspect's scorer kwargs
-  are not a revision input).
+- **Actual files:** as planned. Each paws/boolq scorer returns inspect_evals' merged
+  `pattern(r"...")` expression verbatim (PR #2334 at merge commit 2999eaad; owner rule
+  2026-10-22: a ported fix is a verbatim copy with the same names); they live in our own module
+  only so their source joins the revision (inspect's scorer kwargs are not a revision input).
 - **Revisions:** held (owner decision, 2026-10-22): paws publishes 8f4e0e9c0864a6e7 and boolq
-  00d4443ca7e66d43, as on main; their computed fingerprints moved to ab44cff9bea304ca and
-  b4a47768ef2ebf95, pinned in `test_benchmark_fingerprints.py`. Every one of the 85 imported revisions
+  00d4443ca7e66d43, as on main; their computed fingerprints moved to 992540ea3309d384 and
+  588977e58b380d7f, pinned in `test_benchmark_fingerprints.py`. Every one of the 85 imported revisions
   computed before and after: none publishes a new revision.
 - **Gates:** relevant tests only (owner rule): `test_named_deviation_yes_no.py` and `test_scorer_source_pins.py` (new), `test_benchmark_fingerprints.py` (new), `test_published_revision.py` (edited), `test_published_revisions.py`, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 702 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 10 inspect-only skip). Mutation: one byte added to `yes_no.py` fails both held pins and leaves every published literal passing. ruff check + format and pyright (extra-less) clean on every touched file.
