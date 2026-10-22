@@ -183,21 +183,30 @@ _Avoid_: Leaderboard Score when referring specifically to the write request
 The ranked projection of a Leaderboard Score shown on a Leaderboard.
 _Avoid_: Score Submission
 
-**Frozen Copy**:
+**Pinned Cache**:
 The permanent record of every model answer and web-tool result of one captured run. The AI gateway
-keeps it, and the Engine seals it when the run ends.
-_Avoid_: Cache, snapshot, cache version
+keeps it separately from the ordinary cache, and the Engine seals it when the run ends. The SDK
+exposes its id as `pinned_cache`; internal APIs and saved reports retain `frozen_copy_id`.
+_Avoid_: Frozen Copy in user-facing copy, snapshot, cache version
 
 **Capture Status**:
-Whether a Frozen Copy holds the whole run: complete or partial. A local capture is always partial. A
+Whether a Pinned Cache holds the whole run: complete or partial. A local capture is always partial. A
 Candidate Result carries it, and a Leaderboard Score stores it.
 _Avoid_: Verified (that is the separate `verified_by_screamingface` mark), Partial Report
 
 **Reproduction**:
-A replay of a Leaderboard Score against its Frozen Copy, run with its Candidate URL4 and stored
+A replay of a Leaderboard Score against its Pinned Cache, run with its Candidate URL4 and stored
 answer seed. It is exact when it gives the stored score and case count on the same Benchmark
-Revision, and the same case digest when the score has one.
+Revision, and the same case digest when the score has one. `evaluate(pinned_cache=…)` or
+`evaluate(score_id=…)` returns a Report; its Candidate Result holds a Reproduction object whose
+`outcome` is `exact` or `failed`. A partial replay or an unsubmitted capture has no verdict.
 _Avoid_: Re-run, fresh run, verification, replay alone
+
+**Partial Replay**:
+The first n cases of a published run, requested with `evaluate(pinned_cache=…, limit=n)` for
+debugging. It is never judged or recorded; `CandidateResult.reproduction` is `None`. It requires
+the Engine to rebuild the published recipe and a compatible subset before execution.
+_Avoid_: Partial Capture (a capture that did not store the whole run)
 
 **Aggregation**:
 The phase that combines Case grades into a Candidate’s Benchmark metrics.

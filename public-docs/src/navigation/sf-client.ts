@@ -1,13 +1,11 @@
 import type { NavEntry } from '@/composables/useDocNavigation'
 
-// The SDK version these pages were written and verified against, shown once in the
-// sidebar footer. A commit for now because screamingface is not on PyPI yet; when it
-// ships this becomes { prefix: 'Version', label: '1.0.0', url: <PyPI release> } and
-// nothing else changes.
+// Source baseline for the SDK docs, shown in the sidebar. Use a commit while
+// documenting the next release; replace it with the PyPI release after verification.
 export const sfClientVersion = {
   prefix: 'Based on state at commit',
-  label: '90a104e3',
-  url: 'https://github.com/ScreamingFace/screamingface/commit/90a104e39186801553103b9342b60dcd64677562',
+  label: 'ac2c8cb2',
+  url: 'https://github.com/ScreamingFace/screamingface/commit/ac2c8cb2d91c897a09d5ae1bf656b8f8b055b8f1',
 }
 
 // The "Get started with SF Client" navbar tab: everything but the reference —

@@ -1,7 +1,7 @@
 ---
 id: OME-1614
 linear_url: https://linear.app/openmined/issue/OME-1614/document-reproducing-a-run-with-evaluatepinned-cache-and-the
-status: backlog
+status: in_progress
 type: docs
 priority: medium
 labels: [repo-dev-processes, agentic, autonomous]
@@ -18,3 +18,7 @@ partial replays, seeds, and author and paper metadata. Rewrites the pages that t
 contains `OME-1613`.
 
 - 2026-10-21: mirror filed (it was missing); scope updated in Linear after the OME-1613 design review.
+
+- 2026-10-22: implemented the public docs and validated locally against the merged SDK.
+  Draft pending the SDK release, released-SDK snippet verification and the portal snippet update
+  in OME-1655 / PR #1522.
