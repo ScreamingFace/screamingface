@@ -47,8 +47,9 @@
 * **screamingface:** replay a published leaderboard run at $0 from its pinned cache (`OME-1613`).
   `sf.evaluate(pinned_cache="<id>")` reads the run's recipe and answer seed from the public board,
   replays every call from the answers the run captured, and judges the result against the
-  published score: `CandidateResult.reproduction` is `exact`, or `failed` with a `reason` and the
-  cases the pinned cache could not answer. An exact replay is recorded on the board (a leaderboard
+  published score: `CandidateResult.reproduction` is a `Reproduction` object whose `.outcome` is
+  `"exact"` or `"failed"`, with `.reason` and `.missed_cases` describing failures. It is `None`
+  for unsubmitted captures and partial replays. An exact replay is recorded on the board (a leaderboard
   login is asked for only then) unless `record_reproduction=False`. `score_id=` replays a private
   score for its submitter. `url4=` must be the same parsed recipe as the published one, and a
   passed `answer_seed` must equal the captured run's; both fail before any run otherwise. A

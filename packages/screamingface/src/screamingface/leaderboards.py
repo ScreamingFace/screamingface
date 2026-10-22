@@ -73,13 +73,18 @@ def edit(
     An omitted field is unchanged; `None` clears it (the `_UNSET` default keeps the two apart).
     """
 
-    return default_client().leaderboards.edit(
-        score_id,
-        authors=authors,
-        paper_url=paper_url,
-        authors_metadata=authors_metadata,
-        paper_metadata=paper_metadata,
-    )
+    # WHY: legacy implementations need absent arguments omitted; explicit None still clears.
+    fields: dict[str, Any] = {
+        name: value
+        for name, value in (
+            ("authors", authors),
+            ("paper_url", paper_url),
+            ("authors_metadata", authors_metadata),
+            ("paper_metadata", paper_metadata),
+        )
+        if value is not _UNSET
+    }
+    return default_client().leaderboards.edit(score_id, **fields)
 
 
 def metadata_events(score_id: UUID | str) -> tuple[ScoreMetadataEvent, ...]:

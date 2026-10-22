@@ -1120,7 +1120,9 @@ sf.leaderboards.edit(
 
 # Replay the published run at $0 from its pinned cache and check that it reproduces:
 replay = sf.evaluate(pinned_cache=same_submission.pinned_cache)
-verdict = replay.candidates.only.reproduction  # "exact", or "failed" with a reason
+reproduction = replay.candidates.only.reproduction
+if reproduction is not None:
+    verdict = reproduction.outcome  # "exact" or "failed"; failures include .reason
 editable_python = same_submission.url4.to_python()
 replayed_report = sf.evaluate(same_submission.url4)
 ```

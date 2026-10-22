@@ -180,6 +180,14 @@ async def published_by_pinned_cache_async(
     return _decode_lookup(payload, pinned_cache)
 
 
+def _decode_requested_score(payload: object, scoreboard_url: str, score_id: UUID) -> PublishedScore:
+    score = _decode_score(payload, scoreboard_url)
+    # INVARIANT: a response cannot redirect replay or recording to a different submission.
+    if score.id != score_id:
+        _invalid("Score response id does not match the requested score_id")
+    return published_from_score(score)
+
+
 def published_score_sync(
     request: Callable[..., httpx.Response], scoreboard_url: str, value: object
 ) -> PublishedScore:
@@ -205,7 +213,7 @@ def published_score_sync(
             replay_safe=True,
             missing=missing,
         )
-    return published_from_score(_decode_score(payload, scoreboard_url))
+    return _decode_requested_score(payload, scoreboard_url, score_id)
 
 
 async def published_score_async(
@@ -233,7 +241,7 @@ async def published_score_async(
             replay_safe=True,
             missing=missing,
         )
-    return published_from_score(_decode_score(payload, scoreboard_url))
+    return _decode_requested_score(payload, scoreboard_url, score_id)
 
 
 __all__ = [

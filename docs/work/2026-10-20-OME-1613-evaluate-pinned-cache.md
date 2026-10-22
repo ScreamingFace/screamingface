@@ -205,3 +205,29 @@ completed within the 300 s timeout), so nothing was written; a login tab may hav
 owner's browser. The test now patches `_default_client._client`, as the existing tests do.
 
 Gates: `run_gates.py screamingface --base origin/main` and `run_gates.py repo` ALL GATES GREEN.
+
+## Dmitry re-review, 2026-10-22, at `26c60f6c4` — remediation
+
+Owner authorized the blocker and both minor fixes. Plan: validate decoded score identity against
+the requested UUID after either public or gated read, sharing the check between sync and async;
+omit all unset module-level edit arguments while preserving explicit clears; correct the README
+and CHANGELOG to describe the optional Reproduction object and its outcome.
+
+Acceptance: a mismatched score response raises `invalid_leaderboard` before execution or
+recording, on both read paths and both clients. Legacy edit implementations receive only supplied
+arguments. New regression tests must fail first, then the SDK and repo gates must pass.
+Existing spec/plan remain applicable; this fixes their identity and omission contracts.
+
+Outcome: all three fixes implemented. Shared `_decode_requested_score` enforces UUID equality
+after either read; module-level `edit` forwards only fields other than `_UNSET`; README and
+CHANGELOG describe the optional object and `.outcome`. Added 13 regression cases across
+`test_replay_score_identity.py` and `test_leaderboards_edit_omission.py`, with no prior tests
+changed. All 13 failed on the reviewed head for the expected reasons, then the focused
+replay/read/metadata suites passed (95 tests).
+
+Validation: `run_gates.py screamingface --base origin/main` ALL GATES GREEN, including full
+pytest with the 95% coverage floor, lint, format, Pyright, notebook and distribution checks;
+`run_gates.py repo --base origin/main` ALL GATES GREEN; `git diff --check` clean.
+The runner needed access to the existing uv cache and package downloads outside the sandbox.
+Self-review: one shared identity check, no new dependencies or public signatures, only supplied
+edit values forwarded, and no change to the accepted partial-replay trust boundary.
