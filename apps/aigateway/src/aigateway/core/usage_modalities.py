@@ -29,7 +29,9 @@ from typing import Final
 
 __all__ = [
     "IMAGE_AND_FILE_KEY",
+    "bounded_image_and_file_tokens_from_gemini",
     "image_and_file_tokens_from_gemini",
+    "prompt_token_total_from_gemini",
 ]
 
 IMAGE_AND_FILE_KEY: Final = "image_and_file_tokens"
@@ -38,6 +40,13 @@ IMAGE_AND_FILE_KEY: Final = "image_and_file_tokens"
 # too, but out of this unit's scope; folding them in would make the name lie.
 _COUNTED_MODALITIES: Final = frozenset({"IMAGE", "DOCUMENT"})
 _MAX_TOKEN_COUNT: Final = 2**53 - 1
+
+
+def _bounded_count(value: object) -> int | None:
+    # WHY `type(...) is int`: bool is an int subclass, and `True` is not a token count.
+    if type(value) is not int or not 0 <= value <= _MAX_TOKEN_COUNT:
+        return None
+    return value
 
 
 def image_and_file_tokens_from_gemini(usage_metadata: object) -> int | None:
@@ -62,10 +71,35 @@ def image_and_file_tokens_from_gemini(usage_metadata: object) -> int | None:
         modality = entry.get("modality")
         if not isinstance(modality, str):
             return None
-        count = entry.get("tokenCount", 0)
-        # WHY `type(...) is int`: bool is an int subclass, and `True` is not a token count.
-        if type(count) is not int or count < 0:
+        count = _bounded_count(entry.get("tokenCount", 0))
+        if count is None:
             return None
         if modality.upper() in _COUNTED_MODALITIES:
             total += count
     return total if total <= _MAX_TOKEN_COUNT else None
+
+
+def prompt_token_total_from_gemini(usage_metadata: object) -> int | None:
+    """``usageMetadata.promptTokenCount`` as a bounded non-negative int, or ``None`` if unknown.
+
+    INVARIANT: absent, null, bool, float, string, negative or overflowing totals are unknown.
+    AIDEV-NOTE: this validates the total only to bound the image/file detail. The adapters'
+    reported ``prompt_tokens`` keeps its pre-existing lenient parsing on purpose — tightening it
+    would change a caller-visible contract outside OME-1546 (PR #1481 review).
+    """
+    if not isinstance(usage_metadata, Mapping):
+        return None
+    return _bounded_count(usage_metadata.get("promptTokenCount"))
+
+
+def bounded_image_and_file_tokens_from_gemini(usage_metadata: object) -> int | None:
+    """The image/file detail to PUBLISH: known only inside a valid enclosing prompt total.
+
+    INVARIANT: non-additive subset — a known value always satisfies
+    ``0 <= image_and_file_tokens <= promptTokenCount``; otherwise ``None``.
+    """
+    prompt = prompt_token_total_from_gemini(usage_metadata)
+    media = image_and_file_tokens_from_gemini(usage_metadata)
+    if prompt is None or media is None or media > prompt:
+        return None
+    return media

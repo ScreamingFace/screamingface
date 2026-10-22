@@ -65,3 +65,18 @@ follow-up for the engine owner.
   on OME-1546. (2) `_aigw` taxonomy left unchanged (prior exact-dict tests). (3) Codex gets an
   explicit `null`. (4) Live non-zero acceptance unreachable: no live provider reports a breakdown.
   (5) Codex cached-tokens drop verified live and filed as OME-1683 (bug, Triage), not fixed.
+
+## Review fix — PR #1481, HupBaHa 2026-10-22 (Medium: detail could exceed/outlive `prompt_tokens`)
+
+- **Change:** `core/usage_modalities.py` adds `prompt_token_total_from_gemini` (shared validator:
+  `promptTokenCount` must be a bounded non-negative int; absent/null/bool/float/string/negative/
+  overflow → unknown) and `bounded_image_and_file_tokens_from_gemini` (publishes media only when
+  the total is valid and `0 <= media <= prompt`, else `None`). Gemini + Antigravity
+  `_usage_from_response` publish the bounded value. `_bounded_count` is shared with the breakdown
+  parser (DRY; behaviour unchanged).
+- **Choice:** `prompt_tokens` itself keeps its lenient `int(x or 0)` parsing — tightening it would
+  change caller-visible totals (e.g. absent → 0 today). Only the new detail is gated.
+- **Tests (new, append-only):** `tests/unit/test_image_file_tokens_bounded_by_prompt.py` — parser,
+  bounded detail, and both adapters × absent/null/bool/float/string/negative/overflow/smaller.
+- **Gates:** `run_gates.py aigateway` ALL GATES GREEN (append-only, ruff, format, pyright,
+  no-enterprise, pytest 6308 passed / 109 skipped, coverage 94%).
