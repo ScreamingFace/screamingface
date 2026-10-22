@@ -54,7 +54,8 @@ Plan: `docs/plan/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md`.
   `_engine/catalog_contract.py`, `_runtime/bootstrap.py` and their tests), `docs/spec/`,
   `docs/plan/` and this ledger.
 - **Commits:** `6b28556fe` feat(screamingface-engine): take the WMDP Benchmarks off the public
-  catalogue as Unlisted · docs commit (this one).
+  catalogue as Unlisted · `9aabae7a9` docs · `e1024a7bd` fix(client-sf): read an Unlisted
+  Benchmark by id and keep it off the local leaderboard (review findings).
 - **Gates:** extra-less venv — `tests/unit/test_benchmark_unlisted.py`,
   `tests/unit/inspect/test_unlisted_rows.py`, `test_benchmark_origin.py`,
   `test_benchmark_display_metadata.py`, `inspect/test_failure_policy_rows.py`: 32 passed, 5
