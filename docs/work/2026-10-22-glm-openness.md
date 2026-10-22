@@ -77,3 +77,23 @@ replay live leaderboard labels, and update the existing PR and issue with final 
   Qwen exclusions preserve unknown diagnostics. No runtime network dependency added.
 - Delivery: expanded draft PR #1534; Siddhant (`siddhant230`) remains requested reviewer.
   Linear stays In Progress pending review; deployment has not occurred.
+
+## Source-by-source recheck
+
+Owner requested a second source review. Re-fetched pinned metadata for all 85 primary
+weight repositories (all resolve, all list nonempty weight blobs), all 99 cited route
+pages (all HTTP 200), and the current catalog (all 99 routes still present). Checked
+model cards/configurations and route mappings, including modality alignment, redirected
+publisher namespaces, and three accelerated aliases. Inspected public cards for five
+gated repositories whose raw README endpoints require acceptance. Verified the additional
+MiniMax Text-01 release and Qwen's official release catalog.
+
+No label changes needed under the existing definition. Corrected evidence weaknesses:
+full Aion commit hash instead of abbreviation; explicit missing license metadata; access
+gates, manifest byte counts, inference sources and mapping basis; first-party Z.ai
+FlashX documentation; both MiniMax-01 component releases. Documented alias and license
+qualifications rather than implying independently attested API weights or unrestricted
+licensing. No weights downloaded, no gate acceptance, and no inference runs performed.
+
+Validation after evidence changes: 289 focused tests passed; `git diff --check` passed.
+Classifier code and audited route membership are unchanged.
