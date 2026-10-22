@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -56,11 +56,16 @@ def write_bundle(
     passed: bool,
     reasons: Sequence[str],
     notes: Sequence[str] = (),
+    expect: Mapping[str, Any] | None = None,
+    observed: Mapping[str, Any] | None = None,
 ) -> Path:
     """Write ``root/<target>/<notebook>/`` and append one row to ``root/summary.md``.
 
     ``notes`` are evidence that never decides the verdict (a telemetry write that failed):
     kept in ``trace.json`` and appended to the summary row's reasons cell, redacted.
+
+    ``expect`` (spec §3.7) marks an expected-failure notebook: ``trace.json`` keeps the
+    declaration and ``observed``, and the outcome reads ``expected FAIL ✓`` / ``✗``.
     """
     out = bundle_dir(root, target, notebook)
     (out / "logs").mkdir(parents=True, exist_ok=True)
@@ -78,11 +83,17 @@ def write_bundle(
         "result": run.result,
         "error": run.error,
     }
+    if expect is not None:
+        trace |= {"expect": dict(expect), "observed": dict(observed or {})}
     (out / "trace.json").write_text(json.dumps(redact_tree(trace), indent=2))
 
     ids = ", ".join(chain.trace_ids) or "—"
     why = "; ".join([*reasons, *notes]) or "—"
-    _append_row(root, target, notebook, "PASS" if passed else "FAIL", ids, why)
+    if expect is not None:
+        outcome = f"expected FAIL {'✓' if passed else '✗'}"
+    else:
+        outcome = "PASS" if passed else "FAIL"
+    _append_row(root, target, notebook, outcome, ids, why)
     return out
 
 

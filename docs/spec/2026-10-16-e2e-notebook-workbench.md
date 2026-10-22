@@ -238,6 +238,46 @@ Run invariants:
 - **View:** the bundle page gets a Telemetry section: a span waterfall, usage and cost, logs,
   and cases. The run page tails `events.jsonl` and `spans.jsonl` over SSE.
 
+### 3.7 Expected-failure scenarios (unit 7)
+
+Owner decisions (2026-10-22), plan `docs/plan/2026-10-22-e2e-workbench-u7-debug-notebook.md`:
+a notebook may fail **on purpose** (the `debug_failing_run` tutorial), and the lane runs it as a
+guarded expected-failure test. It passes only when it fails exactly as declared and the evidence
+is complete.
+
+Declaration, in the notebook metadata:
+
+```json
+"workbench": {"targets": ["replay", "local"],
+              "expect": {"outcome": "fail", "failure_codes": ["<code>"], "stage": "candidate"}}
+```
+
+`outcome` must be `"fail"`; `failure_codes` is a non-empty list of declared failure codes;
+`stage` is one of `candidate`, `grading`, `aggregation`. A malformed `expect` is red, never
+ignored. Logic: `tests/e2e/workbench/expectation.py`; wiring: `verdict.py`.
+
+The verdict passes only if **all** hold:
+
+1. **No other error.** The notebook raised nowhere (it catches the failure it teaches and
+   asserts on it), so `NotebookRun.error` is empty, and its result is well formed.
+2. **The declared failure, exactly.** The failures observed in `<bundle>/report.json` are every
+   `{code, stage}` in any `failures` list of the report (candidate, case, attempt, operation).
+   - none at all → red, `unexpected pass` (for example a tape re-bless made the model servable);
+   - a declared code that is absent, or an observed code that is not declared → red,
+     `wrong failure code`, naming the expected and the observed codes;
+   - a declared code observed only at another stage → red, `wrong failure stage`;
+   - no `report.json` → red, missing evidence.
+3. **The trace chain is complete**, exactly as for a passing notebook (§3.3): every trace id in
+   each required hop, with `gateway_call_id` on the gateway.
+4. **The telemetry captured the error.** `<bundle>/events.jsonl` (one run's events: §3.6
+   rewrites it per run) holds at least one `Span` event with status `error` or a refusal, or a
+   `Log` at ERROR or above (`severity_number >= 17`). None → red, `no error telemetry`.
+
+Evidence: `trace.json` adds `expect` (the declaration) and `observed` (the failures, and the
+count of failing spans and error logs); `passed` is the verdict above. The `summary.md` outcome
+cell reads `expected FAIL ✓` when it held and `expected FAIL ✗` with the reasons when it did
+not. A notebook without `expect` is judged as before.
+
 ## 4. Run lanes
 
 | Trigger | Targets | Gate |
