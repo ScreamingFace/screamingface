@@ -51,6 +51,26 @@ class RequestBodyTooLarge(HTTPException):
         super().__init__(status_code=413, detail=_limit_detail(limit))
 
 
+def _route_path(scope: Scope) -> str:
+    """The path Starlette routes on: ``scope["path"]`` with a mounted ``root_path`` removed.
+
+    # WHY (OME-1542 review 2): uvicorn keeps the mount prefix in ``scope["path"]`` and Starlette
+    # strips ``root_path`` only when it routes, so an exact ``path`` lookup missed the snapshot
+    # upload's own limit behind a prefix. Mirrors ``starlette._utils.get_route_path`` — copied, not
+    # imported, because that module is private.
+    # INVARIANT: only a whole-segment prefix is stripped (``/prefix`` never strips ``/prefixed``).
+    """
+    path: str = scope.get("path", "")
+    root_path: str = scope.get("root_path", "")
+    if not root_path or not path.startswith(root_path):
+        return path
+    if path == root_path:
+        return ""
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
+    return path
+
+
 def _declared_length(scope: Scope) -> int | None:
     for name, value in scope.get("headers", ()):
         if name == b"content-length":
@@ -82,7 +102,7 @@ class BodyCapMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        limit = self.path_limits.get(scope.get("path", ""), self.max_bytes)
+        limit = self.path_limits.get(_route_path(scope), self.max_bytes)
         declared = _declared_length(scope)
         if declared is not None and declared > limit:
             await self._refuse(scope, receive, send, limit)
@@ -130,5 +150,14 @@ class BodyCapMiddleware:
 
     @staticmethod
     async def _refuse(scope: Scope, receive: Receive, send: Send, limit: int) -> None:
-        response = JSONResponse(status_code=413, content={"detail": _limit_detail(limit)})
+        # INVARIANT (OME-1542 review 2): every 413 this middleware authors closes the connection.
+        # It can answer before the body is complete (a declared over-limit length, a crossing
+        # chunk); on keep-alive the server would otherwise keep reading the caller's remainder, so
+        # a trickled byte pins the socket indefinitely. `Connection: close` makes uvicorn (httptools
+        # and h11) close the transport after the response — the remainder is never drained.
+        response = JSONResponse(
+            status_code=413,
+            content={"detail": _limit_detail(limit)},
+            headers={"Connection": "close"},
+        )
         await response(scope, receive, send)

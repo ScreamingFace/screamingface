@@ -1,7 +1,7 @@
 ---
 ticket: OME-1542
 stack: aigateway
-status: done   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-20
 finished: 2026-10-20
 ---
@@ -77,3 +77,25 @@ body (413 naming the limit), refuses every non-`data:` image/file reference with
   `http`, local or not, now gets 422 `remote_url_not_https` (new tests in
   `test_codex_https_only_route.py`, append-only). Strict 422s for opaque `file_id`s, raw base64
   image strings and URL keys in unknown parts are kept (behaviour change, release-noted).
+
+## Review round 2 — HupBaHa changes requested 2026-10-22 (PLANNED)
+
+Five findings on head `8589912db`; append-only tests, no prior test edited.
+
+1. **HIGH** — middleware-authored 413s must close the connection: `BodyCapMiddleware._refuse`
+   sends `Connection: close` (uvicorn httptools/h11 then close the transport; attacker input is
+   never drained). Tests: real uvicorn on an ephemeral port + raw socket, declared-length and
+   chunked overflow, socket EOF promptly after the 413 (keep-alive timeout set high).
+2. **MEDIUM** — per-path limit looked up on the ROUTE path (`root_path` stripped as Starlette
+   does). Test: `root_path=/prefix`, `path=/prefix/v1/admin/cache/snapshots` gets the special cap.
+3. **MEDIUM** — Anthropic top-level `system` media refused at the route boundary: a core hook
+   `ProviderPluginCore.refuse_inadmissible_media(body)` (default no-op) called inside
+   `_admit_media`; the Anthropic plugin implements it. Route tests: unconnected / OAuth / API-key
+   credential outcomes all 422 with zero cache and credential calls.
+4. **MEDIUM** — one shared `content_parts.parse_data_uri` (the existing engine-conformant
+   `_DATA_URI_RE`, a bounded header, strict base64 via `binascii`) used by `content_parts` and
+   `media_intake`. Route tests for `data:`, `data:not-a-media-uri`, `data:image/png;base64,%%%`
+   (image and file) → 422 before cache/credentials; pathological inputs < 100 ms.
+5. **MEDIUM** — remote image scheme matched case-insensitively and normalized to lowercase in
+   `content_parts`; the intake guard uses the same helper. Route-level mixed-case HTTPS regressions
+   for Codex.
