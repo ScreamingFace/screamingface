@@ -142,6 +142,14 @@ extra (`url4[streaming]`) because it is pydantic models.
   `id` with no `await` between the check and the store. Do not insert one.
 - **HTTP and in-process dispatch cannot diverge.** `peer/_http.py` reuses
   `peer/_dispatch.py`.
+- **Files ride a run-scoped side-channel, never a string.** `run()` fixes the
+  run's ordered `attachments[]` before the first node executes: the Case's files,
+  then every file ref the AST names, each fetched and sha256-verified once into a
+  per-run cache (`dag/attachments.py`, `OME-1543`). Every in-process model call
+  reads the same tuple (`current_attachments()`, `Request.attachments`); nodes
+  cannot add, drop or reorder it, `Payload` stays `str`, and nothing scans a
+  payload for ref-shaped text. An HTTP ingress detaches it, so attachments are
+  never shipped to a remote node.
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 
