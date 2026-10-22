@@ -24,8 +24,8 @@ Execution order, as the importer and the Engine see it:
        does for a model it has no tokenizer for. Worked example: a 600,000-character input
        keeps its first 223,125 and last 223,125 characters (`MAX_CHARS` = 446,250), each
        trimmed back to a boundary, with `...` between them.
-    4. `math_find_scorer` grades: the FIRST number in the reply, compared with the answer by
-       value, the official InfiniteBench rule (NAMED DEVIATION 2).
+    4. `math_find_scorer` (in `math_find_scorer.py`) grades: the FIRST number in the reply,
+       compared with the answer by value, the official InfiniteBench rule (NAMED DEVIATION 2).
 
 NAMED DEVIATION 1: inspect_evals cuts per model (tiktoken for a `gpt*` name, a character estimate
 otherwise, with a 128k default and 200k for the Claude 3 models in its table). This Task always
@@ -41,15 +41,17 @@ https://github.com/OpenBMB/InfiniteBench/blob/51d9b37b0f1790ead936df2243abbf7f04
 reads the first number in the reply with the unsigned pattern `\\d+\\.\\d+|\\d+` and compares it by
 value. Adopted from inspect_evals PR #2346 (open; issue #2343;
 https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346), which found `exact()` up to 19.4
-points below the official scores on InfiniteBench's published prediction files. Both sides are
-compared as floats, as that PR does: our answer column is text, and every answer is a whole
-number from 0 to 99. Worked example, answer 91: "The largest is 91." reads 91, right; "Between
-90 and 91, 91." reads 90, wrong (the first number counts); "-91" reads 91, right, since the
-official pattern carries no sign and no answer is negative.
+points below the official scores on InfiniteBench's published prediction files. The PR's
+`math_find_scorer.py` is copied verbatim into this package (its header names the one line the
+v0.20.0 pin forces). Both sides are compared as floats, as that PR does: our answer column is
+text, and every answer is a whole number from 0 to 99. Worked example, answer 91: "The largest
+is 91." reads 91, right; "Between 90 and 91, 91." reads 90, wrong (the first number counts);
+"-91" reads 91, right, since the official pattern carries no sign and no answer is negative.
 
 INVARIANT: `MAX_TOKENS`, `TOKEN_BUFFER`, `TOKEN_TO_CHAR_RATIO` and the cut itself are Benchmark
 identity: they sit inside the Case Digest, so an edit is a new Benchmark, not a tweak. The
-grading rule is this file's source, hashed into the revision as the local Task's source pin.
+grading rule is `math_find_scorer.py`, hashed into the revision with the rest of this package as
+the local Task's source pin.
 
 References:
     - Paper: https://arxiv.org/abs/2402.13718
@@ -59,11 +61,8 @@ References:
 
 from __future__ import annotations
 
-import re
-
 from inspect_ai import Task, task
 from inspect_ai.model import ChatMessageUser
-from inspect_ai.scorer import CORRECT, INCORRECT, Score, Scorer, Target, accuracy, scorer, stderr
 from inspect_ai.solver import Generate, Solver, TaskState, generate, prompt_template, solver
 from inspect_ai.solver import system_message as system_message_solver
 from inspect_evals.infinite_bench.constants import TASK_METADATA, ft
@@ -75,6 +74,10 @@ from inspect_evals.infinite_bench.infinite_bench import (
 from inspect_evals.infinite_bench.truncate_input import find_nearest_boundary
 from inspect_evals.infinite_bench.utils import create_system_msg
 from inspect_evals.utils.huggingface import hf_dataset
+
+from screamingface_engine_inspect.local_tasks.infinite_bench.math_find_scorer import (
+    math_find_scorer,
+)
 
 TASK_NAME = "math_find"
 
@@ -121,34 +124,6 @@ def fixed_cut_solver() -> Solver:
         return state
 
     return solve
-
-
-# ── the marking: the official first-number rule ────────────────────────────────────────
-#: The official pattern, copied as is: a decimal before an integer (alternation takes the first
-#: branch that fits, so "3.5" must not match as "3"), and no sign.
-FIRST_NUMBER: re.Pattern[str] = re.compile(r"\d+\.\d+|\d+")
-
-
-def first_number(reply: str) -> str | None:
-    """The first unsigned integer or decimal in the reply, or None when it has no digit."""
-
-    found: re.Match[str] | None = FIRST_NUMBER.search(reply)
-    return found.group(0) if found else None
-
-
-@scorer(metrics=[accuracy(), stderr()])
-def math_find_scorer() -> Scorer:
-    """Right when the reply's first number equals the answer by value (NAMED DEVIATION 2)."""
-
-    async def score(state: TaskState, target: Target) -> Score:
-        given: str | None = first_number(state.output.completion)
-        if given is None:
-            # WHY the reason: a reply with no number is a format failure, per inspect_evals' fix.
-            return Score(value=INCORRECT, reason="invalid_response_format")
-        right: bool = float(given) == float(target.text)
-        return Score(value=CORRECT if right else INCORRECT, answer=given)
-
-    return score
 
 
 @task

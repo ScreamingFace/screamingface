@@ -32,7 +32,8 @@ value ([`get_score_one_math_find`](https://github.com/OpenBMB/InfiniteBench/blob
 so "The largest number in the list is: 91" is right for 91. inspect_evals grades with inspect's
 `exact()` on the whole reply, which marks that wrong; this is inspect_evals' proposed fix,
 [inspect_evals PR #2346](https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346), adopted
-as a Named Deviation. No judge. Benchmark score is plain accuracy over the Cases run.
+as a Named Deviation: the PR's `math_find_scorer.py` is copied verbatim into this folder. No
+judge. Benchmark score is plain accuracy over the Cases run.
 
 ## Dataset
 

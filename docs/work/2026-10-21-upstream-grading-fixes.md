@@ -106,11 +106,19 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   named for inspect's `exact()`; renamed, and its docstring now says the first-number rule).
 - **Revisions:** held (owner decision, 2026-10-22): chembench publishes a36d91b7eb601253 and
   infinite_bench_math_find eb87494cb4dab437, as on main; their computed fingerprints moved to
-  7af1d67ffad68471 and a38b3a6c787f08a8, pinned in `test_benchmark_fingerprints.py`.
+  b86658ea78c51962 and 1ed274442ad5dba1, pinned in `test_benchmark_fingerprints.py`.
+- **Verbatim copies (owner rule 2026-10-22: a ported fix is a verbatim copy with the same
+  names):** chembench's scorer is PR #2591's `multiple_choice_letters` and `chembench_scorer`,
+  unchanged (head 3bfc894a); the key is now split on commas, as the PR splits it.
+  infinite_bench_math_find's scorer is PR #2346's `math_find_scorer.py`, copied into the local
+  Task package unchanged (head 0174742e) except the one import v0.20.0 lacks
+  (`INVALID_RESPONSE_FORMAT`, replaced by the PR head's own definition of it). Our earlier
+  rewrites of both are gone; the row now names the copied modules.
 - **Review fixes:** the numeric "agrees with inspect_evals" check now carries the eval's real
   1% relative tolerance and an expected verdict per reply (1.505 vs 1.5 right, 1.6 wrong), so
   a numeric path that always marks wrong fails it; the renamed letter-list test names the
   set-of-letters rule; the scorer docstring states the one one-letter difference ("B,B" or
   "B B" against "B" is now right, as the authors mark it), pinned by a test. The docstring
-  edit moved chembench's computed fingerprint once more (2fdb430f6a3505f0 → 7af1d67ffad68471).
+  edit moved chembench's computed fingerprint once more (2fdb430f6a3505f0 → 7af1d67ffad68471;
+  the verbatim copy then moved it to b86658ea78c51962).
 - **Gates:** relevant tests only (owner rule): `test_named_deviation_chembench.py` and `test_local_task_infinite_bench_scorer.py` (new), `test_letter_list_key_imports.py`, `test_local_task_infinite_bench.py`, `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py` and `test_scorer_source_pins.py` (edited), the yes_no tests, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 759 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 14 inspect-only skip). ruff check + format and pyright (extra-less) clean on every touched file.

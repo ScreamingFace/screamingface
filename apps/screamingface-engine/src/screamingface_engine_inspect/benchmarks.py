@@ -5700,13 +5700,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   :infinite_bench_math_find,
         #   a LOCAL Task built from inspect_evals' infinite_bench_math_find; its cut differs
         #   (OME-1602) and so does its grading (NAMED DEVIATION 2 in the Task's docstring:
-        #   the official first-number rule, https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346).
-        #   Its code lives here, so its origin is ours; it reuses inspect_evals' loader and
-        #   prompts, and the harness link names that eval.
+        #   the official first-number rule, https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346,
+        #   whose math_find_scorer.py is copied verbatim beside the Task). Its code lives here,
+        #   so its origin is ours; it reuses inspect_evals' loader and prompts, and the harness
+        #   link names that eval.
         # License: apache-2.0, the Hub card's licence line (the card's header is malformed,
         #   so the Hub shows none; owner decision on OME-1602, 2026-10-14).
         scorer=(
-            "screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench"
+            "screamingface_engine_inspect.local_tasks.infinite_bench.math_find_scorer"
             ":math_find_scorer"
         ),
         # Published revision held (owner decision, 2026-10-22: published revisions are
@@ -5917,9 +5918,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # License: mit.
         # NAMED DEVIATION: multiple choice is graded by the set of letters, inspect_evals'
         #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591, issue
-        #   #2586); numbers stay the eval's own pattern_mae. Drop it when the pin reaches the
-        #   fix: the tripwire in tests/unit/inspect/test_named_deviation_chembench.py fails then.
-        scorer="screamingface_engine_inspect.named_deviations.chembench.chembench:chembench_letter_set",
+        #   #2586), its `chembench_scorer` copied verbatim; numbers stay the eval's own
+        #   pattern_mae. Drop it when the pin reaches the fix: the tripwire in
+        #   tests/unit/inspect/test_named_deviation_chembench.py fails then.
+        scorer="screamingface_engine_inspect.named_deviations.chembench.chembench:chembench_scorer",
         # Published revision held (owner decision, 2026-10-22: published revisions are
         # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
         # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is

@@ -12,7 +12,8 @@ What these tests pin, and why:
   (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591);
 - single-letter and numeric Cases grade exactly as v0.20.0 grades them, except a repeated
   letter ("B,B" against "B"), which is right as a set, as the ChemBench authors mark it;
-- the row grades with this scorer.
+- the row grades with this scorer, the PR's own `chembench_scorer` copied verbatim (the
+  imported `chembench_scorer` below is v0.20.0's, the tripwire's baseline).
 
 Runs only with the `inspect` extra installed.
 """
@@ -30,8 +31,8 @@ from inspect_ai.solver import TaskState  # noqa: E402
 from inspect_evals.chembench.chembench import chembench_scorer  # noqa: E402
 
 from screamingface_engine_inspect.benchmarks import BENCHMARKS  # noqa: E402
-from screamingface_engine_inspect.named_deviations.chembench.chembench import (  # noqa: E402
-    chembench_letter_set,
+from screamingface_engine_inspect.named_deviations.chembench import (  # noqa: E402
+    chembench as deviation,
 )
 
 
@@ -67,7 +68,7 @@ async def test_tripwire_a_right_multi_letter_answer_inspect_evals_fails_is_right
     reply: str = f"Both rings are aromatic.\n[ANSWER]{letters}[/ANSWER]"
 
     assert (await _scored(chembench_scorer(), reply, "A,C")).value == INCORRECT
-    assert (await _scored(chembench_letter_set(), reply, "A,C")).value == CORRECT
+    assert (await _scored(deviation.chembench_scorer(), reply, "A,C")).value == CORRECT
 
 
 @pytest.mark.asyncio
@@ -79,13 +80,13 @@ async def test_a_repeated_letter_on_a_one_letter_key_is_right_under_ours_only(le
     reply: str = f"[ANSWER]{letters}[/ANSWER]"
 
     assert (await _scored(chembench_scorer(), reply, "B")).value == INCORRECT
-    assert (await _scored(chembench_letter_set(), reply, "B")).value == CORRECT
+    assert (await _scored(deviation.chembench_scorer(), reply, "B")).value == CORRECT
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("letters", ["A", "A,C,E", "A,B"])
 async def test_a_missing_or_extra_letter_is_wrong(letters: str) -> None:
-    score: Score = await _scored(chembench_letter_set(), f"[ANSWER]{letters}[/ANSWER]", "A,C")
+    score: Score = await _scored(deviation.chembench_scorer(), f"[ANSWER]{letters}[/ANSWER]", "A,C")
 
     assert score.value == INCORRECT
 
@@ -113,13 +114,16 @@ async def test_every_other_reply_grades_as_inspect_evals_grades_it(
     the one written here, so the two scorers cannot agree on a wrong mark."""
 
     inspect_evals_score: Score = await _scored(chembench_scorer(), reply, key, task_type)
-    ours: Score = await _scored(chembench_letter_set(), reply, key, task_type)
+    ours: Score = await _scored(deviation.chembench_scorer(), reply, key, task_type)
 
     assert (ours.value, ours.reason) == (inspect_evals_score.value, inspect_evals_score.reason)
     assert ours.value == expected
 
 
-def test_the_row_grades_with_the_letter_set_scorer() -> None:
+def test_the_row_grades_with_the_copied_scorer_not_inspect_evals_own() -> None:
     row = next(spec for spec in BENCHMARKS if spec.key == "chembench")
 
-    assert row.scorer.endswith("named_deviations.chembench.chembench:chembench_letter_set")
+    assert (
+        row.scorer
+        == "screamingface_engine_inspect.named_deviations.chembench.chembench:chembench_scorer"
+    )

@@ -42,8 +42,8 @@ _FINGERPRINTS: dict[str, str] = {
     "boolq": "588977e58b380d7f",
     # OME-1701 PR 2: chembench grades its letters as a set (inspect_evals PR #2591 adopted);
     # infinite_bench_math_find grades by the first number (inspect_evals PR #2346 adopted).
-    "chembench": "7af1d67ffad68471",
-    "infinite_bench_math_find": "a38b3a6c787f08a8",
+    "chembench": "b86658ea78c51962",
+    "infinite_bench_math_find": "1ed274442ad5dba1",
 }
 
 

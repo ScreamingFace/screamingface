@@ -11,7 +11,8 @@ What these tests pin, and why:
   v0.20.0) that marks a wrapped right number wrong; when a pin bump makes that assert fail,
   inspect_evals has the fix (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2346)
   and the Named Deviation can go;
-- the official pattern is copied as is: decimals before integers, no sign;
+- the official pattern is copied as is: decimals before integers, no sign (the scorer is
+  inspect_evals PR #2346's `math_find_scorer.py`, copied verbatim);
 - the local Task and its row both grade with this scorer.
 
 Runs only with the `inspect` extra installed.
@@ -38,8 +39,10 @@ from screamingface_engine_inspect.local_tasks.infinite_bench import (  # noqa: E
     infinite_bench as local,
 )
 from screamingface_engine_inspect.local_tasks.infinite_bench.infinite_bench import (  # noqa: E402
-    first_number,
     infinite_bench_math_find,
+)
+from screamingface_engine_inspect.local_tasks.infinite_bench.math_find_scorer import (  # noqa: E402
+    first_number,
     math_find_scorer,
 )
 
@@ -114,4 +117,4 @@ def test_the_task_and_its_row_grade_with_the_first_number_rule(
     assert [registry_info(scorer).name for scorer in infinite_bench_math_find().scorer or []] == [
         "math_find_scorer"
     ]
-    assert row.scorer.endswith("local_tasks.infinite_bench.infinite_bench:math_find_scorer")
+    assert row.scorer.endswith("local_tasks.infinite_bench.math_find_scorer:math_find_scorer")
