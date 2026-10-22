@@ -1,6 +1,6 @@
 """ScreamingFace — evaluate composable Candidate Recipes on research Benchmarks."""
 
-from screamingface import benchmarks, connections, events, leaderboards, models, reports
+from screamingface import benchmarks, cache, connections, events, leaderboards, models, reports
 from screamingface._default_client import (
     close,
     configure,
@@ -161,6 +161,7 @@ __all__ = [
     "Url4",
     "Vote",
     "benchmarks",
+    "cache",
     "events",
     "leaderboards",
     "models",

@@ -80,6 +80,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     # WHY accepted only to be refused (in _config): a clear message beats argparse's
     # "unrecognized arguments" for an option that exists on `up`.
     _add_benchmark_assets_dir(prepare)
+    _add_cache_commands(commands)
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
     _add_data_dir(serve)
     serve.add_argument("--owner-token", required=True)
@@ -95,6 +96,24 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         if action.dest not in {"_serve", "_scoreboard"}
     ]
     return parser
+
+
+def _add_cache_commands(commands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    cache = commands.add_parser("cache", help="Work with the local request cache")
+    cache_commands = cache.add_subparsers(dest="cache_command", required=True)
+    pull = cache_commands.add_parser("pull", help="Pull the community cache into the local gateway")
+    _add_data_dir(pull)
+    pull.add_argument(
+        "--model",
+        action="append",
+        dest="models",
+        default=None,
+        type=_model_name,
+        help="Only this model's rows, as the hosted cache names it (repeatable)",
+    )
+    pull.add_argument(
+        "--url", default=None, type=_engine_url, help="The hosted Engine to pull from"
+    )
 
 
 def _add_data_dir(parser: argparse.ArgumentParser, *, default: Path | None = None) -> None:
@@ -120,7 +139,7 @@ def _add_port_options(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(f"--{service}-port", type=int, default=None)
 
 
-def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
+def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
     args = _parser().parse_args(argv)
     try:
         # WHY before dispatch: every command that imports runtime apps (up/serve
@@ -152,6 +171,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
                 list_benchmarks=args.list_benchmarks,
                 force=args.force,
             )
+        elif args.command == "cache":
+            raise SystemExit(_cache_pull(config, args))
         elif args.command == "_serve":
             _serve(config, args.owner_token, foreground=not args.background)
         elif args.command == "_scoreboard":
@@ -160,6 +181,44 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
             run_scoreboard(config)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
+
+
+def _engine_url(value: str) -> str:
+    # WHY in the parser: `--url "$UNSET"` must not fall back to production, and a bad URL is a
+    # usage mistake, not a traceback.
+    from screamingface._client_connections import _engine_origin
+
+    try:
+        return _engine_origin(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _model_name(value: str) -> str:
+    # WHY in the parser: `--model "$UNSET"` is a usage mistake, so it gets argparse's usage
+    # error, not the TypeError `sf.cache.pull_from_remote` raises for a programming one.
+    if not value:
+        raise argparse.ArgumentTypeError("a model name must not be empty")
+    return value
+
+
+def _cache_pull(config: RuntimeConfig, args: argparse.Namespace) -> int:
+    """`screamingface cache pull`: the same pull as `sf.cache.pull_from_remote`, always showing
+    progress. Exit 0 finished, 1 stopped or refused (the reason on stderr), 130 interrupted."""
+    from screamingface._cache.pull import pull_into
+    from screamingface.cache import CachePullError, _models
+
+    try:
+        pull_into(_models(args.models), url=args.url, data_dir=config.data_dir, progress=True)
+    except CachePullError as exc:
+        print(f"screamingface: {exc.message}", file=sys.stderr)
+        if exc.hint:
+            print(exc.hint, file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("screamingface: interrupted; the next pull starts over", file=sys.stderr)
+        return 130
+    return 0
 
 
 def _config(args: argparse.Namespace) -> RuntimeConfig:

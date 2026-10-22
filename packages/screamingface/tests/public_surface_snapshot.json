@@ -70,6 +70,7 @@
       "Vote",
       "__version__",
       "benchmarks",
+      "cache",
       "close",
       "configure",
       "connect",
@@ -111,7 +112,7 @@
           "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -275,7 +276,7 @@
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -967,6 +968,10 @@
         "kind": "module",
         "module": "screamingface.benchmarks"
       },
+      "cache": {
+        "kind": "module",
+        "module": "screamingface.cache"
+      },
       "close": {
         "kind": "function",
         "signature": "() -> 'None'"
@@ -989,7 +994,7 @@
       },
       "evaluate": {
         "kind": "function",
-        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True) -> 'Report'"
+        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'"
       },
       "events": {
         "kind": "module",
@@ -1034,6 +1039,43 @@
       "list": {
         "kind": "function",
         "signature": "() -> 'Sequence[Benchmark]'"
+      }
+    }
+  },
+  "screamingface.cache": {
+    "__all__": [
+      "CachePullError",
+      "PullResult",
+      "pull_from_remote"
+    ],
+    "exports": {
+      "CachePullError": {
+        "catches_as": [
+          "ScreamingFaceError",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, message: 'str', *, result: 'PullResult', code: 'str | None' = None, hint: 'str | None' = None) -> 'None'",
+          "retryable": "property",
+          "user_message": "property"
+        }
+      },
+      "PullResult": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, rows_read: 'int', rows_added: 'int', pages: 'int', resumed: 'bool', complete: 'bool', rows_skipped: 'int' = 0) -> None",
+          "complete": "field",
+          "pages": "field",
+          "resumed": "field",
+          "rows_added": "field",
+          "rows_read": "field",
+          "rows_skipped": "field"
+        }
+      },
+      "pull_from_remote": {
+        "kind": "function",
+        "signature": "(models: 'Sequence[str] | None' = None, *, url: 'str | None' = None, progress: 'bool | None' = None) -> 'PullResult'"
       }
     }
   },
