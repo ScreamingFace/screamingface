@@ -91,3 +91,12 @@ Plan: `docs/plan/2026-10-22-e2e-workbench-u6-telemetry.md`. 6a (engine) has its 
   `POST /v1/chat/completions` + 2 frozen-copy calls), `report.json` and `accounting.json`
   written. Package gates: ruff, format, pyright clean; 4706 passed, 39 skipped, cov 97.02%;
   `check_notebooks.py`, `check_distribution.py` exit 0.
+- **Task 6 live telemetry (2026-10-22):** `GET /runs/{id}/telemetry` (SSE, `ui/live.py`) tails the
+  run's session `spans.jsonl` and every `<target>/<notebook>/events.jsonl`; complete lines only,
+  redacted again on read, chunk/line/row caps counted. Handles close on end, `aclose` and
+  cancel; a real-uvicorn test checks the fd on `spans.jsonl` is released when the client
+  disconnects (mutation: removing the close fails 4 tests). Real replay via the UI (port 9131):
+  run PASS, stream gave 1 model call (`openrouter/microsoft/phi-4`, cache hit, 75.6 ms), 59
+  events, 46 spans, 6 live `counts` frames, then `end`. Lane: 538 passed, 2 skipped (`just`).
+  Not seen in a real browser (the shared Playwright browser was busy); the inline script was
+  run in node against a DOM/EventSource stub.

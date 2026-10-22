@@ -28,7 +28,7 @@ import secrets
 import shlex
 import sys
 import threading
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -39,7 +39,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from screamingface._runtime.config import default_data_dir as runtime_default_data_dir
-from workbench.ui import pages, telemetry
+from workbench.ui import live, pages, telemetry
 from workbench.ui.bundles import BundleNotFound, BundleSummary, discover, load
 from workbench.ui.runs import Run, RunBusy, RunManager, RunRejected, RunRequest, runtime_data_dir
 
@@ -157,6 +157,23 @@ def _run_request(data: dict[str, Any], known: Sequence[str]) -> RunRequest:
     return RunRequest(target, tuple(map(str, stems)), confirm_paid=bool(confirm))
 
 
+class _ClosingStream(StreamingResponse):
+    """A stream whose async body is always closed when the response ends, however it ends.
+
+    WHY: under ASGI spec >= 2.4 Starlette does not cancel the body on disconnect; the failed
+    ``send`` raises out of its ``async for`` and leaves the generator suspended until garbage
+    collection. Closing it here releases its file handles at once (Review Focus 4).
+    """
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            body = self.body_iterator
+            if isinstance(body, AsyncGenerator):
+                await body.aclose()
+
+
 def _sse_line(line: str) -> str:
     # WHY: a CR or LF inside a data field would end it and let output forge SSE fields.
     return line.replace("\r", " ").replace("\n", " ")
@@ -173,8 +190,10 @@ class _Workbench:
         token: str,
         notebooks: Sequence[str],
         default_data_dir: Path,
+        telemetry_interval: float,
     ) -> None:
         self.root = root
+        self.telemetry_interval = telemetry_interval
         self.default_data_dir = default_data_dir
         self.manager = manager
         self.token = token
@@ -313,6 +332,20 @@ class _Workbench:
             headers={"cache-control": "no-store"},
         )
 
+    def telemetry(self, run_id: str) -> StreamingResponse:
+        """The live run's model calls and counters (unit 6 Task 6); see ``ui/live.py``."""
+        run = self.live(run_id)
+        if run is None:
+            raise _HttpError(404, f"no live run {run_id!r}")
+        frames = live.stream(
+            live.LiveTelemetry(run.out_dir, run.request.target),
+            lambda: run.returncode is not None,
+            interval=self.telemetry_interval,
+        )
+        return _ClosingStream(
+            frames, media_type="text/event-stream", headers={"cache-control": "no-store"}
+        )
+
     def _stream(self, run: Run, first: int) -> Iterator[str]:
         yield "retry: 2000\n\n"
         index: int = first
@@ -365,11 +398,13 @@ def create_app(
     port: int,
     notebooks: Sequence[str],
     default_data_dir: Path | None = None,
+    telemetry_interval: float = 0.5,
 ) -> FastAPI:
     """The workbench UI app. ``root`` holds bundles; runs write under ``root/runs/<id>``.
 
     ``default_data_dir`` is named in the stop command when a run's own runtime data dir is
     unknown (default: the runtime's, ``SCREAMINGFACE_DATA_DIR`` or ``~/.screamingface``).
+    ``telemetry_interval`` is how often the live telemetry stream polls the run's files.
     """
     wb = _Workbench(
         root=root.resolve(),
@@ -377,6 +412,7 @@ def create_app(
         token=token,
         notebooks=notebooks,
         default_data_dir=default_data_dir or runtime_default_data_dir(),
+        telemetry_interval=telemetry_interval,
     )
 
     @asynccontextmanager
@@ -397,5 +433,6 @@ def create_app(
         return wb.events(request, run_id, start)
 
     app.add_api_route("/runs/{run_id}/events", events, methods=["GET"])
+    app.add_api_route("/runs/{run_id}/telemetry", wb.telemetry, methods=["GET"])
     app.add_middleware(_Guard, port=port)
     return app

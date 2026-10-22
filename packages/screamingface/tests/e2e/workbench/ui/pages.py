@@ -5,8 +5,9 @@ executed notebook, through ``render.sandboxed_iframe``. Bundle files may come fr
 CI artifact, so ``trace.json`` fields are read defensively: a wrong shape renders as "?" or
 an "unreadable" note, never as an exception (Review Focus 3).
 
-No external assets (CSP ``default-src 'none'``): one inline ``<style>``, one inline script on
-the live run page (EventSource + autoscroll), and CSS ``:has`` for the paid checkbox.
+No external assets (CSP ``default-src 'none'``): one inline ``<style>``, two inline scripts on
+the live run page (the output stream with autoscroll, and live telemetry), and CSS ``:has`` for
+the paid checkbox. The telemetry script builds rows with ``textContent`` only, never markup.
 """
 
 from __future__ import annotations
@@ -124,6 +125,60 @@ _LIVE_SCRIPT = """
   });
 })();
 """
+
+
+# Live model calls (unit 6 Task 6): rows from /runs/<id>/telemetry, newest KEEP kept in the DOM.
+_TELEMETRY_SCRIPT = """
+(() => {
+  const box = document.getElementById("telemetry");
+  const body = box.querySelector("tbody");
+  const note = document.getElementById("calls-note");
+  const KEEP = 500;
+  let total = 0;
+  const unk = (v) => (v === null || v === undefined ? "unknown" : String(v));
+  const es = new EventSource(box.dataset.telemetry);
+  es.addEventListener("reset", () => {
+    body.replaceChildren();
+    total = 0;
+    note.textContent = "";
+  });
+  es.addEventListener("call", (e) => {
+    const c = JSON.parse(e.data);
+    total += 1;
+    const tr = document.createElement("tr");
+    const ms = c.duration_ms === null ? null : `${c.duration_ms} ms`;
+    const cells = [c.service, c.model, c.input_tokens, c.output_tokens, c.cache, ms,
+      c.error === null ? "ok" : c.error];
+    for (const v of cells) {
+      const td = document.createElement("td");
+      td.textContent = unk(v);
+      tr.append(td);
+    }
+    if (c.error !== null) tr.className = "fail";
+    body.append(tr);
+    while (body.rows.length > KEEP) body.deleteRow(0);
+    note.textContent = total > KEEP ? `showing the newest ${KEEP} of ${total} model calls` : "";
+  });
+  es.addEventListener("counts", (e) => {
+    const c = JSON.parse(e.data);
+    for (const el of box.querySelectorAll("[data-k]")) el.textContent = unk(c[el.dataset.k]);
+  });
+  es.addEventListener("end", () => es.close());
+})();
+"""
+_COUNTERS = (
+    ("calls", "model calls"),
+    ("input_tokens", "input tokens"),
+    ("output_tokens", "output tokens"),
+    ("cache_hits", "cache hits"),
+    ("errors", "failed calls"),
+    ("cost_usd", "cost (USD)"),
+    ("events", "SDK events"),
+    ("spans", "spans received"),
+    ("unreadable", "unreadable lines"),
+    ("over_cap", "lines over the cap"),
+)
+_CALL_COLUMNS = ("service", "model", "in", "out", "cache", "duration", "status")
 
 
 def _e(value: object) -> str:
@@ -371,6 +426,25 @@ def _log_block(run: Run) -> str:
     return f'{dropped}<pre id="log">{_e(text)}</pre>'
 
 
+def _live_telemetry(run: Run) -> str:
+    """While the run executes: its model calls and running totals, streamed (unit 6 Task 6)."""
+    if run.returncode is not None:
+        return ""
+    counters = " · ".join(
+        f"{_e(label)} <b class='mono' data-k=\"{_e(key)}\">0</b>" for key, label in _COUNTERS
+    )
+    head = "".join(f"<th>{_e(c)}</th>" for c in _CALL_COLUMNS)
+    return (
+        f'<section id="telemetry" data-telemetry="/runs/{_e(run.id)}/telemetry">'
+        "<h2>Live telemetry</h2>"
+        f"<p id='counters'>{counters}</p>"
+        "<p class='note'>Model calls as the engine exports their spans; unknown values say "
+        "unknown, never 0. The full picture is in each bundle's Telemetry section.</p>"
+        f"<table id='calls'><thead><tr>{head}</tr></thead><tbody></tbody></table>"
+        f"<p class='note' id='calls-note'></p><script>{_TELEMETRY_SCRIPT}</script></section>"
+    )
+
+
 def _run_bundles(run_id: str, bundles: Sequence[BundleSummary], token: str | None) -> str:
     if not bundles:
         return f"<p class='muted'>No bundles under <code>runs/{_e(run_id)}/</code>.</p>"
@@ -405,7 +479,8 @@ def run_page(
     notebooks = ", ".join(run.request.notebooks) or "all"
     finished = (
         f"<section><h2>Bundles written by this run</h2>{_run_bundles(run.id, bundles, token)}"
-        "</section>"
+        "<p class='note'>Each bundle's Telemetry section holds the run's spans, usage, logs "
+        "and cases.</p></section>"
         if run.returncode is not None
         else ""
     )
@@ -415,7 +490,7 @@ def run_page(
         f"<p>Target <b>{_e(run.request.target)}</b> · notebooks {_e(notebooks)} · output "
         f"<code>{_e(run.out_dir)}</code></p>{_cancel_form(run, token)}"
         f"{_stop_note(run, stop_command)}</section>"
-        f"{finished}<section><h2>Output</h2>{_log_block(run)}</section>"
+        f"{finished}{_live_telemetry(run)}<section><h2>Output</h2>{_log_block(run)}</section>"
     )
     return layout(f"run {run.id}", body, token=token)
 
