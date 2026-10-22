@@ -104,7 +104,7 @@ def test_only_rows_with_an_equivalence_proof_set_a_published_revision() -> None:
         "ifeval": "1cba769ece27f7ef",
         # OME-1701 (owner decision, 2026-10-22: revisions are frozen): grading fixes adopted
         # from inspect_evals that keep every Case; each computed fingerprint is pinned in
-        # test_held_revisions.py.
+        # test_benchmark_fingerprints.py.
         "paws": "8f4e0e9c0864a6e7",
         "boolq": "00d4443ca7e66d43",
     }

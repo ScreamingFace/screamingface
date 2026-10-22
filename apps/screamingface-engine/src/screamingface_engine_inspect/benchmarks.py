@@ -623,7 +623,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Published revision held (owner decision, 2026-10-22: published revisions are
         # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
         # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
-        # pinned in tests/unit/inspect/test_held_revisions.py.
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
         published_revision="8f4e0e9c0864a6e7",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.
@@ -695,7 +695,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Published revision held (owner decision, 2026-10-22: published revisions are
         # frozen): the grading fix above keeps every Case, and the leaderboard had no entry or
         # baseline on this Benchmark (checked 2026-10-22). The fingerprint the fix moved is
-        # pinned in tests/unit/inspect/test_held_revisions.py.
+        # pinned in tests/unit/inspect/test_benchmark_fingerprints.py.
         published_revision="00d4443ca7e66d43",
         # Benchmark Provenance (OME-1455): eval.yaml, arXiv and the Hub card via the
         # importer; the rest by hand, sources in the PR 3 table.

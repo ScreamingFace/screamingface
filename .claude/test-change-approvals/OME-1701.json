@@ -8,7 +8,7 @@
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
       "base_blob": "0642ef48a18d86cea3a577973e2ceb5f354ff565",
-      "approved_blob": "997decb701eca0ec21d1718e1fc1d169bf52f374"
+      "approved_blob": "2a02afdf03e1c7ae0e7b9f9a2cafe972e26a176a"
     }
   }
 }

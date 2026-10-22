@@ -24,7 +24,8 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
 - 2026-10-22: owner decision, hold 8 / move 3. Published revisions are frozen (grant
   researchers key on them), so the eight rows whose fix changes only the grading (paws, boolq,
   chembench, infinite_bench_math_find, math, aime24, aime25, aime26) keep main's revision through
-  `published_revision`, and `test_held_revisions.py` pins the fingerprint each fix moved. The
+  `published_revision`, and `test_benchmark_fingerprints.py` pins the fingerprint each fix
+  moved (the first rows of the file OME-1610 plans for every Benchmark row). The
   three rows whose Cases change (worldsense, stereoset, onet_m6) publish their new revision. The
   leaderboard had no entry or baseline on any of the eleven (checked 2026-10-22).
 
@@ -42,7 +43,7 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   honest descriptions; NAMED DEVIATION comments citing inspect_evals PR #2334 (merged).
 - `.../named_deviations/` (new): the package docstring, and `yes_no/` with the two scorers.
 - tests: `test_named_deviation_yes_no.py`, `test_scorer_source_pins.py` and
-  `test_held_revisions.py` (new); `test_published_revision.py`'s hand-set list adds paws and
+  `test_benchmark_fingerprints.py` (new); `test_published_revision.py`'s hand-set list adds paws and
   boolq.
 
 ### Test plan
@@ -66,6 +67,6 @@ ledger carries the sections of the PRs up to its own; PR 7's is the whole.
   are not a revision input).
 - **Revisions:** held (owner decision, 2026-10-22): paws publishes 8f4e0e9c0864a6e7 and boolq
   00d4443ca7e66d43, as on main; their computed fingerprints moved to ab44cff9bea304ca and
-  b4a47768ef2ebf95, pinned in `test_held_revisions.py`. Every one of the 85 imported revisions
+  b4a47768ef2ebf95, pinned in `test_benchmark_fingerprints.py`. Every one of the 85 imported revisions
   computed before and after: none publishes a new revision.
-- **Gates:** relevant tests only (owner rule): `test_named_deviation_yes_no.py` and `test_scorer_source_pins.py` (new), `test_held_revisions.py` (new), `test_published_revision.py` (edited), `test_published_revisions.py`, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 702 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 10 inspect-only skip). Mutation: one byte added to `yes_no.py` fails both held pins and leaves every published literal passing. ruff check + format and pyright (extra-less) clean on every touched file.
+- **Gates:** relevant tests only (owner rule): `test_named_deviation_yes_no.py` and `test_scorer_source_pins.py` (new), `test_benchmark_fingerprints.py` (new), `test_published_revision.py` (edited), `test_published_revisions.py`, and the row sweeps (failure-policy rows and revisions, benchmark declaration, imported benchmarks): 702 passed, 0 skipped with the inspect extra; 23 passed extra-less (the 10 inspect-only skip). Mutation: one byte added to `yes_no.py` fails both held pins and leaves every published literal passing. ruff check + format and pyright (extra-less) clean on every touched file.
