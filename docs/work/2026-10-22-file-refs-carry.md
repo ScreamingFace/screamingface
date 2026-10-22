@@ -42,8 +42,24 @@ Spec: #1450 `docs/spec/2026-10-16-OME-1535-file-input-execution.md` (F1/F1b/F2/F
 
 ## Outcome (fill at the end — required before COMMIT)
 
-Status: **partial — U1, U2, U3 (1–15 + item 9), U4, U5, U6 docs done; U3b and the U6 root
-export held for owner decisions** (below). No PR (owner: not until #1450 and #1482 merge).
+Status: **done for url4 sub-issue A — U1–U6 incl. U3b and the U6 root export** after the owner
+decisions Q-A..Q-D (Linear `OME-1543` comment "Owner decisions (Sergey, 2026-10-22)"). No PR
+(owner: not until #1450 and #1482 merge).
+
+### Owner decisions applied (2026-10-22)
+
+- **Q-A:** no change. A blob bound by name (`x=…`) and read only as `$x*(…)` stays attached
+  (the binding is a contributing source, spec F2); `test_bound_blob_in_collection_position_is_read_as_text`
+  already pins it.
+- **Q-B (U3b):** `https://` sources stay lazy. `WebFetchNode` (scalar position, inside a run)
+  re-fetches a body the text path refused as not-text through `fetch_bytes`, hashes it into the
+  run cache (by URL and digest) and fills its source-position slot (`RunFiles.slots`, built by
+  `scan_sources` at run start); dedup by digest with blob refs and Case parts; payload = URL text.
+  Text bodies, `;optional`, and `x.source_*` refusals (text or bytes fetch) are unchanged.
+  Collection position (and outside a run) keeps `unsupported_content_type`. Commit `5ee0debb1`.
+- **Q-C (U6):** `url4.Attachment` and `url4.current_attachments` exported; EXPORTS ratchet
+  59 → 61 pinned in `.claude/test-change-approvals/OME-1543.json`. Commit `be0eb4daf`.
+- **Q-D:** `run(attachments=…)` kept as the engine's injection point; no url4 change.
 
 - **Actual files:** as planned, except `url4/__init__.py` (U6 export held) and
   `peer/_http.py` (added: the HTTP ingress detaches the run binding). Collector and
@@ -68,6 +84,15 @@ export held for owner decisions** (below). No PR (owner: not until #1450 and #14
      `x=<blob>` binding is a contributing source (ABNF, `OME-534`), so under "a `src=` value
      in the AST is an attachment" it IS attached. Owner question Q-A below.
   5. U4 golden was recorded by running the DAG on the #1482 base in a scratch worktree.
+  7. U3b fetches a non-text `https://` body twice (text path refuses, then `fetch_bytes`): the
+     engine may not import `io.media.is_text_media_type` (layering), and routing text bodies
+     through the bytes path would risk changing their decoding. Only binaries, which failed
+     before, pay the second GET.
+  8. U3b is lazy (Q-B), so an `https://` attachment is visible to the calls that run after its
+     fetch (every call that reads the source), not to an unrelated sibling that ran earlier.
+     Concurrent first reads of one URL are not single-flighted (plan U3b test 5 is cache-hit
+     only); persisting the bytes to the engine's tenant+run store stays engine work (Q7).
+  9. The approval pin names branch `file-refs-carry`; it must be updated at the PR-open rename.
   6. U5 adds `detached_run_files()` at the HTTP ingress: an in-process ASGI transport shares
      the caller's context, so without it a served request would see the caller's files.
 - **Open for the owner:**

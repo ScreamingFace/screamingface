@@ -149,7 +149,10 @@ extra (`url4[streaming]`) because it is pydantic models.
   reads the same tuple (`current_attachments()`, `Request.attachments`); nodes
   cannot add, drop or reorder it, `Payload` stays `str`, and nothing scans a
   payload for ref-shaped text. An HTTP ingress detaches it, so attachments are
-  never shipped to a remote node.
+  never shipped to a remote node. The one late entry: an `http(s)://` source
+  stays lazy, and when its body is not text `WebFetchNode` hashes it into the run
+  cache and fills its source-position slot (`dag/nodes/web_attach.py`, Q-B); a
+  text body is unchanged and never attached.
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 
