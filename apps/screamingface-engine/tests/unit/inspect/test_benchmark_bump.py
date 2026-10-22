@@ -91,6 +91,30 @@ def test_medxpert_points_at_its_own_definition(capsys: pytest.CaptureFixture[str
     assert "medxpert/definition.py" in out
 
 
+def test_a_medxpert_move_names_its_own_pins(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """medxpert has no row in test_published_revisions.py (that test reads catalogue rows
+    only): its published id is pinned by its migration golden and the early-grade fixture's
+    routes, so a move checklist naming the catalogue file would send the developer to the
+    wrong test."""
+
+    from screamingface_engine.benchmarks.medxpert import definition
+
+    # WHY a made-up fingerprint: medxpert computes the id it publishes today, and only a
+    # moved fingerprint prints the move checklist.
+    monkeypatch.setattr(definition, "FINGERPRINT", "fedcba9876543210")
+
+    status: int = _bump().main(["medxpert"])
+
+    out: str = capsys.readouterr().out
+    assert status == 0
+    assert 'REVISION = "1e5a3b8a461a52f7"  ->  REVISION = "fedcba9876543210"' in out
+    assert "test_medxpert_migration_golden.py" in out
+    assert "early_grade_compatibility.json" in out
+    assert "test_published_revisions.py" not in out
+
+
 def test_an_unknown_key_is_refused(capsys: pytest.CaptureFixture[str]) -> None:
     """A typo must not print a checklist for nothing; the error names the key."""
 

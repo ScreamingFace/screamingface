@@ -345,7 +345,7 @@ Every Benchmark therefore carries two ids:
 |---|---|---|
 | What it is | the id in the Benchmark's routes and `Benchmark.revision`; results key on it | the hash of everything that defines the Benchmark: the Case Digest, the scorer's source, the judge and its params, the pinned packages, the protocol constants |
 | Set by | hand: `published_revision=` on the row (medxpert: `REVISION` in its `definition.py`) | computed at assembly; never published |
-| Pinned in | `tests/unit/inspect/test_published_revisions.py` | `tests/unit/inspect/test_benchmark_fingerprints.py` |
+| Pinned in | `tests/unit/inspect/test_published_revisions.py` (medxpert: `tests/unit/test_medxpert_migration_golden.py` and the routes in `tests/fixtures/early_grade_compatibility.json`) | `tests/unit/inspect/test_benchmark_fingerprints.py` |
 | Moves when | a deliberate bump, signed off by the owner | any input changes, a pure code move included |
 
 ```mermaid
@@ -360,11 +360,11 @@ flowchart TB
     k1 ~~~ k2 ~~~ k3 ~~~ k4
   end
   KEY ~~~ s1
-  s1["🤖 A change to the Benchmark's inputs turns its fingerprint test red<br/>e.g. paws: fingerprint 8f4e0e9c… → ab44cff9…"]
+  s1["🤖 A change to the Benchmark's inputs turns its fingerprint test red<br/>e.g. paws: fingerprint 8f4e0e9c… → 992540ea…"]
   s2["👤 Did the Case set change?<br/>a refactor, a code move, a grading fix adopted from inspect_evals or a package bump keeps the same Cases"]
   s3["✅ Same Cases: update only the fingerprint literal<br/>e.g. paws keeps publishing 8f4e0e9c…; every result stays visible"]
   s4["👤 Changed Cases or a new Benchmark: run the bump command and get the owner's sign-off<br/>just engine benchmark-bump worldsense"]
-  s5["⚠️ Edit the three lines it prints, add a CHANGELOG line, post to the team<br/>old results stop showing; submissions under the old id are outdated"]
+  s5["⚠️ Edit the lines it prints, add a CHANGELOG line, post to the team<br/>old results stop showing; submissions under the old id are outdated"]
   s1 -- "the developer reads the test message" --> s2
   s2 -- "same Cases" --> s3
   s2 -- "fundamental change" --> s4
@@ -393,15 +393,13 @@ months). Everything else holds the id:
   Case sets changed.
 
 `just engine benchmark-bump <key>` (from the repo root) prints the WARNING, both ids and every
-line to edit for both paths. It never edits a file: the move is a hand edit in a reviewed PR. It
-installs the Engine's `inspect` extra into `.venv`, so run `uv sync` in `apps/screamingface-engine`
-before you push; otherwise the pre-push hook's two import-cost tests fail (CI runs without the
-extra). A move ships with:
+line to edit for both paths. It never edits a file: the move is a hand edit in a reviewed PR. A
+move ships with:
 
 1. The owner's sign-off, named in the PR body.
 2. The new id in the row's `published_revision` (medxpert: `REVISION`), in
-   `test_published_revisions.py` with a comment naming the old id and why, and in
-   `test_benchmark_fingerprints.py`.
+   `test_published_revisions.py` with a comment naming the old id and why (medxpert: its
+   migration golden and the early-grade fixture), and in `test_benchmark_fingerprints.py`.
 3. A line in the Engine's `CHANGELOG.md` naming the Benchmark, the old and new id, and why.
 4. A post to the team, so the people using the Benchmark hear it from us first.
 

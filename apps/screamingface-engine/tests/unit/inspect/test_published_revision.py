@@ -105,7 +105,15 @@ def test_a_copied_row_that_kept_the_donors_key_and_id_is_refused() -> None:
     tell the two apart; their fingerprints differ, so assembly refuses the second one instead of
     serving the donor's routes for the wrong exam."""
 
-    _assemble("published-copied", "exam=donor", _OLD)
+    donor: ImportedBenchmark = _assemble("published-copied", "exam=donor", _OLD)
+    # WHY a second key: it computes the copy's fingerprint without tripping the refusal.
+    copy: ImportedBenchmark = _assemble("published-copied-elsewhere", "exam=copy", _OLD)
 
-    with pytest.raises(ValueError, match="duplicate benchmark_key"):
+    with pytest.raises(ValueError, match="duplicate benchmark_key") as refused:
         _assemble("published-copied", "exam=copy", _OLD)
+
+    # The two published ids match, so the message must show the fingerprints that differ;
+    # "a different revision" alone would contradict the two identical ids beside it.
+    message: str = str(refused.value)
+    assert _OLD in message
+    assert donor.fingerprint in message and copy.fingerprint in message

@@ -677,8 +677,9 @@ def single_shot_benchmark(
         existing.benchmark.revision != revision or existing.fingerprint != fingerprint
     ):
         raise ValueError(
-            f"benchmark id {benchmark_id!r} is already assembled with a different "
-            f"revision — duplicate benchmark_key?"
+            f"benchmark id {benchmark_id!r} is already assembled from different inputs "
+            f"(published {existing.benchmark.revision} vs {revision}, fingerprint "
+            f"{existing.fingerprint} vs {fingerprint}) — duplicate benchmark_key?"
         )
     _BENCHMARKS_BY_ID[benchmark_id] = imported
     return imported

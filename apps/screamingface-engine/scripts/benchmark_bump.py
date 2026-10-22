@@ -1,7 +1,7 @@
 """OME-1610: print what moving a Benchmark's published revision costs, and the lines to edit.
 
     just engine benchmark-bump <key>                                # from the repo root
-    uv run --inexact --extra inspect python scripts/benchmark_bump.py <key>   # from the Engine
+    uv run --isolated --extra inspect python scripts/benchmark_bump.py <key>  # from the Engine
 
 Think of it as the form a developer reads before signing: it shows the id the Benchmark
 publishes, the fingerprint its inputs compute now, the WARNING (a move hides every leaderboard
@@ -24,6 +24,10 @@ _ENGINE: str = "apps/screamingface-engine"
 _ROWS: str = f"{_ENGINE}/src/screamingface_engine_inspect/benchmarks.py"
 _MEDXPERT: str = f"{_ENGINE}/src/screamingface_engine/benchmarks/medxpert/definition.py"
 _PUBLISHED_PINS: str = f"{_ENGINE}/tests/unit/inspect/test_published_revisions.py"
+_MEDXPERT_GOLDEN: str = f"{_ENGINE}/tests/unit/test_medxpert_migration_golden.py"
+_EARLY_GRADE_FIXTURE: str = f"{_ENGINE}/tests/fixtures/early_grade_compatibility.json"
+_FIXTURE_EDIT: str = 'every {old} becomes {new}: medxpert\'s "revision" and each of its routes'
+_ROW_PIN_EDIT: str = '"{key}": "{{new}}",  with a comment naming the old id {{old}} and why'
 _FINGERPRINT_PINS: str = f"{_ENGINE}/tests/unit/inspect/test_benchmark_fingerprints.py"
 _CHANGELOG: str = f"{_ENGINE}/CHANGELOG.md"
 _EXIT_UNKNOWN_KEY: int = 2
@@ -41,6 +45,10 @@ class _Ids(NamedTuple):
     #: Where the published id is written, and the line as it reads there.
     home: str
     line: str
+    #: Where the published id is pinned in tests: (file, the edit with {old} and {new}).
+    #: WHY per Benchmark: test_published_revisions.py reads catalogue rows only, so medxpert's
+    #: id is pinned by its migration golden and the early-grade fixture instead.
+    published_pins: tuple[tuple[str, str], ...]
     #: False for a new row that sets no ``published_revision`` yet: it serves its fingerprint.
     hand_set: bool = True
 
@@ -51,7 +59,16 @@ def _ids(key: str) -> _Ids:
     if key == MEDXPERT_KEY:
         from screamingface_engine.benchmarks.medxpert import definition
 
-        return _Ids(definition.REVISION, definition.FINGERPRINT, _MEDXPERT, 'REVISION = "{}"')
+        return _Ids(
+            definition.REVISION,
+            definition.FINGERPRINT,
+            _MEDXPERT,
+            'REVISION = "{}"',
+            (
+                (_MEDXPERT_GOLDEN, '_GOLDEN_REVISION = "{new}"'),
+                (_EARLY_GRADE_FIXTURE, _FIXTURE_EDIT),
+            ),
+        )
 
     from screamingface_engine_inspect import benchmarks
 
@@ -62,6 +79,7 @@ def _ids(key: str) -> _Ids:
         imported.fingerprint,
         f"{_ROWS}, the {key} row",
         'published_revision="{}"',
+        ((_PUBLISHED_PINS, _ROW_PIN_EDIT.format(key=key)),),
         hand_set=spec.published_revision is not None,
     )
 
@@ -86,6 +104,19 @@ def _report(key: str, ids: _Ids) -> str:
         )
     old_line: str = ids.line.format(ids.published)
     new_line: str = ids.line.format(ids.fingerprint)
+    # The numbered move checklist: the id's home, then each place a test pins it, then the
+    # fingerprint, the CHANGELOG and the team; numbered here because medxpert has two pins.
+    steps: list[str] = [f"{ids.home}:\n      {old_line}  ->  {new_line}"]
+    steps += [
+        f"{path}:\n      {edit.format(old=ids.published, new=ids.fingerprint)}"
+        for path, edit in ids.published_pins
+    ]
+    steps += [
+        f'{_FINGERPRINT_PINS}:\n      "{key}": "{ids.fingerprint}",',
+        f"{_CHANGELOG}: one line naming {key}, the old and new id, and why it moved.",
+        "Tell the team (a post in the team channel) and name who signed off in the PR body.",
+    ]
+    checklist: str = "".join(f"  {number}. {step}\n" for number, step in enumerate(steps, 1))
     return f"""\
 WARNING: moving {key}'s published revision hides every leaderboard result under
 {ids.published} and marks every submission to it outdated.
@@ -102,15 +133,7 @@ Same Cases? Keep the id. Edit only:
       "{key}": "{ids.fingerprint}",
 
 Fundamental change, and the owner signed off? Edit by hand, in one PR:
-  1. {ids.home}:
-      {old_line}  ->  {new_line}
-  2. {_PUBLISHED_PINS}:
-      "{key}": "{ids.fingerprint}",  with a comment naming the old id {ids.published} and why
-  3. {_FINGERPRINT_PINS}:
-      "{key}": "{ids.fingerprint}",
-  4. {_CHANGELOG}: one line naming {key}, the old and new id, and why it moved.
-  5. Tell the team (a post in the team channel) and name who signed off in the PR body.
-"""
+{checklist}"""
 
 
 def main(argv: Sequence[str]) -> int:
