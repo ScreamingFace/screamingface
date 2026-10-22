@@ -18,6 +18,7 @@ a page that did not are still valid entries, and loading them again adds nothing
 
 from __future__ import annotations
 
+import json
 import time
 import warnings
 from collections.abc import Callable, Hashable, Iterator, Sequence
@@ -46,6 +47,16 @@ _BACKOFF_S: Final = (2.0, 4.0, 8.0)
 # silent that long. A longer hint waits the cap; a limit that outlasts every attempt stops the
 # pull with "call again", which continues from the last loaded page.
 _RETRY_AFTER_CAP_S: Final = 60.0
+
+
+def _row_identity(row: dict[str, Any]) -> Hashable:
+    """What a row is counted as: its key, or the row itself when it has no usable key."""
+    key = row.get("key_hash")
+    if isinstance(key, str) and key:
+        return key
+    # WHY the whole row: a malformed row (skipped as unservable) still counts as read, once
+    # across a page's retries, and its key may be anything JSON holds, hashable or not.
+    return ("row", json.dumps(row, sort_keys=True, default=repr))
 
 
 class PageSource(Protocol):
@@ -309,9 +320,9 @@ class _Loop:
             added, skips = self._destination.load(batch, self.result(complete=False))
             self._cursor.rows_added += added
             skipped[0] += skips
-            # WHY `or object()`: a row with no key (skipped as unservable) still counts as read.
-            self._page_rows.update(row.get("key_hash") or object() for row in batch)
-            last[0] = batch[-1].get("key_hash") if batch else None
+            self._page_rows.update(map(_row_identity, batch))
+            key = batch[-1].get("key_hash") if batch else None
+            last[0] = key if isinstance(key, str) else None
             self._report.update(self.snapshot(extra_rows=len(self._page_rows)))
 
         with self._source.open(after=self._cursor.after, count=count) as (lines, received):

@@ -95,9 +95,17 @@ def _body(response: httpx.Response, piece: int = _DECODED_PIECE) -> Iterator[byt
     """The response's decoded body, at most `piece` at a time."""
     # WHY: a body httpx already read (a buffered response) is decoded already.
     if response.is_stream_consumed:
-        return iter([response.content])
+        return _sliced([response.content], piece)
     gzip = response.headers.get("content-encoding", "").strip().casefold() == "gzip"
     return _decompressed(response.iter_raw(), gzip=gzip, piece=piece)
+
+
+def _sliced(chunks: Iterable[bytes], piece: int) -> Iterator[bytes]:
+    # WHY: a raw chunk is as large as the transport made it, and the line and refusal caps hold
+    # only while no piece is larger than `piece`.
+    for chunk in chunks:
+        for start in range(0, len(chunk), piece):
+            yield chunk[start : start + piece]
 
 
 def _decompressed(
@@ -107,7 +115,7 @@ def _decompressed(
     import httpx
 
     if not gzip:
-        yield from chunks
+        yield from _sliced(chunks, piece)
         return
     decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
     try:

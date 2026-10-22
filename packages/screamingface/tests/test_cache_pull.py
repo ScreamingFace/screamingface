@@ -603,3 +603,36 @@ def test_a_page_that_changed_before_its_successful_retry_counts_both_attempts_ro
     result = _run(source, _Gateway())
 
     assert (result.rows_read, result.rows_added) == (3, 3)
+
+
+# --- PR #1446 review round 5: rows without a usable key -------------------------------------------
+
+
+class _SkipsKeyless(_Gateway):
+    """Skips a row whose key is not a string, as the local gateway skips an unservable row."""
+
+    def load(self, rows: Any, result: PullResult) -> tuple[int, int]:
+        keyed = [row for row in rows if isinstance(row.get("key_hash"), str)]
+        added, skips = super().load(keyed, result)
+        return added, skips + len(rows) - len(keyed)
+
+
+def _rows_page(rows: list[dict[str, object]], *, trailer: bool = True) -> list[str]:
+    lines = [json.dumps({"schema": PAGE_SCHEMA, "revisions": _REVISIONS})]
+    lines += [json.dumps(row) for row in rows]
+    return [*lines, json.dumps({"next": None})] if trailer else lines
+
+
+def test_a_keyless_row_read_again_by_a_retry_counts_once() -> None:
+    cut, whole = _rows_page([{}], trailer=False), _rows_page([{}])
+
+    result = _run(_Source({None: [cut, whole]}), _SkipsKeyless())
+
+    assert (result.rows_read, result.rows_skipped) == (1, 1)
+
+
+def test_a_row_whose_key_is_not_a_string_is_counted_without_failing() -> None:
+    result = _run(_Source({None: [_rows_page([{"key_hash": ["bad"]}])]}), _SkipsKeyless())
+
+    assert result.complete
+    assert (result.rows_read, result.rows_skipped) == (1, 1)

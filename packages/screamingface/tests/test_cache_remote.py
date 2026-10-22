@@ -341,3 +341,38 @@ def test_a_gzip_refusal_decodes_only_its_bounded_prefix(monkeypatch: pytest.Monk
         pass
 
     assert sum(decoded) <= remote._PROBLEM_MAX_BYTES
+
+
+# --- PR #1446 review round 5: identity bodies bounded too -----------------------------------------
+
+
+def test_an_identity_body_is_read_in_bounded_pieces_however_large_its_chunks() -> None:
+    from screamingface._cache import remote
+
+    response = httpx.Response(200, stream=_Chunks([b"x" * 1_000_000]))
+    pieces = list(remote._body(response, 65_536))
+
+    assert b"".join(pieces) == b"x" * 1_000_000
+    assert max(map(len, pieces)) <= 65_536
+
+
+def test_an_identity_refusal_keeps_only_its_bounded_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from screamingface._cache import remote
+
+    decoded: list[int] = []
+    real = remote._decompressed
+
+    def counting(*args, **kwargs):
+        for piece in real(*args, **kwargs):
+            decoded.append(len(piece))
+            yield piece
+
+    monkeypatch.setattr(remote, "_decompressed", counting)
+
+    with (
+        pytest.raises(PlanningError),
+        _serving(_Chunks([b"x" * 1_000_000]), 422).open(after=None, count=False),
+    ):
+        pass
+
+    assert sum(decoded) <= remote._PROBLEM_MAX_BYTES

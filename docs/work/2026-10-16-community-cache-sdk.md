@@ -308,3 +308,17 @@ path — once per call, error path only, or the same per-row work — and no per
   with different rows count 4 read and 4 added; a page that changed before its successful retry
   counts both attempts' rows. Focused suites, ruff and pyright run; full local gates skipped by
   the owner's call; GitHub CI is the gate.
+
+## Review round 5 (PR #1446 re-review by HupBaHa at `b04d28aa5`, 2026-10-22)
+
+1. **Identity bodies bounded too:** an uncompressed page or refusal body (and a body httpx already
+   read) is cut into pieces of at most 1 MiB (64 KiB for a refusal), as the gzip path is, so the
+   line cap and the refusal prefix hold however large the transport's chunks.
+2. **Rows without a usable key:** a row is counted by its key when that is a non-empty string, and
+   otherwise by its canonical JSON, so a keyless row read again by a retry counts once and a
+   non-hashable key no longer raises after the destination skipped the row. The resume key is
+   taken only from a string key.
+- **Tests:** a 1,000,000-byte identity chunk read in 64 KiB pieces; an identity refusal keeps at
+  most 64 KiB; a keyless row across a cut attempt and its retry counts one read, one skipped; a
+  list key completes with one read, one skipped. Focused suites, ruff and pyright run; full local
+  gates skipped by the owner's call; GitHub CI is the gate.
