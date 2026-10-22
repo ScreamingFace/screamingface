@@ -9,10 +9,12 @@ created: 2026-10-22
 closed:
 ---
 
-# Correct GLM-5.3 openness classification
+# Recognize verified open-weight releases and correct hosted Qwen labels
 
-Recognize verified GLM-5.3 weights and all-open ensembles while retaining
-conservative handling of unverified routes. Existing bug; no new issue required.
+Recognize 99 verified model routes across 32 owners, including documented GLM
+serving aliases. Correct two unverified hosted Qwen routes that inherit open status.
+Preserve ensemble rules, overrides, diagnostics, and read-time frontier behavior.
+Draft PR: https://github.com/ScreamingFace/screamingface/pull/1534
 
 - [Spec](../spec/2026-10-22-glm-openness.md)
 - [Plan](../plan/2026-10-22-glm-openness.md)

@@ -34,8 +34,8 @@ def test_verified_glm_weights_are_open(route: str) -> None:
 @pytest.mark.parametrize(
     "route",
     [
-        "openrouter/z-ai/glm-5.3-prime",
-        "openrouter/z-ai/glm-5.3-flash",
+        "openrouter/z-ai/glm-5.4-prime",
+        "openrouter/z-ai/glm-5.4-flash",
         "openrouter/z-ai/glm-5.30",
         "openrouter/z-ai/glm-5.4",
         "openrouter/z-ai/not-glm-5.3",
