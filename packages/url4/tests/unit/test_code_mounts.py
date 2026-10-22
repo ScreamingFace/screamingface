@@ -197,3 +197,13 @@ def test_code_refuses_an_invalid_or_taken_name(name: str) -> None:
     node.code("score_v1")(_combine)
     with pytest.raises(ValueError):
         node.code(name)
+
+
+def test_has_data_names_only_registered_data_routes() -> None:
+    # STORY: an installer that runs once per run in local mode skips a data route it already
+    # registered, without reaching into the node's private tables.
+    node = _populated_node()
+    assert node.has_data("/rows")
+    assert not node.has_data("/ep")
+    assert not node.has_data("/cm")
+    assert not node.has_data("/unknown")

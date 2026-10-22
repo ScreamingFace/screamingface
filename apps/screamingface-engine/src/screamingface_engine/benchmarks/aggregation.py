@@ -200,6 +200,12 @@ def public_error(
     """Retain useful error fields without publishing runner internals or credentials."""
 
     kind = public_identifier(error.get("kind"))
+    # WHY the cause first: a failed code step is url4's `intent_error` (Spec C §13.6); the
+    # code its handler raised — and its retryability — ride in `cause`, and they are what
+    # the Benchmark declared (spec 2026-10-20, owner decision on error codes).
+    cause = error.get("cause")
+    if isinstance(cause, Mapping) and public_identifier(cause.get("code")):
+        error = {**error, "code": cause.get("code"), "retryable": cause.get("retryable")}
     code = public_identifier(error.get("code")) or default_code
     message = public_message(error.get("message"), default=default_message)
     retryable = error.get("retryable")

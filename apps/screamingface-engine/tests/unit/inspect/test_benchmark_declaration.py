@@ -14,7 +14,7 @@ from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
-    candidate,
+    candidate_invocation,
 )
 
 DECLARATION = BenchmarkDeclaration(
@@ -31,7 +31,7 @@ def _benchmark_values() -> dict[str, object]:
         "description": "One non-comparable structural probe.",
         "revision": "example-smoke-v1",
         "case_count": 3,
-        "build": lambda selected: candidate(
+        "build": lambda selected: candidate_invocation(
             f"Explain why the sky looks blue. Selected cases: {selected}.",
             web_search=False,
         ),

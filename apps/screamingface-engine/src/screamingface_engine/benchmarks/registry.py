@@ -57,7 +57,13 @@ class BenchmarkRegistry:
             # Rendering at installation catches malformed hand-built ASTs before discovery can
             # publish an expression that the Runner cannot execute.
             render(protocol)
-            missing = sorted(relative_route_paths(protocol, as_executed=False) - declared)
+            # WHY code apart from routes: a code pointer (spec R1) runs in process and is never
+            # served over HTTP, so it is not a served route — but it must be mounted.
+            missing = sorted(
+                path
+                for path in relative_route_paths(protocol, as_executed=False) - declared
+                if not node.has_code(path)
+            )
             if missing:
                 raise ValueError(
                     f"Benchmark {benchmark.id!r} references uninstalled endpoint(s) {missing}"

@@ -18,7 +18,7 @@ from screamingface_engine.benchmarks import (
     Benchmark,
     BenchmarkDeclaration,
     BenchmarkRegistry,
-    candidate,
+    candidate_invocation,
 )
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS, BUILTIN_REGISTRATIONS
 from screamingface_engine.benchmarks.definition import BenchmarkOrigin
@@ -37,7 +37,7 @@ def _benchmark(
         description="One non-comparable structural probe.",
         revision="example-smoke-v1",
         case_count=3,
-        build=lambda selected: candidate(
+        build=lambda selected: candidate_invocation(
             f"Explain why the sky looks blue. Selected cases: {selected}.",
             web_search=False,
         ),

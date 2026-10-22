@@ -40,16 +40,27 @@ async def test_grader_crash_fails_real_execution(tmp_path, monkeypatch, error):
 @pytest.mark.asyncio
 async def test_case_endpoint_preserves_cancellation():
     from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
-        case_result_endpoint,
+        case_result_code,
     )
-    from url4.peer.server import Request
+    from url4 import CodeCall, CodeInput
+    from url4.core.code import call_handler
 
     def cancel(count):
         raise asyncio.CancelledError()
 
-    handler = case_result_endpoint(cancel, available_case_count=1)
+    # WHY the code handler (spec R1): case-result is a code mount reading named sources.
+    handler = case_result_code(cancel, available_case_count=1)
+    call = CodeCall(
+        "/case-result",
+        {},
+        (
+            CodeInput(1, "execution", "{}", 0.0),
+            CodeInput(2, "case_index", "0", 0.0),
+            CodeInput(3, "case_count", "1", 0.0),
+        ),
+    )
     with pytest.raises(asyncio.CancelledError):
-        await handler(Request(path="/case-result", params={}, context="{}", intent="0:1"))
+        await call_handler(handler, call)
 
 
 @pytest.mark.asyncio
@@ -59,10 +70,11 @@ async def test_corrupt_final_grade_is_contract_error():
     from screamingface_engine.benchmarks.aggregation import CandidateScore
     from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
     from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
-        aggregate_result_endpoint,
+        graded_result_code,
     )
+    from url4 import CodeCall, CodeInput
+    from url4.core.code import call_handler
     from url4.core.errors import ResolutionError
-    from url4.peer.server import Request
 
     scoring = Scoring(
         _path(_Hook()),
@@ -73,14 +85,18 @@ async def test_corrupt_final_grade_is_contract_error():
         lambda cases: CandidateScore(score=0.0, metrics={}),
     )
 
-    handler = aggregate_result_endpoint(
-        label="test", available_case_count=1, load=lambda count: scoring
+    # WHY the handler directly: through a node, url4 wraps any failing code call as
+    # `intent_error` (Spec C §13.6); the Engine's own code is what this pins.
+    handler = graded_result_code(label="test", available_case_count=1, load=lambda count: scoring)
+    call = CodeCall(
+        "/aggregate",
+        {},
+        (
+            CodeInput(1, "evaluations", "private corrupt grade", 0.0),
+            CodeInput(2, "selected", "1", 0.0),
+        ),
     )
     with pytest.raises(ResolutionError) as caught:
-        await handler(
-            Request(
-                path="/aggregate", params={}, context="private corrupt grade", intent="aggregate:1"
-            )
-        )
+        await call_handler(handler, call)
     assert caught.value.code == "benchmark_contract_error"
     assert "private corrupt grade" not in str(caught.value)

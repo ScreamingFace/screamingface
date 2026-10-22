@@ -18,6 +18,7 @@ from url4.streaming.interfaces import (
 )
 from url4.streaming.protocol import (
     CostUsageEvent,
+    ErrorCauseInfo,
     ErrorInfo,
     LogData,
     LogEvent,
@@ -155,6 +156,10 @@ def _wrap_telemetry(env: _Envelope, data: Telemetry) -> OutboundFrame:
 def _error_info(exc: BaseException) -> ErrorInfo:
     code = getattr(exc, "code", None)
     permanent = getattr(exc, "permanent", None)
+    # WHY duck-typed: url4.streaming must not import url4.core (test_import_isolation).
+    cause = getattr(exc, "cause", None)
+    cause_code = getattr(cause, "code", None)
+    cause_permanent = getattr(cause, "permanent", None)
     return ErrorInfo(
         # "internal_error" deliberately mirrors ErrorCode.INTERNAL_ERROR as a bare
         # literal: url4.streaming is a concepts-only wire contract and must not
@@ -162,6 +167,14 @@ def _error_info(exc: BaseException) -> ErrorInfo:
         code=code if isinstance(code, str) else "internal_error",
         message=str(exc) or exc.__class__.__name__,
         permanent=permanent if isinstance(permanent, bool) else True,
+        cause=(
+            ErrorCauseInfo(
+                code=cause_code,
+                permanent=cause_permanent if isinstance(cause_permanent, bool) else True,
+            )
+            if isinstance(cause_code, str) and cause_code
+            else None
+        ),
     )
 
 

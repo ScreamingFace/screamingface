@@ -6,14 +6,15 @@ import json
 
 import pytest
 
+from screamingface_engine.benchmarks.case_evaluation import aggregate_code
+from screamingface_engine.benchmarks.code_calls import run_aggregate, run_code
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation
 from screamingface_engine.benchmarks.grading_endpoints import (
-    aggregate_endpoint,
     candidate_answer,
     case_grade_endpoint,
 )
 from url4 import RelExpr, Text, render
-from url4.core.errors import ResolutionError
+from url4.core.errors import ResolutionError, Url4Error
 from url4.peer.server import Url4Node
 
 
@@ -58,40 +59,38 @@ async def test_case_grade_endpoint_adapts_two_benchmark_builders(
 
 
 @pytest.mark.asyncio
-async def test_aggregate_endpoint_validates_selection_and_passes_case_evaluations_as_context() -> (
-    None
-):
+async def test_aggregate_code_validates_selection_and_passes_case_evaluations_as_rows() -> None:
+    # WHY (spec 2026-10-20 R1): the aggregate is a code mount reading `evaluations` and
+    # `selected`, not an endpoint parsing an `aggregate:N` intent.
     node = Url4Node("aggregate")
 
-    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, object]:
+    async def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, object]:
         return {
             "selected_case_count": selected_case_count,
             "case_evaluations": json.loads(case_evaluations),
         }
 
-    node.endpoint("/benchmark/aggregate")(
-        aggregate_endpoint(label="Example", available_case_count=3, aggregate=aggregate)
+    node.code("/benchmark/aggregate")(
+        aggregate_code(label="Example", available_case_count=3, aggregate=aggregate)
     )
 
-    result = json.loads(
-        (await node.evaluate(_call("/benchmark/aggregate", '[{"case_id":1}]', "aggregate:1"))).text
-    )
+    result = json.loads(await run_aggregate(node, "/benchmark/aggregate", '[{"case_id":1}]', 1))
     assert result == {
         "selected_case_count": 1,
         "case_evaluations": [{"case_id": 1}],
     }
 
-    for intent in ("aggregate:0", "aggregate:4", "aggregate:invalid", "aggregate:²"):
-        with pytest.raises(ResolutionError) as caught:
-            await node.evaluate(_call("/benchmark/aggregate", "[]", intent))
+    for selected in ("0", "4", "invalid", "²"):
+        with pytest.raises(Url4Error) as caught:
+            await run_code(
+                node, "/benchmark/aggregate", {"evaluations": "[]", "selected": selected}
+            )
         # WHY benchmark_definition_error (OME-1234): a selection the benchmark author
-        # embedded in the aggregate intent that cannot be satisfied is an authoring
-        # mistake, not an unavailable asset.
-        assert caught.value.code == "benchmark_definition_error"
-
-    with pytest.raises(ResolutionError) as caught:
-        await node.evaluate(_call("/benchmark/aggregate", "[]", "summarize:1"))
-    assert caught.value.code == "benchmark_operation_unsupported"
+        # cannot satisfy is an authoring mistake, not an unavailable asset. URL4 reports a
+        # failed code call as intent_error (Spec C §13.6); the handler's code stays in the
+        # message.
+        assert caught.value.code == "intent_error"
+        assert "benchmark_definition_error" in str(caught.value)
 
 
 def test_candidate_answer_preserves_completion_and_exposes_exact_refusal_for_grading() -> None:

@@ -85,6 +85,7 @@ from url4.core.errors import (
     ScopeError,
     Url4Error,
 )
+from url4.core.literal import literal, literal_value
 from url4.core.nodes import (
     Binding,
     Expression,
@@ -197,5 +198,7 @@ __all__ = [
     "src",
     "struct",
     "text",
+    "literal",
+    "literal_value",
     "walk",
 ]

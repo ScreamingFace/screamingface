@@ -36,28 +36,35 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_evaluation import (
+    CaseCheck,
+    aggregate_code,
+    case_evaluation_code,
+)
 from screamingface_engine.benchmarks.case_records import answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
     CaseGradeBuilder,
-    aggregate_endpoint,
-    attempt_records_endpoint,
     benchmark_unavailable,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.shared_grading.incremental import Scoring
 from screamingface_engine.benchmarks.shared_grading.incremental_routes import (
-    aggregate_result_endpoint,
-    case_result_endpoint,
+    case_result_code,
+    graded_result_code,
 )
+from url4 import CodeHandler
 from url4.core.errors import ResolutionError
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import Url4Node
 
 JsonObject = dict[str, Any]
 AnswerLoader = Callable[[Path, int], Mapping[str, Any] | None]
 PublicCaseBuilder = Callable[[Path, list[Any]], list[JsonObject]]
-CheckFactory = Callable[[Path], Callable[[Request], str]]
+CheckFactory = Callable[[Path], CaseCheck]
+# The early-grading code paths under a benchmark's aggregate route (spec §3.2).
+CASE_RESULT_SUFFIX = "/case-result"
+GRADED_SUFFIX = "/graded"
 ErrorFactory = Callable[[str], ResolutionError]
 PreflightCheck = Callable[[Path, tuple[int, ...]], None]
 # The per-benchmark reducer signature every benchmark's `aggregate.aggregate` already has:
@@ -71,11 +78,10 @@ _PREFLIGHT_PROBLEM_CAP = 8
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkRoutes:
-    """The four addresses a benchmark's expression references, derived from benchmark identity."""
+    """The addresses a benchmark's expression references, derived from benchmark identity."""
 
     prefix: str
     cases: str
-    check: str
     case_evaluation: str
     aggregate: str
 
@@ -89,7 +95,6 @@ def benchmark_routes(benchmark_id: str, revision: str) -> BenchmarkRoutes:
     return BenchmarkRoutes(
         prefix=prefix,
         cases=f"{prefix}/cases",
-        check=f"{prefix}/check",
         case_evaluation=f"{prefix}/case-evaluation",
         aggregate=f"{prefix}/aggregate",
     )
@@ -146,38 +151,43 @@ class ServedBenchmark:
 
 
 def install_benchmark(node: Url4Node, root: Path, benchmark: ServedBenchmark) -> None:
-    """Register every route the benchmark's expression references — the whole kitchen.
+    """Register every route and code mount the benchmark's expression references.
 
-    WHY idempotent (skip already-installed routes): local mode installs one node for
-    many runs, and a re-install must not fight the first.
+    The cases are a data route (spec R3); the per-Case and per-run steps are code (spec R1).
+
+    WHY idempotent (skip what is already installed): local mode installs one node for many
+    runs, and a re-install must not fight the first.
     """
 
     routes = benchmark.routes
+    available = benchmark_case_count(root, declared=benchmark.declared_case_count)
     install_cases(node, routes.cases, serve_cases(root, benchmark))
-    installed = frozenset(node.processor_routes())
-    endpoints = (
-        (routes.check, benchmark.check(root)),
+    code: list[tuple[str, CodeHandler]] = [
         (
             routes.case_evaluation,
-            attempt_records_endpoint(
+            case_evaluation_code(
                 label=f"{benchmark.label} Case evaluation",
-                item_name="Attempt",
-                bind=benchmark.build_case_grade,
-                error_context_head=300,
+                check=benchmark.check(root),
+                build_case_grade=benchmark.build_case_grade,
+                observe_grading=True,
             ),
-        ),
-        (
-            routes.aggregate,
-            aggregate_endpoint(
-                label=benchmark.label,
-                available_case_count=benchmark_case_count(
-                    root, declared=benchmark.declared_case_count
+        )
+    ]
+    if benchmark.scoring is None:
+        reduce = benchmark_aggregate(root, benchmark)
+
+        async def aggregate(raw: str, count: int) -> JsonObject:
+            return reduce(raw, count)
+
+        code.append(
+            (
+                routes.aggregate,
+                aggregate_code(
+                    label=benchmark.label, available_case_count=available, aggregate=aggregate
                 ),
-                aggregate=benchmark_aggregate(root, benchmark),
-            ),
-        ),
-    )
-    if benchmark.scoring is not None:
+            )
+        )
+    else:
         scoring = benchmark.scoring
 
         def load(count: int) -> Scoring:
@@ -188,31 +198,21 @@ def install_benchmark(node: Url4Node, root: Path, benchmark: ServedBenchmark) ->
                 case_ids=tuple(range(1, count + 1)),
             )
 
-        endpoints = (
-            *endpoints,
+        code += [
             (
-                routes.aggregate + "/case-result",
-                case_result_endpoint(
-                    load,
-                    available_case_count=benchmark_case_count(
-                        root, declared=benchmark.declared_case_count
-                    ),
-                ),
+                routes.aggregate + CASE_RESULT_SUFFIX,
+                case_result_code(load, available_case_count=available),
             ),
             (
-                routes.aggregate + "/graded",
-                aggregate_result_endpoint(
-                    label=benchmark.label,
-                    available_case_count=benchmark_case_count(
-                        root, declared=benchmark.declared_case_count
-                    ),
-                    load=load,
+                routes.aggregate + GRADED_SUFFIX,
+                graded_result_code(
+                    label=benchmark.label, available_case_count=available, load=load
                 ),
             ),
-        )
-    for route, handler in endpoints:
-        if route not in installed:
-            node.endpoint(route)(handler)
+        ]
+    for path, handler in code:
+        if not node.has_code(path):
+            node.code(path)(handler)
 
 
 def benchmark_preflight(
@@ -355,6 +355,8 @@ def read_asset(path: Path, label: str) -> str:
 
 
 __all__ = [
+    "CASE_RESULT_SUFFIX",
+    "GRADED_SUFFIX",
     "BenchmarkRoutes",
     "ServedBenchmark",
     "benchmark_aggregate",

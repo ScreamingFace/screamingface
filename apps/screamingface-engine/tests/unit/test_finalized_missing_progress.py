@@ -7,17 +7,20 @@ inspect Tasks.
 import json
 
 import pytest
-from test_builtin_early_score_timing import _assets, _call
+from test_builtin_early_score_timing import _assets
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.builtins import BUILTIN_REGISTRATIONS
+from screamingface_engine.benchmarks.code_calls import run_aggregate
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.observations import RunObservations
 from url4.peer.server import Url4Node
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("suffix", ["", "/graded"])
+# WHY "/graded" only (D5, owner 2026-10-20): MedXpertQA's batch `/aggregate` route is retired;
+# its run terminal is the early-graded reduction.
+@pytest.mark.parametrize("suffix", ["/graded"])
 async def test_finalized_missing_cases_publish_completion(tmp_path, monkeypatch, suffix):
     registration = next(r for r in BUILTIN_REGISTRATIONS if r.benchmark.id == "medxpert")
     _assets(tmp_path, monkeypatch, registration)
@@ -32,11 +35,8 @@ async def test_finalized_missing_cases_publish_completion(tmp_path, monkeypatch,
     try:
         with run.bind():
             result = json.loads(
-                await _call(
-                    node,
-                    f"/benchmarks/medxpert/{MEDXPERT.revision}/aggregate{suffix}",
-                    "[]",
-                    "aggregate:2",
+                await run_aggregate(
+                    node, f"/benchmarks/medxpert/{MEDXPERT.revision}/aggregate{suffix}", "[]", 2
                 )
             )
             assert [c["status"] for c in result["cases"]] == ["failed", "failed"]

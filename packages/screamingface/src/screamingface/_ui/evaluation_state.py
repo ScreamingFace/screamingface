@@ -15,6 +15,8 @@ from screamingface.report import CandidateResult, Report
 
 _BYPASS_REASON_PREFIX = "cache.bypass."
 UNSTATED_BYPASS_REASON = "unstated"
+# The code path suffix of the per-Case record every Benchmark ends each Case with.
+_CASE_EVALUATION = "/case-evaluation"
 
 
 @dataclass(slots=True)
@@ -182,7 +184,9 @@ class _CandidateProgress:
         )
 
     def _observe_span(self, event: Span) -> None:
-        if event.operation == "RelUrlNode" and event.name == "/benchmarks/case-execution":
+        # WHY: every Benchmark records each finished Case through its `case-evaluation` code
+        # (spec 2026-10-20-url4-benchmark-expression R1/R4), once per Case.
+        if event.operation == "CodeCallNode" and event.name.endswith(_CASE_EVALUATION):
             self._observe_case_span(event)
         if event.request_model is not None:
             self._observe_model_span(event)

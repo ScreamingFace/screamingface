@@ -10,7 +10,14 @@ from test_inspect_gsm8k_benchmark import GSM8K_BENCHMARK, _node, _row  # noqa: E
 
 from screamingface_engine.activity.observer import ActivityObserver  # noqa: E402
 from screamingface_engine.observations import RunObservations  # noqa: E402
-from url4 import RelExpr, Text, expr, render, src, text  # noqa: E402
+from url4 import (  # noqa: E402
+    RelUrl,
+    expr,
+    literal,  # noqa: E402
+    render,
+    src,
+    text,
+)
 from url4.dag import run as execute  # noqa: E402
 from url4.observe import Log  # noqa: E402
 
@@ -25,17 +32,17 @@ async def test_imported_aggregate_publishes_prefix_score_and_preserves_final(tmp
             if isinstance(event, Log) and event.attributes.get("sf.progress.schema"):
                 snapshots.append(dict(event.attributes))
 
+    # WHY the run-terminal shape: `aggregate` is code over the named `evaluations` and
+    # `selected` sources (spec 2026-10-20 R1), not an endpoint read by an intent string.
     expression = render(
         expr(
             src(
-                text(json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 59")])),
-                name="payload",
+                literal(json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 59")])),
+                name="evaluations",
                 weight=0.0,
             ),
-            RelExpr(
-                path=GSM8K_BENCHMARK.aggregate_route, context="$payload", intent=Text("aggregate:2")
-            ),
-            intent=Text(""),
+            src(text("2"), name="selected", weight=0.0),
+            intent=RelUrl(GSM8K_BENCHMARK.aggregate_route),
         )
     )
     run = RunObservations((ActivityObserver,))

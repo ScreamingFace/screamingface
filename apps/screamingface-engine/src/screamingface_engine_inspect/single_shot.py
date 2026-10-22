@@ -34,6 +34,11 @@ from typing import Any, Unpack
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
 from screamingface_engine.benchmarks.case_context import case_scope
+from screamingface_engine.benchmarks.case_evaluation import (
+    CaseCheck,
+    aggregate_code,
+    case_evaluation_code,
+)
 from screamingface_engine.benchmarks.case_records import abstain_mark, answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.contract import (
@@ -49,7 +54,6 @@ from screamingface_engine.benchmarks.definition import (
     DifficultyTier,
     DraftFeedbackOffer,
     FailurePolicy,
-    candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
     BenchmarkAssetBundle,
@@ -60,20 +64,17 @@ from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEM
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.grading_endpoints import (
-    async_aggregate_endpoint,
-    attempt_records_endpoint,
     candidate_answer,
     compact_json,
     json_object,
-    positive_case_id,
 )
-from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
 from screamingface_engine.benchmarks.phases import observe_phase
 from screamingface_engine.benchmarks.protocol import (
     EVALUATION_PROTOCOL_REVISION,
-    build_evaluation_protocol,
-    preserve_candidate_outcome,
+    attempt_steps,
+    evaluation_protocol,
 )
 from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
@@ -104,7 +105,7 @@ from screamingface_engine_inspect.revision_inputs import (
     pinned_inspect_packages,
 )
 from screamingface_engine_inspect.verdict_counts import run_verdict_counts
-from url4 import Node, RelExpr, Text, expr, render, src, struct
+from url4 import CodeHandler, Node
 from url4.peer.server import Request, Url4Node
 
 # INVARIANT: an imported Benchmark's Candidate call is retrieval-free unless its row declares a
@@ -265,7 +266,6 @@ class ImportedBenchmark:
     scorer_factory: Callable[[], Any]
     multiple_correct: bool
     cases_route: str
-    check_route: str
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
@@ -582,7 +582,6 @@ def single_shot_benchmark(
     prefix: str = f"/benchmarks/{benchmark_id}/{revision}"
     routes: dict[str, str] = {
         "cases": f"{prefix}/cases",
-        "check": f"{prefix}/check",
         "check_surface": f"{prefix}/check-surface",
         "case_evaluation": f"{prefix}/case-evaluation",
         "aggregate": f"{prefix}/aggregate",
@@ -644,7 +643,6 @@ def single_shot_benchmark(
         scorer_factory=scorer_factory,
         multiple_correct=multiple_correct,
         cases_route=routes["cases"],
-        check_route=routes["check"],
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
@@ -691,47 +689,47 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
     root: Path = assets / benchmark_id
     routes: dict[str, str] = {
         "cases": benchmark.cases_route,
-        "check": benchmark.check_route,
         "check_surface": benchmark.check_surface_route,
         "case_evaluation": benchmark.case_evaluation_route,
         "aggregate": benchmark.aggregate_route,
     }
     install_cases(node, routes["cases"], _cases(root, envelope=benchmark.candidate_input_envelope))
-    installed = frozenset(node.processor_routes())
-    endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
-        (routes["check"], _check(root)),
+    # Spec R1: the per-Case and per-run steps are code the expression points at.
+    code: tuple[tuple[str, CodeHandler], ...] = (
         (
             routes["case_evaluation"],
-            attempt_records_endpoint(
+            case_evaluation_code(
                 label=f"{benchmark.benchmark.title} Case evaluation",
-                item_name="Attempt",
-                bind=build_case_grade,
+                check=_check(root),
+                build_case_grade=build_case_grade,
+                # WHY: imported benchmarks only package the Attempt here; their scorer runs
+                # in the aggregate.
                 observe_grading=False,
             ),
         ),
         (
             routes["aggregate"],
             # WHY: both scorer families stay on the owning loop for logs and model I/O.
-            async_aggregate_endpoint(
+            aggregate_code(
                 label=benchmark.benchmark.title,
                 available_case_count=benchmark.benchmark.case_count,
-                aggregate=_judged_aggregate(benchmark, root, node),
-            )
-            if benchmark.judge is not None
-            else async_aggregate_endpoint(
-                label=benchmark.benchmark.title,
-                available_case_count=benchmark.benchmark.case_count,
-                aggregate=_aggregate(benchmark, root),
+                aggregate=(
+                    _judged_aggregate(benchmark, root, node)
+                    if benchmark.judge is not None
+                    else _aggregate(benchmark, root)
+                ),
             ),
         ),
-    ]
-    if benchmark.benchmark.check_surface is not None:
+    )
+    for path, handler in code:
+        if not node.has_code(path):
+            node.code(path)(handler)
+    if benchmark.benchmark.check_surface is not None and routes["check_surface"] not in set(
+        node.processor_routes()
+    ):
         # Spec §4 — the SAME scorer, second office hour: the advertised
         # check-surface port for the corrective loop.
-        endpoints.append((routes["check_surface"], _check_surface(benchmark, root)))
-    for route, handler in endpoints:
-        if route not in installed:
-            node.endpoint(route)(handler)
+        node.endpoint(routes["check_surface"])(_check_surface(benchmark, root))
 
 
 def _build(
@@ -740,10 +738,10 @@ def _build(
     attempts: int = 1,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
 ) -> Callable[[int], Node]:
-    """The canonical one-invocation expression — one answer per Case, graded once.
+    """The canonical one-answer-per-Attempt expression, graded once in the aggregate.
 
-    With ``attempts`` above 1 (OME-1458) the same execution runs once per Attempt; at 1 the
-    expression is exactly the one every published imported Benchmark pins. A
+    Each Case asks the Candidate ``$item.input`` once per Attempt (OME-1458), then the
+    ``case-evaluation`` code records every Attempt and ``aggregate`` grades the run. A
     ``retrieval_policy`` turns search on for the Candidate call with its banned domains;
     without one the call says ``web_search=false``, as it always has.
     """
@@ -751,46 +749,19 @@ def _build(
     banned: tuple[str, ...] = () if retrieval_policy is None else retrieval_policy.excluded_domains
 
     def build(case_count: int) -> Node:
-        candidate_invocation = candidate(
-            "$item.input",
-            web_search=retrieval_policy is not None,
-            web_search_exclude=banned,
-            case_id="$item.id",
-            case_index="$index",
-            case_count=str(case_count),
-        )
-        checked = expr(
-            src(
-                RelExpr(
-                    path=routes["check"],
-                    context="$candidate_invocation",
-                    intent=Text("$item.case_id"),
-                ),
-                name="record",
-                weight=0.0,
-            ),
-            src(
-                RelExpr(
-                    path=routes["case_evaluation"],
-                    context=render(struct({"attempt_1": "$record"})),
-                    intent=Text("$item.case_id"),
-                ),
-                name="case_evaluation",
-                weight=0.0,
-            ),
-            intent=Text("$case_evaluation"),
-        )
-        return build_evaluation_protocol(
+        return evaluation_protocol(
             cases_route=routes["cases"],
-            case_evaluation=preserve_candidate_outcome(
-                candidate_invocation=candidate_invocation,
-                grading=checked,
-                case_id="$item.id",
+            steps=attempt_steps(
+                "$item.input",
                 attempts=attempts,
+                case_count=case_count,
+                web_search=retrieval_policy is not None,
+                web_search_exclude=banned,
             ),
+            case_terminal=routes["case_evaluation"],
+            run_terminal=routes["aggregate"],
             selected_case_count=case_count,
             available_case_count=available,
-            aggregate_route=routes["aggregate"],
         )
 
     return build
@@ -837,7 +808,7 @@ def _enveloped_inputs(cases_json: str) -> str:
     return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 
-def _check(root: Path) -> Callable[[Request], str]:
+def _check(root: Path) -> CaseCheck:
     """Record the Candidate's attempt verbatim — grading waits for the aggregate.
 
     WHY no grading here: grading is the aggregate's job (through the scorer adapter), so a
@@ -846,19 +817,18 @@ def _check(root: Path) -> Callable[[Request], str]:
     """
 
     @observe_phase(ActivityKind.ANSWERING)
-    def check(request: Request) -> str:
+    def check(case_id: int, invocation: str) -> dict[str, Any]:
         try:
-            case_id: int = positive_case_id(request.intent)
             if _grading_material(root, case_id) is None:
                 # Refuse early: an attempt recorded against unusable Grading Material
                 # could never be graded — fail the call, not the aggregate later.
                 raise ValueError(f"the private target record for case {case_id} is unusable")
-            answer = candidate_answer(request.context)
+            answer = candidate_answer(invocation)
         except (OSError, TypeError, ValueError) as exc:
             # AIDEV-NOTE (OME-1234): deliberate leftover on the catch-all — this except clause
             # mixes asset-IO and payload/definition causes; classifying needs a try-body split.
             raise _unavailable(str(exc)) from exc
-        record: dict[str, Any] = {
+        return {
             "schema": CHECK_SCHEMA,
             "case_id": case_id,
             "attempt": 1,
@@ -881,15 +851,10 @@ def _check(root: Path) -> Callable[[Request], str]:
             ),
             **answer_abstain_mark(answer),
         }
-        return compact_json(record)
 
-    def record(request: Request) -> str:
-        try:
-            case_id = positive_case_id(request.intent)
-        except ValueError:
-            return check(request)  # Preserve the existing invalid-request error translation.
+    def record(case_id: int, invocation: str, others: Mapping[str, object]) -> dict[str, Any]:
         with case_scope(case_id, recording=True):
-            return check(request)
+            return check(case_id, invocation)
 
     return record
 

@@ -27,6 +27,7 @@ from replayed_cases_helpers import (  # noqa: E402
 )
 from test_inspect_imported_benchmarks import _EXPECTED_FAMILIES  # noqa: E402
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
 from screamingface_engine.benchmarks.nltk_data import NLTK_DATA_DIR  # noqa: E402
@@ -137,9 +138,7 @@ async def _scores(node: Url4Node, benchmark: ImportedBenchmark, answers: list[st
     """Grade one answer per Case through the shared aggregate; return each Case's score."""
 
     rows: str = json.dumps([_row(index, answer) for index, answer in enumerate(answers, start=1)])
-    result = json.loads(
-        await _call(node, benchmark.aggregate_route, rows, f"aggregate:{len(answers)}")
-    )
+    result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, len(answers)))
     return [case["grade"]["score"] for case in result["cases"]]
 
 

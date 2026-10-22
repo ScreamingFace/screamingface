@@ -21,6 +21,7 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
@@ -167,7 +168,7 @@ async def test_judge_cost_lands_in_the_cases_evidence_accounting(
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
     accounting = evidence["accounting"]
@@ -194,7 +195,7 @@ async def test_a_string_match_benchmarks_evidence_accounting_stays_none(
 
     rows = json.dumps([_row(1, "ANSWER: Paris")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     evidence = result["cases"][0]["grade"]["checks"][0]["evidence"][0]
     assert evidence["accounting"] is None

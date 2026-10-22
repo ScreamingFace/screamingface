@@ -2,6 +2,10 @@
 
 MedXpertQA is the subject since OME-1527 moved IFEval, the original one, to a local inspect Task:
 each Case asks the model twice (a reasoning turn, then the commit turn).
+
+WHY a recorded baseline (spec 2026-10-20-url4-benchmark-expression, D5): the retired protocol's
+routes are gone, so it cannot run beside the rebuilt one. The fixture keeps its report and the
+exact gateway requests from origin/main; the rebuilt protocol must reproduce both.
 """
 
 import json
@@ -52,14 +56,14 @@ async def test_cached_connector_requests_results_and_consumption_match(
         world = await build_aigateway_world(cfg, client=client)
         MEDXPERT.install(world.node, tmp_path)
         install_candidate_invocation(world.node)
-        for protocol in (BASELINE["medxpert"]["protocols"]["2"], MEDXPERT.protocol(2)):
-            reports.append(await _evaluate(world.node, protocol, observed))
+        reports.append(await _evaluate(world.node, MEDXPERT.protocol(2), observed))
         await world.node.aclose()
-    assert reports[0] == reports[1]
-    # Two Cases x two turns, once per protocol.
-    assert len(calls) == 8
-    assert calls[:4] == calls[4:]
-    assert marked == [1, 2, 1, 2]
+    recorded = BASELINE["medxpert"]["connector_cache"]
+    assert reports[0] == recorded["report"]
+    # Two Cases x two turns, byte for byte the requests the retired protocol sent.
+    assert len(calls) == 4
+    assert calls == recorded["requests"]
+    assert marked == [1, 2]
     if observed:
         assert snapshots[-1]["sf.progress.completed"] == 2
         assert snapshots[-1]["sf.progress.graded"] == 2

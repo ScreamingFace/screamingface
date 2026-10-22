@@ -125,3 +125,30 @@ def test_the_layer_forwards_exactly_the_inner_capability_ports() -> None:
     assert not hasattr(bare, "fetch_ex")
     assert not hasattr(bare, "fetch_holdings")
     assert not hasattr(bare, "processor_routes")
+
+
+@pytest.mark.asyncio
+async def test_the_layer_forwards_the_code_port_ungated() -> None:
+    # STORY: a Benchmark's per-Case and per-run steps are code mounts (spec 2026-10-20 R1);
+    # the runner's fair-share wrapper must expose them, or every Benchmark run fails with
+    # `unsupported_mode`. INVARIANT: code is not I/O, so it never takes a gate slot.
+    from url4 import CodeCall
+    from url4.core.code import SupportsCode
+    from url4.peer.server import Url4Node
+
+    node = Url4Node("code")
+    node.code("/step")(lambda call: "ran")
+    gate = FairShareGate(1)
+    layer = FairShareIOLayer(node, gate, "run-a")
+
+    assert isinstance(layer, SupportsCode)
+    assert layer.has_code("/step")
+    assert await layer.invoke_code(CodeCall("/step", {}, ())) == "ran"
+    assert gate.snapshot().in_flight == 0
+
+    class _Bare:
+        async def fetch(self, target: str, *, relative: bool) -> str:
+            return target
+
+    bare = FairShareIOLayer(_Bare(), FairShareGate(1), "run-a")  # type: ignore[arg-type]
+    assert not isinstance(bare, SupportsCode)

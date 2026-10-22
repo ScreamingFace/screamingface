@@ -23,6 +23,7 @@ overridden per instance for spec codes that share a Python type — e.g.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 
@@ -66,20 +67,41 @@ class ErrorCode(StrEnum):
     evaluates an expression — the one thing a direct call must never do."""
 
 
+@dataclass(frozen=True, slots=True)
+class ErrorCause:
+    """The handler's own failure behind an ``intent_error`` (Spec C §13.6).
+
+    WHY: a failed intent is ``intent_error`` (permanent) by the spec, yet the code its handler
+    raised — and whether that failure was retryable — is what a caller acts on. The cause keeps
+    both beside the spec's code instead of only in the message text.
+    """
+
+    code: str
+    permanent: bool
+
+
 class Url4Error(Exception):
     """Base class for every error raised by the url4 library."""
 
     code: str = ErrorCode.INTERNAL_ERROR
     permanent: bool = True
+    cause: ErrorCause | None = None
 
     def __init__(
-        self, message: str, *, code: str | None = None, permanent: bool | None = None
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        permanent: bool | None = None,
+        cause: ErrorCause | None = None,
     ) -> None:
         super().__init__(message)
         if code is not None:
             self.code = code
         if permanent is not None:
             self.permanent = permanent
+        if cause is not None:
+            self.cause = cause
 
 
 class ParseError(Url4Error):
@@ -167,6 +189,7 @@ class RenderError(Url4Error):
 
 
 __all__ = [
+    "ErrorCause",
     "CollectionError",
     "CycleError",
     "ErrorCode",

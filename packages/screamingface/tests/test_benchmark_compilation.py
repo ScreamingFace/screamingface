@@ -179,7 +179,10 @@ def test_fusion_compilation_is_benchmark_agnostic_and_uses_explicit_policy() -> 
     assert [member.name for member in compiled.members] == ["a", "b"]
 
 
-def test_linker_preserves_a_top_level_benchmark_iteration_without_templates() -> None:
+def test_linker_refuses_a_top_level_benchmark_iteration() -> None:
+    # WHY: the Candidate is linked as the first source of the Benchmark's own top-level group
+    # (spec 2026-10-20 R7: no `(candidate, benchmark)!''` wrapper), so a Benchmark must be one
+    # `(sources)!intent` expression; no Engine serves a bare iteration.
     candidate = compile_candidate(sf.Model("provider/model"))
     benchmark = render(
         iterate(
@@ -198,12 +201,10 @@ def test_linker_preserves_a_top_level_benchmark_iteration_without_templates() ->
         )
     )
 
-    linked = link_candidate(candidate.url4, benchmark).url4
+    with pytest.raises(sf.PlanningError) as caught:
+        link_candidate(candidate.url4, benchmark)
 
-    assert render(build(linked)) == linked
-    assert linked.count("/provider/model") == 1
-    assert "/candidate" in linked
-    assert "$input" in linked
+    assert caught.value.code == "invalid_benchmark_resource"
 
 
 def test_evaluation_inspection_combines_benchmark_and_candidate_requirements() -> None:

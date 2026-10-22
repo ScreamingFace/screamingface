@@ -444,7 +444,10 @@ def test_the_arc_url4_is_pinned_byte_for_byte() -> None:
     imported: ImportedBenchmark = imported_benchmark("arc_agi_2")
     url4: str = render(imported.benchmark.build(167))
 
+    # WHY this pin moved (spec 2026-10-20, owner-approved): the Attempts are now sibling
+    # `attempt_1`/`attempt_2` body sources read by `case-evaluation` code; the Benchmark
+    # Revision did not move (EVALUATION_PROTOCOL_REVISION is unchanged).
     assert (
         hashlib.sha256(url4.encode()).hexdigest()
-        == "294a48447d1890ef2ff7bbfab5705274f37476aaf3feec6f22a72608cce4a942"
+        == "204823d3e4dd9c7caa630bcf34e9651e346350025fad4c375d5ea779c199aa23"
     )

@@ -34,7 +34,7 @@ from screamingface_engine.world.candidate_adapter import install_candidate_invoc
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.request_parameters import attempt_egress, derive_attempt_seed
-from url4 import RelExpr, expr, render, src, text
+from url4 import RelExpr, expr, literal, render, src, text
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.streaming.protocol import CachePolicy
@@ -50,10 +50,12 @@ def _candidate(attempt: str | None = None, *, inner_params: str = "") -> str:
     return render(
         expr(
             src(
+                # WHY: the Candidate contract (spec 2026-10-20 R2) — the model input is the
+                # intent, the Recipe a source.
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context="case-ctx",
-                    intent=text(inner),
+                    context=render(src(literal(inner), name="recipe")),
+                    intent=text("case-ctx"),
                     params=params,
                 ),
                 name="answer",

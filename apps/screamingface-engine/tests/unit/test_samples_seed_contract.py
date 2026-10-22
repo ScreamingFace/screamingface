@@ -24,13 +24,14 @@ import pytest
 from test_answer_seed_threading import _bodies, _candidate_wrapped
 
 from screamingface_engine.benchmarks.contract import decode_candidate_invocation_record
+from screamingface_engine.benchmarks.definition import candidate_invocation
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
-from url4 import RelExpr, expr, render, src, text
+from url4 import expr, literal, render, src, text
 from url4.dag import run as url4_run
 
 _CANDIDATE = (
@@ -68,15 +69,13 @@ class _Gateway:
 
 def _wrapped_candidate(candidate: str) -> str:
     """The candidate linked to one case input, the way a benchmark invokes it."""
+    # WHY: the Candidate contract (spec 2026-10-20 R2) — the case input is the intent and the
+    # Recipe is bound as `candidate` (its `$` kept literal), exactly as a linked run binds it.
     return render(
         expr(
+            src(literal(candidate), name="candidate", weight=0.0),
             src(
-                RelExpr(
-                    path="/benchmarks/candidate",
-                    context="what is 2 + 2?",
-                    intent=text(candidate),
-                    params=(("web_search", "false"),),
-                ),
+                candidate_invocation("what is 2 + 2?", web_search=False),
                 name="answer",
                 weight=0.0,
             ),

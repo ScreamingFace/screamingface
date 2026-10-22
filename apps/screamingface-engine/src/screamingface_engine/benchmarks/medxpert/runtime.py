@@ -19,17 +19,16 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.benchmarks.case_evaluation import CaseCheck
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
+from screamingface_engine.benchmarks.failure_classes import (
+    benchmark_contract_error,
+)
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error as _definition_error,
 )
+from screamingface_engine.benchmarks.grading_endpoints import JsonObject, candidate_answer
 from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable as _unavailable
-from screamingface_engine.benchmarks.grading_endpoints import (
-    candidate_answer,
-    compact_json,
-    json_object,
-    positive_case_id,
-)
 from screamingface_engine.benchmarks.medxpert import aggregate as reducing
 from screamingface_engine.benchmarks.medxpert.answering import (
     extract_choice_letter,
@@ -42,6 +41,8 @@ from screamingface_engine.benchmarks.medxpert.case_grade import (
 from screamingface_engine.benchmarks.medxpert.definition import (
     BENCHMARK_ID,
     CASE_COUNT,
+    COMMIT_PROMPT_ROUTE,
+    REASONING_SOURCE,
     REVISION,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
@@ -52,13 +53,16 @@ from screamingface_engine.benchmarks.shared_grading.serving import (
     install_benchmark,
     serve_cases,
 )
-from url4.peer.server import Request, Url4Node
+from url4 import CodeCall
+from url4.peer.server import Url4Node
 
 
 def install(node: Url4Node, root: Path) -> None:
-    """Register every route this benchmark's expression references."""
+    """Register every route and code mount this benchmark's expression references."""
 
     install_benchmark(node, root, BENCHMARK)
+    if not node.has_code(COMMIT_PROMPT_ROUTE):
+        node.code(COMMIT_PROMPT_ROUTE)(commit_prompt)
 
 
 def preflight(root: Path, case_ids: tuple[int, ...]) -> None:
@@ -113,21 +117,23 @@ def _cot_prompt(question: str) -> str:
     return COT_PROMPT_TEMPLATE.format(question=question)
 
 
-def _check(root: Path):
-    """The gate between "the Candidate said something" and "we have a committed letter"."""
+def _check(root: Path) -> CaseCheck:
+    """The gate between "the Candidate said something" and "we have a committed letter".
+
+    ``invocation`` is the turn-2 commit; ``others`` carries the turn-1 ``reasoning``.
+    """
 
     @observe_phase(ActivityKind.GRADING)
-    def check(request: Request) -> str:
+    def check(case_id: int, invocation: str, others: Mapping[str, object]) -> JsonObject:
         try:
-            case_id = positive_case_id(request.intent)
             report_case_grading(case_id, "started")
-            payload = json_object(request.context, "MedXpertQA check")
-            if tuple(payload) != ("reasoning", "commit"):
-                raise ValueError("MedXpertQA check fields must be reasoning, commit")
+            reasoning = others.get(REASONING_SOURCE)
+            if not isinstance(reasoning, str):
+                raise ValueError("MedXpertQA check needs the turn-1 reasoning")
             answer = reducing.load_answer(root, case_id)
             if answer is None:
                 raise ValueError(f"answer record for case {case_id} missing or invalid")
-            commit = candidate_answer(payload["commit"])
+            commit = candidate_answer(invocation)
             trigger = format_trigger(int(answer["options_count"]))
             letter = extract_choice_letter(
                 commit.text, int(answer["options_count"]), trigger=trigger
@@ -152,12 +158,31 @@ def _check(root: Path):
                 "commit_output": commit.text,
                 # D8: the reasoning has no home in the shared candidate envelope, so it
                 # rides here. A letter with no reasoning is unauditable.
-                "reasoning": _reasoning_text(payload["reasoning"]),
+                "reasoning": _reasoning_text(reasoning),
             },
         )
-        return compact_json(record)
+        return record
 
     return check
+
+
+def commit_prompt(call: CodeCall) -> str:
+    """``(question, reasoning, trigger)!/…/commit-prompt`` → the turn-2 model input.
+
+    INVARIANT: byte for byte the input the retired struct context produced —
+    ``json.dumps`` with its defaults over question, the turn-1 record text, and the trigger —
+    so the commit call's stored replies still serve it.
+    """
+
+    try:
+        fields = {
+            name: call.input(name).value for name in ("question", REASONING_SOURCE, "trigger")
+        }
+        if any(not isinstance(value, str) for value in fields.values()):
+            raise TypeError("MedXpertQA commit prompt fields must be text")
+    except (KeyError, TypeError) as exc:
+        raise benchmark_contract_error(str(exc)) from exc
+    return json.dumps(fields)
 
 
 def _reasoning_text(value: object) -> str:
@@ -189,4 +214,4 @@ BENCHMARK = ServedBenchmark(
     scoring=reducing.scoring,
 )
 
-__all__ = ["BENCHMARK", "install", "preflight"]
+__all__ = ["BENCHMARK", "commit_prompt", "install", "preflight"]

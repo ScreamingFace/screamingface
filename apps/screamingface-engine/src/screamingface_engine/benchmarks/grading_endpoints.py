@@ -16,7 +16,6 @@ from screamingface_engine.benchmarks.contract import (
 )
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error,
-    benchmark_definition_error,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
 from url4.core.errors import ResolutionError
@@ -24,9 +23,8 @@ from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
 CaseGradeBuilder = Callable[[int, list[JsonObject]], JsonObject]
-AggregateAdapter = Callable[[str, int], JsonObject]
 #: The async face (OME-1240): a judged benchmark's adapter awaits model calls, so its
-#: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
+#: code must be awaited by the node on the RUN's own loop — see case_evaluation.aggregate_code.
 AsyncAggregateAdapter = Callable[[str, int], Awaitable[JsonObject]]
 
 
@@ -92,99 +90,6 @@ def case_grade_endpoint(
             if error_context_head is not None:
                 detail += f"; context head: {request.context[:error_context_head]!r}"
             raise benchmark_contract_error(detail) from exc
-        return compact_json(result)
-
-    return endpoint
-
-
-def attempt_records_endpoint(
-    *,
-    label: str,
-    item_name: str,
-    bind: CaseGradeBuilder,
-    error_context_head: int | None = None,
-    observe_grading: bool = True,
-) -> Callable[[Request], str]:
-    """Adapt an ``attempt_1..attempt_N`` struct of evaluator records into a Case envelope.
-
-    WHY (OME-1126): the sibling ``case_grade_endpoint`` takes a JSON *array*,
-    which is what a rubric fan-out (``iterate``) naturally yields. A Benchmark whose Case
-    holds a FIXED, named set of attempts renders ``struct({"attempt_1": ...})`` instead
-    — an object — so it needs this shape. Both funnel into the same ``bind`` contract.
-    """
-
-    def endpoint(request: Request) -> str:
-        try:
-            case_id = positive_case_id(request.intent)
-            payload = json_object(request.context, label)
-            expected = tuple(f"attempt_{index}" for index in range(1, len(payload) + 1))
-            if not expected or tuple(payload) != expected:
-                raise ValueError(f"{label} fields must be consecutive attempt_1..attempt_N")
-            items = []
-            for index, field in enumerate(expected, start=1):
-                decoded = json_object(payload[field], f"{item_name} {index}")
-                # WHY (OME-993, GH #740): mirrors case_grade_endpoint — a one-key
-                # {"error": ...} item is url4's `on_error=collect` capture of an UPSTREAM
-                # failure; re-raise that cause instead of rejecting its shape.
-                _raise_collected_failure(decoded, f"{item_name} {index}")
-                items.append(decoded)
-            result = bind(case_id, items)
-        except (OSError, TypeError, ValueError) as exc:
-            detail = str(exc)
-            if error_context_head is not None:
-                detail += f"; context head: {request.context[:error_context_head]!r}"
-            raise benchmark_contract_error(detail) from exc
-        return compact_json(result)
-
-    # WHY: imported benchmarks only package attempts here; their scorer runs later.
-    return observe_phase(ActivityKind.GRADING)(endpoint) if observe_grading else endpoint
-
-
-def aggregate_endpoint(
-    *,
-    label: str,
-    available_case_count: int,
-    aggregate: AggregateAdapter,
-) -> Callable[[Request], str]:
-    """Adapt ordered Case evaluations and their exact selection into Aggregation."""
-
-    positive_count(available_case_count, "available_case_count")
-
-    @observe_phase(ActivityKind.AGGREGATION)
-    def endpoint(request: Request) -> str:
-        selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
-        try:
-            result = aggregate(request.context, selected_case_count)
-        except (OSError, ValueError) as exc:
-            raise benchmark_unavailable(str(exc)) from exc
-        return compact_json(result)
-
-    return endpoint
-
-
-def async_aggregate_endpoint(
-    *,
-    label: str,
-    available_case_count: int,
-    aggregate: AsyncAggregateAdapter,
-) -> Callable[[Request], Awaitable[str]]:
-    """:func:`aggregate_endpoint`'s async face — awaited by the node on the run's loop.
-
-    WHY (OME-1240): a judged benchmark's aggregate awaits model calls through the run's
-    shared HTTP client; that client's pooled connections are bound to the run's own
-    event loop, so the handler must be awaited there — never driven on a worker
-    thread's second loop. url4 awaits async endpoint handlers natively.
-    """
-
-    positive_count(available_case_count, "available_case_count")
-
-    @observe_phase(ActivityKind.AGGREGATION)
-    async def endpoint(request: Request) -> str:
-        selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
-        try:
-            result = await aggregate(request.context, selected_case_count)
-        except (OSError, ValueError) as exc:
-            raise benchmark_unavailable(str(exc)) from exc
         return compact_json(result)
 
     return endpoint
@@ -272,30 +177,6 @@ def benchmark_unavailable(detail: str) -> ResolutionError:
     return ResolutionError(detail, code="benchmark_unavailable", permanent=True)
 
 
-def _aggregate_selection(intent: str, available: int, label: str) -> int:
-    operation, separator, raw_count = intent.partition(":")
-    if operation != "aggregate" or not separator:
-        raise _unsupported(label, intent)
-    try:
-        selected_case_count = int(raw_count)
-        positive_count(selected_case_count, "selected_case_count")
-    except ValueError as exc:
-        raise benchmark_definition_error(str(exc)) from exc
-    if selected_case_count > available:
-        raise benchmark_definition_error(
-            f"selected_case_count cannot exceed available_case_count ({available})"
-        )
-    return selected_case_count
-
-
-def _unsupported(label: str, intent: str) -> ResolutionError:
-    return ResolutionError(
-        f"unsupported {label} operation {intent!r}",
-        code="benchmark_operation_unsupported",
-        permanent=True,
-    )
-
-
 def positive_count(value: object, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise ValueError(f"{label} must be a positive integer")
@@ -304,9 +185,6 @@ def positive_count(value: object, label: str) -> int:
 
 __all__ = [
     "CandidateAnswer",
-    "aggregate_endpoint",
-    "async_aggregate_endpoint",
-    "attempt_records_endpoint",
     "benchmark_unavailable",
     "candidate_answer",
     "case_grade_endpoint",

@@ -1,63 +1,86 @@
-"""Explicit candidate request metadata, decoded before model input is evaluated."""
+"""Explicit Candidate request metadata, decoded before model input is evaluated.
 
-import json
+A Candidate Invocation is LLM mode (spec ``2026-10-20-url4-benchmark-expression`` R2): its
+quoted intent IS the model input, and its sources are what the Engine needs around the call —
+the Case identity, its selected position, and the Recipe to evaluate::
+
+    /benchmarks/candidate?web_search=false&q=(
+      case_id=$item.id, case_index=$index, case_count='3', recipe=$candidate
+    )!'$item.input'
+
+url4 packs unweighted named sources into the endpoint context as ``name: value`` lines, in
+source order (``url4/dag/nodes/_shared.py`` ``_gather``), with no escaping.
+
+INVARIANT: ``recipe`` is the LAST source, so everything after ``recipe: `` is the Recipe — a
+Recipe holding new lines or ``name: `` text can never be misread as a fact.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 from screamingface_engine.benchmarks.contract import CaseId, validate_case_id
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
-CONTEXT_FORMAT = "case-v1"
-CONTEXT_FORMAT_PARAM = "context_format"
+RECIPE_SOURCE = "recipe"
+CASE_FACTS = ("case_id", "case_index", "case_count")
+# The fact lines a request may carry before the Recipe: none (a plain call), the identity
+# alone, or the identity with its selected position.
+_FACT_SHAPES = ((), CASE_FACTS[:1], CASE_FACTS)
 
 
-def candidate_input(request: Request) -> tuple[str, CaseId | None]:
-    if "context_format" not in request.params:
-        return request.context or "", None
+@dataclass(frozen=True, slots=True)
+class CandidateRequest:
+    """One decoded Candidate Invocation: the model input, the Recipe, and the Case facts."""
+
+    input_text: str
+    recipe: str
+    case_id: CaseId | None
+    position: tuple[int, int] | None
+    """1-based selected position and the selected count; ``None`` for an unnumbered call."""
+
+
+def candidate_request(request: Request) -> CandidateRequest:
+    """Decode the packed sources of one Candidate Invocation; refuse any other shape."""
+
     try:
-        if request.params["context_format"] != CONTEXT_FORMAT:
-            raise ValueError("unsupported candidate context format")
-        payload = json.loads(request.context)
-        if not isinstance(payload, dict) or set(payload) not in (
-            {"input", "case_id"},
-            {"input", "case_id", "case_index", "case_count"},
-        ):
-            raise ValueError("expected candidate input and case_id")
-        case_id = validate_case_id(payload["case_id"])
-        value = payload["input"]
-        if not isinstance(value, str | dict):
-            raise ValueError("candidate input must be text or an object")
-        # WHY: URL4 StructNode serializes object contexts with json.dumps defaults.
-        # Matching it here preserves the pre-envelope model input byte for byte.
-        return json.dumps(value) if isinstance(value, dict) else value, case_id
+        facts, recipe = _split(request.context or "")
+        if not recipe.strip():
+            raise ValueError("the Recipe is empty")
+        case_id = None if not facts else validate_case_id(facts["case_id"])
+        position = (
+            _position(facts["case_index"], facts["case_count"]) if "case_index" in facts else None
+        )
     except (TypeError, ValueError) as exc:
         raise ResolutionError(
-            "Invalid candidate case context", code="candidate_contract_error", permanent=True
+            "Invalid Candidate Invocation sources", code="candidate_contract_error", permanent=True
         ) from exc
+    return CandidateRequest(
+        input_text=request.intent, recipe=recipe, case_id=case_id, position=position
+    )
 
 
-def candidate_position(request: Request) -> tuple[int, int] | None:
-    """Decode explicit selection metadata; plain candidate requests remain unnumbered."""
-    if "context_format" not in request.params:
-        return None
-    payload = json.loads(request.context)
-    if "case_index" not in payload:
-        return None
-    try:
-        values = (payload["case_index"], payload["case_count"])
-        if any(
-            type(value) not in {int, str} or not str(value).isascii() or not str(value).isdigit()
-            for value in values
-        ):
-            raise ValueError("invalid case position")
-        index, count = map(int, values)
-        position = index + 1
-        if not 1 <= position <= count <= 9_007_199_254_740_991:
-            raise ValueError("invalid case position")
-        return position, count
-    except (TypeError, ValueError) as exc:
-        raise ResolutionError(
-            "Invalid candidate case position", code="candidate_contract_error", permanent=True
-        ) from exc
+def _split(context: str) -> tuple[dict[str, str], str]:
+    """The fact lines (by name) and the Recipe text, from the packed context."""
+
+    head, marker, recipe = context.partition(f"{RECIPE_SOURCE}: ")
+    if not marker or (head and not head.endswith("\n")):
+        raise ValueError("the Recipe must be the last source")
+    lines = head.split("\n")[:-1] if head else []
+    names = tuple(line.partition(": ")[0] for line in lines)
+    if names not in _FACT_SHAPES or any(": " not in line for line in lines):
+        raise ValueError("unexpected Candidate Invocation sources")
+    return {name: line.partition(": ")[2] for name, line in zip(names, lines, strict=True)}, recipe
+
+
+def _position(raw_index: str, raw_count: str) -> tuple[int, int]:
+    if not all(value.isascii() and value.isdigit() for value in (raw_index, raw_count)):
+        raise ValueError("invalid case position")
+    position, count = int(raw_index) + 1, int(raw_count)
+    if not 1 <= position <= count <= 9_007_199_254_740_991:
+        raise ValueError("invalid case position")
+    return position, count
 
 
 CASE_ATTEMPT_PARAM = "attempt"

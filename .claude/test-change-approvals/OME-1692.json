@@ -1,0 +1,250 @@
+{
+  "issue": "OME-1692",
+  "branch": "OME-1692-url4-benchmark-expression",
+  "approver": "Ionesio Junior (owner)",
+  "date": "2026-10-20",
+  "scope": "Expression-shape pins and call sites only, for the spec-faithful Benchmark expression (docs/spec/2026-10-20-url4-benchmark-expression-spec.md): tests that pinned the old expression text or called the retired endpoints (cases()!'N', /check, /benchmarks/case-execution, /benchmarks/case-attempts, aggregate:N intents, the case-v1 Candidate context) now drive the code mounts, the data route and the new Candidate request. Score, row, report and activity assertions are kept. Also: url4 export-count pins (url4 59->61, url4.dag 38->39, url4.streaming.protocol 34->35), the MedXpertQA sha pin, the early-grade compatibility fixture (re-recorded from origin/main 06fcb0889 runs), the report v1 golden ($$ in the linked url4), and the route-layout pins that listed the retired /check route. Plus the four e2e goldens (draco-3pass, healthbench-worst30, gdpval-text, ifeval): only expression_sha moves, re-authored by `slice_snapshot.py --refresh-golden --accept-expression` from the committed snapshots; statuses, counters, revision and score replay identical. Plus slice_snapshot.py: the refresh's pinned-key check moves into `_refuse_pinned_drift` and gains the opt-in `--accept-expression` (frees expression_sha alone; tested in tests/e2e/test_refresh_accept_expression.py).",
+  "reason": "Owner-approved rebuild of the Benchmark URL4 expression to URL4 Parts A-C (decisions D1-D5 and the failure-code cause, 2026-10-20). The old expression text and endpoints no longer exist, so the tests that pinned them must move to the new contract; results, model-call bytes and revision ids are unchanged (kind validation in docs/work/2026-10-20-url4-benchmark-expression-evaluations.md).",
+  "files": {
+    "apps/screamingface-engine/tests/fixtures/early_grade_compatibility.json": {
+      "base_blob": "afe68cfb79bf21833c2c00a991ecd5bbc4651db8",
+      "approved_blob": "eddefd8df41d7b37d085cd291e7219f8979914c7"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_abstain_inspect.py": {
+      "base_blob": "a8d8545cf252b20aabe2e897fa807e52846d1a02",
+      "approved_blob": "941b3e6ce4774fe4c50b79b7c2b4352ddffd3733"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "77c68cecbecfa67ada1c6522d42dcf5a4e08e64f",
+      "approved_blob": "205f455478d464f68f554dae2647bddfeddcb981"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_imported_attempts.py": {
+      "base_blob": "664db61420134f594328ad85200b9bea68e4aa91",
+      "approved_blob": "26b86d0ae18d2ce39f6813234e3ccbaf9d926c6a"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_imported_progress.py": {
+      "base_blob": "4fe4a6f1ba03d3fe57afe72e5d049543cc4f7224",
+      "approved_blob": "eb057e0555db831ef81ad3eff681189ff3768550"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_aggregation_activity.py": {
+      "base_blob": "3ae7ed68a8929bbe9cd277c64ecd60839e3f961a",
+      "approved_blob": "1604d59d4a24f95d408c864813ba680f0a649f14"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_frontierscience_benchmark.py": {
+      "base_blob": "c5772ceaee933f5d7bf1fe76d3b2f802d9db45f2",
+      "approved_blob": "766374c7d3886851075864172d0d303b61e2e279"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_gsm8k_benchmark.py": {
+      "base_blob": "1de9043212605e21089f95e90110b936c1af277e",
+      "approved_blob": "e3176571daf34c5bd025d5ca4f4fa2d863c672e6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_mmlu_benchmark.py": {
+      "base_blob": "a9629a963fbfcce72e47a257170d72a4aa507194",
+      "approved_blob": "4d971e83037a961a682acec804a4323979318f3e"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
+      "base_blob": "2e10b787e64549816e2ae9210292a00bbb055f63",
+      "approved_blob": "dfe9b67218690708c236591bdd8acdcd900eadb3"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judge_grader_role.py": {
+      "base_blob": "e938afd6e1f0560052e1aa48233dd339cea22ae3",
+      "approved_blob": "dbc8cf84ea8ce0c44f0a7ffafb88a87e4cbd0ab3"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judge_observability.py": {
+      "base_blob": "07f17cb2333f462947e41c140a8fb86891d4355c",
+      "approved_blob": "31519124c67b2d141ea6e5fbbaa91501a2784772"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judged_benchmark_assembly.py": {
+      "base_blob": "b258781abbea7d43893702d4c89d5fe48c6081f3",
+      "approved_blob": "7bccd494e0127d1908782034ed5d541756312b22"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_local_task_arc_agi_2.py": {
+      "base_blob": "349539ae01788212aebdf5d7e0860e15f4f860d7",
+      "approved_blob": "3f830b53c96a8ca87b65246e1fabea631ab83c5b"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
+      "base_blob": "0642ef48a18d86cea3a577973e2ceb5f354ff565",
+      "approved_blob": "5f3a39ab7a9e75a556fdb1c5696d05de947bba77"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_retrieval_policy_on_row.py": {
+      "base_blob": "e6ea6e35ce698a34da61a8ca80e1c564ff5ad8e2",
+      "approved_blob": "60b8bbcf9ec909381ae3af3ca3aae84ae17e686f"
+    },
+    "apps/screamingface-engine/tests/unit/test_answer_seed_threading.py": {
+      "base_blob": "be0910f22cba59dc2b09a89270d9b90cafea6b56",
+      "approved_blob": "8e3c2f6358f3ea868e4c541eab5265ef1881ebc2"
+    },
+    "apps/screamingface-engine/tests/unit/test_async_aggregate_endpoint.py": {
+      "base_blob": "4abab8f76cdd4638a5ed9fab4b16f163510c5c81",
+      "approved_blob": "0ac2acebea11f9e356d4b9ae673d6b808df5a0de"
+    },
+    "apps/screamingface-engine/tests/unit/test_attempt_egress.py": {
+      "base_blob": "3bb9cb90b7c27418874ad99886e2c4f835ba6617",
+      "approved_blob": "9eafa7ce608c13039a689bd11ddaa6df3c8e5a81"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_context_routes.py": {
+      "base_blob": "690a850bbb56067f74d5cdb530a0153327eec54a",
+      "approved_blob": "4476d4505387adb557deac05c6926dbf7ba89ca6"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_display_metadata.py": {
+      "base_blob": "4f451a5d609887e3c38ea3fd78b86e551910740e",
+      "approved_blob": "5bd009d4a64c53f0f25a529cf6a94b59ad11f0b4"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_evaluation.py": {
+      "base_blob": "707c46c10ed1190d948d7cf7b05bdd4804f8f35f",
+      "approved_blob": "f639248f7b2bbcb5ca46d484ba930d2ea49acd14"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_foundation.py": {
+      "base_blob": "07b10789f2fdfb383b6de10b600ecf8a4a1a73a0",
+      "approved_blob": "8efdab259cd1f5df62f8dcd0f2152e132f186c36"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_inverted_grade.py": {
+      "base_blob": "9bb39a03b845a21ac1a010425adbf503ecb71826",
+      "approved_blob": "19a5f837392e345db2ee95ebf59a6c12e5cc83d3"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_origin.py": {
+      "base_blob": "8251fc07e3014a6cd3a33ba3313c50194cc5c3de",
+      "approved_blob": "bee3fa48ddcc7e82333263837b521a8429f87dec"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_protocol.py": {
+      "base_blob": "cca09c6d874c2d386ab206bf5976ed20ea6be272",
+      "approved_blob": "185532a952f427b735e8019b228c47b8761532a7"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_provenance.py": {
+      "base_blob": "4d4ea0d22c1c849558a08d226f6ba31ac9fae2fb",
+      "approved_blob": "e2e469de100df14387df8746b7f748c0fe314649"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_provenance_twins.py": {
+      "base_blob": "466b92bf703ea7bc0865abd106493befdd30c34d",
+      "approved_blob": "42284e3758bddb702169e696dbc0cafea6c6a4ef"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_installation.py": {
+      "base_blob": "f9bdb82c3c2436bb85ba1b0b7067e54e2a47bf1e",
+      "approved_blob": "68643e56a01f9a48aa19788b077e8c084c0bbcd2"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_stage_ownership.py": {
+      "base_blob": "197a43001b78c51fc7124a9eb913d27015d515a4",
+      "approved_blob": "f0e238eb1490114097390f387420c87fb9b22afc"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_activity.py": {
+      "base_blob": "d098a0c49afc95bce854de13991e9450480260bc",
+      "approved_blob": "de91edbd29fcda3e487040887df4472488af3887"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_attempts_contract.py": {
+      "base_blob": "b6ee983d43258f79a0d4d739aefe871011903665",
+      "approved_blob": "8cc0015b3b274a8039165ff914826e8fdb7c3f55"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_attempts_protocol.py": {
+      "base_blob": "3533699e0ee915f59f676b7ab42d1d45a62b5042",
+      "approved_blob": "b0aa861223f532380cbbca47007544a8905e1e5f"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_grading_signals.py": {
+      "base_blob": "a67616bcfb711a95331048a752e5fefa873d764e",
+      "approved_blob": "250b6baf1a04493ca414a029cce9199268eff4ea"
+    },
+    "apps/screamingface-engine/tests/unit/test_case_positions.py": {
+      "base_blob": "2bd4dee5e36f6579f40f30b2cdc86b734907a081",
+      "approved_blob": "567e41c2c72073d7649f23dad0902b4dfdf3a2fe"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_compatibility.py": {
+      "base_blob": "b6a8ada328a0781a2140852b7bb83397d0cfd63d",
+      "approved_blob": "22f61b2c8d5280170ab798e78fe2b49b31e50951"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_connector_cache.py": {
+      "base_blob": "ff865228298d60669740be2f27fb56d0455434f1",
+      "approved_blob": "bc5db6648458be1b63e6b9237a6de4a7e35cb54f"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_safety.py": {
+      "base_blob": "f94ba2d45b3fd3e14ce61f80284861b9469fb222",
+      "approved_blob": "ee7639eb90a2f0c262b4033cfb7dafa209b3d043"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grader_crashes.py": {
+      "base_blob": "f3fb7e304e72d1d6161e538eac691b73137e4ce2",
+      "approved_blob": "f4e5445677789272540912a3a7f792fd9c332680"
+    },
+    "apps/screamingface-engine/tests/unit/test_fair_share_io_layer.py": {
+      "base_blob": "918b0d02ec5580d76c1116a8505df23ddbbd313d",
+      "approved_blob": "f6f5455c99612d109eac39dd57be9f15275e0e6f"
+    },
+    "apps/screamingface-engine/tests/unit/test_finalized_missing_progress.py": {
+      "base_blob": "6c905d4ce7e62eb09ec677849412e80f41dbd89d",
+      "approved_blob": "17a190a9582f9f5c88adeacf10db8de5682b1268"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_case_evaluation.py": {
+      "base_blob": "aa150084966e965b58811c9b7f880ae0dae16145",
+      "approved_blob": "871f1f2ff51d39c28df31f304071dfd2af43591f"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_definition.py": {
+      "base_blob": "f8c758697edfad6d0b021c1532350bc2c5a2e8c7",
+      "approved_blob": "a35129cf2ffaad4a545ddf97870a5a571c348a07"
+    },
+    "apps/screamingface-engine/tests/unit/test_medxpert_migration_golden.py": {
+      "base_blob": "bad6587404161c0e1b064f83a3e06c43a21d4039",
+      "approved_blob": "f2c0338a6266fcc0ffbba4cb07fedb27d29cfeff"
+    },
+    "apps/screamingface-engine/tests/unit/test_native_case_index.py": {
+      "base_blob": "8d229fb741f78073bed430440092d30ca48611b1",
+      "approved_blob": "37162739b7d318a95927705f95a201e5850f12a0"
+    },
+    "apps/screamingface-engine/tests/unit/test_samples_seed_contract.py": {
+      "base_blob": "2ec417ddee532746610e9d214d554d0521c3d846",
+      "approved_blob": "7b78fa50209a977acd86da0f8f89e75447cc77b5"
+    },
+    "apps/screamingface-engine/tests/unit/test_shared_grading_serving.py": {
+      "base_blob": "6cfec1ed1b42ca66a8ae7db035dc525fd88ef686",
+      "approved_blob": "90f174b148de3ccc4fedd1bab3788fd75d0773ed"
+    },
+    "apps/screamingface-engine/tests/unit/test_stage_case_attribution.py": {
+      "base_blob": "1398833ff08b591502dbe3acaa3bc907b86636a3",
+      "approved_blob": "e6af3c62bd501e4a9132173d7916e90798203481"
+    },
+    "apps/screamingface-engine/tests/unit/test_world_golden_parity.py": {
+      "base_blob": "4dbe0b23360c0a64e188618441ed35fcfdd8bd6f",
+      "approved_blob": "24d03847899027ed6719cbb13b992712bfa2fcf0"
+    },
+    "packages/screamingface/tests/data/report_v1_vote_median_report.json": {
+      "base_blob": "10f3247c926236629c8ece7ad05a07bf5c2e5bdb",
+      "approved_blob": "f9aa0aef06d664f990124e5f3e4ab315647931b1"
+    },
+    "packages/screamingface/tests/test_benchmark_compilation.py": {
+      "base_blob": "9b48ea91c2afbf8ad13bfa55392d5b3eb9b38eca",
+      "approved_blob": "b41c663ee829c757e552cccc0b4b199f5110f391"
+    },
+    "packages/screamingface/tests/test_live_candidate_progress.py": {
+      "base_blob": "0f7fd75cc7aab3afe06ec9108712dcf7dfdfd6ed",
+      "approved_blob": "d395edb8f5b701866ca5b0686e0c8ec9483e23b3"
+    },
+    "packages/url4/tests/unit/test_builders.py": {
+      "base_blob": "4ffc08145027e8fdd1c6c717ef8256ad71d0d081",
+      "approved_blob": "e74eead110b90633c49e341b4a969901ecfe3a71"
+    },
+    "packages/url4/tests/unit/test_code_mounts.py": {
+      "base_blob": "e7a2a6d74e6ca1ad56b247d8eddcf7c015cedf17",
+      "approved_blob": "adff32b068538240ea6d539d65a0023dea72ab7f"
+    },
+    "packages/url4/tests/unit/test_hygiene_ratchets.py": {
+      "base_blob": "d34dfb6975f758403f1225dec8d1524a2203bdbf",
+      "approved_blob": "bd7c1d6c58edbdca983bc8cc5c1bffce16c818d4"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/draco-3pass.golden.json": {
+      "base_blob": "a15a4a137bf1cafc3f7caa86bb9f0760dd1517e5",
+      "approved_blob": "78a48af62b33ef6a7031dc634f4b68bc34f16d31"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/healthbench-worst30.golden.json": {
+      "base_blob": "199a6ce45fe94430fee654163bf52503b89bc023",
+      "approved_blob": "ae113e8fcc33b548538ff54ada5c7ec207ff29c2"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/gdpval-text.golden.json": {
+      "base_blob": "3a6ffbadd8d24425ccb4197b8d4eea8cec1d9db5",
+      "approved_blob": "4587565f719d79aee312a24e59bd3d9378482072"
+    },
+    "packages/screamingface/tests/e2e/fixtures/goldens/ifeval.golden.json": {
+      "base_blob": "26e67739ada9821634c1e527af0963169738e369",
+      "approved_blob": "6cf7416fafeb78c3e031dd73244d518796dd2100"
+    },
+    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
+      "base_blob": "b1cfcfddfef6e7b334b76b281d28d53b16a9fcfd",
+      "approved_blob": "b8c2cb646e7381cb0a6c09fd2d645e418137697e"
+    }
+  }
+}

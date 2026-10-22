@@ -223,13 +223,25 @@ protocol references a route `install` never registered, so a missing route fails
 startup, not mid-run. Copy `medxpert/definition.py` + `medxpert/runtime.py`; the shapes
 are not summarized here on purpose — those two files are the source of truth.
 
-The cases route is now a validated collection producer. Shared `install_cases` in
-`benchmarks/case_selection.py` registers it; `build_evaluation_protocol` calls
-`/benchmarks/<id>/<revision>/cases()!'N'` to validate that at least N object rows exist
-before inference, then applies native `iteration.slice`. Bare data-route reads are no
-longer the cases contract. Candidate builders pass `case_index="$index"` and the selected
-`case_count` alongside the Case ID, outside model input. The adapter converts the index
-to the existing one-based activity position. Do not add synthetic fields to dataset rows.
+The expression follows URL4 Parts A–C (spec
+`docs/spec/2026-10-20-url4-benchmark-expression-spec.md`): the case set is a data reference,
+each deterministic step is a code mount, and the Candidate call is LLM mode. Build it with
+`benchmarks/protocol.py` (`evaluation_protocol`, `attempt_steps`) and
+`definition.candidate_invocation`:
+
+- **Cases** — shared `install_cases` (`benchmarks/case_selection.py`) registers
+  `/benchmarks/<id>/<revision>/cases` as a data route. It refuses a booklet with fewer rows
+  than the Benchmark declares, or a row that is not an object, before inference. The
+  expression selects with `;iteration.slice`.
+- **Candidate** — `candidate_invocation(prompt, case_count=N, …)`: the prompt is the quoted
+  intent (`'$item.input'`); the Case facts (`case_id`, `case_index`, `case_count`) and the
+  Recipe (`recipe`, last) are unweighted sources, outside model input. The adapter converts
+  the index to the one-based activity position. Do not add synthetic fields to dataset rows.
+- **Per-Case and per-run steps** — code mounts (`node.code(path)`) that read named sources:
+  `case_evaluation_code` (`case`, `attempt_1..N`) and `aggregate_code` (`evaluations`,
+  `selected`) in `benchmarks/case_evaluation.py`. A failure inside a code step is url4's
+  `intent_error`; the handler's own code and retryability travel as its `cause`, and that is
+  what the report shows.
 
 ### Live activity: what the benchmark owns
 
@@ -271,9 +283,8 @@ A handler's stage completion does not mean the entire case has been graded. For 
 benchmarks, call `report_case_grading(case_id, "started")` from
 `benchmarks/case_grading_report.py` after decoding the authoritative Case ID at the first
 benchmark grading handoff (checker or task preparer). Follow `medxpert/runtime.py` (a
-direct checker). Keep the shared
-`preserve_candidate_outcome` / case-execution path: its outcome handler reports
-`"completed"` or `"failed"`. Do not emit completion at every intermediate checker.
+direct checker). Keep the shared `case_evaluation_code`: it reports `"completed"` or
+`"failed"` per Attempt. Do not emit completion at every intermediate checker.
 
 These are discrete handoff/outcome facts, not a continuous grading span or a claim that
 the answer passed. Candidate-internal corrective checks are suppressed by the helper;
@@ -390,13 +401,13 @@ case scores itself (a dataset-level F1, for example, is not a mean of case score
 
 For built-in protocols that finish judging each case before starting the next, bind the
 existing `BenchmarkAggregation`, selection, private material loader and scorer in
-`shared_grading.incremental.Scoring`. Wrap the preserved case execution with `early_result` and
-install `case_result_endpoint` plus `aggregate_result_endpoint`. The first endpoint grades
-once and carries a versioned typed result; the final endpoint validates those results and
-performs authoritative reduction and accounting. `ServedBenchmark.scoring` wires these endpoints
-for deterministic benchmarks. Do not reconstruct grades from log text or grade again in an
-observer. Preserve the existing batch aggregate route and add a separate
-`/aggregate/graded` route for typed results. When old/new protocol comparisons prove unchanged
+`shared_grading.incremental.Scoring`. Make the iteration body's intent the
+`/aggregate/case-result` code (`case_result_code`, reading `execution`, `case_index` and
+`case_count`) and the run terminal `/aggregate/graded` (`graded_result_code`). The first grades
+once and carries a versioned typed result; the second validates those results and performs
+authoritative reduction and accounting. `ServedBenchmark.scoring` mounts both for
+deterministic benchmarks (see `medxpert/definition.py`). Do not reconstruct grades from log
+text or grade again in an observer. When old/new protocol comparisons prove unchanged
 requests, scoring and complete results, preserve the semantic benchmark revision; a transport
 change alone does not require a leaderboard revision reset. Deploy the Engine routes before
 publishing expressions that use them.

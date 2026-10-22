@@ -29,6 +29,7 @@ pytest.importorskip("inspect_ai")
 from inspect_ai.model import model_roles  # noqa: E402
 from inspect_ai.scorer import model_graded_qa  # noqa: E402
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
@@ -387,7 +388,7 @@ async def test_a_model_role_benchmarks_judge_is_routed_and_accounted_end_to_end(
 
     rows = json.dumps([_row(1, "Paris is the capital of France.")])
     with capture_request_accounting(), capture_grading_requests():
-        result = json.loads(await _call(node, benchmark.aggregate_route, rows, "aggregate:1"))
+        result = json.loads(await run_aggregate(node, benchmark.aggregate_route, rows, 1))
 
     assert result["cases"][0]["grade"]["score"] == 1.0
     assert len(judge.requests) == 1

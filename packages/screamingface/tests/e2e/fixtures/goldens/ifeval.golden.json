@@ -7,7 +7,7 @@
     "openrouter/microsoft/phi-4"
   ],
   "limit": 50,
-  "expression_sha": "6411a99f159050fbd0222853a6e8b0acfab15f88ab9df8e52e9c18e5852f374d",
+  "expression_sha": "ea0e3743da5bfb3b7c67c10f18963c75a5ec3aa4b7011ee1382fcb1c05492df8",
   "final_score": "0.9184",
   "case_count": 50,
   "gradeable_count": 49,

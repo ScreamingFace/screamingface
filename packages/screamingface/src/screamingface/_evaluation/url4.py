@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from url4 import Expression, Source, Text, build
+from url4 import Expression, Source, Text, build, literal_value
 
 from screamingface._core.ports import AsyncRunTransport, SyncRunTransport, _RunOutcome
 from screamingface._evaluation.combine_spec import COMBINE_MODEL
@@ -347,7 +347,8 @@ def _candidate_text(root: object) -> str:
                 and node.name == "candidate"
                 and isinstance(node.value, Text)
             ):
-                return node.value.value
+                # The linker carries the Recipe as a url4 literal (`$` as `$$`).
+                return literal_value(node.value)
     raise ValueError(
         "Evaluation URL4 must contain the embedded `candidate` recipe produced by ScreamingFace"
     )

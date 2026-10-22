@@ -10,7 +10,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     BenchmarkInstaller,
-    candidate,
+    candidate_invocation,
     link_candidate,
 )
 from screamingface_engine.benchmarks.provenance import (
@@ -40,6 +40,6 @@ __all__ = [
     "HumanBaseline",
     "NotPublished",
     "assets_root",
-    "candidate",
+    "candidate_invocation",
     "link_candidate",
 ]

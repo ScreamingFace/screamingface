@@ -1,12 +1,735 @@
 {
-  "source": "origin/main 922d392a",
   "boards": {
     "medxpert": {
+      "connector_cache": {
+        "report": {
+          "benchmark_id": "medxpert",
+          "benchmark_revision": "1e5a3b8a461a52f7",
+          "case_count": 2,
+          "cases": [
+            {
+              "case_id": 1,
+              "failures": [],
+              "finish_reason": "stop",
+              "grade": {
+                "checks": [
+                  {
+                    "evidence": [
+                      {
+                        "accounting": null,
+                        "metadata": {
+                          "answered": false,
+                          "expected": "E"
+                        },
+                        "outcome": "FAIL",
+                        "producer": {
+                          "id": "medxpert/exact-match",
+                          "type": "deterministic"
+                        },
+                        "raw_output": "",
+                        "sequence": 1,
+                        "valid": true
+                      }
+                    ],
+                    "id": "1",
+                    "label": "committed choice matches the published key",
+                    "metadata": {
+                      "committed": "",
+                      "expected": "E"
+                    },
+                    "outcome": "UNMET",
+                    "type": "choice"
+                  }
+                ],
+                "method": "exact_match",
+                "metrics": {
+                  "answered": false
+                },
+                "score": 0.0
+              },
+              "input": "CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+              "metadata": {
+                "body_system": "Cardiovascular",
+                "medical_task": "Diagnosis",
+                "question_type": "Reasoning",
+                "reasoning": "Fresh tea"
+              },
+              "output": "Fresh tea",
+              "refusal": null,
+              "rounds_executed": null,
+              "status": "scored",
+              "stop_reason": null
+            },
+            {
+              "case_id": 2,
+              "failures": [],
+              "finish_reason": "stop",
+              "grade": {
+                "checks": [
+                  {
+                    "evidence": [
+                      {
+                        "accounting": null,
+                        "metadata": {
+                          "answered": false,
+                          "expected": "E"
+                        },
+                        "outcome": "FAIL",
+                        "producer": {
+                          "id": "medxpert/exact-match",
+                          "type": "deterministic"
+                        },
+                        "raw_output": "",
+                        "sequence": 1,
+                        "valid": true
+                      }
+                    ],
+                    "id": "1",
+                    "label": "committed choice matches the published key",
+                    "metadata": {
+                      "committed": "",
+                      "expected": "E"
+                    },
+                    "outcome": "UNMET",
+                    "type": "choice"
+                  }
+                ],
+                "method": "exact_match",
+                "metrics": {
+                  "answered": false
+                },
+                "score": 0.0
+              },
+              "input": "CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+              "metadata": {
+                "body_system": "Cardiovascular",
+                "medical_task": "Diagnosis",
+                "question_type": "Reasoning",
+                "reasoning": "Fresh tea"
+              },
+              "output": "Fresh tea",
+              "refusal": null,
+              "rounds_executed": null,
+              "status": "scored",
+              "stop_reason": null
+            }
+          ],
+          "coverage": 1.0,
+          "failures": [],
+          "metrics": {
+            "answered": 0,
+            "answered_rate": 0.0,
+            "correct": 0,
+            "scored_cases": 2
+          },
+          "schema": "screamingface.candidate-result.v1",
+          "score": 0.0
+        },
+        "requests": [
+          {
+            "messages": [
+              {
+                "content": "answer",
+                "role": "system"
+              },
+              {
+                "content": "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+                "role": "user"
+              }
+            ],
+            "model": "openrouter/anthropic/claude-x"
+          },
+          {
+            "messages": [
+              {
+                "content": "answer",
+                "role": "system"
+              },
+              {
+                "content": "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"Fresh tea\\\",\\\"finish_reason\\\":\\\"stop\\\",\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+                "role": "user"
+              }
+            ],
+            "model": "openrouter/anthropic/claude-x"
+          },
+          {
+            "messages": [
+              {
+                "content": "answer",
+                "role": "system"
+              },
+              {
+                "content": "Q: CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+                "role": "user"
+              }
+            ],
+            "model": "openrouter/anthropic/claude-x"
+          },
+          {
+            "messages": [
+              {
+                "content": "answer",
+                "role": "system"
+              },
+              {
+                "content": "{\"question\": \"CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"Fresh tea\\\",\\\"finish_reason\\\":\\\"stop\\\",\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+                "role": "user"
+              }
+            ],
+            "model": "openrouter/anthropic/claude-x"
+          }
+        ]
+      },
       "revision": "1e5a3b8a461a52f7",
-      "protocols": {
-        "1": "(case_evaluations:0.0:(selected_case_evaluations:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/cases()!'1'*(evaluated:0.0:(preserved_case:0.0:(reasoning:0.0:(candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=({input: '$item.cot_prompt', case_id: '$item.id', case_index: '$index', case_count: '1'})!'$candidate')!'$candidate_invocation', candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=({input: {question: '$item.input', reasoning: '$reasoning', trigger: '$item.trigger'}, case_id: '$item.id', case_index: '$index', case_count: '1'})!'$candidate', protected_grading:0.0:({candidate_invocation: '$candidate_invocation', case_id: '$item.id'})*(grading:0.0:(record:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/check({reasoning: '$reasoning', commit: '$candidate_invocation'})!'$item.case_id', case_evaluation:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/case-evaluation({attempt_1: '$record'})!'$item.case_id')!'$case_evaluation')!'$grading', case_execution:0.0:/benchmarks/case-execution({case_id: '$item.id', candidate_invocation: '$candidate_invocation', grading: '$protected_grading'})!'')!'$case_execution')!'$preserved_case')!'$evaluated';iteration.concurrency=1;iteration.slice=0:1)!'$selected_case_evaluations', result:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate($case_evaluations)!'aggregate:1')!'$result'",
-        "2": "(case_evaluations:0.0:(selected_case_evaluations:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/cases()!'2'*(evaluated:0.0:(preserved_case:0.0:(reasoning:0.0:(candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=({input: '$item.cot_prompt', case_id: '$item.id', case_index: '$index', case_count: '2'})!'$candidate')!'$candidate_invocation', candidate_invocation:0.0:/benchmarks/candidate?web_search=false&context_format=case-v1&q=({input: {question: '$item.input', reasoning: '$reasoning', trigger: '$item.trigger'}, case_id: '$item.id', case_index: '$index', case_count: '2'})!'$candidate', protected_grading:0.0:({candidate_invocation: '$candidate_invocation', case_id: '$item.id'})*(grading:0.0:(record:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/check({reasoning: '$reasoning', commit: '$candidate_invocation'})!'$item.case_id', case_evaluation:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/case-evaluation({attempt_1: '$record'})!'$item.case_id')!'$case_evaluation')!'$grading', case_execution:0.0:/benchmarks/case-execution({case_id: '$item.id', candidate_invocation: '$candidate_invocation', grading: '$protected_grading'})!'')!'$case_execution')!'$preserved_case')!'$evaluated';iteration.concurrency=1;iteration.slice=0:2)!'$selected_case_evaluations', result:0.0:/benchmarks/medxpert/1e5a3b8a461a52f7/aggregate($case_evaluations)!'aggregate:2')!'$result'"
+      "runs": {
+        "fusion-1": {
+          "calls": [
+            [
+              "/writer",
+              "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/writer-b",
+              "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/synth",
+              "(E) Tea is a warm drink\n(E) Tea is a warm drink",
+              "combine",
+              {}
+            ],
+            [
+              "/writer",
+              "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/writer-b",
+              "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/synth",
+              "(E) Tea is a warm drink\n(E) Tea is a warm drink",
+              "combine",
+              {}
+            ]
+          ],
+          "result": {
+            "benchmark_id": "medxpert",
+            "benchmark_revision": "1e5a3b8a461a52f7",
+            "case_count": 1,
+            "cases": [
+              {
+                "case_id": 1,
+                "failures": [],
+                "finish_reason": null,
+                "grade": {
+                  "checks": [
+                    {
+                      "evidence": [
+                        {
+                          "accounting": null,
+                          "metadata": {
+                            "answered": true,
+                            "expected": "E"
+                          },
+                          "outcome": "PASS",
+                          "producer": {
+                            "id": "medxpert/exact-match",
+                            "type": "deterministic"
+                          },
+                          "raw_output": "E",
+                          "sequence": 1,
+                          "valid": true
+                        }
+                      ],
+                      "id": "1",
+                      "label": "committed choice matches the published key",
+                      "metadata": {
+                        "committed": "E",
+                        "expected": "E"
+                      },
+                      "outcome": "MET",
+                      "type": "choice"
+                    }
+                  ],
+                  "method": "exact_match",
+                  "metrics": {
+                    "answered": true
+                  },
+                  "score": 1.0
+                },
+                "input": "CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+                "metadata": {
+                  "body_system": "Cardiovascular",
+                  "medical_task": "Diagnosis",
+                  "question_type": "Reasoning",
+                  "reasoning": "(E) Tea is a warm drink"
+                },
+                "output": "(E) Tea is a warm drink",
+                "refusal": null,
+                "rounds_executed": null,
+                "status": "scored",
+                "stop_reason": null
+              }
+            ],
+            "coverage": 1.0,
+            "failures": [],
+            "metrics": {
+              "answered": 1,
+              "answered_rate": 1.0,
+              "correct": 1,
+              "scored_cases": 1
+            },
+            "schema": "screamingface.candidate-result.v1",
+            "score": 1.0
+          }
+        },
+        "fusion-2": {
+          "calls": [
+            [
+              "/writer",
+              "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/writer-b",
+              "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/synth",
+              "(E) Tea is a warm drink\n(E) Tea is a warm drink",
+              "combine",
+              {}
+            ],
+            [
+              "/writer",
+              "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/writer-b",
+              "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/synth",
+              "(E) Tea is a warm drink\n(E) Tea is a warm drink",
+              "combine",
+              {}
+            ],
+            [
+              "/writer",
+              "Q: CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/writer-b",
+              "Q: CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/synth",
+              "(E) Tea is a warm drink\n(E) Tea is a warm drink",
+              "combine",
+              {}
+            ],
+            [
+              "/writer",
+              "{\"question\": \"CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/writer-b",
+              "{\"question\": \"CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/synth",
+              "(E) Tea is a warm drink\n(E) Tea is a warm drink",
+              "combine",
+              {}
+            ]
+          ],
+          "result": {
+            "benchmark_id": "medxpert",
+            "benchmark_revision": "1e5a3b8a461a52f7",
+            "case_count": 2,
+            "cases": [
+              {
+                "case_id": 1,
+                "failures": [],
+                "finish_reason": null,
+                "grade": {
+                  "checks": [
+                    {
+                      "evidence": [
+                        {
+                          "accounting": null,
+                          "metadata": {
+                            "answered": true,
+                            "expected": "E"
+                          },
+                          "outcome": "PASS",
+                          "producer": {
+                            "id": "medxpert/exact-match",
+                            "type": "deterministic"
+                          },
+                          "raw_output": "E",
+                          "sequence": 1,
+                          "valid": true
+                        }
+                      ],
+                      "id": "1",
+                      "label": "committed choice matches the published key",
+                      "metadata": {
+                        "committed": "E",
+                        "expected": "E"
+                      },
+                      "outcome": "MET",
+                      "type": "choice"
+                    }
+                  ],
+                  "method": "exact_match",
+                  "metrics": {
+                    "answered": true
+                  },
+                  "score": 1.0
+                },
+                "input": "CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+                "metadata": {
+                  "body_system": "Cardiovascular",
+                  "medical_task": "Diagnosis",
+                  "question_type": "Reasoning",
+                  "reasoning": "(E) Tea is a warm drink"
+                },
+                "output": "(E) Tea is a warm drink",
+                "refusal": null,
+                "rounds_executed": null,
+                "status": "scored",
+                "stop_reason": null
+              },
+              {
+                "case_id": 2,
+                "failures": [],
+                "finish_reason": null,
+                "grade": {
+                  "checks": [
+                    {
+                      "evidence": [
+                        {
+                          "accounting": null,
+                          "metadata": {
+                            "answered": true,
+                            "expected": "E"
+                          },
+                          "outcome": "PASS",
+                          "producer": {
+                            "id": "medxpert/exact-match",
+                            "type": "deterministic"
+                          },
+                          "raw_output": "E",
+                          "sequence": 1,
+                          "valid": true
+                        }
+                      ],
+                      "id": "1",
+                      "label": "committed choice matches the published key",
+                      "metadata": {
+                        "committed": "E",
+                        "expected": "E"
+                      },
+                      "outcome": "MET",
+                      "type": "choice"
+                    }
+                  ],
+                  "method": "exact_match",
+                  "metrics": {
+                    "answered": true
+                  },
+                  "score": 1.0
+                },
+                "input": "CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+                "metadata": {
+                  "body_system": "Cardiovascular",
+                  "medical_task": "Diagnosis",
+                  "question_type": "Reasoning",
+                  "reasoning": "(E) Tea is a warm drink"
+                },
+                "output": "(E) Tea is a warm drink",
+                "refusal": null,
+                "rounds_executed": null,
+                "status": "scored",
+                "stop_reason": null
+              }
+            ],
+            "coverage": 1.0,
+            "failures": [],
+            "metrics": {
+              "answered": 2,
+              "answered_rate": 1.0,
+              "correct": 2,
+              "scored_cases": 2
+            },
+            "schema": "screamingface.candidate-result.v1",
+            "score": 1.0
+          }
+        },
+        "solo-1": {
+          "calls": [
+            [
+              "/writer",
+              "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/writer",
+              "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ]
+          ],
+          "result": {
+            "benchmark_id": "medxpert",
+            "benchmark_revision": "1e5a3b8a461a52f7",
+            "case_count": 1,
+            "cases": [
+              {
+                "case_id": 1,
+                "failures": [],
+                "finish_reason": null,
+                "grade": {
+                  "checks": [
+                    {
+                      "evidence": [
+                        {
+                          "accounting": null,
+                          "metadata": {
+                            "answered": true,
+                            "expected": "E"
+                          },
+                          "outcome": "PASS",
+                          "producer": {
+                            "id": "medxpert/exact-match",
+                            "type": "deterministic"
+                          },
+                          "raw_output": "E",
+                          "sequence": 1,
+                          "valid": true
+                        }
+                      ],
+                      "id": "1",
+                      "label": "committed choice matches the published key",
+                      "metadata": {
+                        "committed": "E",
+                        "expected": "E"
+                      },
+                      "outcome": "MET",
+                      "type": "choice"
+                    }
+                  ],
+                  "method": "exact_match",
+                  "metrics": {
+                    "answered": true
+                  },
+                  "score": 1.0
+                },
+                "input": "CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+                "metadata": {
+                  "body_system": "Cardiovascular",
+                  "medical_task": "Diagnosis",
+                  "question_type": "Reasoning",
+                  "reasoning": "(E) Tea is a warm drink"
+                },
+                "output": "(E) Tea is a warm drink",
+                "refusal": null,
+                "rounds_executed": null,
+                "status": "scored",
+                "stop_reason": null
+              }
+            ],
+            "coverage": 1.0,
+            "failures": [],
+            "metrics": {
+              "answered": 1,
+              "answered_rate": 1.0,
+              "correct": 1,
+              "scored_cases": 1
+            },
+            "schema": "screamingface.candidate-result.v1",
+            "score": 1.0
+          }
+        },
+        "solo-2": {
+          "calls": [
+            [
+              "/writer",
+              "Q: CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/writer",
+              "{\"question\": \"CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ],
+            [
+              "/writer",
+              "Q: CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\nA: Let's think step by step.",
+              "answer",
+              {}
+            ],
+            [
+              "/writer",
+              "{\"question\": \"CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J\", \"reasoning\": \"{\\\"schema\\\":\\\"screamingface.candidate-invocation.v1\\\",\\\"status\\\":\\\"completed\\\",\\\"output\\\":\\\"(E) Tea is a warm drink\\\",\\\"finish_reason\\\":null,\\\"refusal\\\":null,\\\"execution\\\":null}\", \"trigger\": \"Therefore, among A through J, the answer is\"}",
+              "answer",
+              {}
+            ]
+          ],
+          "result": {
+            "benchmark_id": "medxpert",
+            "benchmark_revision": "1e5a3b8a461a52f7",
+            "case_count": 2,
+            "cases": [
+              {
+                "case_id": 1,
+                "failures": [],
+                "finish_reason": null,
+                "grade": {
+                  "checks": [
+                    {
+                      "evidence": [
+                        {
+                          "accounting": null,
+                          "metadata": {
+                            "answered": true,
+                            "expected": "E"
+                          },
+                          "outcome": "PASS",
+                          "producer": {
+                            "id": "medxpert/exact-match",
+                            "type": "deterministic"
+                          },
+                          "raw_output": "E",
+                          "sequence": 1,
+                          "valid": true
+                        }
+                      ],
+                      "id": "1",
+                      "label": "committed choice matches the published key",
+                      "metadata": {
+                        "committed": "E",
+                        "expected": "E"
+                      },
+                      "outcome": "MET",
+                      "type": "choice"
+                    }
+                  ],
+                  "method": "exact_match",
+                  "metrics": {
+                    "answered": true
+                  },
+                  "score": 1.0
+                },
+                "input": "CASE-0-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+                "metadata": {
+                  "body_system": "Cardiovascular",
+                  "medical_task": "Diagnosis",
+                  "question_type": "Reasoning",
+                  "reasoning": "(E) Tea is a warm drink"
+                },
+                "output": "(E) Tea is a warm drink",
+                "refusal": null,
+                "rounds_executed": null,
+                "status": "scored",
+                "stop_reason": null
+              },
+              {
+                "case_id": 2,
+                "failures": [],
+                "finish_reason": null,
+                "grade": {
+                  "checks": [
+                    {
+                      "evidence": [
+                        {
+                          "accounting": null,
+                          "metadata": {
+                            "answered": true,
+                            "expected": "E"
+                          },
+                          "outcome": "PASS",
+                          "producer": {
+                            "id": "medxpert/exact-match",
+                            "type": "deterministic"
+                          },
+                          "raw_output": "E",
+                          "sequence": 1,
+                          "valid": true
+                        }
+                      ],
+                      "id": "1",
+                      "label": "committed choice matches the published key",
+                      "metadata": {
+                        "committed": "E",
+                        "expected": "E"
+                      },
+                      "outcome": "MET",
+                      "type": "choice"
+                    }
+                  ],
+                  "method": "exact_match",
+                  "metrics": {
+                    "answered": true
+                  },
+                  "score": 1.0
+                },
+                "input": "CASE-1-QUESTION which agent is indicated? Answer Choices: (A) choice A (B) choice B (C) choice C (D) choice D (E) choice E (F) choice F (G) choice G (H) choice H (I) choice I (J) choice J",
+                "metadata": {
+                  "body_system": "Cardiovascular",
+                  "medical_task": "Diagnosis",
+                  "question_type": "Reasoning",
+                  "reasoning": "(E) Tea is a warm drink"
+                },
+                "output": "(E) Tea is a warm drink",
+                "refusal": null,
+                "rounds_executed": null,
+                "status": "scored",
+                "stop_reason": null
+              }
+            ],
+            "coverage": 1.0,
+            "failures": [],
+            "metrics": {
+              "answered": 2,
+              "answered_rate": 1.0,
+              "correct": 2,
+              "scored_cases": 2
+            },
+            "schema": "screamingface.candidate-result.v1",
+            "score": 1.0
+          }
+        }
       }
     }
-  }
+  },
+  "source": "origin/main 922d392a; runs recorded from origin/main 06fcb0889 by the retired protocol (spec 2026-10-20-url4-benchmark-expression)"
 }

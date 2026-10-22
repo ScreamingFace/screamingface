@@ -23,6 +23,11 @@ pytest.importorskip("inspect_evals")
 
 from replayed_cases_helpers import prepare_with_stand_in_hub  # noqa: E402
 
+from screamingface_engine.benchmarks.code_calls import (  # noqa: E402
+    first_grading,
+    run_aggregate,
+    run_case_evaluation,
+)
 from screamingface_engine.benchmarks.contract import encode_candidate_invocation  # noqa: E402
 from screamingface_engine.benchmarks.ensemble.policy import DRAFT_FEEDBACK_SCHEMA  # noqa: E402
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload  # noqa: E402
@@ -130,11 +135,27 @@ async def _call(node: Url4Node, route: str, payload: str, intent: str) -> str:
     return result.text
 
 
+async def _record(node: Url4Node, invocation: str) -> Any:
+    """Case 1's grading outcome, recorded by the per-Case code (spec 2026-10-20 R1).
+
+    WHY not the check route: the check runs in process inside `case-evaluation`, which keeps
+    its record (or its failure) as the Attempt's grading outcome.
+    """
+
+    row = await run_case_evaluation(
+        node,
+        GSM8K_BENCHMARK.case_evaluation_route,
+        case={"id": 1, "case_id": "1"},
+        attempts=[invocation],
+    )
+    return first_grading(row)
+
+
 @pytest.mark.asyncio
 async def test_check_route_records_the_candidate_answer_verbatim(tmp_path: Path) -> None:
     node = _node(tmp_path)
     invocation = encode_candidate_invocation("ANSWER: 42", "stop", None)
-    reply = json.loads(await _call(node, GSM8K_BENCHMARK.check_route, invocation, "1"))
+    reply = (await _record(node, invocation))["attempts"][0]
     assert reply["schema"] == CHECK_SCHEMA
     assert reply["case_id"] == 1
     assert reply["answer"] == "ANSWER: 42"
@@ -143,14 +164,17 @@ async def test_check_route_records_the_candidate_answer_verbatim(tmp_path: Path)
 
 @pytest.mark.asyncio
 async def test_check_route_refuses_a_case_with_an_unusable_target(tmp_path: Path) -> None:
-    """Refuse-early pin: an attempt against a missing answer key fails the CALL —
-    it must never record an ungradeable attempt for the aggregate to trip on later."""
+    """Refuse-early pin: an attempt against a missing answer key fails its check — it must
+    never record an ungradeable attempt for the aggregate to trip on later."""
 
     node = _node(tmp_path)
     (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "1.json").unlink()
     invocation = encode_candidate_invocation("ANSWER: 42", "stop", None)
-    with pytest.raises(Exception, match="target record"):
-        await _call(node, GSM8K_BENCHMARK.check_route, invocation, "1")
+    # WHY a grading outcome, not a raise: the failed check is kept per Attempt beside the
+    # preserved answer, as the retired protective iterate kept it.
+    error = (await _record(node, invocation))["error"]
+    assert error["code"] == "benchmark_unavailable"
+    assert "target record" in error["message"]
 
 
 def _row(case_id: int, answer: str) -> dict[str, object]:
@@ -177,7 +201,7 @@ async def test_aggregate_scores_through_the_shared_grading_code(tmp_path: Path) 
 
     node = _node(tmp_path)
     rows = json.dumps([_row(1, "The sum is small.\nANSWER: 42"), _row(2, "ANSWER: 59")])
-    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, GSM8K_BENCHMARK.aggregate_route, rows, 2))
     assert result["benchmark_id"] == "inspect-gsm8k"
     assert result["score"] == 0.5
     assert result["metrics"]["scored_cases"] == 2
@@ -192,7 +216,7 @@ async def test_aggregate_scores_through_the_shared_grading_code(tmp_path: Path) 
 async def test_a_missing_row_is_a_named_failure_not_a_zero(tmp_path: Path) -> None:
     node = _node(tmp_path)
     rows = json.dumps([_row(1, "ANSWER: 42")])
-    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, GSM8K_BENCHMARK.aggregate_route, rows, 2))
     failed = result["cases"][1]
     assert failed["grade"]["score"] is None
     assert failed["failures"][0]["code"] == "missing_case_row"
@@ -204,7 +228,7 @@ async def test_a_missing_target_asset_fails_by_its_own_name(tmp_path: Path) -> N
     node = _node(tmp_path)
     (tmp_path / GSM8K_BENCHMARK.benchmark.id / "targets" / "2.json").unlink()
     rows = json.dumps([_row(1, "ANSWER: 42"), _row(2, "ANSWER: 60")])
-    result = json.loads(await _call(node, GSM8K_BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, GSM8K_BENCHMARK.aggregate_route, rows, 2))
     assert result["cases"][1]["failures"][0]["code"] == "missing_target_asset"
 
 

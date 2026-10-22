@@ -1,14 +1,66 @@
 """Installed benchmark roles emit activity without changing their execution contracts."""
 
 import inspect
+from collections.abc import Awaitable
+from typing import cast
 
 import pytest
 
 from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.benchmarks.builtins import BUILTIN_REGISTRATIONS
 from screamingface_engine.observations import RunObservations
+from url4 import CodeCall, CodeInput
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
+
+_PRIVATE = "private malformed input"
+
+
+def _code_call(path: str, *, selected: str = "1") -> CodeCall:
+    """One call carrying every named source a Benchmark code mount reads (spec 2026-10-20 R1).
+
+    WHY a well-formed Case beside private payloads: a code mount reads its sources by name, so
+    each role reaches its own observed step and fails there on the private payload.
+    """
+
+    values = {
+        "case": '{"id": 1, "case_id": "1"}',
+        "attempt_1": _PRIVATE,
+        "reasoning": _PRIVATE,
+        "question": _PRIVATE,
+        "trigger": _PRIVATE,
+        "execution": _PRIVATE,
+        "case_index": "0",
+        "case_count": "1",
+        "evaluations": _PRIVATE,
+        "selected": selected,
+    }
+    inputs = tuple(
+        CodeInput(position, name, value, 0.0)
+        for position, (name, value) in enumerate(values.items(), start=1)
+    )
+    return CodeCall(path, {}, inputs)
+
+
+async def _assert_code_roles(node, records, expected) -> None:
+    """Every code mount (spec 2026-10-20 R1) emits its role's activity stage, privately."""
+
+    for path, code in node._code.items():
+        records.clear()
+        try:
+            result = code(_code_call(path))
+            if inspect.isawaitable(result):
+                await result
+        except Exception:  # noqa: BLE001 — every role may refuse the private payload.
+            pass
+        if path.endswith("/commit-prompt"):
+            # WHY: building the turn-2 prompt is not a stage of its own — it emits nothing.
+            assert records == []
+            continue
+        assert [r["sf.activity.kind"] for r in records] == [expected[path.rsplit("/", 1)[1]]] * 2
+        assert records[0]["sf.activity.state"] == "started"
+        assert records[1]["sf.activity.state"] in {"completed", "failed"}
+        assert "private" not in str(records)
 
 
 @pytest.mark.asyncio
@@ -42,7 +94,8 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
         "rubric-verdict": "grading",
     }
     with run.bind():
-        for provider in node._data.values():
+        for route in node._data.values():
+            provider = route.provider
             assert callable(provider)
             records.clear()
             with pytest.raises(ResolutionError):
@@ -62,6 +115,7 @@ async def test_builtin_installers_declare_every_stage(monkeypatch, tmp_path, reg
             assert records[0]["sf.activity.state"] == "started"
             assert records[1]["sf.activity.state"] in {"completed", "failed"}
             assert "private" not in str(records)
+        await _assert_code_roles(node, records, expected)
     await run.aclose()
 
 
@@ -78,17 +132,19 @@ async def test_real_url4_candidate_stage_is_node_attached_and_output_unchanged()
     async def answer(request):
         return "a private answer"
 
-    from url4 import RelExpr, Text, expr, render, src
+    from url4 import RelExpr, Text, expr, literal, render, src
 
     recipe = "(model:0.0:/fake()!'Answer')!'$model'"
     expression = render(
         expr(
             src(
+                # WHY: the Candidate contract (spec 2026-10-20 R2) — the Recipe is a source,
+                # the model input the intent.
                 RelExpr(
                     path="/benchmarks/candidate",
                     params=(("web_search", "false"),),
-                    context=None,
-                    intent=Text(recipe),
+                    context=render(src(literal(recipe), name="recipe")),
+                    intent=Text("question"),
                 ),
                 name="result",
                 weight=0.0,
@@ -147,18 +203,31 @@ async def test_imported_benchmark_stages_use_the_same_optional_port(monkeypatch,
     )
     run = RunObservations((ActivityObserver,))
     with run.bind():
-        for route, kind in (
-            (benchmark.check_route, "answering"),
-            (benchmark.check_surface_route, "grading"),
-            (benchmark.case_evaluation_route, None),
-            (benchmark.aggregate_route, "aggregation"),
-        ):
-            records.clear()
-            with pytest.raises(ResolutionError):
-                result = node._endpoints[route](Request(route, "", "", {}))
-                if inspect.isawaitable(result):
-                    await result
-            assert [r["sf.activity.kind"] for r in records] == (
-                [] if kind is None else [kind, kind]
+        records.clear()
+        with pytest.raises(ResolutionError):
+            result = node._endpoints[benchmark.check_surface_route](
+                Request(benchmark.check_surface_route, "", "", {})
             )
+            if inspect.isawaitable(result):
+                await result
+        assert [r["sf.activity.kind"] for r in records] == ["grading", "grading"]
+        # WHY: the check runs in process inside the case-evaluation code (spec 2026-10-20 R1);
+        # its answering stage is still the only stage that Case record emits.
+        records.clear()
+        # A private non-record attempt fails the Case after its check stage ran and failed,
+        # with the declared contract code (not a bare ValueError).
+        with pytest.raises(ResolutionError, match="Candidate Invocation result is not JSON"):
+            node._code[benchmark.case_evaluation_route](_code_call(benchmark.case_evaluation_route))
+        assert [r["sf.activity.kind"] for r in records] == ["answering", "answering"]
+        records.clear()
+        # WHY selected=0: the aggregate refuses the selection before its scorer loads, so the
+        # stage is observed without the optional `inspect` extra (as the retired intent did).
+        with pytest.raises(ResolutionError):
+            await cast(
+                Awaitable[str],
+                node._code[benchmark.aggregate_route](
+                    _code_call(benchmark.aggregate_route, selected="0")
+                ),
+            )
+        assert [r["sf.activity.kind"] for r in records] == ["aggregation", "aggregation"]
     await run.aclose()

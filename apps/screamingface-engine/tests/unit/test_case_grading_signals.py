@@ -40,8 +40,9 @@ async def test_shipped_grading_entries_report_explicit_case_before_work(monkeypa
     import inspect
 
     from screamingface_engine.benchmarks.builtins import BUILTIN_REGISTRATIONS
+    from url4 import CodeCall, CodeInput
     from url4.core.errors import ResolutionError
-    from url4.peer.server import Request, Url4Node
+    from url4.peer.server import Url4Node
 
     records = []
     monkeypatch.setattr(
@@ -53,19 +54,30 @@ async def test_shipped_grading_entries_report_explicit_case_before_work(monkeypa
         registration.benchmark.install(node, tmp_path)
         run = RunObservations((ActivityObserver,))
         with run.bind():
+            # WHY (spec 2026-10-20 R1): a Benchmark's check runs in process inside its
+            # case-evaluation code, which reads the Case identity from the `case` source.
             entries = [
-                (route, handler)
-                for route, handler in node._endpoints.items()
-                if route.rsplit("/", 1)[-1] in {"check", "tasks", "rubric-tasks"}
+                (path, handler)
+                for path, handler in node._code.items()
+                if path.rsplit("/", 1)[-1] == "case-evaluation"
             ]
             assert entries
-            for route, handler in entries:
+            for path, handler in entries:
                 records.clear()
+                call = CodeCall(
+                    path,
+                    {},
+                    (
+                        CodeInput(1, "case", '{"id": 42, "case_id": "42"}', 0.0),
+                        CodeInput(2, "attempt_1", "malformed input", 0.0),
+                        CodeInput(3, "reasoning", "malformed input", 0.0),
+                    ),
+                )
                 try:
-                    result = handler(Request(route, "malformed input", "42", {}))
+                    result = handler(call)
                     if inspect.isawaitable(result):
                         await result
-                except ResolutionError:
+                except (ResolutionError, ValueError):
                     pass
                 assert len(records) == 1
                 assert records[0]["sf.activity.case_id"] == 42
@@ -75,26 +87,46 @@ async def test_shipped_grading_entries_report_explicit_case_before_work(monkeypa
 
 def test_case_envelope_reports_failure_without_changing_result(monkeypatch):
     import json
+    from typing import cast
 
+    from screamingface_engine.benchmarks.case_evaluation import case_evaluation_code
     from screamingface_engine.benchmarks.contract import encode_candidate_invocation
-    from screamingface_engine.benchmarks.graded_answer import _graded_answer_route
-    from url4.peer.server import Request
+    from url4 import CodeCall, CodeInput
+    from url4.core.errors import ResolutionError
 
     signals = []
     monkeypatch.setattr(
-        "screamingface_engine.benchmarks.graded_answer.report_case_grading",
+        "screamingface_engine.benchmarks.case_evaluation.report_case_grading",
         lambda *args: signals.append(args),
     )
     invocation = encode_candidate_invocation("answer", "stop", None)
-    for grading, state in [
-        ([{"score": 0}], "completed"),
-        ([{"error": {"code": "failed"}}], "failed"),
-    ]:
-        payload = {"case_id": "007", "candidate_invocation": invocation, "grading": grading}
-        result = json.loads(
-            _graded_answer_route(Request("/benchmarks/case-execution", json.dumps(payload), "", {}))
+    call = CodeCall(
+        "/case-evaluation",
+        {},
+        (
+            CodeInput(1, "case", '{"id": "007", "case_id": "7"}', 0.0),
+            CodeInput(2, "attempt_1", invocation, 0.0),
+        ),
+    )
+
+    def failing(case_id, rows):
+        raise ResolutionError("grader failed", code="failed", permanent=True)
+
+    # WHY (spec 2026-10-20 R1): the envelope is built by the case-evaluation code; a grading
+    # failure is kept as that Attempt's collected-error outcome.
+    for build, state in [(lambda case_id, rows: {"score": 0}, "completed"), (failing, "failed")]:
+        handler = case_evaluation_code(
+            label="example",
+            check=lambda case_id, invocation, others: {},
+            build_case_grade=build,
+            observe_grading=False,
         )
-        assert result["grading"] == grading
+        result = json.loads(cast(str, handler(call)))
+        assert result["candidate_invocation"] == invocation
+        if state == "completed":
+            assert result["grading"] == [{"score": 0}]
+        else:
+            assert result["grading"][0]["error"]["code"] == "failed"
         assert signals[-1] == ("007", state)
 
 

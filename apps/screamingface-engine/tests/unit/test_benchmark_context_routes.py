@@ -1,14 +1,15 @@
 """Registry validation follows executable local contexts, never literal model input."""
 
+import json
 from pathlib import Path
 
 import pytest
 
 from screamingface_engine.benchmarks.case_selection import install_cases
 from screamingface_engine.benchmarks.definition import Benchmark, BenchmarkDeclaration
-from screamingface_engine.benchmarks.protocol import build_evaluation_protocol
+from screamingface_engine.benchmarks.protocol import evaluation_protocol
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from url4 import Node, RelExpr, RemoteExpr, Text, render
+from url4 import CodeCall, Node, RelExpr, RemoteExpr, Text, render, src
 from url4.peer.server import Url4Node
 
 
@@ -27,13 +28,27 @@ def _benchmark(protocol: Node) -> Benchmark:
 
 
 def _selection_protocol() -> Node:
-    return build_evaluation_protocol(
+    # WHY (spec 2026-10-20 R1/R3): the cases are a data route, the per-Case and per-run steps
+    # are code the expression points at.
+    return evaluation_protocol(
         cases_route="/cases/example",
-        case_evaluation=Text("answer"),
+        steps=(src(Text("answer"), name="answer", weight=0.0),),
+        case_terminal="/case",
+        run_terminal="/aggregate",
         selected_case_count=1,
         available_case_count=1,
-        aggregate_route="/aggregate",
     )
+
+
+def _answer(call: CodeCall) -> str:
+    value = call.input("answer").value
+    assert isinstance(value, str)
+    return value
+
+
+def _rows(call: CodeCall) -> str:
+    value = call.input("evaluations").value
+    return value if isinstance(value, str) else json.dumps(value)
 
 
 @pytest.mark.asyncio
@@ -41,7 +56,8 @@ def _selection_protocol() -> Node:
 async def test_cases_dataset_is_validated_before_evaluation(registered: bool) -> None:
     # INVARIANT: the cases processor must remain visible to registry validation.
     node = Url4Node("context-routes")
-    node.endpoint("/aggregate")(lambda request: request.context)
+    node.code("/case")(_answer)
+    node.code("/aggregate")(_rows)
     protocol = _selection_protocol()
     if registered:
         install_cases(node, "/cases/example", lambda: '[{"id": "first"}]')

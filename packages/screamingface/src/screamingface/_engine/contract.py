@@ -707,6 +707,11 @@ def _termination_error(value: object) -> events.TerminationError | None:
     if value is None:
         return None
     data = _object(value, "termination error")
+    cause = data.get("cause")
+    if cause is not None:
+        # WHY: a failed Benchmark code step is url4's `intent_error`; its handler's own code
+        # and permanence ride in `cause`, and they name the failure the user acts on.
+        data = {**data, **_object(cause, "termination error cause")}
     permanent = data.get("permanent", False)
     if not isinstance(permanent, bool):
         raise ExecutionError("SF Engine termination error permanent must be boolean")

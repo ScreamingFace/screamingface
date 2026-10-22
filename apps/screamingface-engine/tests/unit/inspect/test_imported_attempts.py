@@ -66,7 +66,8 @@ def test_an_attempts_row_declares_and_asks_n_times(monkeypatch: pytest.MonkeyPat
 
     assert imported.benchmark.declaration.attempts == 2
     assert imported.benchmark.catalog_entry()["attempts"] == 2
-    assert "/benchmarks/case-attempts" in url4
+    # WHY: each Attempt is its own body source; `case-evaluation` joins them (spec 2026-10-20).
+    assert "attempt_2:0.0:/benchmarks/candidate" in url4
     assert url4.count("attempt=2") == 1
 
 
@@ -74,4 +75,4 @@ def test_a_one_attempt_row_asks_once(monkeypatch: pytest.MonkeyPatch) -> None:
     imported: Any = _assembled(_string_match_spec(), monkeypatch)
 
     assert "attempts" not in imported.benchmark.catalog_entry()
-    assert "case-attempts" not in render(imported.benchmark.build(3))
+    assert "attempt_2" not in render(imported.benchmark.build(3))

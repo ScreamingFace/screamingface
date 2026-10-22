@@ -32,8 +32,7 @@ from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
     FailurePolicy,
-    candidate,
-    candidate_call,
+    candidate_invocation,
 )
 from screamingface_engine.benchmarks.medxpert.prompts import (
     COT_PROMPT_TEMPLATE,
@@ -48,17 +47,22 @@ from screamingface_engine.benchmarks.medxpert.revision_inputs import (
     PROTOCOL_REVISION,
 )
 from screamingface_engine.benchmarks.protocol import (
+    CASE_COUNT_SOURCE,
+    CASE_INDEX_SOURCE,
+    CASE_SOURCE,
     EVALUATION_PROTOCOL_REVISION,
-    build_evaluation_protocol,
-    early_result,
-    preserve_candidate_outcome,
+    EXECUTION_SOURCE,
+    attempt_source,
+    evaluation_protocol,
 )
 from screamingface_engine.benchmarks.provenance import FrontierScore, HumanBaseline
 from screamingface_engine.benchmarks.shared_grading.serving import (
+    CASE_RESULT_SUFFIX,
+    GRADED_SUFFIX,
     benchmark_routes,
     compute_benchmark_revision,
 )
-from url4 import Node, RelExpr, Text, expr, render, src, struct
+from url4 import Node, RelUrl, Text, VarRef, expr, src
 from url4.peer.server import Url4Node
 
 BENCHMARK_ID = "medxpert"
@@ -113,88 +117,65 @@ REVISION = compute_revision()
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
 CASES_ROUTE = _ROUTES.cases
-CHECK_ROUTE = _ROUTES.check
 CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
+# The turn-2 model input, built by code from the question, turn 1 and the trigger (spec §3.2).
+COMMIT_PROMPT_ROUTE = f"{ROUTE_PREFIX}/commit-prompt"
+REASONING_SOURCE = "reasoning"
+COMMIT_PROMPT_SOURCE = "commit_prompt"
 
 
 def _build(case_count: int) -> Node:
-    """Build the two-turn MedXpertQA expression.
+    """Build the two-turn MedXpertQA expression (spec §3.2).
 
-    Reading outside-in: fetch the Cases, and for each ask the Candidate to reason, then ask the
-    SAME Candidate to commit against the bare trigger, then check the committed letter against
-    the private key and roll the rows into the aggregate.
+    Reading the body in order: ask the Candidate to reason over the ready-made CoT prompt;
+    build the commit prompt from the question, that reasoning and the trigger; ask the SAME
+    Candidate to commit; record both turns as the Case row; grade it as soon as it finishes.
     """
 
+    def case_value(field: str) -> Node:
+        return VarRef("item", (field,))
+
+    def sibling(name: str) -> Node:
+        return VarRef(name, ())
+
     # Turn 1 — free reasoning. The cases file prepares the ready-made CoT prompt.
-    # INVARIANT: this node is bound at CASE-EXECUTION scope (via `bindings=` below), never
-    # inside the grading scope. The protective iterate rebinds `$item` to the
-    # `{candidate_invocation, case_id}` struct, so `$item.cot_prompt` read there resolves
-    # empty and the model receives a blank prompt — the OME-1126 live-run failure.
-    reasoning = candidate(
-        "$item.cot_prompt",
-        case_id="$item.id",
-        case_index="$index",
-        case_count=str(case_count),
-        web_search=CANDIDATE_WEB_SEARCH,
-        binding="$candidate",
+    reasoning = candidate_invocation(
+        "$item.cot_prompt", case_count=case_count, web_search=CANDIDATE_WEB_SEARCH
     )
-    # Turn 2 — the commit. Its input carries the question and turn 1's reasoning, and ends on the
-    # trigger; the model finishes that sentence, so the letter leads.
-    # WHY `candidate_call` (the bare call) and not `candidate()`: `$reasoning` resolves only as
-    # a DIRECT sibling of the binding — inside `candidate()`'s wrapper group the reference ships
-    # to the model verbatim, and the commit loses the turn-1 essay (OME-1126).
-    commit = candidate_call(
-        {"question": "$item.input", "reasoning": "$reasoning", "trigger": "$item.trigger"},
-        case_id="$item.id",
-        case_index="$index",
-        case_count=str(case_count),
-        web_search=CANDIDATE_WEB_SEARCH,
-        binding="$candidate",
+    # INVARIANT: the turn-2 bytes are `json.dumps({"question", "reasoning", "trigger"})`, the
+    # model input the retired struct context produced, so stored replies still serve it.
+    commit_prompt = expr(
+        src(case_value("input"), name="question"),
+        src(sibling(REASONING_SOURCE), name=REASONING_SOURCE),
+        src(case_value("trigger"), name="trigger"),
+        intent=RelUrl(COMMIT_PROMPT_ROUTE),
     )
-    checked = expr(
-        src(
-            RelExpr(
-                path=CHECK_ROUTE,
-                # D8: the shared candidate envelope has no field for auxiliary text, so the
-                # reasoning reaches the report through THIS benchmark's own check envelope.
-                context=render(
-                    struct({"reasoning": "$reasoning", "commit": "$candidate_invocation"})
-                ),
-                intent=Text("$item.case_id"),
-            ),
-            name="record",
-            weight=0.0,
-        ),
-        src(
-            RelExpr(
-                path=CASE_GRADE_ROUTE,
-                context=render(struct({"attempt_1": "$record"})),
-                intent=Text("$item.case_id"),
-            ),
-            name="case_evaluation",
-            weight=0.0,
-        ),
-        intent=Text("$case_evaluation"),
+    # Turn 2 — the commit; it holds the answer being graded. The model finishes the trigger
+    # sentence, so the letter leads.
+    commit = candidate_invocation(
+        f"${COMMIT_PROMPT_SOURCE}", case_count=case_count, web_search=CANDIDATE_WEB_SEARCH
     )
-    return build_evaluation_protocol(
+    execution = expr(
+        src(VarRef("item", ()), name=CASE_SOURCE, weight=0.0),
+        src(sibling(REASONING_SOURCE), name=REASONING_SOURCE),
+        src(sibling(attempt_source(1)), name=attempt_source(1)),
+        intent=RelUrl(CASE_GRADE_ROUTE),
+    )
+    return evaluation_protocol(
         cases_route=CASES_ROUTE,
-        case_evaluation=early_result(
-            preserve_candidate_outcome(
-                # The COMMIT is the candidate outcome — it holds the answer being graded.
-                candidate_invocation=commit,
-                grading=checked,
-                case_id="$item.id",
-                # Turn 1 lives here so both the commit envelope and the check read the SAME
-                # real reasoning (see the INVARIANT on `reasoning` above).
-                bindings=(src(reasoning, name="reasoning", weight=0.0),),
-            ),
-            aggregate_route=AGGREGATE_ROUTE,
-            selected_case_count=case_count,
+        steps=(
+            src(reasoning, name=REASONING_SOURCE, weight=0.0),
+            src(commit_prompt, name=COMMIT_PROMPT_SOURCE, weight=0.0),
+            src(commit, name=attempt_source(1), weight=0.0),
+            src(execution, name=EXECUTION_SOURCE, weight=0.0),
+            src(VarRef("index", ()), name=CASE_INDEX_SOURCE, weight=0.0),
+            src(Text(str(case_count)), name=CASE_COUNT_SOURCE, weight=0.0),
         ),
+        case_terminal=AGGREGATE_ROUTE + CASE_RESULT_SUFFIX,
+        run_terminal=AGGREGATE_ROUTE + GRADED_SUFFIX,
         selected_case_count=case_count,
         available_case_count=CASE_COUNT,
-        aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
 
 
@@ -283,7 +264,7 @@ __all__ = [
     "CASES_ROUTE",
     "CASE_COUNT",
     "CASE_GRADE_ROUTE",
-    "CHECK_ROUTE",
+    "COMMIT_PROMPT_ROUTE",
     "MEDXPERT",
     "REVISION",
     "compute_revision",

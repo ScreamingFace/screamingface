@@ -14,7 +14,7 @@ from url4.streaming.protocol.signals import (
     StopData,
     TerminatedData,
 )
-from url4.streaming.protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
+from url4.streaming.protocol.taxonomy import CostBreakdown, ErrorCauseInfo, ErrorInfo, TokenUsage
 from url4.streaming.protocol.unions import (
     AttachEvent,
     CostUsageEvent,
@@ -45,6 +45,7 @@ __all__ = [
     "CostUsageEvent",
     "ErrorData",
     "ErrorEvent",
+    "ErrorCauseInfo",
     "ErrorInfo",
     "Frame",
     "FrameAdapter",

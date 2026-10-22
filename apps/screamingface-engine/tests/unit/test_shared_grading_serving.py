@@ -21,7 +21,6 @@ from screamingface_engine.benchmarks.contract import OperationOutput, encode_can
 from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
     candidate_answer,
-    compact_json,
 )
 from screamingface_engine.benchmarks.shared_grading.serving import (
     ServedBenchmark,
@@ -36,7 +35,7 @@ from screamingface_engine.benchmarks.shared_grading.serving import (
     serve_cases,
 )
 from url4.core.errors import ResolutionError
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import Url4Node
 
 # --- toy benchmark -------------------------------------------------------------------
 
@@ -70,16 +69,17 @@ def _build_public_cases(root: Path, rows: list[Any]) -> list[dict[str, Any]]:
 
 
 def _check(root: Path):
-    def check(request: Request) -> str:
-        reply = candidate_answer(request.context)
-        record = candidate_record(
+    # WHY this signature (spec §3.2): the check runs in process inside the case-evaluation code,
+    # given the Case id, one Candidate Invocation and the Case's other named sources.
+    def check(case_id: int, invocation: str, _others: object) -> dict[str, Any]:
+        reply = candidate_answer(invocation)
+        return candidate_record(
             reply,
             schema="screamingface.toy-check.v1",
-            case_id=int(request.intent),
+            case_id=case_id,
             verdict={"correct": True},
             tail={"output": reply.text},
         )
-        return compact_json(record)
 
     return check
 
@@ -144,7 +144,7 @@ class TestBenchmarkRoutes:
 
         assert routes.prefix == f"/benchmarks/toy/{_REVISION}"
         assert routes.cases == f"/benchmarks/toy/{_REVISION}/cases"
-        assert routes.check == f"/benchmarks/toy/{_REVISION}/check"
+        # WHY no `check`: the per-Case check runs inside `case-evaluation` (spec 2026-10-20 D5).
         assert routes.case_evaluation == f"/benchmarks/toy/{_REVISION}/case-evaluation"
         assert routes.aggregate == f"/benchmarks/toy/{_REVISION}/aggregate"
 
@@ -431,12 +431,11 @@ class TestInstallBenchmark:
         install_benchmark(node, root, benchmark)
 
         routes = benchmark_routes("toy", _REVISION)
-        installed = frozenset(node.processor_routes())
-        # INVARIANT: cases validate the requested count before native iteration runs.
-        assert routes.cases in installed
-        assert routes.check in installed
-        assert routes.case_evaluation in installed
-        assert routes.aggregate in installed
+        # WHY data + code (spec R1/R3): the cases are a data route; the per-Case and per-run
+        # steps are code mounts. The check runs inside the case-evaluation code.
+        assert node.has_data(routes.cases)
+        assert node.has_code(routes.case_evaluation)
+        assert node.has_code(routes.aggregate)
 
     def test_reinstall_is_idempotent(self, tmp_path: Path) -> None:
         root = _emit_bundle(tmp_path / "toy")
@@ -446,7 +445,6 @@ class TestInstallBenchmark:
         install_benchmark(node, root, benchmark)
         install_benchmark(node, root, benchmark)
 
-        assert frozenset(node.processor_routes()) >= {
-            benchmark_routes("toy", _REVISION).check,
-            benchmark_routes("toy", _REVISION).aggregate,
-        }
+        routes = benchmark_routes("toy", _REVISION)
+        assert node.has_code(routes.case_evaluation)
+        assert node.has_code(routes.aggregate)

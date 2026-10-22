@@ -23,6 +23,7 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
+from screamingface_engine.benchmarks.code_calls import run_aggregate  # noqa: E402
 from screamingface_engine.benchmarks.contract import (  # noqa: E402
     encode_candidate_invocation,
 )
@@ -166,7 +167,7 @@ async def test_both_judge_formats_grade_through_the_gateway_route(tmp_path: Path
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, BENCHMARK.aggregate_route, rows, 2))
 
     grades = [case["grade"]["score"] for case in result["cases"]]
     assert grades == [1.0, 0.75]
@@ -208,7 +209,7 @@ async def test_a_gradeless_judge_reply_fails_one_case_not_the_run(tmp_path: Path
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, BENCHMARK.aggregate_route, rows, 2))
 
     olympic, research = result["cases"]
     assert olympic["grade"]["score"] is None
@@ -233,7 +234,7 @@ async def test_the_olympic_judge_prompt_is_inspect_evals_template_verbatim(
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds")])
-    await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:1")
+    await run_aggregate(node, BENCHMARK.aggregate_route, rows, 1)
 
     prompt = json.loads(str(judge.requests[0].context))["messages"][-1]["content"]
     # Split the template on its {placeholders}; each static chunk must appear in
@@ -273,7 +274,7 @@ async def test_an_unparsed_research_verdict_is_readable_in_the_evidence(
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, BENCHMARK.aggregate_route, rows, 2))
 
     research = result["cases"][1]
     # Faithful to inspect_evals: 0.0 is a published score, not a failure...
@@ -299,7 +300,7 @@ async def test_the_judges_reasoning_reaches_the_explanation_end_to_end(
     BENCHMARK.benchmark.install(node, tmp_path)
 
     rows = json.dumps([_row(1, "2.2 microseconds"), _row(2, "Use ligand L, with controls.")])
-    result = json.loads(await _call(node, BENCHMARK.aggregate_route, rows, "aggregate:2"))
+    result = json.loads(await run_aggregate(node, BENCHMARK.aggregate_route, rows, 2))
 
     research = result["cases"][1]["grade"]["checks"][0]["evidence"][0]
     assert "VERDICT: 7.5" in research["explanation"]

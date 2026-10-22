@@ -45,6 +45,7 @@ from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world.config import AigatewaySection, ModelSpec, WorldConfig
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from screamingface_engine.world.request_parameters import apply_answer_seed
+from url4 import literal
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.streaming.protocol import CachePolicy
@@ -320,10 +321,12 @@ def _candidate_wrapped(inner_ctx: str = "case-ctx", *, inner_params: str = "") -
     return render(
         expr(
             src(
+                # WHY: the Candidate contract (spec 2026-10-20 R2) — the model input is the
+                # intent, the Recipe a source.
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context=inner_ctx,
-                    intent=text(inner),
+                    context=render(src(literal(inner), name="recipe")),
+                    intent=text(inner_ctx),
                     params=(("web_search", "false"),),
                 ),
                 name="answer",
@@ -476,8 +479,8 @@ async def test_the_seed_reaches_candidate_calls_and_never_judge_calls() -> None:
             src(
                 RelExpr(
                     path="/benchmarks/candidate",
-                    context="case-ctx",
-                    intent=text(inner_candidate),
+                    context=render(src(literal(inner_candidate), name="recipe")),
+                    intent=text("case-ctx"),
                     params=(("web_search", "false"),),
                 ),
                 name="answer",

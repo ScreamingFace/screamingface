@@ -20,12 +20,13 @@ from url4.dag.node import (  # isort: skip
 )
 
 
+from url4.dag.nodes._collected import collected_error
+
 from url4.dag.nodes._shared import (  # isort: skip
     DEFAULT_MAP_CONCURRENCY,
     _ITEM_KEY,
     _INDEX_KEY,
     _as_text,
-    _error_payload,
     _frame,
     _media_type_of,
 )
@@ -181,7 +182,7 @@ class MapNode:
                 raise item
             if isinstance(item, Exception):
                 error_counts.append(1)
-                results.append(json.dumps(_error_payload(item)))
+                results.append(json.dumps(collected_error(item)))
             else:
                 results.append(item)
         return results
