@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1712
 stack: aigateway
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-21
-finished: 2026-10-21
+finished: 2026-10-22
 ---
 
 # hosted-byom-unit0 — configured remote-endpoint instances: compatibility proof
@@ -69,7 +69,8 @@ New tests under `apps/aigateway/tests/unit/remote_endpoint/`:
 - Tests distinguish `(account A, endpoint A)`, `(account A, endpoint B)` and
   `(account B, endpoint A)` under overlapping requests and key replacement.
 - All aigateway card gates green; prior tests unmodified.
-- Nothing staged, committed or pushed (owner instruction for this slice).
+- Nothing staged, committed or pushed until the owner allowed it (owner instruction for this
+  slice). The owner allowed commit, push and PR on 2026-10-22, after the sixth review.
 
 ## Review fixes (2026-10-21, second iteration)
 
@@ -196,8 +197,10 @@ body is fixed in the shared core session.
   `core/api_key_validation_http.py`; in tests `fixtures`, `conftest`, `test_readiness`,
   `test_request_contract`, `test_response_contract`, and it appends six cases to the prior core
   test `tests/unit/test_api_key_validation_http.py`.
-- **Commits:** none. The owner instructed that nothing is staged, committed or pushed in this
-  slice; the branch `hosted-byom-unit0` holds the work uncommitted.
+- **Commits:** none until the owner allowed commit, push and PR on 2026-10-22. Then
+  `feat(aigateway): serve configured remote endpoints as provider instances` holds the unit,
+  and a second commit holds the two approved test lines, the approval file, the task mirror
+  and this ledger. The branch is `OME-1712-remote-endpoint-instances`.
 - **Gates (after the fifth iteration):** `run_gates.py aigateway` gave ALL GATES GREEN on the
   first attempt. A separate run of the same pytest command: 6309 passed, 103 skipped, 0 failed;
   total coverage 93.82%. BYOM tests: 296 passed; core session tests: 32 passed. New code
@@ -215,6 +218,26 @@ body is fixed in the shared core session.
   a cache-entries router added) and `oauth_connections.py` (one docstring); it changed none of
   the core contracts the adapter uses, and the new code references no removed name. Before a
   PR: move the work onto current main and rerun the full gate against that base.
+- **Rebase and PR (2026-10-22):** filed as OME-1712 under OME-1306. The unit was committed and
+  rebased onto `origin/main` twice, last onto `40908acdd`; both rebases were clean. Main brought
+  three changes that touch this unit:
+  - E4c (#1523) added a guard test that requires one `OVERRIDES` row per provider plugin.
+    `RemoteEndpointPlugin` gets the row `set()`, since it overrides none of the four neutral
+    hooks. Without it, two guard tests fail.
+  - The Codex change (#1441) added `configure_discovery` to the plugin base with a no-op
+    default. The plugin inherits it; it opens no discovery connection outside the runtime.
+  - The same Codex change merged after E4c and still called the retired hook name in
+    `test_codex_plan_unsupported.py`, so `main` failed Pyright and that test, in CI as well as
+    locally. The call now uses `should_mark_credential_error_on_dispatch_status`.
+  Both one-line edits to prior tests are owner-approved in
+  `.claude/test-change-approvals/OME-1712.json`, which pins each file's blob before and after.
+  `main.py` and `config.py` merged without conflict.
+- **Gates against `40908acdd` (2026-10-22):** `run_gates.py aigateway --base 40908acdd` gave
+  ALL GATES GREEN, with both approved test transitions accepted by the append-only check. A
+  separate run of the same pytest command: 6532 passed, 109 skipped, 0 failed; total coverage
+  93.89%. `AIGW_TEST_PG=1 pytest -m needs_postgres`: 64 passed, 5 failed; the five are the
+  untouched cache snapshot upload tests, which fail because the local `pg_dump` 15 cannot dump
+  the PostgreSQL 16 test container.
 - **Gates (after the fourth iteration and the `credential_name` rename):** `run_gates.py
   aigateway` gave ALL GATES GREEN. The first full run of the fourth iteration had one failure,
   `tests/unit/auth/test_login.py::test_unknown_user_timing_close_to_wrong_password` (timing
