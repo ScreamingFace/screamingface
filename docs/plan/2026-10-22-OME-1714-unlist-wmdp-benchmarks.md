@@ -37,6 +37,17 @@ One PR, one ticket (small cross-landing work: Engine code + SDK notebook prose).
 - `packages/screamingface/scripts/build_notebooks.py`: drop the three ids from "The rest of the
   shelf"; regenerate `examples/12_inspect_evals_benchmarks.ipynb`.
 
+## U3b — SDK `get` by id and the local seed twin (review findings)
+
+- `src/screamingface/_engine/catalog_contract.py`: `_decode_benchmark(payload, requested_id)`
+  decodes one resource as an entry and refuses a body whose id is not the one asked for.
+- `src/screamingface/_engine/catalog.py`: `Benchmarks.get` / `AsyncBenchmarks.get` read the
+  listing first, then `GET /v1/benchmarks/{id}`; a 404 raises the same `unknown_benchmark`.
+- `src/screamingface/_runtime/bootstrap.py`: `scoreboard_seed_json` skips rows with
+  `unlisted` true (read with `getattr`, like `focus`).
+- Tests appended: `tests/test_catalog_discovery.py` (fallback, 404, wrong id, async twin),
+  `tests/test_runtime_cli.py` (the local projection skips an Unlisted row).
+
 ## U4 — docs
 
 - `CONTEXT.md`: define **Unlisted Benchmark**.
@@ -47,4 +58,6 @@ One PR, one ticket (small cross-landing work: Engine code + SDK notebook prose).
 - Engine: `tests/unit/test_benchmark_unlisted.py`, `tests/unit/inspect/test_unlisted_rows.py`,
   `tests/unit/inspect/test_published_revisions.py`, `tests/unit/test_benchmark_origin.py`;
   ruff + pyright on touched files; extra-less pyright + `tests/unit` per the CI rule.
-- SDK: `uv run --extra notebook python scripts/check_notebooks.py`.
+- SDK: `tests/test_catalog_discovery.py`, `tests/test_runtime_cli.py`,
+  `tests/test_benchmark_provenance_wire.py`, `tests/test_draco_vertical_slice.py`; ruff + pyright on
+  touched files; `uv run --extra notebook python scripts/check_notebooks.py`.

@@ -110,6 +110,11 @@ def scoreboard_seed_json(benchmarks: Iterable[BenchmarkDefinition]) -> str:
                 **_provenance_seed_fields(benchmark),
             }
             for benchmark in benchmarks
+            # OME-1714: the deployed board seeds from the Engine's listing, which skips an
+            # Unlisted Benchmark; this twin must skip it too, or a local leaderboard shows a
+            # board the real one hides. Read like `focus`: the Protocol does not name it, and
+            # absent means listed.
+            if not getattr(benchmark, "unlisted", False)
         ]
     )
 

@@ -27,6 +27,10 @@ Plan: `docs/plan/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md`.
 - `apps/screamingface-engine/tests/unit/test_benchmark_unlisted.py` — new
 - `apps/screamingface-engine/tests/unit/inspect/test_unlisted_rows.py` — new
 - `packages/screamingface/scripts/build_notebooks.py` + `examples/12_inspect_evals_benchmarks.ipynb`
+- `packages/screamingface/src/screamingface/_engine/catalog.py` + `catalog_contract.py` — `get` falls
+  back to the resource by id (review finding)
+- `packages/screamingface/src/screamingface/_runtime/bootstrap.py` — local seed skips Unlisted
+  (review finding)
 - `CONTEXT.md` — Unlisted Benchmark
 
 ## Test plan
@@ -37,6 +41,8 @@ Plan: `docs/plan/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md`.
 - The Unlisted spec rows are exactly `wmdp_bio`, `wmdp_chem`, `wmdp_cyber`.
 - The assembled WMDP-Bio Benchmark is unlisted; gsm8k is not (inspect extra).
 - The three published revisions are unchanged (existing pin).
+- SDK `get` returns an Unlisted Benchmark the listing omits; a 404 still raises `unknown_benchmark`;
+  a resource with another id is refused; async twin; the local projection skips an Unlisted row.
 
 ## Acceptance
 
@@ -44,8 +50,9 @@ Plan: `docs/plan/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md`.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus `docs/spec/`, `docs/plan/` and this ledger; no file beyond
-  the plan.
+- **Actual files:** as planned, plus the two SDK fixes from review (`_engine/catalog.py`,
+  `_engine/catalog_contract.py`, `_runtime/bootstrap.py` and their tests), `docs/spec/`,
+  `docs/plan/` and this ledger.
 - **Commits:** `6b28556fe` feat(screamingface-engine): take the WMDP Benchmarks off the public
   catalogue as Unlisted · docs commit (this one).
 - **Gates:** extra-less venv — `tests/unit/test_benchmark_unlisted.py`,
@@ -55,9 +62,14 @@ Plan: `docs/plan/2026-10-22-OME-1714-unlist-wmdp-benchmarks.md`.
   `test_unlisted_rows.py`, `test_published_revisions.py`, `test_failure_policy_revisions.py`,
   `test_inspect_imported_benchmarks.py`, `test_benchmark_declaration.py`: 670 passed (the three
   published revisions unchanged). SDK — `check_notebooks.py` passes; the notebook diff is the one
-  prose line. The pre-push hook runs the Engine suite.
-- **Deviations:** none. The ticket title says "remove"; the owner chose unlist over delete
-  (2026-10-22), recorded in the spec.
+  prose line. SDK after review — `test_catalog_discovery.py`, `test_runtime_cli.py`,
+  `test_benchmark_provenance_wire.py`, `test_draco_vertical_slice.py`, `test_benchmark_origin_tabs.py`:
+  129 passed; ruff + pyright on the five touched files clean. The pre-push hook runs the gates.
+- **Deviations:** two review findings fixed in the same PR (spec R2 and R6): the SDK's `get`
+  was list-then-filter, so an Unlisted id raised "not installed"; the local stack's seed twin
+  enumerated the registry without the skip. The spec's "nothing else enumerates the registry"
+  was wrong and is corrected. The ticket title says "remove"; the owner chose unlist over
+  delete (2026-10-22), recorded in the spec.
 - **Owner-verify:** after the Engine deploy, the platform operator removes the three Scoreboard
   rows on prod and dev with `python -m scoreboard.retire_benchmark --benchmark <id>
   --include-engine-owned --yes` (0 Scores, 0 baselines on each, measured 2026-10-22).

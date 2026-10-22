@@ -11,7 +11,8 @@ related: OME-1253 (the import that landed the three rows), OME-986 (the Scoreboa
 
 The Engine's catalogue (`GET /v1/benchmarks`) lists every installed Benchmark. The SDK's
 `sf.benchmarks.list()` reads it, and the Scoreboard's seed job reads it to register the rows the
-Leaderboard shows. Nothing else enumerates the registry.
+Leaderboard shows. One other place enumerates the registry: the SDK's local stack projects it by
+import into the local Scoreboard's seed (`_runtime/bootstrap.py`), the local twin of that job.
 
 Three Imported Benchmarks probe hazardous knowledge: WMDP-Bio, WMDP-Chem, WMDP-Cyber
 (`inspect-wmdp_bio`, `inspect-wmdp_chem`, `inspect-wmdp_cyber`). Product asked for their
@@ -30,7 +31,10 @@ stop appearing in any listing.
 - **R1 — an Unlisted Benchmark is absent from `GET /v1/benchmarks`.** The SDK listing and the
   Scoreboard seed therefore never see it.
 - **R2 — `GET /v1/benchmarks/{id}` still serves an Unlisted Benchmark.** A run by id keeps
-  working; `sf.benchmarks.get(id)` keeps working. The ticket's worry is perception on the
+  working. `sf.benchmarks.get(id)` keeps working too: it reads the listing first and, when the
+  listing has no entry, reads the resource by id (review finding on this PR: `get` used to be
+  list-then-filter, so an Unlisted id raised "not installed"). A wrong id still raises
+  `unknown_benchmark` with the same message. The ticket's worry is perception on the
   catalogue, not access.
 - **R3 — the mark is declared on the Benchmark in code, not in deployment configuration.** A
   fresh deploy cannot expose the rows by forgetting a setting. Each marked row names the ticket.
@@ -40,6 +44,9 @@ stop appearing in any listing.
   never deletes. After the Engine deploy, once per id on prod and dev:
   `python -m scoreboard.retire_benchmark --benchmark <id> --include-engine-owned --yes`.
   The rows hold no Scores, so the tool allows it.
+- **R6 — the SDK's local stack applies the same skip.** Its seed twin reads the registry by
+  import, so it must drop Unlisted Benchmarks itself or a local leaderboard shows a board the
+  deployed one hides (review finding on this PR).
 
 ## 3. Out of scope
 
@@ -55,3 +62,5 @@ stop appearing in any listing.
 3. The set of Unlisted rows in the inspect plugin is exactly `{wmdp_bio, wmdp_chem, wmdp_cyber}`.
 4. The three published revisions in `test_published_revisions.py` are unchanged.
 5. SDK notebook 12 no longer names the three ids; `check_notebooks.py` passes.
+6. `sf.benchmarks.get(id)` returns an Unlisted Benchmark the listing omits; an id the Engine
+   serves nowhere still raises `unknown_benchmark`; the local seed twin omits an Unlisted row.

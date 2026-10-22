@@ -17,6 +17,7 @@ from screamingface._engine.benchmark import _engine_url
 from screamingface._engine.catalog_contract import (
     _BenchmarkCatalogData,
     _BenchmarkEntry,
+    _decode_benchmark,
     _decode_benchmarks,
     _decode_model_catalog,
     _ModelCatalogData,
@@ -81,7 +82,19 @@ class Benchmarks:
         return _BenchmarkCatalog(tuple(_benchmark(entry) for entry in self._load().entries))
 
     def get(self, benchmark_id: str) -> Benchmark:
-        return _benchmark(_entry_of(self._load(), benchmark_id))
+        """One Benchmark by id: the listing first, then the resource an Unlisted one serves."""
+
+        selected = _benchmark_id(benchmark_id)
+        listed = _listed_entry(self._load(), selected)
+        if listed is not None:
+            return _benchmark(listed)
+        # FEATURE: Unlisted Benchmark (OME-1714) — off the listing, still served by id. WHY the
+        # listing is still read first: every listed id keeps the one request it made before.
+        try:
+            response = self._get(_benchmark_path(selected))
+        except httpx.HTTPError as exc:
+            _unreachable(self._engine_url, "Benchmark catalogue", exc)
+        return _benchmark(_resource_entry(response, selected))
 
     def _load(self) -> _BenchmarkCatalogData:
         return _decode_benchmarks(
@@ -138,7 +151,18 @@ class AsyncBenchmarks:
         return _BenchmarkCatalog(tuple(_benchmark(entry) for entry in (await self._load()).entries))
 
     async def get(self, benchmark_id: str) -> Benchmark:
-        return _benchmark(_entry_of(await self._load(), benchmark_id))
+        """One Benchmark by id: the listing first, then the resource an Unlisted one serves."""
+
+        selected = _benchmark_id(benchmark_id)
+        listed = _listed_entry(await self._load(), selected)
+        if listed is not None:
+            return _benchmark(listed)
+        # FEATURE: Unlisted Benchmark (OME-1714) — the sync twin's fallback, awaited.
+        try:
+            response = await self._get(_benchmark_path(selected))
+        except httpx.HTTPError as exc:
+            _unreachable(self._engine_url, "Benchmark catalogue", exc)
+        return _benchmark(_resource_entry(response, selected))
 
     async def _load(self) -> _BenchmarkCatalogData:
         return _decode_benchmarks(
@@ -181,11 +205,31 @@ def _model_id(value: object) -> str:
     return selected
 
 
-def _entry_of(catalog: _BenchmarkCatalogData, benchmark_id: str) -> _BenchmarkEntry:
-    selected = _benchmark_id(benchmark_id)
+def _benchmark_path(benchmark_id: str) -> str:
+    return f"{_BENCHMARKS_PATH}/{quote(benchmark_id, safe='')}"
+
+
+def _listed_entry(catalog: _BenchmarkCatalogData, selected: str) -> _BenchmarkEntry | None:
+    """The listing's entry for an already-normalised id, or None when the listing omits it."""
     for entry in catalog.entries:
         if entry.id == selected:
             return entry
+    return None
+
+
+def _resource_entry(response: httpx.Response, selected: str) -> _BenchmarkEntry:
+    """Decode the by-id resource as a catalogue entry; a 404 is the same error as before.
+
+    INVARIANT: an id the Engine serves nowhere raises `unknown_benchmark` with the message
+    callers matched before the fallback existed (OME-1714), never the generic contract error
+    `_response_json` gives every other non-success status.
+    """
+    if response.status_code == 404:
+        _unknown_benchmark(selected)
+    return _decode_benchmark(_response_json(response, "Benchmark catalogue"), selected)
+
+
+def _unknown_benchmark(selected: str) -> NoReturn:
     raise PlanningError(
         f"Benchmark {selected!r} is not installed on this Engine",
         code="unknown_benchmark",
