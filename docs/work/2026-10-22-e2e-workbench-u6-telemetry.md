@@ -100,3 +100,41 @@ Plan: `docs/plan/2026-10-22-e2e-workbench-u6-telemetry.md`. 6a (engine) has its 
   events, 46 spans, 6 live `counts` frames, then `end`. Lane: 538 passed, 2 skipped (`just`).
   Not seen in a real browser (the shared Playwright browser was busy); the inline script was
   run in node against a DOM/EventSource stub.
+- **Task 7 real smoke (2026-10-22).**
+  - **TDD.** `ui/test_ui_e2e.py` now also asserts the bundle's Telemetry section: counts, a
+    waterfall with `screamingface-engine` and `aigateway`, `url4.run`, and
+    `POST /v1/chat/completions`, plus usage, logs and cases. It also asserts that the ended run's
+    `/runs/<id>/telemetry` stream replays its `call` and `counts` frames, then `end`. The test
+    was GREEN on its first run, because Tasks 5 and 6 had already shipped the feature. RED was
+    shown by mutation instead, with each mutation reverted afterwards:
+    - dropping the waterfall from `_section` fails it at `'<b>screamingface-engine</b>' in ''`;
+    - dropping the `call` frames in `live.stream` fails it at `assert []`.
+  - **Real replay lane:** 538 passed, 2 skipped (`just` not on PATH), 119.6 s. Quickstart
+    PASS, trace `4b13919452a6c06e35aec81cc968de30`. The bundle holds:
+    - `events.jsonl`: 59 events (1 started, 21 log, 34 span, 2 usage, 1 terminated);
+    - `spans.jsonl`: 39 spans, all under that trace id, including `url4.run`
+      (`screamingface-engine`), two `POST /v1/chat/completions` spans (`aigateway`) and the
+      frozen-copy calls;
+    - `report.json`, `accounting.json` (`by_model: []`, as on replay) and `telemetry.json`
+      (0 dropped).
+  - **UI on port 9114** (the owner's UI holds 9112), started with
+    `scripts/workbench-ui --port 9114 --no-open`, without paid variables. A replay
+    `quickstart` run `20261022-141144-4788` was started with `POST /runs` and the token, and
+    both SSE streams were tailed while it ran:
+    - the telemetry stream's `counts` frames arrived at 0.0 s, 4.6 s (3 spans) and 5.6 s
+      (1 notebook);
+    - a `call` frame (`openrouter/microsoft/phi-4`, cache `hit`, 68.1 ms) and `counts`
+      (59 events, 46 spans) arrived at 7.1 s;
+    - pytest reported PASSED at 8.7 s, the run ended at 9.0 s (exit 0), and the telemetry
+      stream ended at 9.1 s.
+  - **Bundle page Telemetry section:** "59 events · 39 spans". The waterfall has 39 rows,
+    services `aigateway` and `screamingface-engine`, 39 SVG bars and a 330.9 ms timeline, with
+    `url4.run` and the gateway chat span. Usage has 1 model, `$0`. Accounting shows the
+    candidate with "No model rows." Logs have 21 rows (21 INFO) and the severity filter. Cases
+    has 1 row (`scored`, 1.0, `passed`, `stop`). No "None" appears anywhere in the section.
+  - **UI stopped** with SIGINT to its python process. The UI and its `uv` parent exited, and no
+    `test_notebooks.py` process was left behind. Ports 9105, 9106, 9108 and 9114 are free.
+    9112 is still held by the owner's process (PID 30885, there before this smoke), which was
+    not touched.
+  - **Not done:** the paid `local` run (out of scope here: no paid runs). Live tailing was not
+    looked at in a real browser; it was checked over HTTP with an SSE client.

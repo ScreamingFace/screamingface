@@ -130,8 +130,8 @@ assets, as for `just screamingface workbench`):
 | Page | Shows |
 |---|---|
 | `/` | The run form: target (`replay`, or `local` with a "spends real tokens" checkbox), notebooks (none checked = all). The runs found under `<out>/runs/`. Every bundle under `<out>`, newest first: verdict pill (PASS, FAIL, or "unreadable" when `trace.json` is missing or malformed), target, notebook, trace ids, reasons, time. |
-| `/runs/<id>` | Status, which notebook is running and for how long (`running quickstart… mm:ss`, from pytest's `collected` line to that notebook's result), the pytest output streamed live, a Cancel button, and links to the bundles the run wrote. After the run ends it shows the exit code and the partial output, including when the run crashed or was cancelled. |
-| `/bundles/<key>` | Verdict and reasons, the hop table (found, matching lines, missing ids), per candidate the score, spend (`cost_usd`), cache hits and cache-saved cost, the total spend, one collapsible log excerpt per hop, and the executed notebook. A money value the notebook reported as null (nothing priceable observed), or did not report, shows `unknown`, never `0`; one unknown amount makes the total `unknown`. |
+| `/runs/<id>` | Status, which notebook is running and for how long (`running quickstart… mm:ss`, from pytest's `collected` line to that notebook's result), the pytest output streamed live, a Cancel button, the live model calls and telemetry counts (see Telemetry), and links to the bundles the run wrote. After the run ends it shows the exit code and the partial output, including when the run crashed or was cancelled. |
+| `/bundles/<key>` | Verdict and reasons, the hop table (found, matching lines, missing ids), per candidate the score, spend (`cost_usd`), cache hits and cache-saved cost, the total spend, one collapsible log excerpt per hop, the Telemetry section (see Telemetry), and the executed notebook. A money value the notebook reported as null (nothing priceable observed), or did not report, shows `unknown`, never `0`; one unknown amount makes the total `unknown`. |
 
 The progress line is derived from pytest's own `-v` lines. `log_cli` stays off: it would print
 around the redaction hook (see "Not redacted" below).
@@ -198,8 +198,52 @@ UI exits with 128 + the signal number. SIGKILL on the UI itself cannot be handle
 run first.
 
 `test_ui_e2e.py` launches a real `replay` run for `quickstart` through these routes and checks
-the bundle is listed PASS with both hops found (gated like the replay lane).
+the bundle is listed PASS with both hops found, its Telemetry section, and the run's telemetry
+stream (gated like the replay lane).
 `test_shutdown.py` boots the real entry point with a fake run and signals only the UI process.
+
+### Telemetry
+
+Every notebook run also records its telemetry, and the UI shows it live and afterwards
+(spec §3.6, unit 6 plan). There are three capture paths, each redacted before it reaches disk:
+
+- **SDK events.** The notebook's `on_event` recorder (`telemetry_recorder.py`) appends each
+  `Started`, `Span`, `Usage`, `Log` and `Terminated` event to `events.jsonl`, live. The result
+  cell then writes `report.json` and `accounting.json`.
+- **OTel spans.** The lane runs a loopback OTLP/HTTP receiver (`otlp_receiver.py`, session
+  scope, `<out>/spans.jsonl`). Both targets point the engine (`screamingface-engine`) and the
+  gateway (`aigateway`) at it through `OTEL_EXPORTER_OTLP_ENDPOINT`, with
+  `OTEL_BSP_SCHEDULE_DELAY=200`. At bundle time only the spans under the notebook's exact
+  trace ids are copied into the bundle's `spans.jsonl`.
+- **The engine.** The local in-process runner exports its `url4.run` span tree when an OTLP
+  endpoint is set (unit 6a). Without one it exports nothing, which is the default.
+
+Where you see it:
+
+- **Run page, live.** `GET /runs/<id>/telemetry` (SSE) tails the run's `spans.jsonl` and every
+  `events.jsonl`. It sends one `call` per span that names a model (model, tokens, cache,
+  duration, error), running `counts` (events, spans, calls, tokens, cache hits, cost), and
+  `end` once the run has ended and the files are drained. Only complete lines are read.
+- **Bundle page, after.** A **Telemetry** section with four views. The span waterfall is
+  inline SVG, grouped by service, with repeated siblings folded and paginated. Usage and cost
+  come from the SDK usage events and from the report's accounting. Logs have a severity
+  filter. Cases come from `report.json`. A missing value shows `unknown`, never `0`, and a run
+  with no spans says why (`telemetry.json`).
+
+What a replay run shows (observed 2026-10-22, `quickstart`, run in the UI on port 9114):
+
+- **Live.** The first `counts` frame arrived 4.6 s into the run, with 3 spans. A `call` frame
+  (`openrouter/microsoft/phi-4`, cache `hit`, 68 ms) arrived at 7.1 s, with 59 events and
+  46 spans counted. That was before pytest reported PASSED (8.7 s) and before the run ended
+  (9.0 s). The live count is higher because it covers the whole session file.
+- **Bundle.** 59 events and 39 spans, all under the one notebook trace id. The 39 spans include
+  `url4.run` (`screamingface-engine`), two gateway `POST /v1/chat/completions` server spans
+  (`aigateway`), and the frozen-copy calls. Usage shows one model, `$0`. There are 21 INFO
+  logs and 1 case (`scored`, score 1.0, `passed`).
+- **Expected gaps on replay.** Every model call is a cache hit, so the gateway emits no
+  `chat.completions {provider}` span, and the report's accounting has no model or stage rows
+  ("No model rows."). Both appear only on a real dispatch (`local`, paid), which has not been
+  run yet.
 
 ## What is verified, and what is not
 
@@ -209,6 +253,7 @@ the bundle is listed PASS with both hops found (gated like the replay lane).
 | `test_notebook[replay-quickstart]`: notebook + engine/aigateway chain on the replay stack | none | pass locally; CI runs it on every PR |
 | `test_local_boot.py`: real `screamingface up` + inspect Engine boots and lists ifeval | none | pass locally (needs prepared assets) |
 | `ui/test_ui_e2e.py`: a real replay run launched through the UI by node id, a live progress event, bundle listed PASS with a spend total (2026-10-21) | none | pass locally |
+| `ui/test_ui_e2e.py` telemetry: the bundle's Telemetry section (waterfall with `url4.run` and a gateway span, usage, logs, cases) and the run's `/runs/<id>/telemetry` stream (2026-10-22) | none | pass locally |
 | `ui/test_entrypoint.py`: `python -m workbench.ui` and `just workbench-ui` (package + repo root) serve the page (2026-10-21) | none | pass locally; the `just` cases skip where `just` is absent |
 | `ui/test_shutdown.py`: SIGTERM, Ctrl-C (once, twice, thrice), SIGHUP on the UI process end its active run (2026-10-21) | none | pass locally |
 | `test_notebook[local-quickstart]`: the notebook itself on `local` | `OPENROUTER_API_KEY` + `SCREAMINGFACE_TEST_PAID=1` | **not run yet**: needs one paid run |
@@ -229,6 +274,12 @@ Each notebook writes a bundle, whether it passes or fails:
     executed.ipynb              # the run with outputs, tracebacks included
     trace.json                  # per hop: found (every id), missing_ids; verdict, reasons, result
     logs/<hop>.txt              # the log lines matching the trace ids (engine, aigateway | runtime)
+    events.jsonl                # every SDK event, one redacted JSON line each (cap 20 000)
+    spans.jsonl                 # the OTel spans under this notebook's trace ids (cap 20 000)
+    report.json                 # Report.to_dict()
+    accounting.json             # per candidate: cost by model and by stage
+    recorder.json               # the event recorder's counts and per-file outcome
+    telemetry.json              # what was recorded, copied and dropped, and why a file is empty
 ```
 
 CI (`screamingface-e2e-replay.yml`) passes `--junitxml=$SCREAMINGFACE_WORKBENCH_OUT/junit.xml`,

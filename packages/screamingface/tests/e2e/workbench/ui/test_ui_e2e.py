@@ -82,6 +82,9 @@ def test_a_replay_run_through_the_ui_lands_a_passing_bundle(client: TestClient) 
     page = client.get(f"/bundles/{key}")
     assert page.status_code == 200
     _assert_bundle_page(page.text)
+    # 6. Unit 6: the bundle's Telemetry section, and the run's telemetry stream.
+    _assert_telemetry_section(page.text)
+    _assert_telemetry_stream(client, run_id)
 
 
 def _assert_bundle_page(text: str) -> None:
@@ -94,3 +97,35 @@ def _assert_bundle_page(text: str) -> None:
     candidates = text.split("<th>Candidate</th>", 1)[1].split("</table>", 1)[0]
     assert "<th>Spend (USD)</th>" in text and "None" not in candidates, candidates
     assert re.search(r"Total spend: <b>(\$[0-9.]+|unknown)</b>", text), text
+
+
+def _assert_telemetry_section(text: str) -> None:
+    """Waterfall with the engine root and a gateway span, usage, logs and cases (unit 6, T7)."""
+    assert '<section id="telemetry"><h2>Telemetry</h2>' in text, text
+    section = text.split('<section id="telemetry">', 1)[1].split("</section>", 1)[0]
+    counts = re.search(r"(\d+) events · (\d+) spans", section)
+    assert counts and int(counts.group(1)) > 0 and int(counts.group(2)) > 0, section
+    spans = section.split('<h3 id="waterfall">Spans</h3>', 1)[1].split("<h3>", 1)[0]
+    # Both services under the notebook's trace id: the engine's url4.run tree and the gateway.
+    assert "<b>screamingface-engine</b>" in spans and "<b>aigateway</b>" in spans, spans
+    assert ">url4.run<" in spans, spans
+    assert "POST /v1/chat/completions" in spans, spans
+    assert "<svg" in spans, spans
+    usage = section.split("<h3>Usage and cost</h3>", 1)[1].split("<h3>", 1)[0]
+    assert "<th>Cost (USD)</th>" in usage and "None" not in usage, usage
+    logs = section.split("<h3>Logs</h3>", 1)[1].split("<h3>", 1)[0]
+    assert "<fieldset><legend>Severity</legend>" in logs and "<tr data-sev=" in logs, logs
+    cases = section.split("<h3>Cases</h3>", 1)[1]
+    assert "<th>Case</th>" in cases and "No cases in report.json" not in cases, cases
+
+
+def _assert_telemetry_stream(client: TestClient, run_id: str) -> None:
+    """The ended run's live telemetry stream replays its model calls and counts, then ends."""
+    with client.stream("GET", f"/runs/{run_id}/telemetry") as response:
+        assert response.status_code == 200
+        stream = "".join(response.iter_text())
+    calls = [json.loads(d) for d in re.findall(r"event: call\ndata: (.+)\n\n", stream)]
+    assert calls and all(c["model"] for c in calls), stream
+    counts = [json.loads(d) for d in re.findall(r"event: counts\ndata: (.+)\n\n", stream)]
+    assert counts and counts[-1]["spans"] > 0 and counts[-1]["events"] > 0, stream
+    assert stream.endswith("event: end\ndata: {}\n\n"), stream

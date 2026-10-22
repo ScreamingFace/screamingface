@@ -139,3 +139,8 @@ pytest left, 9105/9106/9108/9112 free). Not run: a paid `local` run.
 - No paid `local` run yet: the cancel guidance for a real local runtime and real `cost_usd`
   rendering are verified only with fakes and on replay.
 - `just` is not installed on the dev machine; the documented no-`just` command was smoked instead.
+- **Unit 6 telemetry on the UI (smoke 2026-10-22, port 9114).** A replay `quickstart` run
+  launched through `POST /runs` streamed live model calls on `/runs/<id>/telemetry` before the
+  run ended. Its bundle page showed the Telemetry section: a waterfall with `url4.run` and gateway
+  spans, usage, logs and cases. `test_ui_e2e.py` now asserts both. Details are in
+  `2026-10-22-e2e-workbench-u6-telemetry.md`, Outcome, Task 7.
