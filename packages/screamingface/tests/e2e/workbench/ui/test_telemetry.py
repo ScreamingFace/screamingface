@@ -7,6 +7,8 @@ caps, skips what it cannot parse (and counts it), never follows a symlink, and r
 from __future__ import annotations
 
 import json
+import sys
+from collections.abc import Iterator
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -285,3 +287,69 @@ def test_cases_come_from_every_candidate_of_the_report() -> None:
         ("c2", "x", "failed", None, 2),
     ]
     assert tm.cases(None) == [] and tm.cases({"candidates": "no"}) == []
+
+
+# --- hostile input (review of Task 5) -------------------------------------------------------
+
+
+def _deep(depth: int) -> str:
+    return '{"a":' + "[" * depth + "]" * depth + "}"
+
+
+@pytest.fixture
+def recursion_limit_1000() -> Iterator[None]:
+    """Pin the default limit: an import elsewhere in the session (jedi) raises it to 3000."""
+    before = sys.getrecursionlimit()
+    sys.setrecursionlimit(1000)
+    try:
+        yield
+    finally:
+        sys.setrecursionlimit(before)
+
+
+@pytest.mark.usefixtures("recursion_limit_1000")
+@pytest.mark.parametrize("depth", [2_000, 100_000])  # parses then out-recurses the redactor;
+def test_a_too_deep_line_is_unreadable_never_raises(tmp_path: Path, depth: int) -> None:
+    # ... / out-recurses json.loads itself
+    _jsonl(tmp_path / "spans.jsonl", [span("s1")], tail=_deep(depth) + "\n")
+    _jsonl(tmp_path / "events.jsonl", [_event("log", 1)], tail=_deep(depth) + "\n")
+    (tmp_path / "report.json").write_text(_deep(depth))
+    (tmp_path / "accounting.json").write_text(_deep(depth))
+    t = tm.load(tmp_path)
+    assert len(t.spans) == 1 and len(t.events) == 1
+    assert t.dropped.unreadable == 2
+    assert t.report is None and t.accounting is None
+    for name in ("report.json", "accounting.json"):
+        assert any(n.startswith(f"{name}: unreadable") for n in t.notes)
+
+
+def test_a_json_file_over_the_read_cap_says_so(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tm, "JSON_BYTES_CAP", 64)
+    (tmp_path / "report.json").write_text(json.dumps({"candidates": [], "pad": "x" * 100}))
+    t = tm.load(tmp_path)
+    assert t.report is None
+    assert any(n.startswith("report.json: over the page's read cap") for n in t.notes)
+
+
+def test_a_byte_truncated_jsonl_is_flagged_not_undercounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tm, "JSONL_BYTES_CAP", 600)
+    _jsonl(tmp_path / "spans.jsonl", [span(f"s{i}") for i in range(20)])
+    t = tm.load(tmp_path)
+    assert t.dropped.truncated == ("spans.jsonl",)
+    assert t.dropped.over_cap >= 1
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400), 2**64 + 1])
+def test_an_out_of_range_integer_is_unknown(value: int) -> None:
+    assert tm.int_or_none(value) is None
+    assert tm.int_or_none(2**64) == 2**64 and tm.int_or_none(-5) == -5
+
+
+@pytest.mark.parametrize("score", [10**400, float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_or_huge_score_is_unknown(score: object) -> None:
+    report = {"candidates": [{"name": "c", "cases": [{"case_id": 1, "grade": {"score": score}}]}]}
+    assert tm.cases(report)[0].score is None

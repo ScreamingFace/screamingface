@@ -15,6 +15,7 @@ case tables show at most ``TABLE_CAP`` rows and say how many more the files hold
 from __future__ import annotations
 
 import html
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -70,7 +71,10 @@ def _usd(amount: Decimal | None) -> str:
 def _duration(ns: int | None) -> str:
     if ns is None:
         return "unknown"
-    ms = ns / 1e6
+    try:
+        ms = ns / 1e6
+    except OverflowError:  # the loader bounds ns to uint64; this is the last line of defence
+        return "unknown"
     return f"{ms / 1000:.2f} s" if ms >= 1000 else f"{ms:.1f} ms"
 
 
@@ -91,9 +95,12 @@ def _counts(t: tm.Telemetry) -> str:
         (d.events_failed, "events the recorder failed to write"),
         (d.spans, "spans dropped by the bundle's cap"),
         (d.unreadable, "unreadable lines skipped"),
-        (d.over_cap, "lines beyond the page's read cap"),
     )
     facts += [f"{n} {_e(what)}" for n, what in pairs if n]
+    if d.over_cap:
+        bound = "at least " if d.truncated else ""
+        cut = f" ({_e(', '.join(d.truncated))} is truncated)" if d.truncated else ""
+        facts.append(f"{bound}{d.over_cap} {_e("lines beyond the page's read cap")}{cut}")
     if d.events is None and d.spans is None:
         facts.append("drop counts unknown (no readable telemetry.json)")
     return f"<p class='note'>{' · '.join(facts)}</p>"
@@ -286,6 +293,13 @@ def _filter(entries: Sequence[tm.LogEntry]) -> str:
     )
 
 
+def _attr(value: object) -> str:
+    """A log attribute value: a scalar as is, a list or mapping as JSON (not a Python repr)."""
+    if isinstance(value, dict | list):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
 def _logs(t: tm.Telemetry) -> str:
     entries = tm.log_entries(t.events)
     if not entries:
@@ -294,7 +308,7 @@ def _logs(t: tm.Telemetry) -> str:
         f'<tr data-sev="{_e(e.severity)}"><td class="mono">{_v(e.sequence)}</td>'
         f"<td class='mono'>{_e(e.timestamp)}</td><td>{_e(e.severity)}</td>"
         f"<td>{_e(e.body)}</td><td class='mono'>"
-        + " ".join(f"{_e(k)}={_e(v)}" for k, v in e.attributes.items())
+        + " ".join(f"{_e(k)}={_e(_attr(v))}" for k, v in e.attributes.items())
         + "</td></tr>"
         for e in entries[:TABLE_CAP]
     ]
@@ -329,7 +343,19 @@ def _cases(t: tm.Telemetry) -> str:
 
 
 def section(t: tm.Telemetry, view: TelemetryView, *, key: str, token: str | None) -> str:
-    """The whole Telemetry ``<section>`` of the bundle page."""
+    """The whole Telemetry ``<section>`` of the bundle page; never raises.
+
+    The bundle is untrusted: should any view still trip over it, only this section says so and
+    the rest of the bundle page (trace chain, result, logs, notebook) still renders.
+    """
+    try:
+        return _section(t, view, key=key, token=token)
+    except Exception as exc:  # noqa: BLE001 - the rest of the page must survive a bad bundle
+        body = f"<p class='warn'>Telemetry could not be shown: {_e(type(exc).__name__)}.</p>"
+        return f'<section id="telemetry"><h2>Telemetry</h2>{body}</section>'
+
+
+def _section(t: tm.Telemetry, view: TelemetryView, *, key: str, token: str | None) -> str:
     if not t.present:
         body = "<p class='muted'>No telemetry in this bundle (no events, spans or report).</p>"
         return f'<section id="telemetry"><h2>Telemetry</h2>{body}</section>'

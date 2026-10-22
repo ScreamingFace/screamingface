@@ -14,9 +14,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from workbench.ui import telemetry as tm
 from workbench.ui.app import create_app
 from workbench.ui.runs import RunManager
-from workbench.ui.test_telemetry import KEY, span
+from workbench.ui.test_telemetry import KEY, recursion_limit_1000, span  # noqa: F401
 
 TOKEN = "t0k3n-for-tests"
 KEY_PATH = "replay/quickstart"
@@ -187,3 +188,61 @@ def test_a_thousand_spans_paginate_and_fold_quickly(root: Path, client: TestClie
     unfolded = _get(client, "?unfold=1&spans_page=999")
     assert "page 9 of 9" in unfolded  # 1650 rows; an out-of-range page is clamped
     assert _get(client, "?spans_page=nope").count('class="wf-row"') == 200
+
+
+# --- hostile input (review of Task 5) -------------------------------------------------------
+
+
+def _deep(depth: int) -> str:
+    return '{"a":' + "[" * depth + "]" * depth + "}"
+
+
+@pytest.mark.usefixtures("recursion_limit_1000")
+@pytest.mark.parametrize("depth", [2_000, 100_000])
+def test_a_too_deep_file_never_takes_the_page_down(
+    root: Path, client: TestClient, depth: int
+) -> None:
+    bundle = root / KEY_PATH
+    for name in ("spans.jsonl", "events.jsonl"):
+        (bundle / name).write_text(_deep(depth) + "\n")
+    for name in ("report.json", "accounting.json"):
+        (bundle / name).write_text(_deep(depth))
+    response = client.get(f"/bundles/{KEY_PATH}")
+    assert response.status_code == 200
+    assert "Trace chain" in response.text and "2 unreadable lines skipped" in response.text
+
+
+def test_a_huge_timestamp_or_score_reads_unknown(root: Path, client: TestClient) -> None:
+    _write(root, "spans.jsonl", [span("s1", start=0, end=10**400)])
+    _write(root, "report.json", {"candidates": [{"name": "best", "cases": [
+        {"case_id": 1, "grade": {"score": 10**400}},
+        {"case_id": 2, "grade": {"score": float("nan")}},
+        {"case_id": 3, "grade": {"score": float("inf")}}]}]})  # fmt: skip
+    section = _get(client)
+    assert "nan" not in section and "inf<" not in section
+    assert section.count("<td class='num'>unknown</td>") >= 3
+
+
+def test_an_oversized_report_is_named_not_silently_missing(
+    root: Path, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tm, "JSON_BYTES_CAP", 64)
+    _write(root, "report.json", {"candidates": [], "pad": "x" * 100})
+    assert "report.json: over the page&#x27;s read cap" in _get(client)
+
+
+def test_a_truncated_jsonl_reads_at_least(
+    root: Path, client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tm, "JSONL_BYTES_CAP", 600)
+    _write(root, "spans.jsonl", [span(f"s{i}") for i in range(20)])
+    section = _get(client)
+    assert "at least 1 lines beyond the page&#x27;s read cap" in section
+    assert "spans.jsonl is truncated" in section
+
+
+def test_nested_log_attributes_render_as_json(root: Path, client: TestClient) -> None:
+    entry = _log(1, "INFO", "hi") | {"attributes": {"k": {"a": [1, "b"]}, "n": 3}}
+    _write(root, "events.jsonl", [entry])
+    section = _get(client)
+    assert "k={&quot;a&quot;: [1, &quot;b&quot;]}" in section and "n=3" in section

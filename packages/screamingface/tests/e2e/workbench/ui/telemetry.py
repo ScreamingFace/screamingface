@@ -12,7 +12,9 @@ Bundles may come from an unzipped CI artifact, so every file is untrusted:
   and counted (``unreadable``). Nothing is dropped silently;
 - everything is redacted AGAIN on load (``workbench.redaction``): a bundle written before
   redaction existed, or by hand, must not put a key on the page (Review Focus 2);
-- every field is read defensively: a wrong type reads as unknown (``None``), never raises.
+- every field is read defensively: a wrong type reads as unknown (``None``), never raises. A
+  document nested too deep to parse or redact is unreadable; an integer outside the uint64 range
+  (OTLP times and counts are uint64) and a non-finite score read as unknown.
 
 INVARIANT: unknown is ``None``, never 0. A sum with one unknown part is unknown.
 """
@@ -20,6 +22,7 @@ INVARIANT: unknown is ``None``, never 0. A sum with one unknown part is unknown.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -37,6 +40,7 @@ JSON_BYTES_CAP: Final = 16 << 20
 FOLD_AT: Final = 10  # more same-named siblings than this fold into one row ...
 FOLD_KEEP: Final = 3  # ... after the first FOLD_KEEP of them
 SEVERITIES: Final = ("DEBUG", "INFO", "WARN", "ERROR")
+INT_BOUND: Final = 1 << 64  # |n| above this is no OTLP uint64: unknown
 
 type Json = dict[str, Any]
 
@@ -50,7 +54,8 @@ class Dropped:
     events_failed: int | None = None  # events the recorder could not write
     spans: int | None = None  # spans beyond the bundle writer's cap
     unreadable: int = 0  # lines this loader could not parse
-    over_cap: int = 0  # lines beyond this loader's cap or byte cap
+    over_cap: int = 0  # lines beyond this loader's cap or byte cap (a lower bound if truncated)
+    truncated: tuple[str, ...] = ()  # JSONL files cut at the byte cap: over_cap is "at least"
 
 
 @dataclass(frozen=True)
@@ -81,16 +86,26 @@ def _read(path: Path, cap: int) -> tuple[bytes, bool] | None:
 
 
 def _object(text: bytes | str) -> Json | None:
+    """A redacted JSON object; None for anything else, including a too-deep document."""
     try:
         value: object = json.loads(text)
-    except ValueError:
+        return redact_named_tree(value) if isinstance(value, dict) else None
+    except (ValueError, RecursionError):  # RecursionError: nested past what parse/redact allow
         return None
-    return redact_named_tree(value) if isinstance(value, dict) else None
 
 
-def _json_file(path: Path) -> Json | None:
+def _json_file(path: Path, notes: list[str]) -> Json | None:
+    """The file's object; when present but not shown, a note says why (never silent)."""
     read = _read(path, JSON_BYTES_CAP)
-    return None if read is None or read[1] else _object(read[0])
+    if read is None:
+        return None
+    if read[1]:
+        notes.append(f"{path.name}: over the page's read cap ({JSON_BYTES_CAP} bytes), not shown")
+        return None
+    value = _object(read[0])
+    if value is None:
+        notes.append(f"{path.name}: unreadable (not a JSON object, or nested too deep)")
+    return value
 
 
 @dataclass
@@ -98,6 +113,7 @@ class _Lines:
     rows: list[Json]
     unreadable: int = 0
     over_cap: int = 0
+    truncated: bool = False
 
 
 def _jsonl(path: Path, cap: int) -> _Lines:
@@ -107,7 +123,8 @@ def _jsonl(path: Path, cap: int) -> _Lines:
         return out
     data, truncated = read
     *whole, tail = data.split(b"\n")
-    out.over_cap += 1 if truncated else 0  # the bytes past the cap hold at least one line
+    out.truncated = truncated
+    out.over_cap += 1 if truncated else 0  # the bytes past the cap hold AT LEAST one line
     out.unreadable += 1 if tail.strip() and not truncated else 0  # a torn last line
     for line in (raw for raw in whole if raw.strip()):
         if len(out.rows) >= cap:
@@ -122,7 +139,10 @@ def _jsonl(path: Path, cap: int) -> _Lines:
 
 
 def int_or_none(value: object) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    """An int within the uint64 magnitude; anything else (a bool, 10**400) is unknown."""
+    if isinstance(value, int) and not isinstance(value, bool) and -INT_BOUND <= value <= INT_BOUND:
+        return value
+    return None
 
 
 def _str(value: object) -> str | None:
@@ -153,7 +173,10 @@ def load(directory: Path, *, cap: int = LINES_CAP) -> Telemetry:
     """Everything telemetry in the bundle at ``directory``; empty when it holds none."""
     events = _jsonl(directory / EVENTS_FILE, cap)
     spans = _jsonl(directory / SPANS_FILE, cap)
-    summary = _json_file(directory / TELEMETRY_FILE) or {}
+    read_notes: list[str] = []
+    summary = _json_file(directory / TELEMETRY_FILE, read_notes) or {}
+    report = _json_file(directory / REPORT_FILE, read_notes)
+    accounting = _json_file(directory / ACCOUNTING_FILE, read_notes)
     recorded, copied = _dict(summary.get("events")), _dict(summary.get("spans"))
     dropped = Dropped(
         events=int_or_none(recorded.get("dropped")),
@@ -161,14 +184,17 @@ def load(directory: Path, *, cap: int = LINES_CAP) -> Telemetry:
         spans=int_or_none(copied.get("dropped")),
         unreadable=events.unreadable + spans.unreadable,
         over_cap=events.over_cap + spans.over_cap,
+        truncated=tuple(
+            name for name, lines in ((EVENTS_FILE, events), (SPANS_FILE, spans)) if lines.truncated
+        ),
     )
     return Telemetry(
         events=tuple(events.rows),
         spans=tuple(spans.rows),
-        report=_json_file(directory / REPORT_FILE),
-        accounting=_json_file(directory / ACCOUNTING_FILE),
+        report=report,
+        accounting=accounting,
         dropped=dropped,
-        notes=_notes(summary),
+        notes=_notes(summary) + tuple(read_notes),
     )
 
 
@@ -487,8 +513,15 @@ class CaseRow:
 
 
 def _score(grade: object) -> float | None:
+    """A finite score; NaN, ±Infinity (JSON literals) and a float-overflowing int are unknown."""
     score = _dict(grade).get("score")
-    return float(score) if isinstance(score, int | float) and not isinstance(score, bool) else None
+    if not isinstance(score, int | float) or isinstance(score, bool):
+        return None
+    try:
+        value = float(score)
+    except OverflowError:
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _case(candidate: str, case: Json) -> CaseRow:
