@@ -356,7 +356,7 @@ def _between_queries(monkeypatch: pytest.MonkeyPatch, change) -> None:
     original = community_pages._next_keys
     pending = [change]
 
-    async def next_keys(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    async def next_keys(*args: Any, **kwargs: Any) -> tuple[list[dict[str, Any]], bool]:
         keys = await original(*args, **kwargs)
         while pending:
             await pending.pop()()
@@ -452,7 +452,9 @@ async def _plan(rows: Any) -> str:
 
 
 @pytest.mark.asyncio
-async def test_what_follows_a_cursor_is_read_as_index_ranges_that_start_at_it(db) -> None:
+async def test_what_follows_a_cursor_is_read_as_index_ranges_that_start_at_it(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # WHY: an OR of `updated_at > X` and `updated_at = X AND key_hash > Y` is no index range, so
     # every batch walked the index from its start and dropped the rows before the cursor —
     # ~1.4 s a batch 200k rows into dev's cache, where bulk restores stamped ~188k rows with one
@@ -461,9 +463,18 @@ async def test_what_follows_a_cursor_is_read_as_index_ranges_that_start_at_it(db
     eligible = community_pages._eligible((), _NOW)
 
     ties, later = community_pages._after(eligible, cursor)
+    planned: list[str] = []
 
-    assert "(updated_at=? AND key_hash>?)" in await _plan(ties.order_by("key_hash"))
-    assert "(updated_at>?)" in await _plan(later.order_by("updated_at", "key_hash"))
+    async def plan(part: Any, n: int) -> list[dict[str, Any]]:
+        # The exact query `_next_keys` sends for each part.
+        planned.append(await _plan(part.order_by(*community_pages._ORDER).limit(n)))
+        return []
+
+    monkeypatch.setattr(community_pages, "_keys_in", plan)
+    await community_pages._next_keys(eligible, cursor, 100)
+
+    assert "(updated_at=? AND key_hash>?)" in planned[0]
+    assert "(updated_at>?)" in planned[1]
 
 
 @pytest.mark.asyncio
@@ -483,3 +494,37 @@ async def test_a_tie_run_that_ends_inside_a_batch_is_finished_before_later_rows(
     ]
 
     assert batches == [["a", "b", "c"], ["d", "e", "f"], ["g", "0"]]
+
+
+@pytest.mark.asyncio
+async def test_a_row_moved_out_of_the_tie_run_between_its_two_reads_is_taken_once(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: the tie run and the later rows are separate statements; a merge restore that moves a
+    # tie-run row later between them puts it in both reads. Counted twice, the page would end a
+    # row short of its limit.
+    for key in "abc":
+        await _row(key, updated_at=_T0)
+    await _row("d", updated_at=_T0 + timedelta(seconds=1))
+    await _row("e", updated_at=_T0 + timedelta(seconds=200))
+    original = community_pages._keys_in
+    reads = [0]
+
+    async def keys_in(part: Any, n: int) -> list[dict[str, Any]]:
+        if reads[0] == 1:
+            await RequestCacheEntry.filter(key_hash="b".ljust(64, "0")).update(
+                updated_at=_T0 + timedelta(seconds=100)
+            )
+        reads[0] += 1
+        return await original(part, n)
+
+    monkeypatch.setattr(community_pages, "_keys_in", keys_in)
+    after = PageCursor(updated_at=_T0, key_hash="a".ljust(64, "0"))
+
+    page = [
+        row["key_hash"][0]
+        async for batch in iter_page(after=after, limit=4, models=(), now=_NOW)
+        for row in batch
+    ]
+
+    assert page == ["c", "d", "b", "e"]

@@ -162,19 +162,27 @@ def _within_bytes(sizes: list[dict[str, Any]]) -> int:
     return len(sizes)
 
 
+async def _keys_in(part: QuerySet[RequestCacheEntry], n: int) -> list[dict[str, Any]]:
+    return (
+        await part.order_by(*_ORDER)
+        .limit(n)
+        .values("key_hash", "updated_at", "response_size_bytes")
+    )
+
+
 async def _next_keys(
     eligible: QuerySet[RequestCacheEntry], cursor: PageCursor | None, want: int
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
+    """The next keys after ``cursor`` (at most ``want``), and whether fewer than that remain."""
     keys: list[dict[str, Any]] = []
     for part in _after(eligible, cursor):
-        keys += (
-            await part.order_by(*_ORDER)
-            .limit(want - len(keys))
-            .values("key_hash", "updated_at", "response_size_bytes")
-        )
+        keys += await _keys_in(part, want - len(keys))
         if len(keys) == want:
             break
-    return keys
+    # WHY: the parts are read by separate statements, so a row a merge restore moves out of the
+    # tie run between them is read by both; only its later copy is the row as it now stands.
+    last = {key["key_hash"]: at for at, key in enumerate(keys)}
+    return [key for at, key in enumerate(keys) if last[key["key_hash"]] == at], len(keys) < want
 
 
 def _exactly(keys: Sequence[dict[str, Any]]) -> Q:
@@ -208,7 +216,7 @@ async def iter_page(
     left = limit
     while left > 0:
         want = min(BATCH_ROWS, left)
-        sizes = await _next_keys(eligible, cursor, want)
+        sizes, exhausted = await _next_keys(eligible, cursor, want)
         if not sizes:
             return
         taken = sizes[: _within_bytes(sizes)]
@@ -222,7 +230,7 @@ async def iter_page(
             scan.cursor = cursor
         if batch:
             yield batch
-        if len(sizes) < want and len(taken) == len(sizes):
+        if exhausted and len(taken) == len(sizes):
             return
 
 

@@ -54,3 +54,15 @@ walk is quadratic today.
   GitHub CI is the gate. Postgres plans re-checked on dev (read-only `EXPLAIN ANALYZE`): tie part
   0.48 ms, later part 1.28 ms, against 1,379 ms before.
 - **Deviations:** none.
+
+## Review fixes (code review of PR #1525, 2026-10-22)
+
+- **A row read by both parts:** the tie run and the later rows are separate statements, so a
+  merge restore that moves a tie-run row later between them put it in both reads; counted twice,
+  the page ended a row short. `_next_keys` keeps only each key's later copy and says whether
+  fewer keys than asked remain (from the raw read), so the page end is unchanged. Test: a row
+  moved out of the tie run between its reads is taken once and the page still fills.
+- **The plan test plans the sent query:** it now plans each part exactly as `_next_keys` sends
+  it (ordered on both columns, with its limit), through the new `_keys_in` seam.
+- Not taken: an empty tie-run read per batch (~0.5 ms, ~25 ms a page) and summed counts during a
+  restore (`count_rows` is already approximate); avoiding either needs raw SQL.
