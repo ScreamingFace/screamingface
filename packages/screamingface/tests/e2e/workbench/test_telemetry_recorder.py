@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import enum
 import json
 import threading
@@ -310,3 +311,53 @@ def test_finish_closes_the_file_and_later_events_are_dropped(tmp_path: Path) -> 
 def test_non_finite_numbers_become_strings_so_every_line_is_strict_json(bad: Any) -> None:
     out = json.dumps(to_jsonable({"x": bad}), allow_nan=False)
     assert json.loads(out)["x"] == str(bad)
+
+
+# Security review: a container under a secret-named Log attribute is masked whole, and cookies
+# are secret names.
+def test_a_secret_named_container_or_cookie_attribute_never_reaches_disk(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    recorder = EventRecorder(path)
+    attributes = {
+        "llm.api.key": _OPAQUE,
+        "http.request.header.cookie": _OPAQUE,
+        "set-cookie": _OPAQUE,
+        "max_tokens": 256,
+        "token_count": "7",
+    }
+    recorder(
+        ev.Log(**_base(1), severity_number=9, severity_text="INFO", body="b", attributes=attributes)
+    )
+    assert _OPAQUE not in path.read_text(encoding="utf-8")
+    (row,) = _lines(path)
+    assert row["attributes"] == {
+        "llm.api.key": MASK,
+        "http.request.header.cookie": MASK,
+        "set-cookie": MASK,
+        "max_tokens": 256,
+        "token_count": "7",
+    }
+
+
+@dataclasses.dataclass(frozen=True)
+class _Custom:
+    """An event whose fields hold containers under secret names (a future SDK event shape)."""
+
+    kind: str
+    auth: dict[str, str]
+    credentials: tuple[str, ...]
+    usage: dict[str, int]
+
+
+def test_a_container_under_a_secret_named_field_is_masked_whole(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    recorder = EventRecorder(path)
+    recorder(_Custom("custom", {"value": _OPAQUE}, (_OPAQUE,), {"max_tokens": 9}))
+    assert _OPAQUE not in path.read_text(encoding="utf-8")
+    (row,) = _lines(path)
+    assert row == {
+        "kind": "custom",
+        "auth": MASK,
+        "credentials": MASK,
+        "usage": {"max_tokens": 9},
+    }

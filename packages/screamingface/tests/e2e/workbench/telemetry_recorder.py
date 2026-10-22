@@ -11,8 +11,9 @@ workbench never imports it.
   stage) and ``recorder.json`` (counts and per-file outcome) beside it.
 
 INVARIANT: redaction before disk. Every value goes through ``workbench.redaction`` (the one
-redactor, applied to values — never to serialised JSON) before it is written, and the string
-value of a secret-NAMED key (a ``Log`` attribute ``…x-api-key``) is masked whole.
+redactor, applied to values — never to serialised JSON) before it is written, and the value
+of a secret-NAMED key (a ``Log`` attribute ``…x-api-key``, a container under ``auth``) is
+masked whole.
 
 INVARIANT: the recorder never raises into the SDK. An ``on_event`` that raised would abort the
 evaluation it only observes; a failure is counted (``failed``) and the run goes on.

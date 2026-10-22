@@ -6,6 +6,8 @@ trips secret scanners, and these are never real.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from workbench.redaction import MASK, is_secret_name, redact, redact_named_tree, redact_tree
@@ -303,9 +305,32 @@ def test_redact_named_tree_keeps_counts_unknowns_and_plain_keys_readable() -> No
     assert redact_named_tree(tree) == tree
 
 
-def test_redact_named_tree_recurses_under_a_secret_named_container() -> None:
-    tree = {"auth": {"user": "u", "detail": f"token={OPAQUE}"}}
-    assert redact_named_tree(tree) == {"auth": {"user": "u", "detail": f"token={MASK}"}}
+# Security review: a container under a secret-named key is masked WHOLE. Recursing let an opaque
+# value under a plain inner key (`{"auth": {"value": "<opaque>"}}`) reach disk.
+@pytest.mark.parametrize(
+    "container", [{"user": "u", "value": OPAQUE}, [OPAQUE], (OPAQUE, 1), {"nested": [OPAQUE]}]
+)
+def test_redact_named_tree_masks_a_container_under_a_secret_named_key_whole(
+    container: Any,
+) -> None:
+    tree = {"auth": container, "api_key": container, "plain": {"n": 1}}
+    assert redact_named_tree(tree) == {"auth": MASK, "api_key": MASK, "plain": {"n": 1}}
+
+
+@pytest.mark.parametrize(
+    "key", ["cookie", "Cookie", "set-cookie", "Set-Cookie", "session-cookie", "session_cookie"]
+)
+def test_cookie_names_are_secret_names_everywhere(key: str) -> None:
+    assert is_secret_name(key)
+    assert is_secret_name(f"http.request.header.{key}")
+    assert redact_named_tree({key: OPAQUE}) == {key: MASK}
+    assert OPAQUE not in redact(f"{key}={OPAQUE}")
+
+
+@pytest.mark.parametrize("key", ["max_tokens", "num_keys", "token_count", "input_tokens"])
+def test_counts_stay_readable_next_to_the_cookie_rule(key: str) -> None:
+    assert not is_secret_name(key)
+    assert redact_named_tree({key: "12"}) == {key: "12"}
 
 
 def test_redact_named_tree_still_applies_the_value_rules() -> None:
@@ -322,6 +347,10 @@ def test_redact_named_tree_still_applies_the_value_rules() -> None:
         ("url4.auth", True),
         ("gen_ai.usage.input_tokens", False),
         ("key", False),
+        # A bare `key` leaf is named by the segment before it (security review).
+        ("llm.api.key", True),
+        ("db.password.key", True),
+        ("auth.key", True),
     ],
 )
 def test_is_secret_name_reads_the_last_dotted_segment(name: str, secret: bool) -> None:

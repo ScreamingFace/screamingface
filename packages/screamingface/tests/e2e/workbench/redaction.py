@@ -13,7 +13,7 @@ AWS ``AKIA…``, Slack ``xox?-…``, PEM private keys). Opaque secrets are found
 bound to and only the value is masked, so the reader still sees what was there: URL userinfo
 passwords, query parameters (``?api_key=…&token=…``), ``Authorization`` with any scheme, and
 assignments / headers / mapping entries whose name ends in key, token, secret, password,
-credential(s), auth or sig (``OPENROUTER_API_KEY=…``, ``x-api-key: …``, ``api_key=b'…'``,
+credential(s), auth, sig or cookie (``OPENROUTER_API_KEY=…``, ``x-api-key: …``, ``api_key=b'…'``,
 ``"client_secret": "…"``, also in escaped JSON and reprs). See the pattern comments for what
 is deliberately left readable.
 
@@ -24,7 +24,7 @@ false negative publishes a key in CI output.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence, Set
 from typing import Any, Final
 
 MASK: Final = "[REDACTED]"
@@ -70,6 +70,8 @@ _ASSIGNED_NAME: Final = (
             "auth",
             "sig",
             "signature",
+            # `cookie`, `set-cookie`, `session_cookie`: a session credential by name.
+            "cookie",
             r"[\w-]key",
         )
     )
@@ -172,25 +174,38 @@ def is_secret_name(key: str) -> bool:
     WHY reuse the assignment rule rather than a second list of secret words: one definition of
     "a secret-shaped name" for every workbench sink. The last dotted segment is the name an
     OTel attribute key (``http.request.header.x-api-key``) ends in.
+
+    A bare ``key`` leaf is named by the segment before it: ``llm.api.key`` is read as
+    ``api_key`` and ``db.password.key`` as ``password_key``, both secret. WHY joined rather than
+    bare: bare ``key`` stays readable (a cache key), but a dotted name is the OTel spelling of a
+    compound one, and the compound ``<x>_key`` is already secret in an assignment (fail closed:
+    ``cache.key`` is masked as ``cache_key=`` is).
     """
-    probe = f"{key.rsplit('.', 1)[-1]}={_PROBE}"
-    return redact(probe) != probe
+    *head, last = key.split(".")
+    names = [last]
+    if head and last.lower() == "key":
+        names.append(f"{head[-1]}_{last}")
+    return any(redact(f"{name}={_PROBE}") != f"{name}={_PROBE}" for name in names)
+
+
+_MASKED_WHOLE: Final = (str, bytes, Mapping, list, tuple, Set)
 
 
 def redact_named_tree(value: Any) -> Any:
-    """``redact_tree`` that also masks the STRING value of every secret-named mapping key.
+    """``redact_tree`` that also masks the value of every secret-named mapping key.
 
     WHY: an opaque value carries no shape the token rules could recognise, so in a mapping
-    (an SDK ``Log`` attribute, a span attribute) only its key says it is a secret. Numbers and
-    ``None`` stay readable (``max_tokens`` is a count; unknown is not a secret); a container
-    under a secret-named key is recursed into, so its own rules still apply.
+    (an SDK ``Log`` attribute, a span attribute) only its key says it is a secret. A string is
+    masked, and so is a container (dict, list, tuple, set) WHOLE: recursing let an opaque value
+    under a plain inner key (``{"auth": {"value": "<opaque>"}}``) reach disk. Numbers, booleans
+    and ``None`` stay readable (``max_tokens`` is a count; unknown is not a secret).
     """
     match value:
         case dict():
             items: dict[Any, Any] = value  # pyright: ignore[reportUnknownVariableType]
             out: Any = {
                 redact_tree(k): MASK
-                if isinstance(k, str) and isinstance(v, str) and is_secret_name(k)
+                if isinstance(k, str) and isinstance(v, _MASKED_WHOLE) and is_secret_name(k)
                 else redact_named_tree(v)
                 for k, v in items.items()
             }
