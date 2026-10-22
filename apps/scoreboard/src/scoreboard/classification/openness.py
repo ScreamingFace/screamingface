@@ -104,6 +104,19 @@ _OPEN_FAMILIES_BY_OWNER: dict[str, tuple[str, ...]] = {
     "google": ("gemma",),
 }
 
+# FEATURE: OME-1716 — verified individual releases from otherwise unclassified owners.
+# WHY exact pairs: GLM-5.3's downloadable weights do not verify every Z.ai release or
+# a suffixed variant (including Prime). Keep those unknown until separately verified.
+_OPEN_MODELS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # Evidence checked 2026-10-22: local inference instructions, safetensors, custom license.
+        # https://huggingface.co/zai-org/GLM-5.3
+        # https://huggingface.co/zai-org/GLM-5.3/tree/main
+        # https://huggingface.co/zai-org/GLM-5.3/blob/main/LICENSE
+        ("z-ai", "glm-5.3"),
+    }
+)
+
 # WHY: a routing prefix says who carried the request, not what ran. Every live draco-3pass
 # route is `openrouter/`-prefixed, so without stripping this the owner segment would always
 # read `openrouter` and no model could ever be classified at all.
@@ -208,7 +221,11 @@ def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     if parsed is None:
         return "unknown"
     owner, model = parsed
-    if _in_family(model, _OPEN_FAMILIES_BY_OWNER.get(owner, ())) or owner in _OPEN_OWNERS:
+    if (
+        parsed in _OPEN_MODELS
+        or _in_family(model, _OPEN_FAMILIES_BY_OWNER.get(owner, ()))
+        or owner in _OPEN_OWNERS
+    ):
         return "open"
     return "closed" if owner in _CLOSED_OWNERS else "unknown"
 
