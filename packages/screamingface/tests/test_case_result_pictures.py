@@ -125,6 +125,60 @@ def test_a_file_part_leads_its_line_with_its_filename_in_both_forms() -> None:
         )
 
 
+def test_a_file_placeholder_object_takes_the_parts_filename() -> None:
+    # INVARIANT: the filename sits beside file_data on the part; replacing file_data with a
+    # placeholder object must not lose it.
+    part: dict[str, object] = {
+        "type": "file",
+        "file": {
+            "file_data": {
+                "placeholder": "file",
+                "media_type": "application/pdf",
+                "size": 2_500_000,
+                "sha256": _PDF_SHA256,
+            },
+            "filename": "paper.pdf",
+        },
+    }
+
+    assert _case(_v2(_text("Summarise the paper."), part)).conversation == (
+        ("user", f"Summarise the paper.\n{_PDF_LINE}"),
+    )
+
+
+def test_line_wrapped_or_unpadded_base64_measures_the_same_picture() -> None:
+    # INVARIANT: size and sha256 are those of the decoded bytes, decoded the way the engine's
+    # request key decodes (whitespace dropped, padding restored), so the digest shown here is
+    # the digest that keys the model call.
+    wrapped: str = "\n".join(_PNG_BASE64[i : i + 76] for i in range(0, len(_PNG_BASE64), 76))
+    unpadded: str = _PNG_BASE64.rstrip("=")
+
+    for data in (wrapped, unpadded):
+        case = _case(_v2(_text(_QUESTION), _image(f"data:image/png;base64,{data}")))
+        assert case.conversation == (("user", f"{_QUESTION}\n{_PNG_LINE}"),)
+
+
+def test_an_unknown_version_of_the_envelope_shows_one_line_never_its_base64() -> None:
+    # INVARIANT: an engine newer than this SDK may send a version it cannot read. Its raw text
+    # can be megabytes of base64, so the views show one line asking for an upgrade instead, and
+    # never raise (raising would break the whole Report).
+    value: str = _v2(
+        _text(_QUESTION),
+        _image(f"data:image/png;base64,{_PNG_BASE64}"),
+        schema="screamingface.candidate-input.v3",
+    )
+    marker: str = (
+        "unsupported candidate-input schema screamingface.candidate-input.v3"
+        " — upgrade screamingface to view this input"
+    )
+    case = _case(value)
+
+    assert case.conversation is None
+    assert case.display_input == marker
+    assert case.prompt_preview == marker
+    assert _PNG_BASE64[1000:1064] not in report_html(_report(case))
+
+
 def test_a_v2_text_message_and_parts_keep_their_order() -> None:
     # INVARIANT: a v2 envelope keeps its string messages as written and its parts in the order
     # the importer wrote them, so the transcript reads like the Case.
@@ -156,8 +210,10 @@ _TINY: str = "data:image/png;base64,iVBORw0KGgo="
 @pytest.mark.parametrize(
     "value",
     [
-        # an unknown version of the family, even with a well-formed part list
-        _v2(_text("hi"), _image(_TINY), schema="screamingface.candidate-input.v3"),
+        # WHY: the engine reads a non-text schema as a plain prompt, so such a Case runs and its
+        # result must render, not crash on an unhashable lookup.
+        '{"schema":{"a":1},"messages":[]}',
+        '{"schema":[1],"messages":[]}',
         # a part list is a v2 shape; a v1 envelope carrying one is malformed
         _v2(_text("hi"), _image(_TINY), schema="screamingface.candidate-input.v1"),
         _v2(_text("hi"), {"type": "audio", "audio": {"data": "AAAA"}}),
@@ -180,7 +236,8 @@ _TINY: str = "data:image/png;base64,iVBORw0KGgo="
 )
 def test_an_unknown_or_malformed_envelope_keeps_the_raw_string_fallback(value: str) -> None:
     # INVARIANT: decoding never raises and never fabricates a transcript; anything that is not
-    # exactly a known envelope renders as the raw string, as before OME-1680.
+    # exactly a known envelope (and not an unknown version of it, above) renders as the raw
+    # string, as before OME-1680.
     case = _case(value)
 
     assert case.conversation is None

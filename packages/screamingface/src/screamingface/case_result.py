@@ -37,6 +37,10 @@ _CANDIDATE_INPUT_V2_SCHEMA = "screamingface.candidate-input.v2"
 # INVARIANT: equal to the engine's set; pinned by
 # tests/unit/test_candidate_input_schema_conformance.py.
 _CANDIDATE_INPUT_SCHEMAS = frozenset({_CANDIDATE_INPUT_SCHEMA, _CANDIDATE_INPUT_V2_SCHEMA})
+_SCHEMA_FAMILY = "screamingface.candidate-input."
+# WHY a shape check before an unknown version is echoed: the schema value is Case data, and a
+# hostile or broken one could be long; only a name-like value is shown.
+_SHOWN_SCHEMA_RE = re.compile(r"screamingface\.candidate-input\.[A-Za-z0-9_.-]{1,32}")
 # The placeholder the engine writes where a picture's `url` or a file's `file_data` was (OME-1679),
 # and the one the SDK builds from a `data:` URI itself. WHY a copy: the SDK cannot import engine
 # code; a conformance test against the engine's placeholder builder pins these names once it lands.
@@ -571,7 +575,7 @@ class CaseResult:
 
         turns = self.conversation
         if turns is None:
-            return self.input if isinstance(self.input, str) else str(self.input)
+            return _undecoded_input_text(self.input)
         return "\n\n".join(f"{role}: {content}" for role, content in turns)
 
     @property
@@ -580,7 +584,7 @@ class CaseResult:
 
         turns = self.conversation
         if turns is None:
-            return self.input if isinstance(self.input, str) else str(self.input)
+            return _undecoded_input_text(self.input)
         for role, content in turns:
             if role == "user":
                 return content
@@ -701,7 +705,13 @@ def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | N
         decoded = None
     schema: object = decoded.get("schema") if isinstance(decoded, Mapping) else None
     envelope = (
-        decoded if isinstance(decoded, Mapping) and schema in _CANDIDATE_INPUT_SCHEMAS else None
+        decoded
+        if isinstance(decoded, Mapping)
+        # WHY the str check first: a dict or list schema is unhashable, and the engine reads such
+        # an input as a plain prompt, so its result must render, not raise.
+        and isinstance(schema, str)
+        and schema in _CANDIDATE_INPUT_SCHEMAS
+        else None
     )
     allows_parts: bool = schema == _CANDIDATE_INPUT_V2_SCHEMA
     # Stage 2 — every message.
@@ -717,6 +727,32 @@ def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | N
     if not turns or len(turns) != len(parsed):
         return None
     return tuple(turns)
+
+
+def _undecoded_input_text(value: object) -> str:
+    """What the views show for an input the conversation cannot read: the raw text as written,
+    or one line when it names a candidate-input version this SDK does not know.
+
+    WHY the line (OME-1680): an engine newer than this SDK may send a newer envelope, and its raw
+    text can be megabytes of base64; the line asks for an upgrade instead and never raises.
+    e.g. ``{"schema": "screamingface.candidate-input.v3", …}`` → ``unsupported candidate-input
+    schema screamingface.candidate-input.v3 — upgrade screamingface to view this input``.
+    """
+
+    text: str = value if isinstance(value, str) else str(value)
+    try:
+        decoded: object = json.loads(text) if text.lstrip().startswith("{") else None
+    except (ValueError, RecursionError):
+        decoded = None
+    schema: object = decoded.get("schema") if isinstance(decoded, Mapping) else None
+    if (
+        not isinstance(schema, str)
+        or not schema.startswith(_SCHEMA_FAMILY)
+        or schema in _CANDIDATE_INPUT_SCHEMAS
+    ):
+        return text
+    shown: str = schema if _SHOWN_SCHEMA_RE.fullmatch(schema) else f"{_SCHEMA_FAMILY}*"
+    return f"unsupported candidate-input schema {shown} — upgrade screamingface to view this input"
 
 
 def _turn(message: object, *, allows_parts: bool) -> tuple[str, str] | None:
@@ -784,28 +820,39 @@ def _media_placeholder(
 
     A ``data:`` URI is decoded here, so its size and sha256 are those of the real bytes (not of
     the base64). A placeholder object the engine already wrote is checked field by field and
-    used as is. Anything else (an ``https://`` URL, broken base64, a malformed object) is
-    ``None``, so the caller falls back rather than guessing.
+    used as is. Either way the part's own filename, when it has one, names it. Anything else
+    (an ``https://`` URL, broken base64, a malformed object) is ``None``, so the caller falls
+    back rather than guessing.
 
     e.g. ``("image", "data:image/png;base64,…300 KB…", filename=None)`` →
     ``{"placeholder": "image", "media_type": "image/png", "size": 307200, "sha256": "fc24…"}``.
     """
 
-    if isinstance(source, Mapping):
-        return _placeholder_object(kind, source)
+    placeholder: _Placeholder | None = (
+        _placeholder_object(kind, source)
+        if isinstance(source, Mapping)
+        else _decoded_placeholder(kind, source)
+    )
+    # WHY the part's filename wins: it sits beside file_data on the part, so it survives the
+    # engine replacing file_data with a placeholder object.
+    if placeholder is not None and filename:
+        placeholder["filename"] = filename
+    return placeholder
+
+
+def _decoded_placeholder(kind: Literal["image", "file"], source: object) -> _Placeholder | None:
+    """The placeholder of an inline ``data:`` URI, measured from its decoded bytes."""
+
     decoded: tuple[str, bytes] | None = _data_uri_bytes(source)
     if decoded is None:
         return None
     media_type, data = decoded
-    placeholder: _Placeholder = {
+    return {
         "placeholder": kind,
         "media_type": media_type,
         "size": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
     }
-    if filename:
-        placeholder["filename"] = filename
-    return placeholder
 
 
 def _data_uri_bytes(source: object) -> tuple[str, bytes] | None:
@@ -814,8 +861,13 @@ def _data_uri_bytes(source: object) -> tuple[str, bytes] | None:
     match: re.Match[str] | None = _DATA_URI_RE.match(source) if isinstance(source, str) else None
     if match is None:
         return None
+    # WHY strip and re-pad, as the engine's request key does (`request_identity.py`, OME-1271):
+    # line breaks and dropped `=` padding spell the same bytes, so the sha256 shown here is the
+    # one that keys the model call; strict decoding of what remains refuses anything else.
+    compact: str = "".join(match["data"].split())
+    compact += "=" * (-len(compact) % 4)
     try:
-        return match["mime"].lower(), base64.b64decode(match["data"], validate=True)
+        return match["mime"].lower(), base64.b64decode(compact, validate=True)
     # WHY ValueError: binascii.Error, raised on broken base64, is one.
     except ValueError:
         return None

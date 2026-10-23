@@ -8,15 +8,19 @@ results never silently fall back to raw wire text.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
 
-from screamingface.case_result import _CANDIDATE_INPUT_SCHEMAS
+from screamingface.case_result import _CANDIDATE_INPUT_SCHEMAS, _DATA_URI_RE
 
 # parents[4] = the monorepo root (tests/unit → tests → screamingface → packages → root)
 _ENGINE_APP = Path(__file__).resolve().parents[4] / "apps" / "screamingface-engine"
 _ENGINE_CONTRACT = _ENGINE_APP / "src" / "screamingface_engine" / "benchmarks" / "contract.py"
+_ENGINE_ENVELOPE = (
+    _ENGINE_APP / "src" / "screamingface_engine" / "benchmarks" / "candidate_input.py"
+)
 _SCHEMA_FAMILY = "screamingface.candidate-input."
 
 
@@ -47,3 +51,33 @@ def test_the_sdk_reads_exactly_the_engines_candidate_input_schemas() -> None:
     # WHY a floor: a parse that finds nothing would make the equality vacuous.
     assert "screamingface.candidate-input.v1" in engine
     assert set(_CANDIDATE_INPUT_SCHEMAS) == engine
+
+
+def _compiled_pattern(source: Path, name: str) -> tuple[str, set[str]]:
+    """The pattern text and ``re`` flag names of ``name = re.compile(...)`` in a source file."""
+
+    for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.args[0], ast.Constant)
+            and isinstance(node.value.args[0].value, str)
+        ):
+            flags: set[str] = {
+                arg.attr for arg in node.value.args[1:] if isinstance(arg, ast.Attribute)
+            }
+            return node.value.args[0].value, flags
+    raise AssertionError(f"{name} = re.compile(...) not found in {source}")
+
+
+@pytest.mark.skipif(not _ENGINE_APP.exists(), reason="engine app not present (installed run)")
+def test_the_sdk_data_uri_pattern_is_the_engines() -> None:
+    # INVARIANT: a picture the engine accepts is one the SDK can measure; if the two patterns
+    # drift, an accepted picture falls back to its raw base64 in the view. The twin of the
+    # engine ↔ gateway pins (apps/aigateway/tests/unit/test_data_uri_matches_engine.py).
+    assert _ENGINE_ENVELOPE.exists(), "engine candidate_input.py moved — update the bind"
+    pattern, flags = _compiled_pattern(_ENGINE_ENVELOPE, "_DATA_URI_RE")
+
+    assert _DATA_URI_RE.pattern == pattern
+    assert _DATA_URI_RE.flags == re.compile(pattern, sum(getattr(re, f) for f in flags)).flags
