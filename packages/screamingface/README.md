@@ -35,6 +35,11 @@ Scoreboard is refused).
 `screamingface down` to manage them. Runtime state is stored under `~/.screamingface` by default;
 set `SCREAMINGFACE_DATA_DIR` or pass `--data-dir` to override it.
 
+Set `URL4_RUNNER_CONFIG` before `up` or `restart` to use a custom runner TOML instead of the
+bundled default. An explicit Python `runner_config` takes precedence. Relative paths and `~`
+are resolved at startup. Export or repeat the variable on subsequent restarts; it is not saved
+in runtime state.
+
 The default service ports are Gateway `9105`, Scoreboard `9106`, and Engine `9108`. Override them
 with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the corresponding
 `SCREAMINGFACE_GATEWAY_PORT`, `SCREAMINGFACE_SCOREBOARD_PORT`, and `SCREAMINGFACE_ENGINE_PORT`
