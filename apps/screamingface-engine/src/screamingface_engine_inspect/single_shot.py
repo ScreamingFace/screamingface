@@ -270,6 +270,10 @@ class ImportedBenchmark:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
+    #: The hash of everything that defines the Benchmark (OME-1610). An alarm, never
+    #: published: ``benchmark.revision`` is the row's hand-set ``published_revision``, and
+    #: ``tests/unit/inspect/test_benchmark_fingerprints.py`` pins this value per Benchmark.
+    fingerprint: str
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
     #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
@@ -470,7 +474,8 @@ def single_shot_benchmark(
             published ids are what submissions and the leaderboard key on, so they are never
             moved by a computed fingerprint, only by a deliberate bump (OME-1610). Never
             compared with the fingerprint (owner decision, 2026-10-15). NOT hashed into the
-            revision. None publishes the computed fingerprint.
+            revision. None publishes the computed fingerprint, for test stand-ins only: every
+            catalogue row sets it (OME-1610).
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
 
@@ -656,6 +661,7 @@ def single_shot_benchmark(
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
+        fingerprint=fingerprint,
         judge=judge,
         inverted_grade=inverted_grade,
         verdict_grades=verdict_grades,
@@ -670,12 +676,17 @@ def single_shot_benchmark(
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
     # the donor's key would resolve the WRONG benchmark's routes at install time —
-    # its differing pins give it a different revision, so it is refused here.
+    # its differing pins give it a different fingerprint, so it is refused here.
+    # WHY the fingerprint too (OME-1610): a copied row keeps the donor's hand-set
+    # published_revision as well, so the published ids alone would match.
     existing: ImportedBenchmark | None = _BENCHMARKS_BY_ID.get(benchmark_id)
-    if existing is not None and existing.benchmark.revision != revision:
+    if existing is not None and (
+        existing.benchmark.revision != revision or existing.fingerprint != fingerprint
+    ):
         raise ValueError(
-            f"benchmark id {benchmark_id!r} is already assembled with a different "
-            f"revision — duplicate benchmark_key?"
+            f"benchmark id {benchmark_id!r} is already assembled from different inputs "
+            f"(published {existing.benchmark.revision} vs {revision}, fingerprint "
+            f"{existing.fingerprint} vs {fingerprint}) — duplicate benchmark_key?"
         )
     _BENCHMARKS_BY_ID[benchmark_id] = imported
     return imported

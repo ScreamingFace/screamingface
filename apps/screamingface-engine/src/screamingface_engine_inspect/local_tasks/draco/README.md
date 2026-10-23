@@ -67,11 +67,11 @@ Case. A judge call that fails outright (a token cap, a 429 past its retries) fai
 
 ## Identity
 
-The revision hashes the Case Digest (which seals every question and every rubric), the Task
+The fingerprint hashes the Case Digest (which seals every question and every rubric), the Task
 reference, the Hub pin, the judge and its params, the seed per pass, the retrieval policy, and
-the sha256 of every `.py` file in this package (`task_source=…`). Editing any of them is a new
-Benchmark: update the literals in `tests/unit/inspect/test_published_revisions.py` and the
-draco-3pass e2e golden, and say why in the PR.
+the sha256 of every `.py` file in this package (`task_source=…`). Editing any of them moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision). A changed exam also changes the draco-3pass e2e golden.
 
 ## Running it locally
 
