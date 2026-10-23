@@ -3,8 +3,8 @@
   "branch": "OME-1721-hosted-byom-unit1",
   "approver": "Dmitry Stebukov (owner)",
   "date": "2026-10-22",
-  "scope": "Four prior remote-endpoint tests, approved as shown before any production change. test_definitions: the five origins that become valid (plain HTTP, an IPv4 address, a bracketed IPv6 address, a non-default port and a single-label name) leave the refusal list, and the test is renamed test_non_canonical_origins_are_refused. test_reader: its invalid origin becomes ftp://private-host.example, since http:// is now valid. test_plugin: register_models returns the declared model entry instead of an empty list. test_app_regressions: the configured app's provider listing is compared with the bundled app's on the bundled providers' rows only, since a granted account now also sees its endpoints. Nothing else changes.",
-  "reason": "Hosted BYOM Unit 1 (owner decisions of 2026-10-22): approved HTTP, IP and port origins, a catalog filtered by the account grants, the shared chat cache and a reused client per endpoint. Each edit follows from a contract the owner changed on purpose.",
+  "scope": "Four prior remote-endpoint tests, approved as shown before any production change. test_definitions: the five origins that become valid (plain HTTP, an IPv4 address, a bracketed IPv6 address, a non-default port and a single-label name) leave the refusal list, and the test is renamed test_non_canonical_origins_are_refused. test_reader: its invalid origin becomes ftp://private-host.example, since http:// is now valid. test_plugin: register_models returns the declared model entry instead of an empty list. test_app_regressions: the configured app's provider listing is compared with the bundled app's on the bundled providers' rows only, since a granted account now also sees its endpoints. After review, approved as shown on 2026-10-23: test_provider_access_availability_route checks the pending status on the registered gemini-cli instead of the unregistered gemini, expects rows for the registered providers only, and gains test_a_pair_of_an_unregistered_provider_has_no_row. Nothing else changes.",
+  "reason": "Hosted BYOM Unit 1 (owner decisions of 2026-10-22): approved HTTP, IP and port origins, a catalog filtered by the account grants, the shared chat cache and a reused client per endpoint. The owner chose on 2026-10-23 that the availability listing shows only registered providers the caller may see, so a removed endpoint's stored pair gets no row. Each edit follows from a contract the owner changed on purpose.",
   "files": {
     "apps/aigateway/tests/unit/remote_endpoint/test_app_regressions.py": {
       "base_blob": "a223610be645bf70a38f82f1a1e15a2027245a25",
@@ -21,6 +21,10 @@
     "apps/aigateway/tests/unit/remote_endpoint/test_reader.py": {
       "base_blob": "b661b3068c0415b969e9cf49f3c45bcbe6766749",
       "approved_blob": "c98ce8754107c9642358b9ba2f424b8b80513e33"
+    },
+    "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
+      "base_blob": "933f6748cdfefd3f6f1efe3a7aea75b90131ecec",
+      "approved_blob": "00caa0edef0a4fc957f6998959ec9155f84d4d27"
     }
   }
 }

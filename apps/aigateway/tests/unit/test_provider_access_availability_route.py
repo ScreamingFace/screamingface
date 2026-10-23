@@ -118,7 +118,7 @@ def test_route_refuses_an_anonymous_caller(client: TestClient) -> None:
 
 def test_rows_carry_provider_and_status_only_from_the_closed_family(edge: _Edge) -> None:
     edge.seed_pair("anthropic", "authenticated")
-    edge.seed_pair("gemini", "pending")
+    edge.seed_pair("gemini-cli", "pending")
     edge.seed_pair("codex", "error")
 
     response = edge.get()
@@ -128,15 +128,29 @@ def test_rows_carry_provider_and_status_only_from_the_closed_family(edge: _Edge)
     assert set(body) == {"providers"}
     assert all(set(row) == ROW_KEYS for row in body["providers"])
     assert {row["status"] for row in body["providers"]} <= STATUSES
-    assert [row["provider"] for row in body["providers"]] == sorted(edge.registered | {"gemini"})
+    assert [row["provider"] for row in body["providers"]] == sorted(edge.registered)
     statuses = edge.statuses(body)
     assert statuses["anthropic"] == "connected"
-    assert statuses["gemini"] == "pending"
+    assert statuses["gemini-cli"] == "pending"
     assert statuses["codex"] == "error"
-    assert all(statuses[p] == "not_connected" for p in edge.registered - {"anthropic", "codex"})
+    assert all(
+        statuses[p] == "not_connected"
+        for p in edge.registered - {"anthropic", "gemini-cli", "codex"}
+    )
     # STORY: as the Hosted Engine, I never see `needs_reauth` while effective Connections back the
     # listing.
     assert "needs_reauth" not in statuses.values()
+
+
+def test_a_pair_of_an_unregistered_provider_has_no_row(edge: _Edge) -> None:
+    # INVARIANT (OME-1721): a row is a registered provider the caller may see; the pair itself
+    # stays stored.
+    edge.seed_pair("gemini", "authenticated")
+
+    statuses = edge.statuses(edge.get().json())
+
+    assert "gemini" not in statuses
+    assert set(statuses) == edge.registered
 
 
 def test_listing_is_scoped_to_the_caller(

@@ -7,6 +7,8 @@
 # INVARIANT: an ungranted account and a disabled endpoint get exactly the answer each route gives
 # for a provider that is not registered, and no catalog surface reaches the upstream.
 # INVARIANT: no catalog answer names an origin, a request path or an upstream model.
+# INVARIANT: an availability row is a registered provider the caller may see. A stored pair of any
+# other provider stays stored, is never read for the listing and gets no row.
 """
 
 from __future__ import annotations
@@ -14,10 +16,11 @@ from __future__ import annotations
 from typing import Any, cast
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from .conftest import Harness, tenant_headers
+from .conftest import Harness, put_key, tenant_headers
 from .fixtures import (
     ACCOUNT_A,
     ACCOUNT_B,
@@ -28,6 +31,8 @@ from .fixtures import (
     ORIGIN_A,
     ORIGIN_B,
     UPSTREAM_MODEL,
+    document,
+    endpoint,
     two_endpoint_document,
 )
 
@@ -192,3 +197,58 @@ def test_the_granted_listings_are_private_to_the_caller(byom: Harness) -> None:
         assert listing.status_code == 200
         # WHY: the rows now depend on the caller's grants, so no shared cache may keep them.
         assert {key: listing.headers.get(key) for key in PRIVATE} == PRIVATE
+
+
+B_KEY = "sk-alice-on-b-0001"
+
+
+def _availability(client: TestClient, account: str) -> dict[str, str]:
+    response = _get(client, account, "/v1/provider-access")
+    assert response.status_code == 200, response.text
+    return {row["provider"]: row["status"] for row in response.json()["providers"]}
+
+
+def _connect_a_to_b(byom: Harness) -> None:
+    with byom.start(two_endpoint_document()) as client:
+        assert put_key(client, ACCOUNT_A, ENDPOINT_B, B_KEY).status_code == 200
+        assert _availability(client, ACCOUNT_A)[ENDPOINT_B] == "connected"
+
+
+@pytest.mark.parametrize(
+    "later",
+    [document(endpoint(ENDPOINT_A)), None],
+    ids=["endpoint removed from the config", "config removed"],
+)
+def test_a_pair_of_an_unregistered_endpoint_gets_no_availability_row(
+    byom: Harness, later: dict[str, Any] | None
+) -> None:
+    _connect_a_to_b(byom)
+
+    with byom.start(later) as client:
+        rows = _availability(client, ACCOUNT_A)
+
+    assert ENDPOINT_B not in rows
+    # WHY: hiding the row deletes nothing; the account still owns its pair and may remove it.
+    assert byom.stored_key(ACCOUNT_A, ENDPOINT_B) == B_KEY
+
+
+@pytest.mark.parametrize(
+    "later",
+    [two_endpoint_document(b_enabled=False), two_endpoint_document(b_accounts=(ACCOUNT_B,))],
+    ids=["endpoint disabled", "grant withdrawn"],
+)
+def test_a_hidden_pair_is_never_read_for_the_availability_listing(
+    byom: Harness, later: dict[str, Any]
+) -> None:
+    _connect_a_to_b(byom)
+
+    async def unreadable(service: str, account: str) -> None:
+        raise RuntimeError("credential state unavailable")
+
+    with byom.start(later) as client:
+        store = cast(FastAPI, client.app).state.credential_store
+        # WHY a failing read: a listing that still read the hidden pair would answer 503.
+        byom.monkeypatch.setattr(store, "operational_state", unreadable)
+        rows = _availability(client, ACCOUNT_A)
+
+    assert ENDPOINT_B not in rows
