@@ -13,8 +13,8 @@ finished: 2026-10-21
 `OME-1596` shipped the Reproduce button behind `SHOW_REPRODUCE_BUTTON = false` in
 `apps/scoreboard/portal/benchmark.js`. Turn it on, so every captured public row offers the
 snippet `sf.evaluate(pinned_cache="<id>")`. The snippet runs only with the SDK release that contains
-`OME-1613` (PR #1519) and the login fix (PR #1486), so this PR stays a **draft** until that release
-is on PyPI (the ticket's gate). One-line change: no separate spec, following the OME-1609 /
+`OME-1613` (PR #1519) and the login fix (PR #1486). SDK 0.1.7 now satisfies that release gate,
+and the PR is ready for review (2026-10-23). One-line change: no separate spec, following the OME-1609 /
 OME-1603 precedent; the ticket body is the plan.
 
 ## Planned changes
@@ -36,11 +36,11 @@ OME-1603 precedent; the ticket body is the plan.
 
 As on the ticket.
 
-## Outcome (fill at the end — required before COMMIT)
+## Implementation outcome
 
 - **Actual files:** as planned: `portal/benchmark.js` (switch on, comment without a ticket id),
   `tests/portal/reproduce-button.test.js`.
-- **Commits:** see the PR (one commit).
+- **Implementation commit:** `360a81aaa83fe544df42f294926ed075e1fa6651`; see the PR for tracking updates.
 - **Gates:** RED: the shipped-board test failed with the switch off. After: all 10 tests in
   `reproduce-button.test.js` pass; `run_gates.py scoreboard --base origin/main --skip-append-only`
   ALL GATES GREEN (pytest 1,443 passed); `run_gates.py repo` green. The first gate run caught a
@@ -53,3 +53,21 @@ As on the ticket.
   chose not to build that path now: `OME-1709` (parked) holds the spec. Prior-test changes, no
   assertion loosened: "the switch ships off" → "ships on" (`true`); the switch-off test passes
   `false` explicitly; a new test checks the shipped board shows Copy and Reproduce.
+
+## Release readiness and independent review — 2026-10-23
+
+- SDK **0.1.7** is published on PyPI. The downloaded wheel's SHA256 matched PyPI's digest;
+  inspection confirmed the public `evaluate` signatures accept `pinned_cache` and `score_id`,
+  and Access login forwards the challenged path. This was artifact inspection, not a live replay.
+- Independent review of `360a81aaa83fe544df42f294926ed075e1fa6651` found no actionable defects
+  in button eligibility, rendering, clipboard handling, or the backend pinned-cache contract.
+- Validation: all **148 portal tests** passed, including all **10 Reproduce tests**; the reviewed
+  head's relevant GitHub CI checks were green. The docs-only follow-up does not change runtime
+  code or tests.
+- [PR #1522](https://github.com/ScreamingFace/screamingface/pull/1522) is out of draft mode because
+  the SDK release prerequisite is met. The task remains open pending merge, scoreboard
+  deployment, and the production copied-snippet check.
+- Remaining acceptance: run the snippet from a captured public production row with the released
+  SDK and confirm its verdict; verify the `OME-1614` public-docs replay examples and update their
+  sidebar source baseline to that verified release. No live replay or docs example execution is
+  claimed here. The ledger's `done` status records implementation completion only.
