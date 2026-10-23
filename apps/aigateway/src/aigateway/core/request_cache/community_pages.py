@@ -10,11 +10,11 @@ read in batches, every batch short keyset reads on the ``(updated_at, key_hash)`
 run, then later rows; see ``_after``), then the rows themselves — so no connection or transaction
 is held between batches and the caller can write each batch out before the next is read.
 INVARIANT: a batch holds at most ``BATCH_BYTES`` of responses (or one row, if a single response is
-larger) and at most ``BATCH_ROWS`` rows. The second query reads exactly the rows the first one
-sized — same ``key_hash``, ``updated_at`` and size — so a row rewritten between the two (a merge
+larger) and at most ``BATCH_ROWS`` rows. The row read takes exactly the rows the key reads
+sized — same ``key_hash``, ``updated_at`` and size — so a row rewritten in between (a merge
 restore) is neither read at its new size nor sent out of order; it comes later in the walk, at its
 new ``updated_at``. The page's ``next`` comes from the keys scanned (``PageScan``), not the rows
-sent, so a row that moved or vanished between the queries cannot end the page early.
+sent, so a row that moved or vanished between the reads cannot end the page early.
 A response can be up to 1 MB (``AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES``), so a row count alone
 would let one batch of the largest responses reach ~100 MB — several times that once the route
 encodes it — against ~240 MiB of headroom on a gateway pod.
@@ -133,22 +133,24 @@ def _after(
     """
     if cursor is None:
         return (rows,)
-    return (
-        rows.filter(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash),
-        rows.filter(updated_at__gt=cursor.updated_at),
-    )
+    return tuple(rows.filter(part) for part in _tie_then_later(cursor))
 
 
 def _all_after(
     rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None
 ) -> QuerySet[RequestCacheEntry]:
-    """Everything ``_after`` reads, as one predicate: for a statement that is neither ordered nor
-    limited, where the two ranges buy no index seek."""
+    """Everything ``_after`` reads, as one predicate: for a statement that reads every match
+    (a count), where the two ranges buy no index seek."""
     if cursor is None:
         return rows
-    return rows.filter(
-        Q(updated_at__gt=cursor.updated_at)
-        | Q(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash)
+    tie, later = _tie_then_later(cursor)
+    return rows.filter(tie | later)
+
+
+def _tie_then_later(cursor: PageCursor) -> tuple[Q, Q]:
+    return (
+        Q(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash),
+        Q(updated_at__gt=cursor.updated_at),
     )
 
 
