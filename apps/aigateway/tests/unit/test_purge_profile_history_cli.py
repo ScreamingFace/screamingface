@@ -117,11 +117,24 @@ def test_incomplete_or_contradictory_arguments_are_usage_errors(argv: list[str])
     assert exc.value.code == purge_profile_history.EXIT_USAGE
 
 
+@pytest.mark.parametrize("scope", [["--all"], ["--account", str(uuid4())]])
+def test_apply_without_a_journal_is_a_usage_error(scope: list[str]) -> None:
+    # WHY: an apply commits account by account; the journal is the record of a run that stops
+    # part-way, and a dry run needs none.
+    with pytest.raises(SystemExit) as exc:
+        purge_profile_history.parse_args(["--apply", *scope])
+    assert exc.value.code == purge_profile_history.EXIT_USAGE
+    assert purge_profile_history.parse_args(["--dry-run", *scope]).journal is None
+
+
 # --- the real thing on the fixture database -----------------------------------------------------
 
 
-def test_dry_run_then_apply_then_dry_run(credential_blobs: Any, env: dict[str, str]) -> None:
+def test_dry_run_then_apply_then_dry_run(
+    credential_blobs: Any, env: dict[str, str], tmp_path: Path
+) -> None:
     account_id = seed_account(credential_blobs)
+    journal = str(tmp_path / "purge.jsonl")
 
     code, report = run_main("--dry-run", "--account", account_id)
     assert code == purge_profile_history.EXIT_OK
@@ -130,7 +143,7 @@ def test_dry_run_then_apply_then_dry_run(credential_blobs: Any, env: dict[str, s
     assert rows(credential_blobs) == 2
     assert [needle for needle in NEEDLES if needle in json.dumps(report)] == []
 
-    code, report = run_main("--apply", "--all")
+    code, report = run_main("--apply", "--all", "--journal", journal)
     assert code == purge_profile_history.EXIT_OK
     assert (report["counts"]["index_rows"], report["counts"]["uuid_shaped_blobs"]) == (1, 1)
     assert rows(credential_blobs) == 0
@@ -141,11 +154,12 @@ def test_dry_run_then_apply_then_dry_run(credential_blobs: Any, env: dict[str, s
 
 
 def test_a_skipped_account_exits_four_and_keeps_every_row(
-    credential_blobs: Any, env: dict[str, str]
+    credential_blobs: Any, env: dict[str, str], tmp_path: Path
 ) -> None:
     account_id = seed_account(credential_blobs, quarantined=True)
+    journal = str(tmp_path / "purge.jsonl")
 
-    code, report = run_main("--apply", "--account", account_id)
+    code, report = run_main("--apply", "--account", account_id, "--journal", journal)
 
     assert code == purge_profile_history.EXIT_SKIPPED
     assert report["accounts"] == [

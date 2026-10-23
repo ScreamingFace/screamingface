@@ -4,7 +4,8 @@
 # the retired Profile storage: every Profile index row and every provider-credential blob no
 # Connection row addresses, one transaction per account; `--account <id>` or `--all` (which also
 # sweeps the rows of deleted accounts and the legacy global index row). The JSON report goes to
-# stdout; an optional `--journal PATH` receives one JSON line per account plus a summary line.
+# stdout; `--journal PATH` (required with `--apply`) receives one JSON line per account, flushed as
+# it is written, plus a summary line.
 # INVARIANT (C5): the tool installs the encryption-at-rest provider like `migrate_profiles`, never
 # mints a master key, and is never a Helm hook. A skipped account (or a kept legacy row) exits 4.
 # INVARIANT (C6): after `--apply` no build older than E4b may run in that environment; the owner
@@ -78,9 +79,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--journal",
         metavar="PATH",
-        help="append one JSON line per account plus one summary line",
+        help="append one JSON line per account plus one summary line (required with --apply)",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.mode == "apply" and args.journal is None:
+        # WHY: an apply commits account by account; the journal is the record of a run that stops
+        # part-way, where no report reaches stdout.
+        parser.error("--apply needs --journal PATH")
+    return args
 
 
 async def run(

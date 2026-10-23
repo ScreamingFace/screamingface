@@ -400,6 +400,28 @@ def test_report_and_journal_carry_account_ids_and_counts_only(h: PurgeHarness) -
     }
 
 
+class _FlushLog(io.StringIO):
+    """A journal that records what it held each time it was flushed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.flushed: list[str] = []
+
+    def flush(self) -> None:
+        self.flushed.append(self.getvalue())
+        super().flush()
+
+
+def test_every_journal_line_is_flushed_as_it_is_written(h: PurgeHarness) -> None:
+    first, second = h.new_account(), h.new_account()
+    journal = _FlushLog()
+
+    h.purge(accounts=(first, second), journal=journal)
+
+    # INVARIANT: an apply that dies part-way leaves on disk every account it committed.
+    assert [text.count("\n") for text in journal.flushed] == [1, 2, 3]
+
+
 def test_an_unknown_mode_is_refused(h: PurgeHarness) -> None:
     with pytest.raises(ValueError, match="mode"):
         h.purge("rollback")

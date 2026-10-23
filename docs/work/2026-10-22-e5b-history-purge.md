@@ -40,6 +40,10 @@ on merge; the owner runs the command per environment.
 - New tests: a SQLite classification suite, a CLI suite, a configured-endpoint case and a
   PostgreSQL fence suite (names fixed at RED).
 - No schema change, no migration.
+- Review round (2026-10-23), on the same branch: a live account's purge keeps a blob any
+  account's Connection resolves to, and is skipped when an unresolvable Connection of another
+  account names it (C2/C4); the deleted-account sweep compares the whole `(service, account)`
+  address (C1). New suite `tests/unit/core/provider_access/test_history_purge_references.py`.
 - One prior test changes: `tests/unit/test_profile_index_offline_only.py` adds
   `core/provider_access/history_purge.py` to `_OFFLINE_READERS` (the guard pins the exact set of
   modules that may read the index). Owner approval 2026-10-22, recorded in a test-change manifest
@@ -68,14 +72,17 @@ on merge; the owner runs the command per environment.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**
-  - New: `src/aigateway/core/provider_access/history_purge.py` (438 lines, one module: the
-    split was not needed), `src/aigateway/purge_profile_history.py`.
+  - New: `src/aigateway/core/provider_access/history_purge.py`,
+    `src/aigateway/core/provider_access/history_references.py` (what every Connection row
+    addresses, split out in the review round when the purge module passed 450 lines),
+    `src/aigateway/purge_profile_history.py`.
   - Changed: `core/provider_access/connection_locator.py` (`locator_credential_name`),
     `core/profile_index.py` (`LEGACY_INDEX_ACCOUNT`, `index_account_for`), `migrate_profiles.py`
     (`refuse_without_a_key`), `tests/unit/test_profile_index_offline_only.py` (the approved
     `_OFFLINE_READERS` entry).
-  - New tests: `tests/unit/core/provider_access/test_history_purge.py` (33) with its probes
-    `history_purge_probes.py`, `tests/unit/test_purge_profile_history_cli.py` (13),
+  - New tests: `tests/unit/core/provider_access/test_history_purge.py` (34) with its probes
+    `history_purge_probes.py`, `tests/unit/core/provider_access/test_history_purge_references.py`
+    (7), `tests/unit/test_purge_profile_history_cli.py` (15),
     `tests/unit/remote_endpoint/test_history_purge_endpoints.py` (1),
     `tests/integration/test_history_purge_postgres.py` (3, `needs_postgres`).
   - No schema change, no migration.
@@ -90,6 +97,10 @@ on merge; the owner runs the command per environment.
   - Mutation checks on the PostgreSQL suite: with the account `FOR UPDATE` removed both
     commit-order tests fail (2 failed, 1 passed); with the unmigrated-document refusal removed the
     backfill-race test fails (1 failed, 2 passed). The module was restored byte-equal after each.
+  - Review round: the four RED tests of the cross-account and whole-address cases and the three
+    journal tests failed before the fix. `run_gates.py aigateway --base fade16614` (the merge
+    base; `origin/main` had moved on in files this unit does not touch) all green; PostgreSQL
+    fence suite 3/3 green.
 - **Deviations:**
   - The CLI also composes the configured remote endpoints (`compose_providers`, as `main.py`
     does). The plan names only "own provider registry"; with `load_plugins` alone every
@@ -101,3 +112,27 @@ on merge; the owner runs the command per environment.
     blob a backfill would adopt, and there is none.
   - Checked on the installed Tortoise 1.1.8: on SQLite `select_for_update()` emits no `FOR
     UPDATE` and raises nothing, so C7's "no-op" assumption holds.
+  - Review round (2026-10-23):
+    - Fixed: one account's purge kept only the addresses of that account's own Connection rows;
+      C2 keeps a blob any Connection addresses, and the sweep already did. It now resolves every
+      account's rows, and an unresolvable row of another account whose locator names this one
+      skips it (`connection_unresolvable`). Only the purged account's rows are fenced by its
+      lock; after E5a no path creates a reference across accounts.
+    - Fixed: the deleted-account sweep compared services only, so one addressed row kept every
+      sibling row under its service; it now compares the whole `(service, account)` address, and
+      an unresolvable row still keeps every row under the service its locator names (its own
+      account is skipped, so the run reports a refusal).
+    - Kept by design: the C4 unmigrated-document refusal compares services. The backfill reads a
+      document at the locator's logical account and its Connection reads the strategy's physical
+      one; every strategy keeps the service, so the service covers both. A spare refusal at
+      worst, never a lost key; pinned by a test with a configured physical account.
+    - Spec deviation (owner decision 2026-10-23): `--apply` requires `--journal`, and every
+      journal line is flushed as it is written. Spec C5 lists the journal as optional; an apply
+      commits account by account, and a run that stops part-way prints no report.
+    - Not changed: `migrate_profiles --rollback` after a purge. No key is lost: since E4a the
+      runtime reads no Profile document, a `none` pair resolves by label over its Connection rows,
+      and the purge keeps every blob a Connection addresses. A pair rolled back after the purge is
+      a `connection_only` pair, which R1 rolls back by design and a later backfill apply names
+      again. A refusal "no document left" would also refuse that legitimate case.
+    - Process: the test-change manifest for `_OFFLINE_READERS` is created at PR-open, after the
+      issue is filed (as for E5a); `Refs: OME-N` goes in the PR body, not in commits.

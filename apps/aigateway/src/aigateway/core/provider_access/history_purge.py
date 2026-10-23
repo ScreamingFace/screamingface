@@ -4,9 +4,10 @@
 # every Profile index row goes, and every provider-credential blob no Connection row addresses, one
 # account per transaction; with `--all`, then the blobs of deleted accounts, then the legacy global
 # index row.
-# INVARIANT (C2): a blob any Connection row of any status addresses stays, at the address its
-# strategy resolves (`credential_blob_address`), never one assembled from the locator text; a row
-# outside a loaded provider's credential namespace stays, and is counted.
+# INVARIANT (C2): a blob any Connection row of any status and any account addresses stays, at the
+# whole `(service, account)` address its strategy resolves (`credential_blob_address`), never one
+# assembled from the locator text; a row outside a loaded provider's credential namespace stays,
+# and is counted.
 # INVARIANT (C3): an account's transaction first takes `SELECT … FOR UPDATE` on its `accounts` row.
 # Every reference creator inserts a row whose foreign key names the account, which takes
 # `FOR KEY SHARE` on it, so on PostgreSQL a creator and the purge never interleave. On SQLite the
@@ -31,7 +32,6 @@ from tortoise.transactions import in_transaction
 
 from aigateway.core.auth.models import Account
 from aigateway.core.credential_blob.model import CredentialBlob
-from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
 from aigateway.core.profile_index import (
@@ -44,7 +44,7 @@ from aigateway.core.profile_models import Profile
 from aigateway.core.secrets.mixin import SecretDecryptionError
 
 from .backfill_apply import all_account_ids
-from .connection_locator import credential_blob_address, locator_credential_name
+from .history_references import Address, read_references
 from .pair_authority import PairAuthorityStore
 
 PurgeMode = Literal["dry-run", "apply"]
@@ -58,7 +58,6 @@ DELETED_ACCOUNT = "deleted_account_blobs"
 ACCOUNT_KINDS = (INDEX_ROWS, NAME_SHAPED, UUID_SHAPED)
 _UNRECOGNISED = "unrecognised"
 _NAMESPACE = "aigateway"
-Address = tuple[str, str]
 
 
 class _Skip(Exception):
@@ -254,8 +253,10 @@ async def _doomed(ctx: PurgeContext, account_id: str, *, lock: bool) -> list[_Ca
         raise _Skip("account_missing")
     states = await _migration_states(account_id)
     documents = await _documents(ctx, account_id)
-    connections = await OAuthConnection.filter(account_id=account_id)
-    addressed = {_resolved(ctx, connection) for connection in connections}
+    references = await read_references(ctx.app, ctx.providers)
+    if references.unresolved_naming(account_id):
+        raise _Skip("connection_unresolvable")
+    addressed = references.addressed
     candidates = await _candidates(ctx, account_id, lock=lock)
     doomed = [candidate for candidate in candidates if candidate.address not in addressed]
     _refuse_unmigrated_documents(ctx, account_id, documents, states, doomed)
@@ -278,26 +279,6 @@ async def _documents(ctx: PurgeContext, account_id: str) -> list[Profile]:
         return await ctx.profile_index.list(account_id)
     except (SecretDecryptionError, ValueError) as exc:
         raise _Skip("index_unreadable") from exc
-
-
-def _resolved(ctx: PurgeContext, connection: OAuthConnection) -> Address:
-    address = _address_of(ctx, connection)
-    if address is None:
-        raise _Skip("connection_unresolvable")
-    return address
-
-
-def _address_of(ctx: PurgeContext, connection: OAuthConnection) -> Address | None:
-    plugin = ctx.providers.get(connection.provider)
-    if plugin is None:
-        return None
-    namespace = credential_service_provider_for(plugin, connection.provider)
-    # WHY no fallback: the runtime reads a malformed locator's UUID-derived name, but a locator that
-    # names nothing proves nothing about the blob its owner meant (C4).
-    name = locator_credential_name(connection.credential_locator, credential_provider=namespace)
-    if name is None:
-        return None
-    return credential_blob_address(ctx.app, plugin, connection.provider, connection)
 
 
 async def _candidates(ctx: PurgeContext, account_id: str, *, lock: bool) -> list[_Candidate]:
@@ -332,6 +313,9 @@ def _refuse_unmigrated_documents(
     doomed: Iterable[_Candidate],
 ) -> None:
     """C4 (Q4): a document on a pair not yet `migrated` names the blob a backfill would adopt."""
+    # WHY by service, not by address: the backfill reads the document at the locator's logical
+    # account and the Connection it creates reads the strategy's physical one. Every strategy keeps
+    # the service, so the service covers both: a spare refusal at worst, never a lost key.
     doomed_services = {candidate.address[0] for candidate in doomed}
     for document in documents:
         if states.get(document.provider) == "migrated":
@@ -383,27 +367,21 @@ async def _plan_sweep(ctx: PurgeContext) -> tuple[SweepResult, list[UUID]]:
     # WHY rows before Connections: a reference is inserted before the blob it names is written, so
     # every blob this scan sees has its Connection committed before the read below.
     blobs = await CredentialBlob.all().only("id", "service", "account")
-    named = _named_services(ctx, await OAuthConnection.all())
+    references = await read_references(ctx.app, ctx.providers)
+    # WHY: an unresolvable row's account is skipped in its own pass, so what it keeps here is
+    # reported as a refusal.
+    kept = references.unresolved_services()
     kinds = {blob.id: scope.kind(blob) for blob in blobs}
     index_rows = [blob.id for blob in blobs if kinds[blob.id] == INDEX_ROWS]
     deleted = [
-        blob.id for blob in blobs if kinds[blob.id] == DELETED_ACCOUNT and blob.service not in named
+        blob.id
+        for blob in blobs
+        if kinds[blob.id] == DELETED_ACCOUNT
+        and (blob.service, blob.account) not in references.addressed
+        and blob.service not in kept
     ]
     unrecognised = sum(kind == _UNRECOGNISED for kind in kinds.values())
     return SweepResult(len(index_rows), len(deleted), unrecognised), index_rows + deleted
-
-
-def _named_services(ctx: PurgeContext, connections: Iterable[OAuthConnection]) -> set[str]:
-    """Every service a Connection row names: its locator's, and its strategy's where it resolves."""
-    services: set[str] = set()
-    for connection in connections:
-        locator = connection.credential_locator
-        if isinstance(locator, Mapping) and isinstance(locator.get("service"), str):
-            services.add(locator["service"])
-        address = _address_of(ctx, connection)
-        if address is not None:
-            services.add(address[0])
-    return services
 
 
 def _legacy_row() -> QuerySet[CredentialBlob]:
@@ -421,6 +399,8 @@ def _is_uuid(text: str) -> bool:
 def _journal(journal: TextIO | None, line: Mapping[str, Any]) -> None:
     if journal is not None:
         journal.write(json.dumps(line) + "\n")
+        # WHY: an account's line follows its commit; a run that stops part-way keeps the record.
+        journal.flush()
 
 
 __all__ = [
