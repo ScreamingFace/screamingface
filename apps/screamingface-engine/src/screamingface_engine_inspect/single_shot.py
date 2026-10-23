@@ -851,8 +851,12 @@ def _enveloped_inputs(cases_json: str) -> str:
 
     rows: list[dict[str, Any]] = json.loads(cases_json)
     for row in rows:
-        if conversation_messages(row["input"]) is None:
-            row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
+        try:
+            if conversation_messages(row["input"]) is None:
+                row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
+        except ValueError as exc:
+            # WHY the id: one broken Case among hundreds must be findable (OME-1271).
+            raise ValueError(f"case {row['id']}: {exc}") from exc
     return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 
