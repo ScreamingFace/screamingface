@@ -1,0 +1,20 @@
+[project]
+name = "specpdf"
+version = "0.1.0"
+description = "Render the OME-1110 url4 topology spec document to SFDS dark-register PDFs"
+requires-python = ">=3.12"
+dependencies = [
+    "weasyprint==70.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
