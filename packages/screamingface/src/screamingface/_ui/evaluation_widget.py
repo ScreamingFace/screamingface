@@ -198,7 +198,7 @@ class _NotebookEvaluationView:
             now_ms = time.time() * 1000
             row.stage = stage_status(self._activity, index, now_ms=now_ms)
             row.active_cases = active_cases(self._activity, index, now_ms=now_ms)
-            view.refresh(row, elapsed)
+            view.refresh(row, elapsed, final=self._progress.finished)
 
     def _tick_loop(self) -> None:
         while not self._done.is_set():
