@@ -74,13 +74,13 @@ inspect = [
     # same board revision can ask different questions. Pinning it here is what makes the
     # version a reviewable decision instead of a resolution accident. A Benchmark's Case
     # Digest is what notices a version that changes its Cases.
-    "datasets==5.0.1",
+    "datasets==5.1.0",
     # WHY here, not in `benchmarks`: MATH's second scorer (expression_exact_match_sympy, the
     # Minerva-style symbolic equivalence) imports sympy at GRADING time, which runs in the
     # deployed Engine, not in the build stage. inspect-evals keeps both behind its own `math`
     # extra, so they are declared here by name (owner decision on OME-1268, 2026-10-06).
     "sympy==1.14.0",
-    "antlr4-python3-runtime==4.11.1",
+    "antlr4-python3-runtime==4.13.2",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
@@ -100,7 +100,7 @@ benchmarks = [
     # cyse4_threat_intelligence's loader extracts each report PDF's text with pypdf at build
     # time, and that text is frozen into every Case's prompt. Pinned exactly for the same
     # reason as pdfplumber (OME-1602).
-    "pypdf==6.19.0",
+    "pypdf==6.21.1",
 ]
 
 # The benchmark-plugin loading dock (spec OME-1113 §3.1): engine core discovers this
