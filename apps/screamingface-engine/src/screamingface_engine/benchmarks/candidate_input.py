@@ -296,6 +296,19 @@ def _data_uri_mime(where: str, value: object) -> str:
     return match["mime"].lower()
 
 
+def split_data_uri(value: str) -> tuple[str, str] | None:
+    """An inline ``data:`` URI as its lower-cased media type and its base64 text, else ``None``.
+
+    e.g. ``data:IMAGE/png;base64,iVBORw0KGgo=`` → ``("image/png", "iVBORw0KGgo=")``.
+
+    WHY public: the request key reads a picture's bytes through this, so the key and the parser
+    match one ``data:`` pattern. It splits, never decodes; decoding is the request key's job.
+    """
+
+    match: re.Match[str] | None = _DATA_URI_RE.match(value)
+    return None if match is None else (match["mime"].lower(), match["data"])
+
+
 def _json_object(text: str | None) -> dict[str, Any] | None:
     """The text as a JSON object, or ``None`` when it is anything else."""
 
@@ -345,4 +358,5 @@ __all__ = [
     "TextMessage",
     "TextPart",
     "parse_candidate_input",
+    "split_data_uri",
 ]
