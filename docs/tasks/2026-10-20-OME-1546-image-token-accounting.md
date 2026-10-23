@@ -1,13 +1,13 @@
 ---
 id: OME-1546
 linear_url: https://linear.app/openmined/issue/OME-1546/account-image-and-file-tokens-in-the-costusage-taxonomy
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1529
 created: 2026-10-09
-closed:
+closed: 2026-10-23
 ---
 
 # Account image and file tokens in the cost.usage taxonomy
@@ -22,3 +22,5 @@ Follow-ups: engine forwarding into `ai.url4.cost.usage` (engine owner); owner de
 explicit `null` for pass-through providers; Codex cached-tokens drop filed as OME-1683 (bug).
 
 - 2026-10-20: gateway half implemented on `OME-1546-image-token-accounting`; PR opened.
+
+Merged in PR #1481 as `b76556ca3` on 2026-10-23.
