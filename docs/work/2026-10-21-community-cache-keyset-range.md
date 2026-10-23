@@ -79,3 +79,13 @@ walk is quadratic today.
   shorten a page or raise the approximate count: the route's `next` comes from the scan cursor and
   `has_rows_after`, never a page's length, and the moved row is sent later at its new time — the
   same short page a row rewritten between the key and row reads already makes.
+
+## Review by HupBaHa at `405cc1c57` (2026-10-23)
+
+- **`count_rows` is one statement again:** the two ranges buy an index seek only for an ordered,
+  limited read; a count is neither. Split, it scanned the tie run and the later rows separately
+  (reviewer's Postgres 16.13 run, 200k rows with a 150k tie: ~22 ms and ~5.7k buffers as one OR
+  predicate, ~38 ms and ~11.4k buffers as two) under two snapshots, against spec decision 8's one
+  `count(*)`. `_all_after` keeps the single OR predicate for it; `_next_keys` and
+  `has_rows_after` keep the two ranges. This supersedes the earlier "summed counts" note. Test: a
+  count from inside a tie run is right and is one statement.

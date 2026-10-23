@@ -527,3 +527,30 @@ async def test_a_row_moved_out_of_the_tie_run_between_its_two_reads_is_taken_onc
     ]
 
     assert page == ["c", "d", "b", "e"]
+
+
+@pytest.mark.asyncio
+async def test_a_count_from_inside_a_tie_run_is_one_statement(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY (spec decision 8): one count(*). Two counts scan the tie run and the later rows
+    # separately, about twice the reads on Postgres, under two snapshots.
+    for key in "abc":
+        await _row(key, updated_at=_T0)
+    await _row("d", updated_at=_T0 + timedelta(seconds=1))
+    connection = Tortoise.get_connection("default")
+    original = connection.execute_query
+    statements: list[str] = []
+
+    async def counting(query: str, *args: Any, **kwargs: Any) -> Any:
+        statements.append(query)
+        return await original(query, *args, **kwargs)
+
+    monkeypatch.setattr(connection, "execute_query", counting)
+
+    counted = await count_rows(
+        after=PageCursor(updated_at=_T0, key_hash="a".ljust(64, "0")), models=(), now=_NOW
+    )
+
+    assert counted == 3
+    assert len(statements) == 1

@@ -139,9 +139,27 @@ def _after(
     )
 
 
+def _all_after(
+    rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None
+) -> QuerySet[RequestCacheEntry]:
+    """Everything ``_after`` reads, as one predicate: for a statement that is neither ordered nor
+    limited, where the two ranges buy no index seek."""
+    if cursor is None:
+        return rows
+    return rows.filter(
+        Q(updated_at__gt=cursor.updated_at)
+        | Q(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash)
+    )
+
+
 async def count_rows(*, after: PageCursor | None, models: Sequence[str], now: datetime) -> int:
-    """How many rows a walk from ``after`` would return (approximate once writes continue)."""
-    return sum([await part.count() for part in _after(_eligible(models, now), after)])
+    """How many rows a walk from ``after`` would return (approximate once writes continue).
+
+    INVARIANT (spec decision 8): one ``count(*)``. Split in two, the counts scan the tie run and
+    the later rows separately (about twice the reads on Postgres) under two snapshots, so a row
+    a restore moves between them would count twice.
+    """
+    return await _all_after(_eligible(models, now), after).count()
 
 
 async def has_rows_after(*, after: PageCursor, models: Sequence[str], now: datetime) -> bool:
