@@ -20,7 +20,8 @@ base64.
   line such as `chart.png · image/png · 300 KB · sha256 9f86d081…`.
 - Both picture forms render the same line: a `data:` URI (the SDK measures size and digest) and the
   placeholder object the engine will write in its place (OME-1679).
-- Text-only results render as before; an unknown schema keeps the raw-string fallback.
+- Text-only results render as before. An unknown version of the envelope shows one line asking
+  to upgrade screamingface, never its base64; input outside the envelope family renders as written.
 - A conformance test pins the SDK's schema names to the engine's `benchmarks/contract.py`.
 
 Ledger: `docs/work/2026-10-23-case-result-picture-placeholder.md`.

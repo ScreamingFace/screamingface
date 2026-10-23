@@ -46,12 +46,30 @@ object the engine will start writing in its place (OME-1679 design decision, 202
 - **Actual files:** as planned (`case_result.py`, `tests/test_case_result_pictures.py`,
   `tests/unit/test_candidate_input_schema_conformance.py`), plus this ledger and the mirror.
 - **Commits:** `0a203db3b` — feat(screamingface): show pictures in Case Results as a placeholder,
-  never base64; then the docs-close commit.
+  never base64; `1fce932a1` — docs(work): close the OME-1680 ledger and mirror; `82716bedd` —
+  fix(screamingface): never crash or dump base64 on an envelope the SDK cannot read (review
+  fixes); then this docs update.
 - **Gates:** the PR's tests only: the two new files plus every existing test of the decode path
   and its renderers (`test_case_results.py`, `test_case_outcome_decoding.py`,
   `test_inspect_log_payload.py`, `test_report_panel.py`, `e2e/test_report_tape.py`,
-  `test_public_surface.py`): 163 passed. ruff check + format and pyright clean on touched files.
-- **Deviations:** none. The inspect log export (`_inspect_log/payload.py`) reads `conversation`,
-  so a v2 Case now exports placeholder text instead of the raw envelope; noted for review.
-  The placeholder-format conformance test waits for the engine's builder (OME-1679); the SDK's
-  field names live in `_PLACEHOLDER_FIELDS` / `_PLACEHOLDER_OPTIONAL_FIELDS`.
+  `test_public_surface.py`): 168 passed. ruff check + format and pyright clean on touched files.
+- **Review fixes (82716bedd):** a non-text `schema` no longer raises (the engine runs such a Case
+  as a plain prompt); an unknown `screamingface.candidate-input.*` version shows one upgrade line
+  instead of its raw base64; base64 is decoded as the engine's request key decodes it (line
+  breaks dropped, padding restored), so the sha256 shown is the one that keys the call; a file
+  part's own `filename` names its placeholder object; a twin test pins the SDK's `data:` URI
+  pattern to the engine's `_DATA_URI_RE`.
+- **Deviations:**
+  - The base64 is hidden in the view, not dropped. `CaseResult.input`, `to_dict()["input"]` and
+    the dataclass repr still hold it, so `repr(case)` in a notebook still prints it and per-run
+    memory (OME-1448) is unchanged. The real drop lands engine-side (OME-1271 PR 3).
+  - The inspect log export (`_inspect_log/payload.py`) reads `conversation`, so a v2 Case now
+    exports placeholder text instead of the raw envelope; an unknown-version Case still exports
+    its raw input there.
+  - `_size_text` copies the Report's byte formatter (`_ui/report_view.py` `_bytes`) on purpose:
+    core must not import UI.
+  - The SDK lane's CI path filter does not list the engine's `benchmarks/candidate_input.py`, so
+    an engine-only change to `_DATA_URI_RE` will not run the new SDK pin until the SDK lane next
+    runs. Adding that path to `.github/workflows/screamingface-tests.yml` is an owner action.
+  - The placeholder-format conformance test waits for the engine's builder (OME-1679); the SDK's
+    field names live in `_PLACEHOLDER_FIELDS` / `_PLACEHOLDER_OPTIONAL_FIELDS`.
