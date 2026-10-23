@@ -13,7 +13,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from http.client import HTTPResponse
+from http.cookiejar import Cookie, CookieJar
 from typing import Any
+from urllib.request import Request
 
 import httpx
 from fastapi import HTTPException
@@ -32,9 +36,25 @@ _INVALID = "The remote endpoint response is invalid."
 _POOL_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=20)
 
 
+class _NoCookies(CookieJar):
+    """A cookie jar that keeps nothing.
+
+    # WHY: every account's chats to one endpoint share one client, so a cookie the upstream set
+    # on one account's answer would ride on the next account's request. A refusing cookie policy
+    # is not enough: httpx copies the jar into a plain one before each request.
+    """
+
+    def set_cookie(self, cookie: Cookie) -> None:
+        del cookie
+
+    def extract_cookies(self, response: HTTPResponse, request: Request) -> None:
+        del response, request
+
+
 def _open_client(transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
     # INVARIANT: core.admission is the one wall-clock authority, as for the local provider.
     return httpx.AsyncClient(
+        cookies=_NoCookies(),
         follow_redirects=False,
         trust_env=False,
         timeout=None,
@@ -49,6 +69,7 @@ class EndpointClient:
     def __init__(self) -> None:
         self._client: httpx.AsyncClient | None = None
         self._closed = False
+        self._closing: asyncio.Future[None] | None = None
 
     def open(self, transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
         # WHY on first use: composition does no I/O, and the client belongs to the serving loop.
@@ -61,8 +82,14 @@ class EndpointClient:
 
     async def aclose(self) -> None:
         self._closed = True
-        if self._client is not None:
-            await self._client.aclose()
+        if self._client is None:
+            return
+        # WHY one shielded task: httpx marks the client closed before its pool finishes closing,
+        # so a cancelled close could never be retried. The task runs to its end on its own, and
+        # a repeat call waits for that same close.
+        if self._closing is None:
+            self._closing = asyncio.ensure_future(self._client.aclose())
+        await asyncio.shield(self._closing)
 
 
 def _unavailable() -> HTTPException:

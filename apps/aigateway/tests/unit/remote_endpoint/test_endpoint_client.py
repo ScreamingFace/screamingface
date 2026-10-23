@@ -5,6 +5,10 @@
 # INVARIANT: the client verifies certificates, follows no redirect and reads no proxy or CA
 # setting from the environment, as the per-call client did.
 # INVARIANT: once shutdown closed it, a chat gets a safe 502 and opens no new client.
+# INVARIANT: the shared client keeps no cookie, so one account's upstream session never rides on
+# another account's request.
+# INVARIANT: shutdown closes every endpoint's client, even when another endpoint's close fails
+# or the close itself is cancelled.
 """
 
 from __future__ import annotations
@@ -165,3 +169,94 @@ def test_the_client_verifies_certificates_and_ignores_the_environment(
         assert pool._retries == 0
     finally:
         asyncio.run(client.aclose())
+
+
+def test_an_answer_cookie_never_reaches_another_account(
+    opened: list[httpx.AsyncClient],
+) -> None:
+    registry, plugin, _ = _installed()
+    sent: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        cookie = f"session=from-call-{len(sent)}; Path=/"
+        return httpx.Response(200, json=COMPLETION, headers={"Set-Cookie": cookie})
+
+    cast(Any, plugin)._transport = httpx.MockTransport(answer)
+
+    async def one_chat_each() -> None:
+        for account in (ACCOUNT_A, ACCOUNT_B):
+            body = {**chat_body(ENDPOINT_A), "api_key": KEY[account]}
+            assert await plugin.chat_completion(body) == COMPLETION
+        await close_remote_endpoints(registry)
+
+    asyncio.run(one_chat_each())
+
+    assert len(opened) == 1
+    assert [request.headers.get("cookie") for request in sent] == [None, None]
+    # WHY the jar too: a kept cookie would also grow for the whole life of the process.
+    assert len(opened[0].cookies) == 0
+
+
+class _Closing(httpx.AsyncBaseTransport):
+    """An upstream transport whose close is recorded, and can fail or wait until released."""
+
+    def __init__(self, *, fail: bool = False, hold: bool = False) -> None:
+        self.fail, self.hold = fail, hold
+        self.entered, self.released = asyncio.Event(), asyncio.Event()
+        self.finished = 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=COMPLETION)
+
+    async def aclose(self) -> None:
+        self.entered.set()
+        if self.fail:
+            raise RuntimeError("the connection pool failed to close")
+        if self.hold:
+            await self.released.wait()
+        self.finished += 1
+
+
+def test_one_failed_close_leaves_no_other_endpoint_open(caplog: pytest.LogCaptureFixture) -> None:
+    registry = ProviderRegistry()
+    install_remote_endpoints(registry, parse_remote_endpoint_config(two_endpoint_document()))
+    plugins = [p for p in registry.all() if isinstance(p, RemoteEndpointPlugin)]
+    # WHY the first in sweep order fails: only then can a stopped sweep skip the other one.
+    upstreams = [_Closing(fail=True), _Closing()]
+    for plugin, upstream in zip(plugins, upstreams, strict=True):
+        cast(Any, plugin)._transport = upstream
+
+    async def chat_then_shut_down() -> None:
+        for plugin in plugins:
+            body = {**chat_body(plugin.custom_llm_provider), "api_key": KEY[ACCOUNT_A]}
+            assert await plugin.chat_completion(body) == COMPLETION
+        await close_remote_endpoints(registry)
+
+    asyncio.run(chat_then_shut_down())
+
+    assert upstreams[0].entered.is_set() and upstreams[1].finished == 1
+    assert plugins[0].custom_llm_provider in caplog.text
+
+
+def test_a_cancelled_close_still_finishes_and_a_repeat_waits_for_it() -> None:
+    upstream = _Closing(hold=True)
+    owner = transport.EndpointClient()
+    owner.open(upstream)
+
+    async def cancel_then_repeat() -> None:
+        first = asyncio.ensure_future(owner.aclose())
+        await asyncio.wait_for(upstream.entered.wait(), timeout=5)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        repeat = asyncio.ensure_future(owner.aclose())
+        await asyncio.sleep(0.01)
+        # INVARIANT: the repeat waits for the close already running rather than returning early.
+        assert not repeat.done()
+        upstream.released.set()
+        await asyncio.wait_for(repeat, timeout=5)
+
+    asyncio.run(cancel_then_repeat())
+
+    assert upstream.finished == 1

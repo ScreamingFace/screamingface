@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .core.endpoint_access import PERMIT_ALL, EndpointAccessPolicy
@@ -17,6 +18,8 @@ from .plugins.remote_endpoint.definitions import RemoteEndpointConfig, RemoteEnd
 from .plugins.remote_endpoint.plugin import RemoteEndpointPlugin
 from .plugins.remote_endpoint.policy import RemoteEndpointAccess
 from .plugins.remote_endpoint.reader import read_remote_endpoint_config
+
+logger = logging.getLogger(__name__)
 
 
 def compose_providers(
@@ -49,5 +52,15 @@ async def close_remote_endpoints(registry: ProviderRegistry) -> None:
     # needs no attribute probing on plugins and `compose_providers` still returns the policy.
     """
     for plugin in registry.all():
-        if isinstance(plugin, RemoteEndpointPlugin):
+        if not isinstance(plugin, RemoteEndpointPlugin):
+            continue
+        # WHY per endpoint: one failed close must not leave the endpoints after it open.
+        try:
             await plugin.aclose()
+        except Exception as exc:
+            # INVARIANT: the error's text is not logged; it may carry the endpoint's origin.
+            logger.warning(
+                "remote endpoint %s did not close cleanly: %s",
+                plugin.custom_llm_provider,
+                type(exc).__name__,
+            )
