@@ -19,12 +19,13 @@ endpoints, not the hosted rollout.
   and IPv6 zones are refused. The default port is normalized away.
 - Catalog: listings, availability, the model contract, admission and OAuth start show an endpoint
   only to the accounts its grant names; others get the route's unknown-provider answer. The two
-  listings are `private, no-store` with `Vary: Authorization`.
+  listings are `private, no-store` with `Vary: Authorization`. Availability lists only registered
+  providers the caller may see, and reads no other provider's stored pair.
 - Shared cache: a text chat is keyed from the request body alone, `max_tokens` included, and is
   shared by every account. The endpoint takes part only while it is enabled and the requested
   alias is declared; turning either off serves no row and keeps every row.
-- Client: one reused HTTP client per endpoint with a bounded pool, closed at shutdown; a chat
-  after shutdown gets a safe 502.
+- Client: one reused HTTP client per endpoint with a bounded pool and no cookie store, closed at
+  shutdown even when another endpoint's close fails; a chat after shutdown gets a safe 502.
 
 Next slice: hosted chat integration and the Engine bridge.
 

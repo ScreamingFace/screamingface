@@ -115,11 +115,34 @@ Owner decisions (2026-10-22):
   - `bbeadf786` feat(aigateway): show each configured endpoint only to its granted accounts
   - `52eb5824b` feat(aigateway): share cached chats to configured endpoints across accounts
   - `0c60b1cb7` feat(aigateway): reuse one bounded HTTP client per configured endpoint
+  - `358af66eb` fix(aigateway): share no cookie and close every endpoint client at shutdown
+  - `b487572a7` fix(aigateway): list only registered providers the caller may see
 - **Gates:** `run_gates.py aigateway --base fade16614`: ruff check, ruff format, pyright,
   `check_no_enterprise`, pytest with coverage at least 80%: all green after each part and again
   after the rebase; 6912 tests collected, 426 in `tests/unit/remote_endpoint`. With
   `.claude/test-change-approvals/OME-1721.json` in place, the full run including the append-only
-  check is green and accepts exactly the four approved test transitions.
+  check is green and accepts exactly the four approved test transitions. After the review fixes
+  the full run is green again: 6920 tests collected, 433 in `tests/unit/remote_endpoint`, and
+  the append-only check accepts exactly five approved test transitions.
+- **Review fixes (2026-10-23),** after an external review of the four feature commits:
+  - The shared client kept upstream cookies, so a cookie set on one account's answer rode on the
+    next account's request. The client now uses a cookie jar that keeps nothing. A refusing
+    cookie policy does not work: httpx copies the jar into a plain one before each request.
+  - Shutdown stopped at the first endpoint whose close failed, and a cancelled close could not
+    be repeated. Each endpoint now closes on its own and a failure is logged without its text;
+    the close runs as one shielded task that a repeat call waits for.
+  - `/v1/provider-access` read every stored pair before the route filtered the rows, and still
+    listed the pair of a provider no longer registered. By the owner's choice the listing shows
+    only registered providers the caller may see: the connection-backed port skips any other
+    pair before its Connection or credential state is read, and the route is back to its form
+    on main. The stored pair is kept. The Hosted Engine already drops availability rows outside
+    the provider catalogue (OME-1245), so its users see no change.
+  - One more prior test changed, shown to the owner and approved on 2026-10-23, and pinned in
+    the approval file: `test_provider_access_availability_route` checks `pending` on the
+    registered `gemini-cli` instead of the unregistered `gemini`, and gains a test that an
+    unregistered provider's pair has no row.
+  - Open, awaiting the owner: a 401 or a 405 on `/v1/models` and `/v1/providers` is answered
+    before the handler and carries no private-cache headers. Its body holds no account data.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
