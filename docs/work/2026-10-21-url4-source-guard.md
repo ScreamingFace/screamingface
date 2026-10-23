@@ -75,6 +75,7 @@ All F1b rules hold on the default (owned) `HttpIOLayer` client; `run_gates.py ur
   `.claude/test-change-approvals/OME-1544.json`. New tests: `tests/unit/test_source_guard_policy.py`,
   `tests/unit/test_source_guard_http.py`.
 - **Commits:** `81bc89f13` feat(url4): guard HttpIOLayer source fetches by destination (F1b).
+- **Merged:** squash-merged as `506c09178` (#1521) on 2026-10-22.
 - **Gates:** `run_gates.py url4` ALL GATES GREEN (append-only via the approved manifest, no
   `--skip-append-only`); `run_gates.py screamingface-engine` ALL GATES GREEN (not touched; run
   because it consumes url4 editable); `check_module_size.py` and `check_suppressions.py` within

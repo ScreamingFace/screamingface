@@ -60,6 +60,7 @@ body (413 naming the limit), refuses every non-`data:` image/file reference with
   `core/test_media_intake.py`, `test_chat_remote_media_route.py`,
   `anthropic/test_anthropic_system_media.py` (all new; no prior test touched).
 - **Commits:** see the PR (squash-merged).
+- **Merged:** squash-merged as `a2cbf70ba` (#1479) on 2026-10-23.
 - **Gates:** `run_gates.py aigateway` — ALL GATES GREEN (append-only check, ruff, format, pyright,
   no-enterprise, pytest + coverage ≥ 80). New modules: body_cap 98 %, media_intake 97 % branch.
 - **Live e2e (:9131, copied DB):** 9 MB body → 413 "8388608 bytes (8 MiB)" with Content-Length and
