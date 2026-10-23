@@ -57,3 +57,16 @@ position, plus an adapter revision. A request with no picture or file keeps toda
 - **Deviations:** the model-result cache and frozen copy are keyed by the gateway, not by this
   Engine key (the Engine key is the grading-accounting join key), so this PR does not change the
   gateway cache's view of a picture; flagged as an open question on the PR.
+- **Review round 1 (head 6c254254c):**
+  - The docstring and a test comment said undecodable base64 is refused before any model call. It
+    is not: the parser, the connector and the gateway pass base64 on verbatim, so only the provider
+    rejects it, after spend. Both now say what happens; the key still falls back to the raw text.
+  - Import cost: the envelope module loads the whole `benchmarks` package and url4. Cumulative
+    `python -X importtime` for `screamingface_engine.request_identity`, three runs each: `main`
+    17.4-17.9 ms, this branch before the fix 90-120 ms, after 17.7-20.4 ms. Fixed with
+    function-local imports behind a "does the context open a JSON object" check, pinned by a
+    subprocess test. A JSON-object text context (v1 envelope, Fusion JSON) still loads the module
+    once, on its first key.
+  - The exact canonical shape now covers a PDF part with a filename (OME-1679 consumes it).
+- **Open follow-up:** the connector should refuse undecodable base64 in a v2 Case by name, before
+  any model call, instead of leaving it to the provider.

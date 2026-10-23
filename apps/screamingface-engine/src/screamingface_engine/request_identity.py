@@ -16,15 +16,10 @@ import binascii
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from typing import Literal, NewType, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, NewType, NotRequired, TypedDict
 
-from screamingface_engine.benchmarks.candidate_input import (
-    CandidateInputError,
-    CandidateMessage,
-    ContentPart,
-    parse_candidate_input,
-    split_data_uri,
-)
+if TYPE_CHECKING:
+    from screamingface_engine.benchmarks.candidate_input import CandidateMessage, ContentPart
 
 ModelRequestKey = NewType("ModelRequestKey", str)
 
@@ -146,16 +141,30 @@ def _picture_request_parts(context: str | None) -> list[CanonicalPart] | None:
     """The canonical part list of a context that carries a picture or file, else ``None``.
 
     INVARIANT: ``None`` for a plain prompt, a v1 envelope and any text-only context, so those keep
-    today's key. Also ``None`` for an envelope the parser or the decoder refuses: the connector
-    refuses that request by name (or the gateway does), and the key must not raise first and turn
-    the refusal into a stray error. It keys the text as written, as it always has.
+    today's key. Also ``None`` for an envelope the parser or the decoder refuses. An envelope the
+    parser refuses, the connector refuses by name before any model call. Undecodable base64 is
+    different: nothing on our side decodes it before the provider does (the parser, the connector
+    and the gateway pass it on verbatim). Either way the key must not raise first, so it falls back
+    to hashing the text as written, as it always has.
     """
+
+    # WHY the cheap check first: only a text that opens a JSON object can be an envelope, so a
+    # plain prompt never pays for loading the envelope module below.
+    if not context or not context.lstrip().startswith("{"):
+        return None
+    # WHY a local import: `benchmarks` loads its whole package (url4 included) on import, which
+    # would make every importer of this small module pay for it at start-up.
+    from screamingface_engine.benchmarks.candidate_input import (
+        CandidateInputError,
+        parse_candidate_input,
+    )
 
     try:
         messages: list[CandidateMessage] | None = parse_candidate_input(context)
-        if messages is None or all(isinstance(m["content"], str) for m in messages):
-            return None
-        return canonical_request_parts(messages)
+        has_media: bool = messages is not None and any(
+            not isinstance(message["content"], str) for message in messages
+        )
+        return canonical_request_parts(messages) if messages is not None and has_media else None
     except CandidateInputError:
         return None
 
@@ -169,6 +178,12 @@ def _media_part(
     where: str,
 ) -> CanonicalPart:
     """Name one inline picture or file by the sha256 of its decoded bytes and its media type."""
+
+    # WHY a local import: see `_picture_request_parts`; a picture caller has loaded it already.
+    from screamingface_engine.benchmarks.candidate_input import (
+        CandidateInputError,
+        split_data_uri,
+    )
 
     split: tuple[str, str] | None = split_data_uri(uri)
     if split is None:

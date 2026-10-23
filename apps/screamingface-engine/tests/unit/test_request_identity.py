@@ -11,6 +11,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -41,6 +43,8 @@ from screamingface_engine.request_identity import canonical_request_parts, model
 _PICTURE_BYTES = b"\x89PNG\r\n\x1a\nabc"
 _PICTURE_B64 = base64.b64encode(_PICTURE_BYTES).decode()
 _PICTURE_DIGEST = f"sha256:{hashlib.sha256(_PICTURE_BYTES).hexdigest()}"
+_PDF_BYTES = b"%PDF-1.4"
+_PDF_B64 = base64.b64encode(_PDF_BYTES).decode()
 _QUESTION = {"type": "text", "text": "What is the height of the tallest bar?"}
 _ROUTE = "openai/gpt-4o-mini"
 
@@ -123,11 +127,15 @@ def test_a_request_without_pictures_keeps_the_key_main_gave_it(
 
 def test_canonical_parts_name_each_part_by_place_and_bytes() -> None:
     # WHY pinned field by field: OME-1679 keys Fusion synthesizer contexts through this same list,
-    # so its shape is a contract, not an implementation detail.
+    # so its shape is a contract, not an implementation detail. Every part kind appears once.
+    pdf: dict[str, Any] = {
+        "type": "file",
+        "file": {"file_data": f"data:application/pdf;base64,{_PDF_B64}", "filename": "chart.pdf"},
+    }
     messages = parse_candidate_input(
         _envelope(
             {"role": "system", "content": "Be brief."},
-            _user(_QUESTION, _image(detail="low")),
+            _user(_QUESTION, _image(detail="low"), pdf),
         )
     )
     assert messages is not None
@@ -143,6 +151,15 @@ def test_canonical_parts_name_each_part_by_place_and_bytes() -> None:
             "digest": _PICTURE_DIGEST,
             "media_type": "image/png",
             "detail": "low",
+        },
+        {
+            "kind": "file",
+            "role": "user",
+            "message": 1,
+            "position": 2,
+            "digest": f"sha256:{hashlib.sha256(_PDF_BYTES).hexdigest()}",
+            "media_type": "application/pdf",
+            "filename": "chart.pdf",
         },
     ]
 
@@ -202,15 +219,13 @@ def test_a_change_the_model_can_see_changes_the_key(base: str, variant: str) -> 
 
 def test_a_file_name_is_part_of_the_key() -> None:
     # WHY: a PDF's file name reaches the model beside its bytes, so it is part of the request.
-    pdf = base64.b64encode(b"%PDF-1.4").decode()
-
     def with_file(**extra: str) -> str:
         return _envelope(
             _user(
                 _QUESTION,
                 {
                     "type": "file",
-                    "file": {"file_data": f"data:application/pdf;base64,{pdf}", **extra},
+                    "file": {"file_data": f"data:application/pdf;base64,{_PDF_B64}", **extra},
                 },
             )
         )
@@ -242,8 +257,9 @@ def test_the_adapter_revision_moves_picture_keys_and_leaves_text_keys(
     ids=["undecodable-base64", "parser-refuses"],
 )
 def test_an_envelope_the_connector_refuses_keys_as_written(refused: str) -> None:
-    # WHY: the connector refuses this request by name before any model call, so the key must not
-    # raise first and turn that refusal into a stray error; it keys the text as main would.
+    # WHY: the parser-refused envelope is refused by the connector by name; the undecodable one is
+    # decoded by nobody on our side before the provider. Either way the key must not raise first,
+    # so it falls back to hashing the text as main would.
     as_written = json.dumps(
         {"path": _ROUTE, "params": [["temperature", "0"]], "context": refused, "intent": None},
         ensure_ascii=False,
@@ -286,3 +302,19 @@ def test_the_call_and_the_grading_ledger_agree_on_a_picture_key() -> None:
             record_operation_call("42", "stop", accounting)
 
         assert accounting_for_grading_evidence(owner) is not None
+
+
+def test_importing_the_key_does_not_load_the_envelope_module() -> None:
+    # INVARIANT (review finding, 2026-10-23): the envelope module loads the `benchmarks` package
+    # and url4 with it; every importer of the key would pay that at start-up (~18 ms → ~100 ms), so
+    # it loads only when a context opens a JSON object. A fresh interpreter, since this test
+    # module has already imported it.
+    probe = (
+        "import sys, screamingface_engine.request_identity as r;"
+        "r.model_request_key(path='p', params={}, context='What is 6 times 7?', intent=None);"
+        "print('screamingface_engine.benchmarks' in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "False"
