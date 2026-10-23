@@ -10,6 +10,8 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Literal
 
+from scoreboard.classification.open_weights import OPEN_WEIGHT_RELEASES
+
 if TYPE_CHECKING:
     from scoreboard.scores.schemas import BaselineSchema, ScoreSchema
 
@@ -103,6 +105,16 @@ _OPEN_FAMILIES_BY_OWNER: dict[str, tuple[str, ...]] = {
     "openai": ("gpt-oss",),
     "google": ("gemma",),
 }
+
+# These hosted editions have no verified matching weight release. Related Qwen
+# checkpoints do not establish reproducibility of the exact hosted version.
+# Consult before the legacy owner heuristic; unknown preserves registry diagnostics.
+# Sources checked 2026-10-22:
+# https://www.alibabacloud.com/help/en/model-studio/deep-thinking
+# https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B
+_UNVERIFIED_HOSTED_MODELS: frozenset[tuple[str, str]] = frozenset(
+    {("qwen", "qwen3.6-plus"), ("qwen", "qwen3.8-max-prime")}
+)
 
 # WHY: a routing prefix says who carried the request, not what ran. Every live draco-3pass
 # route is `openrouter/`-prefixed, so without stripping this the owner segment would always
@@ -205,10 +217,14 @@ def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     these two lines files `openai/gpt-oss-120b` as closed on its owner's name; widening the
     family check beyond `_OPEN_FAMILIES_BY_OWNER[owner]` re-opens the crafted-name hole.
     """
-    if parsed is None:
+    if parsed is None or parsed in _UNVERIFIED_HOSTED_MODELS:
         return "unknown"
     owner, model = parsed
-    if _in_family(model, _OPEN_FAMILIES_BY_OWNER.get(owner, ())) or owner in _OPEN_OWNERS:
+    if (
+        f"{owner}/{model}" in OPEN_WEIGHT_RELEASES
+        or _in_family(model, _OPEN_FAMILIES_BY_OWNER.get(owner, ()))
+        or owner in _OPEN_OWNERS
+    ):
         return "open"
     return "closed" if owner in _CLOSED_OWNERS else "unknown"
 
