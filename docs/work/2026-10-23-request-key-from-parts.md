@@ -1,9 +1,9 @@
 ---
 ticket: OME-1271   # PR 1a of the OME-1271 stack
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-23
-finished:
+finished: 2026-10-23
 ---
 
 # request-key-from-parts — build the model request key from picture bytes, not raw JSON
@@ -46,7 +46,14 @@ position, plus an adapter revision. A request with no picture or file keeps toda
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus the OME-1271 mirror `docs/tasks/2026-10-23-OME-1271-images-in-cases.md`.
+- **Commits:** e3bfbd046 — feat(screamingface-engine): key picture requests by canonical parts, not base64 spelling
+- **Gates:** relevant tests only — `test_request_identity.py` 17, `test_candidate_input.py` 45,
+  `test_grading_accounting.py` 9, `test_operation_capture_executor.py` 7,
+  `test_request_accounting_boundaries.py` 1 (all pass); `inspect/test_judge_seed_per_pass.py` +
+  `inspect/test_concurrent_judge_booking.py` 15 pass with the inspect extra (`uv run --isolated`);
+  ruff check + format and pyright clean on touched files; layering gate OK. Two mutation checks
+  (hash base64 text instead of bytes; drop the adapter revision) each fail the matching test.
+- **Deviations:** the model-result cache and frozen copy are keyed by the gateway, not by this
+  Engine key (the Engine key is the grading-accounting join key), so this PR does not change the
+  gateway cache's view of a picture; flagged as an open question on the PR.
