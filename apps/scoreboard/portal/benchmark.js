@@ -46,7 +46,7 @@
   // the copied snippet. WHY a constant and not a server setting: the page cannot read server
   // settings, and this flips exactly once.
   var SHOW_REPRODUCE_BUTTON = true;
-  var REPRODUCE_HOVER = "Replays this run's recorded answers at $0 and checks the published score";
+  var REPRODUCE_HOVER = "Replays recorded answers and checks the published score; requires a replay-capable Engine and Gateway";
 
   function compare(a, b, key, type, dir) {
     // Cost never reaches the generic numeric branch below. That branch is

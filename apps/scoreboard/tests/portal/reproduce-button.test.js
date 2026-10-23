@@ -6,8 +6,8 @@
  * and benchmark.js into a `vm` context behind a small fake DOM, so what is asserted is what ships.
  *
  * The button copies the Python that replays a published run from its pinned cache. It appears
- * only when the row names a pinned cache AND the page's switch is on; the switch ships off until
- * the SDK release that understands `evaluate(pinned_cache=...)`.
+ * only when the row names a pinned cache AND the page's switch is on. The released SDK supports
+ * `evaluate(pinned_cache=...)`; the user's Engine and Gateway must also support replay.
  *
  * Every check compares whole values: exact strings, node lists, attribute values.
  */
@@ -24,7 +24,7 @@ const L = require("../../portal/leaderboard-logic.js");
 const PORTAL = path.join(__dirname, "..", "..", "portal");
 const COPY = "0192a1b2-c3d4-4e5f-8a9b-0c1d2e3f4a5b";
 const SNIPPET = 'import screamingface as sf\nresult = sf.evaluate(pinned_cache="' + COPY + '")';
-const HOVER = "Replays this run's recorded answers at $0 and checks the published score";
+const HOVER = "Replays recorded answers and checks the published score; requires a replay-capable Engine and Gateway";
 
 // --- the pure decisions --------------------------------------------------------------------------
 
@@ -261,4 +261,12 @@ test("a refused clipboard says copy failed, like the Copy button", async () => {
   await new Promise((resolve) => setTimeout(resolve, 5));
 
   assert.equal(reproduce.textContent, "copy failed");
+});
+
+test("Reproduce names its replay prerequisite without promising an unconditional price", async () => {
+  const { body } = await renderBoard([entry("captured", { pinned_cache: COPY })]);
+  const reproduce = buttons(runCell(body.children[0]))[1];
+
+  assert.match(reproduce.title, /requires a replay-capable Engine and Gateway/);
+  assert.doesNotMatch(reproduce.title, /\$0|free|zero.cost/i);
 });

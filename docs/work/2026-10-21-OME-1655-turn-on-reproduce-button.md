@@ -71,3 +71,40 @@ As on the ticket.
   SDK and confirm its verdict; verify the `OME-1614` public-docs replay examples and update their
   sidebar source baseline to that verified release. No live replay or docs example execution is
   claimed here. The ledger's `done` status records implementation completion only.
+
+## Review fixes — 2026-10-23
+
+Dmitry's review of `95629f901` found that the mobile stylesheet hides the Run column and
+that the tooltip promises $0 without requiring a replay-capable Engine/Gateway. Both findings
+are accepted. The earlier independent review missed these conditions.
+
+Plan: remove the narrow-screen rule hiding the Run column so the existing keyboard-scrollable
+table exposes Copy and Reproduce at every width. Replace the absolute cost promise with a
+replay description that names the compatible Engine/Gateway prerequisite. Add a stylesheet
+regression covering nested responsive rules, update the pinned tooltip expectation, and add
+a rendered-copy assertion. Verify the real page at mobile and desktop widths with Playwright,
+then run the scoreboard and repository gates. No live or paid replay is needed for these fixes.
+
+Outcome:
+
+- Removed the `max-width: 639px` rule hiding `.col-run`. The existing table scroll region keeps
+  both actions reachable without adding a second mobile-only control.
+- The tooltip now describes replay and explicitly requires a replay-capable Engine and Gateway;
+  it no longer promises an unconditional price.
+- RED: the new parsed-stylesheet regression failed on the mobile `display: none` rule; the
+  rendered-tooltip checks failed on the old $0 copy. GREEN: the stylesheet check and all 11
+  focused Reproduce tests passed after the fixes.
+- Playwright against real local portal assets and mocked leaderboard responses passed at
+  375, 639, 640 and 1280px in light and dark themes. Checked visible Copy/Reproduce actions,
+  keyboard focus and horizontal scrolling to the mobile action cell, absent Reproduce on an
+  uncaptured row, and exact clipboard text. A direct mobile click also copied the snippet.
+  Mobile screenshots were visually inspected in both themes.
+- Full scoreboard gates passed: Ruff, formatting, Pyright, pytest with coverage, and all portal
+  suites. Repository gates and `git diff --check` passed. Pyright initially caught an invariant
+  `list` annotation in the new CSS helper; changing its input to `Iterable` fixed that typing
+  error before the successful full run.
+- The review-requested change to the existing tooltip assertion is within the owner's request
+  to fix the review. This branch still uses its documented `--skip-append-only` path because
+  the gate cannot parse changed JavaScript tests; no assertion was removed or weakened.
+- The earlier clean-review result is historical, not approval of the revised head. The fixes
+  await GitHub CI and reviewer recheck. Deployment and live replay/docs acceptance remain open.
