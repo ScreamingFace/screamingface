@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v1.6.0) (2026-10-23)
+
+
+### Features
+
+* **url4:** guard source fetches by destination (SSRF), https sources and url4:// peers ([#1521](https://github.com/ScreamingFace/screamingface/issues/1521)) ([506c091](https://github.com/ScreamingFace/screamingface/commit/506c09178da3e222f3615ddf65d16cb6b56cdbe6))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
