@@ -16,13 +16,16 @@ Worked example (v2, one question and one picture)::
       {"type":"text","text":"What is the height of the tallest bar?"},
       {"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]}]}
 
-INVARIANT: nothing here decodes or opens a picture. Only the ``data:`` prefix is checked, the same
-envelope check the gateway makes, and the base64 is passed on verbatim. A refusal names the message
-and part by position and never echoes a URL or the bytes.
+INVARIANT: reading an envelope never decodes a picture. Only the ``data:`` prefix is checked, the
+same envelope check the gateway makes, and the base64 is passed on verbatim. ``media_placeholder``
+is the one place that decodes, and only to count and hash the bytes; nothing here opens a picture.
+A refusal names the message and part by position and never echoes a URL or the bytes.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -129,6 +132,20 @@ class CandidateInputV2(TypedDict):
     messages: list[CandidateMessage]
 
 
+class MediaPlaceholder(TypedDict):
+    """What stands where a picture's or file's bytes were, in any text that shows a Case.
+
+    e.g. ``{"placeholder": "image", "media_type": "image/png", "size": 307200,
+    "sha256": "9f86d081…"}``; ``filename`` only when the part names one.
+    """
+
+    placeholder: Literal["image", "file"]
+    media_type: str
+    size: int
+    sha256: str
+    filename: NotRequired[str]
+
+
 class CandidateInputError(ValueError):
     """A Case input names the candidate-input schema but breaks its rules."""
 
@@ -152,7 +169,7 @@ def parse_candidate_input(text: str | None) -> list[CandidateMessage] | None:
     """
 
     # Stage 1 — is it an envelope?
-    envelope: dict[str, Any] | None = _json_object(text)
+    envelope: dict[str, Any] | None = json_object(text)
     schema: object = None if envelope is None else envelope.get("schema")
     if envelope is None or not isinstance(schema, str) or not schema.startswith(_SCHEMA_FAMILY):
         return None
@@ -283,6 +300,56 @@ def _file(where: str, part: Mapping[str, Any]) -> FileData:
     return file
 
 
+def media_placeholder(part: ImagePart | FilePart, *, where: str) -> MediaPlaceholder:
+    """Name one checked picture or file part by its bytes, without carrying them.
+
+    FEATURE (OME-1679): a Fusion's synthesizer reads the Case as text beside the pictures it is
+    sent, and that text shows each picture as this placeholder. One builder, so every text that
+    shows a Case (the synthesizer's, later the results') writes one shape; the SDK keeps a copy
+    pinned by ``test_media_placeholder_conformance.py``.
+
+    Stage 1 — take the part's ``data:`` URI: an image's ``url`` or a file's ``file_data``.
+    Stage 2 — decode it. Line breaks and dropped ``=`` padding spell the same bytes, so they are
+        undone first; what remains must be strict base64.
+    Stage 3 — measure: the size and sha256 of the decoded bytes, never of the base64 text.
+
+    e.g. ``data:image/png;base64,iVBORw0KGgo=`` (8 bytes) → ``{"placeholder": "image",
+    "media_type": "image/png", "size": 8, "sha256": "4c4b6a3b…"}``.
+
+    Raises:
+        CandidateInputError: the base64 does not decode; ``where`` names the part.
+    """
+
+    # Stage 1 — the part's data: URI.
+    kind: Literal["image", "file"] = "image" if part["type"] == "image_url" else "file"
+    uri: str = (
+        part["image_url"]["url"] if part["type"] == "image_url" else part["file"]["file_data"]
+    )
+    match: re.Match[str] | None = _DATA_URI_RE.match(uri)
+    # INVARIANT: the envelope reader accepted this part, so its URI matched the same pattern.
+    assert match is not None
+
+    # Stage 2 — decode.
+    compact: str = "".join(match["data"].split())
+    compact += "=" * (-len(compact) % 4)
+    try:
+        data: bytes = base64.b64decode(compact, validate=True)
+    # WHY ValueError: binascii.Error, raised on broken base64, is one.
+    except ValueError:
+        _refuse(f"{where}: the {kind} is not valid base64")
+
+    # Stage 3 — measure.
+    placeholder: MediaPlaceholder = {
+        "placeholder": kind,
+        "media_type": match["mime"].lower(),
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    if part["type"] == "file" and "filename" in part["file"]:
+        placeholder["filename"] = part["file"]["filename"]
+    return placeholder
+
+
 def _data_uri_mime(where: str, value: object) -> str:
     """The lower-cased media type of an inline ``data:`` URI; anything else is refused.
 
@@ -296,7 +363,7 @@ def _data_uri_mime(where: str, value: object) -> str:
     return match["mime"].lower()
 
 
-def _json_object(text: str | None) -> dict[str, Any] | None:
+def json_object(text: str | None) -> dict[str, Any] | None:
     """The text as a JSON object, or ``None`` when it is anything else."""
 
     # WHY the cheap check first: every plain prompt passes through here; only a text that opens a
@@ -341,8 +408,11 @@ __all__ = [
     "ImageDetail",
     "ImagePart",
     "ImageUrl",
+    "MediaPlaceholder",
     "PartsMessage",
     "TextMessage",
     "TextPart",
+    "json_object",
+    "media_placeholder",
     "parse_candidate_input",
 ]
