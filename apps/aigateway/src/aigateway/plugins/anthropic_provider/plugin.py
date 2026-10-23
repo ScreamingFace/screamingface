@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.content_parts import UnsupportedContentPart, text_only
 from aigateway.core.input_modalities import (
     TEXT_IMAGE_PDF,
     InputModality,
@@ -193,10 +194,20 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # it lives beside the parameter rules rather than in the classifier.
         raise_on_thinking_conflict(body, model=model, auth_mode=auth_mode)
 
+    def refuse_inadmissible_media(self, body: dict[str, Any]) -> None:
+        # INVARIANT (OME-1542 review 2): system-slot media is refused at the route's media
+        # boundary, before cache planning and credential resolution — not only in
+        # ``prepare_chat_body``, which runs after both.
+        _refuse_system_media(body)
+
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Claude-Code attribution moved to dispatch time (chat_handler):
         # prepare runs before auth resolution, so the OAuth-vs-API-key
         # decision the billing block depends on is not known yet (SF-244 F02).
+        # INVARIANT (OME-1542): media in the system prompt is refused, never dropped — the OAuth
+        # path keeps only text blocks there, and the API-key path sends LiteLLM's text-less block
+        # upstream.
+        _refuse_system_media(body)
         out = dict(body)
         if out.get("reasoning_effort") == "none":
             out.pop("reasoning_effort", None)
@@ -245,6 +256,10 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         if not model[len(_GATEWAY_MODEL_PREFIX) :]:
             # A bare prefix names no model. Bypass rather than key an id that cannot
             # dispatch — a projection may never fail a request, only decline to key it.
+            return CacheBypass(reason=PROJECTION_BYPASS_REASON)
+        if _has_system_media(body):
+            # WHY (OME-1542): ``prepare_chat_body`` refuses this body, but it runs AFTER the cache
+            # stage; an entry stored while the OAuth path still dropped the image must not answer.
             return CacheBypass(reason=PROJECTION_BYPASS_REASON)
         prepared: dict[str, Any] = {}
         # WHY the EFFECTIVE value and not the caller's: ``prepare_chat_body`` removes
@@ -316,6 +331,31 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
 
     def requires_oauth_connection_label(self) -> bool:
         return True
+
+
+def _system_contents(body: Mapping[str, Any]) -> list[Any]:
+    contents = [body.get("system")] if "system" in body else []
+    messages = body.get("messages")
+    if isinstance(messages, list):
+        contents.extend(
+            message.get("content")
+            for message in messages
+            if isinstance(message, Mapping) and message.get("role") == "system"
+        )
+    return contents
+
+
+def _refuse_system_media(body: Mapping[str, Any]) -> None:
+    for content in _system_contents(body):
+        text_only(content, provider="anthropic", role="system")
+
+
+def _has_system_media(body: Mapping[str, Any]) -> bool:
+    try:
+        _refuse_system_media(body)
+    except UnsupportedContentPart:
+        return True
+    return False
 
 
 PLUGIN = AnthropicProviderPlugin()
