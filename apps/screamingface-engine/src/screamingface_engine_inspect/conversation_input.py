@@ -21,8 +21,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any
 
+from screamingface_engine.benchmarks.candidate_input import (
+    CandidateInputError,
+    CandidateMessage,
+    parse_candidate_input,
+)
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 
 #: The turns a conversation Case may hold. WHY not the connector's full role set: the scorer
@@ -47,51 +51,37 @@ def conversation_input(messages: Sequence[Mapping[str, str]]) -> str:
     )
 
 
-def conversation_messages(input_text: str) -> list[dict[str, str]] | None:
+def conversation_messages(input_text: str) -> list[CandidateMessage] | None:
     """Open a Case input back into its conversation, or ``None`` when it is a plain prompt.
 
-    The rule is the connector's (``world/connector.py``): a JSON object naming the
-    candidate-input schema is a conversation, and any other text is a prompt as written.
+    FEATURE (OME-1271): the rule is the shared parser's (``benchmarks/candidate_input.py``),
+    the one the connector reads with, so the plugin and the connector never disagree on what
+    is an envelope. A v1 envelope comes back as text turns; a v2 envelope (a user message
+    carrying a picture or PDF inline) comes back with that message's part list; any other
+    version of the schema is refused, never read as a prompt.
+
+    Worked example: ``{"schema":"screamingface.candidate-input.v2","messages":[{"role":"user",
+    "content":[{"type":"text","text":"How tall?"},{"type":"image_url","image_url":{"url":
+    "data:image/png;base64,iVBO…"}}]}]}`` → one user message whose content is those two parts.
 
     Raises:
-        ValueError: the text names the schema but is not a well-formed conversation, so a
-            broken Case is refused by name instead of graded as a prompt.
+        CandidateInputError: a ``ValueError``; the text names the schema but is not a
+            well-formed conversation (an unknown version included), so a broken Case is
+            refused by name instead of graded as a prompt.
     """
 
-    value: dict[str, Any] | None = _json_object(input_text)
-    if value is None or value.get("schema") != CANDIDATE_INPUT_SCHEMA:
-        return None
-    raw: object = value.get("messages")
-    if set(value) != {"schema", "messages"} or not isinstance(raw, list) or not raw:
-        raise ValueError(
-            "a conversation input must carry only schema and a non-empty messages list"
-        )
-    messages: list[dict[str, str]] = []
-    for index, message in enumerate(raw):
-        if (
-            not isinstance(message, dict)
-            or set(message) != {"role", "content"}
-            or not isinstance(message["role"], str)
-            or message["role"] not in CONVERSATION_ROLES
-            or not isinstance(message["content"], str)
-        ):
-            raise ValueError(f"conversation message {index} must be a known role and text content")
-        messages.append({"role": message["role"], "content": message["content"]})
-    return messages
-
-
-def _json_object(text: str) -> dict[str, Any] | None:
-    """The text as a JSON object, or ``None`` when it is anything else."""
-
-    # WHY the cheap check first: every plain prompt passes through here on its way to the
-    # scorer; only a text that opens a JSON object can be an envelope.
-    if not text.startswith("{"):
-        return None
     try:
-        value: Any = json.loads(text)
-    except json.JSONDecodeError:
+        messages: list[CandidateMessage] | None = parse_candidate_input(input_text)
+    except CandidateInputError as exc:
+        raise CandidateInputError(f"a conversation input is not a valid envelope: {exc}") from exc
+    if messages is None:
         return None
-    return value if isinstance(value, dict) else None
+    for index, message in enumerate(messages):
+        # WHY on top of the shared rule: the shared parser admits ``developer`` (the connector
+        # can send it), but the scorer could not rebuild it (see CONVERSATION_ROLES).
+        if message["role"] not in CONVERSATION_ROLES:
+            raise CandidateInputError(f"conversation message {index} must be a known role")
+    return messages
 
 
 __all__ = ["CONVERSATION_ROLES", "conversation_input", "conversation_messages"]
