@@ -246,9 +246,6 @@ table .btn { white-space: nowrap; }
 /* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read, and
    pulled close under the title so the two read as one unit. */
 .hero-lead { max-width: 58ch; margin-top: var(--space-3); color: var(--ink-2); line-height: var(--leading-snug); }
-/* The three terms sit directly under the title as the key to reading any board; the button follows
-   close beneath them. */
-.hero-defs { margin-bottom: var(--space-6); }
 /* One monochrome, bold button — softer than a gold fill, still a clear call to start. */
 .hero-cta { margin-bottom: var(--space-11); }
 .benchmarks-section { margin-top: 0; scroll-margin-top: var(--space-8); }
@@ -280,6 +277,176 @@ table .btn { white-space: nowrap; }
 .about-bullets li:last-child { margin-bottom: 0; }
 .about-bullets li::marker { color: var(--ink-3); }
 .about-links { display: flex; flex-wrap: wrap; gap: var(--space-5); margin: var(--space-5) 0 0; }
+
+/* ---- papers strip (about page) --------------------------------------- */
+/* The evidence, as a flat (2D) horizontal strip of real paper previews: each card is the rendered
+   first page of the arXiv paper, and ONLY that first-page image is the link — the bucket, title
+   and result beside it are plain text. Square, hairline-sealed, no shadow (SFDS); depth reads from
+   the seam. Scrolls horizontally, keyboard-reachable like the portal's other scroll strips. */
+.papers {
+  display: flex;
+  gap: var(--space-4);
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  margin: var(--space-6) 0 0;
+  padding-bottom: var(--space-3);
+}
+.papers:focus-visible {
+  outline: var(--border-strong) solid var(--focus);
+  outline-offset: 2px;
+}
+/* One paper as a sheet: a real first-page scan on top of --surface, sealed by a hairline seam. */
+.paper-card {
+  flex: 0 0 15rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--line);
+  border-radius: var(--radius-none);
+  overflow: hidden;
+}
+/* Only the thumbnail links out. Hovering it dims the page a touch and lifts the card's seam to the
+   interaction blue; keyboard focus gets the standard ring. */
+.paper-card:has(.paper-card__link:hover) { border-color: var(--info-border-strong); }
+.paper-card__link { display: block; text-decoration: none; }
+.paper-card__link:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: 2px; }
+/* The card is just the rendered first page, cropped to its top in a 4:5 window so every sheet is
+   the same height. The card border frames it; no name, year or abstract beside it. */
+.paper-card__thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  object-position: top center;
+  transition: opacity .12s;
+}
+.paper-card__link:hover .paper-card__thumb { opacity: .9; }
+
+/* ---- evidence: intro prose beside a one-at-a-time papers carousel ---- */
+/* The evidence section is two columns: the intro prose on the left, a mini carousel on the right
+   that sits next to the first paragraph and shows ONE paper at a time (papers-rail.js switches it
+   every 3s, pausing on hover/focus). It fades in once, over a second, when the page opens. */
+.about-evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: var(--space-9);
+  align-items: start;
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-10);
+}
+.about-evidence__text p:last-child { margin-bottom: 0; }
+.about-evidence__media { animation: about-fade-in 1s ease both; }
+
+/* A rule the width of the text measure (shorter than full-width), the same length under the page
+   subtitle and under each section header. The section headers already carry the base h2
+   border-bottom — just constrain it to the text; the subtitle gets a matching rule at the top of
+   the evidence text. No second/duplicate line. */
+.about-section > .section-label { max-width: 37rem; }
+.about-evidence__text::before {
+  content: "";
+  display: block;
+  width: 100%;
+  max-width: 37rem;
+  margin: 0 0 var(--space-5);
+  border-top: var(--border-hairline) solid var(--line);
+}
+.about-evidence__media { padding-top: var(--space-5); }
+@keyframes about-fade-in { from { opacity: 0; } to { opacity: 1; } }
+/* One paper at a time: the strip is a viewport, the track slides. */
+.about-evidence .papers {
+  display: block;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  scroll-snap-type: none;
+}
+.papers-track {
+  display: flex;
+  transition: transform .7s cubic-bezier(.4, 0, .2, 1);
+}
+.about-evidence .paper-card { flex: 0 0 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .about-evidence__media { animation: none; }
+  .papers-track { transition: none; }
+}
+/* Stack on narrow screens: carousel under the prose. */
+@media (max-width: 760px) {
+  .about-evidence { grid-template-columns: 1fr; }
+  .about-evidence__media { max-width: 16rem; }
+}
+
+/* The About hero title fits one line on the roomy desktop column; it wraps on narrow screens. */
+.hero-title--oneline { font-size: clamp(var(--text-title), 3.4vw, 2rem); line-height: var(--leading-tight); }
+
+/* ---- landing Colab cell ---------------------------------------------- */
+/* A Colab-style notebook on the board: run gutter + code, output below as a notebook HTML repr.
+   The rounded chrome + the one shadow bend the square-corner rule deliberately, like terminal
+   chrome. */
+.hero-title--index { font-size: clamp(1.6rem, 4vw, 2.4rem); }
+.colab {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--f-mono);
+  font-size: var(--text-micro);
+  background: var(--surface-2);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: 8px;
+  padding: var(--space-2);
+  box-shadow: var(--shadow-window);
+}
+.colab__cell {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.colab__cell + .colab__cell { margin-top: var(--space-2); }
+.colab__in { display: flex; gap: var(--space-3); min-width: 0; padding: var(--space-2) var(--space-3); }
+.colab__run {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: var(--border-hairline) solid var(--line-2);
+  color: var(--ink-2);
+  font-size: 8px;
+  margin-top: 1px;
+}
+/* Plain text (the base pre's border/bg/padding are reset) so each cell is one equal-width box. */
+.colab__code { margin: 0; min-width: 0; color: var(--ink); line-height: 1.6; white-space: pre-wrap; background: none; border: 0; padding: 0; overflow: visible; }
+.colab__out { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-2) var(--space-3); color: var(--ink-3); font-size: 10px; }
+.colab__tag { flex: 0 0 1.5rem; color: var(--ink-3); font-size: 10px; }
+.colab__result { border-collapse: collapse; }
+.colab__result td { padding: 0 var(--space-5) 1px 0; color: var(--ink-2); }
+.colab__result tr:first-child td { color: var(--ink-3); }
+.tok-k { color: var(--info-text-low); }
+.tok-c { color: var(--ink-3); }
+/* The Fusion renders as a notebook HTML repr: a small bordered card + table. */
+.frepr { display: inline-block; border: var(--border-hairline) solid var(--line); border-radius: 4px; overflow: hidden; font-size: 10px; }
+.frepr__name { display: block; padding: 2px var(--space-3); background: var(--surface-2); color: var(--ink); border-bottom: var(--border-hairline) solid var(--line); }
+.frepr__t { border-collapse: collapse; }
+.frepr__t td { padding: 1px var(--space-3); color: var(--ink-2); }
+.frepr__t td:first-child { color: var(--ink-3); }
+
+/* Landing top band: hero + CTA share a compact row with the Colab cell; the Browse grid follows
+   right below so it clears the fold. Stacks on narrow screens. */
+.la-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 23rem;
+  gap: var(--space-8);
+  align-items: center;
+  margin: var(--space-5) 0 var(--space-4);
+}
+.la-top .hero { padding-top: 0; margin: 0; }
+.la-top .hero-cta { margin-top: var(--space-7); }
+@media (max-width: 760px) { .la-top { grid-template-columns: 1fr; } }
 
 /* The catalogue is led by ONE small, subtle label — the same treatment as the hero eyebrow
    ("SCREAMINGFACE · OPEN LEADERBOARD"), not a big heading. It stays a semantic <h2> for
@@ -441,9 +608,6 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
    Everything else the landing page needs (.kv, .note, .o-mark, .btn, .eyebrow)
    comes from style.css. `.defs` carries no rule by design; it is a hook. */
 
-/* The glossary's first key. Green because green means verified in this system
-   and gold is reserved for the win. */
-.kv .dt-repro { color: var(--success-text-low); }
 
 /* The rail's last link, so nothing sits under the theme glyph. */
 .rail .rail-link--end { margin-right: var(--space-7); }
