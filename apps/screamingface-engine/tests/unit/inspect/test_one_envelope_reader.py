@@ -112,6 +112,22 @@ def test_an_unknown_schema_is_refused_by_the_wrapping_step(tmp_path: Path, schem
         _served(tmp_path, [unknown])
 
 
+def test_a_refusal_at_the_wrapping_step_names_the_case(tmp_path: Path) -> None:
+    """One broken Case among hundreds must be findable: the refusal names its Case id and keeps
+    the parser's own words. Without the id, the operator reads "message 0 part 1: expected an
+    inline data: URI" and has to search every Case for it."""
+
+    broken: dict[str, Any] = json.loads(V2_CASE)
+    broken["messages"][0]["content"][1]["image_url"]["url"] = "https://cdn.example/chart.png"
+
+    with pytest.raises(
+        ValueError, match=r"case 2: .*message 0 part 1: expected an inline data:"
+    ) as refused:
+        _served(tmp_path, ["Dos días.", json.dumps(broken)])
+    # The parser's own refusal stays attached, for the traceback.
+    assert isinstance(refused.value.__cause__, ValueError)
+
+
 # ── the inspect reader ─────────────────────────────────────────────────────────
 
 
