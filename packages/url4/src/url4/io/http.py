@@ -34,6 +34,7 @@ from url4.io._source_policy import (
 )
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, bare_media_type, require_text
 
 # Headers that describe the wire encoding of a body this adapter has already decoded.
 _DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})
@@ -49,7 +50,10 @@ class HttpIOLayer:
     ``url4://`` target is translated to ``https://`` for transport (spec §3.5 —
     the URL4 scheme rides HTTPS on the wire). :meth:`fetch_ex` additionally
     reports the response's media type so collection parsing can be
-    Content-Type-driven (spec §5.3.7).
+    Content-Type-driven (spec §5.3.7), and :meth:`fetch_bytes` returns the raw
+    body unmodified for binary sources (PNG, PDF). The text paths refuse a binary
+    media type with ``unsupported_content_type`` rather than decode it. A
+    request's ``;accept=`` annotation is sent as the ``Accept`` header.
 
     A single :class:`httpx.AsyncClient` is created on the first fetch and reused
     for the adapter's lifetime, so pooling / keep-alive apply across a fan-out.
@@ -124,30 +128,51 @@ class HttpIOLayer:
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         response = await self._get(self._transport_url(target, relative), relative=relative)
-        return response.text
+        return _text(target, response)
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
         response = await self._get(
-            self._transport_url(request.target, request.relative), relative=request.relative
+            self._transport_url(request.target, request.relative),
+            relative=request.relative,
+            accept=request.accept,
         )
-        content_type = response.headers.get("content-type", "")
-        media_type = content_type.split(";", 1)[0].strip().lower() or None
-        return FetchResult(response.text, media_type=media_type)
+        body = _text(request.target, response)
+        return FetchResult(body, media_type=_media_type(request.target, response))
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        """``GET`` the target and return its body exactly as received, plus its media type.
+
+        Goes through :meth:`_get`, so the destination guard and the size cap apply.
+        """
+        response = await self._get(
+            self._transport_url(request.target, request.relative),
+            relative=request.relative,
+            accept=request.accept,
+        )
+        # INVARIANT: response.content, never .text — the bytes are the origin's bytes.
+        return FetchedBytes(response.content, media_type=_media_type(request.target, response))
 
     def _transport_url(self, target: str, relative: bool) -> str:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
         return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, target: str, *, relative: bool) -> httpx.Response:
+    async def _get(
+        self, target: str, *, relative: bool, accept: str | None = None
+    ) -> httpx.Response:
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
+        headers: dict[str, str] = {}
         key = idempotency_key(url)
-        headers = {"Idempotency-Key": key} if key is not None else None
+        if key is not None:
+            headers["Idempotency-Key"] = key
+        if accept is not None:
+            # WHY: `;accept=` (spec §4.2) is the caller's content negotiation; sent verbatim.
+            headers["Accept"] = accept
         # WHY owned only: an injected client keeps the timeouts its owner chose.
         deadline = self._guard.total_timeout if self._client is None else None
         try:
             async with asyncio.timeout(deadline):
-                return await self._send(url, headers, peer=peer, relative=relative)
+                return await self._send(url, headers or None, peer=peer, relative=relative)
         except TimeoutError as exc:
             raise source_timeout(
                 f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
@@ -245,6 +270,21 @@ def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
     return httpx.Response(
         response.status_code, headers=headers, content=body, request=response.request
     )
+
+
+def _media_type(target: str, response: httpx.Response) -> str | None:
+    """The one bare, lower-cased media type of ``response``, else ``None``.
+
+    A duplicate (comma-joined by HTTPX) or malformed ``Content-Type`` raises
+    ``unsupported_content_type`` rather than leaking a joined value to the caller.
+    """
+    return bare_media_type(target, response.headers.get("content-type"))
+
+
+def _text(target: str, response: httpx.Response) -> str:
+    """``response.text`` for a text body; a binary body is refused, never decoded."""
+    require_text(target, response.headers.get("content-type"))
+    return response.text
 
 
 # Spec C §13.2.1: 4xx is permanent except these; 5xx is transient except the others.
