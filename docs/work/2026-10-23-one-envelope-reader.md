@@ -1,9 +1,9 @@
 ---
 ticket: OME-1271
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-23
-finished:
+finished: 2026-10-23
 ---
 
 # one-envelope-reader — every inspect reader opens the Case envelope through the one shared parser
@@ -50,7 +50,14 @@ writes a v2 Case (OME-1271 acceptance 3, 4, 5). Text-only Benchmarks stay byte-i
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned: `conversation_input.py`, `scorer_adapter.py`, the new
+  `tests/unit/inspect/test_one_envelope_reader.py` (9 tests). `single_shot.py` untouched: the
+  wrapping step inherits the shared rule through `conversation_messages`.
+- **Commits:** `4179ba196` — refactor(screamingface-engine): read every candidate-input
+  envelope through one parser.
+- **Gates:** relevant tests only, with the inspect extra: every test file importing
+  `conversation_input`, `scorer_adapter` or `single_shot` (41 files), 1202 passed, 0 skipped;
+  ruff check + format and pyright clean on the touched files.
+- **Deviations:** the scorer adapter had no envelope reader of its own; it already called
+  `conversation_messages`, so moving that one function moved both readers. The v2 picture to
+  `ContentImage` step landed here (a few lines in `_chat`), not in a later PR.
