@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import urlsplit
@@ -136,7 +137,8 @@ def configure(
 
 
 def close() -> None:
-    """Close and forget the process-wide Client, if it has been created."""
+    """Close and forget the process-wide Client, if it has been created, and the community-cache
+    pull's own sign-in sessions."""
 
     global _client
     with _lock:
@@ -144,6 +146,11 @@ def close() -> None:
         _client = None
     if previous is not None:
         previous.close()
+    # WHY from sys.modules: a process that never pulled has no pull sessions, and importing the
+    # pull module just to find that out would load it for nothing.
+    pull = sys.modules.get("screamingface._cache.pull")
+    if pull is not None:
+        pull.close_sessions()
 
 
 @overload
@@ -156,6 +163,7 @@ def evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report: ...
 
 
@@ -169,6 +177,7 @@ def evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool = True,
+    use_cache: bool = True,
 ) -> Report: ...
 
 
@@ -216,6 +225,7 @@ def evaluate(
     score_id: UUID | str | None = None,
     url4: str | None = None,
     record_reproduction: bool = True,
+    use_cache: bool = True,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -256,6 +266,7 @@ def evaluate(
             progress=progress,
             answer_seed=answer_seed,
             capture=capture,
+            use_cache=use_cache,
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -267,6 +278,7 @@ def evaluate(
         progress=progress,
         answer_seed=answer_seed,
         capture=capture,
+        use_cache=use_cache,
     )
 
 

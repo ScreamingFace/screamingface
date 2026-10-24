@@ -48,6 +48,43 @@ The folder must exist, or `up` fails before any service starts. The Engine reads
 `status --json` and `doctor` report bundle status from it (and name it), and `restart` keeps it.
 `prepare` still writes only to the data directory and refuses `--benchmark-assets-dir`.
 
+The local gateway caches model responses by default (`AIGW_REQUEST_CACHE_ENABLED=false` before
+`screamingface up` turns it off). To start from the community cache instead of an empty one, pull
+it into the local gateway — from a notebook or a shell:
+
+```python
+import screamingface as sf
+
+sf.cache.pull_from_remote()  # everything
+sf.cache.pull_from_remote(["openrouter/anthropic/claude-opus-5.5"])  # only these models
+```
+
+```bash
+screamingface cache pull --model openrouter/anthropic/claude-opus-5.5
+```
+
+The pull signs in to the hosted Engine (a browser opens once per process), shows its progress, and
+keeps rows you already have. Models are named exactly as the hosted cache names them, and a run
+can only hit rows of the models its candidates and judge use, so a filtered pull loses no hits.
+If it stops, calling it again in the same process continues where it left off; a new process
+starts over, re-reading but not re-adding what is already local. One evaluation opts out of the
+cache with `evaluate(..., use_cache=False)`.
+
+A pulled row answers only the exact request it was stored for: the same model, prompt and
+parameters, the same Benchmark revision, and the same `answer_seed` if the run used one. Change
+any of them (even `temperature`) and every call misses and is paid. The rows hold a one-way hash
+of the request, not the request, so a pull cannot tell you which configurations it covers. Two
+ways to land on one that does:
+
+- Run a standard Benchmark with a bare `sf.Model("…")`: the Benchmark fixes the prompts and
+  parameters, so this is the most common configuration.
+- Re-run a published leaderboard entry with `sf.evaluate(entry.url4)`. Only runs made on the
+  hosted Engine are in the hosted cache, so an entry that was run locally and submitted gives no
+  hits; and a leaderboard entry does not carry its `answer_seed`, so a seeded run re-run from its
+  `url4` alone misses.
+
+A filtered pull that matches no rows says so (a model name with a typo matches nothing).
+
 For scripts and troubleshooting:
 
 ```bash

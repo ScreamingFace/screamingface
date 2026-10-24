@@ -26,9 +26,8 @@ from .core.auth.log_filter import (
     RedactProvisioningTokenFilter,
     install_provisioning_token_redaction,
 )
-from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
+from .core.credential_blob.store import ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
-from .core.frozen_copy.headers import published_capture_headers
 from .core.loader import load_plugins
 from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
@@ -47,8 +46,9 @@ from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
-from .middleware import CallIdMiddleware
+from .middleware import BodyCapMiddleware, CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
+from .provider_composition import compose_providers
 from .routes import (
     accounts,
     admin,
@@ -287,25 +287,6 @@ async def _accounted_http_exception(request: Request, exc: Exception) -> Respons
     return await http_exception_handler(request, cast(StarletteHTTPException, exc))
 
 
-async def _profile_index_conflict(request: Request, _exc: Exception) -> JSONResponse:
-    # FEATURE: OME-1307 — the capture outcome of a call whose route raised after the copy check.
-    headers = published_capture_headers(request)
-    exc = HTTPException(
-        status_code=503,
-        detail={
-            "code": "profile_index_conflict",
-            "message": "Profile metadata update conflicted. Try again.",
-        },
-        headers=headers or None,
-    )
-    accounted = accounting_error_response(request, exc)
-    if accounted is not None:
-        return accounted
-    return JSONResponse(
-        status_code=exc.status_code, content={"detail": exc.detail}, headers=headers
-    )
-
-
 def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
     """Construct the ONE bounded discovery runtime the detailed contract reads from.
 
@@ -365,7 +346,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
-    app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
     # OME-939: the last resort for anything no route handled — one class-name-only record with
     # the call id, and a structured 500. See `unhandled_errors` for why it re-binds the ids.
@@ -390,6 +370,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "(e.g. your cluster's Pod CIDR)"
         )
 
+    # FEATURE (OME-1542): the body cap. Registered just before CallIdMiddleware, so it sits INSIDE
+    # it (a refusal still carries the call id) and outside everything else, auth included — an
+    # oversized body is refused before any layer reads it.
+    # WHY the snapshot path keeps its own bound: it is an admin multipart upload with its own,
+    # larger cap; the extra MiB is the multipart envelope around the archive.
+    app.add_middleware(
+        BodyCapMiddleware,
+        max_bytes=settings.max_request_bytes,
+        path_limits={"/v1/admin/cache/snapshots": settings.cache_upload_max_bytes + 1024 * 1024},
+    )
+
     # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
     # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does
     # `user_middleware.insert(0, ...)` and the stack is built by wrapping that list in reverse,
@@ -405,7 +396,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     registry = ProviderRegistry()
     load_plugins(registry)
+    # FEATURE (hosted BYOM): configured remote endpoints join here, before any auth router mounts.
+    endpoint_access = compose_providers(registry, config_path=settings.remote_endpoints_config)
     app.state.providers = registry
+    app.state.endpoint_access = endpoint_access
     app.state.api_key_validation_service = ApiKeyValidationService()
 
     # Test-only OAuth endpoint hooks are gated by env vars so they only activate

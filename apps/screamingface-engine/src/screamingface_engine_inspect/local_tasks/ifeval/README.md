@@ -78,15 +78,13 @@ Draft Feedback; no Check per instruction. A Case the checker could not grade fai
 
 ## Identity
 
-The revision hashes the Case Digest (which seals every prompt and every instruction set), the
+The fingerprint hashes the Case Digest (which seals every prompt and every instruction set), the
 Task reference, the Hub pin, the nltk corpus the checker reads (punkt and punkt_tab, sealed at
 import and downloaded at every image build, since the grading job has no network), the Named
 Scores, the whole-run metric and its headline key, the Draft Feedback flag, and the sha256 of
-every `.py` file in this package, the vendored checker included (`task_source=…`). Editing any of
-them moves the computed fingerprint. ifeval publishes a hand-set revision (`1cba769ece27f7ef`,
-OME-1610), so the Engine keeps serving it; `tests/unit/inspect/test_published_revisions.py` holds
-the fingerprint it stands for and fails. If the exam did not change, update that fingerprint
-only; if it did, bumping the published revision is an owner decision. Say why in the PR. Citations live in this README rather than in
+every `.py` file in this package, the vendored checker included (`task_source=…`). ifeval keeps the hand-built Benchmark's id (OME-1527). Editing any of them moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision). Citations live in this README rather than in
 the `.py` headers for that reason.
 
 ## Running it locally

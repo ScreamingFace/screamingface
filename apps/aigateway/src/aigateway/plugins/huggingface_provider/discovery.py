@@ -31,12 +31,14 @@ from aigateway.core.chat_parameters import (
     ProviderSupport,
     ProviderToolObservation,
 )
+from aigateway.core.input_modalities import InputModality, normalize_input_modalities
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
     DiscoveryHttpClient,
     DiscoveryLimits,
     fetch_discovery_json,
 )
+from aigateway.core.plugin_base import ModelDiscoverySource
 
 # Fixed public source (the async fetch step passes this to the bounded transport;
 # the parsers below never dereference a URL themselves).
@@ -195,6 +197,75 @@ def parse_router_capability_snapshot(
         model_observations=parameters,
         tool_observations=tools,
     )
+
+
+# OME-1537: the router's modality words the gateway vocabulary shares. The live
+# catalogue lists only ``text``/``image`` today; anything else (audio, video) has no
+# gateway equivalent and is dropped rather than approximated.
+_HF_MODALITIES: frozenset[str] = frozenset({"text", "image"})
+
+# INVARIANT: declared before any fetch, like every discovery source (OME-972). The
+# listing is one process-local document per provider, shared across accounts.
+LIVE_MODALITIES_DISCOVERY_SOURCE = ModelDiscoverySource(
+    key="huggingface:models:modalities",
+    revision="huggingface:models:modalities-v1",
+    ttl_s=300.0,
+    stale_ttl_s=3600.0,
+    failure_ttl_s=30.0,
+)
+
+
+def parse_router_input_modalities(catalog: Any) -> dict[str, tuple[InputModality, ...]]:
+    """Per-``<org>/<model>`` input modalities from the router catalogue (OME-1537).
+
+    Reads the same ``architecture.input_modalities`` field as
+    ``parse_hf_backend_capabilities`` — per MODEL, not per backend, because the
+    catalogue states it on the row. Absent/malformed evidence leaves the id out
+    (unknown -> text-only downstream); only an over-cap document raises.
+    """
+    if not isinstance(catalog, Mapping):
+        return {}
+    data = catalog.get("data")
+    if not isinstance(data, list):
+        return {}
+    if len(data) > _MAX_CATALOG_MODELS:
+        raise DiscoveryError("model_catalog_too_large")
+    evidence: dict[str, tuple[InputModality, ...]] = {}
+    for row in data:
+        if not isinstance(row, Mapping):
+            continue
+        model_id = row.get("id")
+        architecture = row.get("architecture")
+        if not isinstance(model_id, str) or not isinstance(architecture, Mapping):
+            continue
+        raw = architecture.get("input_modalities")
+        if not isinstance(raw, list):
+            continue
+        evidence[model_id] = normalize_input_modalities(v for v in raw if v in _HF_MODALITIES)
+    return evidence
+
+
+async def discover_router_input_modalities(
+    *, client: DiscoveryHttpClient, limits: DiscoveryLimits | None = None
+) -> dict[str, tuple[InputModality, ...]]:
+    """Fetch the fixed public router catalogue and read every row's modalities.
+
+    INVARIANT: a transport failure PROPAGATES as ``DiscoveryError`` so the model
+    catalog serves its last good listing or the text-only seeds — never a guess.
+    """
+    catalog = await fetch_discovery_json(
+        MODELS_URL,
+        allowed_origins=ALLOWED_ORIGINS,
+        client=client,
+        limits=limits or DiscoveryLimits(),
+    )
+    # INVARIANT: an HTTP 200 that is not a ``{"data": [...]}`` catalogue (maintenance
+    # page, envelope change) is a FAILED read, not fresh "no evidence" — returning
+    # ``{}`` would let the catalog replace a last-good image-capable snapshot with
+    # text-only rows for a whole TTL. Leniency stays on optional per-row fields only.
+    if not isinstance(catalog, Mapping) or not isinstance(catalog.get("data"), list):
+        raise DiscoveryError("malformed_json")
+    return parse_router_input_modalities(catalog)
 
 
 async def discover_huggingface_snapshot(

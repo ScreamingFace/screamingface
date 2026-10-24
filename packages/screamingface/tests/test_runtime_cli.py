@@ -359,6 +359,9 @@ def test_local_gateway_defaults_provide_exactly_the_required_environment() -> No
         # gateway's per-provider default admits 4 — queued calls burn the Engine's
         # 600s per-call budget and full HealthBench evals die (OME-889).
         "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 32}',
+        # WHY on (OME-1311): pulled community-cache rows only help a local run when the local
+        # gateway caches, and hosted already does.
+        "AIGW_REQUEST_CACHE_ENABLED": "true",
     }
     # INVARIANT: provider credential bootstrap stays opt-in — the gateway's own
     # consent rule; the runtime never defaults AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE.
@@ -369,6 +372,7 @@ def test_local_gateway_defaults_never_override_an_explicit_operator_choice() -> 
     explicit = {
         "AIGW_OPENROUTER_ENABLED": "false",
         "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 4}',
+        "AIGW_REQUEST_CACHE_ENABLED": "false",
     }
 
     environment = dict(explicit)

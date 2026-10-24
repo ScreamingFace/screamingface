@@ -186,13 +186,13 @@ ACTIVE = PairCredential(PROVIDER, "api_key", "active", None)
 # --- row 7: an empty pair -------------------------------------------------------------------
 
 
-def test_put_on_an_empty_pair_creates_one_connection_at_the_default_address(harness) -> None:
+def test_put_on_an_empty_pair_creates_one_connection_at_its_own_address(harness) -> None:
     mutation = _put(harness)
 
     (row,) = _live(harness)
     assert row["auth_type"] == "api_key"
-    assert row["credential_locator"] == _address(harness, "default")
-    assert _blob(harness, _address(harness, "default")) == NEW_KEY
+    assert row["credential_locator"] == _address(harness, row["id"])
+    assert _blob(harness, _address(harness, row["id"])) == NEW_KEY
     marker = _marker(harness)
     assert marker is not None
     assert marker["migration_state"] == "migrated"
@@ -217,15 +217,16 @@ def test_delete_on_an_empty_pair_is_a_no_op_that_mints_no_marker(harness) -> Non
 # --- a sole legacy Profile: the empty pair; its document and blob stay (E4b) ----------------
 
 
-def test_put_beside_a_sole_profile_mints_at_the_default_address_and_leaves_it(harness) -> None:
+def test_put_beside_a_sole_profile_mints_at_its_own_address_and_leaves_it(harness) -> None:
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
 
     _put(harness)
 
-    # WHY `default` (OME-1209 E4b): the PUT reads no document to name its row by (row 7).
+    # WHY its own address (E5a, history cleanup): the PUT reads no document to name its row by
+    # (row 7), and a minted row never takes a Profile address.
     (row,) = _live(harness)
-    assert row["credential_locator"] == _address(harness, "default")
-    assert _blob(harness, _address(harness, "default")) == NEW_KEY
+    assert row["credential_locator"] == _address(harness, row["id"])
+    assert _blob(harness, _address(harness, row["id"])) == NEW_KEY
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
     assert _documents(harness) == [("work", "api_key", "authenticated")]
     marker = _marker(harness)
@@ -286,7 +287,7 @@ def test_put_on_a_same_locator_pair_keeps_the_row_and_the_name(harness) -> None:
 
 def test_delete_on_a_same_locator_pair_retires_the_row_and_the_blob(harness) -> None:
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
-    _connection(harness, locator=_address(harness, "work"), key=None)
+    connection = _connection(harness, locator=_address(harness, "work"), key=None)
 
     mutation = _delete(harness)
 
@@ -294,7 +295,7 @@ def test_delete_on_a_same_locator_pair_retires_the_row_and_the_blob(harness) -> 
     # WHY the document stays (OME-1209 E4b): the DELETE removes no document; E5 does.
     assert _documents(harness) == [("work", "api_key", "authenticated")]
     assert _blob(harness, _address(harness, "work")) is None
-    assert mutation.profile_names == ()
+    assert mutation.connection_ids == (str(connection.id),)
 
 
 # --- rows 5 and 6: a migrated pair ----------------------------------------------------------
@@ -316,7 +317,7 @@ def test_a_repeated_put_replaces_the_key_on_the_same_effective_row(harness) -> N
 
     (second,) = _live(harness)
     assert second["id"] == first["id"]
-    assert _blob(harness, _address(harness, "default")) == "sk-ant-api03-third-0003"
+    assert _blob(harness, _address(harness, first["id"])) == "sk-ant-api03-third-0003"
     assert (_marker(harness) or {})["generation"] == generation + 1
 
 
@@ -353,18 +354,19 @@ def test_delete_then_a_repeated_delete_both_succeed(harness) -> None:
     assert marker["effective_connection_id"] is None
 
 
-def test_put_after_a_delete_mints_at_the_default_address_beside_a_leftover_document(
+def test_put_after_a_delete_mints_at_its_own_address_beside_a_leftover_document(
     harness,
 ) -> None:
-    # Row 6 with one leftover compatibility document. WHY `default` (OME-1209 E4b): the PUT names
-    # no mirror, so its row takes the `default` address and the document stays as it was.
+    # Row 6 with one leftover compatibility document. WHY its own address (E5a, history cleanup):
+    # the PUT names no mirror and a minted row never takes a Profile address, so its row takes
+    # `<account_id>:<row id>` and the document stays as it was.
     harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
     _mark(harness, "migrated")
 
     _put(harness)
 
     (row,) = _live(harness)
-    assert row["credential_locator"] == _address(harness, "default")
+    assert row["credential_locator"] == _address(harness, row["id"])
     assert _documents(harness) == [("work", "api_key", "authenticated")]
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
     assert _inventory(harness).conflicts == ()
@@ -492,6 +494,7 @@ def test_a_live_row_added_after_the_capture_supersedes_the_publication(
     # A native create on a migrated pair claims nothing (owner decision 2026-10-06), so only the
     # bridge's own re-check of the live rows inside its transaction can see it.
     _put(harness)
+    (first,) = _live(harness)
     before = _marker(harness)
     real_advance = PairAuthorityStore.advance
     raced: list[bool] = []
@@ -518,7 +521,7 @@ def test_a_live_row_added_after_the_capture_supersedes_the_publication(
     assert conflict.value.kind == "superseded"
     assert raced == [True]
     assert _marker(harness) == before
-    assert _blob(harness, _address(harness, "default")) == NEW_KEY
+    assert _blob(harness, _address(harness, first["id"])) == NEW_KEY
 
 
 def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
@@ -613,7 +616,7 @@ def test_the_mutation_evicts_the_cached_credential_it_changed(harness) -> None:
     assert any("work" in name for name in harness.evicted())
 
 
-def test_pending_cleanup_pops_only_the_pairs_captured_targets() -> None:
+def test_pending_cleanup_pops_only_the_pairs_captured_connections() -> None:
     table = PendingAuthTable()
 
     def entry(provider: str, profile: str, connection: str) -> PendingAuthEntry:
@@ -631,8 +634,9 @@ def test_pending_cleanup_pops_only_the_pairs_captured_targets() -> None:
     table.put("other-name", entry(PROVIDER, "other", "c-other"))
     table.put("other-provider", entry("openai", "work", "c-openai"))
 
-    removed = table.pop_for_pair("acct", PROVIDER, profile_names=("work",), connection_ids=("c-1",))
+    removed = table.pop_for_pair("acct", PROVIDER, connection_ids=("c-1",))
 
-    assert sorted(removed) == ["by-connection", "by-name"]
+    assert removed == ["by-connection"]
+    assert table.peek("by-name") is not None
     assert table.peek("other-name") is not None
     assert table.peek("other-provider") is not None

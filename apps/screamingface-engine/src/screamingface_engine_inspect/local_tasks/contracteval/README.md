@@ -59,10 +59,10 @@ every number against the hand-built Benchmark's on the same replies.
 
 ## Identity
 
-The revision hashes the Case Digest, the Task reference, the Hub pin, the whole-run metric, its
-headline key and the sha256 of every `.py` file in this package (`task_source=…`). Editing `contracteval.py` or
-`grading.py` is a new Benchmark: update the literal in
-`tests/unit/inspect/test_published_revisions.py` and say why in the PR.
+The fingerprint hashes the Case Digest, the Task reference, the Hub pin, the whole-run metric, its
+headline key and the sha256 of every `.py` file in this package (`task_source=…`). Editing any of them moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision).
 
 ## Running it locally
 

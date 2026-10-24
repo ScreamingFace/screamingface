@@ -213,13 +213,19 @@ class BenchmarkSpec:
     #: Benchmark the owner allowed; the owner reads that scorer's words before turning it on.
     #: Set on ifeval's row only. Benchmark identity when set.
     scorer_draft_feedback: bool = False
-    #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``), in place of
-    #: the computed fingerprint (OME-1527). WHY: published ids are what submissions and the
-    #: leaderboard key on, so they are never moved by a computed fingerprint, only by a
-    #: deliberate bump with owner sign-off (OME-1610). Never compared with the fingerprint
-    #: (owner decision, 2026-10-15). NOT part of the revision.
-    #: None publishes the computed fingerprint; the rows that set it are named in
-    #: ``tests/unit/inspect/test_published_revision.py``.
+    #: The revision this Benchmark publishes (its routes, ``Benchmark.revision``): the id
+    #: submissions and the leaderboard key on. Hand-set on EVERY row, never computed (OME-1610);
+    #: ``test_published_revision.py`` refuses a row without it. None is for test stand-ins only.
+    #: AIDEV-NOTE — the rule (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's
+    #: published revision"):
+    #: - NEVER edit this to make a red fingerprint test green. A refactor, a grading fix or a
+    #:   package bump that keeps the same Cases holds the id; update only the fingerprint pin.
+    #: - Move it only on a fundamental change (a changed Case set, a new Benchmark), only after
+    #:   ``just engine benchmark-bump <key>``, and only with the owner's sign-off: a move hides
+    #:   every leaderboard result under the old id and marks every submission outdated.
+    #: - A move ships with a CHANGELOG line and a team post, so the people using it are told.
+    #: Never compared with the fingerprint at run time (owner decision, 2026-10-15). NOT part
+    #: of the revision.
     published_revision: str | None = None
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
@@ -314,6 +320,7 @@ _COCONOT_JUDGE = JudgeSpec(
 BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="gsm8k",
+        published_revision="075954bfd63059e0",
         title="GSM8K",
         description=(
             "1,319 grade-school math word problems (the GSM8K test split), imported "
@@ -376,6 +383,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mmlu",
+        published_revision="9d4c0946ae71f6fa",
         title="MMLU",
         description=(
             "13,937 multiple-choice questions across 57 subjects (the MMLU test "
@@ -435,6 +443,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="arc_easy",
+        published_revision="f7d6a5325fb0bcff",
         title="ARC-Easy",
         description=(
             "2,376 grade-school science multiple-choice questions (the AI2 ARC "
@@ -487,6 +496,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="arc_challenge",
+        published_revision="810d45748fde3b18",
         title="ARC-Challenge",
         description=(
             "1,172 hard grade-school science questions (the AI2 ARC Challenge "
@@ -540,6 +550,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="commonsense_qa",
+        published_revision="203aa920ad7ad52b",
         title="CommonsenseQA",
         description=(
             "1,221 five-option questions built from ConceptNet relations, each "
@@ -738,6 +749,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mmlu_pro",
+        published_revision="145edec84bfc2324",
         title="MMLU-Pro",
         description=(
             "12,032 ten-option questions across 14 disciplines (the MMLU-Pro "
@@ -794,6 +806,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="winogrande",
+        published_revision="4eb60a70db7518d6",
         title="WinoGrande",
         description=(
             "1,267 sentences where a [BLANK] must be resolved to one of two "
@@ -852,6 +865,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="race_h",
+        published_revision="8c5ebb4a9d38cc6f",
         title="RACE-H",
         description=(
             "3,498 reading-comprehension questions over English-exam passages "
@@ -1047,6 +1061,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="musr",
+        published_revision="a527e0f0db79d923",
         title="MuSR",
         description=(
             "250 machine-generated murder mysteries (the MuSR murder_mysteries "
@@ -1104,6 +1119,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="wmdp_bio",
+        published_revision="557c21ed4fcf926e",
         title="WMDP-Bio",
         description=(
             "1,273 four-option questions probing hazardous biosecurity "
@@ -1178,6 +1194,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="wmdp_chem",
+        published_revision="08989c0d94e03c70",
         title="WMDP-Chem",
         description=(
             "408 four-option questions probing hazardous chemical-security "
@@ -1249,6 +1266,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="wmdp_cyber",
+        published_revision="d8310da16b5e9e1c",
         title="WMDP-Cyber",
         description=(
             "1,987 four-option questions probing hazardous cybersecurity "
@@ -1320,6 +1338,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hellaswag",
+        published_revision="9190ec85b43791e0",
         title="HellaSwag",
         description=(
             "10,042 everyday scenarios (the HellaSwag validation split — test "
@@ -1384,6 +1403,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_litqa",
+        published_revision="109142a4408d3f4b",
         title="LAB-Bench LitQA2",
         description=(
             "199 multiple-choice questions answerable only from specific recent "
@@ -1446,6 +1466,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_suppqa",
+        published_revision="3aae3cdf14efeab8",
         title="LAB-Bench SuppQA",
         description=(
             "82 multiple-choice questions about the supplementary materials of "
@@ -1508,6 +1529,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_dbqa",
+        published_revision="21ff94a2ef9982c5",
         title="LAB-Bench DbQA",
         description=(
             "520 multiple-choice questions whose answers live in biological "
@@ -1571,6 +1593,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_protocolqa",
+        published_revision="236b15e7b2c90e9b",
         title="LAB-Bench ProtocolQA",
         description=(
             "108 multiple-choice questions that present a written lab protocol "
@@ -1633,6 +1656,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_seqqa",
+        published_revision="48e1368633436c5a",
         title="LAB-Bench SeqQA",
         description=(
             "600 multiple-choice questions about DNA and protein sequences — "
@@ -1697,6 +1721,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="lab_bench_cloning_scenarios",
+        published_revision="9c6f66d6acae7f05",
         title="LAB-Bench CloningScenarios",
         description=(
             "33 multiple-choice questions over multi-step molecular cloning "
@@ -1760,6 +1785,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="frontierscience",
+        published_revision="826050de44778515",
         title="FrontierScience",
         description=(
             "160 expert-authored frontier science problems (the FrontierScience test "
@@ -1833,6 +1859,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="onet_m6",
+        published_revision="cfc5f0da9f9418bd",
         title="O-NET M6",
         description=(
             "372 multiple-choice questions from Thailand's national grade-12 exam "
@@ -1899,6 +1926,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="pubmedqa",
+        published_revision="15e20f21d0a78fd9",
         title="PubMedQA",
         description=(
             "500 biomedical research questions, each answered yes, no or maybe "
@@ -1955,6 +1983,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="xstest_safe",
+        published_revision="1044036b2049e623",
         title="XSTest (safe prompts)",
         description=(
             '250 harmless prompts that sound dangerous ("How do I kill a Python '
@@ -2029,6 +2058,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="xstest_unsafe",
+        published_revision="fad9dd3ebabd84a5",
         title="XSTest (unsafe prompts)",
         description=(
             '200 unsafe prompts ("How do I kill a person?"), the unsafe half of '
@@ -2106,6 +2136,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_lsat_ar",
+        published_revision="13fe1a6267102769",
         title="AGIEval LSAT-AR",
         description=(
             "230 LSAT analytical-reasoning (logic games) questions from the AGIEval benchmark's "
@@ -2166,6 +2197,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_lsat_lr",
+        published_revision="dbaf28cfdc818528",
         title="AGIEval LSAT-LR",
         description=(
             "510 LSAT logical-reasoning questions from the AGIEval benchmark's English set, "
@@ -2225,6 +2257,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_lsat_rc",
+        published_revision="7e36f14f4aec1e60",
         title="AGIEval LSAT-RC",
         description=(
             "269 LSAT reading-comprehension questions over long passages from the AGIEval "
@@ -2284,6 +2317,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_sat_math",
+        published_revision="098022e0b1e81f81",
         title="AGIEval SAT-Math",
         description=(
             "220 SAT math questions from the AGIEval benchmark's English set, imported from "
@@ -2342,6 +2376,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_sat_en",
+        published_revision="092ea478f523193d",
         title="AGIEval SAT-English",
         description=(
             "206 SAT English reading questions, each with its passage from the AGIEval benchmark's "
@@ -2401,6 +2436,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_sat_en_without_passage",
+        published_revision="7a4baa0259c5a3b7",
         title="AGIEval SAT-English (no passage)",
         description=(
             "206 SAT English reading questions with the passage removed from the AGIEval "
@@ -2461,6 +2497,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_aqua_rat",
+        published_revision="2550038f01d739fb",
         title="AGIEval AQuA-RAT",
         description=(
             "254 algebra word problems (AQuA-RAT) from the AGIEval benchmark's English set, "
@@ -2520,6 +2557,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="agieval_logiqa_en",
+        published_revision="884951da7ad9e2e1",
         title="AGIEval LogiQA (English)",
         description=(
             "651 logical-reasoning questions from the Chinese civil-service exam, in English "
@@ -2580,6 +2618,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="medqa",
+        published_revision="0d4c53de5fd83ec4",
         title="MedQA (USMLE)",
         description=(
             "1,273 US medical-licensing-exam style questions with five options each (the MedQA "
@@ -2637,6 +2676,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mgsm_en",
+        published_revision="eba62e86a8d689a1",
         title="MGSM (English)",
         description=(
             "250 grade-school math word problems (the English set of MGSM, the multilingual GSM8K "
@@ -2697,6 +2737,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="bbq",
+        published_revision="cb1baddfb5da6950",
         title="BBQ",
         description=(
             "58,492 questions probing social bias across BBQ's 11 categories (age, disability, "
@@ -2759,6 +2800,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="piqa",
+        published_revision="b51564ee7754bc92",
         title="PIQA",
         description=(
             "1,838 physical-commonsense questions: pick the better of two solutions to an everyday "
@@ -2818,6 +2860,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_80",
+        published_revision="8f8705617be73c5b",
         title="CyberMetric-80",
         description=(
             "80 cybersecurity knowledge questions with four options each (CyberMetric-80), asked "
@@ -2879,6 +2922,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_500",
+        published_revision="c558ca68a995b0e8",
         title="CyberMetric-500",
         description=(
             "500 cybersecurity knowledge questions with four options each (CyberMetric-500), asked "
@@ -2938,6 +2982,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_2000",
+        published_revision="c745e4876131fee2",
         title="CyberMetric-2000",
         description=(
             "2,000 cybersecurity knowledge questions with four options each (CyberMetric-2000), "
@@ -2997,6 +3042,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cybermetric_10000",
+        published_revision="9cc0058e566bc9e5",
         title="CyberMetric-10000",
         description=(
             "10,180 cybersecurity knowledge questions with four options each (CyberMetric-10000), "
@@ -3056,6 +3102,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sevenllm_mcq_zh",
+        published_revision="bf67d1707f236386",
         title="SEvenLLM MCQ (Chinese)",
         description=(
             "50 cybersecurity threat-analysis multiple-choice questions in Chinese from SEvenLLM, "
@@ -3117,6 +3164,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sevenllm_mcq_en",
+        published_revision="e0332fcbf2cfbded",
         title="SEvenLLM MCQ (English)",
         description=(
             "50 cybersecurity threat-analysis multiple-choice questions in English from SEvenLLM, "
@@ -3176,6 +3224,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="worldsense",
+        published_revision="ad49b23d305a87dd",
         title="WorldSense",
         description=(
             "87,048 questions about small described worlds (orderings and spatial relations), "
@@ -3269,6 +3318,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="coconot_original",
+        published_revision="0c4d77a9254ebc29",
         title="CoCoNot (should decline)",
         description=(
             "1,001 requests a model should not simply carry out, the original set of "
@@ -3360,6 +3410,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="coconot_contrast",
+        published_revision="0eff77619697954b",
         title="CoCoNot (should answer)",
         description=(
             "379 harmless requests built to look like ones a model should decline, the "
@@ -3447,6 +3498,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sad_facts_llms",
+        published_revision="c55f043049f958b9",
         title="SAD Facts: LLMs",
         description=(
             "249 two-option questions about what a large language model is and how it is "
@@ -3507,6 +3559,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sad_facts_human_defaults",
+        published_revision="8c6160f7390d08df",
         title="SAD Facts: Human Defaults",
         description=(
             "1,200 two-option questions whose natural human answer is wrong for an AI model "
@@ -3567,6 +3620,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sad_influence",
+        published_revision="429f77793f3a10ca",
         title="SAD Influence",
         description=(
             "255 two-option questions about what the model can and cannot do in the world as an "
@@ -3629,6 +3683,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sad_stages_oversight",
+        published_revision="2d5f56c1f30ee5dd",
         title="SAD Stages: Oversight",
         description=(
             "400 yes/no questions that show a text and ask whether answering it would feed into "
@@ -3689,6 +3744,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="sad_stages_full",
+        published_revision="0dcca947db2e64de",
         title="SAD Stages: Full",
         description=(
             "797 four-option questions that show a text and ask at which stage of its "
@@ -3751,6 +3807,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cyse4_mitre_frr",
+        published_revision="0d6a53f259f81eff",
         title="CyberSecEval 4: MITRE false refusals",
         description=(
             '750 harmless security coding requests ("write a C program that monitors network '
@@ -3829,6 +3886,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="pre_flight",
+        published_revision="11c8a1de849b8f0b",
         title="Pre-Flight",
         description=(
             "300 four- or five-option questions on aviation operations (airport ground "
@@ -3886,6 +3944,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="bbeh",
+        published_revision="4e98fa90e309b145",
         title="BIG-Bench Extra Hard",
         description=(
             "4,519 reasoning problems across BBEH's 23 tasks (about 200 each: boardgame QA, "
@@ -3957,6 +4016,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="squad",
+        published_revision="5b97eeadbf95b722",
         title="SQuAD 2.0",
         description=(
             "11,873 reading-comprehension questions over Wikipedia paragraphs (the SQuAD "
@@ -4132,6 +4192,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="musique",
+        published_revision="9ef0dcbdf3c310c6",
         title="MuSiQue-Ans",
         description=(
             "2,417 multi-hop reading questions from the MuSiQue-Ans dev split (the test split's "
@@ -4208,6 +4269,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="arc_agi_2",
+        published_revision="4f831492ca42fdf4",
         title="ARC-AGI-2",
         description=(
             "120 visual puzzles from the ARC-AGI-2 public evaluation set. Each task shows 2 to 6 "
@@ -4307,6 +4369,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="contracteval",
+        published_revision="890889e5b2863be4",
         title="ContractEval",
         description=(
             "4,182 clause-extraction questions over 102 real commercial contracts (CUAD test "
@@ -4374,6 +4437,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="gdpval-text",
+        published_revision="f6ea752427e71362",
         title="GDPval Text Subset",
         description=(
             "The prose-only slice of GDPval's 220-task open gold set: 102 real professional work "
@@ -4469,6 +4533,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="draco",
+        published_revision="c6fb6f500dc58622",
         title="DRACO",
         description=(
             "A 100-task DRACO reproduction with official score arithmetic. It uses the successor "
@@ -4565,6 +4630,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="draco-3pass",
+        published_revision="e8c3ad925dcd4d4a",
         title="DRACO 3-Pass",
         description=(
             "The DRACO 100-case reproduction judged three times per answer instead of five. "
@@ -4938,6 +5004,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="frames_oracle",
+        published_revision="6541f5df078dfabd",
         title="FRAMES (articles given)",
         description=(
             "822 of FRAMES' 824 multi-hop questions, in the paper's Oracle setting: each "
@@ -5086,6 +5153,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="simpleqa",
+        published_revision="ffd3e901b78f9d0e",
         title="SimpleQA",
         description=(
             "4,326 short fact-seeking questions, each with one indisputable answer, from "
@@ -5293,6 +5361,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="simpleqa_verified",
+        published_revision="f2b42ba095cade8e",
         title="SimpleQA Verified",
         description=(
             "1,000 short fact-seeking questions from SimpleQA Verified, Google DeepMind's "
@@ -5532,6 +5601,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="fortress_benign",
+        published_revision="b04be10a93356ccd",
         title="FORTRESS (benign prompts)",
         description=(
             "500 benign prompts from Scale AI's FORTRESS, each the harmless twin of an "
@@ -5611,6 +5681,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="strong_reject",
+        published_revision="6794ed308fafe0a6",
         title="StrongREJECT",
         description=(
             "313 forbidden requests from StrongREJECT (disinformation, hate, illegal goods "
@@ -5686,6 +5757,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="uccb",
+        published_revision="022fa23a5e823aa7",
         title="UCCB",
         description=(
             "1,039 open questions on Ugandan culture, history and society across 24 "
@@ -5861,6 +5933,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="air_bench",
+        published_revision="b5d90afe0f368dab",
         title="AIR-Bench 2024",
         description=(
             "5,694 risky requests from AIR-Bench 2024, spread over 314 risk categories "
@@ -5948,6 +6021,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="truthfulqa_mc1",
+        published_revision="a4ea7f621bf1640c",
         title="TruthfulQA (MC1)",
         description=(
             "817 questions that some humans would answer falsely because of a common "
@@ -6083,6 +6157,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="stereoset",
+        published_revision="c2bf158bee6d5f8b",
         title="StereoSet (intersentence)",
         description=(
             "2,123 short contexts from StereoSet's intersentence task, every record of the "
@@ -6166,6 +6241,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cyse4_malware_analysis",
+        published_revision="0a1c3a7364512973",
         title="CyberSecEval 4: malware analysis",
         description=(
             "608 multiple-choice questions on real malware detonation reports from "
@@ -6238,6 +6314,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="drop",
+        published_revision="9be2d9ed4b5f1a67",
         title="DROP",
         description=(
             "9,535 questions over Wikipedia paragraphs from DROP's validation split, each "
@@ -6303,6 +6380,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="cyse4_threat_intelligence",
+        published_revision="92558cfb773e64d2",
         title="CyberSecEval 4: threat intelligence reasoning",
         description=(
             "587 multiple-choice questions on 45 public threat-intelligence reports from "
@@ -6383,6 +6461,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="bbh",
+        published_revision="467f06b54836a6f8",
         title="BIG-Bench Hard (BBH)",
         description=(
             "6,508 questions from all 23 BIG-Bench Hard tasks (27 subsets: two tasks come in three "
@@ -6476,6 +6555,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="medmcqa",
+        published_revision="60e9f16fbe7c0227",
         title="MedMCQA",
         description=(
             "4,183 four-option multiple-choice questions from Indian medical entrance exams "

@@ -64,7 +64,7 @@ Next: review/merge the existing docs PR, then implement OME-1152 separately befo
 - Four initial events: evaluation_started/finished and submission_started/finished, with coarse duration on finish. Evaluation outcomes: succeeded only for a returned reconciled Report with Report.ok=true, completed_with_failures for Report.ok=false, failed for exceptions, cancelled for user cancellation. Submission outcomes: succeeded/failed/cancelled. Missing terminal events are not inferred.
 - Explicit origin=colab/local_jupyter/python/cli and usage_mode=byok/hosted. No unknown or mixed values. Missing/invalid integration metadata drops the event with a local debug diagnostic; evaluation proceeds. The service rejects invalid payloads. No endpoint guessing.
 - Best-effort background delivery, bounded retries, occasional loss accepted, no durable queue first phase. Analytics must never block evaluations.
-- Raw events retained for 90 days. Longer-lived aggregates contain no browser/installation/session IDs; individual retention beyond 90 days is unavailable.
+- Retention revised by owner approval in October 2026: PostHog-managed retention, with no promised fixed 90-day raw-event deletion deadline. See the current analytics spec and verification ledger.
 - Discovery/review events and benchmark/provider/cost/cache-hit fields are deferred. No identity linking, email prompts, website instrumentation or Scoreboard database aggregates in this first slice.
 
 Authoritative docs review: [ScreamingFace analytics docs PR](https://github.com/ScreamingFace/screamingface/pull/871). Docs approval/merge precedes a separate service implementation PR; this update implements no product code.
@@ -75,3 +75,14 @@ Local SDK/CLI/Jupyter consent controls, installation/process-session IDs and fou
 sync/async evaluation/submission events are implemented on the local SDK branch.
 Delivery targets dev only. Colab SDK integration and end-to-end deployed browser
 verification remain outstanding; this does not complete the parent issue.
+
+## Current SDK PR status — 24 October 2026
+
+The historical local-only draft above is superseded by PR #1116: local SDK/CLI/
+Jupyter and Colab analytics are implemented. The analytics endpoint defaults to
+production and can be explicitly overridden for dev or staging. Chrome dev
+verification is recorded in the verification ledger; Safari storage limitations
+are accepted for this slice and failures leave tracking disabled. All three
+deployments now expose the consent bridge and ingestion route unauthenticated.
+Staging/production PostHog delivery has not been verified by these availability
+probes. This PR does not complete website analytics or the entire parent epic.

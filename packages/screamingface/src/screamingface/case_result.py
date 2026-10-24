@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 
 from screamingface._case_views import case_answers, case_trace
 from screamingface._immutable_json import freeze_json, freeze_mapping, thaw_json, thaw_mapping
@@ -29,6 +32,29 @@ if TYPE_CHECKING:
 # The Engine's versioned wrapper for native multi-turn Candidate input; kept in lock-step
 # with url4-cloud's `benchmarks/contract.py` CANDIDATE_INPUT_SCHEMA.
 _CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
+# FEATURE (OME-1680): v2 lets a user message carry pictures and PDFs as content parts (OME-1678).
+_CANDIDATE_INPUT_V2_SCHEMA = "screamingface.candidate-input.v2"
+# INVARIANT: equal to the engine's set; pinned by
+# tests/unit/test_candidate_input_schema_conformance.py.
+_CANDIDATE_INPUT_SCHEMAS = frozenset({_CANDIDATE_INPUT_SCHEMA, _CANDIDATE_INPUT_V2_SCHEMA})
+_SCHEMA_FAMILY = "screamingface.candidate-input."
+# WHY a shape check before an unknown version is echoed: the schema value is Case data, and a
+# hostile or broken one could be long; only a name-like value is shown.
+_SHOWN_SCHEMA_RE = re.compile(r"screamingface\.candidate-input\.[A-Za-z0-9_.-]{1,32}")
+# The placeholder the engine writes where a picture's `url` or a file's `file_data` was (OME-1679),
+# and the one the SDK builds from a `data:` URI itself. WHY a copy: the SDK cannot import engine
+# code; a conformance test against the engine's placeholder builder pins these names once it lands.
+_PLACEHOLDER_FIELDS = frozenset({"placeholder", "media_type", "size", "sha256"})
+_PLACEHOLDER_OPTIONAL_FIELDS = frozenset({"filename"})
+# WHY the engine's pattern (`benchmarks/candidate_input.py`): a picture the engine accepted is
+# one the SDK can measure.
+_DATA_URI_RE = re.compile(
+    r"^data:(?P<mime>[\w.+-]+/[\w.+-]+)(?:;[^;,]*)*;base64,(?P<data>.+)$", re.DOTALL
+)
+_SHA256_RE = re.compile(r"[0-9a-f]{64}")
+# WHY 8: enough to tell two pictures of one Case apart at a glance, short enough for one line.
+_SHOWN_DIGEST_CHARS = 8
+_KIB = 1024
 
 type EvidenceOutcome = Literal["MET", "UNMET", "PASS", "FAIL"]
 type CheckOutcome = Literal["MET", "UNMET"]
@@ -535,6 +561,10 @@ class CaseResult:
         schema, and ``None`` for everything else — decoding never raises, so the
         worst case is seeing the raw string, never a crash. Renderers consume
         ``display_input`` / ``prompt_preview`` below and stay format-blind.
+
+        A v2 message's parts become lines of its content: text as written, and each
+        picture or file as one placeholder line, never its base64 (OME-1680), e.g.
+        ``chart.png · image/png · 300 KB · sha256 9f86d081…``.
         """
 
         return _decode_candidate_envelope(self.input)
@@ -545,7 +575,7 @@ class CaseResult:
 
         turns = self.conversation
         if turns is None:
-            return self.input if isinstance(self.input, str) else str(self.input)
+            return _undecoded_input_text(self.input)
         return "\n\n".join(f"{role}: {content}" for role, content in turns)
 
     @property
@@ -554,7 +584,7 @@ class CaseResult:
 
         turns = self.conversation
         if turns is None:
-            return self.input if isinstance(self.input, str) else str(self.input)
+            return _undecoded_input_text(self.input)
         for role, content in turns:
             if role == "user":
                 return content
@@ -651,31 +681,253 @@ def _bind_operation_graph(case: CaseResult, operations: Sequence[OperationInfo])
 
 
 def _decode_candidate_envelope(value: object) -> tuple[tuple[str, str], ...] | None:
-    """Decode the versioned chat envelope; ``None`` for anything that is not exactly it."""
+    """Open the versioned chat envelope into display turns; ``None`` for anything else.
 
+    Think of it as reading a sealed letter aloud: text is read as written, and each enclosed
+    picture is described by its label instead of being read out byte by byte.
+
+    Stage 1 — is it a known envelope? A JSON object whose ``schema`` is v1 or v2; any other text,
+        or an unknown version, is ``None`` and the caller shows the raw string.
+    Stage 2 — every message becomes ``(role, content)``. A string content is kept as written; a
+        part list (v2 only) becomes one line per part: text as written, a picture or file as its
+        placeholder line (see ``_media_placeholder``).
+    Stage 3 — all or nothing: one message that cannot be read means ``None``.
+
+    e.g. ``{"schema":"…v2","messages":[{"role":"user","content":[{"type":"text","text":"What is
+    the height?"},{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}]}]}`` →
+    ``(("user", "What is the height?\nimage/png · 300 KB · sha256 fc2447cd…"),)``.
+    """
+
+    # Stage 1 — is it a known envelope?
     try:
         decoded = json.loads(value) if isinstance(value, str) else None
     except ValueError:
         decoded = None
+    schema: object = decoded.get("schema") if isinstance(decoded, Mapping) else None
     envelope = (
         decoded
-        if isinstance(decoded, Mapping) and decoded.get("schema") == _CANDIDATE_INPUT_SCHEMA
+        if isinstance(decoded, Mapping)
+        # WHY the str check first: a dict or list schema is unhashable, and the engine reads such
+        # an input as a plain prompt, so its result must render, not raise.
+        and isinstance(schema, str)
+        and schema in _CANDIDATE_INPUT_SCHEMAS
         else None
     )
+    allows_parts: bool = schema == _CANDIDATE_INPUT_V2_SCHEMA
+    # Stage 2 — every message.
     messages = envelope.get("messages") if envelope is not None else None
-    parsed = [_turn(message) for message in messages] if isinstance(messages, list) else []
+    parsed = (
+        [_turn(message, allows_parts=allows_parts) for message in messages]
+        if isinstance(messages, list)
+        else []
+    )
     turns = [turn for turn in parsed if turn is not None]
-    # All-or-nothing: one malformed message means this is not a trustworthy
+    # Stage 3 — all-or-nothing: one malformed message means this is not a trustworthy
     # transcript — fall back to showing the raw string rather than a partial one.
     if not turns or len(turns) != len(parsed):
         return None
     return tuple(turns)
 
 
-def _turn(message: object) -> tuple[str, str] | None:
+def _undecoded_input_text(value: object) -> str:
+    """What the views show for an input the conversation cannot read: the raw text as written,
+    or one line when it names a candidate-input version this SDK does not know.
+
+    WHY the line (OME-1680): an engine newer than this SDK may send a newer envelope, and its raw
+    text can be megabytes of base64; the line asks for an upgrade instead and never raises.
+    e.g. ``{"schema": "screamingface.candidate-input.v3", …}`` → ``unsupported candidate-input
+    schema screamingface.candidate-input.v3 — upgrade screamingface to view this input``.
+    """
+
+    text: str = value if isinstance(value, str) else str(value)
+    try:
+        decoded: object = json.loads(text) if text.lstrip().startswith("{") else None
+    except (ValueError, RecursionError):
+        decoded = None
+    schema: object = decoded.get("schema") if isinstance(decoded, Mapping) else None
+    if (
+        not isinstance(schema, str)
+        or not schema.startswith(_SCHEMA_FAMILY)
+        or schema in _CANDIDATE_INPUT_SCHEMAS
+    ):
+        return text
+    shown: str = schema if _SHOWN_SCHEMA_RE.fullmatch(schema) else f"{_SCHEMA_FAMILY}*"
+    return f"unsupported candidate-input schema {shown} — upgrade screamingface to view this input"
+
+
+def _turn(message: object, *, allows_parts: bool) -> tuple[str, str] | None:
+    """One message as ``(role, content)``; a v2 part list becomes one line per part."""
+
     role = message.get("role") if isinstance(message, Mapping) else None
     content = message.get("content") if isinstance(message, Mapping) else None
-    return (role, content) if isinstance(role, str) and isinstance(content, str) else None
+    if not isinstance(role, str):
+        return None
+    if isinstance(content, str):
+        return (role, content)
+    lines: list[str] | None = _part_lines(content) if allows_parts else None
+    return None if lines is None else (role, "\n".join(lines))
+
+
+def _part_lines(content: object) -> list[str] | None:
+    """A v2 part list as display lines, in order; ``None`` if any part cannot be read."""
+
+    parts: list[object] = list(content) if isinstance(content, list) else []
+    parsed: list[str | None] = [_part_line(part) for part in parts]
+    lines: list[str] = [line for line in parsed if line is not None]
+    return lines if lines and len(lines) == len(parsed) else None
+
+
+def _part_line(part: object) -> str | None:
+    """One v2 part as display text: text as written, a picture or file as its placeholder."""
+
+    body: Mapping[object, object] = part if isinstance(part, Mapping) else {}
+    if body.get("type") == "text":
+        text: object = body.get("text")
+        return text if isinstance(text, str) else None
+    placeholder: _Placeholder | None = _part_placeholder(body)
+    return None if placeholder is None else _placeholder_line(placeholder)
+
+
+def _part_placeholder(part: Mapping[object, object]) -> _Placeholder | None:
+    """The placeholder of a picture (``image_url.url``) or file (``file.file_data``) part."""
+
+    kind: object = part.get("type")
+    if kind == "image_url":
+        picture: object = part.get("image_url")
+        url: object = picture.get("url") if isinstance(picture, Mapping) else None
+        return _media_placeholder("image", url, filename=None)
+    file: object = part.get("file") if kind == "file" else None
+    filename: object = file.get("filename") if isinstance(file, Mapping) else None
+    if not isinstance(file, Mapping) or not isinstance(filename, str | None):
+        return None
+    return _media_placeholder("file", file.get("file_data"), filename=filename)
+
+
+class _Placeholder(TypedDict):
+    """What a Case Result shows instead of a picture's or file's bytes (OME-1679's shape)."""
+
+    placeholder: Literal["image", "file"]
+    media_type: str
+    size: int
+    sha256: str
+    filename: NotRequired[str]
+
+
+def _media_placeholder(
+    kind: Literal["image", "file"], source: object, *, filename: str | None
+) -> _Placeholder | None:
+    """The placeholder for one picture or file, from either form it can arrive in.
+
+    A ``data:`` URI is decoded here, so its size and sha256 are those of the real bytes (not of
+    the base64). A placeholder object the engine already wrote is checked field by field and
+    used as is. Either way the part's own filename, when it has one, names it. Anything else
+    (an ``https://`` URL, broken base64, a malformed object) is ``None``, so the caller falls
+    back rather than guessing.
+
+    e.g. ``("image", "data:image/png;base64,…300 KB…", filename=None)`` →
+    ``{"placeholder": "image", "media_type": "image/png", "size": 307200, "sha256": "fc24…"}``.
+    """
+
+    placeholder: _Placeholder | None = (
+        _placeholder_object(kind, source)
+        if isinstance(source, Mapping)
+        else _decoded_placeholder(kind, source)
+    )
+    # WHY the part's filename wins: it sits beside file_data on the part, so it survives the
+    # engine replacing file_data with a placeholder object.
+    if placeholder is not None and filename:
+        placeholder["filename"] = filename
+    return placeholder
+
+
+def _decoded_placeholder(kind: Literal["image", "file"], source: object) -> _Placeholder | None:
+    """The placeholder of an inline ``data:`` URI, measured from its decoded bytes."""
+
+    decoded: tuple[str, bytes] | None = _data_uri_bytes(source)
+    if decoded is None:
+        return None
+    media_type, data = decoded
+    return {
+        "placeholder": kind,
+        "media_type": media_type,
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
+def _data_uri_bytes(source: object) -> tuple[str, bytes] | None:
+    """The lower-cased media type and decoded bytes of an inline ``data:`` URI; else ``None``."""
+
+    match: re.Match[str] | None = _DATA_URI_RE.match(source) if isinstance(source, str) else None
+    if match is None:
+        return None
+    # WHY strip and re-pad, as the engine's request key does (`request_identity.py`, OME-1271):
+    # line breaks and dropped `=` padding spell the same bytes, so the sha256 shown here is the
+    # one that keys the model call; strict decoding of what remains refuses anything else.
+    compact: str = "".join(match["data"].split())
+    compact += "=" * (-len(compact) % 4)
+    try:
+        return match["mime"].lower(), base64.b64decode(compact, validate=True)
+    # WHY ValueError: binascii.Error, raised on broken base64, is one.
+    except ValueError:
+        return None
+
+
+def _placeholder_object(
+    kind: Literal["image", "file"], value: Mapping[object, object]
+) -> _Placeholder | None:
+    """The engine's placeholder object for a ``kind`` part, checked field by field, or ``None``."""
+
+    keys: set[object] = set(value)
+    media_type: object = value.get("media_type")
+    size: object = value.get("size")
+    sha256: object = value.get("sha256")
+    filename: object = value.get("filename")
+    if (
+        not _PLACEHOLDER_FIELDS <= keys <= _PLACEHOLDER_FIELDS | _PLACEHOLDER_OPTIONAL_FIELDS
+        or value.get("placeholder") != kind
+        or not isinstance(media_type, str)
+        or not media_type
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or size < 0
+        or not isinstance(sha256, str)
+        or _SHA256_RE.fullmatch(sha256) is None
+        or ("filename" in keys and (not isinstance(filename, str) or not filename))
+    ):
+        return None
+    placeholder: _Placeholder = {
+        "placeholder": kind,
+        "media_type": media_type,
+        "size": size,
+        "sha256": sha256,
+    }
+    if isinstance(filename, str):
+        placeholder["filename"] = filename
+    return placeholder
+
+
+def _placeholder_line(placeholder: _Placeholder) -> str:
+    """The placeholder as one line, e.g. ``chart.png · image/png · 300 KB · sha256 9f86d081…``."""
+
+    fields: list[str] = [
+        placeholder["media_type"],
+        _size_text(placeholder["size"]),
+        f"sha256 {placeholder['sha256'][:_SHOWN_DIGEST_CHARS]}…",
+    ]
+    if "filename" in placeholder:
+        fields.insert(0, placeholder["filename"])
+    return " · ".join(fields)
+
+
+def _size_text(count: int) -> str:
+    """A byte count as people read it: ``512 B``, ``300 KB``, ``2.4 MB`` (the Report's rule)."""
+
+    if count < _KIB:
+        return f"{count} B"
+    if count < _KIB * _KIB:
+        return f"{count / _KIB:.0f} KB"
+    return f"{count / (_KIB * _KIB):.1f} MB"
 
 
 def _validated_abstained(

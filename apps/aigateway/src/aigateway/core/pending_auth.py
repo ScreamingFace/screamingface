@@ -47,10 +47,9 @@ class PendingAuthTable:
         account_id: str,
         provider: str,
         *,
-        profile_names: Collection[str],
         connection_ids: Collection[str],
     ) -> list[str]:
-        """Remove the pending flows of one pair's captured targets (D18 contract §5.2).
+        """Remove the pending flows of one pair's captured Connections (D18 contract §5.2).
 
         # WHY scoped to the targets, not the whole pair: a flow for an unrelated new Connection
         # is not the credential a successor PUT or DELETE replaced. A stale callback loses its
@@ -60,7 +59,7 @@ class PendingAuthTable:
         for state, (entry, _ts) in list(self._entries.items()):
             if entry.account_id != account_id or entry.provider != provider:
                 continue
-            if entry.profile_name in profile_names or entry.connection_id in connection_ids:
+            if entry.connection_id in connection_ids:
                 self._entries.pop(state, None)
                 removed.append(state)
         return removed

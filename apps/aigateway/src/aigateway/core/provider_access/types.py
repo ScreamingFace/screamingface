@@ -166,12 +166,14 @@ class UnsupportedAuthMode(ProviderAccessRefusal):
         self.provider = provider
 
 
-WriteConflictKind = Literal["retry_exhausted", "superseded"]
-WriteSubject = Literal["profile", "connection"]
+# WHY one value each (E5a, history cleanup): `retry_exhausted` and the `profile` subject were
+# the Profile index's; the parameters stay so every raise site keeps naming what it means.
+WriteConflictKind = Literal["superseded"]
+WriteSubject = Literal["connection"]
 
 
 class WriteConflict(ProviderAccessRefusal):
-    """A compare-and-set on a stored row lost: retries ran out, or the row was superseded."""
+    """A compare-and-set on a stored row lost: the row was superseded."""
 
     def __init__(
         self,

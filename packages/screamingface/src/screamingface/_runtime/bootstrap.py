@@ -35,6 +35,10 @@ LOCAL_GATEWAY_DEFAULTS = {
     # Engine's 600s per-call budget, and full HealthBench evals die on calls that
     # never reached OpenRouter (OME-889; long-term admission fix: OME-886).
     "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 32}',
+    # FEATURE (OME-1311): the local gateway caches by default, as hosted does. Rows pulled from
+    # the community cache (`sf.cache.pull_from_remote`) only help a local run when it does; one
+    # run opts out with `evaluate(..., use_cache=False)`, and an exported `false` still wins.
+    "AIGW_REQUEST_CACHE_ENABLED": "true",
 }
 
 

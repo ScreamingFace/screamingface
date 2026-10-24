@@ -165,8 +165,8 @@ async def test_without_a_policy_a_candidate_that_asks_to_search_is_held_off(
 
 
 def test_the_policy_is_benchmark_identity_only_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    plain: str = _assembled(_gsm8k(), monkeypatch).benchmark.revision
-    searching: str = _assembled(_gsm8k(retrieval_policy=_POLICY), monkeypatch).benchmark.revision
+    plain: str = _assembled(_gsm8k(), monkeypatch).fingerprint
+    searching: str = _assembled(_gsm8k(retrieval_policy=_POLICY), monkeypatch).fingerprint
     reordered: str = _assembled(
         _gsm8k(
             retrieval_policy=RetrievalPolicyDeclaration(
@@ -174,7 +174,7 @@ def test_the_policy_is_benchmark_identity_only_when_set(monkeypatch: pytest.Monk
             )
         ),
         monkeypatch,
-    ).benchmark.revision
+    ).fingerprint
     other_domain: str = _assembled(
         _gsm8k(
             retrieval_policy=RetrievalPolicyDeclaration(
@@ -182,7 +182,7 @@ def test_the_policy_is_benchmark_identity_only_when_set(monkeypatch: pytest.Monk
             )
         ),
         monkeypatch,
-    ).benchmark.revision
+    ).fingerprint
 
     assert searching != plain
     # WHY equal: the domains are sorted and lowercased before hashing, so writing the same

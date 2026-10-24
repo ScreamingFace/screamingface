@@ -40,3 +40,10 @@ judge. Benchmark score is plain accuracy over the Cases run.
 `xinrongzhang2022/InfiniteBench` at commit `90f03943`, file `math_find.jsonl`. The card's
 licence line reads apache-2.0; its header is malformed, so the Hub shows no licence (owner
 decision on OME-1602, 2026-10-14). The other 8 InfiniteBench tasks stay parked for their cost.
+
+## Identity
+
+The fingerprint hashes everything that defines this Benchmark, the sha256 of every `.py` file in
+this package included (`task_source=…`). Editing any of it moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision).

@@ -283,3 +283,22 @@ lint, formatting, Pyright, parallel tests with the 95% coverage floor, notebook
 validation, build and distribution checks.
 The existing append-only exception is retained for the previously approved
 consent-command return-contract changes; this merge changes no tests.
+
+### Main merge and deployment availability — 24 October 2026
+
+Merged main at 2b04cde21, preserving the sf.cache export, cache CLI parser and
+dispatch alongside analytics. Resolved only the overlapping import/helper hunks.
+Updated the task mirror to reflect the already approved retention and SDK scope.
+
+Unauthenticated probes on dev, staging and production: bridge script, consent
+state and consent page for an observed valid Colab origin all returned 200; the
+page CSP includes the exact Colab origin. Empty ingestion payloads returned 422
+invalid_payload. Public healthz/readyz return 404; availability conclusions use
+the actual application routes, not those health URLs. No test events were sent
+and staging/production PostHog routing was not established by these probes.
+
+Review found no material standards/spec blocker. All 12 browser-script tests and
+30 cache CLI/public surface/analytics integration tests passed. Full SDK gates
+passed: Ruff lint/format, Pyright, parallel tests with 95% coverage floor, notebook
+validation, build and distribution checks. Existing append-only exception remains for the prior approved consent
+return-contract test migration; this merge changes no tests.

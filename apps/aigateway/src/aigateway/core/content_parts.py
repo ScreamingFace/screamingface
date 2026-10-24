@@ -11,6 +11,7 @@ Plugins import this module; core never imports a plugin.
 
 from __future__ import annotations
 
+import binascii
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -18,11 +19,20 @@ from typing import Any, Literal
 
 from fastapi import HTTPException
 
-# WHY: base64 is passed through verbatim — no decode/re-encode of a multi-megabyte payload — so
-# only the envelope is validated: `data:<type>/<subtype>[;param…];base64,<non-empty payload>`.
+# WHY: base64 is passed through verbatim — no re-encode of a multi-megabyte payload. This pattern is
+# the envelope `data:<type>/<subtype>[;param…];base64,<non-empty payload>`; `parse_data_uri` adds
+# the payload's base64 check. AIDEV-NOTE: the engine copies this exact pattern (conformance tests on
+# both sides) — change it in both apps or not at all.
 _DATA_URI_RE = re.compile(
     r"^data:(?P<mime>[\w.+-]+/[\w.+-]+)(?:;[^;,]*)*;base64,(?P<data>.+)$", re.DOTALL
 )
+# WHY a bound on the part before the first comma (OME-1542 review 2): the envelope regex is linear,
+# but on an 8 MiB header of `;param` segments it still costs ~200 ms per parse. RFC 6838 caps a
+# type and a subtype at 127 characters each; 1 KiB leaves ample room for parameters (`name=…`).
+# INVARIANT: none of the envelope's header classes match a comma, so a header longer than this can
+# never be a data URI the regex accepts within it — checking the bound first changes no outcome
+# for a header that fits.
+_MAX_DATA_URI_HEADER = 1024
 _REMOTE_SCHEMES = ("https://", "http://")
 # WHY: the Chat Completions `image_url.detail` set. Responses also has "original", but a caller
 # speaking Chat Completions cannot send it, so anything outside this set is a malformed request.
@@ -61,6 +71,51 @@ class RemoteImagePart:
 
 
 ContentPart = TextPart | MediaPart | RemoteImagePart
+
+
+@dataclass(frozen=True, slots=True)
+class DataUri:
+    """A validated inline payload: lowercase MIME and the base64 text, verbatim."""
+
+    mime: str
+    data: str
+
+
+def parse_data_uri(value: str) -> DataUri | None:
+    """The ONE `data:` URI validator — the ingress guard and the parser both call it (OME-1542).
+
+    # INVARIANT: accepts exactly the engine-conformant envelope (`_DATA_URI_RE`) whose payload is
+    # non-empty, strictly valid base64 (standard alphabet, correct padding, no whitespace).
+    # INVARIANT: linear-time. The header is bounded before the regex sees it, and the payload is
+    # checked by `binascii` in C, never by a pattern.
+    # WHY decode only to validate: the payload is still carried verbatim; the decoded bytes are
+    # discarded. Measured ~6 ms for an 8 MiB payload.
+    """
+    comma = value.find(",", 0, _MAX_DATA_URI_HEADER + 1)
+    if comma < 0:
+        return None
+    match = _DATA_URI_RE.match(value)
+    if match is None:
+        return None
+    data = match["data"]
+    try:
+        binascii.a2b_base64(data, strict_mode=True)
+    except ValueError:  # binascii.Error, and non-ASCII text
+        return None
+    return DataUri(mime=match["mime"].lower(), data=data)
+
+
+def remote_url_scheme(url: str) -> str | None:
+    """``"http"`` / ``"https"`` for a remote URL in ANY case (RFC 3986 §3.1), else ``None``.
+
+    # WHY shared (OME-1542 review 2): the ingress guard lowercased the scheme and this parser did
+    # not, so `HTTPS://` passed ingress for Codex and was refused after credential resolution.
+    """
+    head = url[:8].lower()
+    for scheme in _REMOTE_SCHEMES:
+        if head.startswith(scheme):
+            return scheme[:-3]
+    return None
 
 
 class UnsupportedContentPart(HTTPException):
@@ -182,16 +237,19 @@ def _parse_image(value: Any, provider: str) -> MediaPart | RemoteImagePart:
     url = value.get("url") if isinstance(value, Mapping) else value
     detail = _image_detail(value, provider)
     if isinstance(url, str):
-        match = _DATA_URI_RE.match(url)
-        if match is not None:
-            mime = match["mime"].lower()
-            if not mime.startswith("image/"):
+        inline = parse_data_uri(url)
+        if inline is not None:
+            if not inline.mime.startswith("image/"):
                 raise UnsupportedContentPart(
-                    provider=provider, part_type="image_url", reason=f"unsupported_mime {mime}"
+                    provider=provider,
+                    part_type="image_url",
+                    reason=f"unsupported_mime {inline.mime}",
                 )
-            return MediaPart(kind="image", mime=mime, data=match["data"], detail=detail)
-        if url.startswith(_REMOTE_SCHEMES):
-            return RemoteImagePart(url, detail=detail)
+            return MediaPart(kind="image", mime=inline.mime, data=inline.data, detail=detail)
+        scheme = remote_url_scheme(url)
+        if scheme is not None:
+            # WHY normalize: the scheme is case-insensitive, and the upstream gets one spelling.
+            return RemoteImagePart(scheme + url[len(scheme) :], detail=detail)
     raise UnsupportedContentPart(
         provider=provider, part_type="image_url", reason="expected a base64 data URI or http(s) URL"
     )
@@ -210,23 +268,22 @@ def _image_detail(value: Any, provider: str) -> str | None:
 
 def _parse_file(value: Any, provider: str) -> MediaPart:
     data = value.get("file_data") if isinstance(value, Mapping) else None
-    match = _DATA_URI_RE.match(data) if isinstance(data, str) else None
-    if match is None:
+    inline = parse_data_uri(data) if isinstance(data, str) else None
+    if inline is None:
         # WHY: `file_id` refers to an OpenAI Files upload, and a URL would need a fetch — the
         # gateway holds neither, so only inline base64 is carried.
         raise UnsupportedContentPart(
             provider=provider, part_type="file", reason="expected base64 file_data"
         )
-    mime = match["mime"].lower()
-    if mime not in _FILE_MIMES:
+    if inline.mime not in _FILE_MIMES:
         raise UnsupportedContentPart(
-            provider=provider, part_type="file", reason=f"unsupported_mime {mime}"
+            provider=provider, part_type="file", reason=f"unsupported_mime {inline.mime}"
         )
     filename = value.get("filename") if isinstance(value, Mapping) else None
     return MediaPart(
         kind="file",
-        mime=mime,
-        data=match["data"],
+        mime=inline.mime,
+        data=inline.data,
         filename=filename if isinstance(filename, str) and filename else None,
     )
 

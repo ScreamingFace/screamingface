@@ -11,7 +11,8 @@
 # retried on a freshly read generation; it surfaces as `WriteConflict("superseded")`.
 # INVARIANT: a refused mutation (rows 3, 4, 11; an inconsistency; a lost fence) writes nothing.
 # WHY no Profile document (OME-1209 E4b): neither mutation writes, removes or reads one; a document
-# left behind, and a blob at its address, stay until E5.
+# left behind, and a blob at its address, stay until the E5 purge. A PUT never adopts such a blob:
+# its new row takes its own address (E5a).
 """
 
 from __future__ import annotations
@@ -41,7 +42,6 @@ from .pair_admin import (
     store_reads,
 )
 from .pair_authority import UNMARKED_GENERATION, PairAuthorityConflict, PairAuthorityStore
-from .profile_admin import DEFAULT_LEGACY_NAME
 from .profile_authorize import invalidate_session
 from .types import CredentialStoreUnavailable, PairNotManageable, ProviderUnknown, WriteConflict
 
@@ -56,12 +56,11 @@ _NOTHING_TO_DELETE = (6, 7)
 class PairMutation:
     """What a committed mutation changed — for the response and the post-commit cleanup.
 
-    `connection_ids` is the pair's captured Connection and `profile_names` the name a PUT minted
-    its row at (§5.2): the pending OAuth flows to drop are exactly the ones naming them.
+    `connection_ids` is the pair's captured Connection: the pending OAuth flows to drop are exactly
+    the ones naming it (§5.2). A row a PUT mints is new, so no flow can name it.
     """
 
     credential: PairCredential | None
-    profile_names: tuple[str, ...] = ()
     connection_ids: tuple[str, ...] = ()
 
 
@@ -100,13 +99,10 @@ async def set_pair_api_key(
             capture.plugin,
             pair=marker,
             reuse=disposition.connection,
-            name=DEFAULT_LEGACY_NAME,
             raw_api_key=raw_api_key,
             expected_live=capture.live,
         )
-    return PairMutation(
-        connection_credential(connection), (DEFAULT_LEGACY_NAME,), _ids(disposition)
-    )
+    return PairMutation(connection_credential(connection), _ids(disposition))
 
 
 async def delete_pair(app: Any, account_id: str, provider: str) -> PairMutation:
@@ -125,7 +121,7 @@ async def delete_pair(app: Any, account_id: str, provider: str) -> PairMutation:
     for credential_name in evicted:
         invalidate_session(capture.plugin, credential_name)
         credential_strategy_cache(app).evict(credential_name)
-    return PairMutation(None, (), _ids(disposition))
+    return PairMutation(None, _ids(disposition))
 
 
 async def _delete_in_transaction(app: Any, capture: _Capture, evicted: list[str]) -> None:

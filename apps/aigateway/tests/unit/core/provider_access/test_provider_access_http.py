@@ -95,19 +95,6 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
         {"code": "connection_conflict", "message": "Connection changed during auth-type repair"},
     ),
     (
-        WriteConflict("superseded", subject="profile", provider="anthropic", requested="work"),
-        409,
-        {"code": "profile_conflict", "provider": "anthropic", "profile": "work"},
-    ),
-    (
-        WriteConflict("retry_exhausted", subject="profile"),
-        503,
-        {
-            "code": "profile_index_conflict",
-            "message": "Profile metadata update conflicted. Try again.",
-        },
-    ),
-    (
         SelectorUnsupported(),
         400,
         {

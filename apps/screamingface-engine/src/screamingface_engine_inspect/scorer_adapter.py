@@ -26,7 +26,8 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               state their scorer expects. Keyed off the MATERIAL's shape, never off
               which scorer — still zero per-scorer branches. A conversation Case (its
               input is the candidate-input envelope, OME-1527 R14) is opened back into
-              its turns, so the scorer reads the chat the Candidate was shown. The reply
+              its turns, so the scorer reads the chat the Candidate was shown (a v2
+              picture as inspect's ``ContentImage``, OME-1271). The reply
               carries why the Candidate's model stopped, in inspect's words
               (:func:`_stop_reason`), so a scorer can tell a reply cut off by the token
               limit from a finished one.
@@ -70,6 +71,10 @@ from inspect_ai.model import (
     ChatMessageAssistant,
     ChatMessageSystem,
     ChatMessageUser,
+    Content,
+    ContentDocument,
+    ContentImage,
+    ContentText,
     ModelOutput,
     StopReason,
 )
@@ -81,6 +86,11 @@ from inspect_ai.solver._multiple_choice import (
     set_choices_based_on_generated_response,
 )
 
+from screamingface_engine.benchmarks.candidate_input import (
+    CandidateMessage,
+    ContentPart,
+    FileData,
+)
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CaseGradeOutcome,
@@ -585,7 +595,7 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
     choices: list[str] | None = _choices(material)
     # WHY two builds of the chat: inspect keeps the Sample's input and the running messages
     # as separate lists, so a scorer that edits one never edits the other.
-    conversation: list[dict[str, str]] | None = conversation_messages(input_text)
+    conversation: list[CandidateMessage] | None = conversation_messages(input_text)
     state = TaskState(
         model=_CANDIDATE_MODEL,  # type: ignore[arg-type]  # ModelName is a str alias at runtime
         sample_id=int(request.case_id),
@@ -648,7 +658,7 @@ def _stop_reason(finish_reason: str | None) -> StopReason:
     return as_stop_reason(finish_reason)
 
 
-def _chat(conversation: list[dict[str, str]]) -> list[ChatMessage]:
+def _chat(conversation: list[CandidateMessage]) -> list[ChatMessage]:
     """A conversation Case's turns as the inspect messages a Sample would have held."""
 
     kinds: dict[str, type[ChatMessageSystem | ChatMessageUser | ChatMessageAssistant]] = {
@@ -656,7 +666,37 @@ def _chat(conversation: list[dict[str, str]]) -> list[ChatMessage]:
         "user": ChatMessageUser,
         "assistant": ChatMessageAssistant,
     }
-    return [kinds[turn["role"]](content=turn["content"]) for turn in conversation]
+    return [
+        kinds[turn["role"]](
+            content=turn["content"]
+            if isinstance(turn["content"], str)
+            else [_content(part) for part in turn["content"]]
+        )
+        for turn in conversation
+    ]
+
+
+def _content(part: ContentPart) -> Content:
+    """One v2 part as inspect's own content type, so a picture stays a picture.
+
+    FEATURE (OME-1271): the scorer reads the chat in inspect's types, as under ``eval()``:
+    ``{"type": "image_url", "image_url": {"url": "data:image/png;base64,…"}}`` →
+    ``ContentImage(image="data:image/png;base64,…")``. inspect's ``text`` and ``input_text``
+    read only the text parts, so the base64 never lands in what a judge prompt quotes.
+    """
+
+    if part["type"] == "text":
+        return ContentText(text=part["text"])
+    if part["type"] == "image_url":
+        return ContentImage(
+            image=part["image_url"]["url"], detail=part["image_url"].get("detail", "auto")
+        )
+    file: FileData = part["file"]
+    return (
+        ContentDocument(document=file["file_data"], filename=file["filename"])
+        if "filename" in file
+        else ContentDocument(document=file["file_data"])
+    )
 
 
 def _text(payload: CasePayload, label: str) -> str:
