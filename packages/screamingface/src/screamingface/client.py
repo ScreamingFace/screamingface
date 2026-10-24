@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from screamingface._analytics.tracking import tracked
 from screamingface._client_connections import (
     _AuthListeners,
     _connect_async,
@@ -110,6 +111,7 @@ class Client:
         self.leaderboards: Leaderboards = Leaderboards(
             self._scoreboard_request,
             self._scoreboard_url,
+            analytics_engine_url=self._engine_url,
         )
 
     @property
@@ -268,6 +270,7 @@ class Client:
         progress: bool | None = None,
     ) -> Report: ...
 
+    @tracked("evaluation")
     def evaluate(
         self,
         candidates: Recipe | Sequence[Recipe] | str | None = None,
@@ -426,8 +429,10 @@ class Client:
         if provider is None:
             if api_key is not None or method is not None:
                 raise TypeError("provider is required when api_key or method is supplied")
+            from screamingface._analytics.prompt import offer
             from screamingface._ui.connections import ConnectionPanel
 
+            offer()
             return ConnectionPanel(self)
         _require_secure_connection_origin(self._engine_url)
         return _connect_sync(self.connections, provider, api_key, method)
@@ -564,6 +569,7 @@ class AsyncClient:
         self.leaderboards: AsyncLeaderboards = AsyncLeaderboards(
             self._scoreboard_request,
             self._scoreboard_url,
+            analytics_engine_url=self._engine_url,
         )
 
     @property
@@ -722,6 +728,7 @@ class AsyncClient:
         progress: bool | None = None,
     ) -> Report: ...
 
+    @tracked("evaluation")
     async def evaluate(
         self,
         candidates: Recipe | Sequence[Recipe] | str | None = None,
