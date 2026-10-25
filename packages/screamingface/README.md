@@ -1323,3 +1323,106 @@ streaming Cases and cache that context beside a saved Case index on first use. W
 disclosures reuse the cache without decoding Cases; missing, stale or malformed caches
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
 materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.
+
+## Optional analytics (dev preview)
+
+Analytics is off until you explicitly opt in. In local Python or Jupyter:
+
+```python
+import screamingface as sf
+
+sf.analytics.enable()  # Remember consent for this OS user
+sf.analytics.status()  # Inspect consent and effective state
+sf.analytics.disable()  # Stop sending and remove the local identifier
+sf.analytics.reset_identifier()  # Start a new identifier without linking it
+```
+
+The equivalent commands are `screamingface analytics status`, `enable`, `disable`
+and `reset-id`. They do not start local runtime services. `sf.analytics.enable(persist=False)`
+accepts for this process only when you do not want persistent preferences.
+`sf.analytics.disable(process_only=True)` stops this process without changing the saved choice.
+A truthy `DO_NOT_TRACK` overrides acceptance. Noninteractive use never prompts.
+
+Explicit interactive `sf.connect()` setup shows a nonblocking notice if no choice
+is saved. Continue without choosing to leave analytics off; the notice does not
+wait for input or run during evaluation. Saved choices have no scheduled re-prompt.
+
+Preferences live in `~/.screamingface/analytics.json`, or the explicit
+`SCREAMINGFACE_ANALYTICS_CONFIG` path. This is independent of runtime `--data-dir`,
+virtual environments and project directories. Writes are atomic and owner-only;
+unreadable or malformed preferences disable collection. Failed preference writes
+raise an error rather than claiming consent was saved.
+
+The four events are `evaluation_started`, `evaluation_finished`,
+`submission_started` and `submission_finished`. They contain random installation,
+session and operation IDs, SDK version, Python/Jupyter origin, sync/async interface,
+recipe/raw-URL4/submission workflow, outcome and coarse duration. For the current
+release, local engines map to BYOK and remote engines to hosted. No prompts,
+responses, scores, provider/model names, execution IDs, credentials or email are sent.
+
+An installation ID is shared by processes using the same preference file; a session
+ID is created lazily per process/kernel. Opt-out or identifier reset also invalidates
+the active session so replacement identifiers cannot be joined through it. These
+identifiers measure consenting installations/sessions, not verified people.
+
+The SDK defaults to `https://analytics.screamingface.ai`. Set
+`SCREAMINGFACE_ANALYTICS_ENDPOINT` to an HTTPS origin **before first analytics use**
+to select another deployment, for example:
+
+```bash
+export SCREAMINGFACE_ANALYTICS_ENDPOINT=https://analytics.dev.screamingface.ai
+# For staging: https://analytics.staging.screamingface.ai
+```
+
+Restart the process/kernel to change destinations. This setting is independent of
+the engine URL; there is no automatic detection or fallback to another deployment.
+The selected service owns the PostHog project configuration; the SDK needs no
+PostHog token. Local consent remains installation-wide, so use a separate
+`SCREAMINGFACE_ANALYTICS_CONFIG` file for isolated test consent/identifiers.
+Native delivery posts to `/v1/events`, without product credentials or cookies. Delivery has a memory-only queue capped at 100 pending events, at most two
+attempts per event and a two-second total delivery budget. It never waits for HTTP
+in evaluation, never waits for delivery at shutdown, and may lose events. Consent
+is rechecked before dispatch and retry; already dispatched requests can complete
+after opt-out. There is no durable event spool.
+
+In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in a
+background worker. Unknown consent shows the same nonblocking disclosure. Use
+`sf.analytics.enable()` to accept: it waits up to three seconds for confirmed browser
+consent and a usable ID, then prints `Analytics enabled.` or
+`Couldn't enable analytics; tracking remains off.` It returns `None`, so notebooks show only the confirmation message. Use
+`sf.analytics.status()` for programmatic checks and detailed state. After successful return, the next evaluation
+can be tracked without a separate polling cell. A timed-out acceptance is cancelled
+locally so a late response cannot silently enable tracking.
+
+Automatic setup and event delivery remain nonblocking. `sf.analytics.disable()`
+stops local tracking immediately and returns `None`. It prints `Analytics disabled.`
+and, while browser persistence is pending, `Saving your choice in the browser.`
+Use `sf.analytics.status()` to inspect `pending` until acknowledged. Operations begun before consent is
+confirmed are skipped, never replayed retroactively.
+
+Colab uses the selected service's `/bridge/consent` iframe and cookie-checked
+`/bridge/id/events` route. The runtime never receives the cookie itself or sends
+events directly to `/v1/events`. The status has `scope="browser"` and an anonymous
+`persistent_id`; `installation_id` is absent in meaning (`None`). No local consent
+file is used. `persist=False` is unsupported in Colab because the server requires
+browser consent for every batch. Process-only disable does not alter remembered
+browser consent; normal disable requests a persisted decline. DNT suppresses all
+requests, including decline persistence, so it cannot clear existing browser cookies.
+
+The Colab queue holds at most 100 events, with one daemon worker and no retry.
+Each initialization or control sequence shares a two-second Python budget, with
+a shorter browser deadline for each command. Consent, DNT and cancellation are
+rechecked before follow-on commands, including ID retrieval.
+Blocked storage or browser errors fail closed; there is no runtime HTTP fallback.
+Late replies cannot re-enable the kernel after opt-out. Already-dispatched requests
+may complete; successful persisted decline prevents subsequent bridge delivery.
+Cookie continuity is per browser profile/Colab partition, not cross-browser identity.
+Safari may show a first-run Colab JavaScript-output warning, also reproduced without
+this bridge. Real Colab background-worker verification remains a release gate.
+
+There is no identity linking. Events follow PostHog-managed retention under the
+selected plan; ScreamingFace does not promise a fixed raw-event deletion deadline.
+A query retention window is not a guarantee of physical deletion, and session
+recording retention does not control these events. Disabling or resetting an
+identifier does not delete previously accepted events. Production rollout still
+requires verified IP handling and a historical-deletion procedure.
