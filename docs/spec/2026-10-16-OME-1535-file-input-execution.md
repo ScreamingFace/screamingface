@@ -208,7 +208,8 @@ contexts) byte-identical for text-only runs and removes any ambiguity between da
 
 ### F3 — Canonical part identity and run scope
 
-**Decision.** There is **one request-identity authority, everywhere** (owner, review round 4): the
+**Decision.** F3 defines **the engine's own request identity** (owner, review round 4; scope narrowed in the
+[#1450 F3 thread][f3-thread]): the engine
 model request key ([`E/request_identity.py:13-33`][e-key]) hashes the **canonical ordered content-part
 list** plus the model, the params and the **adapter revision** of the connector that builds the parts.
 Every input form is normalized to that list **before keying**: url4 `attachments[]` merged by D3, and a
@@ -240,11 +241,24 @@ read that builds a part). A mismatch is `x.blob_digest_mismatch`, permanent.
 3. read the bytes and verify sha256 (otherwise `x.blob_digest_mismatch`); v2 Case parts are decoded
    and hashed here;
 4. derive the canonical part list;
-5. only then form the request key and consult the model-result cache or a frozen copy.
+5. only then form the engine request key and send the request to the gateway.
 
-A caller who knows an out-of-scope digest therefore cannot form, let alone hit, a model-result key:
-step 2 fails first. Tests pin this order for a hit and a miss: an out-of-scope digest whose key is
-already cached returns `source_not_found` and never reads the cache or the frozen copy.
+The engine key is the grading-accounting join key (cited at `main` `3f2b3a6ef`: [`E/operation_calls.py:138`][e-opkey],
+[`E/grading_accounting.py:79`][e-gradkey]); it does **not** decide gateway cache hits. The model-result
+cache and frozen copies are keyed in the gateway from the raw request body
+([`G/core/request_cache/global_keys.py:265`][g-cachekey]), so equal files share one gateway entry only
+through the canonical-encoding rule below. A caller who knows an out-of-scope digest therefore cannot
+form an engine key or send a request that could hit the gateway cache: step 2 fails first. Tests pin
+this order for a cached and an uncached request: an out-of-scope digest whose request is already in the
+gateway cache returns `source_not_found` and sends no gateway request.
+
+**Canonical encoding (normative).** Every `data:` URI the engine connector sends, for url4
+`attachments[]` and for v2 Case parts alike, is built from the **stored bytes** as
+`data:<media-type>;base64,<payload>`: the payload is standard base64 (RFC 4648 §4 alphabet, padded, no
+line breaks or whitespace), the media type is lowercased, and no other parameters are present. The
+connector re-encodes a v2 Case part from its decoded bytes rather than forwarding the importer's
+spelling. Equal files therefore produce byte-identical gateway request bodies and share one gateway
+cache entry; the gateway is unchanged. For Case parts this applies to #1550 (khoaguin, `OME-1271`).
 
 ### F4 — "Today" is the stated snapshot
 
@@ -325,7 +339,8 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
      (`OME-1540`) and appended to `attachments[]` at its source position; a text body stays text and is exempt from D5.
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
-   `data:` URI); v2 envelope parts already have that shape. It is the only shape the gateway sees. The
+   `data:` URI in F3's canonical encoding); v2 envelope parts already have that shape and are
+   re-encoded the same way. It is the only shape the gateway sees. The
    gateway never fetches.
 2. **Run-scoped, verified bytes.** Every node, retry and nested local expression in the run reads the same
    stored bytes, verified on every read (F3).
@@ -444,6 +459,10 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [e-case]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/benchmarks/case_request.py#L13-L31
 [e-text]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/world/connector.py#L1535
 [e-msgs]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/world/connector.py#L1478
+[e-opkey]: https://github.com/ScreamingFace/screamingface/blob/3f2b3a6efacf9b9b4604de49f49b69130b36a847/apps/screamingface-engine/src/screamingface_engine/operation_calls.py#L138
+[e-gradkey]: https://github.com/ScreamingFace/screamingface/blob/3f2b3a6efacf9b9b4604de49f49b69130b36a847/apps/screamingface-engine/src/screamingface_engine/grading_accounting.py#L79-L84
+[g-cachekey]: https://github.com/ScreamingFace/screamingface/blob/3f2b3a6efacf9b9b4604de49f49b69130b36a847/apps/aigateway/src/aigateway/core/request_cache/global_keys.py#L265-L290
+[f3-thread]: https://github.com/ScreamingFace/screamingface/pull/1450#discussion_r4374599917
 [e-key]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/request_identity.py#L13-L33
 [e-nltk]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/benchmarks/nltk_data.py#L38
 [p-fusion]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/screamingface/src/screamingface/_evaluation/candidate.py#L358

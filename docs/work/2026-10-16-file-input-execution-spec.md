@@ -91,3 +91,12 @@ with the 2026-10-16 live evidence. Docs only.
   attachments; a request with no non-text part keeps today's key (adapter revision enters only
   multimodal keys, so text keys and frozen copies stay valid); new codes travel with the url4 `x.`
   prefix until Spec C adopts them.
+- **F3 scope narrowed (2026-10-26, Sergey's reply to khoaguin's inline F3 comment on #1450):** F3 is the
+  engine's own request identity. Step 5 no longer implies the engine key decides gateway cache hits: the
+  model-result cache and frozen copies are keyed in the gateway from the raw body (`global_keys.py`);
+  the engine key is the grading-accounting join key (`operation_calls.py:138`,
+  `grading_accounting.py:79`), cited at `main` `3f2b3a6ef`. New normative **canonical encoding** rule:
+  every `data:` URI the connector sends (url4 attachments and v2 Case parts) is rebuilt from stored bytes
+  as padded RFC 4648 §4 base64 with no whitespace, a lowercased media type and no extra parameters, so
+  equal files share one gateway cache entry with no gateway change; applies to #1550 (`OME-1271`) for
+  Case parts. Adapter revision still enters the key only with a non-text part.
