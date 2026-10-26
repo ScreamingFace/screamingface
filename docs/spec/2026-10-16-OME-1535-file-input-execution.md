@@ -5,9 +5,10 @@ Owner decisions F1–F4 locked by Sergey on 2026-10-21 (§2); his follow-up deci
 same day are folded into F1 and F2, and his review-round-4 decisions (C6 disabled in v1; one
 canonical request identity) into F1b, F3 and §2.7.
 
-**Snapshot.** Every "today" claim and every `file:line` citation is pinned to `main` at
-[`ec4b632b2`][snap] (2026-10-21, after #1447). Citations are commit-qualified links, so they stay
-valid when the files move. Short prefixes: `U/` = `packages/url4/src/url4/`,
+**Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
+#1447), and so is every `file:line` citation unless its link names another commit: the F3
+gateway-cache and engine-key links are pinned to `3f2b3a6ef`. Citations are commit-qualified links,
+so they stay valid when the files move. Short prefixes: `U/` = `packages/url4/src/url4/`,
 `E/` = `apps/screamingface-engine/src/screamingface_engine/`,
 `I/` = `apps/screamingface-engine/src/screamingface_engine_inspect/`,
 `P/` = `packages/screamingface/src/screamingface/`, `G/` = `apps/aigateway/src/aigateway/`.
