@@ -32,7 +32,7 @@ sit in unless stated.
   recorded result ([branch-core](prd/branch-core.md) D12).
 - Bodies are inline: a recipe body's sources sit in the iterate body text (no `MEMBER_ROUTE`), so
   their calls reach the Case recorder ([branch-core](prd/branch-core.md) D1). Every call inside a
-  body, and every call under `sf.Budget`, carries `binding=<name>` first (D3). A body references
+  body, and every call under `sf.Budgeted`, carries `binding=<name>` first (D3). A body references
   only bindings that run unconditionally in an enclosing scope: the Gate input, the tree's KEYWORDS
   source, hoisted LabelModel selectors, the panel members and the decision call (D5, compile-time
   check). A step body that is the decision call's own reducer has no iterate: JOIN reads the

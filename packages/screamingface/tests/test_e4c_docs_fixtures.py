@@ -97,13 +97,13 @@ def d7_manager_subset() -> sf.Recipe:
 
 
 def d8_budget_choice() -> sf.Recipe:
-    return sf.Budget(
+    return sf.Budgeted(
         sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), usd=0.05
     )
 
 
 def d9_budget_cap() -> sf.Recipe:
-    return sf.Budget(d4_cope_cascade(), usd=0.05)
+    return sf.Budgeted(d4_cope_cascade(), usd=0.05)
 
 
 def d10_adaptive_sampling() -> sf.Recipe:

@@ -175,6 +175,12 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   not change. The names `sf.Budget` (the recipe wrapper) and `sf.budget.Budget` (the E4a record)
   stay; this is an owner question. 16 closed: `_install_engine_runtimes` stays, because
   `build_world` with the four calls inline has 27 statements and ruff PLR0915 allows 26.
+- 2026-10-26: finding 14 (names) closed. The owner chose to rename the recipe wrapper:
+  `sf.Budget` is now `sf.Budgeted`. The E4a record `sf.budget.Budget`, `sf.budget.remaining()`,
+  `sf.Estimate` and every wire and schema name do not change. E4c is not released, so there is
+  no alias. The spec, the plan, the README, example 19, the CHANGELOG and the tests use the new
+  name. The public surface snapshot changes, and the PIN manifest approves it again. The Log
+  entries above keep the old name, because they record what happened.
 
 ## Outcome
 
@@ -188,8 +194,8 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   screamingface-engine` green after the build and the simplify pass (after `uv sync --dev`); the
   bug-fix pass changed no Engine file, and the Engine's E4c tests pass on it (1328 passed).
 - **Deviations:** (1)–(16) in the Log. Design-review findings 12 and 14 (the singleton) are
-  fixed and 16 is closed (Log 2026-10-26). The public names `sf.Budget` vs `sf.budget.Budget`
-  (finding 14) are an owner question.
+  fixed and 16 is closed (Log 2026-10-26). Finding 14 (names) is closed: the owner renamed the
+  recipe wrapper to `sf.Budgeted`.
 - **Follow-ups (not filed):** the Engine could record the refused body's first operation in
   `gate-decision.v1`, so the refusal row does not read it from the graph shape (it relies on the
   Gate's then-before-otherwise dependency order); a failed Case keeps no operations (deviation 4,

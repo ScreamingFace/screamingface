@@ -80,7 +80,7 @@ def _model_route(value: object) -> str:
 
 
 OPTIONAL_MEMBERS_ONLY = "optional=True is only supported on sf.Fanout members"
-_BU11 = "sf.Budget wraps the whole candidate: use it once, at the root"
+_BU11 = "sf.Budgeted wraps the whole candidate: use it once, at the root"
 
 
 def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recipe:
@@ -97,7 +97,7 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
     from screamingface._surface.chain import refuse_step
 
     refuse_step(value)
-    if type(value).__name__ == "Budget":
+    if type(value).__name__ == "Budgeted":
         raise ValueError(_BU11)  # BU-11
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route, a sf.Model or a sf.Pipeline")

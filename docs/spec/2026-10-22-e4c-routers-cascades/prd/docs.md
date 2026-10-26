@@ -99,7 +99,7 @@ list, and the docstrings above rewritten to the shipped behavior.
   | `d6_first_success` | OME-1465 first branch to succeed | `sf.Cascade([a, b, c])` with failure escalation, no condition beyond "answered" |
   | `d7_manager_subset` | Team of Thoughts, SMART-D, set-valued routing | `sf.Fanout([sf.Gate(when=sf.labels(sel).has("x"), then=agent_x), …]) >> sf.Synthesize(writer)` |
   | `d8_budget_choice` | OmniRouter, RouterBench willingness-to-pay | `sf.Gate(when=sf.budget.remaining() >= 0.02, then=large, otherwise=small)` |
-  | `d9_budget_cap` | MTRouter / VineLM cap | `sf.Budget(d4_cope_cascade, usd=0.05)` |
+  | `d9_budget_cap` | MTRouter / VineLM cap | `sf.Budgeted(d4_cope_cascade, usd=0.05)` |
   | `d10_adaptive_sampling` | ACAR, OME-1630 | `sf.Cascade([sf.Fanout(sf.samples(m, 2)) >> sf.Vote(), sf.Fanout(sf.samples(m, 5, seeds=range(2, 7))) >> sf.Vote()], escalate_if=sf.agreement() < 1.0)` (fresh seeds, so no `CascadeSeedWarning`, [cascade](cascade.md) CA-11, CA-23) |
 
   Exact argument names follow the flow PRDs; this table fixes only the recipe names and shapes.
@@ -135,7 +135,7 @@ list, and the docstrings above rewritten to the shipped behavior.
   rule name) are gone; (2) the E4b gate fallback now runs only when the gate takes it, so cost and
   operation lists change for gated recipes. `### Features` has one bullet each for nested-Gate
   routing with `sf.Keywords` / `sf.LabelModel`, `sf.Cascade`, skip-Gate Fanout members, guards and
-  `fail_closed`, `sf.Budget` + `sf.budget.remaining()`, and the report "Branches" section. One
+  `fail_closed`, `sf.Budgeted` + `sf.budget.remaining()`, and the report "Branches" section. One
   bullet names the new failure code `fail_closed` and the abstain reason `budget_refused`, and says
   that the SDK release with both words ships before the Engine (OME-1233). E4c bullets go first in
   their sections (E4b precedent: commit `ea90188c1`). [proposed — gap §per-connection/dependency]

@@ -1455,12 +1455,12 @@ d7_manager_subset = sf.Fanout(
     ]
 ) >> sf.Synthesize("prov/writer")
 
-# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.Budget root.
-d8_budget_choice = sf.Budget(
+# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.Budgeted root.
+d8_budget_choice = sf.Budgeted(
     sf.Gate(when=sf.budget.remaining() >= 0.02, then=large, otherwise=small), usd=0.05
 )
 # A cost cap per Case (MTRouter, VineLM) around the d4 cascade.
-d9_budget_cap = sf.Budget(d4_cope_cascade, usd=0.05)
+d9_budget_cap = sf.Budgeted(d4_cope_cascade, usd=0.05)
 
 # Adaptive sampling (ACAR): two samples; five new samples only when the two do not agree.
 d10_adaptive_sampling = sf.Cascade(
@@ -1495,13 +1495,13 @@ What each outcome means:
 
 The budget:
 
-- `sf.Budget(recipe, usd=..., tokens=...)` wraps the whole candidate, one time, at the root. The
+- `sf.Budgeted(recipe, usd=..., tokens=...)` wraps the whole candidate, one time, at the root. The
   cap is for one Case, and the SDK writes it one time, on the candidate.
 - Before each call that a Gate can skip, the Engine adds the spend of the calls that already ran
   and the branch's `sf.Estimate(branch, usd=...)`. When the sum is more than the cap, the branch
   is not sent, and the report shows `budget_refused`. A call that always runs is never refused.
 - `sf.budget.remaining()` is what the cap has left after the calls that already ran. A Gate that
-  reads it with no `sf.Budget` raises `ValueError` before any call.
+  reads it with no `sf.Budgeted` raises `ValueError` before any call.
 - A call with an unknown cost counts as $0 against a USD cap, and the report warns.
 
 Limits:

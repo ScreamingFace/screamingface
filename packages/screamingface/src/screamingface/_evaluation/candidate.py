@@ -40,7 +40,7 @@ from screamingface._evaluation.topology import (
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
-from screamingface._surface.budget import Budget
+from screamingface._surface.budget import Budgeted
 from screamingface._surface.lowering import lower
 from screamingface._surface.selectors import LabelModel
 from screamingface.branch import GATE_IN_LOOP, BranchNode, LazyDecision, _is_skip_member
@@ -266,8 +266,8 @@ class _CandidateCompiler:
         # and the member Gate being compiled now.
         self._hoist: list[Node] | None = None
         self._skip_member: int | None = None
-        # E4c budget: the candidate's sf.Budget (every call then carries its binding param).
-        self._budget: Budget | None = None
+        # E4c budget: the candidate's sf.Budgeted (every call then carries its binding param).
+        self._budget: Budgeted | None = None
 
     @property
     def claims(self) -> Mapping[CallFingerprint, int]:
@@ -290,7 +290,7 @@ class _CandidateCompiler:
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
             raise ValueError(OPTIONAL_MEMBERS_ONLY)
-        if isinstance(recipe, Budget):
+        if isinstance(recipe, Budgeted):
             # BU-1 (ans:Q19): the one cap of the candidate; the inner recipe compiles as usual.
             self._budget, recipe = recipe, recipe.recipe
         # Corrective loops are ROOT-ONLY by construction (member/judge positions

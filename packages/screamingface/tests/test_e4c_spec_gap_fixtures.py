@@ -37,7 +37,7 @@ def guard_floor_refused() -> object:
         then=sf.Estimate(specialists, usd=0.01),
         otherwise=router,
     )
-    return sf.Budget(floor, usd=0.0015)
+    return sf.Budgeted(floor, usd=0.0015)
 
 
 def _consistency_vote(otherwise: object) -> object:

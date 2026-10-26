@@ -133,7 +133,7 @@
 
 * **screamingface:** guard a recipe and fail closed (E4c, `OME-1291`). `then="fail_closed"` fails the Case with the code `fail_closed` when a guard label holds; no model runs after the Gate. A guard reads a label (`sf.Keywords` or `sf.LabelModel`), never Python code.
 
-* **screamingface:** cap the spend of each Case (E4c, `OME-1291`). `sf.Budget(recipe, usd=..., tokens=...)` wraps the whole candidate one time, at the root, and the SDK writes the cap one time, on the candidate. Before each call that a Gate can skip, the Engine adds the spend so far and the branch's `sf.Estimate(branch, usd=...)`; a branch that would pass the cap is not sent. `sf.Gate(when=sf.budget.remaining() >= 0.02, ...)` reads what the cap has left. A call with an unknown cost counts as $0 against a USD cap, and the report warns.
+* **screamingface:** cap the spend of each Case (E4c, `OME-1291`). `sf.Budgeted(recipe, usd=..., tokens=...)` wraps the whole candidate one time, at the root, and the SDK writes the cap one time, on the candidate. Before each call that a Gate can skip, the Engine adds the spend so far and the branch's `sf.Estimate(branch, usd=...)`; a branch that would pass the cap is not sent. `sf.Gate(when=sf.budget.remaining() >= 0.02, ...)` reads what the cap has left. A call with an unknown cost counts as $0 against a USD cap, and the report warns.
 
 * **screamingface:** show each Gate in the report (E4c, `OME-1291`). The Case pane has a "Branches" section for every Gate that ran: the condition, the label or number it read, the branch it took, and each branch that did not run, with its reason (`not_selected` or `budget_refused`). Each Candidate card has a summary of the branches over the Cases, and `report.export()` adds the decision record of each Gate.
 

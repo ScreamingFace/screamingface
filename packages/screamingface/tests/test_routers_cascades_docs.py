@@ -283,7 +283,7 @@ def test_changelog_unreleased_has_the_breaking_and_feature_bullets_first() -> No
         "`sf.Cascade(",
         "skip a `sf.Fanout` member with a Gate",
         '`then="fail_closed"`',
-        "`sf.Budget(",
+        "`sf.Budgeted(",
         "sf.budget.remaining()",
         '"Branches"',
     ):

@@ -176,7 +176,7 @@ def _recipe(value: Recipe, prefix: str) -> str:  # noqa: PLR0911
         return _call(prefix, "SelfCorrective", arguments)
     rendered = getattr(value, "_render", None)
     if rendered is not None:
-        return str(rendered(prefix))  # E4c sf.Budget: the wrapper and its recipe, prefixed
+        return str(rendered(prefix))  # E4c sf.Budgeted: the wrapper and its recipe, prefixed
     # A Model, or an internal node in a chain (only built by hand): its own repr.
     return prefix + repr(value)
 

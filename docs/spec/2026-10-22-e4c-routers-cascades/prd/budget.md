@@ -81,11 +81,11 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
 
 ### 3.1 Happy path
 
-- **BU-1 One cap on the candidate.** Given `sf.Budget(recipe, usd=0.05)`, When the candidate
+- **BU-1 One cap on the candidate.** Given `sf.Budgeted(recipe, usd=0.05)`, When the candidate
   compiles, Then the url4 candidate source carries the typed budget annotation `usd=0.05` and the
   execution annotation `;budget_mode=advisory`, and no other source carries a budget.
   [stated ans:Q19; proposed annotation form]
-- **BU-2 Both units.** Given `sf.Budget(recipe, usd=0.05, tokens=20000)`, Then the source carries
+- **BU-2 Both units.** Given `sf.Budgeted(recipe, usd=0.05, tokens=20000)`, Then the source carries
   both keys and every decision checks both; a branch is refused when either unit refuses.
   [stated ans:Q3; proposed "either refuses"]
 - **BU-3 Optional call allowed.** Given a cap of $0.05, spend so far $0.01 and a branch estimate
@@ -133,19 +133,19 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
   first decision sees `spent = 0.04 > cap`, refuses any wanted branch that makes a call, and the
   budget view shows the over-cap spend; the Case does not fail. [stated epic; proposed —
   `budget_mode=advisory`]
-- **BU-11 Budget not at the root.** Given `sf.Budget(...)` used as a Pipeline stage, a branch
-  body, a Fanout member or a nested Budget, When the SDK builds it, Then it raises "sf.Budget
+- **BU-11 Budget not at the root.** Given `sf.Budgeted(...)` used as a Pipeline stage, a branch
+  body, a Fanout member or a nested Budget, When the SDK builds it, Then it raises "sf.Budgeted
   wraps the whole candidate: use it once, at the root". [stated ans:Q19]
 - **BU-12 `sf.budget.remaining()` with no Budget.** Given a Gate that reads
-  `sf.budget.remaining()` in a candidate with no `sf.Budget`, When the candidate compiles, Then it
-  raises "sf.budget.remaining() needs sf.Budget(...) on the candidate". [proposed]
-- **BU-13 Ambiguous unit.** Given `sf.Budget(recipe, usd=…, tokens=…)` and a Gate reading
+  `sf.budget.remaining()` in a candidate with no `sf.Budgeted`, When the candidate compiles, Then it
+  raises "sf.budget.remaining() needs sf.Budgeted(...) on the candidate". [proposed]
+- **BU-13 Ambiguous unit.** Given `sf.Budgeted(recipe, usd=…, tokens=…)` and a Gate reading
   `sf.budget.remaining()` with no unit, Then it raises "name the unit: sf.budget.remaining('usd')
   or ('tokens')"; with one declared unit the argument is optional. [proposed]
 - **BU-14 Invalid caps and estimates.** Given a cap ≤ 0, NaN, infinite, a non-integer tokens cap,
   no unit at all, or an estimate < 0 / non-finite / non-integer for tokens, Then the SDK refuses
   with the E4a cap messages (`E/budget.py:42-46`); an estimate in a unit the Budget does not
-  declare is refused ("sf.Estimate names usd, but sf.Budget declares only tokens"). [existing cap
+  declare is refused ("sf.Estimate names usd, but sf.Budgeted declares only tokens"). [existing cap
   rules; proposed estimate rules]
 - **BU-15 Engine refuses a stray annotation.** Given a hand-written url4 with a typed budget on a
   non-candidate source, or a candidate budget key other than `usd`/`tokens`, When the Case starts,
@@ -174,7 +174,7 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
 
 - Decimal fold in `DECIMAL_CONTEXT`, never float sums (`E/budget.py:98-115`) [existing].
 - One pass: DECIDE indexes `current_operation_calls()` by fingerprint (path, params) once;
-  O(ancestors). Under `sf.Budget` every call carries the `binding` param, so each ancestor
+  O(ancestors). Under `sf.Budgeted` every call carries the `binding` param, so each ancestor
   fingerprint has one claimant ([branch-core](branch-core.md) D3, D7) [proposed].
 - Determinism: the budget view is a pure function of the ancestor list and the recorded accounting
   with reference costs; no clock, no run-level state (per Case only, ans:Q13) [implied].
@@ -245,4 +245,4 @@ Pinned files this PRD expects to touch (owner approval at build time): the Engin
 freeze snapshot (`budget_schemas()` output) and the SDK `S/budget.py` stage list test; the SDK
 answer schema `ST/data/schemas/screamingface.answer.v1.json` and the combine-evidence v1 schema
 snapshot for the abstain reason `budget_refused`; `ST/public_surface_snapshot.json` for
-`sf.Budget`, `sf.Estimate`, `sf.budget`.
+`sf.Budgeted`, `sf.Estimate`, `sf.budget`.

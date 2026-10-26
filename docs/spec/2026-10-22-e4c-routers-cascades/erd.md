@@ -62,7 +62,7 @@ Canonical JSON (keys sorted, `S/_evaluation/combine_spec.py` canonical writer ru
   [stated ans:Q16].
 - `estimate` is the author's declared estimate for each recipe branch, or null [stated ans:Q3].
 - `ancestors` lists the call fingerprints (path, sorted params) upstream of DECIDE whose charges
-  the budget ledger counts (§5). Under `sf.Budget` every call carries the `binding` param, so a
+  the budget ledger counts (§5). Under `sf.Budgeted` every call carries the `binding` param, so a
   fingerprint has one claimant ([branch-core](prd/branch-core.md) D3, D7) [proposed].
 - `terminal` names the terminal binding of each recipe body (its last source: a model call, a
   combine call, or an inner Gate's `gate_M`); a step slot's terminal is the decision call; a word
@@ -207,7 +207,7 @@ with two child slots; `sf.Cascade` has no own kind (it is nested Gates, [stated 
 
 **BUDGET_SPEC** — the url4 typed budget annotation on the candidate source (url4 Spec B §4.1:
 `name:0.9:tokens=4000:<source>`; builder `U/core/builders.py:140-180` `src(budgets=)`)
-[existing], written by `sf.Budget(recipe, usd=…, tokens=…)` ([budget](prd/budget.md)) with the
+[existing], written by `sf.Budgeted(recipe, usd=…, tokens=…)` ([budget](prd/budget.md)) with the
 execution annotation `;budget_mode=advisory`, because the calls that always run may pass the cap
 [proposed — url4 owner to confirm §24 conformance]. Keys `usd` and/or `tokens` [stated ans:Q3].
 Written once, on the candidate [stated ans:Q19]. Scope: one Case [stated ans:Q13]. url4 parses the annotation today and enforces

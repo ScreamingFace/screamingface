@@ -54,7 +54,7 @@ def test_a_panel_gate_second_step_reads_the_member_selection(quorum: object, flo
 
 def test_a_skip_member_estimate_reaches_its_decide_spec() -> None:
     member = sf.Gate(when=sf.labels(SEL).has("math"), then=sf.Estimate("prov/big", usd=0.05))
-    recipe = sf.Budget(sf.Fanout([member, "prov/small"]) >> sf.Vote(), usd=0.1)
+    recipe = sf.Budgeted(sf.Fanout([member, "prov/small"]) >> sf.Vote(), usd=0.1)
 
     url4 = compile_candidate(recipe, operators=engine_operators()).url4
 

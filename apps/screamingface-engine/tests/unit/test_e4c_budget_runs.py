@@ -1,4 +1,4 @@
-"""sf.Budget on the Engine world: DECIDE folds the ancestors' charges and refuses optional calls.
+"""sf.Budgeted on the Engine world: DECIDE folds the ancestors' charges and refuses optional calls.
 
 FEATURE: E4c (OME-1291) budget rows BU#4 - #11, #13 - #17, #21, #23, #25, #28 (the CHAR rows #1
 and #2 are ``test_budget.py::test_cache_hit_charges_original_cost`` and

@@ -462,14 +462,14 @@ def _candidate_budget(candidate: Expression) -> tuple[float | None, int | None] 
 
 
 def _with_budget(candidate: Expression, recipe: Recipe) -> Recipe:
-    """``recipe`` wrapped in the candidate's ``sf.Budget``, when the url4 declares one."""
+    """``recipe`` wrapped in the candidate's ``sf.Budgeted``, when the url4 declares one."""
 
-    from screamingface._surface.budget import Budget
+    from screamingface._surface.budget import Budgeted
 
     caps = _candidate_budget(candidate)
     if caps is None:
         return recipe
-    return Budget(recipe, usd=caps[0], tokens=caps[1])
+    return Budgeted(recipe, usd=caps[0], tokens=caps[1])
 
 
 def _has_gate(value: _RecipeTopology) -> bool:

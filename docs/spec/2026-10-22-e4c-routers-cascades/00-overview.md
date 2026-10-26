@@ -33,9 +33,11 @@ E4c ships one branch construct and the pieces it reads:
 - **Set-valued choice:** a skip-Gate (no `otherwise`) as a Fanout member (ans:Q16).
 - **Guards** are outer Gates on a Keywords or LabelModel label (ans:Q15) with `then="fail_closed"`
   (a new failure code) or a stronger branch; a fired guard calls no model after it (ans:Q18).
-- **Budget:** `sf.Budget(recipe, usd=…, tokens=…)` once on the candidate (ans:Q19), per Case
+- **Budget:** `sf.Budgeted(recipe, usd=…, tokens=…)` once on the candidate (ans:Q19), per Case
   (ans:Q13); an optional branch whose author estimate would pass the cap is not sent (ans:Q3);
   unknown cost counts as $0 with a warning (ans:Q14); conditions read `sf.budget.remaining()`.
+  The owner renamed the wrapper from `sf.Budget` to `sf.Budgeted` on 2026-10-26, because
+  `sf.Budget` had the same name as the E4a record `sf.budget.Budget`.
 - **Report:** a "Branches" section per Gate and a run summary with the share resolved at the
   first branch, calls avoided, refusals, `fail_closed` and abstain counts.
 
@@ -81,7 +83,7 @@ sample panels, no reuse; incremental top-up stays a follow-up. OME-1470 → out 
 | Engine branch runtime (`E/world/branch.py`, new) | DECIDE, OPEN, JOIN, KEYWORDS endpoints | branch-core, selectors, budget, guards |
 | Engine combine (`E/combine/`) | panel decision (E4b gate), `phase=decide`, `selection`/`skipped` | lazy-fallback, gate, skip-members |
 | Engine contract and vocabularies | `OperationOutput.decision`, `fail_closed`, `budget_refused`, attribution pattern, `BudgetStage` | branch-core, guards, budget |
-| SDK surface (`S/_surface/`) | `sf.Gate`, `sf.Cascade`, selectors, `sf.Budget`, `sf.Estimate` | gate, cascade, selectors, skip-members, budget |
+| SDK surface (`S/_surface/`) | `sf.Gate`, `sf.Cascade`, selectors, `sf.Budgeted`, `sf.Estimate` | gate, cascade, selectors, skip-members, budget |
 | SDK compiler (`S/_evaluation/`) | the gated url4 shape, rebuild | branch-core, gate, lazy-fallback |
 | SDK report (`S/_ui/`, `S/report.py`) | decode, Branches section, run summary, export | report |
 | Docs | README section, recipes, notebook 20, CHANGELOG | docs |

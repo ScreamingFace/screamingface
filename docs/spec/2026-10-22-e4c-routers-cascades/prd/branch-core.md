@@ -91,7 +91,7 @@ skip is auditable in the report.
     template parses unchanged; a body that does not parse stays opaque (today's rule). Any other
     named inner expression, for example the corrective `loop_candidate`, stays opaque as today.
     [proposed — review 2 F12]
-  - Every call inside a gated body, and every call of a candidate under `sf.Budget`, carries
+  - Every call inside a gated body, and every call of a candidate under `sf.Budgeted`, carries
     `binding=<its name>` first, so each fingerprint has one claimant and is attributed. The
     attribution pattern widens to `gate` and `selector` (PIN). [proposed]
   - A binding inside a gated body with no recorded call emits no `OperationOutput` (absent = not

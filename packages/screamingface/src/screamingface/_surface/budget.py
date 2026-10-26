@@ -1,6 +1,6 @@
-"""``sf.Budget``, ``sf.Estimate`` and ``sf.budget.remaining()``: a per-Case spending cap (E4c).
+"""``sf.Budgeted``, ``sf.Estimate`` and ``sf.budget.remaining()``: a per-Case spending cap (E4c).
 
-FEATURE: OME-1291 budget PRD. ``sf.Budget(recipe, usd=..., tokens=...)`` writes one cap on the
+FEATURE: OME-1291 budget PRD. ``sf.Budgeted(recipe, usd=..., tokens=...)`` writes one cap on the
 candidate (ans:Q19); it covers one Case (ans:Q13). Before each optional call (a Gate branch, a
 cascade escalation, a lazy fallback) the Engine checks the spend of the calls that already ran
 plus the branch's ``sf.Estimate``; a branch that would pass the cap is not sent. A call with no
@@ -33,7 +33,7 @@ def _cap(value: object, unit: BudgetUnit, owner: str) -> float | int | None:
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class Budget(Recipe):
+class Budgeted(Recipe):
     """Wrap the whole candidate with a per-Case cap in USD, tokens or both (a branch is refused
     when either unit refuses it). Use it once, at the root."""
 
@@ -44,12 +44,12 @@ class Budget(Recipe):
     def __init__(
         self, recipe: str | Recipe, *, usd: float | None = None, tokens: int | None = None
     ) -> None:
-        if isinstance(recipe, Budget):
+        if isinstance(recipe, Budgeted):
             raise ValueError(_BU11)
-        object.__setattr__(self, "recipe", _recipe(recipe, "sf.Budget recipe"))
-        usd_cap, tokens_cap = _cap(usd, "usd", "sf.Budget"), _cap(tokens, "tokens", "sf.Budget")
+        object.__setattr__(self, "recipe", _recipe(recipe, "sf.Budgeted recipe"))
+        usd_cap, tokens_cap = _cap(usd, "usd", "sf.Budgeted"), _cap(tokens, "tokens", "sf.Budgeted")
         if usd_cap is None and tokens_cap is None:
-            raise ValueError("sf.Budget needs a cap: usd=, tokens= or both")
+            raise ValueError("sf.Budgeted needs a cap: usd=, tokens= or both")
         if usd_cap == 0 or tokens_cap == 0:
             raise ValueError("budget cap must be finite and greater than zero")
         object.__setattr__(self, "usd", usd_cap)
@@ -85,7 +85,7 @@ class Budget(Recipe):
         from screamingface._surface.render import render
 
         held = ", ".join(f"{unit}={value!r}" for unit, value in self._caps().items())
-        return f"{prefix}Budget({render(self.recipe, prefix)}, {held})"
+        return f"{prefix}Budgeted({render(self.recipe, prefix)}, {held})"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -169,4 +169,4 @@ def remaining(unit: BudgetUnit | None = None) -> Remaining:
     return Remaining(unit)
 
 
-__all__ = ["Budget", "BudgetCondition", "Estimate", "Remaining", "remaining"]
+__all__ = ["BudgetCondition", "Budgeted", "Estimate", "Remaining", "remaining"]

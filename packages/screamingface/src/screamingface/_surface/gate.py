@@ -267,10 +267,10 @@ def _step_branch(value: Step, name: str, panel: bool) -> Step:
 
 def _recipe_branch(value: Recipe) -> Recipe:
     # WHY lazy: corrective imports the recipe machinery this module builds on.
-    from screamingface._surface.budget import Budget
+    from screamingface._surface.budget import Budgeted
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
 
-    if isinstance(value, Budget):
+    if isinstance(value, Budgeted):
         raise ValueError(_BU11)  # BU-11
     if isinstance(value, CorrectiveLoop | SelfCorrective):
         raise ValueError(GATE_IN_LOOP)  # GT-27 (ans:Q26)

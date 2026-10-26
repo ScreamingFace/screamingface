@@ -24,7 +24,7 @@ from screamingface._default_client import (
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
 from screamingface._signals import signal
-from screamingface._surface.budget import Budget, Estimate
+from screamingface._surface.budget import Budgeted, Estimate
 from screamingface._surface.cascade import Cascade
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.fusion import Fusion
@@ -177,7 +177,7 @@ __all__ = [
     "First",
     "FixedSeedSittingWarning",
     "Fusion",
-    "Budget",
+    "Budgeted",
     "Cascade",
     "CascadeSeedWarning",
     "Estimate",

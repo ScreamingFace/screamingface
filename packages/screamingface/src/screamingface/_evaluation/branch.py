@@ -743,14 +743,16 @@ class _Gate:
     def _budget_unit(self, unit: str) -> str:
         budget = self._compiler._budget
         if budget is None:
-            raise ValueError("sf.budget.remaining() needs sf.Budget(...) on the candidate")  # BU-12
+            raise ValueError(
+                "sf.budget.remaining() needs sf.Budgeted(...) on the candidate"
+            )  # BU-12
         units = budget.units()
         if not unit:
             if len(units) != 1:
                 raise ValueError("name the unit: sf.budget.remaining('usd') or ('tokens')")  # BU-13
             return units[0]
         if unit not in units:
-            raise ValueError(f"sf.budget.remaining({unit!r}) reads a unit the sf.Budget lacks")
+            raise ValueError(f"sf.budget.remaining({unit!r}) reads a unit the sf.Budgeted lacks")
         return unit
 
     def _estimate(self) -> dict[str, object]:
@@ -762,12 +764,12 @@ class _Gate:
             if estimate is None:
                 continue
             if budget is None:
-                raise ValueError("sf.Estimate needs sf.Budget(...) on the candidate")
+                raise ValueError("sf.Estimate needs sf.Budgeted(...) on the candidate")
             for unit in estimate:
                 if unit not in budget.units():
                     declared = " and ".join(budget.units())
                     raise ValueError(
-                        f"sf.Estimate names {unit}, but sf.Budget declares only {declared}"
+                        f"sf.Estimate names {unit}, but sf.Budgeted declares only {declared}"
                     )
         return {
             branch: None if value is None else dict(value) for branch, value in estimates.items()

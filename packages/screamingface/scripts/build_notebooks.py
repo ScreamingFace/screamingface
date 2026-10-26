@@ -2844,12 +2844,12 @@ d7_manager_subset = sf.Fanout(
 ) >> sf.Synthesize(LARGE, prompt="Write the final answer. The last line is: ANSWER: <number>")
 d7_manager_subset"""),
         nbformat.v4.new_code_cell("""\
-# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.Budget root.
-d8_budget_choice = sf.Budget(
+# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.Budgeted root.
+d8_budget_choice = sf.Budgeted(
     sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), usd=0.05
 )
 # A cost cap per Case (MTRouter, VineLM) around the d4 cascade.
-d9_budget_cap = sf.Budget(d4_cope_cascade, usd=0.05)
+d9_budget_cap = sf.Budgeted(d4_cope_cascade, usd=0.05)
 d8_budget_choice, d9_budget_cap"""),
         nbformat.v4.new_markdown_cell("""\
 ## Evaluate the recipes
@@ -2878,9 +2878,9 @@ recipes = {
 
 
 def named(name: str, recipe: sf.Recipe) -> sf.Recipe:
-    # A sf.Budget stays at the root, so the name goes on the recipe inside it.
-    if isinstance(recipe, sf.Budget):
-        return sf.Budget(
+    # A sf.Budgeted stays at the root, so the name goes on the recipe inside it.
+    if isinstance(recipe, sf.Budgeted):
+        return sf.Budgeted(
             sf.Pipeline([recipe.recipe], name=name), usd=recipe.usd, tokens=recipe.tokens
         )
     return sf.Pipeline([recipe], name=name)

@@ -9,7 +9,7 @@
       "AuthenticationError",
       "Benchmark",
       "BenchmarkInfo",
-      "Budget",
+      "Budgeted",
       "CandidateResult",
       "CandidateRun",
       "Cascade",
@@ -223,7 +223,7 @@
           "revision": "field"
         }
       },
-      "Budget": {
+      "Budgeted": {
         "kind": "class",
         "members": {
           "__init__": "method (self, recipe: 'str | Recipe', *, usd: 'float | None' = None, tokens: 'int | None' = None) -> 'None'",
