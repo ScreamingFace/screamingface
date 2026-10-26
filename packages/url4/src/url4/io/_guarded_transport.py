@@ -42,6 +42,17 @@ it builds, so one mutable state object follows the whole chain through the trans
 
 _DEFAULT_PORTS = {"https": 443, "http": 80}
 
+MAX_ADDRESS_ATTEMPTS = 3
+"""The most vetted DNS answers one hop tries before its connection failure surfaces (OME-1718).
+
+WHY bounded: each attempt may wait the full connect timeout; the total deadline caps the sum,
+but a short list keeps a dead name from eating that whole budget one address at a time.
+"""
+
+# The failures httpx raises only while OPENING a connection — before a byte of the request is
+# written — so trying the next vetted address can never resend a request.
+_CONNECT_PHASE = (httpx.ConnectError, httpx.ConnectTimeout)
+
 # Headers that describe the wire encoding of a body the transport has already decoded.
 _ENCODING_HEADERS = ("content-encoding", "content-length")
 
@@ -79,8 +90,12 @@ class GuardedTransport(httpx.AsyncBaseTransport):
     """Vet each hop, then connect to the vetted address with the original SNI and ``Host``.
 
     INVARIANT: no connection is opened to an address the policy has not vetted. A DNS name is
-    resolved exactly once per hop, every answer is vetted, and the request is sent to the first
-    answer as an IP literal — so a second DNS answer (rebinding) can never move it.
+    resolved exactly once per hop, EVERY answer is vetted before the first attempt, and the
+    request is sent to a vetted answer as an IP literal — so a second DNS answer (rebinding)
+    can never move it.
+    INVARIANT (OME-1718): a connection-phase failure (``ConnectError``/``ConnectTimeout``, i.e.
+    nothing was sent) falls back to the next vetted answer, at most
+    :data:`MAX_ADDRESS_ATTEMPTS` in all; any later failure is never retried.
     INVARIANT: one connection pool per host name, so a TLS connection made with one name's SNI
     is never reused for another name that shares its address.
     """
@@ -109,10 +124,10 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         trusted, state.trusted_first_hop = state.trusted_first_hop, False
         if trusted and origin_of(url) in self._trusted:
             # WHY: the operator's own base_url origin (spec F1b leaves it out of the guard).
-            outbound = request
+            attempts = [request]
         else:
-            outbound = await self._pinned(request, state, previous)
-        response = await self._pool(url.host).handle_async_request(outbound)
+            attempts = await self._pinned(request, state, previous)
+        response = await _first_connected(self._pool(url.host), attempts)
         stream = response.stream
         if not isinstance(stream, httpx.AsyncByteStream):
             # INVARIANT: fail closed — a body the cap cannot wrap is never handed on.
@@ -136,25 +151,30 @@ class GuardedTransport(httpx.AsyncBaseTransport):
 
     async def _pinned(
         self, request: httpx.Request, state: FetchState, previous: str | None
-    ) -> httpx.Request:
-        """``request`` re-addressed to its vetted IP, keeping SNI and ``Host``."""
+    ) -> list[httpx.Request]:
+        """``request`` re-addressed to each vetted IP to try, in order, keeping SNI and ``Host``."""
         url = request.url
         address = check_destination(
             url.scheme, url.host, self._guard, peer=state.peer, previous_scheme=previous
         )
         extensions = dict(request.extensions)
         if address is None:
-            address = await self._resolve(url.host, url.port or _DEFAULT_PORTS[url.scheme])
+            addresses = await self._resolve(url.host, url.port or _DEFAULT_PORTS[url.scheme])
             extensions["sni_hostname"] = url.host
-        return httpx.Request(
-            request.method,
-            url.copy_with(host=str(address)),
-            headers=request.headers,
-            stream=request.stream,
-            extensions=extensions,
-        )
+        else:
+            addresses = [address]
+        return [
+            httpx.Request(
+                request.method,
+                url.copy_with(host=str(vetted)),
+                headers=request.headers,
+                stream=request.stream,
+                extensions=extensions,
+            )
+            for vetted in addresses[:MAX_ADDRESS_ATTEMPTS]
+        ]
 
-    async def _resolve(self, host: str, port: int) -> IPAddress:
+    async def _resolve(self, host: str, port: int) -> list[IPAddress]:
         try:
             answers = list(await self._resolver(host, port))
         except OSError as exc:
@@ -168,7 +188,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
                 raise destination_blocked(f"{host!r} resolved to a non-address {answer!r}")
             vet_address(address, self._guard)
             vetted.append(address)
-        return vetted[0]
+        return vetted
 
     def _pool(self, host: str) -> httpx.AsyncBaseTransport:
         pool = self._pools.get(host)
@@ -180,6 +200,25 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         pools, self._pools = list(self._pools.values()), {}
         for pool in pools:
             await pool.aclose()
+
+
+async def _first_connected(
+    pool: httpx.AsyncBaseTransport, attempts: Sequence[httpx.Request]
+) -> httpx.Response:
+    """The response from the first attempt whose connection opens (``attempts`` is non-empty).
+
+    INVARIANT: only a connection-phase failure moves on to the next attempt; the last attempt's
+    failure, and every failure after the request was sent, surfaces unchanged.
+    """
+    *fallbacks, last = attempts
+    for attempt in fallbacks:
+        try:
+            return await pool.handle_async_request(attempt)
+        except _CONNECT_PHASE:
+            # WHY not swallowed: the next vetted address is tried, and the LAST attempt's
+            # failure is what the caller sees if none of them connects.
+            continue
+    return await pool.handle_async_request(last)
 
 
 class _CappedStream(httpx.AsyncByteStream):
@@ -221,4 +260,11 @@ class _CappedStream(httpx.AsyncByteStream):
         await self._inner.aclose()
 
 
-__all__ = ["FETCH_STATE", "FetchState", "GuardedTransport", "Resolver", "system_resolver"]
+__all__ = [
+    "FETCH_STATE",
+    "MAX_ADDRESS_ATTEMPTS",
+    "FetchState",
+    "GuardedTransport",
+    "Resolver",
+    "system_resolver",
+]
