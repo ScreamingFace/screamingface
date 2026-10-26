@@ -50,6 +50,9 @@ _MEDIA_PART_TYPES = frozenset({"image_url", "file"})
 # WHY a refusal repeats a value only when it looks like a name: a Case can put a megabyte of
 # base64 or a URL where a role, part type or schema belongs, and the refusal must not carry it.
 _SHOWN_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+#: Standard base64 (RFC 4648 §4): its 64 letters, then at most two ``=`` at the very end. The
+#: length check beside it (a multiple of 4) makes the padding complete.
+_STANDARD_BASE64_RE = re.compile(r"[A-Za-z0-9+/]*={0,2}")
 
 # The shapes, in one place. WHY TypedDicts and not models: they cost nothing at run time and keep
 # every refusal message under this module's control (a model's validation error would quote the
@@ -284,7 +287,10 @@ def _file(where: str, part: Mapping[str, Any]) -> FileData:
 
 
 def _data_uri_mime(where: str, value: object) -> str:
-    """The lower-cased media type of an inline ``data:`` URI; anything else is refused.
+    """The media type of an inline ``data:`` URI in the standard spelling; anything else is refused.
+
+    e.g. ``data:image/png;base64,iVBORw0KGgo=`` → ``image/png``; the same picture as
+    ``data:IMAGE/PNG;base64,iVBORw0KGgo`` (upper case, padding dropped) is refused.
 
     INVARIANT: an ``https://`` URL or a ``/blob/`` reference is refused here, so a Case can never
     make the gateway, or Codex behind it, fetch something the Case picked.
@@ -293,7 +299,23 @@ def _data_uri_mime(where: str, value: object) -> str:
     match: re.Match[str] | None = _DATA_URI_RE.match(value) if isinstance(value, str) else None
     if match is None:
         _refuse(f"{where}: expected an inline data: URI")
-    return match["mime"].lower()
+    mime: str = match["mime"]
+    data: str = match["data"]
+    # INVARIANT: one picture has one spelling (the file-input spec's canonical encoding, #1450).
+    # WHY: the connector sends a Case's part as written, and the gateway keys its cache and frozen
+    # copies on the raw body, so a picture spelled two ways would be two cache entries. The
+    # importer writes this spelling; refusing any other here makes it hold for a hand-built Case
+    # too, at import and at run time alike. Nothing is decoded: the checks read the text only.
+    if (
+        match.string[: match.start("data")] != f"data:{mime.lower()};base64,"
+        or len(data) % 4
+        or _STANDARD_BASE64_RE.fullmatch(data) is None
+    ):
+        _refuse(
+            f"{where}: the data: URI is not in the standard spelling (a lower-case type, no "
+            "parameters, then padded data with no spaces or line breaks)"
+        )
+    return mime
 
 
 def _json_object(text: str | None) -> dict[str, Any] | None:

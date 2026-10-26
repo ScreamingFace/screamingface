@@ -108,6 +108,12 @@ the pictures stays where inspect put it.
     fetches URLs) would only add a fetch path to refuse.
   - Two of the ticket's importer decisions were already true on main, so nothing changed for
     them: a fresh `INSPECT_EVALS_CACHE_DIR` per import, and capture after the solver chain.
+  - Added after the review of #1450's canonical-encoding rule: the shared envelope reader
+    (`candidate_input.py`) refuses a `data:` URI in any spelling but the standard one (lower-case
+    type, no parameters, padded base64 with no whitespace). The connector sends a Case's part as
+    written, so this makes one picture one spelling for every Case, hand-built too, without
+    re-encoding on each call. Pinned by `test_a_media_part_in_another_spelling_is_refused`;
+    dropping each of its three rules fails a named case.
 - **Owner verify:** merge only after #1552 (OME-1679). On the first FigQA run, read the run's
   peak memory against the 2,560 MiB budget; if it goes over, loading only the selected Cases
   (OME-1675) is the fix.
