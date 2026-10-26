@@ -1,13 +1,16 @@
 # Spec — file input across url4, engine and gateway (`OME-1535`)
 
 Epic `OME-1529`. Status: **draft for review** (url4: Kevin; gateway: Dmitry; architecture: HupBaHa).
+The proposed `x.*` url4 wire codes of this revision **await Kevin's url4 wire approval** (§4).
 Owner decisions F1–F4 locked by Sergey on 2026-10-21 (§2); his follow-up decisions D1–D6 of the
-same day are folded into F1 and F2, and his review-round-4 decisions (C6 disabled in v1; one
-canonical request identity) into F1b, F3 and §2.7.
+same day are folded into F1 and F2, his review-round-4 decision (C6 disabled in v1) into F1b, and
+his review-round-5 decisions (owner, 2026-10-26: https sources pre-materialized and `attachments[]`
+frozen; no engine-key change in v1; per-run attachment caps and the narrowed Case-ingress
+guarantee) into F1b, F2, F3, §2.7 and §4.
 
 **Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
 #1447), and so is every `file:line` citation unless its link names another commit: the F3
-gateway-cache and engine-key links are pinned to `3f2b3a6ef`. Citations are commit-qualified links,
+gateway-cache link is pinned to `3f2b3a6ef` and the engine-key link to `f70cde71b`. Citations are commit-qualified links,
 so they stay valid when the files move. Short prefixes: `U/` = `packages/url4/src/url4/`,
 `E/` = `apps/screamingface-engine/src/screamingface_engine/`,
 `I/` = `apps/screamingface-engine/src/screamingface_engine_inspect/`,
@@ -145,19 +148,39 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   client's own outer hop to its node. A bare library `url4.run()` is not a node context and is
   unchanged. Plain `url4://host/path` data fetches are not remote-node calls; the transport guard
   governs them (`x.source_destination_blocked` while the peer allowlist is empty).
-- **Scope of attachments:** `https://` sources stay **lazy text fetches, as today**. When an `https://`
-  source returns a **non-text** body, the bytes are hashed into the tenant+run store (write-through,
-  `OME-1540`) and appended to `attachments[]` at that source's position. A text body is unchanged: it
-  stays a text source, is not attached, and is exempt from D5, so a failed `;optional` text source does
-  not fail the run. Rationale: the grammar does not preserve `src=`. `(src=https://a)` and `(https://a)`
-  parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so "only in a `src=` binding"
-  cannot be enforced. "Fetched once per run" belongs to the per-run cache in `OME-1543`; `OME-1544` is
-  the guard only. (Owner, 2026-10-21; revised 2026-10-22, `OME-1543` Q-B.)
+- **Scope of attachments: pre-materialize, then freeze** (owner, 2026-10-26, review round 5).
+  - **When.** Every `https://` source an expression names is fetched **before the first model call of
+    the run**. No source is fetched once model execution has started.
+  - **Fetch identity** is `(URL, accept media range)`: the same URL under a different `;accept=` is a
+    different fetch. Concurrent requests for one identity share **one in-flight attempt**
+    (single-flight), so each identity is fetched at most once per run (the per-run cache, `OME-1543`).
+  - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) both classifies the result as
+    text or non-text from its Content-Type and bytes and yields those bytes; there is no second fetch.
+  - **Text and non-text.** A text result stays a text source, as today, and is not attached. A
+    non-text result is hashed into the tenant+run store (write-through, `OME-1540`) and appended to
+    `attachments[]` in **source order**: the order of first appearance in the expression.
+  - **Retry.** A failed fetch is retried only under the guard's existing rules (`x.source_timeout` is the
+    retryable code, §4) and within the run deadline.
+  - **Optional and required.** A failed `;optional` source is **omitted** (logged with its typed
+    `x.source_*` code) and the run continues; since it never produced a response, it is neither text
+    nor an attachment. A failed required source fails the run **before any model call**.
+  - **Freeze.** When pre-materialization ends, `attachments[]` is frozen (F2): nothing is fetched,
+    re-fetched, added or reordered after the first model call.
+  - **Per-run caps** (owned by `OME-1543`): at most **20** url4 attachments and at most
+    **8,000,000 bytes** aggregate (decoded bytes) per run, counted over the whole `attachments[]` (local
+    blob refs and https media alike) and enforced during pre-materialization. Exceeding either is
+    refused before any model call with the permanent `x.attachments_too_many` or
+    `x.attachments_too_large` (§4).
+
+  Rationale for structure-based attaching: the grammar does not preserve `src=`. `(src=https://a)` and
+  `(https://a)` parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so "only in a
+  `src=` binding" cannot be enforced. `OME-1544` is the guard only. (Owner, 2026-10-21; revised
+  2026-10-22, `OME-1543` Q-B; lifecycle and caps 2026-10-26, review round 5.)
 
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
-time (`OME-1271`) and never fetched at run time. Media-type validation and per-run file-count and byte
-limits follow the attachment rules in F2/F3. Node-to-node authentication is the prerequisite for both
+time (`OME-1271`) and never fetched at run time. Per-run attachment count and aggregate bytes are the
+caps above; each single fetch is also bounded by the guard's streaming byte cap. Node-to-node authentication is the prerequisite for both
 F1's deferred remote blobs and remote-node calls (C6); neither is enabled in v1.
 
 ### F2 — Attachments are a side-channel; the payload stays `str`
@@ -201,13 +224,15 @@ same way. Member outputs are text and add no attachments.
 collection text set ([`U/dag/semantics/collection.py:140-142`][u-coll]) is used as text and is **not**
 added to `attachments[]`. Any other type there stays `unsupported_content_type` (C8).
 
-**Propagation (v1).** Attachments are fixed at run start (the url4 refs resolved for that run; Case
-parts travel in the v2 envelope instead, §2.7) and are **inherited unchanged** by every node: pipelines, nested local sub-expressions,
-reducers and retries see the same ordered list. A node cannot add, drop or reorder attachments in v1.
-The one exception is an `https://` source: it is fetched lazily, as today, and a non-text body joins the
-list at that source's position (F1b). Because the blob list is fixed before execution, a
+**Propagation (v1).** Attachments are fixed at run start, without exception (owner, 2026-10-26,
+review round 5): before the first model call the run resolves its local blob refs and pre-materializes
+every `https://` source (F1b); Case parts travel in the v2 envelope instead (§2.7). The list is then
+**frozen** as one immutable snapshot that every node sees unchanged: pipelines, siblings under parallel
+fan-out, nested local sub-expressions, reducers and retries. A node cannot add, drop or reorder
+attachments in v1, and a retry never re-fetches. Because the list is fixed before execution, a local
 blob source marked `;optional` that fails to resolve **fails the whole run** with its own code (§4); it
-is never dropped from the list (D5).
+is never dropped from the list (D5). A failed `;optional` `https://` source is instead omitted before the
+snapshot is taken (F1b), so the snapshot is still fixed before any model call.
 A nested expression addressed to a **remote** node (C6) is refused in v1 (`x.remote_node_unsupported`,
 F1b). When node-to-node authentication enables it, the remote node resolves its own sources against
 its own store, and the outer run's attachments are not shipped to it, because that would be a remote
@@ -219,26 +244,15 @@ benchmark's grading policy: under `OME-1271` v1 the grader receives none, so gra
 **Rationale.** A side-channel keeps every string boundary (url4 `Payload`, peer replies, request
 contexts) byte-identical for text-only runs and removes any ambiguity between data and refs.
 
-### F3 — Canonical part identity and run scope
+### F3 — Canonical encoding and run scope
 
-**Decision.** F3 defines **the engine's own request identity** (owner, review round 4; scope narrowed in the
-[#1450 F3 thread][f3-thread]): the engine
-model request key ([`E/request_identity.py:13-33`][e-key]) hashes the **canonical ordered content-part
-list** plus the model, the params and the **adapter revision** of the connector that builds the parts.
-Every input form is normalized to that list **before keying**: url4 `attachments[]` merged by D3, and a
-v2 Case envelope (§2.7). Raw request or envelope bytes are never the identity.
-
-- **Canonical part.** For each part, in message order and then part order: `kind` (`text` \| `image` \|
-  `file`), `role`, message index, `position`, and for non-text parts `digest` (`sha256:<hex>` of the
-  **decoded** bytes), `media_type`, `detail`, `filename` (absent fields omitted, never `null`). A text
-  part carries its text. The list is serialized as canonical JSON (UTF-8, sorted keys, no
-  insignificant whitespace) and hashed together with model, params and adapter revision.
-- **What this excludes.** Base64 padding or line breaks, envelope key order and whitespace do not
-  change the key; equal bytes with a different type, role, position,
-  detail or filename do.
-- **Text-only requests.** A request with no non-text part keeps today's key: its canonical list is the
-  text already hashed as `context`/`intent`, and adapter revision does not enter the key, because it
-  only versions how non-text parts are built. Existing text keys and goldens are unchanged.
+**Decision** (owner, 2026-10-26, review round 5; supersedes the round-4 engine-key redesign). v1 does
+**not** change the engine request key ([`E/request_identity.py:13-33`][e-key]). That key exists only
+while grading-accounting recorders are active; Candidate and Fusion execution set it to `None`
+([`E/operation_calls.py:137-142`][e-opkey] at `main` `f70cde71b`), and grading stays text-only
+(`OME-1271`), so no key the engine forms ever covers a non-text part. F3 keeps run-scoped
+authorization, integrity and the canonical encoding rule below. Any change to the gateway cache key
+(for example hashing decoded bytes) belongs to `OME-1681` (Khoa); **v1 requires no gateway change**.
 
 **Authorization.** A digest is **not a bearer capability**. A blob read is scoped to *tenant + run*: a
 node may read a digest only if it was ingested into the same run of the same tenant. A digest from
@@ -247,23 +261,27 @@ another run or tenant is `source_not_found`, indistinguishable from a missing bl
 **Integrity.** sha256 is verified against the ref **before storing** (ingress) and **before use** (every
 read that builds a part). A mismatch is `x.blob_digest_mismatch`, permanent.
 
-**Order (normative).** For every model-calling node, on a cache hit and a cache miss alike:
+**Order (normative).** For every model-calling node whose request carries url4 attachments:
 
 1. take the tenant and run from the run context, never from the request or the ref;
 2. authorize each blob digest against that tenant + run (otherwise `source_not_found`);
-3. read the bytes and verify sha256 (otherwise `x.blob_digest_mismatch`); v2 Case parts are decoded
-   and hashed here;
-4. derive the canonical part list;
-5. only then form the engine request key and send the request to the gateway.
+3. read the bytes and verify sha256 (otherwise `x.blob_digest_mismatch`);
+4. build the parts in the canonical encoding below, and only then send the request on.
 
-The engine key is the grading-accounting join key (cited at `main` `3f2b3a6ef`: [`E/operation_calls.py:138`][e-opkey],
-[`E/grading_accounting.py:79`][e-gradkey]); it does **not** decide gateway cache hits. The model-result
-cache and frozen copies are keyed in the gateway from the raw request body
-([`G/core/request_cache/global_keys.py:265`][g-cachekey]), so equal files share one gateway entry only
-through the canonical-encoding rule below. A caller who knows an out-of-scope digest therefore cannot
-form an engine key or send a request that could hit the gateway cache: step 2 fails first. Tests pin
-this order for a cached and an uncached request: an out-of-scope digest whose request is already in the
-gateway cache returns `source_not_found` and sends no gateway request.
+A result can be reused through two **distinct** paths, and steps 1–3 precede each; each is a separate
+acceptance path with its own test:
+
+- **(a) Normal cache lookup.** The gateway's model-result cache hashes its provider-aware request DTO
+  ([`G/core/request_cache/global_keys.py:265`][g-cachekey]). Authorization happens before the request
+  reaches that lookup: an out-of-scope digest whose request is already cached returns
+  `source_not_found` and sends no gateway request.
+- **(b) Frozen-copy replay.** A frozen copy is selected by the `{kind, request, attempt}` digest plus
+  `case_key` and `occurrence`, not by the cache key. Authorization also happens before any frozen-copy
+  replay: an out-of-scope digest returns `source_not_found` and no frozen copy is replayed.
+
+**Inline Case parts** (§2.7) carry their bytes in the envelope and no blob ref, so there is no tenant
++ run ref to authorize and steps 2–3 do not apply to them; they are verified and canonicalized at
+import (`OME-1271`).
 
 **Canonical encoding (normative).** Every media `data:` URI that reaches the gateway is built from
 the **stored bytes** as `data:<media-type>;base64,<payload>`: the payload is standard base64 (RFC 4648
@@ -273,8 +291,8 @@ parameters are present. Each part is encoded exactly once, where its bytes are t
 - **v2 Case parts:** the `OME-1271` importer decodes every picture (file path or `data:` URI) to bytes,
   reads the media type from the bytes, and stores the canonical form in `cases.json` (#1554). The
   connector sends that string unchanged and does not re-encode it.
-Equal files therefore produce byte-identical gateway request bodies and share one gateway cache entry;
-the gateway is unchanged.
+Equal files therefore produce byte-identical `data:` URIs, so equal requests produce equal gateway
+request bodies with no gateway change in v1.
 
 ### F4 — "Today" is the stated snapshot
 
@@ -299,17 +317,22 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
   contents, so F2's no-scanning rule holds.
 - **Position.** Parts keep the position the importer wrote them in; D3 does not move them (F2).
 - **Identity.** The stored Case is already canonical (the importer writes every part in the canonical
-  encoding above), so the connector keys a v2 envelope on its ordered parts exactly as stored, plus
-  model, params and adapter revision ([`E/request_identity.py:13-33`][e-key] gains the adapter
-  revision). It does not re-encode them.
+  encoding above), so the connector forwards its parts exactly as stored and does not re-encode them.
+  The engine request key is unchanged (F3).
 - **Only `data:` URIs.** Media parts carry inline `data:` URIs and nothing else; the gateway refuses
   any other form before its cache stage (`OME-1542`, #1479, open at this revision).
-- **Limits.** The gateway's 8 MiB request-body cap (#1479) bounds one request: a larger body gets 413
-  `request_too_large`, permanent, before any upstream spend. Per-Case limits belong to the `OME-1271`
-  importer (#1554), which refuses an oversized Case by name: at most 20 pictures, and at most
-  8,000,000 bytes for the Case input with its pictures inline, which leaves room under the 8 MiB
-  (8,388,608-byte) cap for the rest of a request. There is no per-picture limit (TableQA has a
-  5.21 MB picture).
+- **Limits.** The gateway's 8 MiB (8,388,608-byte) request-body cap (#1479) bounds one request: a
+  larger body gets 413 `request_too_large`, permanent, before any upstream spend. Per-Case limits
+  belong to the `OME-1271` importer (#1554), which refuses an oversized Case by name: at most 20
+  pictures, and at most 8,000,000 bytes for the Case input with its pictures inline. That leaves room
+  under the cap for the rest of an **ordinary Candidate (member) request** only (owner, 2026-10-26,
+  review round 5). **Fusion residual:** a synthesis request carries the Case parts plus the member
+  outputs, which the importer cannot bound; one that the member outputs push over the cap gets 413
+  `request_too_large`, permanent and named, before any upstream spend. The importer does not prevent
+  it. There is no per-picture limit (TableQA has a 5.21 MB picture).
+- **Pictures only in v1** (owner, 2026-10-26, review round 5). The v2 schema still admits `file`
+  (PDF) parts, but the `OME-1271` importer imports pictures only and refuses a PDF by name. Inline PDF
+  Case parts are out of the v1 import slice; no ticket owns PDF import in v1.
 
 **v1 gates before any v2 board ships** (from the #1507 review; read from code, not end-to-end runs):
 
@@ -337,7 +360,8 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
    ([`E/benchmarks/candidate_input.py:40-42`][pr-dre]) to the gateway's
    ([`G/core/content_parts.py:23-25`][g-dre]).
 5. **Limits fit together.** The importer's largest encoded Case plus the request, model and parameter
-   overhead fits under the gateway body cap (#1479), checked by a test on the importer's limit values;
+   overhead fits under the gateway body cap (#1479) for an ordinary Candidate request (Fusion is the
+   stated residual, Limits above), checked by a test on the importer's limit values;
    and the whole-`cases.json` memory gate (every run parses the whole file) is measured against the
    per-run memory budget. Both are owned by `OME-1271` and are enabling dependencies of the v2 importer.
 
@@ -354,16 +378,17 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
      at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
      `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
-     An `https://` source is fetched lazily, as today, through the url4 transport's destination guard
-     (F1b) and, when it returns a non-text type, is hashed and written through to the tenant + run store
-     (`OME-1540`) and appended to `attachments[]` at its source position; a text body stays text and is exempt from D5.
+     Every `https://` source is pre-materialized before the first model call, through the url4
+     transport's destination guard, once per fetch identity (URL, accept), single-flight (F1b); a
+     non-text result is hashed, written through to the tenant + run store (`OME-1540`) and appended to
+     `attachments[]` in source order; a text result stays text. `attachments[]` is then frozen (F2).
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
-   `data:` URI in F3's canonical encoding); v2 envelope parts already have that shape and are
-   re-encoded the same way. It is the only shape the gateway sees. The
-   gateway never fetches.
-2. **Run-scoped, verified bytes.** Every node, retry and nested local expression in the run reads the same
-   stored bytes, verified on every read (F3).
+   `data:` URI in F3's canonical encoding); v2 envelope parts are already in that canonical shape,
+   written once by the importer, and are forwarded unchanged (F3). It is the only shape the gateway
+   sees. The gateway never fetches.
+2. **Run-scoped, verified bytes.** Every node, retry and nested local expression in the run sees the
+   same frozen `attachments[]` snapshot and reads the same stored bytes, verified on every read (F3).
 3. **Who sees the file.** Every model-calling node, per F2. That replaces the text re-serialisation at
    [`P/_evaluation/candidate.py:358`][p-fusion] (`OME-1547`). The **grader stays text-only** (`OME-1271`); the
    Report and the SDK show a placeholder, never base64.
@@ -373,14 +398,18 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
    - **reject:** with a typed error (§4). A blind model is refused by name at admission (C9 `intent_error`), never degraded silently.
 5. **Benchmarks pin files at build time.** Assets are baked into the benchmark image ([`I/prepare.py:8`][i-prep8]),
    so a Case never depends on a run-time fetch.
-6. **Identity** is the canonical part list of F3 (plus model, params and adapter revision), formed only
-   after scoped authorization and digest verification, never a digest alone, a URL or raw envelope bytes.
+6. **Identity.** v1 changes no request key (F3). Equal files reach the gateway as byte-identical
+   canonical `data:` URIs, and scoped authorization and digest verification precede both the gateway's
+   normal cache lookup and any frozen-copy replay (F3 paths a and b).
 
 ## 4. Error ownership
 
 Wrapping rule: the phase that detects a failure raises it with its own code; enclosing nodes wrap it as
 a `SourceFailure` that **preserves the original code and permanence verbatim** and adds the node path. A
 wrapper never turns a permanent failure into a retryable one, and only retryable failures are retried.
+**One explicit cross-layer exception:** the engine connector translates the gateway's
+`unsupported_content_part` into url4 `intent_error` (permanence kept, gateway `info` carried as
+`cause`), because in url4 terms a model that cannot take a part is an admission condition (C9).
 Codes not in url4 Spec C travel on the url4 wire with the `x.` implementation prefix (C §13.5.2) until
 Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/errors.py:48`][u-xcode]).
 
@@ -396,13 +425,17 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 | `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); 500 at read (proposed) | permanent | F3; at read it is store corruption, logged as such: the node fails with this code and the node path, the run ends `failed` with it, and it is never retried or served from a cache (F3 order) |
 | `unsupported_content_type` | engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
-| `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; the connector wraps it as `intent_error` carrying the gateway `info` as `cause` |
-| `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same attachments and the same request key |
-| `too_large` | engine ingress (per-blob and per-run limit); gateway body cap (`OME-1542`) | 413 (proposed) | permanent | `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code; limit values are set in the implementation leaves |
+| `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
+| `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
+| `x.attachments_too_many` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 20 url4 attachments in one run; raised before any model call |
+| `x.attachments_too_large` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 8,000,000 aggregate decoded bytes of url4 attachments in one run; raised before any model call |
+| `request_too_large` | gateway body cap (`OME-1542`, #1479) | 413 | permanent | 8 MiB request body; before any upstream spend; includes the Fusion residual (§2.7). `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code |
 
 Statuses marked *proposed* are new in this spec and need Kevin's sign-off for the url4 wire. His
 recorded approval at `e61bcde` predates these codes and statuses, so it does not cover them; they stay
-proposed until he signs off this revision. `x.source_destination_blocked` and the other `x.source_*`
+proposed until he signs off this revision. **Acceptance of this spec therefore requires Kevin's url4
+wire approval of the current revision (review round 5, including `x.attachments_too_many` and
+`x.attachments_too_large`); it is awaited.** `x.source_destination_blocked` and the other `x.source_*`
 codes **are** active in v1, owned by the url4 HTTP transport guard (F1b). Only remote-node
 authentication failure has no v1 owner, because neither remote blobs (F1) nor remote-node calls (F1b)
 exist in v1; it belongs to the node-to-node authentication spec.
@@ -451,7 +484,7 @@ All rows below are manual observations; none is a guarantee or a fixture.
 | Gemini CLI (Code Assist OAuth) | Not verified, and no longer pursued: the route is deprecated (I-26). Observed 2026-10-16: the test account's Code Assist setup returned no `cloudaicompanionProject` (text fails too). It shares `core.gemini_parts` with Antigravity. |
 | Codex model catalog | Stale (`OME-1634`). Observed 2026-10-16: `gpt-5.4-mini` refused for a ChatGPT plus account while `gpt-6-astra` worked; a free-plan sign-in refused for every model. PR #1441 (open at the snapshot) types that as 403 `codex_plan_unsupported`. |
 | OpenAI (API key) with PDFs | Not run (no profile signed in). **UNVERIFIED.** |
-| Per-provider size and count limits | **UNVERIFIED**; not measured. Needed for the `too_large` limit values. |
+| Per-provider size and count limits | **UNVERIFIED**; not measured. Needed for per-provider limit values under `request_too_large`. |
 | `inspect` `media_resolver` firing on our out-of-loop scorer path | **UNVERIFIED** (`OME-1271` caveat); needs a spike before the inline-to-reference step. |
 | Remote blobs | Deferred (F1); needs its own spec and ticket. |
 | Remote-node calls (C6) | Disabled in v1 (F1b); need a node-to-node authentication spec; #1521's peer allowlist stays empty until then. |
@@ -479,10 +512,8 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [e-case]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/benchmarks/case_request.py#L13-L31
 [e-text]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/world/connector.py#L1535
 [e-msgs]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/world/connector.py#L1478
-[e-opkey]: https://github.com/ScreamingFace/screamingface/blob/3f2b3a6efacf9b9b4604de49f49b69130b36a847/apps/screamingface-engine/src/screamingface_engine/operation_calls.py#L138
-[e-gradkey]: https://github.com/ScreamingFace/screamingface/blob/3f2b3a6efacf9b9b4604de49f49b69130b36a847/apps/screamingface-engine/src/screamingface_engine/grading_accounting.py#L79-L84
+[e-opkey]: https://github.com/ScreamingFace/screamingface/blob/f70cde71b207f14543d41b9fb160b4bc21d54d90/apps/screamingface-engine/src/screamingface_engine/operation_calls.py#L137-L142
 [g-cachekey]: https://github.com/ScreamingFace/screamingface/blob/3f2b3a6efacf9b9b4604de49f49b69130b36a847/apps/aigateway/src/aigateway/core/request_cache/global_keys.py#L265-L290
-[f3-thread]: https://github.com/ScreamingFace/screamingface/pull/1450#discussion_r4374599917
 [e-key]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/request_identity.py#L13-L33
 [e-nltk]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/apps/screamingface-engine/src/screamingface_engine/benchmarks/nltk_data.py#L38
 [p-fusion]: https://github.com/ScreamingFace/screamingface/blob/ec4b632b2267212783ca932c93a6c7314256ef3a/packages/screamingface/src/screamingface/_evaluation/candidate.py#L358

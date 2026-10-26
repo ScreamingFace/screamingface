@@ -32,6 +32,8 @@ with the 2026-10-16 live evidence. Docs only.
 ## Acceptance
 
 - The spec is merged, and Kevin (url4) and Dmitry (gateway) have reviewed it.
+- Kevin has approved the url4 wire codes of the current revision: the `x.*` codes and statuses in
+  §4 are proposed, his `e61bcde` approval predates them, and the round-5 revision awaits his approval.
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -89,8 +91,8 @@ with the 2026-10-16 live evidence. Docs only.
 - **Interpretations to confirm in review:** the judge uses the F2 builder but receives no
   attachments under `OME-1271` v1; a remote nested expression (C6), once enabled, does not receive the outer run's
   attachments; a request with no non-text part keeps today's key (adapter revision enters only
-  multimodal keys, so text keys and frozen copies stay valid); new codes travel with the url4 `x.`
-  prefix until Spec C adopts them.
+  multimodal keys, so text keys and frozen copies stay valid; superseded in round 5: v1 changes no
+  engine key); new codes travel with the url4 `x.` prefix until Spec C adopts them.
 - **F3 scope narrowed (2026-10-26, Sergey's reply to khoaguin's inline F3 comment on #1450):** F3 is the
   engine's own request identity. Step 5 no longer implies the engine key decides gateway cache hits: the
   model-result cache and frozen copies are keyed in the gateway from the raw body (`global_keys.py`);
@@ -98,5 +100,34 @@ with the 2026-10-16 live evidence. Docs only.
   `grading_accounting.py:79`), cited at `main` `3f2b3a6ef`. New normative **canonical encoding** rule:
   every `data:` URI the connector sends (url4 attachments and v2 Case parts) is rebuilt from stored bytes
   as padded RFC 4648 §4 base64 with no whitespace, a lowercased media type and no extra parameters, so
-  equal files share one gateway cache entry with no gateway change; applies to #1550 (`OME-1271`) for
-  Case parts. Adapter revision still enters the key only with a non-text part.
+  equal files share one gateway cache entry with no gateway change; for Case parts the `OME-1271`
+  importer applies it (#1554; the earlier #1550 closed unmerged). The adapter-revision key text is
+  superseded in round 5.
+- **Fusion representation (2026-10-26, `ebc28df30`):** the Fusion synthesizer (and a reducer's signal
+  calls) gets every Case media part, in Case order, before the `{input, outputs}` / `{input, panel}`
+  text; in that text each part is a placeholder with its 1-based index among the parts sent, media
+  type, size and filename, and **no digest**; human-facing placeholders (Report, SDK) keep the sha256.
+  Text-only bytes are unchanged.
+- **Canonicalization at import (2026-10-26, `910d24ca6`):** the `OME-1271` importer (#1554) decodes
+  every picture and writes the canonical `data:` URI into `cases.json`; the connector forwards it
+  unchanged. Per-Case limits from #1554: at most 20 pictures and 8,000,000 bytes.
+- **C6 node context (2026-10-26, `002699261`, #1482):** `x.remote_node_unsupported` applies in a node
+  context: every `Url4Node` evaluation and, inside `Client(node=…)`, everything but the client's own
+  outer hop; a bare library `url4.run()` is unchanged.
+- **Review round 5 (2026-10-26, HupBaHa CHANGES_REQUESTED at `002699261`; owner decisions of the same
+  day):** (1) F1b/F2: every `https://` source is pre-materialized before the first model call (fetch
+  identity URL + accept, single-flight, one binary-safe classifying fetch), non-text results appended
+  in source order, then `attachments[]` frozen for every node, sibling, nested expression and retry;
+  failed `;optional` https sources are omitted and logged, required ones fail the run before any model
+  call. (2) F3: the engine-key redesign is removed (the key exists only under grading-accounting
+  recorders, `operation_calls.py:137-142` at `f70cde71b`); F3 keeps scope, integrity and canonical
+  encoding, with authorization before the normal gateway cache lookup and before frozen-copy replay as
+  two separate acceptance paths; inline Case parts have no ref to authorize; any gateway cache-key
+  change is `OME-1681`. (3) Per-run url4 attachment caps (20, 8,000,000 decoded bytes, `OME-1543`,
+  `x.attachments_too_many` / `x.attachments_too_large`); the Case-ingress headroom is narrowed to
+  ordinary Candidate requests with the Fusion 413 residual stated; inline PDF Case parts are out of the
+  v1 import slice. (4) §3 no longer says v2 parts are re-encoded; the `unsupported_content_part` →
+  `intent_error` translation is the named exception to the verbatim-wrapper rule; the code is
+  `request_too_large` everywhere; acceptance awaits Kevin's url4 wire approval. Diagram https row and
+  connector label updated; PNG re-rendered with `rsvg-convert`. Linear: `OME-1543` / `OME-1544` bodies
+  patched; `OME-1540` (Khoa) commented, not edited.
