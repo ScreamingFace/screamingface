@@ -1,7 +1,7 @@
 ---
 ticket: OME-1552
 stack: repo
-status: in_progress   # docs drafted; PR not opened (orchestrator instruction)
+status: in_progress   # docs drafted; PR waits for spec #1450 and Sergey's confirmation
 started: 2026-10-21
 finished:
 ---
@@ -52,3 +52,32 @@ Learn page there.
     `x.blob_peer_not_allowed` (empty interim allowlist, fail closed). The page states v1 does not
     support remote blobs, gives the code that actually fires, and notes the spec's intended name.
     Needs an owner decision: rename the code in #1482 to match F1, or amend the spec.
+
+## Revision 2026-10-26 (rewrite against spec #1450 at `910d24ca6`)
+
+Sergey approved on 2026-10-26 a redraft scoped to what the spec says ships in v1. The branch had
+fallen 140 commits behind, so `origin/main` was merged in (no force-push of the pushed branch).
+This ledger is reused rather than a second `2026-10-26-…` ledger for the same unit.
+
+- **Page rewritten** (`public-docs/src/pages/learn/Url4FilesPage.vue`): file URL as a source,
+  the transport guard, blob refs, what v1 refuses, Benchmark Cases (v2 envelope), limits,
+  `input_modalities`, errors. Each claim carries a status: on main / lands with #N / specified.
+  The `fetch_bytes` / `StaticIOLayer` API detail from #1478 was dropped (SDK-level, not v1 contract).
+- **Mirror added:** `docs/tasks/2026-10-26-OME-1552-url4-file-docs.md` (none existed; priority,
+  labels and created date left to copy from Linear, which this unit did not touch).
+- **Verified on main (`origin/main` merged at this revision):** `x.source_*` codes and
+  `SourceGuard` defaults (`packages/url4/src/url4/core/errors.py`, `io/_source_policy.py`,
+  `io/http.py`, #1521); 8 MiB `AIGW_MAX_REQUEST_BYTES` and 413 `request_too_large`
+  (`apps/aigateway/src/aigateway/config.py`, `middleware/body_cap.py`, #1479); data:-only media and
+  422 `unsupported_content_part` (`core/media_intake.py`, `core/content_parts.py`, Ollama
+  `allow_files=False`, Anthropic system-slot refusal); `input_modalities` (`core/input_modalities.py`,
+  `core/model_capabilities.py`, #1451); v2 envelope (`benchmarks/candidate_input.py`, #1507).
+- **Verified on open PRs:** `x.remote_blob_unsupported`, `x.blob_digest_mismatch` on #1482 head
+  `ffd69a70a`; `unsupported_content_type` on #1478 head `9d32862f9`; `MAX_PICTURES = 20`,
+  `MAX_CASE_BYTES = 8_000_000` on #1554.
+- **Spec-only (no code anywhere):** `x.remote_node_unsupported` (on main a `url4://` remote call is
+  refused as `x.source_destination_blocked` by the empty peer allowlist); engine modality admission
+  (`intent_error`, C9); non-text `https` body to attachment (`OME-1540`/`OME-1543`); run-scoped store.
+- **Python-client blob upload:** none exists; the page says "coming".
+- **Gates:** `public-docs`: `npx oxlint .`, `npx eslint .`, `npm run build` (vue-tsc + vite) all
+  clean; prettier check clean on the page.
