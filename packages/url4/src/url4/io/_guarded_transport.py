@@ -18,6 +18,7 @@ import httpx
 
 from url4.core.errors import ResolutionError
 from url4.io._body_decode import STEP, BodyDecoder, decoder_for
+from url4.io._host_pools import HostPools, Lease
 from url4.io._source_policy import (
     IPAddress,
     SourceGuard,
@@ -41,6 +42,9 @@ it builds, so one mutable state object follows the whole chain through the trans
 """
 
 _DEFAULT_PORTS = {"https": 443, "http": 80}
+
+MAX_HOST_POOLS = 32
+"""The most per-host connection pools one transport retains (OME-1719); LRU past it."""
 
 MAX_ADDRESS_ATTEMPTS = 3
 """The most vetted DNS answers one hop tries before its connection failure surfaces (OME-1718).
@@ -97,7 +101,8 @@ class GuardedTransport(httpx.AsyncBaseTransport):
     nothing was sent) falls back to the next vetted answer, at most
     :data:`MAX_ADDRESS_ATTEMPTS` in all; any later failure is never retried.
     INVARIANT: one connection pool per host name, so a TLS connection made with one name's SNI
-    is never reused for another name that shares its address.
+    is never reused for another name that shares its address — and at most ``max_hosts`` of
+    them retained (:mod:`url4.io._host_pools`), none closed under a request in flight.
     """
 
     def __init__(
@@ -106,11 +111,13 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         *,
         resolver: Resolver = system_resolver,
         trusted: frozenset[Origin] = frozenset(),
+        max_hosts: int = MAX_HOST_POOLS,
     ) -> None:
         self._guard = guard
         self._resolver = resolver
         self._trusted = trusted
-        self._pools: dict[str, httpx.AsyncBaseTransport] = {}
+        # WHY a lambda: tests replace the module-level factory after this transport is built.
+        self._pools = HostPools(lambda: _inner_transport(), max_hosts)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
@@ -127,15 +134,17 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             attempts = [request]
         else:
             attempts = await self._pinned(request, state, previous)
-        response = await _first_connected(self._pool(url.host), attempts)
-        stream = response.stream
-        if not isinstance(stream, httpx.AsyncByteStream):
-            # INVARIANT: fail closed — a body the cap cannot wrap is never handed on.
-            raise TypeError("the connection returned a body stream that is not async")
+        lease = await self._pools.acquire(url.host)
         try:
-            decoder, decodes = decoder_for(response.headers)
-        except ResolutionError:
-            await stream.aclose()
+            response = await _first_connected(lease.transport, attempts)
+            stream = response.stream
+            if not isinstance(stream, httpx.AsyncByteStream):
+                # INVARIANT: fail closed — a body the cap cannot wrap is never handed on.
+                raise TypeError("the connection returned a body stream that is not async")
+            decoder, decodes = await _decoder_or_close(response.headers, stream)
+        except BaseException:
+            # WHY BaseException: a cancelled attempt must give its pool back too.
+            await lease.release()
             raise
         headers = response.headers.copy()
         if decodes:
@@ -145,7 +154,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         return httpx.Response(
             response.status_code,
             headers=headers,
-            stream=_CappedStream(stream, self._guard.max_bytes, decoder),
+            stream=_CappedStream(stream, self._guard.max_bytes, decoder, lease),
             extensions=response.extensions,
         )
 
@@ -190,16 +199,18 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             vetted.append(address)
         return vetted
 
-    def _pool(self, host: str) -> httpx.AsyncBaseTransport:
-        pool = self._pools.get(host)
-        if pool is None:
-            pool = self._pools[host] = _inner_transport()
-        return pool
-
     async def aclose(self) -> None:
-        pools, self._pools = list(self._pools.values()), {}
-        for pool in pools:
-            await pool.aclose()
+        await self._pools.aclose()
+
+
+async def _decoder_or_close(
+    headers: httpx.Headers, stream: httpx.AsyncByteStream
+) -> tuple[BodyDecoder, bool]:
+    try:
+        return decoder_for(headers)
+    except ResolutionError:
+        await stream.aclose()
+        raise
 
 
 async def _first_connected(
@@ -234,8 +245,11 @@ class _CappedStream(httpx.AsyncByteStream):
     ``unconsumed_tail`` never copies more than one step of a large network chunk.
     """
 
-    def __init__(self, inner: httpx.AsyncByteStream, limit: int, decoder: BodyDecoder) -> None:
+    def __init__(
+        self, inner: httpx.AsyncByteStream, limit: int, decoder: BodyDecoder, lease: Lease
+    ) -> None:
         self._inner = inner
+        self._lease = lease
         self._limit = limit
         self._decoder = decoder
         self._raw = 0
@@ -257,12 +271,17 @@ class _CappedStream(httpx.AsyncByteStream):
         return piece
 
     async def aclose(self) -> None:
-        await self._inner.aclose()
+        # INVARIANT: the lease is released even if closing the body fails, so the pool can close.
+        try:
+            await self._inner.aclose()
+        finally:
+            await self._lease.release()
 
 
 __all__ = [
     "FETCH_STATE",
     "MAX_ADDRESS_ATTEMPTS",
+    "MAX_HOST_POOLS",
     "FetchState",
     "GuardedTransport",
     "Resolver",
