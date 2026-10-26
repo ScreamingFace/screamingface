@@ -4,7 +4,7 @@ linear_url: https://linear.app/openmined/issue/OME-1718/try-remaining-vetted-dns
 status: in_progress
 type: bug
 priority: medium
-labels: [bug, url4-sdk, human, autonomous]
+labels: [bug, url4-sdk, agentic, autonomous]
 created: 2026-10-22
 closed:
 ---

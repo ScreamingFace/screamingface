@@ -85,5 +85,13 @@ body processing with cooperative checkpoints.
      raw step.
   5. The `ConnectError` fallback also covers TLS handshake failures, which httpx reports as
      `ConnectError` too. That is still the connection phase, so the request was never sent.
-  6. The three issues carry the actor label `human`, but an agent did the work. The mirrors copy
-     the Linear labels unchanged and Linear was not edited.
+     **Accepted as intended** (review): each attempt still verifies the certificate for the
+     original host name (SNI), so a fallback can never accept a wrong certificate.
+  6. Linear actor labels are now `agentic`; the mirrors were updated to match.
+- **Review round (sf-code-review @613b0a981):** (1, blocking) a cancelled `HostPools.acquire`
+  during a victim's close leaked a phantom in-flight count and left the victim half-closed:
+  fixed with a synchronous undo on `BaseException` and one shielded, tracked close task per pool
+  (shutdown awaits them). (2) Earlier fallback failures were dropped: now attached as an
+  exception note on the final error (address and class name only; the mapping is unchanged).
+  (3) The per-step `asyncio.sleep(0)` was unpinned: a cancellation test now fails if it is
+  removed (checked by mutation). 4 tests added (36 new in all); gates green.
