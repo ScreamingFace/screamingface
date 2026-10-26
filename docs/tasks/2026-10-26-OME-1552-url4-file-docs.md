@@ -1,11 +1,11 @@
 ---
 id: OME-1552
-linear_url: https://linear.app/openmined/issue/OME-1552
+linear_url: https://linear.app/openmined/issue/OME-1552/document-url4-file-sources-and-blob-refs-in-the-public-docs
 status: in_progress
 type: docs
-priority:   # copy from Linear (not read when this mirror was written)
-labels: []  # copy from Linear (not read when this mirror was written)
-created:    # copy from Linear
+priority: medium
+labels: [blocked, url4-engine, agentic, autonomous]
+created: 2026-10-09
 closed:
 ---
 
