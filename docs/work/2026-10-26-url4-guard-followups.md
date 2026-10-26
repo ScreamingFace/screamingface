@@ -1,9 +1,9 @@
 ---
 ticket: OME-1718, OME-1719, OME-1720
 stack: url4
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-26
-finished:
+finished: 2026-10-26
 ---
 
 # url4-guard-followups — address fallback, bounded host pools, deadline through decoding
@@ -58,7 +58,32 @@ body processing with cooperative checkpoints.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** _pending_
-- **Commits:** _pending_
-- **Gates:** _pending_
-- **Deviations:** _pending_
+- **Actual files:** as planned, plus a new `packages/url4/src/url4/io/_host_pools.py` (the LRU
+  registry was split out of `_guarded_transport.py` to keep that file focused, 330 lines).
+  Tests: `test_source_guard_fallback.py` (12), `test_source_guard_pools.py` (12),
+  `test_source_guard_deadline.py` (8), 32 new tests in all. No pre-existing test was edited, and no
+  manifest was needed. Mirrors: `docs/tasks/2026-10-26-OME-17{18,19,20}-*.md`.
+- **Commits:** `70d10ceff` fix(url4): fall back to the next vetted DNS answer after a
+  connection failure (OME-1718); `e6b0bb59c` fix(url4): bound the guarded transport's
+  per-host connection pools (OME-1719); `e47661226` fix(url4): enforce the source deadline
+  through compressed-body decoding (OME-1720); then this docs commit.
+- **Gates:** `run_gates.py url4`: append-only, ruff check, ruff format, pyright and pytest
+  (cov ≥95%) were all green after each commit. `check_mirror_status.py` exits 0.
+- **Deviations / open questions (conservative defaults picked, for Sergey):**
+  1. `MAX_ADDRESS_ATTEMPTS = 3`: each hop tries at most 3 vetted answers, and a module
+     constant sets the cap (it is not a `SourceGuard` field).
+  2. Connect timeout is **per attempt**: each fallback attempt gets the full
+     `connect_timeout`, and only the total deadline bounds the sum (worst case 3×10s
+     < 60s). The other reading is one connect budget shared across attempts, but then a
+     blackholed first address would starve the fallback.
+  3. `MAX_HOST_POOLS = 32`, a constructor kwarg on `GuardedTransport` that is not exposed on
+     `HttpIOLayer`/`SourceGuard` (YAGNI). When every retained pool is busy, the LRU pool still
+     leaves the map, so the bound on retained pools holds. It closes only after its last
+     in-flight response closes, so for that short time open pools can exceed the bound.
+  4. The deadline uses `time.monotonic` (`_guarded_transport._now`, which tests replace) next to
+     `asyncio.timeout` on the loop clock. The capped stream yields to the loop once per 64 KiB
+     raw step.
+  5. The `ConnectError` fallback also covers TLS handshake failures, which httpx reports as
+     `ConnectError` too. That is still the connection phase, so the request was never sent.
+  6. The three issues carry the actor label `human`, but an agent did the work. The mirrors copy
+     the Linear labels unchanged and Linear was not edited.
