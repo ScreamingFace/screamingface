@@ -16,9 +16,12 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
-from typing import Any, Literal, get_args
+from typing import TYPE_CHECKING, Literal, get_args
 
 from screamingface._report_primitives import _optional_number, _required_number
+
+if TYPE_CHECKING:
+    from screamingface._surface.budget import Remaining
 
 type BudgetUnit = Literal["usd", "tokens"]
 type ChargeSource = Literal["live", "cache_reference", "unpriced"]
@@ -260,15 +263,15 @@ class BudgetState:
         return cls(**_fields(value, _STATE_KEYS, "BudgetState"))  # type: ignore[arg-type]
 
 
-def remaining(unit: Literal["usd", "tokens"] | None = None) -> Any:
+def remaining(unit: Literal["usd", "tokens"] | None = None) -> Remaining:
     """``sf.budget.remaining()``: what the candidate's ``sf.Budget`` has left after the calls that
     already ran, as a number a ``sf.Gate`` condition compares (E4c, BU-6). Name the unit when the
     Budget declares both: ``sf.budget.remaining("usd")``."""
 
     # WHY lazy: the surface builds on the recipe machinery; this module is a leaf of the report.
-    from screamingface._surface.budget import budget as refs
+    from screamingface._surface import budget as surface
 
-    return refs.remaining(unit)
+    return surface.remaining(unit)
 
 
 __all__ = ["BUDGET_SCHEMA", "Budget", "BudgetCharge", "BudgetRefusal", "BudgetState", "remaining"]

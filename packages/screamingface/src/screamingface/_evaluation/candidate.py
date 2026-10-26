@@ -7,7 +7,7 @@ import re
 import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
@@ -94,6 +94,10 @@ class _ResolvedRecipe:
     # The reducer's label ("Rank", "Concat", "Reduce('top_k')") when this Recipe's output is a
     # selection for the next Pipeline stage, else None; also the flag the compile checks read.
     selection: str | None = None
+    # The member panel (`$panel_N`) a Fanout's synthesizer reads, when the Fanout has one (a
+    # numeric quorum, an optional member or a skip-Gate member), else None. A panel Gate's
+    # second reducer step reads the same panel.
+    panel: str | None = None
 
 
 # The member params that a consistency sample call sets itself (ans:Q3): it keeps every other
@@ -534,21 +538,23 @@ class _CandidateCompiler:
             )
         )
         if reads_rows:
-            return self._fusion(
+            resolved = self._fusion(
                 fusion,
                 members,
                 input_context=input_context,
                 input_dependencies=input_dependencies,
                 panel=f"${panel}",
             )
-        context = render(struct({"input": input_context, "outputs": f"${panel}"}))
-        return self._fusion(
-            fusion,
-            members,
-            input_context=input_context,
-            input_dependencies=input_dependencies,
-            context=context,
-        )
+        else:
+            context = render(struct({"input": input_context, "outputs": f"${panel}"}))
+            resolved = self._fusion(
+                fusion,
+                members,
+                input_context=input_context,
+                input_dependencies=input_dependencies,
+                context=context,
+            )
+        return replace(resolved, panel=f"${panel}")
 
     def _model(
         self,

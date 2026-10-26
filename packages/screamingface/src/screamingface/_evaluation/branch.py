@@ -33,7 +33,7 @@ import functools
 import re
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
 
 from url4 import (
@@ -89,7 +89,6 @@ _ENSEMBLE = "/ensemble/"
 # The bindings any scope may read: the Case input, and a nested Recipe invocation's input.
 _ALWAYS_IN_SCOPE = frozenset({"input", "_sf_recipe_input"})
 _REFERENCE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
-_PANEL = re.compile(r"panel_\d+")
 _SLOT_NAMES = {"then": "then", "otherwise": "else"}
 
 type _Path = tuple[tuple[int, str], ...]
@@ -340,7 +339,7 @@ def _skip_panel(
         )
     )
     skip = _skip_selection(fusion, members)
-    return compiler._fusion(
+    resolved = compiler._fusion(
         fusion,
         members,
         input_context=input_context,
@@ -349,6 +348,7 @@ def _skip_panel(
         selection=skip.selection,
         floor=skip.floor,
     )
+    return replace(resolved, panel=f"${panel}")
 
 
 def _skip_selection(fusion: FusionNode, members: Sequence[_ResolvedRecipe]) -> _SkipSelection:
@@ -429,7 +429,6 @@ class _Gate:
         state.gates += 1
         self._id = f"gate_{state.gates}"
         self._decision: _ResolvedRecipe | None = None
-        self._panel_reference: str | None = None
         self._skip_selection: _SkipSelection | None = None
 
     def render(self) -> _ResolvedRecipe:
@@ -474,17 +473,7 @@ class _Gate:
 
         compiler = self._compiler
         self._decision = compiler._compile_fusion(panel, self._input, self._dependencies)
-        panels = [
-            source.name
-            for source in compiler._sources
-            if isinstance(source, Source) and source.name and _PANEL.fullmatch(source.name)
-        ]
-        skips = any(_is_skip_member(member) for member in panel.members)
-        uses_panel = (
-            skips or panel.quorum != "all" or any(member.optional for member in panel.members)
-        )
-        self._panel_reference = f"${panels[-1]}" if uses_panel and panels else None
-        if skips:
+        if any(_is_skip_member(member) for member in panel.members):
             # SM-11: a second reducer step skips the same members as the decision call.
             self._skip_selection = _skip_selection(panel, self._decision.members)
 
@@ -536,7 +525,7 @@ class _Gate:
                 decision.members,
                 input_context=self._input,
                 input_dependencies=self._dependencies,
-                panel=self._panel_reference,
+                panel=decision.panel,
                 selection=None if skip is None else skip.selection,
                 floor=None if skip is None else skip.floor,
             )

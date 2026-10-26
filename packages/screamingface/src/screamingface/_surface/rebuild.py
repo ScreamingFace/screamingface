@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from screamingface._signals import signal
-from screamingface._surface.budget import Estimate, budget
+from screamingface._surface.budget import Estimate, remaining
 from screamingface._surface.chain import Pipeline, Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Fallback, Gate
@@ -197,9 +197,7 @@ def _gate(node: BranchNode) -> Recipe:
         when: Any
         if condition.observe.startswith("budget.remaining:"):
             unit = condition.observe.partition(":")[2]
-            when = _input_condition(
-                budget.remaining(cast("Any", unit)), condition.cmp, condition.value
-            )
+            when = _input_condition(remaining(cast("Any", unit)), condition.cmp, condition.value)
         else:
             selector = cast("Any", condition.selector)
             reader = label_ref(selector) if condition.observe == "label" else labels_ref(selector)

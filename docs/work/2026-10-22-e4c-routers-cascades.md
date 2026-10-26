@@ -167,6 +167,14 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   (k) Skipped combine members are built as `not_selected` rows when the evidence is built, not
   patched into a dumped and re-validated evidence (no wire change).
   Five gate_contract fixtures changed by (f) and (h); owner manifest `OME-1291.json`.
+- 2026-10-26: the three open design-review findings (no behavior change, no test edits):
+  12 fixed: the compile step that makes a member panel returns its reference on
+  `_ResolvedRecipe.panel`, and a panel Gate's second reducer step reads it from the decision. The
+  Gate does not scan `panel_N` names. 14 fixed in part: the `_BudgetRefs` singleton is replaced by a
+  plain `remaining()` function that returns `Remaining`, not `Any`; `sf.budget.remaining()` does
+  not change. The names `sf.Budget` (the recipe wrapper) and `sf.budget.Budget` (the E4a record)
+  stay; this is an owner question. 16 closed: `_install_engine_runtimes` stays, because
+  `build_world` with the four calls inline has 27 statements and ruff PLR0915 allows 26.
 
 ## Outcome
 
@@ -179,8 +187,9 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   pytest with 95% coverage, notebooks, build, distribution). Engine: `run_gates.py
   screamingface-engine` green after the build and the simplify pass (after `uv sync --dev`); the
   bug-fix pass changed no Engine file, and the Engine's E4c tests pass on it (1328 passed).
-- **Deviations:** (1)–(16) in the Log. Design-review findings 12 (panel scan), 14 (public names
-  `sf.Budget` vs `sf.budget.Budget`, an owner question) and 16 were not changed.
+- **Deviations:** (1)–(16) in the Log. Design-review findings 12 and 14 (the singleton) are
+  fixed and 16 is closed (Log 2026-10-26). The public names `sf.Budget` vs `sf.budget.Budget`
+  (finding 14) are an owner question.
 - **Follow-ups (not filed):** the Engine could record the refused body's first operation in
   `gate-decision.v1`, so the refusal row does not read it from the graph shape (it relies on the
   Gate's then-before-otherwise dependency order); a failed Case keeps no operations (deviation 4,

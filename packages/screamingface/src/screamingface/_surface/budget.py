@@ -135,7 +135,7 @@ class BudgetCondition:
 
 
 @dataclass(frozen=True, slots=True)
-class _Remaining:
+class Remaining:
     unit: BudgetUnit | None
 
     def _compare(self, cmp: Literal[">=", ">", "<=", "<"], value: object) -> BudgetCondition:
@@ -160,23 +160,13 @@ class _Remaining:
         return self._compare("<", value)
 
 
-class _BudgetRefs:
-    """``sf.budget``: the reader of the candidate's Budget in a Gate condition."""
+def remaining(unit: BudgetUnit | None = None) -> Remaining:
+    """What the Budget has left after the calls that already ran (BU-6). Name the unit when the
+    Budget declares both: ``sf.budget.remaining('usd')``."""
 
-    __slots__ = ()
-
-    def remaining(self, unit: BudgetUnit | None = None) -> _Remaining:
-        """What the Budget has left after the calls that already ran (BU-6). Name the unit when
-        the Budget declares both: ``sf.budget.remaining('usd')``."""
-
-        if unit not in (None, "usd", "tokens"):
-            raise ValueError("sf.budget.remaining() takes 'usd' or 'tokens'")
-        return _Remaining(unit)
-
-    def __repr__(self) -> str:
-        return "budget"
+    if unit not in (None, "usd", "tokens"):
+        raise ValueError("sf.budget.remaining() takes 'usd' or 'tokens'")
+    return Remaining(unit)
 
 
-budget = _BudgetRefs()
-
-__all__ = ["Budget", "BudgetCondition", "Estimate", "budget"]
+__all__ = ["Budget", "BudgetCondition", "Estimate", "Remaining", "remaining"]
