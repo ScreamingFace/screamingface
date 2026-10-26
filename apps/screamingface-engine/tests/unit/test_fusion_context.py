@@ -277,8 +277,20 @@ async def test_a_broken_picture_in_the_fusion_input_is_refused_before_any_call()
         '{"input": "unterminated',
         # WHY compact spacing: proves this path never re-encodes text it does not change.
         '{"input":"What is 6 times 7?","outputs":{"member_1":"42"}}',
+        json.dumps([{"input": "What is 6 times 7?"}]),
+        json.dumps({"input": {"schema": "screamingface.candidate-input.v2"}, "outputs": _OUTPUTS}),
+        json.dumps({"input": None, "outputs": _OUTPUTS}),
     ],
-    ids=["no input", "input not text", "input a plain prompt", "not JSON", "compact spacing"],
+    ids=[
+        "no input",
+        "input not text",
+        "input a plain prompt",
+        "not JSON",
+        "compact spacing",
+        "a top-level array",
+        "input an object",
+        "input null",
+    ],
 )
 async def test_any_other_json_text_is_sent_as_written(context: str) -> None:
     # WHY: the engine learns one key, `input`, and nothing else about recipes; anything that is
@@ -286,10 +298,22 @@ async def test_any_other_json_text_is_sent_as_written(context: str) -> None:
     assert _messages(context, None) == [{"role": "user", "content": context}]
 
 
-async def test_a_grading_call_keeps_todays_path() -> None:
-    # WHY: judges never receive picture parts (spec D6), and what a grader reads of a picture Case
-    # is OME-1271 PR 3's change. Under grading this path stays off.
+async def test_a_grading_call_with_a_picture_fusion_context_is_refused() -> None:
+    # INVARIANT (spec D6): a judge reads text only. A Fusion context holding a picture Case is read
+    # under grading too, so its picture is refused by name instead of reaching the judge as base64
+    # text.
     context = _fusion_context(_picture_case())
+
+    with grading_call_scope("case-1"), pytest.raises(ResolutionError) as caught:
+        _messages(context, None)
+
+    assert caught.value.code == "invalid_candidate_input"
+    assert "judges read text only" in str(caught.value)
+
+
+async def test_a_grading_call_with_a_text_fusion_context_keeps_todays_path() -> None:
+    # WHY: only a picture is refused; a text-only Fusion context under grading is sent as written.
+    context = _fusion_context("What is 6 times 7?")
 
     with grading_call_scope("case-1"):
         assert _messages(context, None) == [{"role": "user", "content": context}]

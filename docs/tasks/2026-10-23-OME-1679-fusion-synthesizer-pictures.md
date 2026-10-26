@@ -7,7 +7,7 @@ priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1271
 created: 2026-10-20
-closed: 2026-10-23
+closed: 2026-10-26
 ---
 
 # IMAGE SUPPORT - BENCHMARK PATH: Give the Fusion synthesizer the Case's inline pictures
@@ -22,8 +22,9 @@ synthesizer never saw them.
   placeholder also carries a `sha256`, which the synthesizer's text leaves out: the model can't
   hash the picture, and results keep it so an opened picture can be checked against it.
 - Reducer signal calls read the same object (with `panel`) and get the pictures too.
-- Text-only Fusions send the same bytes as before, so goldens replay. Grading calls keep today's
-  path; what a grader reads of a picture Case is OME-1271 PR 3.
+- Text-only Fusions send the same bytes as before, so goldens replay. On a grading call, a
+  Fusion context holding a picture Case is refused by name, since a judge reads text only; what a
+  grader reads of a picture Case is OME-1271 PR 3.
 - One placeholder builder in the engine's envelope module (`media_placeholder`); the SDK's copy is
   pinned by a conformance test in each lane.
 

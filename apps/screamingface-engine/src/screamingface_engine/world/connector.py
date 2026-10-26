@@ -1505,9 +1505,9 @@ def _native_messages(context: str | None) -> list[CandidateMessage] | None:
     """
     try:
         messages: list[CandidateMessage] | None = parse_candidate_input(context)
-        # WHY not under grading: judges never receive picture parts (spec D6), and what a grader
-        # reads of a picture Case is OME-1271's change, so a grading call keeps today's text.
-        if messages is None and current_grading_case() is None:
+        # WHY under grading too: a Fusion context holding a picture Case must reach the refusal
+        # below, not a judge as base64 text; a text-only one still comes back None.
+        if messages is None:
             messages = fusion_picture_messages(context)
     except CandidateInputError as exc:
         _invalid_candidate_input(str(exc))
