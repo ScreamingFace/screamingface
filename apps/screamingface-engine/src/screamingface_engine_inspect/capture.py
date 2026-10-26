@@ -75,6 +75,7 @@ STAND_IN_MODEL: str = "none/stand-in"
 #: How a system message joins the input text: as leading text, blank line, then the prompt.
 #: Named deviation (contracteval pattern): a Benchmark cannot address a Candidate's system
 #: role, so the eval's system instruction rides ahead of the user prompt.
+#: AIDEV-NOTE: picture_input.py's ``_SYSTEM_SEPARATOR`` is its twin for picture Cases; change both.
 _MESSAGE_SEPARATOR: str = "\n\n"
 
 

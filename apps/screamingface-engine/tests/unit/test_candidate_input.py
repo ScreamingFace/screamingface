@@ -119,6 +119,10 @@ def test_v2_parses_an_mmmu_sized_case() -> None:
         "data:IMAGE/PNG;base64,iVBORw0KGgo=",
         "data:image/png;charset=utf-8;base64,iVBORw0KGgo=",
         "data:application/pdf;name=paper.pdf;base64,JVBERi0xLjQ=",
+        # WHY these two: each decodes to the same bytes as a standard spelling (iVBORw0KGgo=,
+        # AA==); they differ only in the bits base64 throws away before the padding.
+        "data:image/png;base64,iVBORw0KGgp=",
+        "data:image/png;base64,AB==",
     ],
     ids=[
         "wrapped onto lines",
@@ -128,6 +132,8 @@ def test_v2_parses_an_mmmu_sized_case() -> None:
         "upper-case type",
         "an extra parameter",
         "an extra parameter on a file",
+        "spare bits set before one =",
+        "spare bits set before two =",
     ],
 )
 def test_a_media_part_in_another_spelling_is_refused(uri: str) -> None:
@@ -147,6 +153,15 @@ def test_a_media_part_in_another_spelling_is_refused(uri: str) -> None:
     message = str(caught.value)
     assert "message 0 part 1" in message
     assert "iVBOR" not in message and "JVBER" not in message
+
+
+def test_a_picture_padded_with_two_equals_signs_is_read() -> None:
+    # WHY: the spare-bits rule above must still let a standard two-= ending through.
+    part: dict[str, Any] = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}}
+
+    assert parse_candidate_input(_v2(_user(_TEXT, part))) == [
+        {"role": "user", "content": [_TEXT, part]}
+    ]
 
 
 def test_unknown_candidate_input_version_is_refused_by_name() -> None:

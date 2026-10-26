@@ -53,6 +53,13 @@ _SHOWN_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 #: Standard base64 (RFC 4648 §4): its 64 letters, then at most two ``=`` at the very end. The
 #: length check beside it (a multiple of 4) makes the padding complete.
 _STANDARD_BASE64_RE = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+#: The letters that may stand last before the padding. WHY: before one ``=`` the last letter's
+#: two low bits are thrown away, before two its four, so ``iVBORw0KGgo=`` and ``iVBORw0KGgp=``
+#: decode to the same bytes. The standard spelling keeps those bits zero: every 4th letter of the
+#: alphabet before one ``=``, every 16th (``AQgw``) before two.
+_BASE64_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+_LAST_BEFORE_ONE_PAD = frozenset(_BASE64_LETTERS[::4])
+_LAST_BEFORE_TWO_PAD = frozenset(_BASE64_LETTERS[::16])
 
 # The shapes, in one place. WHY TypedDicts and not models: they cost nothing at run time and keep
 # every refusal message under this module's control (a model's validation error would quote the
@@ -310,6 +317,8 @@ def _data_uri_mime(where: str, value: object) -> str:
         match.string[: match.start("data")] != f"data:{mime.lower()};base64,"
         or len(data) % 4
         or _STANDARD_BASE64_RE.fullmatch(data) is None
+        or (data.endswith("==") and data[-3] not in _LAST_BEFORE_TWO_PAD)
+        or (data.endswith("=") and not data.endswith("==") and data[-2] not in _LAST_BEFORE_ONE_PAD)
     ):
         _refuse(
             f"{where}: the data: URI is not in the standard spelling (a lower-case type, no "
