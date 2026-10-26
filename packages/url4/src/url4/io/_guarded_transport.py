@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
@@ -25,6 +26,7 @@ from url4.io._source_policy import (
     check_destination,
     destination_blocked,
     literal_ip,
+    source_timeout,
     too_large,
     vet_address,
 )
@@ -42,6 +44,20 @@ it builds, so one mutable state object follows the whole chain through the trans
 """
 
 _DEFAULT_PORTS = {"https": 443, "http": 80}
+
+# AIDEV-NOTE: the guard's monotonic clock; tests replace it to make deadlines deterministic.
+_now = time.monotonic
+
+
+def deadline_in(seconds: float) -> float:
+    """The absolute deadline ``seconds`` from now, on the guard's clock (OME-1720)."""
+    return _now() + seconds
+
+
+def past(deadline: float | None) -> bool:
+    """Whether ``deadline`` (``None``: no deadline) has been reached."""
+    return deadline is not None and _now() >= deadline
+
 
 MAX_HOST_POOLS = 32
 """The most per-host connection pools one transport retains (OME-1719); LRU past it."""
@@ -67,6 +83,11 @@ class FetchState:
 
     peer: bool = False
     previous_scheme: str | None = None
+    deadline: float | None = None
+    """The fetch's ONE absolute deadline (:func:`deadline_in`), shared by every redirect hop.
+
+    INVARIANT (OME-1720): body processing, decoding included, checkpoints against it.
+    """
     trusted_first_hop: bool = False
     """Set by HttpIOLayer for a relative fetch: its first hop goes to the operator's base_url.
 
@@ -154,7 +175,9 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         return httpx.Response(
             response.status_code,
             headers=headers,
-            stream=_CappedStream(stream, self._guard.max_bytes, decoder, lease),
+            stream=_CappedStream(
+                stream, self._guard.max_bytes, decoder, lease, deadline=state.deadline
+            ),
             extensions=response.extensions,
         )
 
@@ -243,13 +266,23 @@ class _CappedStream(httpx.AsyncByteStream):
     the transport strips for httpx's sake only.
     INVARIANT: the decoder is fed at most :data:`STEP` raw bytes at a time, so zlib's
     ``unconsumed_tail`` never copies more than one step of a large network chunk.
+    INVARIANT (OME-1720): every raw chunk and every decompress call — even one that yields
+    nothing, like an empty gzip member — is a checkpoint against the fetch deadline, and each
+    raw step yields to the event loop so a cancellation or ``asyncio.timeout`` is delivered.
     """
 
     def __init__(
-        self, inner: httpx.AsyncByteStream, limit: int, decoder: BodyDecoder, lease: Lease
+        self,
+        inner: httpx.AsyncByteStream,
+        limit: int,
+        decoder: BodyDecoder,
+        lease: Lease,
+        *,
+        deadline: float | None = None,
     ) -> None:
         self._inner = inner
         self._lease = lease
+        self._deadline = deadline
         self._limit = limit
         self._decoder = decoder
         self._raw = 0
@@ -257,12 +290,21 @@ class _CappedStream(httpx.AsyncByteStream):
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         async for chunk in self._inner:
+            self._checkpoint()
             self._raw += len(chunk)
             if self._raw > self._limit:
                 raise too_large(self._limit)
             for start in range(0, len(chunk), STEP):
                 for piece in self._decoder.feed(chunk[start : start + STEP]):
-                    yield self._count(piece)
+                    self._checkpoint()
+                    if piece:
+                        yield self._count(piece)
+                # WHY: decoding is synchronous; give a pending cancel/timeout its turn.
+                await asyncio.sleep(0)
+
+    def _checkpoint(self) -> None:
+        if past(self._deadline):
+            raise source_timeout("the source body passed the total deadline while being read")
 
     def _count(self, piece: bytes) -> bytes:
         self._seen += len(piece)

@@ -37,6 +37,9 @@ class BodyDecoder(Protocol):
     def feed(self, data: bytes) -> Iterator[bytes]:
         """Everything ``data`` decodes to, in pieces of at most :data:`STEP` bytes.
 
+        A piece may be EMPTY: one per decompress call, so the caller can checkpoint its
+        deadline even while the input decodes to nothing (OME-1720).
+
         INVARIANT: each call drains all output the input so far makes available, so a stream
         needs no final flush.
         """
@@ -80,8 +83,8 @@ class _Inflate:
                         return
                     self._next_member()
                 out = self._inflater.decompress(data, STEP)
-                if out:
-                    yield out
+                # WHY even when empty: the caller's deadline checkpoint (OME-1720).
+                yield out
                 # WHY: at the end of a stream zlib moves the rest of ``data`` to unused_data
                 # (and appends every later input there); take it back so it is never parked.
                 data = self._inflater.unused_data or self._inflater.unconsumed_tail

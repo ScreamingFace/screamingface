@@ -22,7 +22,9 @@ from url4.io._guarded_transport import (
     GuardedTransport,
     Origin,
     Resolver,
+    deadline_in,
     origin_of,
+    past,
     system_resolver,
 )
 from url4.io._source_policy import (
@@ -144,17 +146,30 @@ class HttpIOLayer:
         key = idempotency_key(url)
         headers = {"Idempotency-Key": key} if key is not None else None
         # WHY owned only: an injected client keeps the timeouts its owner chose.
-        deadline = self._guard.total_timeout if self._client is None else None
+        total = self._guard.total_timeout if self._client is None else None
+        # INVARIANT (OME-1720): ONE absolute deadline per fetch, carried to every hop's body.
+        deadline = None if total is None else deadline_in(total)
+        late = f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
         try:
-            async with asyncio.timeout(deadline):
-                return await self._send(url, headers, peer=peer, relative=relative)
+            async with asyncio.timeout(total):
+                response = await self._send(
+                    url, headers, peer=peer, relative=relative, deadline=deadline
+                )
         except TimeoutError as exc:
-            raise source_timeout(
-                f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
-            ) from exc
+            raise source_timeout(late) from exc
+        if past(deadline):
+            # INVARIANT: never a success after the deadline, even one no checkpoint caught.
+            raise source_timeout(late)
+        return response
 
     async def _send(
-        self, url: str, headers: dict[str, str] | None, *, peer: bool, relative: bool
+        self,
+        url: str,
+        headers: dict[str, str] | None,
+        *,
+        peer: bool,
+        relative: bool,
+        deadline: float | None,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -164,7 +179,7 @@ class HttpIOLayer:
         try:
             if guarded and not trusted:
                 check_url(url, self._guard, peer=peer)
-            state = FetchState(peer=peer, trusted_first_hop=trusted)
+            state = FetchState(peer=peer, trusted_first_hop=trusted, deadline=deadline)
             extensions = {FETCH_STATE: state} if guarded else None
             request = client.build_request("GET", url, headers=headers, extensions=extensions)
             response = await client.send(request, stream=True)
