@@ -1,7 +1,7 @@
 ---
 id: OME-1720
 linear_url: https://linear.app/openmined/issue/OME-1720/enforce-source-deadline-during-compressed-body-decoding
-status: in_progress
+status: in_review
 type: bug
 priority: medium
 labels: [bug, url4-sdk, agentic, autonomous]

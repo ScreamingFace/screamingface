@@ -1,7 +1,7 @@
 ---
 id: OME-1718
 linear_url: https://linear.app/openmined/issue/OME-1718/try-remaining-vetted-dns-addresses-after-connection-failure
-status: in_progress
+status: in_review
 type: bug
 priority: medium
 labels: [bug, url4-sdk, agentic, autonomous]
