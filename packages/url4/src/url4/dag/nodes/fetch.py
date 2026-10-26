@@ -15,6 +15,7 @@ from url4.core.nodes import Params
 from url4.io.layer import FetchRequest, SupportsHoldings
 from url4.wire.subrequest import encode_subrequest
 
+from url4.dag.remote_nodes import check_remote_node  # isort: skip
 from url4.dag.node import (  # isort: skip
     DagNode,
     ExecutionContext,
@@ -162,6 +163,7 @@ class RemoteFetchNode:
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        check_remote_node(self.authority, self.path)  # F1b / C6: refused in a node context
         scope = _frame(inputs, ctx)
         # INVARIANT (`OME-535`): a remote call's q= carries an EXPRESSION the
         # REMOTE node evaluates (canonical form `?q=expression`) — the caller

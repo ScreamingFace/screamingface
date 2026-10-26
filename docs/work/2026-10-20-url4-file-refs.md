@@ -135,3 +135,52 @@ blob as a collection iterates (D4) and a PNG is C8.
   as `703e3105d` intends (the intermediate commit carries them via `follow_redirects=` on
   `client.send`). Gates: `run_gates.py url4` ALL GATES GREEN; `check_module_size.py` /
   `check_suppressions.py` within baseline. Tests vs merge-base: new files only.
+
+## Amendment 2026-10-26 — refuse remote-node calls in a node context (#1450 C6/F1b, owner decisions)
+
+**Intent.** Spec #1450 F1b/C6: in v1 a `url4://` remote-node call (a remote expression,
+`RemoteFetchNode`) is refused with `x.remote_node_unsupported`, permanent, before any I/O, until
+node-to-node authentication is specified. Owner decisions (Sergey, 2026-10-26): the refusal applies
+in a **node context** only: every evaluation a `Url4Node` runs, and everything a `Client(node=...)`
+evaluates except the one outer hop it builds itself. Bare `url4.run()` keeps today's behaviour (so
+`test_c6_nested_remote_expression_forwards_its_sources_unchanged` stays, as the bare-run contract).
+Plain `url4://host/path` data fetches (`WebFetchNode`) are not refused here (transport guard).
+Remote blob refs keep `x.remote_blob_unsupported`. The switch is private: no grammar, no
+`run()`/`Client` option, not exported from `url4` / `url4.dag`.
+
+**Planned changes.**
+- `core/errors.py` — `REMOTE_NODE_UNSUPPORTED = "x.remote_node_unsupported"`.
+- `dag/remote_nodes.py` (new) — the per-evaluation policy (a ContextVar): refuse all, or allow one
+  `(authority, path)` hop once; `check_remote_node` raises the typed error.
+- `dag/nodes/fetch.py` — `RemoteFetchNode.resolve` checks the policy first (before any I/O).
+- `peer/server.py` — `Url4Node._run_text` evaluates under "refuse all".
+- `peer/client.py` — a node-targeted evaluation allows exactly its own wrapper hop, once.
+- Tests (new file only): `tests/unit/test_remote_node_refusal.py`.
+
+**Test plan.** RED first: C6 through a `Url4Node` → `x.remote_node_unsupported`, permanent, no
+fetch of any kind; `RemoteFetchNode` under the policy → refused with zero I/O; a `url4://` call
+nested in a Client-wrapped expression is refused at the node; the Client's outer hop works; bare
+`run()` still forwards; a relative call at a `Url4Node` still works; a remote blob ref under the
+node policy still → `x.remote_blob_unsupported`; a plain `url4://host/path` fetch under the policy
+is unaffected; the one-hop allowance is single-use and matches only its own authority/path.
+
+**Outcome (amendment 2026-10-26).**
+- **Actual files:** as planned: `core/errors.py`, `dag/remote_nodes.py` (new, 100% covered),
+  `dag/nodes/fetch.py` (one check line + import), `peer/server.py`, `peer/client.py`,
+  `tests/unit/test_remote_node_refusal.py` (new, 16 tests). No prior test changed;
+  `test_c6_nested_remote_expression_forwards_its_sources_unchanged` stays as the bare-`run()`
+  contract, so no test-change manifest.
+- **Gates:** `run_gates.py url4` ALL GATES GREEN (append-only vs HEAD; 2288 passed, 17 xfailed);
+  `check_module_size.py` within baseline (`peer/server.py` 315/315, `peer/client.py` 464/467,
+  `dag/nodes/fetch.py` within cap); `check_suppressions.py` 3/3. Regression
+  `run_gates.py screamingface-engine` ALL GATES GREEN.
+- **Deviations:** (1) the policy is a ContextVar in `dag/remote_nodes.py`, not an
+  `ExecutionContext` field: `dag/_context.py` and `peer/server.py` are at their size caps, and a
+  per-evaluation ContextVar reaches every spawned task without a new constructor argument;
+  (2) `peer/server.py` stayed at its cap by rewording two comments/docstrings (no code change);
+  (3) the Client's allowance is single-use and exact on `(authority, path)`; no client-side
+  intent form lowers to a `RemoteFetchNode` today (a parenthesised intent is text), so the
+  nested-call refusal for a Client happens at the target node; (4) "before any I/O" means
+  before the remote call's own I/O: deps of the `RemoteFetchNode` (e.g. a fetched intent)
+  resolve first, as for any node; (5) a `url4://<own name>/…` remote expression at a node is
+  refused too (spec: every `url4://` remote-node call); relative calls are unchanged.
