@@ -163,9 +163,7 @@ def _check_skip_members(fanout: Fanout, judge: Step | None, terminal: Step) -> N
 
     if not any(getattr(member, "_is_skip_member", lambda: False)() for member in fanout.members):
         return
-    gate_fallback = type(terminal).__name__ == "Gate" and terminal._sees_every_member()
-    model_step = type(terminal).__name__ in ("JudgePick", "Merge") or gate_fallback
-    if judge is not None or model_step:
+    if judge is not None or terminal._sees_every_member():
         raise ValueError(
             "sf.Judge and model fallbacks read every member; they are not supported with skip-Gate "
             "members in this version"

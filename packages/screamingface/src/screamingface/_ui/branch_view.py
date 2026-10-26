@@ -20,6 +20,7 @@ from functools import lru_cache
 from html import escape
 from typing import TYPE_CHECKING
 
+from screamingface._evaluation.gate_decision import _MAX_RAW
 from screamingface._ui.combine_view import dash_html, number_html
 from screamingface._ui.text import short
 
@@ -41,7 +42,6 @@ _FAIL_CLOSED = "fail_closed"
 _MAX_INDENT = 4  # RP-31: the indent stops growing after level 4
 _INDENT_PX = 16
 _MAX_LABELS = 8  # RP-30
-_RAW_CHARS = 64  # RP-23
 _KEYWORDS_WINDOW = 65_536
 _NO_NUMBER = "no number to compare"
 _NO_LABEL = "the selector gave no usable label"
@@ -155,7 +155,7 @@ def branch_sections_html(
     ]
     if not gates:
         return _guard_line(case)
-    tree = _gate_tree(str(candidate.url4))
+    tree = _gate_tree(candidate.url4)
     pane = _Pane(graph, operations, tree, differs)
     roots = [gate for gate in tree.roots if f"op_{gate}" in operations] or gates
     body = "".join(pane.gate(gate, 0) for gate in roots)
@@ -332,9 +332,13 @@ def _ran(decision: GateDecision) -> list[str]:
     return texts
 
 
+def _range_text(low: int, high: int) -> str:
+    return f"{low}" if low == high else f"{low}–{high}"
+
+
 def _not_run_text(entry: GateNotRun) -> str:
     low, high = entry.model_calls_min, entry.model_calls_max
-    calls = f"{low}" if low == high else f"{low}–{high}"
+    calls = _range_text(low, high)
     noun = "model call" if high == 1 else "model calls"
     reason = _NOT_RUN_REASONS[entry.reason]
     return f"not run · {entry.branch} · {reason} · avoided {calls} {noun}"
@@ -427,7 +431,7 @@ def _selector_labels(selector: GateSelector) -> str:
         return _UNCOMPUTED[selector.status]
     labels = selector.labels or ()
     if selector.parse == "unrecognized":
-        raw = escape(short(selector.raw or "", _RAW_CHARS))
+        raw = escape(short(selector.raw or "", _MAX_RAW))  # RP-23
         kept = f" · {_label_list(labels)}" if labels else ""
         return f'unrecognized · "{raw}"{kept}'
     return _PARSE_WORDS.get(selector.parse or "", "") or _label_list(labels)
@@ -565,11 +569,7 @@ def _share(name: str, count: int, total: int) -> str:
 
 def _row_html(gate: str, row: _GateRow) -> str:
     noun = "case" if row.decided == 1 else "cases"
-    avoided = (
-        f"{row.avoided_min}"
-        if row.avoided_min == row.avoided_max
-        else f"{row.avoided_min}–{row.avoided_max}"
-    )
+    avoided = _range_text(row.avoided_min, row.avoided_max)
     texts = [
         f"gate · {escape(gate)} · {row.decided} {noun}",
         f"then {row.then} · otherwise {row.otherwise} · none {row.none}",

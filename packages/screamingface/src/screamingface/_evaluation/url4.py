@@ -33,6 +33,7 @@ from screamingface._evaluation.topology import (
     _topology_from_expression,
     _TopologyBinding,
 )
+from screamingface._operation_bindings import GATE_BLOCK, gate_join
 from screamingface.errors import ExecutionError
 from screamingface.events import Event
 from screamingface.operation import OperationInfo
@@ -405,9 +406,9 @@ def _final_binding(
     if match is None:
         raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     selected = match.group(1)
-    if selected.startswith("gate_"):
+    if GATE_BLOCK.fullmatch(selected):
         # E4c: the result of a Gate block is its JOIN call, which must be a decoded call.
-        if selected.removesuffix("_block") not in calls:
+        if gate_join(selected) not in calls:
             raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     elif topology.kind in {"corrective_loop", "self_corrective"}:
         if selected != topology.binding:

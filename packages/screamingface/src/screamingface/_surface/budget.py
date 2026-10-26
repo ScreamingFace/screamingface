@@ -13,12 +13,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, cast
 
-from screamingface.recipe import Recipe, _recipe
+from screamingface.recipe import _BU11, Recipe, _recipe
 
 type BudgetUnit = Literal["usd", "tokens"]
-_BU11 = "sf.Budget wraps the whole candidate: use it once, at the root"
 
 
 def _cap(value: object, unit: BudgetUnit, owner: str) -> float | int | None:
@@ -68,10 +67,14 @@ class Budget(Recipe):
     def _recipe_marker(self) -> None:
         return None
 
+    def _caps(self) -> dict[str, int | float]:
+        """The caps this Budget sets, usd then tokens; a unit it does not cap is left out."""
+
+        caps: dict[str, int | float | None] = {"usd": self.usd, "tokens": self.tokens}
+        return {unit: cap for unit, cap in caps.items() if cap is not None}
+
     def units(self) -> tuple[BudgetUnit, ...]:
-        usd: tuple[BudgetUnit, ...] = ("usd",) if self.usd is not None else ()
-        tokens: tuple[BudgetUnit, ...] = ("tokens",) if self.tokens is not None else ()
-        return (*usd, *tokens)
+        return cast("tuple[BudgetUnit, ...]", tuple(self._caps()))
 
     __hash__: ClassVar[Any] = None
 
@@ -81,8 +84,7 @@ class Budget(Recipe):
     def _render(self, prefix: str) -> str:
         from screamingface._surface.render import render
 
-        caps = [f"{unit}={value!r}" for unit, value in (("usd", self.usd), ("tokens", self.tokens))]
-        held = ", ".join(cap for cap in caps if not cap.endswith("=None"))
+        held = ", ".join(f"{unit}={value!r}" for unit, value in self._caps().items())
         return f"{prefix}Budget({render(self.recipe, prefix)}, {held})"
 
 

@@ -40,6 +40,7 @@ returning "A1" and "A2", both would be null — the Engine cannot know which was
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
@@ -130,6 +131,8 @@ def final_operation_abstained(
     )
 
 
+# WHY cached: attribution and the final-abstain mark parse the same expression text per Case.
+@functools.lru_cache(maxsize=32)
 def _final_reference(expression: str) -> str | None:
     """The `name` of a root intent that is exactly `$name`; None for any other root.
 
@@ -206,6 +209,8 @@ def _attributed(
     )
 
 
+# WHY cached: every Case of one candidate reads the same expression text.
+@functools.lru_cache(maxsize=32)
 def _operation_bindings(expression: str) -> tuple[_OperationBinding, ...]:
     try:
         node = build(expression)

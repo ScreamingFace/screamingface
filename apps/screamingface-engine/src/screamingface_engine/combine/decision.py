@@ -17,13 +17,19 @@ reply, cut at 64 characters.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Callable
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from screamingface_engine.combine.ports import MAX_SELECTOR_RAW_CHARS, AbstainReason, SelectorParse
+from screamingface_engine.combine.ports import (
+    DECLARED_NAME,
+    MAX_SELECTOR_RAW_CHARS,
+    AbstainReason,
+    SelectorParse,
+)
 
 GATE_DECISION_SCHEMA = "screamingface.gate-decision.v1"
 
@@ -39,7 +45,8 @@ BudgetUnit = Literal["usd", "tokens"]
 
 GATE_ID = re.compile(r"gate_[1-9]\d*")
 SELECTOR_ID = re.compile(r"sel_[1-9]\d*")
-LABEL = re.compile(r"[a-z][a-z0-9_]{0,31}")
+# A label is the same well-formed word as a declared signal name (combine.ports).
+LABEL = DECLARED_NAME
 # A condition observes a selector label or label set, the remaining budget, or a panel number.
 CONDITION_OBSERVE = re.compile(
     r"label:sel_[1-9]\d*|labels:sel_[1-9]\d*|budget\.remaining:(?:usd|tokens)"
@@ -248,6 +255,14 @@ def _check_branches(record: GateDecision) -> None:
         raise ValueError("a gate that ran the branch it wanted refused nothing")
 
 
+# WHY cached: OPEN, JOIN and a skip-member combine of one Gate read the same text per Case.
+@functools.lru_cache(maxsize=256)
+def parse_gate_decision(text: str) -> GateDecision:
+    """One DECIDE record from its text; the shared result is read-only for every caller."""
+
+    return GateDecision.model_validate_json(text)
+
+
 __all__ = [
     "GATE_DECISION_SCHEMA",
     "BudgetView",
@@ -258,4 +273,5 @@ __all__ = [
     "NotRunEntry",
     "PanelLink",
     "SelectorRecord",
+    "parse_gate_decision",
 ]

@@ -12,7 +12,7 @@ round trip, but one per-operation record that carries its :class:`CombineEvidenc
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -68,6 +68,11 @@ class OperationCall:
     pending: bool = False
     gate_record: GateRecord | None = None
     kept_output: str | None = None
+
+    @property
+    def is_provider(self) -> bool:
+        """True for a provider round trip, not a combine step, a Gate record or a pending call."""
+        return self.combine is None and self.decision is None and not self.pending
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +209,35 @@ def record_operation_call(
             recorder.append(request_accounting)
 
 
+def _publish_internal(
+    path: str,
+    params: Mapping[str, str],
+    output: str,
+    *,
+    combine: CombineEvidence | None = None,
+    decision: GateDecision | None = None,
+    pending: bool = False,
+    gate_record: GateRecord | None = None,
+    kept_output: str | None = None,
+) -> None:
+    """Publish one call with no provider accounting, and the fields that set its kind."""
+
+    _publish(
+        OperationCall(
+            path=path,
+            params=tuple(sorted(params.items())),
+            output=output,
+            finish_reason="stop",
+            accounting=None,
+            combine=combine,
+            decision=decision,
+            pending=pending,
+            gate_record=gate_record,
+            kept_output=kept_output,
+        )
+    )
+
+
 def record_combine_call(
     path: str,
     params: Mapping[str, str],
@@ -216,16 +250,7 @@ def record_combine_call(
     no request key and no accounting; it only joins the Candidate's per-operation record.
     """
 
-    _publish(
-        OperationCall(
-            path=path,
-            params=tuple(sorted(params.items())),
-            output=output,
-            finish_reason="stop",
-            accounting=None,
-            combine=evidence,
-        )
-    )
+    _publish_internal(path, params, output, combine=evidence)
 
 
 def record_gate_call(
@@ -241,16 +266,7 @@ def record_gate_call(
     body failed before JOIN.
     """
 
-    _publish(
-        OperationCall(
-            path=path,
-            params=tuple(sorted(params.items())),
-            output=output,
-            finish_reason="stop",
-            accounting=None,
-            decision=decision,
-        )
-    )
+    _publish_internal(path, params, output, decision=decision)
 
 
 def record_pending_combine_call(
@@ -264,17 +280,8 @@ def record_pending_combine_call(
     Output ``""``, no evidence; ``gate_record`` is what DECIDE reads (branch-core D11).
     """
 
-    _publish(
-        OperationCall(
-            path=path,
-            params=tuple(sorted(params.items())),
-            output="",
-            finish_reason="stop",
-            accounting=None,
-            pending=True,
-            gate_record=gate_record,
-            kept_output=kept_output,
-        )
+    _publish_internal(
+        path, params, "", pending=True, gate_record=gate_record, kept_output=kept_output
     )
 
 
@@ -289,7 +296,7 @@ def provider_calls_by_fingerprint(
 
     index: dict[tuple[str, tuple[tuple[str, str], ...]], list[OperationCall]] = {}
     for call in calls:
-        if call.combine is None and call.decision is None and not call.pending:
+        if call.is_provider:
             index.setdefault((call.path, call.params), []).append(call)
     return index
 
@@ -319,6 +326,18 @@ def current_operation_calls() -> tuple[OperationCall, ...] | None:
     return tuple(active[-1]) if active else None
 
 
+def latest_operation_call(predicate: Callable[[OperationCall], bool]) -> OperationCall | None:
+    """The newest call of the INNERMOST active capture scope that ``predicate`` accepts, or None.
+
+    WHY no snapshot: the search reads the recorder in place and copies no call list.
+    """
+
+    active = _recorders.get()
+    if not active:
+        return None
+    return next((call for call in reversed(active[-1]) if predicate(call)), None)
+
+
 __all__ = [
     "OperationCall",
     "RequestAccounting",
@@ -327,6 +346,7 @@ __all__ = [
     "current_operation_calls",
     "current_request_accounting",
     "current_model_request_key",
+    "latest_operation_call",
     "operation_call_identity",
     "provider_calls_by_fingerprint",
     "record_combine_call",

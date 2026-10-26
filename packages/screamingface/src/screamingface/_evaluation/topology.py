@@ -11,7 +11,7 @@ from typing import Literal, cast, get_args
 
 from url4 import Expression, Node, Source, Text, src
 
-from screamingface._operation_bindings import SYNTHESIS_BINDING, TOPOLOGY_BINDING
+from screamingface._operation_bindings import GATE_BLOCK, SYNTHESIS_BINDING, TOPOLOGY_BINDING
 from screamingface.fusion import _quorum
 from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY
 
@@ -32,8 +32,7 @@ type _TopologyKind = Literal[
 type _OperationRole = Literal["model", "synthesis", "judge", "writer", "sample", "gate", "selector"]
 # A Gate branch that is not a recipe (E4c, gate-spec.v1): the panel's own reducer, or a word.
 type _BranchWord = Literal["step", "abstain", "fail_closed", "skip"]
-_BRANCH_WORDS: tuple[str, ...] = ("step", "abstain", "fail_closed", "skip")
-_GATE_BLOCK = re.compile(r"gate_(\d+)_block")
+_BRANCH_WORDS: tuple[str, ...] = get_args(_BranchWord.__value__)
 # The roles of the model calls a reducer reads (its signals); each is also an _OperationRole.
 type _SignalRole = Literal["judge", "writer"]
 _SIGNAL_ROLES: tuple[str, ...] = get_args(_SignalRole.__value__)
@@ -102,7 +101,7 @@ class _RecipeTopology:
     def join_binding(self) -> str:
         """A Gate's JOIN binding ``gate_N`` (the block binding is ``gate_N_block``)."""
 
-        block = _GATE_BLOCK.fullmatch(self.binding)
+        block = GATE_BLOCK.fullmatch(self.binding)
         if self.kind != "gate" or block is None:
             raise ValueError("only a gate node has a JOIN binding")
         return f"gate_{block.group(1)}"
@@ -820,7 +819,7 @@ def _decode_gate(value: dict[object, object], name: str, binding: str) -> _Recip
     required = {"binding", "kind", "name", "otherwise", "then"}
     if not required <= set(value) <= required | {"panel", "selectors"}:
         raise ValueError(_GATE_INVALID)
-    if _GATE_BLOCK.fullmatch(binding) is None:
+    if GATE_BLOCK.fullmatch(binding) is None:
         raise ValueError(_GATE_INVALID)
     panel = None
     if "panel" in value:

@@ -157,15 +157,12 @@ def _optional(member: Recipe) -> Recipe:
     raise TypeError("a cascade stage member is a model route, a sf.Model or a chain")
 
 
-def _keep(condition: GateCondition | None, number: int) -> GateCondition | AnsweredCondition:
+def _keep(condition: GateCondition | None) -> GateCondition | AnsweredCondition:
     """The keep form of an escalate form (CA-4); None keeps a stage that answered (CA-10)."""
 
     if condition is None:
         return answered()
-    try:
-        return _condition(condition.ref, _KEEP[condition.cmp], condition.threshold)  # type: ignore[arg-type]
-    except ValueError as exc:
-        raise ValueError(f"sf.Cascade stage {number}: escalate_if={condition!r}: {exc}") from None
+    return _condition(condition.ref, _KEEP[condition.cmp], condition.threshold)  # type: ignore[arg-type]
 
 
 def _gated(
@@ -177,7 +174,7 @@ def _gated(
     rest: Stage | Literal["abstain", "fail_closed"],
 ) -> Recipe:
     try:
-        gate = Gate(when=_keep(condition, number), then=step, otherwise=rest)
+        gate = Gate(when=_keep(condition), then=step, otherwise=rest)
     except ValueError as exc:
         # CA-15: the refusal names the escalate form the author wrote.
         raise ValueError(f"sf.Cascade stage {number}: escalate_if={condition!r}: {exc}") from None

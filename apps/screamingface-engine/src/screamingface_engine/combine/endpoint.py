@@ -843,7 +843,7 @@ def _decide(
     trace: _Trace,
     *,
     recorded: _Recorded,
-    decide_only: bool = False,
+    decide_only: bool,
 ) -> CombineOutcome | PendingCombine:
     """Run reduce, then select, then the gate when the spec has one (E4b part 5).
 
@@ -924,7 +924,7 @@ def _gated(
     trace: _Trace,
     *,
     recorded: _Recorded,
-    decide_only: bool = False,
+    decide_only: bool,
 ) -> CombineOutcome | PendingCombine:
     """Check the band, then compare the gate number with the threshold; record it and take one
     branch (ans:Q1; E4b part 6 ans:Q2).
@@ -991,7 +991,7 @@ def _fallback(
     selection: Selection,
     *,
     recorded: _Recorded,
-    decide_only: bool = False,
+    decide_only: bool,
 ) -> CombineOutcome | PendingCombine:
     """The judge or the writer fallback answer (gate-decision §2 delta 4, P14).
 

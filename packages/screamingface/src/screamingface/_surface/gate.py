@@ -44,10 +44,10 @@ from screamingface._surface.steps import (
     _check_by_lowering,
 )
 from screamingface._surface.synthesize import Synthesize
+from screamingface.branch import GATE_IN_LOOP
 from screamingface.model import Model
-from screamingface.recipe import Recipe
+from screamingface.recipe import _BU11, Recipe
 
-type Word = Literal["abstain", "fail_closed"]
 # The E4b fallback of a vote gate (kept for the one-call compile and its lowering).
 type Fallback = Literal["abstain"] | JudgePick | Synthesize
 type Branch = Step | Recipe | str | Estimate
@@ -266,12 +266,9 @@ def _recipe_branch(value: Recipe) -> Recipe:
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
 
     if isinstance(value, Budget):
-        raise ValueError("sf.Budget wraps the whole candidate: use it once, at the root")  # BU-11
+        raise ValueError(_BU11)  # BU-11
     if isinstance(value, CorrectiveLoop | SelfCorrective):
-        raise ValueError(  # GT-27 (ans:Q26)
-            "a sf.Gate cannot sit inside a sf.CorrectiveLoop, and a sf.CorrectiveLoop cannot "
-            "be a sf.Gate branch"
-        )
+        raise ValueError(GATE_IN_LOOP)  # GT-27 (ans:Q26)
     return value
 
 

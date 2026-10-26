@@ -35,7 +35,7 @@ from pydantic import (
     model_validator,
 )
 
-from screamingface_engine.combine.decision import GateDecision
+from screamingface_engine.combine.decision import parse_gate_decision
 from screamingface_engine.combine.ports import (
     GATE_OBSERVE,
     MAX_DECLARED_SIGNALS,
@@ -696,7 +696,7 @@ def _parse_selection(value: object, members: Sequence[str]) -> frozenset[str]:
     skipped: set[str] = set()
     for member, text in records.items():
         try:
-            record = GateDecision.model_validate_json(text)
+            record = parse_gate_decision(text)
         except ValidationError as exc:
             raise SpecInvalid("combine context selection holds gate decision records") from exc
         if record.branch != "then":

@@ -16,11 +16,24 @@ INVARIANT: the field order of each ``to_dict()`` is the Engine's wire order
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from screamingface._evaluation.operation_accounting import _exact_keys, _mapping
+from screamingface._evaluation.combine_evidence import (
+    _boolean,
+    _list,
+    _optional_boolean,
+    _optional_text,
+    _optional_word,
+    _text,
+    _word,
+)
+from screamingface._evaluation.operation_accounting import (
+    _exact_keys,
+    _mapping,
+    _nonnegative_integer,
+)
+from screamingface._surface.selectors import LABEL
 from screamingface.answer import ABSTAIN_REASONS, AbstainReason
 from screamingface.errors import ExecutionError
 
@@ -76,7 +89,6 @@ _PANEL_BRANCHES = frozenset({"majority", "fallback", "band"})
 _UNITS = frozenset({"usd", "tokens"})
 _GATE_ID = re.compile(r"gate_[1-9]\d*")
 _SELECTOR_ID = re.compile(r"sel_[1-9]\d*")
-_LABEL = re.compile(r"[a-z][a-z0-9_]{0,31}")
 _SHA256 = re.compile(r"[0-9a-f]{16}")
 _PANEL_OBSERVE = re.compile(r"agreement|answered|(?:chosen|mean):.+")
 _MAX_RAW = 64
@@ -331,7 +343,7 @@ def _selector(value: object, label: str) -> GateSelector:
         ),
         raw=_optional_text(raw["raw"], f"{label} raw"),
         parse_error=_optional_text(raw["parse_error"], f"{label} parse_error"),
-        input_chars=_count(raw["input_chars"], f"{label} input_chars"),
+        input_chars=_nonnegative_integer(raw["input_chars"], f"{label} input_chars"),
         input_sha256=_pattern(raw["input_sha256"], _SHA256, f"{label} input_sha256"),
     )
     _check_selector(selector, label)
@@ -354,8 +366,7 @@ def _check_selector(selector: GateSelector, label: str) -> None:
 
 def _labels(value: object, label: str) -> tuple[str, ...]:
     labels = tuple(
-        _pattern(item, _LABEL, f"{label}[{index}]")
-        for index, item in enumerate(_list(value, label))
+        _pattern(item, LABEL, f"{label}[{index}]") for index, item in enumerate(_list(value, label))
     )
     if len(set(labels)) != len(labels):
         raise ExecutionError(f"{label} must be distinct")
@@ -367,8 +378,8 @@ def _not_run(value: object, label: str) -> GateNotRun:
     _exact_keys(raw, _NOT_RUN_KEYS, label)
     calls = _mapping(raw["model_calls"], f"{label} model_calls")
     _exact_keys(calls, _CALLS_KEYS, f"{label} model_calls")
-    low = _count(calls["min"], f"{label} model_calls min")
-    high = _count(calls["max"], f"{label} model_calls max")
+    low = _nonnegative_integer(calls["min"], f"{label} model_calls min")
+    high = _nonnegative_integer(calls["max"], f"{label} model_calls max")
     if low > high:  # GD-I7
         raise ExecutionError(f"{label} model_calls min is at most max")
     return GateNotRun(
@@ -401,7 +412,7 @@ def _budget_view(value: object, label: str) -> GateBudgetView:
         unit=cast(Literal["usd", "tokens"], _word(raw["unit"], _UNITS, f"{label} unit")),
         cap=_number(raw["cap"], f"{label} cap"),
         spent=_number(raw["spent"], f"{label} spent"),
-        unpriced=_count(raw["unpriced"], f"{label} unpriced"),
+        unpriced=_nonnegative_integer(raw["unpriced"], f"{label} unpriced"),
         estimate=None if estimate is None else _number(estimate, f"{label} estimate"),
         refused=_boolean(raw["refused"], f"{label} refused"),
     )
@@ -439,54 +450,11 @@ def _panel(value: object, label: str) -> GatePanel | None:
 # --- scalars --------------------------------------------------------------------------------------
 
 
-def _list(value: object, label: str) -> Sequence[object]:
-    if not isinstance(value, list):
-        raise ExecutionError(f"{label} must be a list")
-    return value
-
-
-def _text(value: object, label: str) -> str:
-    if not isinstance(value, str):
-        raise ExecutionError(f"{label} must be text")
-    return value
-
-
-def _optional_text(value: object, label: str) -> str | None:
-    return None if value is None else _text(value, label)
-
-
 def _pattern(value: object, pattern: re.Pattern[str], label: str) -> str:
     text = _text(value, label)
     if pattern.fullmatch(text) is None:
         raise ExecutionError(f"{label} has the wrong form")
     return text
-
-
-def _word(value: object, allowed: frozenset[str], label: str) -> str:
-    text = _text(value, label)
-    if text not in allowed:
-        raise ExecutionError(f"{label} must be one of {', '.join(sorted(allowed))}")
-    return text
-
-
-def _optional_word(value: object, allowed: frozenset[str], label: str) -> str | None:
-    return None if value is None else _word(value, allowed, label)
-
-
-def _boolean(value: object, label: str) -> bool:
-    if not isinstance(value, bool):
-        raise ExecutionError(f"{label} must be a boolean")
-    return value
-
-
-def _optional_boolean(value: object, label: str) -> bool | None:
-    return None if value is None else _boolean(value, label)
-
-
-def _count(value: object, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ExecutionError(f"{label} must be a non-negative integer")
-    return value
 
 
 def _number(value: object, label: str) -> Number:

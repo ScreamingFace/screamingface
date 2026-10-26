@@ -30,6 +30,7 @@ from url4.core.nodes import children
 from screamingface import _candidate_policy
 from screamingface import reducer as reducer_module
 from screamingface._benchmark_identity import benchmark_id as _flat_benchmark_id
+from screamingface._evaluation.branch import JOIN_ROUTE
 from screamingface._evaluation.combine_spec import (
     COMBINE_MODEL,
     decode_combine_spec,
@@ -47,8 +48,10 @@ from screamingface._evaluation.topology import (
     _writer_key,
 )
 from screamingface._operation_bindings import (
+    GATE_BLOCK,
     OPERATION_BINDING,
     OPERATION_BINDING_PARAM,
+    gate_join,
 )
 from screamingface._signals import JUDGE_SIGNAL
 from screamingface.blocks import ReduceNode
@@ -94,9 +97,8 @@ _DEFAULT_CORRECTIVE_ROUNDS = 3
 _MODEL_CALLS = "URL4 Candidate Recipe topology does not match its model calls"
 # The optional spec keys whose url4 must recompile byte for byte (see ``_validate_topology``).
 _PROVED_SPEC_KEYS = frozenset({"signals", "narrow", "gate"})
-# E4c: a Gate's JOIN call (``gate_N``) and its result binding (``gate_N_block``).
-_JOIN_MODEL = "ensemble/branch/v1/join"
-_GATE_BLOCK = re.compile(r"gate_\d+_block")
+# E4c: the model name of a Gate's JOIN call (``gate_N``).
+_JOIN_MODEL = JOIN_ROUTE.removeprefix("/")
 # WHY the optional sources tail: the combine context is {input, outputs or panel, samples,
 # signals, sources} (E4b part 7 writes `samples` before `signals`), and `signals` holds only
 # '$judge_N'/'$writer_N' values (no braces), so the first `}` ends it.
@@ -207,7 +209,7 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
             dict.fromkeys(
                 dependency
                 for reference in _REFERENCE.findall(context)
-                for dependency in panels.get(reference, (_gate_join(reference),))
+                for dependency in panels.get(reference, (gate_join(reference),))
             )
         )
         calls[node.name] = _Call(
@@ -222,12 +224,6 @@ def _calls(candidate: Expression) -> dict[str, _Call]:
     if not calls:
         raise ValueError("URL4 contains no compiled ScreamingFace model calls")
     return calls
-
-
-def _gate_join(reference: str) -> str:
-    """A Gate block reference reads the Gate's JOIN call (E4c); any other name is itself."""
-
-    return reference.removesuffix("_block") if _GATE_BLOCK.fullmatch(reference) else reference
 
 
 def _panel_dependencies(candidate: Expression) -> dict[str, tuple[str, ...]]:
@@ -245,7 +241,7 @@ def _panel_dependencies(candidate: Expression) -> dict[str, tuple[str, ...]]:
             if isinstance(slot, Source | Binding) and isinstance(slot.value, Expression):
                 if isinstance(slot.value.intent, Text):
                     references.extend(
-                        _gate_join(reference)
+                        gate_join(reference)
                         for reference in _REFERENCE.findall(slot.value.intent.value)
                     )
         panels[node.name] = tuple(references)
@@ -304,7 +300,7 @@ def _final_binding(
     if match is None:
         raise ValueError("URL4 Candidate has an unsupported result binding")
     selected = match.group(1)
-    if _GATE_BLOCK.fullmatch(selected):
+    if GATE_BLOCK.fullmatch(selected):
         # E4c: a Gate block is one named inner expression, not a call.
         if not _has_binding(candidate, selected):
             raise ValueError("URL4 Candidate has an unsupported result binding")

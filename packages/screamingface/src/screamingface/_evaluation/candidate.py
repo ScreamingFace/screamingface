@@ -43,7 +43,7 @@ from screamingface._operation_bindings import OPERATION_BINDING_PARAM
 from screamingface._surface.budget import Budget
 from screamingface._surface.lowering import lower
 from screamingface._surface.selectors import LabelModel
-from screamingface.branch import BranchNode, LazyDecision
+from screamingface.branch import GATE_IN_LOOP, BranchNode, LazyDecision, _is_skip_member
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import FusionNode, _consistency_member
@@ -219,10 +219,7 @@ def _refuse_gates_in_loop(loop: CorrectiveLoop | SelfCorrective) -> None:
     while pending:
         value = pending.pop()
         if isinstance(value, BranchNode):
-            raise ValueError(
-                "a sf.Gate cannot sit inside a sf.CorrectiveLoop, and a sf.CorrectiveLoop cannot "
-                "be a sf.Gate branch"
-            )
+            raise ValueError(GATE_IN_LOOP)
         if isinstance(value, Recipe):
             pending.extend(_children(value))
 
@@ -387,13 +384,12 @@ class _CandidateCompiler:
         budget = self._budget
         if budget is None:
             return ()
-        caps = {unit: cap for unit, cap in (("usd", budget.usd), ("tokens", budget.tokens))}
         return (
             src(
                 Text("budget"),
                 name="_sf_budget",
                 weight=0.0,
-                budgets={unit: cap for unit, cap in caps.items() if cap is not None},
+                budgets=budget._caps(),
                 annotations=(("budget_mode", "advisory"),),
             ),
         )
@@ -1156,12 +1152,6 @@ def _fusion_context(
     if sources is not None:
         value["sources"] = sources
     return render(struct(value))
-
-
-def _is_skip_member(member: Recipe) -> bool:
-    """A skip-Gate Fanout member (E4c, ans:Q16): a Gate node with no otherwise."""
-
-    return isinstance(member, BranchNode) and member.otherwise is None
 
 
 def _warn_duplicate_members(fusion: FusionNode) -> None:

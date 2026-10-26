@@ -30,6 +30,7 @@ not read is a missing key, and the decision call's binding sits in the spec (``p
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
@@ -66,6 +67,7 @@ from screamingface_engine.combine.decision import (
     NotRunEntry,
     PanelLink,
     SelectorRecord,
+    parse_gate_decision,
 )
 from screamingface_engine.combine.evidence import GateRecord
 from screamingface_engine.combine.gate import passes
@@ -80,6 +82,7 @@ from screamingface_engine.operation_accounting import SignalAccounting
 from screamingface_engine.operation_calls import (
     OperationCall,
     current_operation_calls,
+    latest_operation_call,
     provider_calls_by_fingerprint,
     record_gate_call,
 )
@@ -94,7 +97,6 @@ OPEN_ROUTE = f"{BRANCH_PREFIX}/open"
 JOIN_ROUTE = f"{BRANCH_PREFIX}/join"
 GATE_SPEC_SCHEMA = "screamingface.gate-spec.v1"
 KEYWORDS_ROUTE = "/ensemble/select/v1/keywords"
-KEYWORDS_SCHEMA = "screamingface.keywords.v1"
 # SL-23: Keywords scan the first 65,536 characters of the Case input.
 KEYWORDS_WINDOW = 65_536
 MAX_KEYWORD_RULES = 32
@@ -314,7 +316,7 @@ class _Choice:
 
 
 def _decide(request: Request) -> str:
-    gate_id = _gate_param(request.params)
+    gate_id = _one_param(request.params, "gate", "decide takes exactly one param, gate=gate_N")
     context = _context(request.context, _DECIDE_KEYS, ("after",), "decide")
     spec = _spec(request.intent)
     inputs = _SelectorInputs.read(context, spec)
@@ -354,7 +356,7 @@ def _decide(request: Request) -> str:
     # D3: DECIDE publishes under the JOIN fingerprint; JOIN's record replaces it when JOIN runs.
     record_gate_call(JOIN_ROUTE, {"binding": gate_id}, "", record)
     _log_budget(gate_id, views or ())
-    return _record_text(record)
+    return record.model_dump_json(by_alias=True)
 
 
 def _log_budget(gate_id: str, views: Sequence[BudgetView]) -> None:
@@ -458,7 +460,7 @@ def _input_choice(spec: GateSpec, inputs: _SelectorInputs, ledger: _BudgetLedger
     kind, _, selector = when.observe.partition(":")
     if kind == "budget.remaining":
         # BU-6: the decision sees what is left after its ancestors' charges.
-        remaining = ledger.remaining(cast("BudgetUnit", selector))
+        remaining = ledger.left[cast("BudgetUnit", selector)]
         passed = passes(remaining, cast("GateCmp", when.cmp), cast("float", when.value))
         return _Choice(remaining, passed, "then" if passed else "otherwise")
     labels = inputs.record(selector).labels  # None: the selector call failed (SL-12)
@@ -524,9 +526,6 @@ class _BudgetLedger:
                     budget.cap, amounts
                 )
         return cls(budgets, spent, left, unpriced)
-
-    def remaining(self, unit: BudgetUnit) -> float:
-        return self.left[unit]
 
     def views(
         self, spec: GateSpec, wanted: BranchName | None
@@ -630,7 +629,7 @@ def _open(request: Request) -> str:
 
 
 def _join(request: Request) -> str:
-    gate_id = _binding_param(request.params)
+    gate_id = _one_param(request.params, "binding", "join takes exactly one param, binding=gate_N")
     context = _context(request.context, _JOIN_KEYS, ("decision",), "join")
     spec = _spec(request.intent)
     record = _decision(context["decision"], "join context decision")
@@ -750,9 +749,8 @@ def _recorded(binding: str) -> OperationCall | None:
     and Gate call, carries its binding, and a binding name is unique in a candidate.
     """
 
-    calls = current_operation_calls() or ()
     wanted = ("binding", binding)
-    return next((call for call in reversed(calls) if wanted in call.params), None)
+    return latest_operation_call(lambda call: wanted in call.params)
 
 
 def _context(
@@ -774,11 +772,17 @@ def _context(
     return context
 
 
+# WHY cached: DECIDE and JOIN of one Gate parse the same intent text on every Case.
+@functools.lru_cache(maxsize=64)
+def _parsed_spec(intent: str) -> GateSpec:
+    return GateSpec.model_validate_json(intent)
+
+
 def _spec(value: object) -> GateSpec:
     if not isinstance(value, str):
         raise _contract_error("gate spec is JSON text")
     try:
-        return GateSpec.model_validate_json(value)
+        return _parsed_spec(value)
     except ValidationError as exc:
         raise _contract_error(f"gate spec is invalid at {_field(exc)}") from exc
 
@@ -787,7 +791,7 @@ def _decision(value: object, owner: str) -> GateDecision:
     if not isinstance(value, str):
         raise _contract_error(f"{owner} is a gate decision record")
     try:
-        return GateDecision.model_validate_json(value)
+        return parse_gate_decision(value)
     except ValidationError as exc:
         raise _contract_error(f"{owner} is invalid at {_field(exc)}") from exc
 
@@ -814,22 +818,13 @@ def _json_object(value: object, owner: str) -> dict[str, object]:
     return decoded
 
 
-def _gate_param(params: Mapping[str, str]) -> str:
-    gate = params.get("gate")
-    if set(params) != {"gate"} or gate is None:
-        raise _contract_error("decide takes exactly one param, gate=gate_N")
-    return gate
+def _one_param(params: Mapping[str, str], key: str, message: str) -> str:
+    """The value of the one param a Gate endpoint takes; any other set is a contract error."""
 
-
-def _binding_param(params: Mapping[str, str]) -> str:
-    binding = params.get("binding")
-    if set(params) != {"binding"} or binding is None:
-        raise _contract_error("join takes exactly one param, binding=gate_N")
-    return binding
-
-
-def _record_text(record: GateDecision) -> str:
-    return record.model_dump_json(by_alias=True)
+    value = params.get(key)
+    if set(params) != {key} or value is None:
+        raise _contract_error(message)
+    return value
 
 
 __all__ = [

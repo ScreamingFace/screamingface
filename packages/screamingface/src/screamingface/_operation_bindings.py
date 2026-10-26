@@ -18,6 +18,16 @@ OPERATION_REFERENCE = re.compile(rf"\$({_BODY}){_END}")
 TOPOLOGY_BINDING = re.compile(rf"{_BODY}|loop_candidate|gate_\d+_block")
 # A reducer node is a combine call, and every combine call takes the next synthesis_N.
 SYNTHESIS_BINDING = re.compile(r"synthesis_\d+")
+# E4c: a Gate binds its DECIDE/OPEN/JOIN chain as gate_N_block; its JOIN call is gate_N.
+GATE_BLOCK = re.compile(r"gate_(\d+)_block")
+
+
+def gate_join(name: str) -> str:
+    """A Gate block binding names its JOIN call ``gate_N``; any other name is itself."""
+
+    block = GATE_BLOCK.fullmatch(name)
+    return f"gate_{block.group(1)}" if block else name
+
 
 # The model/combine call param that names the call for attribution (never forwarded by the Engine).
 # Every attributed combine, judge and writer call carries it FIRST; a user param cannot use it.

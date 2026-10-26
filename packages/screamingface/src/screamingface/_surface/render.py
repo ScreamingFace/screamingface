@@ -290,7 +290,7 @@ def _with_estimate(text: str, estimate: Any, prefix: str) -> str:
     return f"{prefix}Estimate({text}, {caps})"
 
 
-def _branch(value: object, prefix: str) -> str:  # noqa: PLR0911
+def _branch(value: object, prefix: str) -> str:
     """A Gate branch as the author wrote it: a word, a route string, a recipe or a step."""
 
     if isinstance(value, str):

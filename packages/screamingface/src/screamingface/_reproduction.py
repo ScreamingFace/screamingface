@@ -118,7 +118,7 @@ def budget_view_differences(
 
 def _budget_views(operations: Sequence[CaseOperation] | None) -> dict[str, object]:
     return {
-        operation.decision.gate_id: operation.decision.to_dict()["budget"]
+        operation.decision.gate_id: operation.decision.budget
         for operation in operations or ()
         if operation.decision is not None
     }

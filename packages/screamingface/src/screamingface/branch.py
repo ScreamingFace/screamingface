@@ -13,11 +13,12 @@ module holds data and the few rules every builder shares.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from screamingface._surface.selectors import Keywords, LabelModel
+from screamingface._surface.selectors import Selector
 from screamingface.fusion import FusionNode
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
@@ -30,10 +31,14 @@ type Word = Literal["abstain", "fail_closed"]
 # A branch: a recipe, a reducer step (panel gates), a word, or None = skip (a skip-Gate member's
 # otherwise, ans:Q16).
 type Body = Recipe | Reducer | Word | None
-type Selector = Keywords | LabelModel
 
 WORDS: tuple[Word, Word] = ("abstain", "fail_closed")
 MAX_GATE_DEPTH = 8
+# GT-27 (ans:Q26): the message for a sf.Gate inside a sf.CorrectiveLoop, shared by each check.
+GATE_IN_LOOP = (
+    "a sf.Gate cannot sit inside a sf.CorrectiveLoop, and a sf.CorrectiveLoop cannot "
+    "be a sf.Gate branch"
+)
 # The panel forms of a condition (erd §1): they read the decision call of a Fanout block.
 _PANEL_OBSERVE = ("agreement", "answered", "chosen:", "mean:")
 
@@ -126,7 +131,34 @@ class BranchNode(Recipe):
         )
 
 
-class DecisionReducer(Reducer):
+class _DelegatingReducer(Reducer):
+    """A reducer wrapper whose step name, context check and member check come from ``_inner``."""
+
+    __slots__ = ()
+
+    @property
+    @abstractmethod
+    def _inner(self) -> Reducer:
+        """The reducer step this wrapper delegates to."""
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"a {type(self).__name__} is immutable")
+
+    def _step_name(self) -> str:
+        return self._inner._step_name()
+
+    def _whole_context_call(self) -> str | None:
+        return self._inner._whole_context_call()
+
+    def _check_members(self, count: int) -> None:
+        self._inner._check_members(count)
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Reducer:
+        raise ValueError("URL4 Candidate has a gate spec this SDK version cannot rebuild")
+
+
+class DecisionReducer(_DelegatingReducer):
     """A panel gate's decision reducer: a reducer step plus the gate its combine call records.
 
     WHY a wrapper: E4c puts a gate on any reducer that answers (P3); the gate's ``otherwise`` is
@@ -148,27 +180,12 @@ class DecisionReducer(Reducer):
         object.__setattr__(self, "name", step.name)
         object.__setattr__(self, "_narrow", ())
 
-    def __setattr__(self, name: str, value: object) -> None:
-        raise AttributeError("a DecisionReducer is immutable")
-
-    def _step_name(self) -> str:
-        return self.step._step_name()
+    @property
+    def _inner(self) -> Reducer:
+        return self.step
 
     def _plan(self) -> _ReducerPlan:
         return replace(self.step._combine_plan(), gate=self.gate)
-
-    def _combine_plan(self) -> _ReducerPlan:
-        return self._plan()
-
-    def _whole_context_call(self) -> str | None:
-        return self.step._whole_context_call()
-
-    def _check_members(self, count: int) -> None:
-        self.step._check_members(count)
-
-    @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Reducer:
-        raise ValueError("URL4 Candidate has a gate spec this SDK version cannot rebuild")
 
     __hash__: ClassVar[Any] = None
 
@@ -183,7 +200,7 @@ class DecisionReducer(Reducer):
         return f"DecisionReducer({self.step!r}, {self.gate!r})"
 
 
-class LazyDecision(Reducer):
+class LazyDecision(_DelegatingReducer):
     """Call #1 of a lazy E4b fallback (lazy-fallback delta 1): the full gated vote's own spec,
     without the fallback call, sent with ``phase=decide``.
 
@@ -206,11 +223,9 @@ class LazyDecision(Reducer):
         object.__setattr__(self, "name", full.name)
         object.__setattr__(self, "_narrow", ())
 
-    def __setattr__(self, name: str, value: object) -> None:
-        raise AttributeError("a LazyDecision is immutable")
-
-    def _step_name(self) -> str:
-        return self.full._step_name()
+    @property
+    def _inner(self) -> Reducer:
+        return self.full
 
     def _plan(self) -> _ReducerPlan:
         from screamingface.reducer import _FALLBACK_KEYS
@@ -220,19 +235,6 @@ class LazyDecision(Reducer):
         calls = tuple(call for call in plan.signal_calls if call.key not in fallback)
         return replace(plan, signal_calls=calls)
 
-    def _combine_plan(self) -> _ReducerPlan:
-        return self._plan()
-
-    def _whole_context_call(self) -> str | None:
-        return self.full._whole_context_call()
-
-    def _check_members(self, count: int) -> None:
-        self.full._check_members(count)
-
-    @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Reducer:
-        raise ValueError("URL4 Candidate has a gate spec this SDK version cannot rebuild")
-
     __hash__: ClassVar[Any] = None
 
     def __eq__(self, other: object) -> bool:
@@ -240,6 +242,12 @@ class LazyDecision(Reducer):
 
     def __repr__(self) -> str:
         return f"LazyDecision({self.full!r})"
+
+
+def _is_skip_member(member: Recipe) -> bool:
+    """A skip-Gate Fanout member (E4c, ans:Q16): a Gate node with no otherwise."""
+
+    return isinstance(member, BranchNode) and member.otherwise is None
 
 
 __all__: list[str] = []

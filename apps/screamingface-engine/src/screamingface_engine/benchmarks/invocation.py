@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import math
 from collections.abc import Iterator
 from contextlib import nullcontext
@@ -97,6 +98,8 @@ async def evaluate_candidate_recipe(
     )
 
 
+# WHY cached: every Case and Attempt of one candidate parses the same expression text.
+@functools.lru_cache(maxsize=32)
 def candidate_budgets(expression: str) -> tuple[Budget, ...]:
     """The Budgets on the candidate's ``_sf_budget`` source, before any call (BU-1, BU-15).
 

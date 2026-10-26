@@ -29,9 +29,10 @@ INVARIANT (D10): AFTER references only bindings in scope; its slots are instrume
 
 from __future__ import annotations
 
-import json
+import functools
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
@@ -56,8 +57,16 @@ from url4 import ref as url4_ref
 
 from screamingface._evaluation.model import _compiled_operation
 from screamingface._evaluation.topology import _BranchWord, _RecipeTopology
-from screamingface._surface.selectors import Keywords, LabelModel
-from screamingface.branch import MAX_GATE_DEPTH, WORDS, BranchNode, LazyDecision, Selector
+from screamingface._operation_bindings import gate_join
+from screamingface._surface.selectors import Keywords, LabelModel, Selector, _canonical
+from screamingface.branch import (
+    GATE_IN_LOOP,
+    MAX_GATE_DEPTH,
+    WORDS,
+    BranchNode,
+    LazyDecision,
+    _is_skip_member,
+)
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fusion import FusionNode
 from screamingface.pipeline import Pipeline
@@ -79,17 +88,12 @@ _ENSEMBLE = "/ensemble/"
 # The bindings any scope may read: the Case input, and a nested Recipe invocation's input.
 _ALWAYS_IN_SCOPE = frozenset({"input", "_sf_recipe_input"})
 _REFERENCE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
-_GATE_BLOCK = re.compile(r"gate_(\d+)_block")
 _PANEL = re.compile(r"panel_\d+")
 _SLOT_NAMES = {"then": "then", "otherwise": "else"}
 
 type _Path = tuple[tuple[int, str], ...]
 type _Range = tuple[int, int]
 _NONE: _Range = (0, 0)
-
-
-def _canonical(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 # --- the tree scan --------------------------------------------------------------------------------
@@ -119,7 +123,7 @@ class _Tree:
         return common
 
 
-def _scan(root: BranchNode) -> _Tree:
+def _scan(root: object) -> _Tree:
     tree = _Tree()
 
     def visit(value: object, path: _Path) -> None:
@@ -178,6 +182,17 @@ class _BranchState:
 
 
 @dataclass(frozen=True, slots=True)
+class _Selectors:
+    """The selectors one Gate's DECIDE reads: per-branch reads, the spec entries, the LabelModel
+    reply references in scope and the KEYWORDS reference."""
+
+    reads: dict[str, list[Selector]]
+    declared: dict[str, dict[str, object]]
+    replies: dict[str, str]
+    keywords: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class _Body:
     kind: Literal["recipe", "step", "abstain", "fail_closed", "skip"]
     sources: tuple[Node, ...] = ()
@@ -185,6 +200,23 @@ class _Body:
     terminal: str | None = None  # the binding whose recorded result JOIN copies (D12)
     resolved: _ResolvedRecipe | None = None
     calls: _Range = _NONE
+
+
+@contextmanager
+def _tree_scope(
+    compiler: _CandidateCompiler, state: _BranchState, build: Callable[[], _Tree]
+) -> Iterator[None]:
+    """Activate the tree ``build`` returns when none is active, and clear it on exit."""
+
+    tree_root = state.tree is None
+    if tree_root:
+        state.tree = build()
+        _emit_tree_top(compiler, state)
+    try:
+        yield
+    finally:
+        if tree_root:
+            state.tree = None
 
 
 def compile_branch(
@@ -201,18 +233,13 @@ def compile_branch(
         raise ValueError(f"sf.Gate nests at most {MAX_GATE_DEPTH} deep")
     member = compiler._skip_member == id(node)
     compiler._skip_member = None  # a Gate inside the member's body is an ordinary Gate
-    tree_root = state.tree is None
-    if tree_root:
-        state.tree = _scan(node)
-        _emit_tree_top(compiler, state)
-    state.depth += 1
-    try:
-        gate = _Gate(compiler, state, node, input_context, input_dependencies, member=member)
-        return gate.render()
-    finally:
-        state.depth -= 1
-        if tree_root:
-            state.tree = None
+    with _tree_scope(compiler, state, lambda: _scan(node)):
+        state.depth += 1
+        try:
+            gate = _Gate(compiler, state, node, input_context, input_dependencies, member=member)
+            return gate.render()
+        finally:
+            state.depth -= 1
 
 
 def compile_skip_fusion(
@@ -230,30 +257,25 @@ def compile_skip_fusion(
     """
 
     state = compiler._branch_state()
-    tree_root = state.tree is None
-    if tree_root:
-        state.tree = _members_tree(fusion)
-        _emit_tree_top(compiler, state)
-    hoisted: list[Node] = []
-    outer, compiler._hoist = compiler._hoist, hoisted
-    try:
-        captured = []
-        for member in fusion.members:
-            if isinstance(member, BranchNode) and member.otherwise is None:
-                compiler._skip_member = id(member)
-            captured.append(
-                compiler._capture_recipe(
-                    member,
-                    input_context=input_context,
-                    input_dependencies=input_dependencies,
-                    synthesis=False,
+    with _tree_scope(compiler, state, lambda: _members_tree(fusion)):
+        hoisted: list[Node] = []
+        outer, compiler._hoist = compiler._hoist, hoisted
+        try:
+            captured = []
+            for member in fusion.members:
+                if _is_skip_member(member):
+                    compiler._skip_member = id(member)
+                captured.append(
+                    compiler._capture_recipe(
+                        member,
+                        input_context=input_context,
+                        input_dependencies=input_dependencies,
+                        synthesis=False,
+                    )
                 )
-            )
-    finally:
-        compiler._hoist = outer
-        compiler._skip_member = None
-        if tree_root:
-            state.tree = None
+        finally:
+            compiler._hoist = outer
+            compiler._skip_member = None
     compiler._sources.extend(hoisted)
     return _skip_panel(compiler, fusion, tuple(captured), input_context, input_dependencies)
 
@@ -289,7 +311,8 @@ def _skip_panel(
             name=f"member_{index}",
             weight=1.0,
             required=not (
-                fusion.members[index - 1].optional or (numeric and _skips(index, fusion))
+                fusion.members[index - 1].optional
+                or (numeric and _is_skip_member(fusion.members[index - 1]))
             ),
         )
         for index, (member, sources) in enumerate(captured, 1)
@@ -308,7 +331,7 @@ def _skip_panel(
     selection = {
         f"member_{index}": f"${_terminal(member.reference)}_decide"
         for index, member in enumerate(members, 1)
-        if _skips(index, fusion)
+        if _is_skip_member(fusion.members[index - 1])
     }
     return compiler._fusion(
         fusion,
@@ -319,11 +342,6 @@ def _skip_panel(
         selection=selection,
         floor=int(fusion.quorum) if numeric else None,
     )
-
-
-def _skips(index: int, fusion: FusionNode) -> bool:
-    member = fusion.members[index - 1]
-    return isinstance(member, BranchNode) and member.otherwise is None
 
 
 def _emit_tree_top(compiler: _CandidateCompiler, state: _BranchState) -> None:
@@ -506,10 +524,7 @@ class _Gate:
 
     def _recipe_body(self, branch: str, value: Recipe) -> _Body:
         if isinstance(value, CorrectiveLoop | SelfCorrective):
-            raise ValueError(
-                "a sf.Gate cannot sit inside a sf.CorrectiveLoop, and a sf.CorrectiveLoop cannot "
-                "be a sf.Gate branch"
-            )
+            raise ValueError(GATE_IN_LOOP)
         compiler, state = self._compiler, self._state
         state.path = (*state.path, (id(self._node), branch))
         start = len(compiler._sources)
@@ -565,12 +580,12 @@ class _Gate:
 
     # --- the endpoint sources -------------------------------------------------------------------
 
-    def _read_selectors(self) -> dict[str, str]:
+    def _read_selectors(self, reads: dict[str, list[Selector]]) -> dict[str, str]:
         """sel id -> the reply reference of each LabelModel this DECIDE can see (in scope)."""
 
         tree, state = self._state.tree, self._state
         assert tree is not None
-        listed = [self._node.condition.selector, *self._reads("then"), *self._reads("otherwise")]
+        listed = [self._node.condition.selector, *reads["then"], *reads["otherwise"]]
         replies: dict[str, str] = {}
         for selector in listed:
             if not isinstance(selector, LabelModel):
@@ -580,16 +595,24 @@ class _Gate:
                 replies[state.selector_id(selector)] = f"${placed[1]}"
         return replies
 
+    @functools.cached_property
+    def _selectors(self) -> _Selectors:
+        """Computed once, on first use after the bodies render (they place the LabelModels)."""
+
+        reads = {branch: self._reads(branch) for branch in ("then", "otherwise")}
+        declared = self._spec_selectors(reads)
+        return _Selectors(reads, declared, self._read_selectors(reads), self._keywords(declared))
+
     def _after(self, visible: frozenset[str] | set[str]) -> Node:
+        keywords, replies = self._selectors.keywords, self._selectors.replies
         references: list[str] = []
         if self._decision is not None:
             references.append(self._decision.reference)
         if _REFERENCE.fullmatch(self._input):
             references.append(self._input)
-        tree = self._state.tree
-        if tree is not None and tree.keywords_binding is not None and self._reads_selectors():
-            references.append(f"${tree.keywords_binding}")
-        references.extend(self._read_selectors().values())
+        if keywords is not None:
+            references.append(keywords)
+        references.extend(replies.values())
         references.extend(f"${node.name}" for node in self._ancestor_sources())
         references = list(dict.fromkeys(references))
         # D10: url4 leaves an unknown $name verbatim with no edge and no error, so DECIDE could run
@@ -607,15 +630,19 @@ class _Gate:
             weight=0.0,
         )
 
-    def _reads_selectors(self) -> bool:
-        return bool(self._spec_selectors())
+    def _keywords(self, selectors: dict[str, dict[str, object]]) -> str | None:
+        """The KEYWORDS source reference, when this Gate reads any selector (D6)."""
+
+        tree = self._state.tree
+        if tree is None or tree.keywords_binding is None or not selectors:
+            return None
+        return f"${tree.keywords_binding}"
 
     def _decide(self, spec: str) -> Node:
+        keywords, replies = self._selectors.keywords, self._selectors.replies
         context: dict[str, object] = {"after": f"${self._id}_after"}
-        tree = self._state.tree
-        if tree is not None and tree.keywords_binding is not None and self._reads_selectors():
-            context["keywords"] = f"${tree.keywords_binding}"
-        replies = self._read_selectors()
+        if keywords is not None:
+            context["keywords"] = keywords
         if replies:
             context["selectors"] = replies
         return src(
@@ -647,32 +674,16 @@ class _Gate:
     def _reads(self, branch: Literal["then", "otherwise"]) -> list[Selector]:
         """Every selector a Gate inside this branch's body reads (GU-5, Q18)."""
 
-        found: dict[str, Selector] = {}
+        return list(_scan(self._node.body(branch)).selectors.values())
 
-        def visit(value: object) -> None:
-            if isinstance(value, BranchNode):
-                selector = value.condition.selector
-                if selector is not None:
-                    found.setdefault(selector._identity(), selector)
-                if value.panel is not None:
-                    visit(value.panel)
-                visit(value.then)
-                visit(value.otherwise)
-            else:
-                for child in _recipe_children(value):
-                    visit(child)
-
-        visit(self._node.body(branch))
-        return list(found.values())
-
-    def _spec_selectors(self) -> dict[str, dict[str, object]]:
+    def _spec_selectors(self, reads: dict[str, list[Selector]]) -> dict[str, dict[str, object]]:
         state = self._state
         listed = [
             selector
             for selector in (
                 self._node.condition.selector,
-                *self._reads("then"),
-                *self._reads("otherwise"),
+                *reads["then"],
+                *reads["otherwise"],
             )
             if selector is not None
         ]
@@ -771,7 +782,7 @@ class _Gate:
 
     def _spec(self, bodies: dict[str, _Body]) -> str:
         then, otherwise = bodies["then"], bodies["otherwise"]
-        state = self._state
+        state, reads = self._state, self._selectors.reads
         spec = {
             "schema": GATE_SPEC_SCHEMA,
             "kind": "panel" if self._node.panel is not None else "input",
@@ -787,9 +798,9 @@ class _Gate:
                 "then": {"min": then.calls[0], "max": then.calls[1]},
                 "otherwise": {"min": otherwise.calls[0], "max": otherwise.calls[1]},
             },
-            "selectors": self._spec_selectors(),
+            "selectors": self._selectors.declared,
             "reads": {
-                branch: [state.selector_id(selector) for selector in self._reads(branch)]
+                branch: [state.selector_id(selector) for selector in reads[branch]]
                 for branch in ("then", "otherwise")
             },
             "estimate": self._estimate(),
@@ -916,9 +927,7 @@ def _branch_topology(body: _Body) -> _RecipeTopology | _BranchWord:
 def _terminal(reference: str) -> str:
     """The binding whose recorded result JOIN copies: an inner Gate block names its JOIN."""
 
-    name = reference.removeprefix("$")
-    block = _GATE_BLOCK.fullmatch(name)
-    return f"gate_{block.group(1)}" if block else name
+    return gate_join(reference.removeprefix("$"))
 
 
 def _calls_range(nodes: Sequence[Node], ranges: dict[str, _Range]) -> _Range:
@@ -1003,10 +1012,7 @@ def _model_call_names(nodes: Sequence[Node]) -> set[str]:
     return {
         node.name
         for node in nodes
-        if isinstance(node, Source)
-        and node.name is not None
-        and isinstance(node.value, RelExpr)
-        and not node.value.path.startswith(_ENSEMBLE)
+        if isinstance(node, Source) and node.name is not None and _model_call(node.value)
     }
 
 

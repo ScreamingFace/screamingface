@@ -252,7 +252,7 @@ def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
     decision = _decision_step(step)
     if not isinstance(when, GateCondition):
         # sf.answered(): the decision call needs no gate; DECIDE reads its result (CA-10).
-        return step_node(decision, judge if decision._reads_judge() else None)
+        return step_node(decision, judge)
     otherwise = step._otherwise()
     fallback = otherwise if isinstance(otherwise, JudgePick | Synthesize) else _ABSTAIN
     gate = GateNode(
@@ -264,7 +264,7 @@ def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
     )
     if isinstance(decision, Vote) and is_rule_name(decision.over):
         return _vote_node(decision, judge, gate)
-    node = step_node(decision, judge if decision._reads_judge() else None)
+    node = step_node(decision, judge)
     return DecisionReducer(node, gate)
 
 
@@ -295,7 +295,7 @@ def _panel_gate(fanout: Fanout, gate: Gate, judge: JudgeNode | None) -> BranchNo
         if lazy is not None and value is gate.otherwise:
             return lazy
         if isinstance(value, Step) and not value._is_recipe():
-            return step_node(value, judge if value._reads_judge() else None)
+            return step_node(value, judge)
         return _branch_body(value, ())
 
     condition = (
