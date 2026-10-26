@@ -1,5 +1,5 @@
 ---
-ticket: unfiled (filed at PR-open under OME-1287)
+ticket: OME-1738 (under OME-1287)
 status: approved 2026-10-26 (user: "write the spec with the $0 rule, then implement it")
 date: 2026-10-26
 related: OME-1287 (cost epic), OME-1446 (zero-completion insurance, the precedent), OME-1687 (price the successful request only), OME-849 (run cost)
