@@ -245,14 +245,23 @@ async def _first_connected(
     failure, and every failure after the request was sent, surfaces unchanged.
     """
     *fallbacks, last = attempts
+    failed: list[str] = []
     for attempt in fallbacks:
         try:
             return await pool.handle_async_request(attempt)
-        except _CONNECT_PHASE:
-            # WHY not swallowed: the next vetted address is tried, and the LAST attempt's
-            # failure is what the caller sees if none of them connects.
-            continue
-    return await pool.handle_async_request(last)
+        except _CONNECT_PHASE as exc:
+            # WHY kept, not swallowed: the next vetted address is tried, and this failure is
+            # recorded on the final error if none of them connects.
+            failed.append(f"{attempt.url.host}: {type(exc).__name__}")
+    try:
+        return await pool.handle_async_request(last)
+    except Exception as exc:
+        # INVARIANT: the final error's type (so its x.* mapping) is unchanged; the earlier
+        # attempts ride along as a note — vetted public addresses and exception class names
+        # only, never a header, body or message.
+        if failed:
+            exc.add_note("earlier vetted addresses failed to connect: " + ", ".join(failed))
+        raise
 
 
 class _CappedStream(httpx.AsyncByteStream):

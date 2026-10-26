@@ -212,3 +212,27 @@ async def test_an_ip_literal_has_exactly_one_attempt(net: _Net) -> None:
     assert error.code == ErrorCode.RESOLUTION_FAILED
     assert [r.url.host for r in net.attempts] == [A1]
     assert net.lookups == []
+
+
+@pytest.mark.asyncio
+async def test_earlier_connection_failures_are_kept_on_the_final_error(net: _Net) -> None:
+    # Review finding (OME-1718): the final error type and mapping are unchanged, but the
+    # failures of the earlier vetted addresses are no longer dropped.
+    net.dns["example.com"] = [A1, A2]
+    net.by_address[A1] = _connect_timeout
+    net.by_address[A2] = _refuse
+    error = await _fetch_error(net, "https://example.com/")
+    assert error.code == ErrorCode.RESOLUTION_FAILED  # the LAST failure decides the mapping
+    cause = error.__cause__
+    assert isinstance(cause, httpx.ConnectError)
+    notes = "\n".join(getattr(cause, "__notes__", []))
+    assert f"{A1}: ConnectTimeout" in notes
+    assert A2 not in notes  # the final failure is the error itself, not a note
+
+
+@pytest.mark.asyncio
+async def test_a_single_attempt_failure_carries_no_fallback_note(net: _Net) -> None:
+    net.dns["example.com"] = [A1]
+    net.by_address[A1] = _refuse
+    error = await _fetch_error(net, "https://example.com/")
+    assert getattr(error.__cause__, "__notes__", []) == []
