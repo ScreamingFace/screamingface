@@ -22,15 +22,17 @@ Stages, in execution order (``picture_case_text``):
               Each picture's bytes come from its ``data:`` URI, or from a file the eval wrote
               into this import's own cache, and its type is read from the bytes, not from
               the label.
-    Stage 4 — the limits: at most 20 pictures, 5 MB per picture as its ``data:`` URI, 8 MB
-              for the whole Case.
+    Stage 4 — the limits: at most 20 pictures, and 8 MB for the whole Case with its pictures
+              inline. WHY no limit per picture: a picture is never bigger than its Case, so
+              the Case limit already bounds the request, and TableQA has a 5.21 MB picture
+              (owner decision, 2026-10-26).
     Stage 5 — seal the envelope and read it back with the shared parser, so a Case the
               importer writes is always one the connector and the scorer can open.
 
-Example: FigQA's figure, labelled ``image/jpeg`` by inspect_evals but a PNG, then the
-question rendered by ``multiple_choice`` →
+Example: FigQA's figure, which inspect_evals labels ``image/jpeg`` without looking (its
+bytes decide the type), then the question rendered by ``multiple_choice`` →
 ``{"schema":"screamingface.candidate-input.v2","messages":[{"role":"user","content":[
-{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo…"}},
+{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,/9j/4AAQ…"}},
 {"type":"text","text":"Answer the following multiple choice question. …"}]}]}``.
 
 INVARIANT: a Case this module cannot carry fails the import, naming the Case and the reason;
@@ -63,9 +65,6 @@ from screamingface_engine_inspect.prepare import PrepareError
 if TYPE_CHECKING:
     from inspect_ai.model import ChatMessage, Content, ContentImage
 
-#: The most characters one picture may take as its ``data:`` URI: 5 MB after base64 (spec §2.7,
-#: #1450), about 3.7 MB of picture.
-MAX_PICTURE_BYTES: int = 5_000_000
 #: The most bytes one Case input may take with its pictures inline: 8 MB, which leaves room
 #: under the gateway's 8 MiB request cap for the rest of a request
 #: (``test_picture_case_limits_fit_the_gateway.py``). MMMU's largest Case is 3.78 MB.
@@ -218,14 +217,9 @@ def _picture_part(image: ContentImage, case_id: int, number: int) -> ImagePart:
     media_type: str | None = _media_type(data)
     if media_type is None:
         _refuse(case_id, f"picture {number} is not a PNG, JPEG, GIF or WebP")
-    url: str = f"data:{media_type};base64,{base64.b64encode(data).decode('ascii')}"
-    if len(url) > MAX_PICTURE_BYTES:
-        _refuse(
-            case_id,
-            f"picture {number} is {len(url):,} characters as a data: URI; the limit is "
-            f"{MAX_PICTURE_BYTES:,}",
-        )
-    image_url: ImageUrl = {"url": url}
+    image_url: ImageUrl = {
+        "url": f"data:{media_type};base64,{base64.b64encode(data).decode('ascii')}"
+    }
     if image.detail == "original":
         _refuse(
             case_id,
@@ -300,7 +294,6 @@ def _refuse(case_id: int, detail: str) -> NoReturn:
 __all__ = [
     "MAX_CASE_BYTES",
     "MAX_PICTURES",
-    "MAX_PICTURE_BYTES",
     "PictureCaseError",
     "picture_case_text",
 ]

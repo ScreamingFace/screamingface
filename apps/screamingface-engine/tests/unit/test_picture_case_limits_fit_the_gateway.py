@@ -16,7 +16,7 @@ import ast
 import operator
 from pathlib import Path
 
-from screamingface_engine_inspect.picture_input import MAX_CASE_BYTES, MAX_PICTURE_BYTES
+from screamingface_engine_inspect.picture_input import MAX_CASE_BYTES
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _GATEWAY_CONFIG = _REPO_ROOT / "apps/aigateway/src/aigateway/config.py"
@@ -58,8 +58,3 @@ def _gateway_body_cap() -> int:
 
 def test_the_largest_case_plus_its_request_fits_under_the_gateways_body_cap() -> None:
     assert MAX_CASE_BYTES + _REQUEST_HEADROOM_BYTES <= _gateway_body_cap()
-
-
-def test_one_picture_fits_inside_one_case() -> None:
-    # WHY: a picture limit above the Case limit could never be reached; it would only mislead.
-    assert MAX_PICTURE_BYTES < MAX_CASE_BYTES

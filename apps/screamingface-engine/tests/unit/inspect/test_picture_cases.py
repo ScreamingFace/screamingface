@@ -39,7 +39,6 @@ from screamingface_engine_inspect.capture import captured_case_records  # noqa: 
 from screamingface_engine_inspect.conversation_input import conversation_messages  # noqa: E402
 from screamingface_engine_inspect.picture_input import (  # noqa: E402
     MAX_CASE_BYTES,
-    MAX_PICTURE_BYTES,
     MAX_PICTURES,
     PictureCaseError,
 )
@@ -336,12 +335,21 @@ def _picture_up_to(limit: int, *, over: bool = False) -> ContentImage:
     return ContentImage(image=image)
 
 
-def test_a_picture_at_the_limit_is_saved_and_one_over_it_is_refused() -> None:
-    _input(_figqa_sample(_picture_up_to(MAX_PICTURE_BYTES)))
+def test_one_big_picture_inside_the_case_limit_is_saved() -> None:
+    # STORY: TableQA's Case 186 holds one 5.21 MB picture (measured 2026-10-26); there is no
+    # limit per picture, only the Case's, so it imports (owner decision, 2026-10-26).
+    case_input: str = _input(_figqa_sample(_picture_up_to(5_300_000)))
 
-    message: str = _refusal(_figqa_sample(_picture_up_to(MAX_PICTURE_BYTES, over=True)))
+    assert len(case_input) > 5_300_000 - 4
 
-    assert "picture 1" in message and f"{MAX_PICTURE_BYTES:,}" in message
+
+def test_a_case_at_its_limit_is_saved_and_one_over_it_is_refused() -> None:
+    # WHY the margin: the Case is the picture plus the envelope and the rendered question.
+    _input(_figqa_sample(_picture_up_to(MAX_CASE_BYTES - 1_000)))
+
+    message: str = _refusal(_figqa_sample(_picture_up_to(MAX_CASE_BYTES, over=True)))
+
+    assert f"{MAX_CASE_BYTES:,}" in message
 
 
 def test_a_case_over_its_limit_is_refused() -> None:
