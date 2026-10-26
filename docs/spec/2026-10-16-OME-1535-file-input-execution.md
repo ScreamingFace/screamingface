@@ -180,10 +180,17 @@ v2 Case envelope (§2.7) keep their position. Each attachment becomes `image_url
 `image/*`) or `file` (otherwise) with a `data:` URI built from the verified bytes. A node with no
 attachments sends `content` as a plain string, exactly as today.
 
-**Fusion.** The fusion text is unchanged: the existing `{input, outputs}` rendering
-([`P/_evaluation/candidate.py:769-787`][p-fctx]) is the trailing text part; the attachments precede it.
-Attachments are never inlined into, or referenced from, that JSON. Member outputs are text and add no
-attachments.
+**Fusion.** The existing `{input, outputs}` rendering ([`P/_evaluation/candidate.py:769-787`][p-fctx])
+is the trailing text part. url4 `attachments[]` precede it and are never inlined into, or referenced
+from, that JSON. For a text-only Case the fusion text is unchanged and, with no attachments, is the
+only part. For a Case with media parts (§2.7), the synthesizer gets every media part of the Case, in
+Case order, followed by the `{input, outputs}` text. In that text, `input` shows each part as a
+placeholder (type, its 1-based position among the media parts sent, media type, size, filename when
+present; no digest) so the bytes are not sent a second time; the placeholder carries no resolvable
+reference, so nothing scans for it. The connector finds those parts by structure: it parses the
+rendered object and reads its `input` member with the §2.7 envelope reader, never by scanning text. A
+reducer's signal calls read the same object, with `panel` in place of `outputs`, and are built the
+same way. Member outputs are text and add no attachments.
 
 **Text blobs in collections (D4).** A blob read in collection position whose media type is in the
 collection text set ([`U/dag/semantics/collection.py:140-142`][u-coll]) is used as text and is **not**
@@ -313,7 +320,9 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
 3. **Reports show a placeholder, never base64** (`OME-1680`). `_decode_candidate_envelope`
    ([`P/case_result.py:653-680`][pr-report]) accepts only v1; the SDK `CaseResult.conversation` and the
    Report show each part as one placeholder line (type, size, sha256, filename when present). A
-   placeholder never reaches a model or a scorer.
+   placeholder never reaches a scorer. The only models that see one are a Fusion synthesizer and a
+   reducer's signal calls, in the text beside the parts they are sent, without its sha256 and with its
+   index (see the Fusion paragraph, F2).
 4. **One `data:` URI pattern.** A conformance test, in both projects, pins the engine's `_DATA_URI_RE`
    ([`E/benchmarks/candidate_input.py:40-42`][pr-dre]) to the gateway's
    ([`G/core/content_parts.py:23-25`][g-dre]).
