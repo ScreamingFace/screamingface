@@ -111,6 +111,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "lab_bench_protocolqa": "236b15e7b2c90e9b",
     "lab_bench_seqqa": "48e1368633436c5a",
     "lab_bench_cloning_scenarios": "9c6f66d6acae7f05",
+    # OME-1327: the two LAB-Bench picture subsets, imported once a Case could carry a picture.
+    "lab_bench_figqa": "7376109d25378310",
+    "lab_bench_tableqa": "9990079555f06a35",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

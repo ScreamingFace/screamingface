@@ -6623,6 +6623,139 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
     ),
+    BenchmarkSpec(
+        key="lab_bench_figqa",
+        published_revision="7376109d25378310",
+        title="LAB-Bench FigQA",
+        description=(
+            "181 multiple-choice questions about a figure from a biology research paper (the "
+            "LAB-Bench FigQA subset), imported from inspect_evals. Each question comes with "
+            "its figure as a picture, so the Candidate must read images; the picture is saved "
+            "inside the Case at import and nothing is fetched at run time. Every question "
+            "offers the distractors plus an explicit 'insufficient information' opt-out; "
+            "grading is the eval's own precision-aware choice scorer (opting out counts as no "
+            "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
+            "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
+            "= plain accuracy over the cases run; the eval's precision and coverage are not "
+            "reproduced. No mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Reading biology research figures (multiple choice, picture input)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology figures, but no longer out of reach: the newest frontier model
+        # passes 0.89 without tools, above the 0.77 expert baseline, while most models
+        # still score under 0.6 — real headroom, not expert-only failure.
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_figqa.
+        # License: cc-by-sa-4.0.
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        # Human baseline: PhD-level biology experts with internet access, accuracy over all
+        # questions (LAB-Bench Appendix B, Table 2); the paper's set also holds the private split
+        human_baseline=HumanBaseline(score=0.77, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy over the same 181 public questions, mean of 5 runs, adaptive
+        # thinking at max effort, no tools (90.7% with Python tools); graded by a model grader
+        frontier_score=FrontierScore(
+            score=0.889,
+            model="Claude Mythos 5",
+            source_url="https://www.anthropic.com/claude-mythos-5-system-card",
+            as_of="2026-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=181,
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BenchmarkSpec(
+        key="lab_bench_tableqa",
+        published_revision="9990079555f06a35",
+        title="LAB-Bench TableQA",
+        description=(
+            "244 multiple-choice questions about one to three tables from a biology research "
+            "paper (the LAB-Bench TableQA subset), imported from inspect_evals. Each table "
+            "comes as a picture, so the Candidate must read images; the pictures are saved "
+            "inside the Case at import and nothing is fetched at run time. Every question "
+            "offers the distractors plus an explicit 'insufficient information' opt-out; "
+            "grading is the eval's own precision-aware choice scorer (opting out counts as no "
+            "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
+            "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
+            "= plain accuracy over the cases run; the eval's precision and coverage are not "
+            "reproduced. No mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Reading tables from biology research papers (multiple choice, picture input)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology tables, but the best model in the LAB-Bench paper already scored 0.83
+        # against the 0.84 expert baseline in 2024 — real headroom, not expert-only failure.
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_tableqa.
+        # License: cc-by-sa-4.0.
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        # Human baseline: PhD-level biology experts with internet access, accuracy over all
+        # questions (LAB-Bench Appendix B, Table 2); the paper's set also holds the private split
+        human_baseline=HumanBaseline(score=0.84, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy, mean of 3 runs, 0-shot, no tools (LAB-Bench Appendix B,
+        # Table 2); later system cards report FigQA only, so no newer TableQA score is published
+        frontier_score=FrontierScore(
+            score=0.83,
+            model="Claude 3.5 Sonnet",
+            source_url="https://arxiv.org/abs/2407.10362",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=244,
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
