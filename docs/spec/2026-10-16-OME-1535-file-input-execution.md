@@ -260,13 +260,16 @@ form an engine key or send a request that could hit the gateway cache: step 2 fa
 this order for a cached and an uncached request: an out-of-scope digest whose request is already in the
 gateway cache returns `source_not_found` and sends no gateway request.
 
-**Canonical encoding (normative).** Every `data:` URI the engine connector sends, for url4
-`attachments[]` and for v2 Case parts alike, is built from the **stored bytes** as
-`data:<media-type>;base64,<payload>`: the payload is standard base64 (RFC 4648 §4 alphabet, padded, no
-line breaks or whitespace), the media type is lowercased, and no other parameters are present. The
-connector re-encodes a v2 Case part from its decoded bytes rather than forwarding the importer's
-spelling. Equal files therefore produce byte-identical gateway request bodies and share one gateway
-cache entry; the gateway is unchanged. For Case parts this applies to #1550 (khoaguin, `OME-1271`).
+**Canonical encoding (normative).** Every media `data:` URI that reaches the gateway is built from
+the **stored bytes** as `data:<media-type>;base64,<payload>`: the payload is standard base64 (RFC 4648
+§4 alphabet, padded, no line breaks or whitespace), the media type is lowercased, and no other
+parameters are present. Each part is encoded exactly once, where its bytes are turned into text:
+- **url4 `attachments[]`:** the engine connector encodes the blob-store bytes.
+- **v2 Case parts:** the `OME-1271` importer decodes every picture (file path or `data:` URI) to bytes,
+  reads the media type from the bytes, and stores the canonical form in `cases.json` (#1554). The
+  connector sends that string unchanged and does not re-encode it.
+Equal files therefore produce byte-identical gateway request bodies and share one gateway cache entry;
+the gateway is unchanged.
 
 ### F4 — "Today" is the stated snapshot
 
@@ -290,16 +293,18 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
 - **Structure, not scanning.** The connector reads parts from the typed envelope, never from string
   contents, so F2's no-scanning rule holds.
 - **Position.** Parts keep the position the importer wrote them in; D3 does not move them (F2).
-- **Identity.** The raw `context` JSON is **not** the identity: its bytes are not a canonical part list
-  (base64 and key-order variants of equal content differ) and carry no adapter revision. The connector
-  normalizes a v2 envelope to F3's canonical ordered part list, plus model, params and adapter
-  revision, before keying ([`E/request_identity.py:13-33`][e-key] gains that input).
+- **Identity.** The stored Case is already canonical (the importer writes every part in the canonical
+  encoding above), so the connector keys a v2 envelope on its ordered parts exactly as stored, plus
+  model, params and adapter revision ([`E/request_identity.py:13-33`][e-key] gains the adapter
+  revision). It does not re-encode them.
 - **Only `data:` URIs.** Media parts carry inline `data:` URIs and nothing else; the gateway refuses
   any other form before its cache stage (`OME-1542`, #1479, open at this revision).
 - **Limits.** The gateway's 8 MiB request-body cap (#1479) bounds one request: a larger body gets 413
-  `request_too_large`, permanent, before any upstream spend. Per-Case limits (5 MB per picture after
-  base64, 8 MB per Case, at most 20 pictures) belong to the `OME-1271` importer, which refuses an
-  oversized Case by name; the values are confirmed per route there.
+  `request_too_large`, permanent, before any upstream spend. Per-Case limits belong to the `OME-1271`
+  importer (#1554), which refuses an oversized Case by name: at most 20 pictures, and at most
+  8,000,000 bytes for the Case input with its pictures inline, which leaves room under the 8 MiB
+  (8,388,608-byte) cap for the rest of a request. There is no per-picture limit (TableQA has a
+  5.21 MB picture).
 
 **v1 gates before any v2 board ships** (from the #1507 review; read from code, not end-to-end runs):
 
