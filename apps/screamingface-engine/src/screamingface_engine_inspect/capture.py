@@ -53,6 +53,7 @@ from types import FrameType
 from typing import TYPE_CHECKING, Any, Literal
 
 from screamingface_engine_inspect.conversation_input import conversation_input
+from screamingface_engine_inspect.picture_input import picture_case_text
 from screamingface_engine_inspect.prepare import (
     PreparedCase,
     PrepareError,
@@ -499,19 +500,21 @@ async def _refuse_a_judge_after_the_answer(task: Task, sample: Sample, case_id: 
 def _input_text(messages: Sequence[ChatMessage], case_id: int) -> str:
     """Stage 4 — the messages the model saw, as the one text the Candidate sees.
 
-    Two shapes, both plain text only:
+    Three shapes:
 
     * One prompt: any number of leading system messages, then exactly one user message.
       The texts join with a blank line, as they always have, so these Cases keep their bytes.
     * A fixed conversation (OME-1527, R14): any other run of user and assistant turns that
       ends on a user turn. It becomes the candidate-input envelope with every turn kept in
       order and role, so the Candidate still answers once, with the next turn.
+    * One prompt holding pictures (OME-1271): the v2 envelope, each picture inline
+      (``picture_input.py``, which also refuses audio, video, documents and a picture
+      anywhere but the one user message).
 
     Refused: a tool turn, an assistant turn that calls tools, a system turn inside a
     conversation (a Benchmark cannot address the Candidate's system role, the rule the
     one-prompt fold above follows), an empty or blank turn (hand-built healthbench refused
-    it too), a conversation that does not end on a user turn, and images or audio, because
-    the Candidate answers text once.
+    it too), and a conversation that does not end on a user turn.
 
     Example: user "What is 2 plus 2?", assistant "4", user "And 6 times 7?" →
     ``{"schema":"screamingface.candidate-input.v1","messages":[{"role":"user","content":"What
@@ -521,14 +524,9 @@ def _input_text(messages: Sequence[ChatMessage], case_id: int) -> str:
 
     from inspect_ai.model import ChatMessageSystem, ChatMessageUser
 
-    for message in messages:
-        if not isinstance(message.content, str) and any(
-            part.type != "text" for part in message.content
-        ):
-            raise CaptureError(
-                f"case {case_id}: a {message.role} message carries non-text content; "
-                "a Case is text only"
-            )
+    picture_text: str | None = picture_case_text(messages, case_id)
+    if picture_text is not None:
+        return picture_text
     system_count: int = 0
     while system_count < len(messages) and isinstance(messages[system_count], ChatMessageSystem):
         system_count += 1
