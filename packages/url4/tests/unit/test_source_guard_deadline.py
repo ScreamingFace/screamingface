@@ -222,3 +222,22 @@ async def test_a_transport_request_without_a_deadline_is_not_timed(net: _Net) ->
     async with httpx.AsyncClient(transport=transport, trust_env=False) as client:
         response = await client.get("https://example.com/")
     assert response.text == "ok"
+
+
+@pytest.mark.asyncio
+async def test_a_non_suspending_body_still_honours_an_external_cancel(net: _Net) -> None:
+    # Review finding (OME-1720): the stream never suspends on its own, so only the capped
+    # stream's yield to the event loop lets a cancellation in before the body is fully read.
+    holder: list[asyncio.Task[str]] = []
+
+    def cancel_soon() -> None:
+        if body.yielded == 0:
+            asyncio.get_running_loop().call_soon(holder[0].cancel)
+
+    body = _Body([b"a" * 16] * 8, on_chunk=cancel_soon)
+    net.handler = lambda _r: httpx.Response(200, stream=body)
+    holder.append(asyncio.create_task(_fetch(net)))
+    with pytest.raises(asyncio.CancelledError):
+        await holder[0]
+    assert body.yielded < len(body.chunks)
+    assert body.closed
