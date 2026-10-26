@@ -181,6 +181,14 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   no alias. The spec, the plan, the README, example 19, the CHANGELOG and the tests use the new
   name. The public surface snapshot changes, and the PIN manifest approves it again. The Log
   entries above keep the old name, because they record what happened.
+- 2026-10-26: LF-22 with a judge or writer fallback (owner decision: remove the refusal). The SDK
+  refused a Gate with two reducer steps over a Fanout with `sf.Consistency`. The refusal is
+  removed: the decision call compiles the sample calls once, before the block, and the gated
+  call #2 reads the same sample panels (`_CandidateCompiler._reused_samples`, like the LF-16
+  signal reuse). The members make 1 + 5 calls on every Case and the fallback never samples again.
+  New fixtures `consistency_judge.url4`, `consistency_writer.url4`; the strict xfail is now a
+  test. The recipe topology of call #2 lists the reused sample nodes again, as it does for a
+  reused signal.
 
 ## Outcome
 

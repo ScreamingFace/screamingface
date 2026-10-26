@@ -262,6 +262,10 @@ class _CandidateCompiler:
         self._gated_depth = 0
         # E4c lazy fallback: the signal calls a decision call made, which call #2 reads again.
         self._reused_signals: Mapping[str, _SignalTopology] = MappingProxyType({})
+        # E4c LF-22: the consistency samples of each combine call (by binding), and the samples a
+        # Gate's second reducer step reads again in place of sampling the members a second time.
+        self._samples: dict[str, _CompiledSamples] = {}
+        self._reused_samples: _CompiledSamples | None = None
         # E4c skip members: the sources a member Gate puts before the panel (its AFTER and DECIDE),
         # and the member Gate being compiled now.
         self._hoist: list[Node] | None = None
@@ -818,7 +822,10 @@ class _CandidateCompiler:
         sources = self._claim_accounting_sources(fusion, reducer, members)
         # E4b part 7: the sample calls come after the members and before the signal calls, so the
         # operation order is members, samples, signals, combine.
-        samples = self._sample_panels(fusion, input_context, input_dependencies)
+        samples = self._reused_samples or self._sample_panels(
+            fusion, input_context, input_dependencies
+        )
+        self._samples[binding] = samples
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 

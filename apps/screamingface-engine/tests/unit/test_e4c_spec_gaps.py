@@ -107,6 +107,43 @@ async def test_consistency_samples_run_on_every_case_under_a_lazy_gate(
     assert record["output"] == output
 
 
+def _member(answer: str, sample: str | None) -> Any:
+    """A member that answers ``answer``; a consistency sample repeats it, or says ``sample``."""
+    return lambda sent: (answer if sample is None else sample) if "seed" in sent else answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "fallback", "reply"),
+    [
+        ("consistency_judge.url4", "prov/judge", "member_2"),
+        ("consistency_writer.url4", "prov/writer", "W"),
+    ],
+    ids=["judge", "writer"],
+)
+@pytest.mark.parametrize(
+    ("sample", "fallback_calls"), [(None, 0), ("Z", 1)], ids=["then", "otherwise"]
+)
+async def test_consistency_samples_run_on_every_case_under_a_lazy_fallback(
+    name: str, fallback: str, reply: str, sample: str | None, fallback_calls: int
+) -> None:
+    members = {"prov/alpha": "A", "prov/beta": "B", "prov/gamma": "A"}
+    gateway = Gateway({**{m: _member(a, sample) for m, a in members.items()}, fallback: reply})
+    record = await run_gate(fixture(name), gateway)
+
+    # LF-22: 1 answer + 5 samples per member on every Case; the fallback never re-samples.
+    assert [gateway.calls(member) for member in members] == [6, 6, 6]
+    assert gateway.calls(fallback) == fallback_calls
+    if not fallback_calls:
+        assert record["output"] == "A"
+        return
+    assert record["output"] == ("B" if fallback == "prov/judge" else "W")
+    # Call #2 reads the member answers, never the sample replies.
+    sent = _user_text(next(r for r in gateway.seen if r["model"] == fallback))
+    assert "B" in sent
+    assert "Z" not in sent
+
+
 # --- GU-13: a floor refused by the budget -------------------------------------------------------
 
 

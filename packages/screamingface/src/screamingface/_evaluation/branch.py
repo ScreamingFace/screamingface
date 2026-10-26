@@ -73,7 +73,6 @@ from screamingface.fusion import FusionNode
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
-from screamingface.signal_sources import Consistency
 
 if TYPE_CHECKING:
     from screamingface._evaluation.candidate import _CandidateCompiler, _ResolvedRecipe
@@ -501,11 +500,6 @@ class _Gate:
 
         panel, decision = self._node.panel, self._decision
         assert panel is not None and decision is not None
-        if any(isinstance(source, Consistency) for source in (panel.signals or {}).values()):
-            raise ValueError(
-                "a sf.Gate with two reducer steps cannot read sf.Consistency samples in this "
-                "version"
-            )
         fusion = FusionNode(
             panel.members,
             name=panel.name,
@@ -519,6 +513,9 @@ class _Gate:
         decision_node = decision.topology.synthesizer
         if isinstance(panel.synthesizer, LazyDecision) and decision_node is not None:
             compiler._reused_signals = {signal.key: signal for signal in decision_node.signals}
+        if decision_node is not None:
+            # LF-22: the consistency samples run once, before the block, and feed both calls.
+            compiler._reused_samples = compiler._samples.get(decision_node.binding)
         try:
             resolved = compiler._fusion(
                 fusion,
@@ -532,6 +529,7 @@ class _Gate:
         finally:
             compiler._gated_depth -= 1
             compiler._reused_signals = {}
+            compiler._reused_samples = None
         sources = tuple(compiler._sources[start:])
         del compiler._sources[start:]
         return _Body(

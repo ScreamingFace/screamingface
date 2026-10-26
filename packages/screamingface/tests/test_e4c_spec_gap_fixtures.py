@@ -1,7 +1,7 @@
 """Drift guard for the url4 fixtures of the E4c spec-gap rows, and the SDK half of SL-25 (E4c).
 
 FEATURE: OME-1291 guards GU-13 (row 14), lazy-fallback LF-22 (row 21), selectors SL-25 (row 25).
-The Engine world runs ``gate_contract/{guard_floor_refused,consistency_escalates}.url4``
+The Engine world runs ``gate_contract/{guard_floor_refused,consistency_*}.url4``
 verbatim on a fake gateway (``apps/screamingface-engine/tests/unit/test_e4c_spec_gaps.py``).
 STORY: as a researcher, a floor guard the budget refuses never falls to the router, the
 consistency samples of a gated vote run on every Case, and a Thai pattern compiles unchanged.
@@ -14,10 +14,12 @@ import test_e4c_spec_gap_fixtures as m; [m.write_fixture(n) for n in m.BUILDERS]
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 import pytest
 from _combine_contract import ENGINE_APP, engine_operators, requires_engine_app
+from test_e4c_gate_replay import _replayed
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
@@ -49,12 +51,18 @@ def _consistency_vote(otherwise: object) -> object:
 
 
 def consistency_escalates() -> object:
-    """LF-22: a gated vote over a Fanout with sf.Consistency(n=5); only the large model is lazy.
-
-    WHY a recipe otherwise: the E4b fallback forms (a judge or a writer) are refused beside
-    sf.Consistency today (``test_consistency_samples_run_under_a_lazy_judge_fallback``).
-    """
+    """LF-22: a gated vote over a Fanout with sf.Consistency(n=5); only the large model is lazy."""
     return _consistency_vote("prov/large")
+
+
+def consistency_judge() -> object:
+    """LF-22: the same gated vote with a lazy judge fallback; only the judge call is gated."""
+    return _consistency_vote(sf.JudgePick("prov/judge", rubric="Pick the best answer."))
+
+
+def consistency_writer() -> object:
+    """LF-22: the same gated vote with a lazy writer fallback; only the writer call is gated."""
+    return _consistency_vote(sf.Synthesize("prov/writer"))
 
 
 def _url4(build: Callable[[], object]) -> Callable[[], str]:
@@ -64,6 +72,8 @@ def _url4(build: Callable[[], object]) -> Callable[[], str]:
 BUILDERS: dict[str, Callable[[], str]] = {
     "guard_floor_refused.url4": _url4(guard_floor_refused),
     "consistency_escalates.url4": _url4(consistency_escalates),
+    "consistency_judge.url4": _url4(consistency_judge),
+    "consistency_writer.url4": _url4(consistency_writer),
 }
 
 
@@ -84,19 +94,35 @@ def test_spec_gap_url4_fixtures_match_the_sdk_compile(name: str) -> None:
 # --- LF-22: the E4b fallback forms beside sf.Consistency -----------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValueError,
-    reason="E4c gap: a gated vote whose otherwise is sf.JudgePick or sf.Synthesize is refused when "
-    "the panel reads sf.Consistency (_evaluation/branch.py _step_body); LF-22 expects it to run",
+_SAMPLES_READ = re.compile(
+    r"binding=(synthesis_\d+)[^(]*\(\{input: [^{]*outputs: \{[^}]*\}, (samples: \{[^}]*\})"
 )
-@pytest.mark.parametrize(
-    "fallback",
-    [sf.JudgePick("prov/judge", rubric="Pick the best answer."), sf.Synthesize("prov/writer")],
-    ids=["judge", "writer"],
-)
-def test_consistency_samples_run_under_a_lazy_judge_fallback(fallback: object) -> None:
-    compile_candidate(_consistency_vote(fallback), operators=engine_operators())  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("build", [consistency_judge, consistency_writer], ids=["judge", "writer"])
+def test_consistency_samples_run_under_a_lazy_judge_fallback(build: Callable[[], object]) -> None:
+    url4 = compile_candidate(build(), operators=engine_operators()).url4  # type: ignore[arg-type]
+    reads = dict(_SAMPLES_READ.findall(url4))
+
+    # LF-22: 3 members x 5 samples, compiled once outside the block; call #1 and the gated
+    # call #2 read the same sample panels beside the member answers.
+    assert url4.count("&seed=") == 15
+    assert sorted(reads) == ["synthesis_1", "synthesis_2"]
+    assert reads["synthesis_1"] == reads["synthesis_2"]
+
+
+@pytest.mark.parametrize("build", [consistency_judge, consistency_writer], ids=["judge", "writer"])
+def test_a_consistency_fallback_replays_to_the_compiled_candidate(
+    build: Callable[[], object],
+) -> None:
+    compiled = compile_candidate(build(), operators=engine_operators())  # type: ignore[arg-type]
+
+    replayed = _replayed(compiled.url4)
+
+    assert [op.id for op in compiled.operations].count("op_model_4") == 1
+    assert replayed.models == compiled.models
+    assert replayed.operations == compiled.operations
+    assert replayed.members == compiled.members
 
 
 # --- SL-25: a Unicode pattern, ASCII labels -------------------------------------------------------
