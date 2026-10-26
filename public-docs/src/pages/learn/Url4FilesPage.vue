@@ -168,8 +168,11 @@ const modelsRow = `GET /v1/models
       <li>
         <strong>Remote-node calls.</strong> A nested expression addressed to another node,
         <code>(url4://n2.example/v1(…)!'…')!'…'</code>, is refused until node-to-node authentication
-        is specified. <em>Specified:</em> the code is <code>x.remote_node_unsupported</code>, before
-        any I/O. <em>On main today:</em> the guard refuses it as
+        is specified. <em>Lands with #1482:</em> the code is <code>x.remote_node_unsupported</code>,
+        permanent, before any I/O, wherever a node evaluates: every expression a
+        <code>Url4Node</code> runs, and anything nested inside a <code>Client(node=…)</code> call (the
+        client's own hop to its node still goes through). A bare library <code>url4.run()</code>
+        and plain <code>url4://host/path</code> data fetches are not affected. <em>On main today:</em> the guard refuses it as
         <code>x.source_destination_blocked</code>, because its peer allowlist is empty by default.
       </li>
       <li>
@@ -312,8 +315,11 @@ const modelsRow = `GET /v1/models
         </tr>
         <tr>
           <td><code>x.remote_node_unsupported</code></td>
-          <td>Any <code>url4://</code> remote-node call. Permanent, no I/O.</td>
-          <td>specified</td>
+          <td>
+            A <code>url4://</code> remote-node call in a node context (<code>Url4Node</code>, or nested
+            in a <code>Client</code> call). Permanent, no I/O.
+          </td>
+          <td>lands with #1482</td>
         </tr>
         <tr>
           <td><code>request_too_large</code></td>
