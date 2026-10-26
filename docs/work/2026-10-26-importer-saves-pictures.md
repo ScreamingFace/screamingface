@@ -1,9 +1,9 @@
 ---
 ticket: OME-1271
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-26
-finished:
+finished: 2026-10-26
 ---
 
 # importer-saves-pictures — the importer saves an eval's pictures inside the Case
@@ -63,8 +63,8 @@ the pictures stays where inspect put it.
 - A picture read from a local file under the replay cache; a file outside it, and an
   `https://` picture, are refused.
 - `detail`: `auto` left out, `high` kept, `original` refused.
-- Limits: a picture over 5 MB after base64, a Case over 8 MB, and a 21st picture are each
-  refused, naming the Case.
+- Limits: a Case over 8 MB and a 21st picture are each refused, naming the Case; one big
+  picture inside the Case limit is saved (TableQA's 5.21 MB picture).
 - Refused shapes: a picture in a system message, a picture inside a conversation, an audio part.
 - Leading system text becomes the first text part.
 - A text-only Case keeps its exact bytes (the existing capture tests stay green, unchanged).
@@ -82,7 +82,32 @@ the pictures stays where inspect put it.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, five code and test files plus this ledger.
+- **Commits:** `1b4222bd9` feat(screamingface-engine): save an eval's pictures inside the Case
+  at import · `e26cabe84` feat(screamingface-engine): bound a picture Case by its size only, not
+  per picture · plus this ledger close.
+- **Gates:** `tests/unit/inspect/test_picture_cases.py` + `tests/unit/test_picture_case_limits_fit_the_gateway.py`
+  31 passed (inspect extra); extra-less, the gateway-fit test passes and the inspect file skips.
+  Neighbours unchanged and green: `test_capture.py`, `test_conversation_cases.py`,
+  `test_one_envelope_reader.py`, `test_local_task_healthbench.py`, 104 passed. ruff, ruff format,
+  pyright (with and without the inspect extra) clean on the touched files. Mutation checks, each
+  restored: keeping `detail: auto`, dropping the cache-folder rule, trusting inspect's label and
+  dropping the Case limit each fail the expected tests.
+- **Real data (2026-10-26, the real import child, pinned `futurehouse/lab-bench` revision
+  `5c77cec6`, nothing committed):** FigQA 181 Cases, one real JPEG each, picture then question,
+  largest Case 4.19 MB, `cases.json` 330 MB. TableQA 244 Cases, 1 to 3 real PNGs each, largest
+  Case 5.21 MB, `cases.json` 145 MB. inspect_evals' hard-coded labels were right at this pin.
+  Reading and parsing `cases.json` alone peaks at 1,611 MiB (FigQA) and 727 MiB (TableQA) on a
+  laptop, against a 2,560 MiB per-run budget.
 - **Deviations:**
+  - The 5 MB per-picture limit is dropped (owner decision, 2026-10-26): TableQA's Case 186 has
+    a 5.21 MB picture, the Case limit already bounds the request, and the Claude API takes
+    10 MB per image (5 MB is Bedrock's).
+  - Picture files are read by the importer itself, not by inspect's `file_as_data_uri`: the
+    type now comes from the bytes, so inspect's helper (a private `_util` module, which also
+    fetches URLs) would only add a fetch path to refuse.
+  - Two of the ticket's importer decisions were already true on main, so nothing changed for
+    them: a fresh `INSPECT_EVALS_CACHE_DIR` per import, and capture after the solver chain.
+- **Owner verify:** merge only after #1552 (OME-1679). On the first FigQA run, read the run's
+  peak memory against the 2,560 MiB budget; if it goes over, loading only the selected Cases
+  (OME-1675) is the fix.
