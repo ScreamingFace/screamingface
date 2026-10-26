@@ -11,6 +11,7 @@ ever cut off when its host's pool is evicted.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 
 import httpx
@@ -240,3 +241,45 @@ async def test_a_lease_released_twice_frees_its_pool_only_once(net: _Net) -> Non
     await second.release()
     assert net.pools[0].closed == 1
     await pools.aclose()
+
+
+class _SlowClose(httpx.AsyncBaseTransport):
+    """A pool whose close waits on the test (e.g. a TLS close_notify / socket drain)."""
+
+    def __init__(self, gate: asyncio.Event, started: asyncio.Event) -> None:
+        self.gate = gate
+        self.started = started
+        self.closed = 0
+
+    async def aclose(self) -> None:
+        self.started.set()
+        await self.gate.wait()
+        self.closed += 1
+
+
+@pytest.mark.asyncio
+async def test_an_acquire_cancelled_during_a_victim_close_leaks_nothing() -> None:
+    # Review finding (OME-1719): a cancel while the evicted pool closed used to leave the new
+    # entry with a phantom in-flight count (never closable) and the victim half-closed.
+    gate, started = asyncio.Event(), asyncio.Event()
+    made: list[_SlowClose] = []
+
+    def factory() -> httpx.AsyncBaseTransport:
+        made.append(_SlowClose(gate, started))
+        return made[-1]
+
+    pools = HostPools(factory, limit=1)
+    await (await pools.acquire("a.example")).release()  # a.example is idle
+    acquiring = asyncio.create_task(pools.acquire("b.example"))  # evicts a, awaits its close
+    await started.wait()
+    acquiring.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await acquiring
+    victim, cancelled_entry = made
+    gate.set()
+    # The victim's close was not abandoned: it runs to completion despite the cancel.
+    await (await pools.acquire("c.example")).release()  # evicts b.example
+    await pools.aclose()
+    assert victim.closed == 1
+    assert cancelled_entry.closed == 1  # no phantom lease kept b.example's pool open
+    assert [pool.closed for pool in made] == [1, 1, 1]

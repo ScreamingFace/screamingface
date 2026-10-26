@@ -11,12 +11,15 @@ flight — immediately when idle, else when its last open response closes.
 INVARIANT: a pool is closed at most once, and never while a request on it is in flight (an
 adapter shutdown excepted: :meth:`HostPools.aclose` closes everything).
 INVARIANT: an evicted pool is never handed out again; the host gets a fresh pool.
+INVARIANT (cancellation): a cancelled acquire never leaves a phantom in-flight count, and a
+pool close, once started, runs to completion even if the task awaiting it is cancelled.
 
 FEATURE: url4 source fetch destination guard (OME-1544) — bounded per-host pools (OME-1719).
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
 
@@ -46,18 +49,13 @@ class Lease:
 
 
 class _Entry:
-    __slots__ = ("active", "closed", "retired", "transport")
+    __slots__ = ("active", "closing", "retired", "transport")
 
     def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
         self.transport = transport
         self.active = 0
         self.retired = False
-        self.closed = False
-
-    async def close(self) -> None:
-        if not self.closed:
-            self.closed = True
-            await self.transport.aclose()
+        self.closing: asyncio.Task[None] | None = None
 
 
 class HostPools:
@@ -71,6 +69,8 @@ class HostPools:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         # WHY: evicted pools still serving a request, so a shutdown can close them too.
         self._retired: set[_Entry] = set()
+        # WHY: strong references to closes in progress (the loop only holds tasks weakly).
+        self._closing: set[asyncio.Task[None]] = set()
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._entries)
@@ -86,23 +86,51 @@ class HostPools:
         self._entries.move_to_end(host)
         # WHY before evicting: the counted lease keeps this entry from ever being closed here.
         entry.active += 1
-        await self._evict()
+        try:
+            await self._evict()
+        except BaseException:
+            # WHY synchronous: a cancelled acquire hands out no Lease, so it must undo its
+            # count here, without another await that a second cancel could interrupt.
+            self._drop(entry)
+            raise
         return Lease(self, entry)
 
     async def _evict(self) -> None:
+        idle: list[_Entry] = []
         while len(self._entries) > self._limit:
             _host, victim = self._entries.popitem(last=False)
             victim.retired = True
             if victim.active:
                 self._retired.add(victim)  # AIDEV-NOTE: closed by its last _release
             else:
-                await victim.close()
+                idle.append(victim)
+        for victim in idle:
+            await self._close(victim)
 
-    async def _release(self, entry: _Entry) -> None:
+    def _drop(self, entry: _Entry) -> asyncio.Task[None] | None:
+        """Undo one in-flight count; start the close of a retired entry that became idle."""
         entry.active -= 1
         if entry.retired and not entry.active:
             self._retired.discard(entry)
-            await entry.close()
+            return self._start_close(entry)
+        return None
+
+    async def _release(self, entry: _Entry) -> None:
+        closing = self._drop(entry)
+        if closing is not None:
+            await asyncio.shield(closing)
+
+    def _start_close(self, entry: _Entry) -> asyncio.Task[None]:
+        """The entry's one close task, started on first call (a pool is closed at most once)."""
+        if entry.closing is None:
+            entry.closing = asyncio.ensure_future(entry.transport.aclose())
+            self._closing.add(entry.closing)
+            entry.closing.add_done_callback(self._closing.discard)
+        return entry.closing
+
+    async def _close(self, entry: _Entry) -> None:
+        # WHY shield: cancelling the waiter must not abandon a half-closed transport.
+        await asyncio.shield(self._start_close(entry))
 
     async def aclose(self) -> None:
         """Close every pool, retained or evicted-but-busy (adapter shutdown)."""
@@ -111,7 +139,12 @@ class HostPools:
         self._retired.clear()
         for entry in entries:
             entry.retired = True
-            await entry.close()
+            self._start_close(entry)
+        # INVARIANT: shutdown returns only after every close — including ones a cancelled
+        # acquire or release left running — has finished.
+        pending = list(self._closing)
+        if pending:
+            await asyncio.gather(*pending)
 
 
 __all__ = ["HostPools", "Lease"]
