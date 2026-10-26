@@ -1540,12 +1540,15 @@ def _evidence(
     narrowed = recorded.narrowed
     whole = combine_input if narrowed is None else narrowed.whole
     left_out = {} if narrowed is None else narrowed.left_out
-    evidence = CombineEvidence(
+    skipped = recorded.skipped
+    return CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
         operators=list(plan.operators),
         members=[
-            _member_record(
+            _skipped_record(answer, recorded[answer.member_id])
+            if answer.member_id in skipped
+            else _member_record(
                 answer,
                 scores,
                 recorded[answer.member_id],
@@ -1579,35 +1582,31 @@ def _evidence(
         declared=_declared_record(spec),
         gate=gate,
         result=result,
-        dropped=sum(answer.status == "fail" for answer in whole.answers),
+        dropped=sum(
+            answer.status == "fail" and answer.member_id not in skipped for answer in whole.answers
+        ),
         finish_reason="stop",
+        skipped=[answer.member_id for answer in whole.answers if answer.member_id in skipped]
+        or None,
     )
-    return _with_skipped(evidence, recorded.skipped)
 
 
-def _with_skipped(evidence: CombineEvidence, skipped: frozenset[str]) -> CombineEvidence:
+def _skipped_record(answer: Answer, recorded: Mapping[str, float | None]) -> AnswerRecord:
     """E4c skip members (SM-2, SM-12, SM-13): a member a skip-Gate did not select is excluded with
-    ``not_selected``, has no raw, value, score, weight or signal value, is not ``dropped``, and is
-    listed in ``skipped`` (the last key, only when not empty)."""
+    ``not_selected``, has no raw, value, score, weight, rank or signal value, and is not
+    ``dropped``; the evidence lists it in ``skipped`` (the last key, only when not empty)."""
 
-    if not skipped:
-        return evidence
-    wire = evidence.model_dump(by_alias=True)
-    for row in wire["members"]:
-        if row["member_id"] in skipped:
-            row.update(
-                status="excluded",
-                reason="not_selected",
-                raw=None,
-                value=None,
-                score=None,
-                weight=None,
-                signals=dict.fromkeys(row["signals"]),
-            )
-            row.pop("rank", None)
-    wire["dropped"] = sum(row["status"] == "fail" for row in wire["members"])
-    wire["skipped"] = [row["member_id"] for row in wire["members"] if row["member_id"] in skipped]
-    return CombineEvidence.model_validate(wire)
+    return AnswerRecord(
+        member_id=answer.member_id,
+        raw=None,
+        value=None,
+        status="excluded",
+        reason="not_selected",
+        signals=dict.fromkeys(recorded),
+        weight=None,
+        score=None,
+        rank=None,
+    )
 
 
 def _check_floor(spec: CombineSpec, context: CombineContext) -> None:

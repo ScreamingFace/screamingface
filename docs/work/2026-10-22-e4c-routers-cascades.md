@@ -148,6 +148,25 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   (c) The budget-refusal row took a panel Gate's decision call for a branch result and named the
   wrong operation; `prep >> Gate` named the prep model (pre-existing).
   (d) A lone surrogate in the JOIN context: not a bug. Every caller sends ASCII-escaped JSON.
+- 2026-10-26: code-review pass (`/code-review` high over `origin/main...HEAD`; 4 findings
+  reproduced). Tests: `tests/test_e4c_skip_member_review.py` (SDK) and
+  `tests/unit/test_e4c_keywords_compile_once.py` (Engine).
+  (e) A panel Gate's second reducer step over a skip-member Fanout had no `selection` or
+  `floor`: an unselected member counted as a failed member, and `quorum="all"` did not compile.
+  The step now reads the panel and the same selection and floor as the decision call (SM-11).
+  (f) `_skip_member` dropped the member's `sf.Estimate`, so a Budget could not refuse a selected
+  member before spend (SM-17, BU-14).
+  (g) A skip member with a `sf.budget.remaining()` condition raised a bare AssertionError. The
+  Fanout now refuses it with a message: a skip-Gate member reads `sf.label` or `sf.labels` (SM-8).
+  (h) Every skip member listed every member's LabelModel models and selector topology. A
+  tree-root Gate now lists only the LabelModels it reads that no earlier root listed.
+  (i) A branch word spelled another way (`"fail-closed"`, `"ABSTAIN"`) became a model route; it
+  is now refused with the GT-12 message, so a guard never becomes a model call.
+  (j) KEYWORDS compiled each RE2 pattern twice per rule per Case and cleaned the input head per
+  rule; the rules now compile once per intent (cached) and the head is cleaned once per request.
+  (k) Skipped combine members are built as `not_selected` rows when the evidence is built, not
+  patched into a dumped and re-validated evidence (no wire change).
+  Five gate_contract fixtures changed by (f) and (h); owner manifest `OME-1291.json`.
 
 ## Outcome
 
@@ -166,6 +185,6 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   `gate-decision.v1`, so the refusal row does not read it from the graph shape (it relies on the
   Gate's then-before-otherwise dependency order); a failed Case keeps no operations (deviation 4,
   a Candidate invocation contract change).
-- **Open before the PRs:** the PIN test-change manifest
-  (`.claude/test-change-approvals/OME-1291.json`), the three-PR split, and the Linear leaves
-  under OME-1291 (filed at PR open).
+- **Open before the PRs:** the PIN test-change manifest for the earlier E4c test edits
+  (`.claude/test-change-approvals/OME-1291.json` holds only the code-review fixtures), the
+  three-PR split, and the Linear leaves under OME-1291 (filed at PR open).

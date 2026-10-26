@@ -110,6 +110,8 @@ class _Tree:
     # LabelModel identity -> (placement path, call binding) once placed
     placed: dict[str, tuple[_Path, str]] = field(default_factory=dict)
     selectors: dict[str, Selector] = field(default_factory=dict)
+    # LabelModel identities a tree-root Gate already lists (a skip-member Fanout has several roots)
+    listed: set[str] = field(default_factory=set)
 
     def placement(self, identity: str) -> _Path:
         """The lowest common scope of every Gate that reads ``identity`` (SL-18)."""
@@ -191,6 +193,14 @@ class _Selectors:
     declared: dict[str, dict[str, object]]
     replies: dict[str, str]
     keywords: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _SkipSelection:
+    """The combine context of every reducer over a skip-member panel (SM-11, SM-18)."""
+
+    selection: dict[str, str]
+    floor: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,19 +339,28 @@ def _skip_panel(
             weight=0.0,
         )
     )
-    selection = {
-        f"member_{index}": f"${_terminal(member.reference)}_decide"
-        for index, member in enumerate(members, 1)
-        if _is_skip_member(fusion.members[index - 1])
-    }
+    skip = _skip_selection(fusion, members)
     return compiler._fusion(
         fusion,
         members,
         input_context=input_context,
         input_dependencies=input_dependencies,
         panel=f"${panel}",
-        selection=selection,
-        floor=int(fusion.quorum) if numeric else None,
+        selection=skip.selection,
+        floor=skip.floor,
+    )
+
+
+def _skip_selection(fusion: FusionNode, members: Sequence[_ResolvedRecipe]) -> _SkipSelection:
+    """The DECIDE of each skip member, and the quorum floor under a numeric quorum."""
+
+    return _SkipSelection(
+        selection={
+            f"member_{index}": f"${_terminal(member.reference)}_decide"
+            for index, member in enumerate(members, 1)
+            if _is_skip_member(fusion.members[index - 1])
+        },
+        floor=None if fusion.quorum == "all" else int(fusion.quorum),
     )
 
 
@@ -411,21 +430,12 @@ class _Gate:
         self._id = f"gate_{state.gates}"
         self._decision: _ResolvedRecipe | None = None
         self._panel_reference: str | None = None
+        self._skip_selection: _SkipSelection | None = None
 
     def render(self) -> _ResolvedRecipe:
         compiler, node = self._compiler, self._node
         if node.panel is not None:
-            # The panel members and the decision call run unconditionally, before the block.
-            self._decision = compiler._compile_fusion(node.panel, self._input, self._dependencies)
-            panels = [
-                source.name
-                for source in compiler._sources
-                if isinstance(source, Source) and source.name and _PANEL.fullmatch(source.name)
-            ]
-            uses_panel = node.panel.quorum != "all" or any(
-                member.optional for member in node.panel.members
-            )
-            self._panel_reference = f"${panels[-1]}" if uses_panel and panels else None
+            self._render_panel(node.panel)
         bodies = {branch: self._body(branch) for branch in ("then", "otherwise")}
         spec = self._spec(bodies)
         visible = _top_level_names(compiler._sources) | _ALWAYS_IN_SCOPE
@@ -458,6 +468,25 @@ class _Gate:
             max(then_range[1], else_range[1]),
         )
         return self._resolved(bodies)
+
+    def _render_panel(self, panel: FusionNode) -> None:
+        """The panel members and the decision call run unconditionally, before the block."""
+
+        compiler = self._compiler
+        self._decision = compiler._compile_fusion(panel, self._input, self._dependencies)
+        panels = [
+            source.name
+            for source in compiler._sources
+            if isinstance(source, Source) and source.name and _PANEL.fullmatch(source.name)
+        ]
+        skips = any(_is_skip_member(member) for member in panel.members)
+        uses_panel = (
+            skips or panel.quorum != "all" or any(member.optional for member in panel.members)
+        )
+        self._panel_reference = f"${panels[-1]}" if uses_panel and panels else None
+        if skips:
+            # SM-11: a second reducer step skips the same members as the decision call.
+            self._skip_selection = _skip_selection(panel, self._decision.members)
 
     # --- bodies --------------------------------------------------------------------------------
 
@@ -495,7 +524,7 @@ class _Gate:
             synthesizer=reducer,
             quorum=panel.quorum,
         )
-        compiler = self._compiler
+        compiler, skip = self._compiler, self._skip_selection
         start = len(compiler._sources)
         compiler._gated_depth += 1
         decision_node = decision.topology.synthesizer
@@ -508,6 +537,8 @@ class _Gate:
                 input_context=self._input,
                 input_dependencies=self._dependencies,
                 panel=self._panel_reference,
+                selection=None if skip is None else skip.selection,
+                floor=None if skip is None else skip.floor,
             )
         finally:
             compiler._gated_depth -= 1
@@ -894,28 +925,41 @@ class _Gate:
             ),
         )
 
-    def _selector_models(self) -> tuple[str, ...]:
-        """The LabelModel routes this Gate decides with: only the tree root lists them, as in
-        ``_selector_topology``, so a nested Gate's models are its bodies' alone."""
+    @functools.cached_property
+    def _listed(self) -> frozenset[str]:
+        """The LabelModels this Gate lists: only a tree root lists any, so a nested Gate's models
+        are its bodies' alone; each root of a skip-member Fanout lists the ones it reads that no
+        earlier member listed."""
 
         tree = self._state.tree
         if tree is None or self._state.depth != 1:
+            return frozenset()
+        listed = frozenset(_scan(self._node).selectors) - tree.listed
+        tree.listed |= listed
+        return listed
+
+    def _selector_models(self) -> tuple[str, ...]:
+        """The LabelModel routes this Gate decides with, as in ``_selector_topology``."""
+
+        tree = self._state.tree
+        if tree is None:
             return ()
         return tuple(
             selector.model.model
-            for selector in tree.selectors.values()
-            if isinstance(selector, LabelModel)
+            for identity, selector in tree.selectors.items()
+            if isinstance(selector, LabelModel) and identity in self._listed
         )
 
     def _selector_topology(self) -> tuple[_RecipeTopology, ...]:
-        """The LabelModel calls this Gate's scope emitted (only the tree root lists them)."""
+        """The LabelModel calls this Gate lists (``_listed``)."""
 
         tree = self._state.tree
-        if tree is None or self._state.depth != 1:
+        if tree is None:
             return ()
         return tuple(
             _RecipeTopology(kind="model", name="label model", binding=binding, role="selector")
-            for _, binding in tree.placed.values()
+            for identity, (_, binding) in tree.placed.items()
+            if identity in self._listed
         )
 
 

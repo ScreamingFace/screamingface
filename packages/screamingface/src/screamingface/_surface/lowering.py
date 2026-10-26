@@ -354,6 +354,7 @@ def _skip_member(gate: Gate) -> BranchNode:
         condition=BranchCondition(when.observe, when.cmp, when.value, when.selector),
         then=_branch_body(gate.then, ()),
         otherwise=None,
+        estimates=_estimates(gate),
     )
 
 

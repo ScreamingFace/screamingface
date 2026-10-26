@@ -20,6 +20,7 @@ gate compiles to the gated branch shape (``_evaluation/branch.py``).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
@@ -55,6 +56,8 @@ type Condition = GateCondition | AnsweredCondition | LabelCondition | BudgetCond
 
 _ABSTAIN: Literal["abstain"] = "abstain"
 _WORDS: tuple[str, ...] = ("abstain", "fail_closed")
+_WORD_SHAPE = re.compile(r"[^a-z]")
+_WORD_SHAPES = frozenset({"abstain", "failclosed", "skip"})
 # The reducer steps a panel gate's branch may be (gate GT-6, ans:Q6).
 _REDUCE_STEPS: tuple[type, ...] = (Vote, Median, Mean, ArgMax, ArgMin, First, Merge, JudgePick)
 # The steps that choose one member, so a chosen:<name> gate can read the chosen member's value.
@@ -247,7 +250,9 @@ def _estimated(value: object) -> tuple[Estimate | None, object]:
 def _word_or_route(value: str, name: str) -> Branch:
     if value in _WORDS:
         return value
-    if value == "skip":
+    # GT-12: "skip" is not a public word, and a word spelled another way ("fail-closed",
+    # "ABSTAIN") is a typo, not a model route: a guard must never become a model call.
+    if _WORD_SHAPE.sub("", value.lower()) in _WORD_SHAPES:
         raise TypeError(_branch_rule(name))
     return Model(value)
 

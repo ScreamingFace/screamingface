@@ -429,6 +429,12 @@ def _members(values: object, kind: str = "Fanout") -> tuple[Recipe, ...]:
     from screamingface._surface.gate import Gate
 
     for position, member in enumerate(selected, start=1):
+        if isinstance(member, Gate) and member._budget_condition() is not None:
+            # SM-8: a skip-Gate member runs when its selector picked its label.
+            raise ValueError(
+                f"sf.{kind} member {position}: a skip-Gate member reads sf.label(sel) or "
+                "sf.labels(sel); put a sf.budget.remaining() Gate around the sf.Fanout"
+            )
         if isinstance(member, Gate) and not member._is_skip_member():
             # GT-15 (ans:Q10), SM-8, GU-17: a Gate is a recipe stage or a branch; the one Fanout
             # member Gate is a skip-Gate (ans:Q16).

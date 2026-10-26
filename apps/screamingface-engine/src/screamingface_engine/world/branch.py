@@ -37,7 +37,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, localcontext
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -71,7 +71,7 @@ from screamingface_engine.combine.decision import (
 )
 from screamingface_engine.combine.evidence import GateRecord
 from screamingface_engine.combine.gate import passes
-from screamingface_engine.combine.operators.extract import check_regex_pattern, regex_finds_head
+from screamingface_engine.combine.operators.extract import compile_regex, re2_head
 from screamingface_engine.combine.ports import (
     DECIMAL_CONTEXT,
     CombineError,
@@ -266,29 +266,47 @@ def _keywords(request: Request) -> str:
     hex digits of the SHA-256) lets every selector record describe the input without its text.
     """
 
-    specs = _json_object(request.intent, "keywords intent")
+    if not isinstance(request.intent, str):
+        raise _contract_error("keywords intent is JSON text")
+    selectors = _parsed_keywords(request.intent)
     text = request.context or ""
+    head = re2_head(text, KEYWORDS_WINDOW)
     digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
     result: dict[str, object] = {"summary": {"chars": len(text), "sha256": digest}}
-    for selector, value in specs.items():
+    for selector, (multi, rules) in selectors.items():
+        matched = [label for label, compiled in rules if compiled.search(head) is not None]
+        result[selector] = {"labels": matched if multi else matched[:1], "matched": matched}
+    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+
+
+type _CompiledRules = tuple[tuple[str, Any], ...]
+
+
+# WHY cached: every Case of a run sends the same KEYWORDS intent; each rule compiles once.
+@functools.lru_cache(maxsize=64)
+def _parsed_keywords(intent: str) -> dict[str, tuple[bool, _CompiledRules]]:
+    """selector id -> (multi, (label, RE2 object) per rule in declared order)."""
+
+    selectors: dict[str, tuple[bool, _CompiledRules]] = {}
+    for selector, value in _json_object(intent, "keywords intent").items():
         if SELECTOR_ID.fullmatch(selector) is None:
             raise _contract_error("keywords intent maps selector ids to keywords specs")
         try:
             spec = KeywordsSpec.model_validate(value)
         except ValidationError as exc:
             raise _contract_error(f"keywords spec {selector} is invalid at {_field(exc)}") from exc
-        matched = [rule.label for rule in spec.rules if _finds(text, rule, selector)]
-        result[selector] = {"labels": matched if spec.multi else matched[:1], "matched": matched}
-    return json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        selectors[selector] = (
+            spec.multi,
+            tuple((rule.label, _compiled(rule, selector)) for rule in spec.rules),
+        )
+    return selectors
 
 
-def _finds(text: str, rule: _KeywordRule, selector: str) -> bool:
-    args = {"pattern": rule.pattern, "ignore_case": rule.ignore_case}
+def _compiled(rule: _KeywordRule, selector: str) -> Any:
     try:
-        check_regex_pattern(args)
+        return compile_regex({"pattern": rule.pattern, "ignore_case": rule.ignore_case})
     except CombineError as exc:
         raise _contract_error(f"keywords spec {selector} has a pattern RE2 cannot run") from exc
-    return regex_finds_head(text, args, KEYWORDS_WINDOW)
 
 
 # --- AFTER -------------------------------------------------------------------------------------
