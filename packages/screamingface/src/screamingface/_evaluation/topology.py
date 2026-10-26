@@ -11,7 +11,12 @@ from typing import Literal, cast, get_args
 
 from url4 import Expression, Node, Source, Text, src
 
-from screamingface._operation_bindings import GATE_BLOCK, SYNTHESIS_BINDING, TOPOLOGY_BINDING
+from screamingface._operation_bindings import (
+    GATE_BLOCK,
+    SYNTHESIS_BINDING,
+    TOPOLOGY_BINDING,
+    gate_join,
+)
 from screamingface.fusion import _quorum
 from screamingface.reducer import _FALLBACK_JUDGE_KEY, _FALLBACK_WRITER_KEY
 
@@ -101,10 +106,9 @@ class _RecipeTopology:
     def join_binding(self) -> str:
         """A Gate's JOIN binding ``gate_N`` (the block binding is ``gate_N_block``)."""
 
-        block = GATE_BLOCK.fullmatch(self.binding)
-        if self.kind != "gate" or block is None:
+        if self.kind != "gate" or GATE_BLOCK.fullmatch(self.binding) is None:
             raise ValueError("only a gate node has a JOIN binding")
-        return f"gate_{block.group(1)}"
+        return gate_join(self.binding)
 
 
 def _writer_key(field: str) -> str:
@@ -283,6 +287,11 @@ class _TopologyWalker:
         context: tuple[str, ...],
         operations: tuple[str, ...],
     ) -> None:
+        # E4c (SM-3): a skip-member Fanout runs its Gate members' selectors once, before any member
+        # (``compile_skip_fusion``: a Gate member with no otherwise makes the Fanout one).
+        if any(_is_skip_gate(member) for member in node.members):
+            for selector in (selector for member in node.members for selector in member.selectors):
+                self._model(selector, (), ())
         for member in node.members:
             self._visit(member, context, operations)
         assert node.synthesizer is not None
@@ -334,10 +343,20 @@ class _TopologyWalker:
         self._model(signal.source, (projection,), (projection,), signal.key)
 
 
-def _result_binding(node: _RecipeTopology) -> str:
-    """The operation binding a node's result names: a Gate block names its JOIN."""
+def _is_skip_gate(node: _RecipeTopology) -> bool:
+    """A skip-Gate Fanout member (E4c): the topology of ``branch._is_skip_member``."""
 
-    return node.join_binding if node.kind == "gate" else node.binding
+    return node.kind == "gate" and node.otherwise_branch == "skip"
+
+
+def _result_binding(node: _RecipeTopology) -> str:
+    """The operation binding a node's result names: a Gate block names its JOIN.
+
+    WHY ``gate_join`` and not ``node.kind == "gate"``: a Pipeline that ends in a Gate carries the
+    block binding too (``sf.Model >> sf.Gate`` as a Gate body or a Fusion member).
+    """
+
+    return gate_join(node.binding)
 
 
 def _topology_source(value: _RecipeTopology) -> Node:

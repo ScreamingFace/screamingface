@@ -55,10 +55,11 @@ from url4 import (
 )
 from url4 import ref as url4_ref
 
+from screamingface._evaluation.combine_spec import canonical_json
 from screamingface._evaluation.model import _compiled_operation
 from screamingface._evaluation.topology import _BranchWord, _RecipeTopology
 from screamingface._operation_bindings import gate_join
-from screamingface._surface.selectors import Keywords, LabelModel, Selector, _canonical
+from screamingface._surface.selectors import Keywords, LabelModel, Selector
 from screamingface.branch import (
     GATE_IN_LOOP,
     MAX_GATE_DEPTH,
@@ -362,7 +363,7 @@ def _emit_tree_top(compiler: _CandidateCompiler, state: _BranchState) -> None:
     tree.keywords_binding = f"keywords_{state.keywords}"
     compiler._append_source(
         src(
-            RelExpr(path=KEYWORDS_ROUTE, context="$input", intent=Text(_canonical(keywords))),
+            RelExpr(path=KEYWORDS_ROUTE, context="$input", intent=Text(canonical_json(keywords))),
             name=tree.keywords_binding,
             weight=0.0,
         )
@@ -807,7 +808,8 @@ class _Gate:
             "ancestors": self._ancestors(),
             "terminal": {"then": then.terminal, "otherwise": otherwise.terminal},
         }
-        return _canonical(spec)
+        # WHY canonical_json: the spec rides in a url4 intent, which rewrites a raw ``$name``.
+        return canonical_json(spec)
 
     # --- result -------------------------------------------------------------------------------
 
@@ -893,8 +895,11 @@ class _Gate:
         )
 
     def _selector_models(self) -> tuple[str, ...]:
+        """The LabelModel routes this Gate decides with: only the tree root lists them, as in
+        ``_selector_topology``, so a nested Gate's models are its bodies' alone."""
+
         tree = self._state.tree
-        if tree is None:
+        if tree is None or self._state.depth != 1:
             return ()
         return tuple(
             selector.model.model

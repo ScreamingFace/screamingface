@@ -135,7 +135,8 @@ def _budget_refusals(
     refusing = next((view for view in decision.budget or () if view.refused), None)
     if refusing is None:
         return []
-    first = _refused_body_operation(operation.operation_id, decision.wanted, graph)
+    panel = None if decision.panel is None else decision.panel.operation_id
+    first = _refused_body_operation(operation.operation_id, decision.wanted, panel, graph)
     node = None if graph is None or first is None else graph.get(first)
     left = max(Decimal(repr(refusing.cap)) - Decimal(repr(refusing.spent)), Decimal(0))
     return [
@@ -156,27 +157,35 @@ def _budget_refusals(
 
 
 def _refused_body_operation(
-    gate_operation: str, branch: str, graph: Mapping[str, OperationInfo] | None
+    gate_operation: str,
+    branch: str,
+    panel: str | None,
+    graph: Mapping[str, OperationInfo] | None,
 ) -> str | None:
     """The first operation (graph order) of a Gate's ``branch`` body, from the operation graph.
 
-    WHY from the graph: a Gate depends on its upstream inputs and on each branch's terminal. The
-    branch terminals are the dependencies no other dependency reads, ``then`` first; a body is
-    its terminal and what only it reads. None when the graph cannot tell.
+    WHY from the graph: a Gate depends on its upstream inputs, on a panel Gate's decision call
+    and on each branch's terminal. The decision record names the decision call (``panel``), so
+    it is never a branch terminal; the branch terminals are the other dependencies no dependency
+    reads; a body is its terminal and what no other dependency reads. None when the graph cannot
+    tell. WHY ``then`` first: ``_Gate._resolved`` (S/_evaluation/branch.py) lists the branch
+    terminals in the Gate's ``depends_on`` in that order.
     """
 
     node = None if graph is None else graph.get(gate_operation)
     if graph is None or node is None:
         return None
     reach = {dep: _upstream(dep, graph) for dep in node.depends_on}
-    terminals = [dep for dep in node.depends_on if not any(dep in reach[other] for other in reach)]
+    terminals = [
+        dep for dep in reach if dep != panel and not any(dep in reach[other] for other in reach)
+    ]
     if len(terminals) == 1:
         body_terminal = terminals[0]
     elif len(terminals) == 2:
         body_terminal = terminals[0 if branch == "then" else 1]
     else:
         return None
-    shared = set().union(*(reach[dep] | {dep} for dep in terminals if dep != body_terminal))
+    shared = set().union(*(reach[dep] | {dep} for dep in reach if dep != body_terminal))
     body = (reach[body_terminal] | {body_terminal}) - shared
     return next((operation for operation in graph if operation in body), None)
 
