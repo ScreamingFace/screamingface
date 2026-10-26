@@ -45,11 +45,12 @@ def fusion_picture_messages(context: str | None) -> list[CandidateMessage] | Non
         keeps its exact bytes and every golden replays.
     Stage 3 — one user message: every picture and file part first, in Case order, then one text
         part. That text is the context with only ``input`` changed: the Case rebuilt with each
-        picture's ``url`` (or file's ``file_data``) replaced by its placeholder, less the digest.
+        picture's ``url`` (or file's ``file_data``) replaced by its placeholder, less the digest,
+        numbered from 1 across the Case: placeholder ``index`` k is the k-th part sent before it.
 
     e.g. ``{"input": <v2 Case: question + 300 KB PNG>, "outputs": {...}}`` →
     ``[{"role": "user", "content": [<the PNG image part>, {"type": "text", "text":
-    '{"input": "<the Case, PNG shown as {placeholder, media_type, size}>", ...}'}]}]``.
+    '{"input": "<the Case, PNG shown as {placeholder, index: 1, media_type, size}>", ...}'}]}]``.
 
     Raises:
         CandidateInputError: the Case under ``input`` breaks the envelope rules, or a picture's
@@ -85,7 +86,11 @@ def fusion_picture_messages(context: str | None) -> list[CandidateMessage] | Non
                 continue
             media.append(part)
             shown_parts.append(
-                _shown_part(part, where=f"in the Fusion input, message {index} part {position}")
+                _shown_part(
+                    part,
+                    number=len(media),
+                    where=f"in the Fusion input, message {index} part {position}",
+                )
             )
         shown.append({"role": message["role"], "content": shown_parts})
     # WHY compact: the envelope sits inside `input` as one string, the way the importer writes it.
@@ -98,21 +103,25 @@ def fusion_picture_messages(context: str | None) -> list[CandidateMessage] | Non
     return [{"role": "user", "content": [*media, {"type": "text", "text": text}]}]
 
 
-def _shown_part(part: ContentPart, *, where: str) -> dict[str, Any]:
+def _shown_part(part: ContentPart, *, number: int, where: str) -> dict[str, Any]:
     """A picture or file part with its bytes replaced by the placeholder; other fields kept."""
 
     if part["type"] == "image_url":
         image: dict[str, Any] = dict(part["image_url"])
-        image["url"] = _shown_placeholder(part, where=where)
+        image["url"] = _shown_placeholder(part, number=number, where=where)
         return {"type": "image_url", "image_url": image}
     assert part["type"] == "file"
     file: dict[str, Any] = dict(part["file"])
-    file["file_data"] = _shown_placeholder(part, where=where)
+    file["file_data"] = _shown_placeholder(part, number=number, where=where)
     return {"type": "file", "file": file}
 
 
-def _shown_placeholder(part: ImagePart | FilePart, *, where: str) -> dict[str, Any]:
-    """The placeholder as the synthesizer reads it: the shared one, less its digest."""
+def _shown_placeholder(part: ImagePart | FilePart, *, number: int, where: str) -> dict[str, Any]:
+    """The placeholder as the synthesizer reads it: the shared one, numbered, less its digest.
+
+    e.g. the second part sent → ``{"placeholder": "image", "index": 2, "media_type": "image/png",
+    "size": 307200}``.
+    """
 
     placeholder: dict[str, Any] = dict(media_placeholder(part, where=where))
     # WHY drop the digest here and only here: the synthesizer cannot hash the picture it is shown
@@ -120,7 +129,11 @@ def _shown_placeholder(part: ImagePart | FilePart, *, where: str) -> dict[str, A
     # spec's Fusion paragraph forbids. Results keep it, because a picture opened from a Case
     # Result is checked against it (OME-1271).
     del placeholder["sha256"]
-    return placeholder
+    # WHY a number, and only here: the synthesizer gets every part first and this text after, so
+    # it must pair part k with placeholder k. Two same-type same-size pictures look identical
+    # without it. 1-based, to match MMMU's own <image 1> in its questions. Results keep the
+    # Case's own layout, so they need none.
+    return {"placeholder": placeholder.pop("placeholder"), "index": number, **placeholder}
 
 
 __all__ = ["fusion_picture_messages"]

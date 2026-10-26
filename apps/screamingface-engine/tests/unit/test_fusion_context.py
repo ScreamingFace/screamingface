@@ -37,7 +37,7 @@ pytestmark = pytest.mark.asyncio
 # The 8-byte PNG signature. Its full placeholder is pinned in test_media_placeholder.py; the
 # synthesizer's text shows it less the digest.
 _PNG = "data:image/png;base64,iVBORw0KGgo="
-_PNG_PLACEHOLDER = {"placeholder": "image", "media_type": "image/png", "size": 8}
+_PNG_PLACEHOLDER = {"placeholder": "image", "index": 1, "media_type": "image/png", "size": 8}
 _QUESTION = {"type": "text", "text": "What is the height of the tallest bar?"}
 _IMAGE = {"type": "image_url", "image_url": {"url": _PNG, "detail": "low"}}
 _OUTPUTS = {"member_1": "about 42", "member_2": "42"}
@@ -135,6 +135,41 @@ async def test_the_synthesizer_reads_no_digest() -> None:
     messages = await _sent_messages(_fusion_context(_picture_case()))
 
     assert "sha256" not in messages[1]["content"][1]["text"]
+
+
+async def test_each_picture_is_numbered_in_case_order() -> None:
+    # WHY: the synthesizer gets every part first and the text after, so it pairs part k with
+    # placeholder k. The number makes that pairing explicit instead of counted, so two pictures of
+    # one type and size are never mixed up. 1-based, and counted across messages, files included.
+    pdf = {
+        "type": "file",
+        "file": {"file_data": "data:application/pdf;base64,JVBERi0xLjQ=", "filename": "paper.pdf"},
+    }
+    case = _envelope(
+        CANDIDATE_INPUT_V2_SCHEMA,
+        {"role": "user", "content": [_QUESTION, _IMAGE]},
+        {"role": "user", "content": [{"type": "text", "text": "And this?"}, pdf, _IMAGE]},
+    )
+
+    content = (await _sent_messages(_fusion_context(case)))[1]["content"]
+
+    media, text = content[:-1], content[-1]["text"]
+    assert media == [_IMAGE, pdf, _IMAGE]
+    shown = json.loads(json.loads(text)["input"])["messages"]
+    placeholders = [
+        part["image_url"]["url"] if part["type"] == "image_url" else part["file"]["file_data"]
+        for message in shown
+        for part in message["content"]
+        if part["type"] != "text"
+    ]
+    assert len(placeholders) == len(media)
+    assert [(p["index"], p["media_type"]) for p in placeholders] == [
+        (1, "image/png"),
+        (2, "application/pdf"),
+        (3, "image/png"),
+    ]
+    # INVARIANT: the number reads right after the kind, before the measures.
+    assert list(placeholders[1]) == ["placeholder", "index", "media_type", "size", "filename"]
 
 
 @pytest.mark.parametrize(

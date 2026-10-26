@@ -69,3 +69,4 @@ their exact bytes, so goldens replay. Design recorded on OME-1679 (2026-10-23).
   placeholder's `sha256` out (the model can't hash the picture, and the spec's Fusion paragraph
   objects to a digest there). The shared builder, the SDK and the Report keep it, because
   OME-1271's pictures-on-demand step checks an opened picture against it.
+  2026-10-26, owner decision: the synthesizer placeholder carries a 1-based index.
