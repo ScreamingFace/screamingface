@@ -80,3 +80,10 @@ def test_a_picture_that_is_not_base64_is_refused_by_place() -> None:
         media_placeholder(
             _image("data:image/png;base64,***not-base64***"), where="message 0 part 1"
         )
+
+
+def test_a_picture_that_is_not_inline_is_refused_by_place() -> None:
+    # WHY a named refusal, not an assert: the builder is public, so a hand-built part can reach
+    # it without the envelope reader's check, and an assert vanishes under ``python -O``.
+    with pytest.raises(CandidateInputError, match="message 0 part 1: expected an inline data: URI"):
+        media_placeholder(_image("https://insecure-website.com/a.png"), where="message 0 part 1")

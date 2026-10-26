@@ -19,6 +19,7 @@ from screamingface_engine.benchmarks.contract import (
     CANDIDATE_INPUT_SCHEMA,
     CANDIDATE_INPUT_V2_SCHEMA,
 )
+from screamingface_engine.benchmarks.invocation import evaluate_candidate_recipe
 from screamingface_engine.grading_call_scope import grading_call_scope
 from screamingface_engine.world.config import routes_for
 from screamingface_engine.world.connector import (
@@ -27,10 +28,8 @@ from screamingface_engine.world.connector import (
     _ModelEndpoint,
     build_aigateway_world,
 )
-from url4.core.builders import struct
+from url4 import RelExpr, expr, render, src, struct, text
 from url4.core.errors import ResolutionError
-from url4.core.render import render
-from url4.dag import run as url4_run
 from url4.peer.server import Request
 
 pytestmark = pytest.mark.asyncio
@@ -164,21 +163,45 @@ async def test_a_reducer_signal_call_gets_the_picture_too() -> None:
     ]
 
 
+def _fusion_recipe() -> str:
+    """One member, then a synthesizer over ``{"input": "$input", ...}``, as the SDK compiles it."""
+
+    member = src(
+        RelExpr(path=f"/{_MODEL}", context="$input", intent=text("Answer.")),
+        name="model_1",
+        weight=0.0,
+    )
+    context = render(struct({"input": "$input", "outputs": {"member_1": "$model_1"}}))
+    synthesizer = src(
+        RelExpr(path=f"/{_MODEL}", context=context, intent=text("Synthesize.")),
+        name="synthesis_1",
+        weight=0.0,
+    )
+    return render(expr(member, synthesizer, intent=text("$synthesis_1")))
+
+
 async def test_the_context_url4_builds_reaches_the_gateway_with_its_picture() -> None:
-    # WHY end to end: the connector reads whatever text url4 hands it. This proves the struct a
-    # compiled Fusion carries resolves to the shape the connector looks for, not a copy of it.
-    context = render(struct({"input": _picture_case(), "outputs": _OUTPUTS}))
+    # WHY end to end through "$input": the SDK writes a reference, not the Case, and url4
+    # substitutes it at run time. A literal envelope in the struct takes a different url4 branch,
+    # so only this proves the text the connector reads is the one a real Fusion hands it.
     gw = _MockAigateway((_MODEL,), responses={_MODEL: "42"}, web_search=False)
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
+        try:
+            await evaluate_candidate_recipe(world.node, _fusion_recipe(), _picture_case())
+        finally:
+            await world.aclose()
 
-        await url4_run(f"/{_MODEL}({context})!'Synthesize.'", io=world.node)
-
-    (post,) = gw.posts_to(_MODEL)
-    content = json.loads(post.content)["messages"][1]["content"]
+    member_post, synthesizer_post = gw.posts_to(_MODEL)
+    member = json.loads(member_post.content)["messages"][-1]["content"]
+    content = json.loads(synthesizer_post.content)["messages"][-1]["content"]
+    assert member[-1] == _IMAGE
     assert content[0] == _IMAGE
-    assert json.loads(content[1]["text"]) == {"input": _shown_case(), "outputs": _OUTPUTS}
+    assert json.loads(content[1]["text"]) == {
+        "input": _shown_case(),
+        "outputs": {"member_1": "42"},
+    }
 
 
 async def test_a_broken_picture_in_the_fusion_input_is_refused_before_any_call() -> None:

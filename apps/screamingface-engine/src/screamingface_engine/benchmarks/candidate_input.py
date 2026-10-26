@@ -326,8 +326,10 @@ def media_placeholder(part: ImagePart | FilePart, *, where: str) -> MediaPlaceho
         part["image_url"]["url"] if part["type"] == "image_url" else part["file"]["file_data"]
     )
     match: re.Match[str] | None = _DATA_URI_RE.match(uri)
-    # INVARIANT: the envelope reader accepted this part, so its URI matched the same pattern.
-    assert match is not None
+    # WHY refuse, not assert: a part the envelope reader accepted always matches, but this is
+    # public, and a hand-built part must fail by name (an assert vanishes under ``python -O``).
+    if match is None:
+        _refuse(f"{where}: expected an inline data: URI")
 
     # Stage 2 — decode.
     compact: str = "".join(match["data"].split())
