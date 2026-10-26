@@ -1,9 +1,9 @@
 ---
 ticket: unfiled
 stack: screamingface
-status: in-progress
+status: done
 started: 2026-10-22
-finished:
+finished: 2026-10-26
 ---
 
 # e4c-routers-cascades — choose whether a model runs (OME-1291)
@@ -132,3 +132,40 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   `budget_refused` (BU-5 input gate, BU-10).
   Environment note: `tests/unit/inspect` fails 2 metric-identity tests on the base commit too
   (pre-existing, not E4c). Run lane 1 after `uv sync --dev`, as CI does.
+- 2026-10-26: /simplify pass (no behavior change, no test edits): caches on the url4 parse, the
+  gate spec and the decision record; one gate-name vocabulary (`_operation_bindings.GATE_BLOCK`,
+  `gate_join`); the decision decoder reuses the `combine_evidence` helpers; `_DelegatingReducer`.
+- 2026-10-26: bug-fix pass (4 suspected bugs from the simplify pass, then an Opus design review,
+  ACCEPT-WITH-FIXES, all required fixes applied):
+  (a) Replay: a Gate's JOIN has no parsed dependencies, so a replayed `sf.Gate >> sf.Model` lost
+  the Gate's branch models. The JOIN now gets edges to every call in its block. Also fixed: Gate
+  members and Gate-terminated bodies named `op_gate_N_block` (5 fixtures failed to replay); a
+  non-skip Fanout replayed its selectors first; a classifier Gate and a nested Gate replayed a
+  different model order. The compiler now lists selectors only at the tree root, as the topology
+  does. Every Gate fixture replays to the compiled Candidate.
+  (b) A `$` in a Keywords pattern was rewritten by url4 interpolation (`\$input` reached the
+  Engine as `\CASE INPUT`). The KEYWORDS intent and the gate spec use `canonical_json` (D-1).
+  (c) The budget-refusal row took a panel Gate's decision call for a branch result and named the
+  wrong operation; `prep >> Gate` named the prep model (pre-existing).
+  (d) A lone surrogate in the JOIN context: not a bug. Every caller sends ASCII-escaped JSON.
+
+## Outcome
+
+- **Actual files:** as planned in `docs/plan/2026-10-22-e4c-routers-cascades.md` §2 (units
+  1–15), plus this ledger. Spec and plan in `docs/spec/2026-10-22-e4c-routers-cascades/`.
+- **Commits:** `49fe62852` docs(e4c) spec and plan; `65651753a` feat(e4c) units 1–15;
+  `5f974eab1` refactor(e4c) simplify; `a7faca9e2` fix(e4c) Gate replay, Keywords `$` escape and
+  the budget-refusal row; then this ledger close.
+- **Gates:** `run_gates.py screamingface --base HEAD` ALL GREEN after each pass (ruff, pyright,
+  pytest with 95% coverage, notebooks, build, distribution). Engine: `run_gates.py
+  screamingface-engine` green after the build and the simplify pass (after `uv sync --dev`); the
+  bug-fix pass changed no Engine file, and the Engine's E4c tests pass on it (1328 passed).
+- **Deviations:** (1)–(16) in the Log. Design-review findings 12 (panel scan), 14 (public names
+  `sf.Budget` vs `sf.budget.Budget`, an owner question) and 16 were not changed.
+- **Follow-ups (not filed):** the Engine could record the refused body's first operation in
+  `gate-decision.v1`, so the refusal row does not read it from the graph shape (it relies on the
+  Gate's then-before-otherwise dependency order); a failed Case keeps no operations (deviation 4,
+  a Candidate invocation contract change).
+- **Open before the PRs:** the PIN test-change manifest
+  (`.claude/test-change-approvals/OME-1291.json`), the three-PR split, and the Linear leaves
+  under OME-1291 (filed at PR open).
