@@ -252,9 +252,15 @@ async def _observed_round_trip(
         # this reply is live or a recording (cache hit, frozen-copy replay); a recording is
         # never redrawn. Recorded only once the gateway answered with a body.
         record_reply_origin(round_trip_origin(outcome, replay_frozen_copy))
-        _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
-        _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
-        _retain_reply_logprobs(data, body, reply_logprobs)
+        _retain_reply_facts(
+            data,
+            body,
+            outcome,
+            real_model_id=real_model_id,
+            operation_accounting=operation_accounting,
+            signal_accounting=signal_accounting,
+            reply_logprobs=reply_logprobs,
+        )
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
@@ -1503,6 +1509,22 @@ def _signal_accounting(aigw: object, cache: CacheOutcome) -> SignalAccounting:
 def _asks_logprobs(body: Mapping[str, object]) -> bool:
     """Whether the call asked for token log-probabilities: ``logprobs`` is exactly ``true``."""
     return body.get("logprobs") is True
+
+
+def _retain_reply_facts(
+    data: Mapping[str, Any],
+    body: dict[str, object],
+    outcome: CacheOutcome,
+    *,
+    real_model_id: str,
+    operation_accounting: list[OperationAccounting | None],
+    signal_accounting: list[SignalAccounting] | None,
+    reply_logprobs: list[ReplyLogprobs | None] | None,
+) -> None:
+    """Report the usage of one answered round trip and keep its accounting and log-probabilities."""
+    _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
+    _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
+    _retain_reply_logprobs(data, body, reply_logprobs)
 
 
 def _retain_reply_logprobs(
