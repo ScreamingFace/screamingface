@@ -140,6 +140,11 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   authorization, replay behaviour, typed auth failures and tests at both nodes. The guard's
   operator-configured **peer allowlist** (#1521) stays **empty by default and must not be populated**
   until that spec exists. Blob transfer between nodes stays deferred under F1.
+  The refusal applies in a **node context** (owner, 2026-10-26, #1482): every evaluation a `Url4Node`
+  runs, the engine's included, and, inside a `Client(node=…)` evaluation, everything except the
+  client's own outer hop to its node. A bare library `url4.run()` is not a node context and is
+  unchanged. Plain `url4://host/path` data fetches are not remote-node calls; the transport guard
+  governs them (`x.source_destination_blocked` while the peer allowlist is empty).
 - **Scope of attachments:** `https://` sources stay **lazy text fetches, as today**. When an `https://`
   source returns a **non-text** body, the bytes are hashed into the tenant+run store (write-through,
   `OME-1540`) and appended to `attachments[]` at that source's position. A text body is unchanged: it
