@@ -8,15 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from workbench.build_notebooks import NOTEBOOK_DIR
+from workbench.build_notebooks import notebooks_for
 from workbench.otlp_receiver import OtlpReceiver
 from workbench.targets import LiveTarget, selected_target
 from workbench.verdict import judge_notebook
 
-NOTEBOOKS = sorted(NOTEBOOK_DIR.glob("*.ipynb"))
 # Resolved at collection so the id reads test_notebook[<target>-<stem>]; an unknown target
-# name fails collection loudly rather than running against a guess.
+# name fails collection loudly rather than running against a guess. Only notebooks that DECLARE
+# the target are collected: an undeclared one never becomes a skip REQUIRE_ALL would fail.
 _TARGET = selected_target()
+NOTEBOOKS = notebooks_for(_TARGET)
 
 
 @pytest.mark.e2e

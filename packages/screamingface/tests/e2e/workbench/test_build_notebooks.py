@@ -639,3 +639,16 @@ def test_debug_fixed_recipe_is_markdown_only_and_servable() -> None:
     golden = load_golden(GOLDENS_DIR / "ifeval.golden.json")
     assert golden.member_specs[1].model in fixed[0]
     assert _DEBUG_UNSERVABLE not in fixed[0].split("```python", 1)[1]
+
+
+def test_notebooks_are_selected_by_their_declared_targets() -> None:
+    """A notebook that does not declare a target is never collected for it, so it cannot turn
+    into a skip that REQUIRE_ALL then fails (debug_failing_run is replay-only by owner decision,
+    2026-10-26)."""
+    from workbench.build_notebooks import notebooks_for
+
+    replay = {p.stem for p in notebooks_for("replay")}
+    local = {p.stem for p in notebooks_for("local")}
+    assert {"quickstart", "debug_failing_run"} <= replay
+    assert "quickstart" in local
+    assert "debug_failing_run" not in local

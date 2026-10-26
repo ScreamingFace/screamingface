@@ -35,6 +35,23 @@ from workbench.runner import RESULT_PREFIX, RESULT_TAG  # noqa: E402
 
 NOTEBOOK_DIR: Final = Path(__file__).resolve().parent / "notebooks"
 
+
+def notebooks_for(target: str) -> list[Path]:
+    """The committed notebooks that DECLARE ``target`` in their workbench metadata, sorted.
+
+    WHY at collection: a notebook that is not meant for a target must not be collected for it
+    at all; a runtime skip would be failed by SCREAMINGFACE_WORKBENCH_REQUIRE_ALL.
+    """
+    import nbformat
+
+    return [
+        path
+        for path in sorted(NOTEBOOK_DIR.glob("*.ipynb"))
+        if target
+        in nbformat.read(path, as_version=4).metadata.get("workbench", {}).get("targets", [])
+    ]
+
+
 _INDENT: Final = "    "
 _WRAP_AT: Final = 72  # string literals longer than this split into implicit concatenation
 _KERNELSPEC: Final = {"name": "python3", "display_name": "Python 3", "language": "python"}
