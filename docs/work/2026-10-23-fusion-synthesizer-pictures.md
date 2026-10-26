@@ -14,7 +14,7 @@ A Fusion's synthesizer (and a reducer's signal calls) read one JSON text,
 `{"input": <the Case input>, "outputs": …}`. On a picture Case that text holds the pictures as
 base64, so the synthesizer reads up to a million tokens of base64 and never sees a picture. The
 engine connector now spots that shape at run time: it sends the Case's picture parts first, then
-today's text with each picture shown as a placeholder (type, size, sha256). Text-only Fusions keep
+today's text with each picture shown as a placeholder (type and size). Text-only Fusions keep
 their exact bytes, so goldens replay. Design recorded on OME-1679 (2026-10-23).
 
 ## Planned changes
@@ -65,4 +65,7 @@ their exact bytes, so goldens replay. Design recorded on OME-1679 (2026-10-23).
   ruff + pyright clean on every touched file, both lanes. Full suites run in CI.
 - **Deviations:** none from the design on OME-1679. Owner decisions taken 2026-10-23: placeholder
   in the envelope module, broken base64 refused by name, SDK twin + stale comment fix in this PR,
-  grading calls unchanged.
+  grading calls unchanged. 2026-10-26, owner decision: the synthesizer's text leaves the
+  placeholder's `sha256` out (the model can't hash the picture, and the spec's Fusion paragraph
+  objects to a digest there). The shared builder, the SDK and the Report keep it, because
+  OME-1271's pictures-on-demand step checks an opened picture against it.

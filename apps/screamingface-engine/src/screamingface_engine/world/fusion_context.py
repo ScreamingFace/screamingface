@@ -24,6 +24,8 @@ from screamingface_engine.benchmarks.candidate_input import (
     CandidateInputError,
     CandidateMessage,
     ContentPart,
+    FilePart,
+    ImagePart,
     json_object,
     media_placeholder,
     parse_candidate_input,
@@ -43,11 +45,11 @@ def fusion_picture_messages(context: str | None) -> list[CandidateMessage] | Non
         keeps its exact bytes and every golden replays.
     Stage 3 — one user message: every picture and file part first, in Case order, then one text
         part. That text is the context with only ``input`` changed: the Case rebuilt with each
-        picture's ``url`` (or file's ``file_data``) replaced by its placeholder.
+        picture's ``url`` (or file's ``file_data``) replaced by its placeholder, less the digest.
 
     e.g. ``{"input": <v2 Case: question + 300 KB PNG>, "outputs": {...}}`` →
     ``[{"role": "user", "content": [<the PNG image part>, {"type": "text", "text":
-    '{"input": "<the Case, PNG shown as {placeholder, media_type, size, sha256}>", ...}'}]}]``.
+    '{"input": "<the Case, PNG shown as {placeholder, media_type, size}>", ...}'}]}]``.
 
     Raises:
         CandidateInputError: the Case under ``input`` breaks the envelope rules, or a picture's
@@ -101,12 +103,24 @@ def _shown_part(part: ContentPart, *, where: str) -> dict[str, Any]:
 
     if part["type"] == "image_url":
         image: dict[str, Any] = dict(part["image_url"])
-        image["url"] = media_placeholder(part, where=where)
+        image["url"] = _shown_placeholder(part, where=where)
         return {"type": "image_url", "image_url": image}
     assert part["type"] == "file"
     file: dict[str, Any] = dict(part["file"])
-    file["file_data"] = media_placeholder(part, where=where)
+    file["file_data"] = _shown_placeholder(part, where=where)
     return {"type": "file", "file": file}
+
+
+def _shown_placeholder(part: ImagePart | FilePart, *, where: str) -> dict[str, Any]:
+    """The placeholder as the synthesizer reads it: the shared one, less its digest."""
+
+    placeholder: dict[str, Any] = dict(media_placeholder(part, where=where))
+    # WHY drop the digest here and only here: the synthesizer cannot hash the picture it is shown
+    # beside this text, and a digest in a model's text reads as a reference to fetch, which the
+    # spec's Fusion paragraph forbids. Results keep it, because a picture opened from a Case
+    # Result is checked against it (OME-1271).
+    del placeholder["sha256"]
+    return placeholder
 
 
 __all__ = ["fusion_picture_messages"]

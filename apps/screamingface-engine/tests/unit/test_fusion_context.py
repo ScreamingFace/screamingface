@@ -34,14 +34,10 @@ from url4.peer.server import Request
 
 pytestmark = pytest.mark.asyncio
 
-# The 8-byte PNG signature; its placeholder is pinned in test_media_placeholder.py.
+# The 8-byte PNG signature. Its full placeholder is pinned in test_media_placeholder.py; the
+# synthesizer's text shows it less the digest.
 _PNG = "data:image/png;base64,iVBORw0KGgo="
-_PNG_PLACEHOLDER = {
-    "placeholder": "image",
-    "media_type": "image/png",
-    "size": 8,
-    "sha256": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
-}
+_PNG_PLACEHOLDER = {"placeholder": "image", "media_type": "image/png", "size": 8}
 _QUESTION = {"type": "text", "text": "What is the height of the tallest bar?"}
 _IMAGE = {"type": "image_url", "image_url": {"url": _PNG, "detail": "low"}}
 _OUTPUTS = {"member_1": "about 42", "member_2": "42"}
@@ -129,6 +125,16 @@ async def test_a_picture_fusion_sends_the_synthesizer_its_picture() -> None:
         },
     ]
     assert "base64," not in messages[1]["content"][1]["text"]
+
+
+async def test_the_synthesizer_reads_no_digest() -> None:
+    # WHY: the synthesizer cannot hash the picture it is shown, and a digest in its text reads as
+    # a reference to fetch, which the spec's Fusion paragraph forbids. Results keep the digest,
+    # so a picture opened from a Case Result can be checked against it; only the model's text
+    # leaves it out.
+    messages = await _sent_messages(_fusion_context(_picture_case()))
+
+    assert "sha256" not in messages[1]["content"][1]["text"]
 
 
 @pytest.mark.parametrize(

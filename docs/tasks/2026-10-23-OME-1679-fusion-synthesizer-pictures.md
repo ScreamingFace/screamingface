@@ -18,7 +18,9 @@ synthesizer never saw them.
 
 - The engine connector now reads that text structurally: a JSON object whose `input` is a v2
   Case. It sends the Case's picture and file parts first, then today's text with each picture
-  shown as a placeholder (`placeholder`, `media_type`, `size`, `sha256`, `filename` when named).
+  shown as a placeholder (`placeholder`, `media_type`, `size`, `filename` when named). The shared
+  placeholder also carries a `sha256`, which the synthesizer's text leaves out: the model can't
+  hash the picture, and results keep it so an opened picture can be checked against it.
 - Reducer signal calls read the same object (with `panel`) and get the pictures too.
 - Text-only Fusions send the same bytes as before, so goldens replay. Grading calls keep today's
   path; what a grader reads of a picture Case is OME-1271 PR 3.
