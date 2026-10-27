@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1746   # review follow-up of PR #1571; owner chose to reuse the issue
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-10-27
-finished:
+finished: 2026-10-27
 ---
 
 # openrouter-zero-proof-review-fixes — three review fixes for the OpenRouter zero proofs
