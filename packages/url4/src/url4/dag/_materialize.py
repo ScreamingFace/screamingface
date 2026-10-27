@@ -8,25 +8,32 @@ INVARIANT (order of the phase, all before the first model call):
 1. static check — an attachment source conditional on a model-derived collection is
    ``x.source_not_static`` before ANY fetch;
 2. reachability — each non-model collection an occurrence is conditional on is resolved
-   (once; execution replays the result, :meth:`RunFiles.take_prefetched`), outer first, and an
-   occurrence under a collection with zero rows (after slicing) does no I/O;
+   (once, under its OWN descriptor guard policy — ``;retry=`` / ``;t=`` / ``;optional`` — "with
+   its normal source semantics"; execution replays the final outcome,
+   :meth:`RunFiles.take_prefetched`), outer first, and an occurrence under a collection with
+   zero rows (after slicing), or whose collection failed, does no I/O;
 3. one flight per identity — every reachable identity is fetched once as bytes under its own
    guard policy, concurrently; a required failure fails the run, an ``;optional`` one is omitted.
 INVARIANT: an expression with no attachment source never enters this module (text sources are
 byte-identical to today).
 
 AIDEV-NOTE (conservative readings, ledger round 7): a collection this phase cannot resolve
-without running the body (a row reference ``$item``, a blob ref, holdings, an annotated or
-templated source) is treated as reachable; a pre-built graph has no AST, so it has no manifest.
+without running the body (a row reference ``$item``, a blob ref, holdings, a templated source)
+is treated as reachable; a pre-built graph has no AST, so it has no manifest. An annotated
+``http(s)://`` or relative collection IS resolved here, under its own guard policy (review
+round 7b). A collection whose guarded admission still fails is final: execution replays that
+failure as permanent (never retried, never re-fetched), so the body it gates can never run
+later and meet an attachment source missing from the manifest (``x.source_not_static``).
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from url4.core.errors import CollectionError, ErrorCode, ResolutionError
+from url4.core.errors import CollectionError, ErrorCode, ResolutionError, Url4Error
 from url4.core.nodes import (
     Expression,
     Iteration,
@@ -42,7 +49,7 @@ from url4.core.nodes import (
 from url4.io.layer import FetchRequest, FetchResult, fetch_result
 
 from url4.dag.attachment import Attachment  # isort: skip
-from url4.dag.attachment_sources import AttachmentIdentity, classify, not_static  # isort: skip
+from url4.dag.attachment_sources import AttachmentIdentity, classify, guard_policy, not_static  # isort: skip
 from url4.dag.attachments import CollectionGuard, Occurrence, prefetch_key  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext, Payload, SourceFailure, gather_or_cancel  # isort: skip
 from url4.dag.nodes import GuardNode  # isort: skip
@@ -58,23 +65,38 @@ Outcomes = dict[AttachmentIdentity, Attachment | ResolutionError]
 Prefetched = dict[tuple, list[FetchResult | Exception]]
 
 
-async def materialize(
-    occurrences: Sequence[Occurrence], ctx: ExecutionContext
-) -> tuple[Outcomes, Prefetched]:
-    """Every reachable identity's outcome, and the collection fetches made to decide it."""
+@dataclass(frozen=True)
+class Admission:
+    """The admission phase's result: outcomes, the replay memo, and slot positions.
+
+    ``first_reachable`` holds, per reachable identity, the preorder index (into the scan's
+    ``occurrences``) of its FIRST reachable occurrence — where F1b places its one slot.
+    """
+
+    outcomes: Outcomes = field(default_factory=dict)
+    prefetched: Prefetched = field(default_factory=dict)
+    first_reachable: frozenset[int] = frozenset()
+
+
+async def materialize(occurrences: Sequence[Occurrence], ctx: ExecutionContext) -> Admission:
+    """Every reachable identity's outcome, the collection fetches made to decide it, and
+    the occurrence each identity's slot sits at."""
     if not occurrences:
-        return {}, {}
+        return Admission()
     for identity, guards in occurrences:
         if any(_kind(guard.items, guard.bound) == _MODEL for guard in guards):
             raise not_static(repr(identity.url))
     prefetched: Prefetched = {}
     rows: dict[int, bool] = {}
-    reachable: dict[AttachmentIdentity, None] = {}
-    for identity, guards in occurrences:
+    reachable: dict[AttachmentIdentity, int] = {}
+    # INVARIANT: preorder walk; an identity's later occurrences are never evaluated once an
+    # earlier one is reachable (its slot is fixed, and no extra collection is fetched).
+    for index, (identity, guards) in enumerate(occurrences):
         if identity not in reachable and await _all_have_rows(guards, ctx, rows, prefetched):
-            reachable[identity] = None
+            reachable[identity] = index
     flights = await gather_or_cancel(_flight(identity, ctx) for identity in reachable)
-    return dict(zip(reachable, flights, strict=True)), prefetched
+    outcomes = dict(zip(reachable, flights, strict=True))
+    return Admission(outcomes, prefetched, frozenset(reachable.values()))
 
 
 async def _all_have_rows(
@@ -93,16 +115,20 @@ async def _all_have_rows(
     return True
 
 
-def _unwrap(items: Node, bound: Mapping[str, Node]) -> Node:
-    """Follow ``$xs`` to its enclosing binding's value, and a descriptor to its value.
+def _unwrap(items: Node, bound: Mapping[str, Node]) -> tuple[Node, Source | None]:
+    """Follow ``$xs`` to its enclosing binding, and a descriptor to its value.
 
+    Returns the value and its OUTERMOST descriptor (``None`` when bare): the descriptor's
+    annotations are the collection's guard policy and ``;accept=``, which admission must
+    honor exactly as the lowering does (``_descriptor._lower_source``).
     One step only: a binding whose value is itself a reference is ``unknown`` (reachable).
     """
     if isinstance(items, VarRef) and not items.path and items.name in bound:
         items = bound[items.name]
+    descriptor = items if isinstance(items, Source) else None
     while isinstance(items, Source):
         items = items.value
-    return items
+    return items, descriptor
 
 
 def _kind(items: Node, bound: Mapping[str, Node]) -> str:
@@ -112,7 +138,7 @@ def _kind(items: Node, bound: Mapping[str, Node]) -> str:
     model's (or another node's) output, so the body's reachability is unknown until after a
     model call — an attachment source there cannot be frozen first (F1b ``x.source_not_static``).
     """
-    items = _unwrap(items, bound)
+    items, _ = _unwrap(items, bound)
     kind = _UNKNOWN
     if isinstance(items, Expression):
         kind = "inline" if items.intent is None and not items.broadcast else _MODEL
@@ -128,36 +154,84 @@ def _kind(items: Node, bound: Mapping[str, Node]) -> str:
 
 
 async def _has_rows(guard: CollectionGuard, ctx: ExecutionContext, prefetched: Prefetched) -> bool:
-    items = _unwrap(guard.items, guard.bound)
+    items, descriptor = _unwrap(guard.items, guard.bound)
     has_rows = True  # unknown before the body runs: conservatively reachable
     if isinstance(items, Expression) and _kind(items, {}) == "inline":
         has_rows = _sliced(list(items.sources), guard)
     elif isinstance(items, Text):
         has_rows = _parsed(items.value, None, guard)
     elif isinstance(items, (Url, RelUrl)) and _kind(items, {}) == "fetch":
-        has_rows = await _fetched_rows(_collection_request(items), ctx, guard, prefetched)
+        has_rows = await _fetched_rows(items, descriptor, ctx, guard, prefetched)
     return has_rows
 
 
-def _collection_request(items: Url | RelUrl) -> FetchRequest:
-    # INVARIANT: the very request the lowered collection node sends, so execution's fetch
-    # finds this one in the replay memo (see ``_lower_collection`` / ``WebFetchNode``).
+def _collection_request(items: Url | RelUrl, accept: str | None) -> FetchRequest:
+    # INVARIANT: the very request the lowered collection node sends (``;accept=`` included,
+    # ``_descriptor._push_label``), so execution's fetch finds this one in the replay memo.
     if isinstance(items, RelUrl):
-        return FetchRequest(items.value, relative=True, kind="relative")
-    return FetchRequest(items.value, relative=False, kind="http")
+        return FetchRequest(items.value, relative=True, kind="relative", accept=accept)
+    return FetchRequest(items.value, relative=False, kind="http", accept=accept)
 
 
 async def _fetched_rows(
-    request: FetchRequest, ctx: ExecutionContext, guard: CollectionGuard, prefetched: Prefetched
+    items: Url | RelUrl,
+    descriptor: Source | None,
+    ctx: ExecutionContext,
+    guard: CollectionGuard,
+    prefetched: Prefetched,
 ) -> bool:
+    """Resolve one collection under its own guard policy; record the FINAL outcome for replay.
+
+    WHY final, and a failure made permanent: admission already spent the source's policy
+    (its retries and its ``;t=`` deadline). Execution's own guard must not spend it again —
+    a fresh retry that succeeded there would run a body admission judged unreachable.
+    """
+    ann = {} if descriptor is None else dict(descriptor.annotations)
+    request = _collection_request(items, ann.get("accept"))
     pending = prefetched.setdefault(prefetch_key(request), [])
+    leaf = _CollectionFetchNode(request)
+    policy = None if descriptor is None else guard_policy(ann, descriptor)
     try:
-        result = await fetch_result(ctx.io, request)
+        if policy is None:
+            await leaf.resolve({}, ctx)
+        else:
+            optional, timeout, retries = policy
+            guarded = GuardNode(leaf, optional=optional, timeout=timeout, retries=retries)
+            outcome = await guarded.resolve({}, ctx)
+            if isinstance(outcome, SourceFailure):  # an omitted ;optional collection
+                pending.append(ResolutionError(outcome.message, code=outcome.code, permanent=True))
+                return False
     except Exception as exc:  # replayed by execution, which fails exactly as it does today
-        pending.append(exc)
+        pending.append(_final(exc))
         return False
-    pending.append(result)
-    return _parsed(result.body, result.media_type, guard)
+    if leaf.result is None:  # resolve returns only after it stored the result
+        raise RuntimeError(f"collection admission for {request.target!r} stored nothing")
+    pending.append(leaf.result)
+    return _parsed(leaf.result.body, leaf.result.media_type, guard)
+
+
+def _final(exc: Exception) -> Exception:
+    """``exc`` as a terminal failure: a transient url4 error is copied as permanent."""
+    if isinstance(exc, Url4Error) and not exc.permanent:
+        exc = copy.copy(exc)
+        exc.permanent = True
+    return exc
+
+
+@dataclass(eq=False)
+class _CollectionFetchNode:
+    """The leaf a collection's admission guard runs: one text fetch, result kept on the node.
+
+    WHY stored, not returned: a DAG payload is text; the parse needs the media type too.
+    """
+
+    request: FetchRequest
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
+    result: FetchResult | None = None
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        self.result = await fetch_result(ctx.io, self.request)
+        return self.result.body
 
 
 def _parsed(body: str, media_type: str | None, guard: CollectionGuard) -> bool:
@@ -245,4 +319,4 @@ def check_caps(attachments: Sequence[Attachment]) -> None:
         )
 
 
-__all__ = ["MAX_ATTACHMENTS", "MAX_ATTACHMENT_BYTES", "check_caps", "materialize"]
+__all__ = ["MAX_ATTACHMENTS", "MAX_ATTACHMENT_BYTES", "Admission", "check_caps", "materialize"]

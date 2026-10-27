@@ -264,3 +264,58 @@ identities one flight; reversed completion order → preorder; caps; model-deriv
    a run with no https attachment source.
 8. The attachment source contributes its URL text to the payload (as U3b did); an omitted
    optional one is logged `WARN` with its code via `ExecutionContext.log`.
+
+## Round 2026-10-27b — round-7 review findings (admission guard policy, slot preorder): DONE (finding 3 BLOCKED on the owner)
+
+**Intent.** Fix two blocking review findings on the round-7 commit; the third (Q-B vs round 7)
+needs an owner decision and prior-test approvals, so it is reported, not changed.
+1. `_materialize._fetched_rows` resolved a collection with one bare fetch (its descriptor's
+   `;retry=`/`;t=`/`;optional` stripped by `_unwrap`), so a transient failure read as zero rows,
+   the body later ran and its attachment source raised `x.source_not_static` mid-run.
+2. `source_scan._add_attachment` slotted an identity at its first occurrence in the AST, reachable
+   or not; F1b places it at its first REACHABLE occurrence in manifest preorder.
+
+**Planned changes.** `dag/_materialize.py` (collection admission under its own guard policy,
+final outcome replayed as permanent; reachable occurrence positions), `dag/source_scan.py`
+(per-occurrence slot markers; bindings keep their descriptor), `dag/_run_files.py` (resolve the
+markers after reachability). Tests (new file): `tests/unit/test_attachment_sources_review.py`.
+
+**Test plan.** RED first: transient collection failure with `;retry=2` still fetches the
+attachment once before the first model call and attaches it to every call; an `;optional`
+collection that fails makes no attachment I/O and no `x.source_not_static`; a collection with
+`;accept=` is fetched once; slot order `[JPG, IMG]` when IMG's first occurrence is unreachable,
+`[IMG, JPG]` when it is reachable.
+
+**Done.** One commit on `file-refs-carry` (`fix(url4): admit attachment-gating collections under
+their own guard policy and slot identities at their first reachable occurrence`).
+- `dag/_materialize.py`: `_unwrap` returns the collection's outermost descriptor; `_fetched_rows`
+  resolves a fetched collection through `GuardNode` with `guard_policy(ann)` (bare fetch when
+  unannotated) and the descriptor's `;accept=` (so the replay key matches the lowered node); the
+  FINAL outcome is recorded in the replay memo, a failure copied as permanent (an omitted
+  `;optional` one as a permanent `ResolutionError` with its code), so execution never re-spends
+  the policy. `materialize` returns `Admission(outcomes, prefetched, first_reachable)`.
+  AIDEV-NOTE corrected (an annotated collection is resolved, not assumed reachable).
+- `dag/source_scan.py`: `OccurrenceSlot(index)` per attachment-source occurrence in `order`;
+  `reachable_order` places each identity at its first reachable occurrence (blob-ref / URL slots
+  keep their positions); `_bindings` keeps a named descriptor (not its value) so `$xs*(…)`
+  admission sees the binding's policy.
+- `dag/_run_files.py`: slots built from `reachable_order(...)` after admission.
+- Tests (new): `tests/unit/test_attachment_sources_review.py`, 9 tests (the reviewer's repro
+  included). No prior test edited.
+- **Gates:** `run_gates.py url4` ALL GREEN (append-only vs HEAD); `check_module_size.py` green.
+
+**Finding 3 (Q-B vs round 7) — BLOCKED, owner decision.** Not changed. Removing the Q-B lazy path
+(`attach_web_body`, `cached_web_attachment`, `RunFiles.fetched`, the string URL slots in
+`source_scan._add_leaf`) changes prior tests that `OME-1543.json` does not approve:
+`tests/unit/test_https_attachments.py::test_non_text_https_body_is_attached_once_at_its_source_position`,
+`::test_https_body_with_a_blob_refs_digest_is_attached_once`,
+`::test_case_attachments_precede_an_https_attachment`,
+`::test_guard_refusal_on_the_bytes_fetch_fails_the_run_unchanged[*]`. If the owner keeps Q-B
+instead, the spec must change and the caps + freeze must cover lazily attached bodies (today
+`check_caps` runs only at run start, so 25 Q-B bodies attach with no `x.attachments_too_many`).
+
+**Conservative readings (round 7b).**
+1. A collection whose guarded admission fails finally is NOT reachable (no attachment I/O) and
+   execution replays that failure as permanent — the run fails (or the optional binding is
+   omitted) exactly as admission decided, never with a later successful retry.
+2. Nested descriptors on a collection: the outermost one's policy and `;accept=` apply.

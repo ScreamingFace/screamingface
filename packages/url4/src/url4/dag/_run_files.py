@@ -17,7 +17,8 @@ from url4.core.nodes import Node as AstNode
 
 from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity  # isort: skip
-from url4.dag._materialize import Outcomes, Prefetched, check_caps, materialize  # isort: skip
+from url4.dag._materialize import Admission, Outcomes, Prefetched, check_caps, materialize  # isort: skip
+from url4.dag.source_scan import reachable_order  # isort: skip
 from url4.dag.attachments import (  # isort: skip
     CachedBlob,
     FileRef,
@@ -65,15 +66,19 @@ async def _run_start(
     refs = () if scan is None else scan.refs
     refuse_remote(refs)
     occurrences = () if scan is None else scan.occurrences
-    manifest, prefetched = await materialize(occurrences, run_ctx)
+    admission: Admission = await materialize(occurrences, run_ctx)
     bodies = await gather_or_cancel(_verify(ref, run_ctx) for ref in refs)
     resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
     cache: dict[str, CachedBlob | str] = {
         ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
     }
-    order = () if scan is None else scan.order
-    start = RunStart(attachment_slots(case, resolved, order), cache, manifest, prefetched)
-    check_caps(RunFiles(start.slots, {}, {}, manifest).attachments)
+    # F1b: an identity's slot is its first REACHABLE occurrence, known only after admission.
+    order = (
+        () if scan is None else reachable_order(scan.order, occurrences, admission.first_reachable)
+    )
+    slots = attachment_slots(case, resolved, order)
+    start = RunStart(slots, cache, admission.outcomes, admission.prefetched)
+    check_caps(RunFiles(start.slots, {}, {}, admission.outcomes).attachments)
     return start
 
 
