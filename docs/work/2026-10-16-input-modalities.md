@@ -3,7 +3,7 @@ ticket: OME-1537
 stack: aigateway
 status: done
 started: 2026-10-16
-finished: 2026-10-16
+finished: 2026-10-21
 ---
 
 # input-modalities — expose each model's input modalities on /v1/models
@@ -46,6 +46,7 @@ Unknown is `["text"]`, never vision. Spec: `docs/spec/2026-10-16-input-modalitie
   `tests/unit/huggingface/test_huggingface_input_modalities.py`,
   `tests/unit/ollama/test_ollama_input_modalities.py`, `tests/unit/test_declared_input_modalities.py`.
 - **Commits:** `ba1ae75c9` feat(aigateway): expose each model's input modalities on /v1/models
+- **Merged:** squash-merged as `2406ccd5a` (#1451) on 2026-10-22.
 - **Gates:** `run_gates.py aigateway` ALL GATES GREEN (append-only, ruff, format, pyright,
   no-enterprise, pytest + coverage >= 80; 6284 tests collected).
 - **Live e2e (port 9122, copied DB, no Codex chat):** 415 rows, all carry the field, none out of
