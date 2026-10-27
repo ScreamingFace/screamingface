@@ -28,8 +28,9 @@ the media parts plus index-only, digest-free placeholders; Case-ingress headroom
 Candidate requests, Fusion may get 413 `request_too_large`; C6 refused in a node context. The `x.*`
 codes await Kevin's url4 wire approval.
 
-Review rounds 6–7 (2026-10-27): v1 Case execution is pictures-only. An https source is an
-attachment only when its `;accept=` names media ranges from the attachment set; other https sources
-keep today's text semantics unchanged. Attachment sources come from a reachability-aware manifest
-(model-derived targets → `x.source_not_static`), one flight and one attachment per
-(URL, accept, guard policy) in manifest preorder, frozen before the first model call.
+Review rounds 6–8 (2026-10-27): v1 Case execution is pictures-only. An https source is an
+attachment only when its `;accept=` is exactly one of `image/png|jpeg|gif|webp` or
+`application/pdf`; other https sources keep today's text semantics unchanged. Attachment sources come
+from a reachability-aware manifest (row-substituted URLs allowed; other fetched-body or model-derived
+targets → `x.source_not_static`), one flight and one attachment per (URL, accept, guard policy) in
+manifest preorder, frozen before the first model call.

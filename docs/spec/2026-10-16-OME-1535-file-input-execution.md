@@ -10,7 +10,8 @@ guarantee) into F1b, F2, F3, §2.7 and §4, and his review-round-6 decisions (ow
 v1 Case execution pictures-only) into §2.7 and §3, and his review-round-7 decisions (owner,
 2026-10-27: explicit attachment opt-in through `;accept=`, text sources unchanged, reachability-aware
 manifest, identity including guard policy; superseding round 6's all-sources manifest) into F1b, F2,
-§3 and §4.
+§3 and §4, and his review-round-8 decisions (owner, 2026-10-27: exactly one attachment type per
+`;accept=`, no wildcard or list; row-substituted attachment URLs allowed) into F1b, §3 and §4.
 
 **Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
 #1447), and so is every `file:line` citation unless its link names another commit: the F3
@@ -154,13 +155,14 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   governs them (`x.source_destination_blocked` while the peer allowlist is empty).
 - **Scope of attachments: explicit opt-in, pre-materialize, then freeze** (owner, 2026-10-26, review
   round 5; opt-in, reachability, identity and classification: owner, 2026-10-27, review round 7, which
-  supersedes the round-6 all-sources manifest and "required wins").
-  - **Attachment sources (opt-in, no grammar change).** An `https://` source is an **attachment
-    source** iff its existing `;accept=` annotation names only media ranges from the **attachment
-    set**: `image/*`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`. Every
-    range in the value must be one of these; a value that also names any other range (`*/*`,
-    `text/*`, `application/*`, `application/json`, …), or no `;accept=` at all, makes it a **text
-    source**.
+  supersedes the round-6 all-sources manifest and "required wins"; one exact type and row-derived
+  targets: owner, 2026-10-27, review round 8).
+  - **Attachment sources (opt-in, no grammar change)** (owner, 2026-10-27, review round 8). An
+    `https://` source is an **attachment source** iff its existing `;accept=` annotation is **exactly
+    one** lower-case type from the **attachment types** `image/png`, `image/jpeg`, `image/gif`,
+    `image/webp`, `application/pdf`. There are no wildcards and no lists: a url4 execution value
+    admits neither `*` nor a comma, so neither could be written without a grammar change. Any other
+    `;accept=` value, or none, makes it a **text source**.
   - **Text sources keep today's url4 semantics exactly.** They are not pre-materialized, not
     deduplicated and never attached: each occurrence is fetched lazily through its own `GuardNode`
     with its own `;optional`, `;t=` and `;retry=`, and is classified by #1478's existing text rule
@@ -174,10 +176,13 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     over zero rows contributes nothing and causes no I/O. Only attachment sources reachable in the
     actual rows (and in lazy groups and nested fragments as authored) enter the manifest, in preorder
     of the expanded expression, and all of them are materialized before the first model call.
-  - **Static attachment targets.** An attachment source's URL and `;accept=` must be literal or derived
-    only from non-model collection rows resolved in this phase. One derived from a model output or a
-    fetched body is refused with the permanent **`x.source_not_static`** (§4) before any fetch or model
-    call. The code applies to attachment sources only; a text source may be dynamic, as today.
+  - **Static attachment targets** (owner, 2026-10-27, review round 8). An attachment source's URL
+    must be literal or come from substitution of a row of an **admitted non-model collection input**
+    resolved in this phase, including an `https://` JSON or NDJSON collection resolved under its own
+    normal source semantics. Any other derivation, from a fetched body outside that row substitution or
+    from a model output, is refused with the permanent **`x.source_not_static`** (§4) before any fetch
+    or model call. Its `;accept=` is always literal, because that is what makes it an attachment
+    source. The code applies to attachment sources only; a text source may be dynamic, as today.
   - **Identity, one flight, one attachment per identity.** The materialization identity is
     `(URL, accept, effective guard policy: ;optional, ;t=, ;retry=)`. Occurrences with an identical
     identity share **one flight**, including its whole retry sequence under that policy, and yield
@@ -189,10 +194,10 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) yields the bytes and the
     media type; there is no second fetch.
   - **Classification of attachment sources (normative).** The response's bare, lowercased media type
-    ([`bare_media_type`][pr1478-media]) must be in the attachment set (a fail-closed subset of the
-    gateway's gate: any `image/*` for `image_url`, [`G/core/content_parts.py:242`][g-img-main];
-    `application/pdf` for `file`, [`:42`][g-pdf-main]) **and** match the requested `;accept=` range.
-    Otherwise, including a missing Content-Type (`bare_media_type()` returns `None`) or a value that is
+    ([`bare_media_type`][pr1478-media]) must **equal** the requested `;accept=` type (owner, 2026-10-27,
+    review round 8). The attachment types are a fail-closed subset of the gateway's gate (any image type
+    for `image_url`, [`G/core/content_parts.py:242`][g-img-main]; `application/pdf` for `file`,
+    [`:42`][g-pdf-main]). Otherwise, including a missing Content-Type (`bare_media_type()` returns `None`) or a value that is
     not exactly one media type, the source fails with `unsupported_content_type` (permanent, C8,
     #1478's code): optional → omitted, required → the run fails. **No byte sniffing.**
   - **Write-through.** A classified attachment is hashed into the tenant+run store (write-through,
@@ -208,22 +213,24 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     duplicate text-source occurrences with differing `;t=`, `;retry=` or `;optional` behave exactly as
     today; text sources with no Content-Type, XML, `+json`, YAML, a charset-bearing `application/*`
     type and Latin-1 text are unchanged; an attachment source with a wrong or missing type gets
-    `unsupported_content_type`; the same URL with and without a media `;accept=` takes the text path
-    and the attachment path independently; parallel siblings with an identical identity cause one
-    fetch and one attachment; reversed completion order still yields manifest-preorder attachments; a
-    model-derived attachment URL gets `x.source_not_static`.
+    `unsupported_content_type`, and so does a response type that differs from the requested one (a
+    `;accept=image/png` source answered with `image/jpeg`); the same URL with and without a media
+    `;accept=` takes the text path and the attachment path independently; parallel siblings with an
+    identical identity cause one fetch and one attachment; reversed completion order still yields
+    manifest-preorder attachments; an attachment URL substituted from a row of an admitted https NDJSON
+    collection is fetched before the first model call and attached (positive); an attachment URL taken
+    from a fetched text-source body by any other means than row substitution gets `x.source_not_static`
+    (negative); a model-derived attachment URL gets `x.source_not_static`.
 
   Rationale for opting in through `;accept=`: the grammar does not preserve `src=`. `(src=https://a)`
   and `(https://a)` parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so a `src=`
   binding cannot mark an attachment, while `;accept=` is already a per-source annotation
   ([`U/io/layer.py:69-77`][u-accept]). `OME-1544` is the guard only. (Owner, 2026-10-21; revised
   2026-10-22, `OME-1543` Q-B; lifecycle and caps 2026-10-26, review round 5; opt-in model
-  2026-10-27, review round 7.)
+  2026-10-27, review round 7; one exact type and row-derived targets 2026-10-27, review round 8.)
 
-  **Superseded handoff text.** `OME-1540`'s description still limits https write-through to a value
-  in a `src=` binding and cites the old F3 "steps 1–5". Both clauses are **superseded** by F1b (only
-  attachment sources write through) and F3 (steps 1–4, two authorization paths), pending Khoa's update
-  of that issue.
+  **Handoff.** `OME-1540`'s description now matches F1b (only attachment sources write through) and
+  F3 (steps 1–4, two authorization paths), as of 2026-10-27.
 
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
@@ -431,7 +438,7 @@ future-compatible capability, not a v1 execution path:
      at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
      `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
-     An `https://` **attachment source** (a media-range `;accept=`, F1b) is pre-materialized before the
+     An `https://` **attachment source** (`;accept=` is exactly one attachment type, F1b) is pre-materialized before the
      first model call from the reachability-aware attachment manifest, through the url4 transport's
      destination guard, one flight per identity (URL, accept, guard policy); a classified result is
      hashed, written through to the tenant + run store (`OME-1540`) and appended to `attachments[]` in
@@ -478,11 +485,11 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 | `x.source_too_large` | url4 HTTP transport guard | 413 (proposed) | permanent | F1b; streaming cap on decoded bytes, aborted mid-stream |
 | `x.source_timeout` | url4 HTTP transport guard | 504 (proposed) | retryable | F1b; connect timeout or the total deadline across all hops |
 | `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); 500 at read (proposed) | permanent | F3; at read it is store corruption, logged as such: the node fails with this code and the node path, the run ends `failed` with it, and it is never retried or served from a cache (F3 order) |
-| `unsupported_content_type` | url4 bytes fetch (#1478, pre-materialization classification); engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; on an https attachment source, a Content-Type outside the attachment set, not matching its `;accept=`, missing, or not one media type (no sniffing); on a text source, #1478's existing text rule, unchanged; or a type the node cannot carry or convert |
+| `unsupported_content_type` | url4 bytes fetch (#1478, pre-materialization classification); engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; on an https attachment source, a Content-Type not equal to its `;accept=` type, missing, or not one media type (no sniffing); on a text source, #1478's existing text rule, unchanged; or a type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
-| `x.source_not_static` | url4 run admission (attachment manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` **attachment source** whose URL or `accept` is derived from a model output or a fetched body (literal and non-model-row-derived targets are allowed); text sources are never refused with it; raised before any fetch or model call |
+| `x.source_not_static` | url4 run admission (attachment manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` **attachment source** whose URL is derived from a model output, or from a fetched body other than by substituting a row of an admitted non-model collection input (literal and row-substituted targets are allowed, including rows of an https JSON/NDJSON collection); text sources are never refused with it; raised before any fetch or model call |
 | `x.attachments_too_many` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 20 url4 attachments in one run; raised before any model call |
 | `x.attachments_too_large` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 8,000,000 aggregate decoded bytes of url4 attachments in one run; raised before any model call |
 | `request_too_large` | gateway body cap (`OME-1542`, #1479) | 413 | permanent | 8 MiB request body; before any upstream spend; includes the Fusion residual (§2.7). `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code |
@@ -490,7 +497,8 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 Statuses marked *proposed* are new in this spec and need Kevin's sign-off for the url4 wire. His
 recorded approval at `e61bcde` predates these codes and statuses, so it does not cover them; they stay
 proposed until he signs off this revision. **Acceptance of this spec therefore requires Kevin's url4
-wire approval of the current revision (review rounds 5 and 6, including `x.attachments_too_many`,
+wire approval of the current revision (review rounds 7 and 8, the grammar-facing `;accept=`
+attachment opt-in, and the codes, including `x.attachments_too_many`,
 `x.attachments_too_large` and `x.source_not_static`); it is awaited.** `x.source_destination_blocked` and the other `x.source_*`
 codes **are** active in v1, owned by the url4 HTTP transport guard (F1b). Only remote-node
 authentication failure has no v1 owner, because neither remote blobs (F1) nor remote-node calls (F1b)

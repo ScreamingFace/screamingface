@@ -159,3 +159,13 @@ with the 2026-10-16 live evidence. Docs only.
   is refused. Caps unchanged. Conformance cases pinned. §4 `x.remote_node_unsupported` row limited to
   node contexts; the `OME-1540` `src=` and old-F3 clauses are marked superseded in F1b pending Khoa;
   the `OME-1535` body no longer says Cases travel in `RUN_SPEC`. SVG updated, PNG re-rendered.
+- **Review round 8 (2026-10-27, HupBaHa CHANGES_REQUESTED at `357ce4199`; owner decisions of
+  2026-10-27):** (1) An attachment source's `;accept=` is exactly one lower-case type from
+  `image/png|jpeg|gif|webp` or `application/pdf`. There is no wildcard and no list, because url4
+  execution values admit neither `*` nor a comma. The response type must equal it. (2) Attachment URLs
+  substituted from rows of an admitted non-model collection input (including an https JSON/NDJSON
+  collection) are allowed; any other fetched-body or model derivation is `x.source_not_static`. The
+  §4 row is aligned and positive and negative cases are added. (3) The `OME-1540` note now says the
+  ticket matches (Sergey patched it); the `OME-1543` blocked-by `OME-1538` relation was added by
+  Sergey; the `OME-1544` and `OME-1543` bodies are patched. (4) Kevin's approval is asked for rounds 7
+  and 8. SVG updated, PNG re-rendered.
