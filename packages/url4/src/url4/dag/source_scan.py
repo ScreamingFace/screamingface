@@ -27,7 +27,7 @@ from url4.core.nodes import (
     VarRef,
 )
 from url4.core.parser import split_top_level_commas
-from url4.dag.attachment_sources import AttachmentIdentity, identity_of
+from url4.dag.attachment_sources import AttachmentIdentity, identity_of, non_literal_attachment
 
 # --- collection: which file refs the run's AST names, in source order -------------------
 
@@ -103,6 +103,7 @@ class SourceScan:
     refs: tuple[FileRef, ...]
     order: tuple[str | OccurrenceSlot, ...]
     occurrences: tuple[Occurrence, ...] = ()
+    non_literal: tuple[str, ...] = ()  # owner decision C: refused, x.source_not_static
 
 
 @dataclass
@@ -110,6 +111,7 @@ class _Found:
     refs: dict[str, FileRef] = field(default_factory=dict)
     order: dict[str | OccurrenceSlot, None] = field(default_factory=dict)  # an ordered set
     occurrences: list[Occurrence] = field(default_factory=list)
+    non_literal: list[str] = field(default_factory=list)
 
 
 _Guards = tuple[CollectionGuard, ...]
@@ -122,7 +124,7 @@ def scan_sources(ast: Node) -> SourceScan:
     refs = tuple(found.refs.values())
     attached = {ref.key for ref in refs if not ref.collection}
     order = tuple(key for key in found.order if isinstance(key, OccurrenceSlot) or key in attached)
-    return SourceScan(refs, order, tuple(found.occurrences))
+    return SourceScan(refs, order, tuple(found.occurrences), tuple(found.non_literal))
 
 
 def _walk(
@@ -151,6 +153,9 @@ def _walk_source(
     in_collection = collection or node.expand
     if not in_collection and _add_attachment(node, out, guards):
         return
+    target = None if in_collection else non_literal_attachment(node)
+    if target is not None:
+        out.non_literal.append(target)
     _walk(node.value, bound, in_collection, out, guards)
 
 

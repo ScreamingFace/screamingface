@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from url4.core._annotations import checked_retries, checked_timeout
 from url4.core.errors import ErrorCode, ParseError, ResolutionError
-from url4.core.nodes import Source, Url
+from url4.core.nodes import RelUrl, Source, Url, VarRef
 
 ATTACHMENT_TYPES = frozenset(
     {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
@@ -101,6 +101,25 @@ def identity_of(node: Source) -> AttachmentIdentity | None:
     return AttachmentIdentity(node.value.value, accept, *policy)
 
 
+def non_literal_attachment(node: Source) -> str | None:
+    """The target text of a source that asks to be an attachment but is not literal, else None.
+
+    INVARIANT (owner decision C, 2026-10-27 — row-derived attachment URLs deferred): an exact
+    attachment ``;accept=`` on a variable (``src=$item;accept=image/png``) or a substituted
+    relative path (``/files/$name``) is refused with ``x.source_not_static`` before any fetch,
+    never silently read as text. v1 attachment sources have a literal URL and a literal
+    ``;accept=``. A literal absolute URL never substitutes, so it is never refused here.
+    """
+    value = node.value
+    target = None
+    if isinstance(value, VarRef):
+        target = "$" + ".".join((value.name, *map(str, value.path)))
+    elif isinstance(value, RelUrl) and "$" in value.value:
+        target = value.value
+    accept = dict(node.annotations).get("accept")
+    return target if target is not None and is_attachment_accept(accept) else None
+
+
 def classify(identity: AttachmentIdentity, content_type: str | None) -> str:
     """The attachment's bare media type, or ``unsupported_content_type`` (permanent, C8).
 
@@ -133,10 +152,12 @@ def _bare_type(content_type: str | None) -> str | None:
 
 
 def not_static(where: str) -> ResolutionError:
-    """``x.source_not_static`` (permanent): an attachment target that depends on a model."""
+    """``x.source_not_static`` (permanent): an attachment target that is not a literal URL
+    known before the first model call (a variable, or a source a model output gates)."""
     return ResolutionError(
-        f"attachment source {where} is not static: its target depends on a model output, "
-        "so it cannot be materialized before the first model call",
+        f"attachment source {where} is not static: v1 attachment sources need a literal URL "
+        "reachable without a model output, so it cannot be materialized before the first "
+        "model call",
         code=ErrorCode.SOURCE_NOT_STATIC,
         permanent=True,
     )
@@ -150,5 +171,6 @@ __all__ = [
     "guard_policy",
     "identity_of",
     "is_attachment_accept",
+    "non_literal_attachment",
     "not_static",
 ]
