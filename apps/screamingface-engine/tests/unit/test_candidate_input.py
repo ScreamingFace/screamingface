@@ -109,6 +109,61 @@ def test_v2_parses_an_mmmu_sized_case() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "data:image/png;base64,iVBORw0K\nGgo=",
+        "data:image/png;base64,iVBORw0K Ggo=",
+        "data:image/png;base64,iVBORw0KGgo",
+        "data:image/png;base64,iVBO=w0KGgo=",
+        "data:IMAGE/PNG;base64,iVBORw0KGgo=",
+        "data:image/png;charset=utf-8;base64,iVBORw0KGgo=",
+        "data:application/pdf;name=paper.pdf;base64,JVBERi0xLjQ=",
+        # WHY these two: each decodes to the same bytes as a standard spelling (iVBORw0KGgo=,
+        # AA==); they differ only in the bits base64 throws away before the padding.
+        "data:image/png;base64,iVBORw0KGgp=",
+        "data:image/png;base64,AB==",
+    ],
+    ids=[
+        "wrapped onto lines",
+        "a space inside",
+        "padding dropped",
+        "padding mid-way",
+        "upper-case type",
+        "an extra parameter",
+        "an extra parameter on a file",
+        "spare bits set before one =",
+        "spare bits set before two =",
+    ],
+)
+def test_a_media_part_in_another_spelling_is_refused(uri: str) -> None:
+    # INVARIANT: one picture has one spelling (the file-input spec's canonical encoding, #1450).
+    # The connector sends a Case's part as written and the gateway keys its cache and frozen
+    # copies on the raw body, so a picture spelled two ways would be two cache entries; the
+    # importer writes this spelling, and this check makes it hold for every Case, hand-built too.
+    part: dict[str, Any] = (
+        {"type": "file", "file": {"file_data": uri}}
+        if uri.startswith("data:application/pdf")
+        else {"type": "image_url", "image_url": {"url": uri}}
+    )
+
+    with pytest.raises(CandidateInputError, match="standard spelling") as caught:
+        parse_candidate_input(_v2(_user(_TEXT, part)))
+
+    message = str(caught.value)
+    assert "message 0 part 1" in message
+    assert "iVBOR" not in message and "JVBER" not in message
+
+
+def test_a_picture_padded_with_two_equals_signs_is_read() -> None:
+    # WHY: the spare-bits rule above must still let a standard two-= ending through.
+    part: dict[str, Any] = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AA=="}}
+
+    assert parse_candidate_input(_v2(_user(_TEXT, part))) == [
+        {"role": "user", "content": [_TEXT, part]}
+    ]
+
+
 def test_unknown_candidate_input_version_is_refused_by_name() -> None:
     text = json.dumps({"schema": "screamingface.candidate-input.v3", "messages": []})
 

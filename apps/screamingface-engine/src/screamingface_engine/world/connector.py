@@ -79,6 +79,7 @@ from screamingface_engine.world.cache_readback import (
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
+from screamingface_engine.world.fusion_context import fusion_picture_messages
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
@@ -1498,9 +1499,16 @@ def _native_messages(context: str | None) -> list[CandidateMessage] | None:
     FEATURE (OME-1678): the candidate-input envelope module owns the rules, so this connector and
     the inspect plugin read one rule. A v2 Case's pictures come back as content parts and travel
     to the gateway verbatim.
+
+    FEATURE (OME-1679): a Fusion's synthesizer context is not an envelope but holds one under
+    ``input``; on a picture Case the synthesizer gets the same pictures as the members.
     """
     try:
         messages: list[CandidateMessage] | None = parse_candidate_input(context)
+        # WHY under grading too: a Fusion context holding a picture Case must reach the refusal
+        # below, not a judge as base64 text; a text-only one still comes back None.
+        if messages is None:
+            messages = fusion_picture_messages(context)
     except CandidateInputError as exc:
         _invalid_candidate_input(str(exc))
     # INVARIANT (spec D6): a judge grades the text answer only. A picture reaching a grading call

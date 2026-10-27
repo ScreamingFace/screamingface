@@ -861,9 +861,10 @@ def _data_uri_bytes(source: object) -> tuple[str, bytes] | None:
     match: re.Match[str] | None = _DATA_URI_RE.match(source) if isinstance(source, str) else None
     if match is None:
         return None
-    # WHY strip and re-pad, as the engine's request key does (`request_identity.py`, OME-1271):
-    # line breaks and dropped `=` padding spell the same bytes, so the sha256 shown here is the
-    # one that keys the model call; strict decoding of what remains refuses anything else.
+    # WHY strip and re-pad: the engine sends only the standard spelling (`candidate_input.py`,
+    # OME-1679), which decodes as written; line breaks and dropped `=` padding spell the same
+    # bytes, so tolerating them here still gives the engine's sha256 for the same picture, and
+    # strict decoding of what remains refuses anything else.
     compact: str = "".join(match["data"].split())
     compact += "=" * (-len(compact) % 4)
     try:
