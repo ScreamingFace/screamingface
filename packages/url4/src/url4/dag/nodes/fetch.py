@@ -24,7 +24,6 @@ from url4.dag.node import (  # isort: skip
 )
 
 
-from url4.dag.nodes.web_attach import attach_web_body, cached_web_attachment  # isort: skip
 from url4.dag.nodes.web_attach import materialized_attachment  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity  # isort: skip
 from url4.dag.nodes._shared import (  # isort: skip
@@ -70,11 +69,12 @@ class WebFetchNode:
     anything else (``s3://``, …) is adapter-defined. ``accept`` carries the
     per-source ``;accept=`` annotation.
 
-    FEATURE: image and PDF inputs (``OME-1543`` U3b, spec F1b, owner decision Q-B). Inside a
-    ``run()``, an ``http(s)://`` source in scalar position whose body is not text is fetched
-    as bytes, attached to the run (:func:`~url4.dag.nodes.web_attach.attach_web_body`) and
-    read as its URL text. ``collection`` is set at lowering (D4): a collection is parsed from
-    text, so there a non-text body stays ``unsupported_content_type`` (C8).
+    FEATURE: image and PDF inputs (``OME-1543``, spec F1b). ``attachment`` is set at lowering
+    for an attachment source (an exact attachment ``;accept=``): inside a ``run()`` it reads as
+    its URL text from the frozen manifest and never fetches. Every other source — a text
+    source — fetches as text exactly as before; a non-text body is ``unsupported_content_type``
+    (C8) and is never attached (owner decision A, 2026-10-27). ``collection`` is set at
+    lowering (D4): a collection is parsed from text and never reads the manifest.
     """
 
     url: str
@@ -84,35 +84,13 @@ class WebFetchNode:
     attachment: AttachmentIdentity | None = None  # set at lowering for an attachment source
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
-        kind = _kind_of(self.url)
-        attachable = kind == "http" and not self.collection
-        known = self._already_attached(attachable)
-        if known is not None:
-            return known
-        request = FetchRequest(self.url, relative=False, kind=kind, accept=self.accept)
-        try:
-            return await _fetch(ctx, request)
-        except ResolutionError as exc:
-            # INVARIANT (Q-B): only a body the text path refused as not-text changes route;
-            # a text body, and every other failure (the x.source_* guard codes included),
-            # is exactly what it was.
-            if not attachable or exc.code != ErrorCode.UNSUPPORTED_CONTENT_TYPE:
-                raise
-            await attach_web_body(ctx, request, exc)
-            return str(self.url)
-
-    def _already_attached(self, attachable: bool) -> str | None:
-        """The URL text when the run already holds this source's attachment, else ``None``.
-
-        F1b round 7: an attachment source was materialized before the first model call and is
-        read here, never fetched (:func:`materialized_attachment`). Q-B: a text source whose
-        non-text body this run already attached is a cache hit.
-        """
         if self.attachment is not None and not self.collection:
-            return materialized_attachment(self.attachment)
-        if attachable and cached_web_attachment(self.url):
-            return str(self.url)
-        return None
+            known = materialized_attachment(self.attachment)
+            if known is not None:
+                return known
+        kind = _kind_of(self.url)
+        request = FetchRequest(self.url, relative=False, kind=kind, accept=self.accept)
+        return await _fetch(ctx, request)
 
 
 def _kind_of(url: str) -> Literal["http", "url4", "other"]:

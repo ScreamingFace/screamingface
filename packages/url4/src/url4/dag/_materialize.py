@@ -12,7 +12,10 @@ INVARIANT (order of the phase, all before the first model call):
    its normal source semantics"; execution replays the final outcome,
    :meth:`RunFiles.take_prefetched`), outer first, and an occurrence under a collection with
    zero rows (after slicing), or whose collection failed, does no I/O;
-3. one flight per identity — every reachable identity is fetched once as bytes under its own
+3. caps — the reachable REQUIRED identities are counted against the entry cap before any flight
+   (:class:`~url4.dag._caps.CapBudget`), and each flight's bytes as it lands, so a breach cancels
+   the flights still in progress (owner decision E, 2026-10-27);
+4. one flight per identity — every reachable identity is fetched once as bytes under its own
    guard policy, concurrently; a required failure fails the run, an ``;optional`` one is omitted.
 INVARIANT: an expression with no attachment source never enters this module (text sources are
 byte-identical to today).
@@ -49,14 +52,15 @@ from url4.core.nodes import (
 from url4.io.layer import FetchRequest, FetchResult, fetch_result
 
 from url4.dag.attachment import Attachment  # isort: skip
+from url4.dag._caps import MAX_ATTACHMENT_BYTES as MAX_ATTACHMENT_BYTES  # isort: skip
+from url4.dag._caps import MAX_ATTACHMENTS as MAX_ATTACHMENTS  # isort: skip
+from url4.dag._caps import CapBudget  # isort: skip
+from url4.dag._caps import check_caps as check_caps  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity, classify, guard_policy, not_static  # isort: skip
 from url4.dag.attachments import CollectionGuard, Occurrence, prefetch_key  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext, Payload, SourceFailure, gather_or_cancel  # isort: skip
 from url4.dag.nodes import GuardNode  # isort: skip
 from url4.dag.semantics.collection import parse_collection  # isort: skip
-
-MAX_ATTACHMENTS = 20
-MAX_ATTACHMENT_BYTES = 8_000_000
 
 _MODEL = "model"
 _UNKNOWN = "unknown"
@@ -78,14 +82,22 @@ class Admission:
     first_reachable: frozenset[int] = frozenset()
 
 
-async def materialize(occurrences: Sequence[Occurrence], ctx: ExecutionContext) -> Admission:
-    """Every reachable identity's outcome, the collection fetches made to decide it, and
-    the occurrence each identity's slot sits at."""
-    if not occurrences:
-        return Admission()
+def check_static(occurrences: Sequence[Occurrence]) -> None:
+    """``x.source_not_static`` for an occurrence under a model-derived collection — no I/O."""
     for identity, guards in occurrences:
         if any(_kind(guard.items, guard.bound) == _MODEL for guard in guards):
             raise not_static(repr(identity.url))
+
+
+async def materialize(
+    occurrences: Sequence[Occurrence], ctx: ExecutionContext, budget: CapBudget
+) -> Admission:
+    """Every reachable identity's outcome, the collection fetches made to decide it, and
+    the occurrence each identity's slot sits at. ``budget`` carries the caps the run already
+    charged (Case attachments, blob refs); the flights charge it too."""
+    if not occurrences:
+        return Admission()
+    check_static(occurrences)
     prefetched: Prefetched = {}
     rows: dict[int, bool] = {}
     reachable: dict[AttachmentIdentity, int] = {}
@@ -94,7 +106,8 @@ async def materialize(occurrences: Sequence[Occurrence], ctx: ExecutionContext) 
     for index, (identity, guards) in enumerate(occurrences):
         if identity not in reachable and await _all_have_rows(guards, ctx, rows, prefetched):
             reachable[identity] = index
-    flights = await gather_or_cancel(_flight(identity, ctx) for identity in reachable)
+    budget.expect(identity for identity in reachable if not identity.optional)
+    flights = await gather_or_cancel(_flight(identity, ctx, budget) for identity in reachable)
     outcomes = dict(zip(reachable, flights, strict=True))
     return Admission(outcomes, prefetched, frozenset(reachable.values()))
 
@@ -249,9 +262,13 @@ def _sliced(items: list, guard: CollectionGuard) -> bool:
 
 
 async def _flight(
-    identity: AttachmentIdentity, ctx: ExecutionContext
+    identity: AttachmentIdentity, ctx: ExecutionContext, budget: CapBudget
 ) -> Attachment | ResolutionError:
-    """One binary-safe fetch of ``identity`` under its own guard policy (F1b one flight)."""
+    """One binary-safe fetch of ``identity`` under its own guard policy (F1b one flight).
+
+    INVARIANT: the bytes are charged to ``budget`` OUTSIDE the guard — a cap breach is the
+    run's refusal, never a source failure an ``;optional`` guard could swallow or retry.
+    """
     leaf = _AttachmentFetchNode(identity)
     if not (identity.optional or identity.timeout is not None or identity.retries):
         await leaf.resolve({}, ctx)
@@ -269,6 +286,7 @@ async def _flight(
             return ResolutionError(outcome.message, code=outcome.code, permanent=True)
     if leaf.fetched is None:  # resolve returns only after it stored the attachment
         raise RuntimeError(f"attachment flight for {identity.url!r} stored nothing")
+    budget.charge(identity, len(leaf.fetched.body))
     return leaf.fetched
 
 
@@ -302,21 +320,11 @@ class _AttachmentFetchNode:
         return identity.url
 
 
-def check_caps(attachments: Sequence[Attachment]) -> None:
-    """F1b per-run caps over the WHOLE list: 20 entries, 8,000,000 decoded bytes."""
-    if len(attachments) > MAX_ATTACHMENTS:
-        raise ResolutionError(
-            f"the run has {len(attachments)} attachments; at most {MAX_ATTACHMENTS} are allowed",
-            code=ErrorCode.ATTACHMENTS_TOO_MANY,
-            permanent=True,
-        )
-    total = sum(len(attachment.body) for attachment in attachments)
-    if total > MAX_ATTACHMENT_BYTES:
-        raise ResolutionError(
-            f"the run's attachments hold {total} bytes; at most {MAX_ATTACHMENT_BYTES} are allowed",
-            code=ErrorCode.ATTACHMENTS_TOO_LARGE,
-            permanent=True,
-        )
-
-
-__all__ = ["MAX_ATTACHMENTS", "MAX_ATTACHMENT_BYTES", "Admission", "check_caps", "materialize"]
+__all__ = [
+    "MAX_ATTACHMENTS",
+    "MAX_ATTACHMENT_BYTES",
+    "Admission",
+    "check_caps",
+    "check_static",
+    "materialize",
+]

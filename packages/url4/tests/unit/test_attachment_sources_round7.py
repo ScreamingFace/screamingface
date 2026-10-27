@@ -5,11 +5,11 @@ STORY: as an ensemble author I write ``src=https://…/photo.png;accept=image/pn
 model call in the run receives that image, fetched once before any model is called; every
 other ``https://`` source stays the text source it is today.
 
-INVARIANT (F1b round 7): an ``https://`` source is an attachment source iff every range of its
-``;accept=`` is in the attachment set. Attachment sources are pre-materialized from a
-reachability-aware manifest before the first model call, one flight per identity
-``(URL, accept, ;optional, ;t=, ;retry=)``, listed in manifest preorder and frozen. Text sources
-keep today's lazy, per-occurrence semantics exactly.
+INVARIANT (F1b round 8): an ``https://`` source is an attachment source iff its ``;accept=`` is
+exactly one lower-case attachment type (round 7's range set, narrowed; see the round-8 tests).
+Attachment sources are pre-materialized from a reachability-aware manifest before the first
+model call, one flight per identity ``(URL, accept, ;optional, ;t=, ;retry=)``, listed in
+manifest preorder and frozen. Text sources keep today's lazy, per-occurrence semantics exactly.
 """
 
 from __future__ import annotations
@@ -514,18 +514,19 @@ async def test_one_byte_over_eight_million_is_refused_before_any_model_call() ->
     assert model.seen == []
 
 
-def test_image_wildcard_range_is_an_attachment_range_but_not_authorable_today() -> None:
-    # AIDEV-NOTE: F1b lists ``image/*``; the exec-value grammar (spec §4.2) refuses ``*``, so
-    # the range is honoured by classification but cannot be written yet (ledger round 7).
+def test_image_wildcard_is_not_an_attachment_type_and_not_authorable() -> None:
+    # AIDEV-NOTE (round 8): no wildcard — ``image/*`` is not an attachment type, classifies
+    # nothing, and the exec-value grammar (spec §4.2) refuses ``*`` anyway.
     from url4.core.errors import ParseError
     from url4.core.grammar import parse
     from url4.dag.attachment_sources import AttachmentIdentity, classify, is_attachment_accept
 
-    assert is_attachment_accept("image/*")
+    assert not is_attachment_accept("image/*")
     wildcard = AttachmentIdentity(IMG_URL, "image/*")
-    assert classify(wildcard, "image/webp") == "image/webp"
     with pytest.raises(ResolutionError):
-        classify(wildcard, "image/svg+xml")  # fail-closed: only the four concrete image types
+        classify(wildcard, "image/webp")
+    with pytest.raises(ResolutionError):
+        classify(wildcard, "image/svg+xml")
     with pytest.raises(ParseError):
         parse(f"(src={IMG_URL};accept=image/*)!'d'")
 
@@ -537,7 +538,8 @@ def test_accept_with_any_non_attachment_range_is_a_text_source() -> None:
     assert not is_attachment_accept("")
     assert not is_attachment_accept("image/png, text/plain")
     assert not is_attachment_accept("application/json")
-    assert is_attachment_accept("IMAGE/PNG, application/pdf")
+    assert not is_attachment_accept("IMAGE/PNG, application/pdf")  # round 8: no list, no case
+    assert is_attachment_accept("application/pdf")
 
 
 def test_new_codes_map_to_their_proposed_statuses() -> None:

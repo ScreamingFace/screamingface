@@ -1,13 +1,14 @@
 """Which ``https://`` sources are attachment sources, their identity, and their classification.
 
 FEATURE: image and PDF inputs (epic ``OME-1529``, unit ``OME-1543``; #1450 F1b "Scope of
-attachments", review round 7, owner 2026-10-27).
+attachments", review rounds 7 and 8, owner 2026-10-27).
 STORY: as an ensemble author I opt a picture in with ``src=https://…/a.png;accept=image/png``;
 an ``https://`` source without such an ``;accept=`` stays the text source it always was.
 
-INVARIANT (opt-in, no grammar change): an ``http(s)://`` source is an attachment source iff its
-``;accept=`` names only ranges from :data:`ATTACHMENT_RANGES`. No ``;accept=``, or any other
-range in it, makes it a text source with today's semantics, untouched.
+INVARIANT (opt-in, no grammar change, round 8): an ``http(s)://`` source is an attachment source
+iff its ``;accept=`` is EXACTLY one lower-case type of :data:`ATTACHMENT_TYPES` — no wildcard, no
+list, no case folding, no parameter. Any other ``;accept=``, or none, makes it a text source with
+today's semantics, untouched.
 INVARIANT (identity): ``(URL, accept, ;optional, ;t=, ;retry=)``. Equal identities share one
 flight and one attachment; any difference is a separate identity, even for equal bytes.
 
@@ -25,19 +26,14 @@ from url4.core._annotations import checked_retries, checked_timeout
 from url4.core.errors import ErrorCode, ParseError, ResolutionError
 from url4.core.nodes import Source, Url
 
-ATTACHMENT_RANGES = frozenset(
-    {"image/*", "image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
-)
-"""The ``;accept=`` ranges that opt an ``https://`` source in (F1b round 7)."""
-
 ATTACHMENT_TYPES = frozenset(
     {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
 )
-"""The response media types an attachment source may carry.
+"""The attachment types: an ``;accept=`` value that opts a source in, and the response type
+it must then carry (F1b round 8: the response's bare type EQUALS the requested one).
 
-WHY concrete types only (conservative reading, ledger round 7): F1b calls the attachment set a
-fail-closed subset of the gateway gate; ``image/*`` is a requested *range*, so it matches these
-four image types, never an arbitrary ``image/<x>`` such as ``image/svg+xml``.
+WHY a fail-closed subset of the gateway gate (any image for ``image_url``, PDF for ``file``):
+nothing outside this set can become an attachment, whatever the origin answers.
 """
 
 _WEB_SCHEMES = ("http://", "https://")
@@ -56,22 +52,10 @@ class AttachmentIdentity:
     timeout: float | None = None
     retries: int = 0
 
-    @property
-    def ranges(self) -> tuple[str, ...]:
-        return accept_ranges(self.accept)
-
-
-def accept_ranges(accept: str) -> tuple[str, ...]:
-    """The lower-cased media ranges an ``;accept=`` value names (comma-separated)."""
-    return tuple(part.strip().lower() for part in accept.split(",") if part.strip())
-
 
 def is_attachment_accept(accept: str | None) -> bool:
-    """Whether ``accept`` names at least one range and only attachment-set ranges."""
-    if accept is None:
-        return False
-    ranges = accept_ranges(accept)
-    return bool(ranges) and all(item in ATTACHMENT_RANGES for item in ranges)
+    """Whether ``accept`` is exactly one attachment type, byte for byte (F1b round 8)."""
+    return accept in ATTACHMENT_TYPES
 
 
 def guard_policy(ann: Mapping[str, str | None], node: Source) -> GuardPolicy | None:
@@ -120,14 +104,13 @@ def identity_of(node: Source) -> AttachmentIdentity | None:
 def classify(identity: AttachmentIdentity, content_type: str | None) -> str:
     """The attachment's bare media type, or ``unsupported_content_type`` (permanent, C8).
 
-    INVARIANT (no sniffing): the response's one bare media type must be an attachment type
-    AND match a requested range. A missing Content-Type, or one that is not exactly one media
-    type, is refused like a wrong one.
+    INVARIANT (no sniffing, F1b round 8): the response's one bare, lower-cased media type must
+    EQUAL the requested ``;accept=`` type (itself an attachment type). A missing Content-Type,
+    one that is not exactly one media type, or any other type is refused alike.
     """
     media_type = _bare_type(content_type)
-    if media_type is not None and media_type in ATTACHMENT_TYPES:
-        if any(_matches(media_type, item) for item in identity.ranges):
-            return media_type
+    if identity.accept in ATTACHMENT_TYPES and media_type == identity.accept:
+        return identity.accept
     raise ResolutionError(
         f"attachment source {identity.url!r} (;accept={identity.accept}) returned "
         f"Content-Type {content_type!r}, which is not an accepted attachment type",
@@ -149,12 +132,6 @@ def _bare_type(content_type: str | None) -> str | None:
     return bare or None
 
 
-def _matches(media_type: str, wanted: str) -> bool:
-    if wanted.endswith("/*"):
-        return media_type.startswith(wanted[:-1])
-    return media_type == wanted
-
-
 def not_static(where: str) -> ResolutionError:
     """``x.source_not_static`` (permanent): an attachment target that depends on a model."""
     return ResolutionError(
@@ -166,11 +143,9 @@ def not_static(where: str) -> ResolutionError:
 
 
 __all__ = [
-    "ATTACHMENT_RANGES",
     "ATTACHMENT_TYPES",
     "AttachmentIdentity",
     "GuardPolicy",
-    "accept_ranges",
     "classify",
     "guard_policy",
     "identity_of",

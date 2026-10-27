@@ -10,6 +10,18 @@
     "packages/url4/tests/unit/test_hygiene_ratchets.py": {
       "base_blob": "d34dfb6975f758403f1225dec8d1524a2203bdbf",
       "approved_blob": "c2492021ac0480af78ba3bf7da06ab9273db68ea"
+    },
+    "packages/url4/tests/unit/test_https_attachments.py": {
+      "base_blob": "6edd3152e2c5ff1f00f9126a932a96ea53a89984",
+      "approved_blob": "36b98bfd93878cf8cb4511e8b284219e75064fb9"
     }
-  }
+  },
+  "amendments": [
+    {
+      "approved_by": "sergio-bershadsky",
+      "date": "2026-10-27",
+      "reason": "spec #1450 round 7: text sources are never attached; Q-B removed",
+      "scope": "packages/url4/tests/unit/test_https_attachments.py: the module docstring and exactly test_non_text_https_body_is_attached_once_at_its_source_position, test_https_body_with_a_blob_refs_digest_is_attached_once, test_case_attachments_precede_an_https_attachment, test_guard_refusal_on_the_bytes_fetch_fails_the_run_unchanged (all params) move to an attachment source with an exact ;accept= (intent kept: once-attachment, blob-digest dedupe, Case-before-https order, guard refusal). Pinned against this branch's HEAD 37722dce5 (the file is new on this branch; it does not exist on origin/main)."
+    }
+  ]
 }

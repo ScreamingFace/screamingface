@@ -21,6 +21,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from url4.core.errors import ResolutionError
 from url4.dag.attachment import Attachment
@@ -52,47 +53,40 @@ class CachedBlob:
 
 @dataclass(frozen=True, eq=False)
 class RunFiles:
-    """One run's attachment slots plus its file cache.
+    """One run's attachment slots plus its file cache — frozen when the run starts.
 
     ``slots`` is the run-start order: Case attachments, then each source-position entry — an
-    attached blob ref's :class:`Attachment`, or the URL of an ``https://`` source (a slot that
-    holds an attachment only once that source returns a non-text body, Q-B). ``cache`` is keyed
-    by blob digest (``sha256:<hex>``) or source URL and holds the verified blob (or a text
-    body). AIDEV-NOTE: the run-start resolver fills it for blob refs; ``WebFetchNode`` adds a
-    non-text ``https://`` body (:meth:`attach_fetched`); nodes keep their own fetch on a miss.
+    attached blob ref's :class:`Attachment`, or an attachment source's identity (filled from
+    ``manifest``). ``cache`` is keyed by blob digest (``sha256:<hex>``) and holds the verified
+    blob; nodes keep their own fetch on a miss.
+
+    INVARIANT (F2 freeze, owner decision A/E 2026-10-27): nothing adds to the list after the
+    run starts — ``slots`` is a tuple and ``manifest`` a read-only view, the only two inputs of
+    :attr:`attachments`, so it is the same list for every model call and the caps checked at
+    run start (:mod:`url4.dag._caps`) hold for the whole run. ``cache`` is a read-through
+    store of verified bytes only; it never feeds the list.
     """
 
-    slots: tuple[Attachment | str | AttachmentIdentity, ...]
+    slots: tuple[Attachment | AttachmentIdentity, ...]
     cache: dict[str, CachedBlob | str] = field(default_factory=dict)
-    fetched: dict[str, Attachment] = field(default_factory=dict)
     # F1b round 7: each materialized identity's outcome (frozen before the first model call),
     # and the collection fetches the admission phase made, replayed once each by execution.
     manifest: Mapping[AttachmentIdentity, Attachment | ResolutionError] = field(
-        default_factory=dict
+        default_factory=lambda: MappingProxyType({})
     )
     prefetched: dict[tuple, list[FetchResult | Exception]] = field(default_factory=dict)
 
     @property
     def attachments(self) -> tuple[Attachment, ...]:
-        """The ordered list: filled slots in order, then unslotted https bodies; one per digest.
-
-        INVARIANT: with no ``https://`` body fetched this is exactly the run-start list.
-        AIDEV-NOTE (Q-B): an ``https://`` source is lazy, so its attachment is visible to the
-        calls that run after its fetch (every call that reads it), not to an earlier sibling.
-        """
-        slotted = {slot for slot in self.slots if isinstance(slot, str)}
-        filled = [self._filled(slot) for slot in self.slots]
-        filled += [(att.digest, att) for url, att in self.fetched.items() if url not in slotted]
+        """The ordered list: filled slots in order, one per dedup key."""
         ordered: dict[object, Attachment] = {}
-        for key, attachment in filled:
+        for key, attachment in map(self._filled, self.slots):
             if attachment is not None:
                 ordered.setdefault(key, attachment)
         return tuple(ordered.values())
 
-    def _filled(
-        self, slot: Attachment | str | AttachmentIdentity
-    ) -> tuple[object, Attachment | None]:
-        """A slot's dedup key and attachment (``None`` while empty or omitted).
+    def _filled(self, slot: Attachment | AttachmentIdentity) -> tuple[object, Attachment | None]:
+        """A slot's dedup key and attachment (``None`` when its identity was omitted).
 
         INVARIANT (F1b round 7): an attachment identity is its own key — never merged with
         another identity or a blob ref, even for equal bytes; everything else dedups by digest.
@@ -100,8 +94,7 @@ class RunFiles:
         if isinstance(slot, AttachmentIdentity):
             outcome = self.manifest.get(slot)
             return slot, outcome if isinstance(outcome, Attachment) else None
-        attachment = slot if isinstance(slot, Attachment) else self.fetched.get(slot)
-        return (None if attachment is None else attachment.digest), attachment
+        return slot.digest, slot
 
     def take_prefetched(self, request: FetchRequest) -> FetchResult | None:
         """Replay (once) a collection fetch the admission phase already made, else ``None``.
@@ -116,12 +109,6 @@ class RunFiles:
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
-
-    def attach_fetched(self, url: str, blob: CachedBlob, attachment: Attachment) -> None:
-        """Record a non-text ``https://`` body: cached by URL and digest, attached at its slot."""
-        self.cache.setdefault(url, blob)
-        self.cache.setdefault(attachment.digest, blob)
-        self.fetched.setdefault(url, attachment)
 
 
 def prefetch_key(request: FetchRequest) -> tuple:
@@ -145,7 +132,7 @@ def current_attachments() -> tuple[Attachment, ...]:
 
 @contextmanager
 def bind_run_files(
-    attachments: Sequence[Attachment | str | AttachmentIdentity],
+    attachments: Sequence[Attachment | AttachmentIdentity],
     cache: Mapping[str, CachedBlob | str] | None = None,
     *,
     manifest: Mapping[AttachmentIdentity, Attachment | ResolutionError] | None = None,
@@ -153,10 +140,9 @@ def bind_run_files(
 ) -> Iterator[RunFiles]:
     """Bind ``attachments`` (and the run's cache) for one top-level run; reset on exit.
 
-    ``attachments`` are the run's slots (:attr:`RunFiles.slots`): a ``str`` is the URL of an
-    ``https://`` source that may attach later. Nested inside a bound run, the outer
-    :class:`RunFiles` is reused verbatim: an empty ``attachments`` means "nothing to add", the
-    same tuple is accepted, anything else raises.
+    ``attachments`` are the run's slots (:attr:`RunFiles.slots`). Nested inside a bound run,
+    the outer :class:`RunFiles` is reused verbatim: an empty ``attachments`` means "nothing to
+    add", the same tuple is accepted, anything else raises.
     """
     outer = _RUN_FILES.get()
     wanted = tuple(attachments)
@@ -168,7 +154,12 @@ def bind_run_files(
             )
         yield outer
         return
-    files = RunFiles(wanted, dict(cache or {}), {}, dict(manifest or {}), dict(prefetched or {}))
+    files = RunFiles(
+        wanted,
+        dict(cache or {}),
+        MappingProxyType(dict(manifest or {})),
+        dict(prefetched or {}),
+    )
     token = _RUN_FILES.set(files)
     try:
         yield files
@@ -195,13 +186,13 @@ def attachment_slots(
     case: Sequence[Attachment],
     resolved: Mapping[str, Attachment],
     order: Sequence[str | AttachmentIdentity],
-) -> tuple[Attachment | str | AttachmentIdentity, ...]:
-    """Case attachments first, then each source-order key: a resolved ref's attachment, or
-    an ``https://`` URL left as a pending slot. Duplicates collapse in :attr:`RunFiles.attachments`.
+) -> tuple[Attachment | AttachmentIdentity, ...]:
+    """Case attachments first, then each source-order key: a resolved blob ref's attachment, or
+    an attachment source's identity. Duplicates collapse in :attr:`RunFiles.attachments`.
     """
     return (
         *case,
-        *(key if isinstance(key, AttachmentIdentity) else resolved.get(key, key) for key in order),
+        *(key if isinstance(key, AttachmentIdentity) else resolved[key] for key in order),
     )
 
 

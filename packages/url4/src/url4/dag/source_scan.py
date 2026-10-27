@@ -29,9 +29,6 @@ from url4.core.nodes import (
 from url4.core.parser import split_top_level_commas
 from url4.dag.attachment_sources import AttachmentIdentity, identity_of
 
-_WEB_SCHEMES = ("http://", "https://")
-
-
 # --- collection: which file refs the run's AST names, in source order -------------------
 
 
@@ -97,10 +94,9 @@ class OccurrenceSlot:
 class SourceScan:
     """The run's file refs, and the source-order keys of its attachment slots.
 
-    ``order`` holds, at first sight in pre-order, an attachable file ref's :attr:`FileRef.key`,
-    the URL of every ``http(s)://`` text source read in scalar position (Q-B: such a source
-    attaches only if its body turns out not to be text; collection position never attaches),
-    and an :class:`OccurrenceSlot` for EVERY attachment-source occurrence (F1b round 7).
+    ``order`` holds, at first sight in pre-order, an attachable file ref's :attr:`FileRef.key`
+    and an :class:`OccurrenceSlot` for EVERY attachment-source occurrence (F1b round 7). A text
+    source takes no slot: it is never attached (owner decision A, 2026-10-27).
     ``occurrences`` lists every attachment-source occurrence in preorder with its guards.
     """
 
@@ -113,7 +109,6 @@ class SourceScan:
 class _Found:
     refs: dict[str, FileRef] = field(default_factory=dict)
     order: dict[str | OccurrenceSlot, None] = field(default_factory=dict)  # an ordered set
-    urls: set[str] = field(default_factory=set)
     occurrences: list[Occurrence] = field(default_factory=list)
 
 
@@ -126,11 +121,7 @@ def scan_sources(ast: Node) -> SourceScan:
     _walk(ast, {}, False, found, ())
     refs = tuple(found.refs.values())
     attached = {ref.key for ref in refs if not ref.collection}
-    order = tuple(
-        key
-        for key in found.order
-        if isinstance(key, OccurrenceSlot) or key in attached or key in found.urls
-    )
+    order = tuple(key for key in found.order if isinstance(key, OccurrenceSlot) or key in attached)
     return SourceScan(refs, order, tuple(found.occurrences))
 
 
@@ -193,7 +184,7 @@ def reachable_order(
 
     INVARIANT (F1b round 7): one attachment per identity, at that identity's first occurrence
     in MANIFEST preorder — the manifest holds only reachable occurrences, so an unreachable
-    occurrence takes no slot; blob-ref and Q-B URL slots keep their source-order positions.
+    occurrence takes no slot; blob-ref slots keep their source-order positions.
     """
     placed: list[str | AttachmentIdentity] = []
     for key in order:
@@ -257,20 +248,15 @@ def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
 
 
 def _add_leaf(node: Node, collection: bool, out: _Found) -> bool:
-    """Record a file ref or an absolute URL; ``True`` when ``node`` was one (a leaf).
+    """Record a file ref; ``True`` when ``node`` was a file ref or another absolute URL (a leaf).
 
-    An ``http(s)://`` source in scalar position takes a slot (Q-B); any other URL takes none.
+    INVARIANT (owner decision A, 2026-10-27): a plain URL — a text source — takes no slot.
     """
     address = address_of(node)
     if address is not None:
         _add(out, FileRef(address, collection))
         return True
-    if not isinstance(node, Url):
-        return False
-    if not collection and node.value.startswith(_WEB_SCHEMES):
-        out.order.setdefault(node.value)
-        out.urls.add(node.value)
-    return True
+    return isinstance(node, Url)
 
 
 def _add(out: _Found, ref: FileRef) -> None:

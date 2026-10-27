@@ -133,7 +133,7 @@ def as_collection(node: DagNode) -> DagNode:
     if isinstance(node, BlobRefNode):
         node.collection = True
     elif isinstance(node, WebFetchNode):
-        node.collection = True  # U3b: a non-text https body here stays C8, never attached
+        node.collection = True  # a collection is parsed from text: never the attachment manifest
     return node
 
 

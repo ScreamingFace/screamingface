@@ -1,14 +1,14 @@
-"""``https://`` sources whose body is not text become run attachments (U3b, spec F1b).
+"""``https://`` attachment sources become run attachments; text sources never do (U3b, F1b).
 
 FEATURE: image and PDF inputs (epic ``OME-1529``, unit ``OME-1543`` sub-issue A; plan
-``docs/plan/2026-10-21-OME-1543-file-refs-carry-plan.md`` §2.7 / U3b, owner decision Q-B
-2026-10-22).
-STORY: as an ensemble author I write ``img:src=https://…/photo.png`` and every model call that
-reads that source receives the image as an attachment, while the payload carries the URL text.
+``docs/plan/2026-10-21-OME-1543-file-refs-carry-plan.md`` §2.7 / U3b; #1450 F1b rounds 7–8).
+STORY: as an ensemble author I write ``img:src=https://…/photo.png;accept=image/png`` and every
+model call receives the image as an attachment, while the payload carries the URL text.
 
-INVARIANT (Q-B): ``https://`` sources stay lazy, as today; a text body is unchanged, never
-attached, and exempt from D5. A non-text body is sha256-hashed into the run's file cache and
-added to ``attachments[]`` at its source position, once per digest (blob refs included).
+INVARIANT (owner decision A, 2026-10-27 — Q-B dropped): only an attachment source (``;accept=``
+exactly one attachment type) is attached: fetched once as bytes before the first model call,
+sha256-hashed, listed at its identity's first occurrence. A text source stays lazy, as today; a
+text body is unchanged, never attached, and exempt from D5; a non-text body is never attached.
 """
 
 from __future__ import annotations
@@ -92,14 +92,17 @@ class _Model:
 @pytest.mark.asyncio
 async def test_non_text_https_body_is_attached_once_at_its_source_position() -> None:
     io, model = _Web(), _Model()
-    text = f"(img:src={IMG_URL}, src=/blob/sha256/{PDF_HEX}, again:src={IMG_URL})!'d'"
+    text = (
+        f"(img:src={IMG_URL};accept=image/png, src=/blob/sha256/{PDF_HEX},"
+        f" again:src={IMG_URL};accept=image/png)!'d'"
+    )
     assert await run(text, io, process=model) == "ok"
     # WHY (IMG, DOC): the https source comes first in the source list, so it is first.
     assert model.seen == [(IMG, DOC)]
     assert model.seen[0][0].body == PNG
     assert IMG_URL in model.payloads[0]
     assert PNG.decode("latin-1") not in model.payloads[0]
-    # The second read of the same URL is a run-cache hit: its bytes are fetched once.
+    # The second occurrence of the same identity shares the one flight: fetched once.
     assert io.byte_targets.count(IMG_URL) == 1
 
 
@@ -117,15 +120,20 @@ async def test_text_https_body_is_not_attached_and_payload_is_unchanged() -> Non
 @pytest.mark.asyncio
 async def test_https_body_with_a_blob_refs_digest_is_attached_once() -> None:
     model = _Model()
-    text = f"(src=/blob/sha256/{PNG_HEX}, src={IMG_URL}, src={TWIN_URL})!'d'"
+    text = (
+        f"(src=/blob/sha256/{PNG_HEX}, src=/blob/sha256/{PNG_HEX},"
+        f" src={IMG_URL};accept=image/png, src={IMG_URL};accept=image/png)!'d'"
+    )
     await run(text, _Web(), process=model)
-    assert model.seen == [(IMG,)]
+    # Blob refs dedupe by digest and equal identities share one attachment; a blob ref and an
+    # attachment identity are never merged, even for equal bytes (F1b round 7).
+    assert model.seen == [(IMG, IMG)]
 
 
 @pytest.mark.asyncio
 async def test_case_attachments_precede_an_https_attachment() -> None:
     model = _Model()
-    await run(f"(src={IMG_URL})!'d'", _Web(), process=model, attachments=[DOC])
+    await run(f"(src={IMG_URL};accept=image/png)!'d'", _Web(), process=model, attachments=[DOC])
     assert model.seen == [(DOC, IMG)]
 
 
@@ -134,7 +142,9 @@ async def test_case_attachments_precede_an_https_attachment() -> None:
 async def test_guard_refusal_on_the_bytes_fetch_fails_the_run_unchanged(code: ErrorCode) -> None:
     model = _Model()
     with pytest.raises(ResolutionError) as caught:
-        await run(f"(src={IMG_URL})!'d'", _Web(refuse={IMG_URL: code}), process=model)
+        await run(
+            f"(src={IMG_URL};accept=image/png)!'d'", _Web(refuse={IMG_URL: code}), process=model
+        )
     assert caught.value.code == code
     assert model.seen == []
 
