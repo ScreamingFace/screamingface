@@ -3,7 +3,7 @@ ticket: OME-1718, OME-1719, OME-1720
 stack: url4
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-26
-finished: 2026-10-26
+finished: 2026-10-27
 ---
 
 # url4-guard-followups — address fallback, bounded host pools, deadline through decoding
@@ -95,3 +95,47 @@ body processing with cooperative checkpoints.
   exception note on the final error (address and class name only; the mapping is unchanged).
   (3) The per-step `asyncio.sleep(0)` was unpinned: a cancellation test now fails if it is
   removed (checked by mutation). 4 tests added (36 new in all); gates green.
+
+## Review round 2 (PR #1555: HupBaHa CHANGES_REQUESTED 2026-10-27, IonesioJunior inline x3) — planned
+
+- H1: `fetch()`/`fetch_ex()` decoded `response.text` after the last `past(deadline)` check, so a
+  slow charset decode could succeed late. Plan: decode inside `_get` and re-check the absolute
+  deadline after text conversion (both public paths); regression with a registered slow codec
+  advancing the fake clock.
+- H2 + Ionesio :147: `HostPools.aclose()` — one shielded `gather(..., return_exceptions=True)`
+  over every tracked close; a cancelled shutdown abandons nothing (a later `aclose()` finishes
+  them); failures logged and re-raised as one `ExceptionGroup` after all complete.
+- Ionesio :121/:108: the request path only STARTS a close (`_release`/`_evict` never await it);
+  `_start_close` adds a done-callback that logs (and so retrieves) a close error. A close error
+  can no longer fail or replace an unrelated request's result/exception, and a victim's close
+  no longer costs the evicting fetch's deadline.
+- Ionesio :164: the non-async-stream `TypeError` path closes the stream (sync `close()`) first.
+
+### Review round 2 — outcome
+
+- **Commits:** `9f711ac51` (H1: text decoded inside `_get`, deadline re-checked after it, both
+  `fetch`/`fetch_ex`); `2d78702aa` (H2 + Ionesio :108/:121/:147: the request path only starts a
+  close, a done-callback logs and retrieves close errors, `aclose()` drains through one shielded
+  `gather(return_exceptions=True)` and re-raises failures as one `ExceptionGroup`);
+  `e6afa79f8` (Ionesio :164: `_async_or_close` closes a sync stream before the `TypeError`).
+- **Tests:** +2 in `test_source_guard_deadline.py` (slow registered charset on the fake clock,
+  `fetch` and `fetch_ex`); new `test_source_guard_pool_closes.py` (7: failing close of an evicted
+  busy pool / of an idle victim never fails a request; drop-path close failure logged, not
+  "never retrieved"; cancelled shutdown then retry completes all closes; mixed failed + slow
+  closes all complete and report as a group; a failing close never replaces the request's own
+  `ReadError`; a non-async body is closed before the refusal). Every new test was RED against
+  the previous code. No `sleep(` added (hygiene ratchet).
+- **Deviation — this branch's own tests changed (none on origin/main):** in
+  `test_source_guard_pools.py`, three tests now `await _settled(...)` before asserting a pool
+  closed (a release no longer waits for the close), and
+  `test_an_acquire_cancelled_during_a_victim_close_leaks_nothing` became
+  `test_an_acquire_never_waits_for_a_victims_close` — its premise (an acquire awaiting the
+  victim's close) is exactly what the review removed; its leak/phantom-count assertions are
+  kept. Because of this, commit `2d78702aa` was gated with
+  `run_gates.py url4 --base <merge-base with origin/main>` (the files are Added vs main);
+  `--skip-append-only` was never used, and the plain `run_gates.py url4` is green at HEAD.
+- **Behaviour note:** shutdown (`GuardedTransport.aclose` → `HttpIOLayer.aclose`) now raises an
+  `ExceptionGroup` of pool-close failures after every close ends (previously the first
+  `OSError`, fail-fast); close failures outside shutdown are only logged
+  (`url4.io._host_pools`, WARNING).
+- **Gates:** `run_gates.py url4` all green (2110 passed, 17 xfailed).
