@@ -155,7 +155,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             attempts = [request]
         else:
             attempts = await self._pinned(request, state, previous)
-        lease = await self._pools.acquire(url.host)
+        lease = await self._acquire(url.host, state.deadline)
         try:
             response = await _first_connected(lease.transport, attempts)
             stream = _async_or_close(response.stream)
@@ -177,6 +177,17 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             ),
             extensions=response.extensions,
         )
+
+    async def _acquire(self, host: str, deadline: float | None) -> Lease:
+        # INVARIANT (review 3): waiting for a pool-close slot is bounded by the fetch deadline.
+        try:
+            return await self._pools.acquire(
+                host, timeout=None if deadline is None else deadline - _now()
+            )
+        except TimeoutError as exc:
+            raise source_timeout(
+                "waiting for a per-host pool to close passed the total deadline"
+            ) from exc
 
     async def _pinned(
         self, request: httpx.Request, state: FetchState, previous: str | None
