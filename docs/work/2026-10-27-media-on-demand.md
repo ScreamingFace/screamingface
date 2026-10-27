@@ -16,7 +16,8 @@ engine process can't read the Benchmark files (they ship only in the Runner imag
 already serves the result store at `GET /artifacts/{id}`, and that store names every item by the
 sha256 of its bytes: the same value the placeholder carries. So when a run finishes, the Runner
 parks each distinct picture and file in that store; the SDK fetches one by its placeholder's
-sha256 and checks the bytes, and the report browser gives each a button. Items expire with the
+sha256 and checks the bytes, and the report browser puts its button on its placeholder line in
+the Case card. Items expire with the
 store's own rule: 48 hours on the filesystem store (`artifact_ttl_s`, restarted each time a run
 parks the same bytes again), and the bucket's lifecycle rule on S3, which the engine does not set.
 Design agreed with the owner on 2026-10-27.
@@ -35,7 +36,7 @@ Design agreed with the owner on 2026-10-27.
 - Tests: `tests/unit/test_media_parking.py` (new).
 - SDK (`packages/screamingface`): `media.py` (new: `CaseMedia`, `FetchedMedia`, `case_media`),
   `_engine/media.py` (new: the checked fetch), `_ui/media_panel.py` (new: Show picture / Save
-  file), `CaseResult.media`, `Client.fetch_media`, `sf.fetch_media`, `MediaUnavailableError`,
+  file, in place in the Case card), `CaseResult.media`, `Client.fetch_media`, `sf.fetch_media`, `MediaUnavailableError`,
   the report browser hook, the surface snapshot and the changelog; `tests/test_case_media.py`.
 
 ## Test plan
@@ -50,8 +51,8 @@ Design agreed with the owner on 2026-10-27.
 - SDK: a Case lists its pictures and files from the engine's echo (and from an older inline
   `data:` URI); a fetch returns the bytes only when size and sha256 match; 404 is
   `media_not_kept`; a malformed sha256 is refused before any request; a picture shows inline and
-  a file saves under its own name; the browser lists the focused Case's media, with a button per
-  kind, and shows the reason when a fetch fails.
+  a file saves under its own name; in the browser each placeholder line gets its button, a
+  picture is fetched only on its click and drawn in place, and a failed fetch shows the reason.
 
 ## Acceptance
 
@@ -73,5 +74,14 @@ Design agreed with the owner on 2026-10-27.
   test fails without its hook. ruff, ruff format, pyright clean on touched files; layering OK.
 - **Deviations:** the Python entry point is `sf.fetch_media(item)` / `Client.fetch_media(item)`,
   not `report.fetch_media`: a fetch needs only the sha256, so the Report adds nothing.
-  `report_browser.py` is 454 lines (was 445). Owner check left: a local-stack picture run, then
-  Show picture on a FigQA Case.
+  `report_browser.py` is 452 lines (was 445).
+- **After the owner's local run (2026-10-27):** FigQA and TableQA ran end to end on the local stack
+  (3 Cases each, a single model and a two-member Fusion): every Case scored, no `base64,` in any
+  result, and all 8 pictures parked under their placeholder's sha256. Clicking Show picture
+  worked (two `GET /artifacts/<sha256>` 200s in the engine log). The owner asked for the button
+  on the picture's own line instead of a row under the Case, so `media_panel.py` now marks each
+  placeholder line in the card and draws the picture in place; a picture whose line the card's
+  10,000-character clip cuts off gets its button at the top of the question. That rewrite found
+  a bug: Save file wrote the file as the browser's not-yet-created folder; it now writes to the
+  full path. Gates: the six browser, media, navigation, Colab and pagination test files, 77
+  passed; ruff, ruff format, pyright clean. Owner check left: the dev notebook run.

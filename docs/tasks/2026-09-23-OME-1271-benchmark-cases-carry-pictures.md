@@ -25,11 +25,11 @@ HLE, MathVista and others) could not be imported. A picture now travels inline i
   ([#1559](https://github.com/ScreamingFace/screamingface/pull/1559)).
 - PR 5, a researcher opens a picture or file from its Case Result: the run parks each one in the
   engine's result store under its sha256 (until the store expires it), and the SDK fetches and
-  checks it, with
-  Show picture and Save file buttons in the report browser.
+  checks it, with a
+  Show picture or Save file button on each placeholder line in the report browser.
 
-Owner checks left: a local-stack FigQA run, then Show picture on a Case; then the dev notebook
-run once the stack is deployed.
+Local-stack FigQA and TableQA run and Show picture checked by the owner on 2026-10-27. Owner check
+left: the dev notebook run once the stack is deployed.
 
 Ledgers: `docs/work/2026-10-23-one-envelope-reader.md`,
 `docs/work/2026-10-26-importer-saves-pictures.md`,

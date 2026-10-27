@@ -10,8 +10,10 @@ figure the model saw, or a plain reason why I can't.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -237,53 +239,126 @@ def _fetch_from(store: dict[str, bytes]) -> Callable[[CaseMedia], FetchedMedia]:
     return fetch
 
 
-def test_a_picture_gets_show_picture_and_a_file_gets_save_file(tmp_path: Path) -> None:
-    import ipywidgets as widgets
+def _browser(case_input: str, tmp_path: Path, monkeypatch) -> Any:
+    """A live report browser over one Case whose input is ``case_input``."""
 
-    from screamingface._ui.media_panel import MediaPanel
-
-    panel = MediaPanel(
-        widgets,
-        folder=tmp_path,
-        fetch=_fetch_from({_PNG_SHA256: _PNG_BYTES, _PDF_SHA256: _PDF_BYTES}),
-    )
-    both: dict[str, Any] = json.loads(_ENGINE_ECHO)
-    both["messages"][0]["content"].extend(json.loads(_ENGINE_FILE_ECHO)["messages"][0]["content"])
-    panel.show(_case(json.dumps(both)))
-    show_picture, save_file = (row.children[0] for row in panel.rows.children)
-
-    assert (show_picture.description, save_file.description) == ("Show picture", "Save file")
-    show_picture.click()
-    assert panel.picture.children[0].value == _PNG_BYTES
-    save_file.click()
-    assert (tmp_path / "methods.pdf").read_bytes() == _PDF_BYTES
-    assert str((tmp_path / "methods.pdf").resolve()) in panel.notice.value
-
-
-def test_a_picture_the_engine_no_longer_holds_shows_the_reason(tmp_path: Path) -> None:
-    import ipywidgets as widgets
-
-    from screamingface._ui.media_panel import MediaPanel
-
-    panel = MediaPanel(widgets, folder=tmp_path, fetch=_fetch_from({}))
-    panel.show(_case(_ENGINE_ECHO))
-    panel.rows.children[0].children[0].click()
-
-    assert "no longer holds it" in panel.notice.value
-    assert panel.picture.children == ()
-    assert not panel.rows.children[0].children[0].disabled
-
-
-def test_the_report_browser_lists_the_focused_cases_media(tmp_path: Path, monkeypatch) -> None:
     from screamingface._ui.report_browser import ReportBrowser
 
     monkeypatch.chdir(tmp_path)
     source = large_report(1)
     owner = replace(
         source.candidates[0],
-        cases=tuple(replace(case, input=_ENGINE_ECHO) for case in source.candidates[0].cases),
+        cases=tuple(replace(case, input=case_input) for case in source.candidates[0].cases),
     )
-    browser = ReportBrowser(sf.Report(benchmark=source.benchmark, case_count=1, candidates=[owner]))
+    return ReportBrowser(sf.Report(benchmark=source.benchmark, case_count=1, candidates=[owner]))
 
-    assert [row.children[0].description for row in browser.media.rows.children] == ["Show picture"]
-    assert browser.media.widget in browser.case_box.children
+
+def _click(browser: Any, label: str) -> None:
+    """Click the first in-place button named ``label``, the way ipyevents reports it: by id."""
+
+    found = re.search(rf"id='(sf-media-[0-9a-f]+)'[^>]*>[^<]*{label}</button>", browser.cases.value)
+    assert found, f"no {label} button in the page"
+    browser._select_case({"target": {"id": found.group(1)}})
+
+
+def test_show_picture_draws_the_picture_in_place_of_its_line(tmp_path: Path, monkeypatch) -> None:
+    # WHY in place: the researcher reads the question and its picture together, so the button
+    # sits on the placeholder line inside the Case card, and the picture replaces the button.
+    fetched: list[CaseMedia] = []
+
+    def fetch(media: CaseMedia) -> FetchedMedia:
+        fetched.append(media)
+        return _fetch_from({_PNG_SHA256: _PNG_BYTES})(media)
+
+    monkeypatch.setattr("screamingface._default_client.fetch_media", fetch)
+    browser = _browser(_ENGINE_ECHO, tmp_path, monkeypatch)
+    question: str = browser.cases.value.split("<div class='sf-pane__q'>", 1)[1].split("</div>")[0]
+
+    assert re.search(r">🖼 Show picture</button> image/png · 8 B · sha256 4c4b6a3b", question)
+    # WHY: pictures are fetched one at a time, on request; a page of Cases downloads none.
+    assert fetched == [] and "sf-media-img" not in browser.cases.value
+    _click(browser, "Show picture")
+
+    drawn: str = base64.b64encode(_PNG_BYTES).decode("ascii")
+    assert fetched == [_PICTURE]
+    assert f"<img class='sf-media-img' src='data:image/png;base64,{drawn}'" in browser.cases.value
+    assert "Show picture" not in browser.cases.value
+
+
+def _picture_after(text: str) -> str:
+    """A Case whose message is ``text`` first and the picture after it, as MMMU's often are."""
+
+    return json.dumps(
+        {
+            "schema": "screamingface.candidate-input.v2",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text},
+                        {"type": "image_url", "image_url": {"url": _PNG_PLACEHOLDER}},
+                    ],
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "button_first"),
+    [
+        ("Which graph matches the table? <image 1>", False),
+        # WHY 12,000: past the card's 10,000-character clip, so the picture's own line is cut.
+        ("x" * 12_000, True),
+    ],
+    ids=["after-the-text", "line-cut-off"],
+)
+def test_a_picture_after_the_text_keeps_a_button(
+    text: str, button_first: bool, tmp_path: Path, monkeypatch
+) -> None:
+    # WHY: LAB-Bench puts the picture first, but MMMU and HLE put it after the question; the
+    # button follows the picture, and one whose line the card cut off moves to the top.
+    browser = _browser(_picture_after(text), tmp_path, monkeypatch)
+    question: str = browser.cases.value.split("<div class='sf-pane__q'>", 1)[1]
+    button: int = question.find("Show picture</button>")
+
+    assert button >= 0
+    assert (button < question.find(text[:40])) is button_first
+
+
+def test_save_file_writes_the_file_and_says_where(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "screamingface._default_client.fetch_media", _fetch_from({_PDF_SHA256: _PDF_BYTES})
+    )
+    browser = _browser(_ENGINE_FILE_ECHO, tmp_path, monkeypatch)
+    _click(browser, "Save file")
+
+    saved: Path = (browser.directory / "methods.pdf").resolve()
+    assert saved.read_bytes() == _PDF_BYTES
+    assert str(saved) in browser.media.notice.value
+    assert browser.media.notice in browser.case_box.children
+
+
+def test_a_picture_the_engine_no_longer_holds_shows_the_reason(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr("screamingface._default_client.fetch_media", _fetch_from({}))
+    browser = _browser(_ENGINE_ECHO, tmp_path, monkeypatch)
+    _click(browser, "Show picture")
+
+    assert "no longer holds it" in browser.media.notice.value
+    assert "sf-media-img" not in browser.cases.value
+    assert "Show picture</button>" in browser.cases.value  # still there, to try again
+
+
+def test_a_static_report_shows_the_placeholder_without_a_button() -> None:
+    # WHY: a static report has no kernel to answer a click, so a button there would do nothing.
+    from screamingface._ui.report_view import cases_page_html
+
+    report = sf.Report(
+        benchmark=large_report(1).benchmark,
+        case_count=1,
+        candidates=[replace(large_report(1).candidates[0], cases=(_case(_ENGINE_ECHO),))],
+    )
+    page: str = cases_page_html(report, [(report.candidates[0], report.candidates[0].cases[0])])
+
+    assert "image/png · 8 B · sha256 4c4b6a3b" in page
+    assert "<button" not in page
