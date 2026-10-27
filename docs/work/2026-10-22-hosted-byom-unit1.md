@@ -118,10 +118,14 @@ Owner decisions (2026-10-22):
   - `d9ae79613` fix(aigateway): share no cookie and close every endpoint client at shutdown
   - `202f40ba6` fix(aigateway): list only registered providers the caller may see
   - `d0c7545e2` fix(aigateway): close every endpoint client even when shutdown is cancelled
+  - `61fbae090` fix(aigateway): report the remote endpoint cache revision in every export
 - **Gates:** `run_gates.py aigateway --base 482460344` after the rebase: ruff check, ruff format,
   pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
   all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `d0c7545e2` the
-  full run is green again with 7359 and 437. With
+  full run is green again with 7359 and 437, and after `61fbae090` with 7363 and 441. The
+  first run for `61fbae090` failed once on the login timing test
+  `test_unknown_user_timing_close_to_wrong_password`, which compares bcrypt medians by wall
+  clock and lies outside this branch; it passed three times alone and in the full rerun. With
   `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
   the five approved test transitions. Earlier runs against `fade16614` were green at each part
   (6912 and 426 tests) and after the first review fixes (6920 and 433).
@@ -167,6 +171,31 @@ Owner decisions (2026-10-22):
     asyncio never prints its text. Two new tests failed before the change.
   - Fixed in `d0c7545e2`: a new availability test traps the hidden pair's Connection read; it
     fails when the skip is moved below that read, which the earlier test missed.
+- **Third review (2026-10-27),** an external review of `c14b811a2`: one finding, fixed in
+  `61fbae090`.
+  - The endpoint's adapter revision was part of every cache key but was never registered, so
+    the community pages, the snapshot manifests and the importer's comparison never named it.
+    Rows keyed under another revision of this adapter would load cleanly and never hit; no wrong
+    hit was possible, as the revision is in the hash. The module now registers one revision for
+    every configured endpoint, `remote_endpoint_adapter`, as the OpenRouter adapter does. Four
+    new tests failed before the change: the gateway reports the revision its keys embed, a cache
+    page holding an endpoint row names it, a snapshot manifest names it, and a page keyed under
+    another revision is refused.
+  - Rollout: a snapshot import compares only the names its manifest declares. A manifest from a
+    gateway without this change still loads; a new manifest sent to an older gateway is refused
+    with `revision_mismatch` unless forced, so the importing gateway upgrades first.
+  - Only composition imports the module; the bundled plugin loader does not. The SDK's local
+    pull check builds its revision set from that loader alone, so it neither requires nor checks
+    this name: a pull from an older hosted gateway is not refused, and a change of this revision
+    is not caught on pull. The SDK comment that every hosted row is an OpenRouter row is now out
+    of date. Both belong to the SDK package and are left for a separate unit.
+  - Already on main and out of scope: the Anthropic, Hugging Face and OpenAI adapters also put
+    a revision into their keys without registering it.
+  - Open, awaiting the owner: this review calls cache metadata public by accepted decision. The
+    hosted BYOM design leaves metadata visibility to the endpoint access policy and keeps it
+    apart from the shared replay of results, so the second review's "match the governing
+    decisions" holds for the cache hit but is not settled for the listing. The comment cleanup
+    waits on that choice.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
