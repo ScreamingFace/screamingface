@@ -8,9 +8,9 @@ this closed node set has an open operation set, while the DAG in
 :mod:`url4.dag` flips the axis — open node set, one fixed operation
 (``resolve``) — because execution is the layer that must accept custom nodes.
 
-This module is a leaf in the import graph — it imports nothing internal — so
-consumers that only need the type names don't pull in the parser or the
-execution machinery.
+This module is a leaf in the import graph — it imports only the stdlib-only
+:mod:`url4.core._directives` — so consumers that only need the type names don't
+pull in the parser or the execution machinery.
 
 Node set
 --------
@@ -19,6 +19,7 @@ Node set
 - :class:`Url`          — an absolute ``scheme://…`` reference (any scheme,
   including a bare ``url4://`` remote reference, spec §5.2 rules 3.3/5).
 - :class:`RelUrl`       — a ``/path`` data reference relative to the current node.
+- :class:`BlobRef`      — a bare ``<namespace>:<algorithm>/<digest>`` content identifier.
 - :class:`Binding`      — ``name=value`` / ``name:value`` (name-only descriptor).
 - :class:`RelExpr`      — ``/path?params&q=(context)!intent`` relative expression.
 - :class:`RemoteExpr`   — ``url4://node/path?params&q=(context)!intent``.
@@ -48,12 +49,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-# The closed set of per-row failure policies (§5.3.6). The surface validator
-# (core._annotations) derives its accepted set from this Literal, so the wire
-# grammar, the Python builders, and MapNode's dispatch cannot drift apart — and
-# an unknown policy is unrepresentable on the dataclass rather than caught (or
-# missed) by an == chain at resolve time.
-OnErrorPolicy = Literal["skip", "fail", "collect"]
+from url4.core._directives import ForeachDirectives, IterationDirectives, OnErrorPolicy
 
 Params = tuple[tuple[str, str | None], ...]
 """Ordered ``key → value`` protocol parameters; a valueless flag carries None."""
@@ -88,6 +84,20 @@ class Url:
 @dataclass(frozen=True)
 class RelUrl:
     """A ``/path`` data reference resolved relative to the current node."""
+
+    value: str
+
+
+@dataclass(frozen=True)
+class BlobRef:
+    """A bare content identifier ``<namespace>:<algorithm>/<digest>`` (§5.2 rule 10, §5.4.4).
+
+    An identifier, never text, whatever its namespace: an unsupported one is refused as
+    ``unsupported_mode`` at resolution.
+
+    FEATURE: file refs (``OME-1539``). Distinct from the quoted ``'blob:…'``, which
+    stays :class:`Text` (C4); resolved from the evaluating node's own store (C3).
+    """
 
     value: str
 
@@ -203,25 +213,6 @@ class Source:
 
 
 @dataclass(frozen=True)
-class IterationDirectives:
-    """Execution annotations for collection iteration (``;iteration.*``, §5.3.6).
-
-    Pure data, so it lives here with the AST rather than in the parser — an
-    :class:`Iteration` embeds it, and the parser imports it back. ``slice`` is
-    the half-open ``[start, end)`` element range.
-    """
-
-    concurrency: int | None = None
-    on_error: OnErrorPolicy = "collect"
-    slice: tuple[int, int] | None = None
-    fmt_result: str | None = None
-
-
-# The pre-0.2 directive name; importable for one more minor version.
-ForeachDirectives = IterationDirectives
-
-
-@dataclass(frozen=True)
 class Iteration:
     """``src*(body)`` — evaluate ``body`` once per item of a fetched collection.
 
@@ -277,6 +268,7 @@ Node = (
     | NamedJob
     | Url
     | RelUrl
+    | BlobRef
     | Binding
     | RelExpr
     | RemoteExpr
@@ -323,6 +315,7 @@ def walk(node: Node):
 
 __all__ = [
     "Binding",
+    "BlobRef",
     "Expression",
     "ForeachDirectives",
     "IdentityRef",
@@ -330,6 +323,7 @@ __all__ = [
     "IterationDirectives",
     "NamedJob",
     "Node",
+    "OnErrorPolicy",
     "Params",
     "RelExpr",
     "RelUrl",

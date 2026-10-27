@@ -141,6 +141,8 @@ _DECLARED: dict[str, Callable[[str], list[str]]] = {
     "text/tab-separated-values": _declared_tsv,
     "text/plain": lambda body: _lines(body),
 }
+# The media types a collection parses by declaration — the text a collection can be (C8).
+DECLARED_MEDIA_TYPES = frozenset(_DECLARED)
 
 
 def _lines(body: str) -> list[str]:
@@ -235,4 +237,4 @@ def _item_to_str(item: object) -> str:
     return item if isinstance(item, str) else json.dumps(item)
 
 
-__all__ = ["parse_collection"]
+__all__ = ["DECLARED_MEDIA_TYPES", "parse_collection"]

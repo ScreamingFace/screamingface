@@ -16,7 +16,7 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.io._guarded_transport import (
     FETCH_STATE,
     FetchState,
@@ -152,12 +152,14 @@ class HttpIOLayer:
         """``GET`` the target and return its body exactly as received, plus its media type.
 
         Goes through :meth:`_get`, so the destination guard, the size cap and the deadline apply.
+        A 404 / 410 is ``source_not_found`` (C5).
         """
         response, body = await self._get(
             self._transport_url(request.target, request.relative),
             relative=request.relative,
             accept=request.accept,
             read=_raw_body,
+            typed=True,
         )
         return FetchedBytes(body, media_type=_media_type(request.target, response))
 
@@ -172,6 +174,7 @@ class HttpIOLayer:
         relative: bool,
         read: Callable[[httpx.Response], T],
         accept: str | None = None,
+        typed: bool = False,
     ) -> tuple[httpx.Response, T]:
         """The response and ``read(response)``, both produced within the fetch's deadline.
 
@@ -197,7 +200,12 @@ class HttpIOLayer:
         try:
             async with asyncio.timeout(total):
                 response = await self._send(
-                    url, headers or None, peer=peer, relative=relative, deadline=deadline
+                    url,
+                    headers or None,
+                    peer=peer,
+                    relative=relative,
+                    deadline=deadline,
+                    typed=typed,
                 )
         except TimeoutError as exc:
             raise source_timeout(late) from exc
@@ -219,6 +227,7 @@ class HttpIOLayer:
         peer: bool,
         relative: bool,
         deadline: float | None,
+        typed: bool = False,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -242,6 +251,10 @@ class HttpIOLayer:
         except httpx.HTTPStatusError as exc:
             raise ResolutionError(
                 f"GET {url!r} failed: {exc}",
+                # WHY typed only on the bytes path: a 404's code on every other URI stays as it was.
+                code=ErrorCode.SOURCE_NOT_FOUND
+                if typed and exc.response.status_code in (404, 410)
+                else None,
                 permanent=_permanent_status(exc.response),
                 retry_after=_retry_after(exc.response),
             ) from exc

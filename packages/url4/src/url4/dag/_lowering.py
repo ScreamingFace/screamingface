@@ -35,12 +35,14 @@ from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import partial
 
+from url4.core.blob_ref import address_of, token_address
 from url4.core.descriptor_head import deferrable_group, is_processed_group
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.intent import code_pointer_of
 from url4.core.nodes import (
     Binding,
+    BlobRef,
     Expression,
     IdentityRef,
     Iteration,
@@ -83,6 +85,7 @@ from url4.dag._wiring import (  # isort: skip
     _slot_specs,
 )
 from url4.dag.node import DagNode, node_children  # isort: skip
+from url4.dag.nodes.blob import BlobRefNode, as_collection  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BindingNode,
     CollectNode,
@@ -132,15 +135,24 @@ def _lower_text(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode
 
 def _lower_url(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, Url)
-    return WebFetchNode(node.value)
+    address = address_of(node)  # url4://<node>/blob/sha256/<hex> is a file ref (C2)
+    return WebFetchNode(node.value) if address is None else BlobRefNode(address)
 
 
 def _lower_relurl(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, RelUrl)
+    if (address := address_of(node)) is not None:  # /blob/sha256/<hex>: a file ref (C1)
+        return BlobRefNode(address)
     # WHY: a bare relative URI may embed dot-path refs (/data/$topic, spec §8.2.3),
     # so its sibling-binding edges must reach the node's scope frame — the same
     # deps every other substituting leaf (_lower_text/_lower_struct) carries.
     return RelUrlNode(node.value, deps=dict(edges))
+
+
+def _lower_blob_ref(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
+    if not isinstance(node, BlobRef):
+        raise TypeError(f"expected a BlobRef, got {type(node).__name__}")
+    return BlobRefNode(token_address(node.value))  # C3, or C5 when no store can hold it
 
 
 def _lower_binding(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
@@ -362,7 +374,7 @@ def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     if isinstance(node, Expression) and node.intent is None and not node.broadcast:
         slots = [_slot_from_ast(source, registry) for source in node.sources]
         return _inline_collection(slots)
-    return registry.lower(node, edges)
+    return as_collection(registry.lower(node, edges))  # a blob ref here is text (D4)
 
 
 def default_registry() -> LoweringRegistry:
@@ -372,6 +384,7 @@ def default_registry() -> LoweringRegistry:
             Text: _lower_text,
             Url: _lower_url,
             RelUrl: _lower_relurl,
+            BlobRef: _lower_blob_ref,
             Binding: _lower_binding,
             RelExpr: _lower_rel_expr,
             RemoteExpr: _lower_remote_expr,
@@ -457,7 +470,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
     return (
         LazyExprNode(collection)
         if is_processed_group(collection)
-        else registry.lower(grammar_parse(collection), {})
+        else as_collection(registry.lower(grammar_parse(collection), {}))  # D4
     )
 
 
