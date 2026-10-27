@@ -138,6 +138,71 @@ def test_an_unresolvable_connection_keeps_every_deleted_account_row_under_its_se
     assert report.refused()
 
 
+def test_an_unresolvable_connection_naming_no_service_keeps_no_deleted_account_row(
+    h: PurgeHarness,
+) -> None:
+    gone = str(uuid4())
+    orphan = h.blob(address(gone, "shared"))
+    borrower = h.new_account()
+    # WHY: the runtime reads such a row at its own `<account>:<row id>` name, which only its own
+    # account's pass can lose, and that pass skips it.
+    h.connection(borrower, locator={"account": "default"})
+
+    report = h.purge()
+
+    assert orphan not in h.rows()
+    assert only(report, borrower).skipped == "connection_unresolvable"
+    assert report.counts()["deleted_account_blobs"] == 1
+
+
+# --- the address is proven by its row -------------------------------------------------------------
+
+
+def test_a_resolved_address_with_no_row_beside_a_sibling_skips_the_account(
+    h: PurgeHarness,
+) -> None:
+    # The gateway runs with a configured physical account; this run resolves `default`.
+    account = h.new_account()
+    service = address(account, h.connection(account, auth_type="api_key"))
+    live = h.blob(service, CUSTOM)
+    h.blob(address(account, uuid4()))
+    before = h.rows()
+
+    report = h.purge(accounts=(account,))
+
+    # INVARIANT (C4): the row the run resolved does not exist and another does under that service,
+    # so the run's configuration may not be the gateway's; it deletes nothing.
+    assert h.rows() == before
+    assert live in h.rows()
+    assert only(report, account).skipped == "address_unproven"
+
+
+def test_a_resolved_address_with_no_row_and_no_sibling_skips_nothing(h: PurgeHarness) -> None:
+    account = h.new_account()
+    # WHY: a `pending` row names its blob before its callback writes it.
+    h.connection(account, status="pending")
+    orphan = h.blob(address(account, uuid4()))
+
+    report = h.purge(accounts=(account,))
+
+    assert orphan not in h.rows()
+    assert only(report, account).skipped is None
+
+
+def test_the_sweep_keeps_a_deleted_accounts_rows_under_an_unproven_address(
+    h: PurgeHarness,
+) -> None:
+    gone = str(uuid4())
+    service = address(gone, "shared")
+    live = h.blob(service, CUSTOM)
+    h.connection(h.new_account(), locator={"service": service, "account": "default"})
+
+    report = h.purge()
+
+    assert live in h.rows()
+    assert report.counts()["deleted_account_blobs"] == 0
+
+
 def test_an_unmigrated_document_protects_its_physical_address(h: PurgeHarness) -> None:
     account = h.new_account()
     h.document(account, name="default")

@@ -53,6 +53,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "Delete the retired Profile storage: index rows and provider-credential blobs no "
             "Connection addresses. Reports carry account ids and counts only."
         ),
+        epilog=(
+            "Run it with the gateway's own environment (in the gateway's pod, for example): the "
+            "provider settings decide which physical account a Connection reads, and an account "
+            "whose rows do not match is skipped (address_unproven). Back the database up before "
+            "--apply; after it, no build older than E4b may run against this database. On SQLite, "
+            "stop the gateway first. Exit 4 means something was kept for a reason: read each "
+            "account's skipped reason. A second --apply deletes nothing; kept_unrecognised_rows "
+            "counts rows the purge never touches, such as the JWT secret."
+        ),
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument(

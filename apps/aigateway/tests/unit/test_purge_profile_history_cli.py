@@ -127,6 +127,23 @@ def test_apply_without_a_journal_is_a_usage_error(scope: list[str]) -> None:
     assert purge_profile_history.parse_args(["--dry-run", *scope]).journal is None
 
 
+def test_help_names_the_conditions_of_a_run(capsys: Any) -> None:
+    # WHY: the run resolves physical accounts from its own environment, and the owner reads these
+    # conditions where they type the command.
+    with pytest.raises(SystemExit) as exc:
+        purge_profile_history.parse_args(["--help"])
+    assert exc.value.code == 0
+    text = " ".join(capsys.readouterr().out.split())
+    for condition in (
+        "the gateway's own environment",
+        "address_unproven",
+        "Back the database up",
+        "On SQLite, stop the gateway",
+        "kept_unrecognised_rows",
+    ):
+        assert condition in text
+
+
 # --- the real thing on the fixture database -----------------------------------------------------
 
 

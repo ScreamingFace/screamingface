@@ -196,6 +196,15 @@ def _unmigrated_document(h: PurgeHarness) -> str:
     return account
 
 
+def _unmigrated_document_on_a_none_marker(h: PurgeHarness) -> str:
+    # WHY: `none` is a marker the pair has, not yet `migrated`; the document still names the blob.
+    account = h.new_account()
+    h.mark(account, "none")
+    h.document(account)
+    h.blob(address(account, "default"))
+    return account
+
+
 def _unmigrated_legacy_document(h: PurgeHarness) -> str:
     account = h.new_account()
     h.legacy_documents(profile(account))
@@ -221,6 +230,10 @@ SKIPS: dict[str, tuple[Callable[[PurgeHarness], str], str]] = {
     "unreadable-marker": (_unreadable_marker, "marker_unreadable"),
     "unloaded-provider": (_unloaded_provider, "connection_unresolvable"),
     "unmigrated-document": (_unmigrated_document, "unmigrated_document"),
+    "unmigrated-document-none-marker": (
+        _unmigrated_document_on_a_none_marker,
+        "unmigrated_document",
+    ),
     "unmigrated-legacy-document": (_unmigrated_legacy_document, "unmigrated_document"),
     "unparseable-index": (_unparseable_index, "index_unreadable"),
     "undecryptable-index": (_undecryptable_index, "index_unreadable"),

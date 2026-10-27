@@ -30,6 +30,7 @@ from uuid import UUID
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
+from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.auth.models import Account
 from aigateway.core.credential_blob.model import CredentialBlob
 from aigateway.core.oauth.store import credential_locator_for
@@ -58,6 +59,7 @@ DELETED_ACCOUNT = "deleted_account_blobs"
 ACCOUNT_KINDS = (INDEX_ROWS, NAME_SHAPED, UUID_SHAPED)
 _UNRECOGNISED = "unrecognised"
 _NAMESPACE = "aigateway"
+_ANONYMOUS = str(ANONYMOUS_ACCOUNT_ID)
 
 
 class _Skip(Exception):
@@ -165,7 +167,7 @@ async def run_purge(
     if mode not in PURGE_MODES:
         raise ValueError(f"unknown purge mode {mode!r}")
     apply = mode == "apply"
-    ids = await all_account_ids() if account_ids is None else tuple(account_ids)
+    ids = await _accounts(ctx, account_ids)
     results: list[AccountPurge] = []
     for account_id in ids:
         result = await purge_account(ctx, account_id, apply=apply)
@@ -180,6 +182,18 @@ async def run_purge(
     report = PurgeReport(mode, tuple(results), sweep, legacy)
     _journal(journal, {"mode": mode, "summary": report.counts(), "legacy_index": legacy})
     return report
+
+
+async def _accounts(ctx: PurgeContext, account_ids: Sequence[str] | None) -> tuple[str, ...]:
+    if account_ids is not None:
+        return tuple(account_ids)
+    ids = await all_account_ids()
+    # WHY: in `auth_mode=disabled` the anonymous account's row appears only with its first
+    # Connection or pair marker, so a Profile-only install holds rows under an id `--all` would not
+    # list; it is listed, and skipped in `_doomed`, rather than swept as a deleted account's.
+    if _ANONYMOUS not in ids and await _candidates(ctx, _ANONYMOUS, lock=False):
+        return (*ids, _ANONYMOUS)
+    return ids
 
 
 async def purge_account(ctx: PurgeContext, account_id: str, *, apply: bool) -> AccountPurge:
@@ -250,7 +264,9 @@ async def _doomed(ctx: PurgeContext, account_id: str, *, lock: bool) -> list[_Ca
     # INVARIANT (C3): the account row first, so every read below sees what a reference creator that
     # came first committed, and one that comes later waits for this transaction.
     if await (account.select_for_update() if lock else account).first() is None:
-        raise _Skip("account_missing")
+        # WHY no lock without a row: a creator would materialise it, so the purge cannot fence one.
+        anonymous = account_id == _ANONYMOUS
+        raise _Skip("anonymous_account_unmaterialised" if anonymous else "account_missing")
     states = await _migration_states(account_id)
     documents = await _documents(ctx, account_id)
     references = await read_references(ctx.app, ctx.providers)
@@ -258,6 +274,8 @@ async def _doomed(ctx: PurgeContext, account_id: str, *, lock: bool) -> list[_Ca
         raise _Skip("connection_unresolvable")
     addressed = references.addressed
     candidates = await _candidates(ctx, account_id, lock=lock)
+    if references.unproven(candidate.address for candidate in candidates):
+        raise _Skip("address_unproven")
     doomed = [candidate for candidate in candidates if candidate.address not in addressed]
     _refuse_unmigrated_documents(ctx, account_id, documents, states, doomed)
     return doomed
@@ -358,7 +376,8 @@ class _SweepScope:
 
 
 async def _plan_sweep(ctx: PurgeContext) -> tuple[SweepResult, list[UUID]]:
-    accounts = frozenset(await all_account_ids())
+    # WHY the anonymous account always: it is live without a row of its own (`_accounts`).
+    accounts = frozenset(await all_account_ids()) | {_ANONYMOUS}
     scope = _SweepScope(
         frozenset(ctx.namespaces()),
         accounts,
@@ -369,8 +388,9 @@ async def _plan_sweep(ctx: PurgeContext) -> tuple[SweepResult, list[UUID]]:
     blobs = await CredentialBlob.all().only("id", "service", "account")
     references = await read_references(ctx.app, ctx.providers)
     # WHY: an unresolvable row's account is skipped in its own pass, so what it keeps here is
-    # reported as a refusal.
-    kept = references.unresolved_services()
+    # reported as a refusal; an unproven address keeps its service whole, as in `_doomed`.
+    rows = ((blob.service, blob.account) for blob in blobs)
+    kept = references.unresolved_services() | references.unproven(rows)
     kinds = {blob.id: scope.kind(blob) for blob in blobs}
     index_rows = [blob.id for blob in blobs if kinds[blob.id] == INDEX_ROWS]
     deleted = [

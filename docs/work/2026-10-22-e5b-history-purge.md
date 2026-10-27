@@ -44,6 +44,11 @@ on merge; the owner runs the command per environment.
   account's Connection resolves to, and is skipped when an unresolvable Connection of another
   account names it (C2/C4); the deleted-account sweep compares the whole `(service, account)`
   address (C1). New suite `tests/unit/core/provider_access/test_history_purge_references.py`.
+- Review round 2 (2026-10-27), on the same branch: `--all` lists the anonymous account when it
+  holds rows without an `accounts` row and skips it (`anonymous_account_unmaterialised`); an
+  account whose resolved address has no row while another row sits under that service is skipped
+  (`address_unproven`), and the sweep keeps that service whole; `--help` names the conditions of a
+  run. New suite `tests/unit/core/provider_access/test_history_purge_anonymous.py`.
 - One prior test changes: `tests/unit/test_profile_index_offline_only.py` adds
   `core/provider_access/history_purge.py` to `_OFFLINE_READERS` (the guard pins the exact set of
   modules that may read the index). Owner approval 2026-10-22, recorded in a test-change manifest
@@ -80,9 +85,10 @@ on merge; the owner runs the command per environment.
     `core/profile_index.py` (`LEGACY_INDEX_ACCOUNT`, `index_account_for`), `migrate_profiles.py`
     (`refuse_without_a_key`), `tests/unit/test_profile_index_offline_only.py` (the approved
     `_OFFLINE_READERS` entry).
-  - New tests: `tests/unit/core/provider_access/test_history_purge.py` (34) with its probes
+  - New tests: `tests/unit/core/provider_access/test_history_purge.py` (35) with its probes
     `history_purge_probes.py`, `tests/unit/core/provider_access/test_history_purge_references.py`
-    (7), `tests/unit/test_purge_profile_history_cli.py` (15),
+    (11), `tests/unit/core/provider_access/test_history_purge_anonymous.py` (4),
+    `tests/unit/test_purge_profile_history_cli.py` (16),
     `tests/unit/remote_endpoint/test_history_purge_endpoints.py` (1),
     `tests/integration/test_history_purge_postgres.py` (3, `needs_postgres`).
   - No schema change, no migration.
@@ -101,6 +107,12 @@ on merge; the owner runs the command per environment.
     journal tests failed before the fix. `run_gates.py aigateway --base fade16614` (the merge
     base; `origin/main` had moved on in files this unit does not touch) all green; PostgreSQL
     fence suite 3/3 green.
+  - Review round 2: the three anonymous-account tests, the two unproven-address tests and the
+    `--help` test failed before the fix (the anonymous account's blob, index row and legacy row
+    were deleted; the live key at the physical address was deleted). `run_gates.py aigateway
+    --base fade16614` all green; PostgreSQL fence suite 3/3 green; coverage `history_purge.py`
+    100%, `history_references.py` 100%, `purge_profile_history.py` 99% (the `__main__` line,
+    which runs in a subprocess).
 - **Deviations:**
   - The CLI also composes the configured remote endpoints (`compose_providers`, as `main.py`
     does). The plan names only "own provider registry"; with `load_plugins` alone every
@@ -138,3 +150,20 @@ on merge; the owner runs the command per environment.
       legitimate case.
     - Process: the test-change manifest for `_OFFLINE_READERS` is created at PR-open, after the
       issue is filed (as for E5a); `Refs: OME-N` goes in the PR body, not in commits.
+  - Review round 2 (2026-10-27):
+    - Fixed: in `auth_mode=disabled` the anonymous account's row appears only with its first
+      Connection or pair marker, so `--all` (which lists accounts from their rows) swept a
+      Profile-only install's anonymous rows as a deleted account's, and the legacy row with them.
+      It is now listed when it holds rows and skipped, since no lock can fence an account without
+      a row; the sweep never treats its rows as a deleted account's. `--account` on it reports
+      the same reason. The backfill's `--all` lists accounts the same way; that is outside this
+      unit.
+    - Fixed: the purge resolves a physical account from its own environment (Anthropic
+      `keychain_account`). A run whose environment differed from the gateway's deleted the live
+      key. An account whose resolved address has no row while another row sits under that service
+      is now skipped (`address_unproven`), and the sweep keeps that service whole. A `pending`
+      row whose service holds no row at all still skips nothing.
+    - Added: `--help` names the conditions of a run (the gateway's own environment, a backup
+      first, the gateway stopped on SQLite, what exit 4 and `kept_unrecognised_rows` mean).
+    - Added: a `none` marker with a document whose blob exists is an unmigrated document
+      (`unmigrated_document`); this already held and is now pinned.
