@@ -167,3 +167,13 @@ on merge; the owner runs the command per environment.
       first, the gateway stopped on SQLite, what exit 4 and `kept_unrecognised_rows` mean).
     - Added: a `none` marker with a document whose blob exists is an unmigrated document
       (`unmigrated_document`); this already held and is now pinned.
+    - Kept by design (owner decision 2026-10-27): a Connection of a loaded provider with no
+      credential strategy (Ollama, whose only mode is `none`) resolves to no address, so its
+      account is skipped (`connection_unresolvable`). No key is lost. A persisted `auth_type` is
+      only `oauth` or `api_key`, so no row proves it addresses nothing, and the one path that
+      mints such a row (a backfill of a Profile whose blob is readable) names a real blob. The
+      Connection DELETE route revokes the row and keeps it, and the purge counts rows of every
+      status; `--help` says so. The dry run in each environment shows whether any account is
+      affected, and the owner decides on that data. Prior art agrees on keeping and reporting:
+      Terraform refuses a plan whose provider configuration is missing, and the Kubernetes
+      garbage collector keeps an object whose owner reference does not resolve and reports it.

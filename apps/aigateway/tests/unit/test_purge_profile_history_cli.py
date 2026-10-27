@@ -140,6 +140,9 @@ def test_help_names_the_conditions_of_a_run(capsys: Any) -> None:
         "Back the database up",
         "On SQLite, stop the gateway",
         "kept_unrecognised_rows",
+        # WHY: revoking a Connection keeps its row, and the purge counts rows of every status.
+        "connection_unresolvable",
+        "a revoked row still counts",
     ):
         assert condition in text
 

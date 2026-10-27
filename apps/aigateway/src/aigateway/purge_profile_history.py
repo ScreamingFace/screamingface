@@ -59,8 +59,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "whose rows do not match is skipped (address_unproven). Back the database up before "
             "--apply; after it, no build older than E4b may run against this database. On SQLite, "
             "stop the gateway first. Exit 4 means something was kept for a reason: read each "
-            "account's skipped reason. A second --apply deletes nothing; kept_unrecognised_rows "
-            "counts rows the purge never touches, such as the JWT secret."
+            "account's skipped reason. connection_unresolvable is a Connection that resolves to "
+            "no address (its provider is not loaded, its locator is malformed, or its provider "
+            "holds no credential); the account keeps its rows, and a revoked row still counts. "
+            "A second --apply deletes nothing; kept_unrecognised_rows counts rows the purge never "
+            "touches, such as the JWT secret."
         ),
     )
     mode = parser.add_mutually_exclusive_group(required=True)
