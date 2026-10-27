@@ -176,3 +176,34 @@ body processing with cooperative checkpoints.
   host churn (AIDEV-NOTE in the module).
 - **Gates:** `run_gates.py url4` all green (plain, vs HEAD — no prior test touched this round);
   `scripts/check_module_size.py` green.
+
+## Review round 4 (HupBaHa CHANGES_REQUESTED 2026-10-27T15:36Z) — planned
+
+- R4.1: `HttpIOLayer.aclose()` and `peer/_owned.py` `_OwnedIO.aclose()` dropped the owned
+  adapter before awaiting its close, so a cancelled public shutdown made a kept close failure
+  unreachable on retry. Plan: one shielded close task per boundary (shared private helper),
+  kept across caller cancellation; every `aclose()` awaits that same task until a non-cancelled
+  caller observes success or the `ExceptionGroup`. Regressions through `HttpIOLayer` and
+  `_OwnedIO`. (`_owned.py` is on main; its existing tests are not edited.)
+- R4.2 (owner: narrow the invariant, no new waits): `_host_pools.py` docstring states the true
+  bound — idle-eviction closes ≤ limit (budgeted); busy-retired pools close on their last
+  release outside the budget, bounded by requests in flight; total ≤ retained + budget +
+  in-flight. Test: limit=1, 20 held leases on distinct hosts, release all → closing ≤ budget +
+  held leases.
+
+### Review round 4 — outcome
+
+- **Commits:** `dbd08d910` (R4.1: new public `url4/io/close_once.py` `CloseOnce` — public, not
+  `_close_once`, because `peer` importing a private `io` module would grow the cross-package
+  private-import ratchet; used by `HttpIOLayer.aclose()` and `_OwnedIO.aclose()`, owned
+  reference dropped only after the close ends); `0f10340ec` (R4.2: `_host_pools.py` invariant
+  narrowed — idle-eviction closes ≤ limit, busy-victim closes bounded by requests in flight,
+  retained + pending ≤ limit + limit + in-flight; close-budget test file STORY updated).
+- **Tests:** new `test_source_guard_shutdown_retry.py` (4: HttpIOLayer cancel-mid-close → retry
+  raises the group, then a no-op; concurrent shutdowns share one close; the same through
+  `_OwnedIO` with a real HttpIOLayer; `_OwnedIO` retry awaits the SAME close, not a second
+  one) — all 4 RED before the fix. `test_source_guard_close_budget.py` +1 (limit=1, 20 held
+  leases → closing ≤ budget + held, 19 busy-victim closes; pins current behaviour). Existing
+  main tests for `_OwnedIO`/`HttpIOLayer` close (idempotence, `_owned is None`, concurrency)
+  pass unedited.
+- **Gates:** `run_gates.py url4` green vs HEAD; `check_module_size.py` green; 2125 passed.
