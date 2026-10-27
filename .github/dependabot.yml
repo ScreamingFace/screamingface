@@ -197,6 +197,13 @@ updates:
       # They lift on unrelated triggers; do not unify them.
       - dependency-name: "typescript"
         versions: [">=7"]
+      # vuejs/language-tools#6264. vue-tsc 3.3.12 and 3.3.13 turn `//` inside a static attribute
+      # value (a URL) into a comment in the generated code, so slot-scoped names vanish
+      # ("Cannot find name 'step'" in QuickstartPage.vue, engine-url="http://..."). Fixed
+      # upstream on master, unreleased as of 2026-10-27. Only these two versions are skipped, so
+      # the next release is proposed as normal; drop this entry once public-docs is past them.
+      - dependency-name: "vue-tsc"
+        versions: ["3.3.12", "3.3.13"]
     groups:
       public-docs-npm-security:
         applies-to: security-updates
