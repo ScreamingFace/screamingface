@@ -143,9 +143,10 @@ The second (`source: openrouter.pre_output_refusal`, spec
 that a provider refused before any output. OpenRouter keeps no generation record for it, so
 nothing is billed. The raw body must have no `usage` and no `error`, exactly one choice with
 `finish_reason` `content_filter` and `native_finish_reason` `refusal`, and no output: the message
-fields `content`, `refusal`, `reasoning`, `reasoning_details`, `tool_calls`, `function_call`,
-`audio` and `images` and the top-level `output` and `content` are all empty (absent, `null`,
-`""`, `[]` or `{}`). Other message fields are ignored. Because the attempt succeeded,
+fields `content`, `reasoning`, `reasoning_details`, `tool_calls`, `function_call`, `audio` and
+`images` and the top-level `output` and `content` are all empty (absent, `null`, `""`, `[]` or
+`{}`). Other message fields are ignored. Text in `refusal` is not output: Anthropic puts a policy
+notice there when it refuses before output, with no `usage` and no cost. Because the attempt succeeded,
 this zero is also its `succeeded_attempt_direct_cost`, and the cache-entry metadata keeps it for
 a later hit. A refusal that carries a `usage.cost` keeps its `reported` price. Token counts stay
 unknown.

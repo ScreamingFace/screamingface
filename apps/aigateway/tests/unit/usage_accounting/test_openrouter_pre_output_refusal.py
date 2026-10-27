@@ -215,7 +215,6 @@ def test_a_later_cache_hit_on_the_refusal_carries_the_certified_zero() -> None:
         pytest.param(_with_choice(finish_reason="stop"), id="finish-not-content-filter"),
         pytest.param(_with_message(content="I can't help with that."), id="content"),
         pytest.param(_with_message(reasoning="The user asks about"), id="reasoning"),
-        pytest.param(_with_message(refusal="I can't help with that."), id="refusal-text"),
         pytest.param(_with_message(tool_calls=[{"id": "t1", "type": "function"}]), id="tool-calls"),
         pytest.param(
             _with_message(reasoning_details=[{"type": "reasoning.text", "text": "x"}]),
