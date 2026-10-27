@@ -238,7 +238,9 @@ identities one flight; reversed completion order → preorder; caps; model-deriv
 - **Gates:** `run_gates.py url4` ALL GREEN (append-only vs HEAD); `check_module_size.py` green;
   `run_gates.py screamingface-engine` ALL GREEN (not touched; regression smoke).
 
-**Conservative readings (design forks under 95%, owner to confirm).**
+**Conservative readings (design forks under 95%).** Owner decisions 2026-10-27: 1 → resolved by
+decision A (Q-B dropped); 2–3 → superseded by round 8 (decision B: no `image/*`, exact type);
+4, 5, 6, 7 → **owner-CONFIRMED (decision D)**; 8 → stands (the URL text is the payload).
 1. **U3b vs round 7.** The branch's Q-B lazy path still attaches a non-text body of a TEXT
    source (no media `;accept=`) after the first model call. Round 7 says text sources are never
    attached and byte-identical to main (where that body is `unsupported_content_type`). Removing
@@ -314,8 +316,127 @@ their own guard policy and slot identities at their first reachable occurrence`)
 instead, the spec must change and the caps + freeze must cover lazily attached bodies (today
 `check_caps` runs only at run start, so 25 Q-B bodies attach with no `x.attachments_too_many`).
 
-**Conservative readings (round 7b).**
+**Conservative readings (round 7b).** **Owner-CONFIRMED 2026-10-27 (decision D).**
 1. A collection whose guarded admission fails finally is NOT reachable (no attachment I/O) and
    execution replays that failure as permanent — the run fails (or the optional binding is
    omitted) exactly as admission decided, never with a later successful retry.
 2. Nested descriptors on a collection: the outermost one's policy and `;accept=` apply.
+
+## Round 2026-10-27c — owner decisions A–E (drop Q-B, round 8 narrowing, row targets, caps): DONE except C (BLOCKED)
+
+**Intent.** Apply the owner decisions of 2026-10-27 (main session, AskUserQuestion) and #1450 round 8
+(`4a020cc39`):
+- **A.** Drop Q-B: a text source (no exact media `;accept=`) is never attached, whatever its body.
+  Remove `attach_web_body`, `cached_web_attachment`, `RunFiles.fetched` / `attach_fetched`, the
+  string URL slots in `source_scan._add_leaf`. Owner-approved changes to
+  `tests/unit/test_https_attachments.py` (four tests + module docstring), pinned in
+  `.claude/test-change-approvals/OME-1543.json`.
+- **B.** Round 8: an attachment source's `;accept=` is EXACTLY one lower-case type from
+  `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`; the response bare type must
+  EQUAL it, else `unsupported_content_type`. No `image/*`, no lists.
+- **C.** Row-derived attachment targets (rows of an admitted non-model collection) allowed; other
+  fetched-body / model derivations `x.source_not_static`.
+- **D.** Mark the round-7/7b conservative readings owner-confirmed.
+- **E.** Investigate the security review's cap items in `_run_files.py` / `_materialize.py`.
+
+**Planned changes.** `dag/attachment_sources.py` (exact-type classification), `dag/attachments.py`,
+`dag/source_scan.py`, `dag/nodes/web_attach.py`, `dag/nodes/fetch.py`, `dag/_run_files.py`,
+`dag/_materialize.py` (caps on every adding path, before the first model call). Tests: new
+`tests/unit/test_attachment_sources_round8.py`; approved edits to `test_https_attachments.py`; this
+unit's own round-7 tests updated where round 8 narrows them (listed in the outcome).
+
+**Test plan.** RED first: text source with a non-text body → `unsupported_content_type`, no bytes
+fetch, no attachment; `;accept=IMAGE/PNG` / `image/*` / a list → text source; `;accept=image/png`
+answered `image/jpeg` → `unsupported_content_type`; cap breach refused before every remaining flight
+/ blob verification; no attachment can be added after run start.
+
+**Done.**
+- **A (Q-B dropped).** Removed `attach_web_body`, `cached_web_attachment` (`nodes/web_attach.py`
+  keeps only `materialized_attachment`), the Q-B branch of `WebFetchNode.resolve`,
+  `RunFiles.fetched` / `attach_fetched` and string slots (`RunFiles.slots` is
+  `Attachment | AttachmentIdentity`), the URL slots of `source_scan._add_leaf` (`_Found.urls`).
+  A text source with a non-text body is today's `unsupported_content_type`, never fetched as bytes.
+- **B (round 8).** `attachment_sources.is_attachment_accept`: `accept in ATTACHMENT_TYPES` (exact,
+  lower-case, one type); `classify`: bare lower-cased response type must EQUAL `identity.accept`.
+  Removed `ATTACHMENT_RANGES`, `accept_ranges`, `AttachmentIdentity.ranges`, `_matches`.
+- **E (caps).** New `dag/_caps.py` (`CapBudget`, `check_caps`, the two constants; re-exported from
+  `_materialize`). `_run_start` order: `refuse_remote` → `check_static` (no I/O) → `CapBudget(case)`
+  → `expect` attached blob keys → blob verification (bytes charged as each lands) →
+  `materialize` (collections; `expect` reachable REQUIRED identities before any flight; each
+  flight's bytes charged OUTSIDE its guard, so a breach cancels in-flight siblings and an
+  `;optional` guard cannot swallow it) → final `check_caps`. `RunFiles.manifest` is a
+  `MappingProxyType`; `slots` a tuple: nothing can add to `attachments[]` after run start.
+- `ARCHITECTURE.md` files bullet rewritten (no Q-B, exact type, caps on every path).
+- **Tests added** (`tests/unit/test_attachment_sources_round8.py`, 38 cases):
+  `test_text_source_with_a_non_text_body_fails_as_today_and_is_never_fetched_as_bytes`,
+  `test_optional_text_source_with_a_non_text_body_is_dropped_not_attached`,
+  `test_text_source_next_to_an_attachment_source_adds_nothing_after_run_start`,
+  `test_each_attachment_type_alone_opts_a_source_in[5]`,
+  `test_anything_but_exactly_one_lower_case_attachment_type_is_a_text_source[12]`,
+  `test_upper_case_accept_is_a_text_source_on_the_wire`,
+  `test_response_type_equal_to_the_accept_type_classifies[4]`,
+  `test_response_type_not_equal_to_the_accept_type_is_unsupported[6]`,
+  `test_too_many_required_attachments_are_refused_before_any_attachment_fetch`,
+  `test_case_and_blob_refs_count_before_any_attachment_fetch`,
+  `test_an_omitted_optional_identity_does_not_count_toward_the_entry_cap`,
+  `test_byte_cap_breach_cancels_the_flights_still_in_progress`,
+  `test_case_bytes_count_before_any_attachment_fetch_is_spent`,
+  `test_the_bound_list_cannot_grow_after_the_run_starts`,
+  `test_many_non_text_text_sources_can_no_longer_bypass_the_caps`.
+- **Tests changed, owner-approved (decision A)**, pinned in `OME-1543.json` (`amendments`;
+  base = this branch's HEAD `37722dce5` blob): `tests/unit/test_https_attachments.py` module
+  docstring, `::test_non_text_https_body_is_attached_once_at_its_source_position`,
+  `::test_https_body_with_a_blob_refs_digest_is_attached_once` (now: blob refs dedupe by digest,
+  equal identities share one attachment, blob vs identity never merged — round 7 rule — so
+  `(IMG, IMG)`), `::test_case_attachments_precede_an_https_attachment`,
+  `::test_guard_refusal_on_the_bytes_fetch_fails_the_run_unchanged[*4]`.
+- **Tests changed, this unit's own round-7 tests (decision B)**:
+  `tests/unit/test_attachment_sources_round7.py` module docstring;
+  `::test_image_wildcard_range_is_an_attachment_range_but_not_authorable_today` RENAMED to
+  `::test_image_wildcard_is_not_an_attachment_type_and_not_authorable` (asserts `image/*` is not
+  an attachment type and classifies nothing); `::test_accept_with_any_non_attachment_range_is_a_text_source`
+  (`"IMAGE/PNG, application/pdf"` now a text source; adds `application/pdf` positive).
+  No other prior test changed (`tests/unit/test_attachments.py::test_run_file_cache_is_discarded_when_run_exits`
+  writes to `RunFiles.cache`, so the cache stays a mutable dict; it never feeds `attachments[]`).
+
+**E — security findings.**
+1. `_run_files.py` cap bypass: **real** — `check_caps` ran once at run start over
+   `RunFiles(slots, {}, {}, outcomes)`, i.e. with `fetched` empty, while Q-B's `attach_fetched`
+   appended non-text text-source bodies after the first model call, uncapped and unfrozen (25 such
+   bodies attached with no `x.attachments_too_many`). Fixed by removing Q-B (decision A) and
+   freezing the manifest; regression `test_many_non_text_text_sources_can_no_longer_bypass_the_caps`
+   and `test_the_bound_list_cannot_grow_after_the_run_starts`.
+2. `_materialize.py` cap placement: **real (resource exhaustion, not a list overflow)** — caps were
+   checked only after EVERY flight and blob verification completed, so a run naming many
+   required attachment sources downloaded all of them (each up to the guard's per-fetch cap)
+   before being refused. Fixed with `CapBudget` (count before I/O, bytes as they land, cancel on
+   breach); regressions `test_too_many_required_attachments_are_refused_before_any_attachment_fetch`,
+   `test_byte_cap_breach_cancels_the_flights_still_in_progress`,
+   `test_case_bytes_count_before_any_attachment_fetch_is_spent`.
+
+**C — row-derived attachment targets: BLOCKED (syntax fork, no code written).** In today's grammar
+an attachment source's URL cannot come from a row: an absolute `Url` never substitutes
+(`(('a.png')*(src=https://img.example/$item)!'d')` fetches the literal `https://img.example/$item`,
+text and attachment sources alike), and `src=$item;accept=image/png` is a `VarRef` source whose
+value is the row TEXT (no fetch; `;accept=` is ignored on it). So neither the positive (row of an
+admitted NDJSON collection → fetched and attached) nor the negative (non-row fetched body →
+`x.source_not_static`) case is expressible without choosing new semantics. Options for the owner:
+(a) a `VarRef` source with an exact attachment `;accept=` (`src=$item;accept=image/png`) becomes an
+attachment source whose URL is the resolved value — admitted per row at run start for a row of an
+admitted non-model collection; `x.source_not_static` for a binding to a fetched body or a model
+output; (b) substitute `$item` inside an absolute URL of an attachment source only
+(`src=https://h/$item.png;accept=image/png`); (c) both. Each also needs: what a resolved value that
+is not an `http(s)://` URL is (`unsupported_content_type`? a parse error?), and whether a binding to
+a literal text (`u='https://…'`, `src=$u;accept=…`) counts as literal.
+
+**Deviations.**
+- Refusal precedence moved: blob refs are verified BEFORE collection admission and attachment
+  flights (they were after), so the entry cap and the byte cap see Case → blob refs → flights in
+  that order and a breach stops the network flights. `x.remote_blob_unsupported` and
+  `x.source_not_static` still precede any I/O. No prior test pinned the old order.
+- Append-only: vs the merge-base with `origin/main` (`506c09178`) — the files this unit added are
+  "A" there; the run vs HEAD flags only `test_attachment_sources_round7.py` (this unit's own
+  tests, owner-allowed under decision B), with `test_https_attachments.py` passing on its pin.
+- **Gates:** `run_gates.py url4 --base 506c09178` (merge-base with `origin/main`) ALL GREEN;
+  `check_module_size.py` all within baseline; `run_gates.py screamingface-engine` ALL GREEN (not
+  touched; regression smoke).
