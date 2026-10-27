@@ -20,6 +20,7 @@ import io
 import json
 import os
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Any
 from uuid import uuid4
 
@@ -398,8 +399,11 @@ def test_report_and_journal_carry_account_ids_and_counts_only(h: PurgeHarness) -
     assert leaks_in(text) == []
     assert f"{account}:" not in text and f"{skipped}:" not in text
     lines = [json.loads(line) for line in journal.getvalue().splitlines()]
-    assert len(lines) == len(report.accounts) + 1
-    assert [line["account_id"] for line in lines[:-1]] == [r.account_id for r in report.accounts]
+    # WHY one line more than the accounts and the summary: `--all` journals its sweep as well.
+    assert len(lines) == len(report.accounts) + 2
+    assert [line["account_id"] for line in lines[:-2]] == [r.account_id for r in report.accounts]
+    assert report.sweep is not None
+    assert lines[-2] == {"mode": "dry-run", "sweep": asdict(report.sweep)}
     assert lines[-1] == {
         "mode": "dry-run",
         "summary": report.counts(),

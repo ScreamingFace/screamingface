@@ -177,6 +177,7 @@ def zero_counts(**nonzero: int) -> dict[str, int]:
         "uuid_shaped_blobs": 0,
         "deleted_account_blobs": 0,
         "kept_unrecognised_rows": 0,
+        "kept_unproven_rows": 0,
         "skipped_accounts": 0,
     }
     counts.update(nonzero)

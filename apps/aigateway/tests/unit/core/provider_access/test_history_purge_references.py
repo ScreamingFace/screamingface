@@ -203,6 +203,24 @@ def test_the_sweep_keeps_a_deleted_accounts_rows_under_an_unproven_address(
     assert report.counts()["deleted_account_blobs"] == 0
 
 
+def test_rows_the_sweep_keeps_under_an_unproven_address_are_counted_and_refuse_the_run(
+    h: PurgeHarness,
+) -> None:
+    gone = str(uuid4())
+    service = address(gone, "shared")
+    h.blob(service, CUSTOM)
+    borrower = h.new_account()
+    h.connection(borrower, locator={"service": service, "account": "default"})
+
+    report = h.purge()
+
+    # WHY: the borrower's own pass sees none of the deleted account's rows, so only the sweep can
+    # tell the owner that a row stayed for a reason; a clean exit would hide it.
+    assert only(report, borrower).skipped is None
+    assert report.counts()["kept_unproven_rows"] == 1
+    assert report.refused()
+
+
 def test_an_unmigrated_document_protects_its_physical_address(h: PurgeHarness) -> None:
     account = h.new_account()
     h.document(account, name="default")

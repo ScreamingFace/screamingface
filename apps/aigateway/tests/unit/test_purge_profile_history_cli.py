@@ -143,6 +143,8 @@ def test_help_names_the_conditions_of_a_run(capsys: Any) -> None:
         # WHY: revoking a Connection keeps its row, and the purge counts rows of every status.
         "connection_unresolvable",
         "a revoked row still counts",
+        "kept_unproven_rows",
+        "the sweep's line with --all",
     ):
         assert condition in text
 

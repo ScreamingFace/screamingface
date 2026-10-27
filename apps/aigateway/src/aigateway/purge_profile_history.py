@@ -4,8 +4,8 @@
 # the retired Profile storage: every Profile index row and every provider-credential blob no
 # Connection row addresses, one transaction per account; `--account <id>` or `--all` (which also
 # sweeps the rows of deleted accounts and the legacy global index row). The JSON report goes to
-# stdout; `--journal PATH` (required with `--apply`) receives one JSON line per account, flushed as
-# it is written, plus a summary line.
+# stdout; `--journal PATH` (required with `--apply`) receives one JSON line per account, the
+# sweep's line with `--all`, and a summary line, each flushed as it is written.
 # INVARIANT (C5): the tool installs the encryption-at-rest provider like `migrate_profiles`, never
 # mints a master key, and is never a Helm hook. A skipped account (or a kept legacy row) exits 4.
 # INVARIANT (C6): after `--apply` no build older than E4b may run in that environment; the owner
@@ -56,7 +56,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         epilog=(
             "Run it with the gateway's own environment (in the gateway's pod, for example): the "
             "provider settings decide which physical account a Connection reads, and an account "
-            "whose rows do not match is skipped (address_unproven). Back the database up before "
+            "whose rows do not match is skipped (address_unproven); a deleted account's rows kept "
+            "for that reason are counted in kept_unproven_rows. Back the database up before "
             "--apply; after it, no build older than E4b may run against this database. On SQLite, "
             "stop the gateway first. Exit 4 means something was kept for a reason: read each "
             "account's skipped reason. connection_unresolvable is a Connection that resolves to "
@@ -91,7 +92,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--journal",
         metavar="PATH",
-        help="append one JSON line per account plus one summary line (required with --apply)",
+        help=(
+            "append one JSON line per account, the sweep's line with --all, and a summary line, "
+            "each flushed as it is written (required with --apply)"
+        ),
     )
     args = parser.parse_args(argv)
     if args.mode == "apply" and args.journal is None:

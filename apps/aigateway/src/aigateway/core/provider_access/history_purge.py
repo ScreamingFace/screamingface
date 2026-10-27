@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Literal, TextIO
 from uuid import UUID
 
@@ -115,6 +115,8 @@ class SweepResult:
     index_rows: int = 0
     deleted_account_blobs: int = 0
     kept_unrecognised_rows: int = 0
+    # WHY a refusal of its own: no account's pass sees a deleted account's rows (`unproven`).
+    kept_unproven_rows: int = 0
 
 
 @dataclass(frozen=True)
@@ -137,13 +139,15 @@ class PurgeReport:
             UUID_SHAPED: total(UUID_SHAPED),
             DELETED_ACCOUNT: sweep.deleted_account_blobs,
             "kept_unrecognised_rows": sweep.kept_unrecognised_rows,
+            "kept_unproven_rows": sweep.kept_unproven_rows,
             "skipped_accounts": sum(account.skipped is not None for account in self.accounts),
         }
 
     def refused(self) -> bool:
         """Something was kept for a reason the owner must look at before calling it clean."""
         legacy_kept = self.legacy_index is not None and self.legacy_index.startswith("kept_")
-        return legacy_kept or any(account.skipped is not None for account in self.accounts)
+        unproven = self.sweep is not None and self.sweep.kept_unproven_rows > 0
+        return legacy_kept or unproven or any(a.skipped is not None for a in self.accounts)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -177,6 +181,8 @@ async def run_purge(
     legacy: LegacyIndex | None = None
     if account_ids is None:
         sweep = await sweep_deleted_accounts(ctx, apply=apply)
+        # WHY here: the sweep has committed, and the legacy phase may still fail.
+        _journal(journal, {"mode": mode, "sweep": asdict(sweep)})
         skipped = {result.account_id for result in results if result.skipped is not None}
         legacy = await purge_legacy_index(ctx, skipped=skipped, apply=apply)
     report = PurgeReport(mode, tuple(results), sweep, legacy)
@@ -389,19 +395,21 @@ async def _plan_sweep(ctx: PurgeContext) -> tuple[SweepResult, list[UUID]]:
     references = await read_references(ctx.app, ctx.providers)
     # WHY: an unresolvable row's account is skipped in its own pass, so what it keeps here is
     # reported as a refusal; an unproven address keeps its service whole, as in `_doomed`.
-    rows = ((blob.service, blob.account) for blob in blobs)
-    kept = references.unresolved_services() | references.unproven(rows)
+    unproven = references.unproven((blob.service, blob.account) for blob in blobs)
+    kept = references.unresolved_services() | unproven
     kinds = {blob.id: scope.kind(blob) for blob in blobs}
     index_rows = [blob.id for blob in blobs if kinds[blob.id] == INDEX_ROWS]
-    deleted = [
-        blob.id
+    unaddressed = [
+        blob
         for blob in blobs
         if kinds[blob.id] == DELETED_ACCOUNT
         and (blob.service, blob.account) not in references.addressed
-        and blob.service not in kept
     ]
+    deleted = [blob.id for blob in unaddressed if blob.service not in kept]
+    held = sum(blob.service in unproven for blob in unaddressed)
     unrecognised = sum(kind == _UNRECOGNISED for kind in kinds.values())
-    return SweepResult(len(index_rows), len(deleted), unrecognised), index_rows + deleted
+    result = SweepResult(len(index_rows), len(deleted), unrecognised, held)
+    return result, index_rows + deleted
 
 
 def _legacy_row() -> QuerySet[CredentialBlob]:

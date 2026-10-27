@@ -49,6 +49,10 @@ on merge; the owner runs the command per environment.
   account whose resolved address has no row while another row sits under that service is skipped
   (`address_unproven`), and the sweep keeps that service whole; `--help` names the conditions of a
   run. New suite `tests/unit/core/provider_access/test_history_purge_anonymous.py`.
+- Review round 3 (2026-10-27), on the same branch: rows the sweep keeps under an unproven address
+  are counted (`kept_unproven_rows`) and refuse the run; `--all` journals the sweep's result as
+  soon as it commits, before the legacy phase. New suite
+  `tests/unit/core/provider_access/test_history_purge_journal.py`.
 - One prior test changes: `tests/unit/test_profile_index_offline_only.py` adds
   `core/provider_access/history_purge.py` to `_OFFLINE_READERS` (the guard pins the exact set of
   modules that may read the index). Owner approval 2026-10-22, recorded in a test-change manifest
@@ -87,7 +91,8 @@ on merge; the owner runs the command per environment.
     `_OFFLINE_READERS` entry).
   - New tests: `tests/unit/core/provider_access/test_history_purge.py` (35) with its probes
     `history_purge_probes.py`, `tests/unit/core/provider_access/test_history_purge_references.py`
-    (11), `tests/unit/core/provider_access/test_history_purge_anonymous.py` (4),
+    (12), `tests/unit/core/provider_access/test_history_purge_anonymous.py` (4),
+    `tests/unit/core/provider_access/test_history_purge_journal.py` (1),
     `tests/unit/test_purge_profile_history_cli.py` (16),
     `tests/unit/remote_endpoint/test_history_purge_endpoints.py` (1),
     `tests/integration/test_history_purge_postgres.py` (3, `needs_postgres`).
@@ -113,6 +118,11 @@ on merge; the owner runs the command per environment.
     --base fade16614` all green; PostgreSQL fence suite 3/3 green; coverage `history_purge.py`
     100%, `history_references.py` 100%, `purge_profile_history.py` 99% (the `__main__` line,
     which runs in a subprocess).
+  - Review round 3: the counted-refusal test and the sweep-journal test failed before the fix
+    (no counter; the journal ended on an account line). `run_gates.py aigateway --base fade16614`
+    all green with the `_OFFLINE_READERS` manifest in place (without it the append-only check
+    stops on that approved change, as recorded under Process); PostgreSQL fence suite 3/3 green;
+    coverage `history_purge.py` 100%, `history_references.py` 100%.
 - **Deviations:**
   - The CLI also composes the configured remote endpoints (`compose_providers`, as `main.py`
     does). The plan names only "own provider registry"; with `load_plugins` alone every
@@ -177,3 +187,17 @@ on merge; the owner runs the command per environment.
       affected, and the owner decides on that data. Prior art agrees on keeping and reporting:
       Terraform refuses a plan whose provider configuration is missing, and the Kubernetes
       garbage collector keeps an object whose owner reference does not resolve and reports it.
+  - Review round 3 (2026-10-27):
+    - Fixed: when a Connection of a live account names a deleted account's service and its
+      resolved address has no row, the sweep kept the sibling row (right) but the live account's
+      pass sees none of those rows, so the run reported zero everywhere and exited 0. The sweep
+      now counts such rows (`kept_unproven_rows`) and they refuse the run (exit 4). The keeping
+      rule is unchanged.
+    - Fixed: `--all` wrote the sweep's counts only in the summary, after the legacy phase; a
+      failure there left a committed sweep with no journal line. The sweep's line is now written
+      and flushed as soon as it commits. No atomicity between the database and the file is
+      claimed.
+    - Test change inside this unit: the journal-shape assertion of
+      `test_report_and_journal_carry_account_ids_and_counts_only` (added in this unit's first
+      commit) expects the sweep's line as well and checks its content; `zero_counts` in the
+      probes gains the new counter.
