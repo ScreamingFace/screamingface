@@ -139,3 +139,40 @@ body processing with cooperative checkpoints.
   `OSError`, fail-fast); close failures outside shutdown are only logged
   (`url4.io._host_pools`, WARNING).
 - **Gates:** `run_gates.py url4` all green (2110 passed, 17 xfailed).
+
+## Review round 3 (HupBaHa CHANGES_REQUESTED 2026-10-27T14:41Z) — planned, owner decisions (Sergey)
+
+- R3.1: close failures persist in `HostPools` state until a NON-cancelled `aclose()` raises them
+  as one `ExceptionGroup`; a cancelled shutdown never loses them. Regression: cancel a gated
+  failing close's shutdown, release the gate, retry `aclose()` → group raised, state empty.
+- R3.2: close budget = the pool bound (one constant, 32): at most `limit` closes pending; an
+  evicting acquire that needs a slot waits for one within its own request deadline, else
+  `x.source_timeout`. Each close has a hard 10 s timeout; on expiry the close is aborted and the
+  timeout is recorded as a close failure. Acceptance: limit=1, 1,000 unique hosts, gated closes
+  → retained + pending ≤ 2 (≤ 64 at the default), no sleeps.
+- R3.3: document on `_get` that the `(response, text)` tuple is the TEXT path; a raw-bytes path
+  (open PR #1478 `fetch_bytes`) must not decode. #1478 is not changed here.
+
+### Review round 3 — outcome
+
+- **Commits:** `a81d0e812` (R3.1 + R3.2 in `_host_pools.py`, deadline-bounded slot wait in
+  `_guarded_transport.py`); `ee0bba924` (R3.3, comment only in `http.py`).
+- **Tests:** new `test_source_guard_close_budget.py` (10): failing-closer cancelled shutdown →
+  retry raises the group, state empty, a second retry raises nothing; request-path failure
+  reported by the next shutdown; kept failures bounded (`limit`) with the rest counted; 1,000
+  hosts with held closes at `limit=1` → retained + closing ≤ 2 at every step, only 2 transports
+  built, 998 acquires refused at `timeout=0`; an evicting acquire waits for a slot and proceeds
+  when it frees; a non-evicting/busy-victim acquire never waits; a close past its timeout is
+  cancelled and reported as `TimeoutError`; a close's own `TimeoutError` is not relabelled;
+  waiting for a slot past the fetch deadline → `x.source_timeout`. No `sleep(` and no
+  `# type: ignore` added; every test failed (or hung) against the previous code.
+- **Abort semantics (decision to confirm):** "abort" = the 10 s `asyncio.timeout` cancelling
+  the in-progress `aclose()`. Measured here: a native asyncio cancel pierces httpcore's
+  anyio-shielded `_close_connections`, and anyio force-closes a TLS stream whose close is
+  cancelled; connections the cancelled loop had not reached are dropped with the transport
+  (released by GC), not individually aborted — doing that would need httpx/httpcore privates.
+- **Bound caveat:** a pool evicted while BUSY starts its close from its last release, which
+  never waits, so it can exceed the close budget; those are bounded by requests in flight, not
+  host churn (AIDEV-NOTE in the module).
+- **Gates:** `run_gates.py url4` all green (plain, vs HEAD — no prior test touched this round);
+  `scripts/check_module_size.py` green.
