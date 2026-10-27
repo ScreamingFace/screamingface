@@ -1,9 +1,9 @@
 ---
 ticket: OME-1744
 stack: screamingface-engine
-status: blocked   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-27
-finished:
+finished: 2026-10-27
 ---
 
 # engine-image-token-forwarding — forward image/file input tokens into the run cost
@@ -16,6 +16,18 @@ when the provider gave a breakdown and `null` or absent (unknown) otherwise, nev
 This unit carries that value from the engine's connector into `ai.url4.cost.usage`
 (`url4.streaming.protocol.TokenUsage`) so a run's cost frames say how much of the input was media.
 Epic OME-1529.
+
+## Owner decisions (Sergey, 2026-10-27, AskUserQuestion in the main session)
+
+1. Approved test change, additive only:
+   `packages/url4/tests/unit/test_usage_parity.py::test_report_usage_puts_each_argument_in_its_own_field`
+   gains `image_and_file_tokens` in its `values` dict and its `report_usage` call. Manifest:
+   `.claude/test-change-approvals/OME-1744.json`. No other prior test may change.
+2. Semantics accepted: wire key `gen_ai.usage.image_and_file_tokens`; a cache hit reports the
+   class unknown (`None`), never `0`; a span or run total is unknown if any contributing call is
+   unknown (a deliberate departure from the OME-869 run-total rule, documented at the code).
+   `world/accounting.py` / `operation_accounting.py` are out of scope (follow-up below).
+3. Live check skipped: no credentials in this session (see Live check).
 
 ## Planned changes
 
@@ -48,43 +60,50 @@ Epic OME-1529.
 
 ## Live check (best effort)
 
-- Gateway `http://127.0.0.1:9115` is up: `/health` returns 404 and `/v1/models` returns 401 without
-  a key.
-- The env file the task named
-  (`<scratchpad>/live/gw/env.sh`) does not exist; `live/gw/` is empty. No credentials, so no call
-  was made, and no usage block was captured. Spend: none.
+- Live check not run: no credentials available in this session. The gateway env file
+  (`<scratchpad>/live/gw/env.sh`) is gone, so no call was made and no usage block was captured.
+  Spend: none. The ticket's live acceptance stays OPEN.
 
 ## Outcome
 
-- **Status: BLOCKED** on the append-only test rule before RED. No production or test code was written.
-- **Blocking prior test:** `packages/url4/tests/unit/test_usage_parity.py::test_report_usage_puts_each_argument_in_its_own_field`.
-  It hard-codes the full `url4.observe.Usage` field list
-  (`assert list(values) == _event_fields(Usage)`), so ANY new field on `Usage` fails it, whatever
-  else is changed alongside. Measured: with only the `Usage` field added, three parity tests fail.
-  Two of them (`..._takes_the_usage_fields_in_order`,
-  `..._token_classes_are_the_wire_token_classes`) go green again once `report_usage` and
-  `TokenUsage` change too; this one cannot.
-- **Why the field must go on `Usage`:** it is the only seam from a world adapter (the connector,
-  through `current_usage_sink`) to the executor that builds `cost.usage`. Leaving it off `Usage`
-  and adding it to `TokenUsage` alone fails
-  `test_usage_token_classes_are_the_wire_token_classes`. Avoiding that by giving the wire key a
-  name that does not end in `_tokens`, or by adding an engine-private side channel, would sidestep
-  the contract the parity test protects. Neither was done.
-- **Unblock:** an approval manifest in `.claude/test-change-approvals/` that names this test and
-  allows one change: add `"image_and_file_tokens": <value>` to its `values` dict and the call. The
-  change is additive and the test's intent is unchanged.
-- **Actual files:** this ledger only.
-- **Gates:** not run on code (no code changed).
-- **Deviations:** none. Stopped per the hard rule.
+- **Status: DONE** (code + tests + gates). Live acceptance open (see above).
+- **Actual files:**
+  - `packages/url4/src/url4/observe.py` — `Usage.image_and_file_tokens: int | None = None`
+    (trailing, so positional constructions keep their meaning); `UsageSink` comment.
+  - `packages/url4/src/url4/dag/_context.py` — `report_usage(..., image_and_file_tokens=None)`.
+  - `packages/url4/src/url4/streaming/protocol/taxonomy.py` — `TokenUsage.image_and_file_tokens`,
+    alias `gen_ai.usage.image_and_file_tokens`, `exclude_if=None` (unknown is omitted).
+  - `apps/screamingface-engine/src/screamingface_engine/world/connector.py` —
+    `_image_and_file_tokens(usage)` (bounded `0..2**53-1` int, else `None`), read from `usage` even
+    when `_aigw` is present; a cache hit passes `None`.
+  - `apps/screamingface-engine/src/screamingface_engine/runner/executor.py` — `_SpanUsage` field;
+    span level `accumulate` (poisons); run level latches unknown on the first unknown call (WHY note
+    on the departure from OME-869 beside the code); `_token_usage` / `build_subtree` pass `None`
+    through, never 0.
+  - Tests (new): `packages/url4/tests/unit/test_image_and_file_tokens.py` (11),
+    `apps/screamingface-engine/tests/unit/test_image_token_forwarding.py` (26 incl. parametrized).
+  - Approved prior-test edit: `packages/url4/tests/unit/test_usage_parity.py::test_report_usage_puts_each_argument_in_its_own_field`
+    (additive only), manifest `.claude/test-change-approvals/OME-1744.json`.
+- **Acceptance tests:** present → forwarded (self + subtree frames, known 0 kept); absent / null /
+  malformed / cache hit → unknown (key omitted); text-only run frames byte-identical to literals
+  captured from the pre-change code.
+- **Gates:** `run_gates.py url4` ALL GREEN; `run_gates.py screamingface-engine` ALL GREEN. One
+  earlier engine run had `test_model_call_lifecycle_logging.py::test_a_slow_call_heartbeats_until_it_resolves`
+  fail under `-n auto` load (timing; passes 3/3 alone; unrelated code path); the next full run was
+  green. The `screamingface` stack gate was not run: it does not import `Usage`/`TokenUsage` and
+  reads cost frames with `.get`, so an extra key is ignored there.
+- **Deviations:** none from the approved design. Manifest carries an extra `approved_by` key beside
+  the existing format's fields (the matcher ignores extra keys).
 
-## Open questions (for when it unblocks)
+## Follow-ups
 
-- Wire key name: `gen_ai.usage.image_and_file_tokens` (matches the existing `gen_ai.usage.*`
-  aliases and the gateway's own key). OTel GenAI semconv has no such attribute.
-- Cache hit: report unknown (`None`), not `0`, for the image class. A hit consumed nothing, but
-  the stored body's breakdown is the original call's, so `None` is the conservative choice.
-- Run-level aggregation poisons (one unknown call makes the run unknown). This departs from the
-  OME-869 no-poison rule for the other classes, as that rule's own AIDEV-NOTE anticipates for an
-  optional wire count.
-- `world/accounting.py` and `operation_accounting.py` (the benchmark operation accounting) are out
-  of scope here.
+- `world/accounting.py` / `operation_accounting.py` (benchmark operation accounting) do not carry
+  the image class — out of scope by owner decision.
+- `packages/screamingface/_engine/contract.py` does not surface the new key to the SDK consumer yet.
+- Live acceptance (one tiny image call through a credentialed gateway) still to run.
+
+## Open questions
+
+- The approval manifest pins `branch: engine-image-token-forwarding`. If the branch is renamed to
+  `OME-1744-<desc>` at PR-open, the manifest's `branch` must be updated in the same push or the
+  append-only gate fails closed.

@@ -356,6 +356,7 @@ class ExecutionContext:
         cache_creation_tokens: int | None = None,
         reasoning_tokens: int | None = None,
         cost_usd: Decimal | None = None,
+        image_and_file_tokens: int | None = None,
     ) -> None:
         """Report model token usage under this node's current span. A no-op
         when no ``observer`` was passed to :func:`~url4.dag.run`.
@@ -368,6 +369,9 @@ class ExecutionContext:
         "not reported" and is NOT the same claim as ``0`` — see
         :class:`~url4.observe.Usage`. ``cost_usd`` is already USD; this layer performs no
         conversion or arithmetic on it.
+
+        ``image_and_file_tokens`` is the image/document SUBSET of ``input_tokens`` (OME-1744);
+        omit it when the provider gave no per-modality breakdown — unknown, not ``0``.
         """
         if self._obs is not None:
             self._obs.emit(
@@ -382,6 +386,7 @@ class ExecutionContext:
                     cache_creation_tokens,
                     reasoning_tokens,
                     cost_usd,
+                    image_and_file_tokens,
                 )
             )
 

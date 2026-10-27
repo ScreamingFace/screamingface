@@ -116,6 +116,15 @@ class Usage:
     # contract; `url4` performs no arithmetic on this value and never coerces it through float.
     # `None` means "not priced", which is a different claim from `Decimal("0")` ("was free").
     cost_usd: Decimal | None = None
+    # FEATURE: image/file token accounting (OME-1744, engine half of OME-1546). How much of
+    # `input_tokens` was image or document input, as the gateway states it at
+    # `usage.prompt_tokens_details.image_and_file_tokens`.
+    # INVARIANT: a NON-ADDITIVE subset of `input_tokens` — it never changes a total or a cost.
+    # INVARIANT: `None` means the provider gave no per-modality breakdown — NEVER a synonym for 0.
+    # A known 0 is a real claim ("the breakdown held no media").
+    # WHY LAST rather than beside the other token classes: `report_usage` builds this event
+    # POSITIONALLY, and appending keeps every existing positional construction meaning what it did.
+    image_and_file_tokens: int | None = None
 
 
 type SavedCostProvenance = Literal["reported", "archive_matched"]
@@ -247,7 +256,7 @@ UsageSink = Callable[..., None]  # matches ExecutionContext.report_usage's kwarg
 # (*, provider: str, model: str, input_tokens: int, output_tokens: int,
 #  response_model: str | None = None, cache_read_tokens: int | None = None,
 #  cache_creation_tokens: int | None = None, reasoning_tokens: int | None = None,
-#  cost_usd: Decimal | None = None) -> None
+#  cost_usd: Decimal | None = None, image_and_file_tokens: int | None = None) -> None
 # INVARIANT: every kwarg after `output_tokens` is OPTIONAL. This is a live seam with callers already
 # written against it, so an adapter that learns nothing about caching or cost must be able to say
 # nothing rather than be forced to invent a zero.
