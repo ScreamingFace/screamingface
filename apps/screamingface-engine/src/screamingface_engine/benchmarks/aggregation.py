@@ -29,6 +29,7 @@ from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.echoed_input import echoed_input
 from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
+from screamingface_engine.benchmarks.media_parking import park_case_media
 from screamingface_engine.error_text import public_identifier, public_message
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
@@ -176,6 +177,10 @@ def finalize_candidate_result(
 
     scoring_cases = policy_cases(typed_cases, failure_policy)
     scored = scorer(scoring_cases) if scoring_cases is not None else None
+    # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's result store,
+    # named by the sha256 the placeholder below carries, so a researcher can open one later.
+    for case in typed_cases:
+        park_case_media(case.input)
     # FEATURE (OME-1271): this is where a Candidate result leaves the engine, so here each
     # Case's echoed input loses its pictures' base64 to their placeholders.
     # INVARIANT: after the scorer, so grading and scoring saw the real Case; a text Case's
