@@ -122,6 +122,9 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
     # WHY (OME-1527): the scorer adapter names a judge that never gave a parseable verdict
     # (`judge_redraw`); without a message here that Case crashed the whole aggregate.
     "judge_reply_invalid": "the judge gave no parseable verdict for this Case after its redraws",
+    # WHY (OME-1271): the scorer adapter names a Case whose input breaks the envelope rules;
+    # without a message here that one Case would crash the whole aggregate.
+    "invalid_candidate_input": "this Case's input is not a conversation the grader can read",
     "missing_target_asset": "the baked target record for this Case is missing or invalid",
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
     "case_error": "the Case pipeline collected an error instead of an evaluation",
