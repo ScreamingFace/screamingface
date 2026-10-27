@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from screamingface._results.accounting import saved_accounting_context
 from screamingface._ui.case_navigation import CaseEntries, CaseNavigation
+from screamingface._ui.media_panel import MediaPanel
 from screamingface._ui.notebook_host import (
     case_click_handler,
     download_in_colab,
@@ -94,6 +95,7 @@ class ReportBrowser:
         self.directory = Path("screamingface-reports") / uuid4().hex
         self.snapshot = self.directory / "report.json"
         self.notice = widgets.HTML()
+        self.media = MediaPanel(widgets, folder=self.directory)
         self._controls()
         self._assemble()
         self._render_page()
@@ -203,7 +205,7 @@ class ReportBrowser:
         )
         self.case_header.add_class("sf-cases-header")
         self.cases.add_class("sf-cases-body")
-        self.case_box = w.VBox([self.case_header, self.notice, self.cases])
+        self.case_box = w.VBox([self.case_header, self.notice, self.cases, self.media.widget])
         self.case_box.add_class("sf-cases-box")
 
     def _snapshot_link(self) -> str:
@@ -242,6 +244,7 @@ class ReportBrowser:
             self._updating_go_to = True
             self.go_to.value = str(self._focus_id)
             self._updating_go_to = False
+        self.media.show(self._focused_case())
 
     def _select_candidate(self, change: Any) -> None:
         if self._paging:
@@ -342,6 +345,8 @@ class ReportBrowser:
     def _page_html(self, page: int) -> str:
         indices = self.navigation.indices(page)
         entries = [self.entries[index] for index in indices]
+        # WHY kept: the media panel reads the focused Case from here, not from disk again.
+        self._page_cases = {case.case_id: case for _, case in entries}
         selected = next(
             (index for index, (_, case) in enumerate(entries) if case.case_id == self._focus_id), 0
         )
@@ -372,6 +377,10 @@ class ReportBrowser:
         self.count.value = self.navigation.caption(self.page)
         self.previous.disabled = self.page == 0
         self.next.disabled = self.page + 1 >= len(self.navigation.pages)
+        self.media.show(self._focused_case())
+
+    def _focused_case(self) -> Any:
+        return None if self._focus_id is None else self._page_cases.get(self._focus_id)
 
     def _render_page(self) -> None:
         self._requested_page = self.page

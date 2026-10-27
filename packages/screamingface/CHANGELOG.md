@@ -36,6 +36,15 @@
 
 ### Features
 
+* **screamingface:** open a Case's pictures and files from its Case Result (`OME-1271`).
+  `CaseResult.media` lists each one as a `CaseMedia` (kind, media type, size, sha256, filename)
+  with no network call; `sf.fetch_media(item)` and `Client.fetch_media(item)` fetch it from the
+  engine and return a `FetchedMedia` only when its size and sha256 match the placeholder. A
+  picture shows inline in Jupyter; `.save(path)` writes either kind. The report browser gives the
+  focused Case a **Show picture** button per picture and a **Save file** button per file. The
+  engine keeps a run's pictures 48 hours; after that the fetch raises the new
+  `MediaUnavailableError` with code `media_not_kept`. Needs an engine with OME-1271 PR 5.
+
 * **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
   `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:
   `full_name`, `institution`, any other key) and the paper (`title`, `url`, `citation`, any other

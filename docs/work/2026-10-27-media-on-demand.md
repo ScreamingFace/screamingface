@@ -15,9 +15,10 @@ size, sha256), so a researcher has no way to see the picture the model saw. The 
 engine process can't read the Benchmark files (they ship only in the Runner image), but it
 already serves the result store at `GET /artifacts/{id}`, and that store names every item by the
 sha256 of its bytes: the same value the placeholder carries. So when a run finishes, the Runner
-parks each distinct picture and file in that store; the SDK (next PR) fetches one by its
-placeholder's sha256 and checks the bytes. Items live 48 hours (`artifact_ttl_s`), refreshed
-each time a run parks the same bytes again. Design agreed with the owner on 2026-10-27.
+parks each distinct picture and file in that store; the SDK fetches one by its placeholder's
+sha256 and checks the bytes, and the report browser gives each a button. Items live 48 hours
+(`artifact_ttl_s`), refreshed each time a run parks the same bytes again. Design agreed with the
+owner on 2026-10-27.
 
 ## Planned changes
 
@@ -30,8 +31,11 @@ each time a run parks the same bytes again. Design agreed with the owner on 2026
   `finalize_candidate_result` parks each Case's media before the echo.
 - `apps/screamingface-engine/src/screamingface_engine/runner/operation_capture.py` and
   `runner/main.py`: bind the parker for each run, with the run's result store.
-- Tests: `tests/unit/test_media_parking.py` (new), appended cases in
-  `tests/unit/test_benchmark_aggregation.py` and the operation-capture tests.
+- Tests: `tests/unit/test_media_parking.py` (new).
+- SDK (`packages/screamingface`): `media.py` (new: `CaseMedia`, `FetchedMedia`, `case_media`),
+  `_engine/media.py` (new: the checked fetch), `_ui/media_panel.py` (new: Show picture / Save
+  file), `CaseResult.media`, `Client.fetch_media`, `sf.fetch_media`, `MediaUnavailableError`,
+  the report browser hook, the surface snapshot and the changelog; `tests/test_case_media.py`.
 
 ## Test plan
 
@@ -42,6 +46,11 @@ each time a run parks the same bytes again. Design agreed with the owner on 2026
 - Through `finalize_candidate_result`: the parked id equals the echoed placeholder's sha256.
 - The run wrapper binds the parker with the run's store for every step.
 - The App's reader serves a parked picture's bytes by that sha256.
+- SDK: a Case lists its pictures and files from the engine's echo (and from an older inline
+  `data:` URI); a fetch returns the bytes only when size and sha256 match; 404 is
+  `media_not_kept`; a malformed sha256 is refused before any request; a picture shows inline and
+  a file saves under its own name; the browser lists the focused Case's media, with a button per
+  kind, and shows the reason when a fetch fails.
 
 ## Acceptance
 
@@ -50,7 +59,18 @@ each time a run parks the same bytes again. Design agreed with the owner on 2026
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, except `candidate_input.py` is unchanged: the parker decodes on
+  its own, because a shared helper would have pushed that file past 450 lines; a test pins that
+  the parked name equals the echoed placeholder's sha256.
+- **Commits:** engine — feat(screamingface-engine): park each Case's pictures and files in the
+  result store at finish; SDK — feat(screamingface): open a Case's pictures and files from its
+  Case Result.
+- **Gates:** relevant tests only. Engine: `test_media_parking.py` (11) plus the 12 files around
+  the finalizer and the run wrapper, 178 passed; the wiring tests fail when either wiring point
+  is removed. SDK (`--extra notebook`): `test_case_media.py` (15) plus the browser, navigation,
+  Colab, pagination, placeholder-conformance and public-surface tests, all green; the browser
+  test fails without its hook. ruff, ruff format, pyright clean on touched files; layering OK.
+- **Deviations:** the Python entry point is `sf.fetch_media(item)` / `Client.fetch_media(item)`,
+  not `report.fetch_media`: a fetch needs only the sha256, so the Report adds nothing.
+  `report_browser.py` is 454 lines (was 445). Owner check left: a local-stack picture run, then
+  Show picture on a FigQA Case.
