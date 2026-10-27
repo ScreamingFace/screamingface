@@ -7,38 +7,25 @@ validates the run's knobs (``_validate_concurrency``), builds the per-run
 :class:`~url4.dag.ExecutionContext` (``_run_context`` — the composition root
 that owns the default ``HttpIOLayer``, imported lazily so the static import
 graph names no transport), mints the observation bookkeeping
-(``_start_observation`` / ``_finish_observation`` / ``_expression_hash``), and
-delegates to ``_wire_spawn`` (which stays in :mod:`url4.dag.executor` because
-it builds executors). ``url4.dag`` re-exports :func:`run` unchanged, so no
-public import path moves.
+(``_start_observation`` / ``_finish_observation`` / ``_expression_hash``, now in
+:mod:`url4.dag._run_observe`), resolves the run's files at start (now in
+:mod:`url4.dag._run_files`), and delegates to ``_wire_spawn`` (which stays in
+:mod:`url4.dag.executor` because it builds executors). ``url4.dag`` re-exports
+:func:`run` unchanged, so no public import path moves.
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import hashlib
-import secrets
 from collections.abc import Sequence
-from typing import Literal, cast
+from typing import cast
 
-from url4.core.errors import ParseError
-from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import Node as AstNode
 from url4.io.layer import IOLayer
-from url4.observe import Observer, RunFinished, RunStarted
+from url4.observe import Observer
 
-from url4.dag._context import _ObsState  # isort: skip
-from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
-from url4.dag.attachments import (  # isort: skip
-    CachedBlob,
-    FileRef,
-    bind_run_files,
-    attachment_slots,
-    current_run_files,
-    scan_sources,
-    refuse_remote,
-)
+from url4.dag.attachment import Attachment  # isort: skip
+from url4.dag.attachments import bind_run_files  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.executor import Executor, _wire_spawn  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -48,9 +35,18 @@ from url4.dag.node import (  # isort: skip
     ExecutionContext,
     ProcessFn,
     default_process,
-    gather_or_cancel,
 )
-from url4.dag.nodes.blob import BlobRefNode  # isort: skip
+
+# WHY: the run-start file resolution and the observation bookkeeping live in their own
+# private modules (module-size cap); the redundant aliases re-export them so every
+# ``url4.dag._run.<name>`` import path keeps working.
+from url4.dag._run_files import _as_attachment as _as_attachment  # isort: skip
+from url4.dag._run_files import _ast_of as _ast_of  # isort: skip
+from url4.dag._run_files import _run_files as _run_files  # isort: skip
+from url4.dag._run_files import _verify as _verify  # isort: skip
+from url4.dag._run_observe import _expression_hash as _expression_hash  # isort: skip
+from url4.dag._run_observe import _finish_observation as _finish_observation  # isort: skip
+from url4.dag._run_observe import _start_observation as _start_observation  # isort: skip
 
 
 def _validate_concurrency(concurrency: int | None) -> None:
@@ -196,105 +192,6 @@ async def run(
     finally:
         if owned_io is not None:
             await owned_io.aclose()
-
-
-async def _run_files(
-    target: str | AstNode | Graph | DagNode,
-    case: Sequence[Attachment],
-    run_ctx: ExecutionContext,
-) -> tuple[tuple[Attachment | str, ...], dict[str, CachedBlob | str] | None]:
-    """The run's fixed ``attachments[]`` and file cache, resolved BEFORE the first node runs.
-
-    INVARIANT (F2 / D5): every file ref the AST names is fetched once (through the run's
-    bounded io) and sha256-verified here; any failure — a ``;optional`` source included —
-    fails the run before any model call. A ``url4://`` blob ref fails first, with no I/O (D1).
-    A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
-    WHY ``https://`` sources are only slotted here, not fetched (owner decision Q-B): they stay
-    lazy, so a text body and a failed ``;optional`` source behave exactly as before (D5 exempt).
-    """
-    if current_run_files() is not None:
-        return tuple(case), None
-    ast = _ast_of(target)
-    scan = scan_sources(ast) if ast is not None else None
-    refs = () if scan is None else scan.refs
-    refuse_remote(refs)
-    bodies = await gather_or_cancel(_verify(ref, run_ctx) for ref in refs)
-    resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
-    cache: dict[str, CachedBlob | str] = {
-        ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
-    }
-    order = () if scan is None else scan.order
-    return attachment_slots(case, resolved, order), cache
-
-
-async def _verify(ref: FileRef, run_ctx: ExecutionContext) -> tuple[bytes, str | None]:
-    return await BlobRefNode(ref.address).verified(run_ctx)
-
-
-def _as_attachment(ref: FileRef, body: bytes, media_type: str | None) -> Attachment:
-    return Attachment(ref.key, media_type or OCTET_STREAM, body)
-
-
-def _ast_of(target: str | AstNode | Graph | DagNode) -> AstNode | None:
-    """The parse tree to collect file refs from; ``None`` for a pre-built graph or node.
-
-    A text that does not parse yields ``None`` here: compiling it raises the real error.
-    """
-    ast: AstNode | None = None
-    if isinstance(target, str):
-        with contextlib.suppress(ParseError):
-            ast = grammar_parse(target)
-    elif not isinstance(target, (Graph, DagNode)):  # parse-tree nodes have no resolve
-        ast = target
-    return ast
-
-
-def _start_observation(
-    run_ctx: ExecutionContext,
-    observer: Observer | None,
-    target: str | AstNode | Graph | DagNode,
-    trace_id: str | None = None,
-    root_span_id: str | None = None,
-) -> _ObsState | None:
-    """Mint the run's ``_ObsState``, wire it onto ``run_ctx``, and emit
-    :class:`~url4.observe.RunStarted` — once, here, for the top-level owned
-    run only. ``None`` (a no-op run) when no ``observer`` was passed.
-
-    ``trace_id``/``root_span_id``, when supplied, are used verbatim instead of
-    minting fresh ones — letting a caller's own run-root identity (e.g. a
-    hosting service's ``publish.run``) agree with the engine's."""
-    if observer is None:
-        return None
-    obs = _ObsState(observer, trace_id if trace_id is not None else secrets.token_hex(16))
-    run_ctx._obs = obs
-    run_ctx._current_span_id = root_span_id if root_span_id is not None else secrets.token_hex(8)
-    obs.emit(RunStarted(obs.trace_id, run_ctx._current_span_id, _expression_hash(target)))
-    return obs
-
-
-def _finish_observation(obs: _ObsState | None, status: Literal["ok", "error", "cancelled"]) -> None:
-    """Emit :class:`~url4.observe.RunFinished`; a no-op when ``obs`` is ``None``."""
-    if obs is not None:
-        obs.emit(RunFinished(status, obs.next_seq()))
-
-
-def _expression_hash(target: str | AstNode | Graph | DagNode) -> str:
-    """A short, deterministic fingerprint of ``target`` for
-    :class:`~url4.observe.RunStarted` — identifies "which expression" without
-    carrying (and potentially leaking) the full source text through the
-    observation stream.
-
-    A raw hand-built :class:`DagNode` has no engine-guaranteed ``__repr__`` —
-    the default object repr is id-based and differs run to run, which would
-    break the "deterministic" contract above. ``str``/``AstNode``/``Graph``
-    targets stringify structurally (source text / a dataclass repr), so only
-    the ``DagNode`` fallback needs the type-name-only fingerprint.
-    """
-    if isinstance(target, (str, AstNode, Graph)):
-        fingerprint = str(target)
-    else:
-        fingerprint = type(target).__name__
-    return hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
 
 
 def _run_context(
