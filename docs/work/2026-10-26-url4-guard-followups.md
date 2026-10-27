@@ -1,0 +1,209 @@
+---
+ticket: OME-1718, OME-1719, OME-1720
+stack: url4
+status: done   # planned | in_progress | done | blocked
+started: 2026-10-26
+finished: 2026-10-27
+---
+
+# url4-guard-followups — address fallback, bounded host pools, deadline through decoding
+
+## Intent
+
+Three follow-ups to the url4 source destination guard (OME-1544, merged PR #1521), all in
+`packages/url4/src/url4/io/`. (1) OME-1718: a DNS name whose first vetted address is
+unreachable fails although a later vetted address would answer — fall back among the
+already-vetted answers on connection-phase failures only, never re-resolving and never after
+the request was sent. (2) OME-1719: `GuardedTransport` keeps one inner transport per host name
+forever, and the owned adapter is reused for the life of a `Client`/`Url4Node` — bound the
+retained per-host pools (LRU) without ever closing one under an in-flight request. (3)
+OME-1720: the total deadline is an `asyncio.timeout` around the fetch, but body decoding is a
+synchronous loop that never yields on input that decodes to nothing (empty gzip members), so a
+fetch can finish after its deadline and still succeed — carry one absolute deadline through
+body processing with cooperative checkpoints.
+
+## Planned changes
+
+- `packages/url4/src/url4/io/_guarded_transport.py` — vetted-address list + bounded fallback
+  (1718); LRU-bounded per-host pool registry with in-flight tracking and deferred close
+  (1719); deadline checkpoints in `_CappedStream` (1720).
+- `packages/url4/src/url4/io/_body_decode.py` — the inflater yields control after every
+  decompress step (an empty piece) so the caller can checkpoint the deadline (1720).
+- `packages/url4/src/url4/io/http.py` — one absolute deadline per fetch, carried in
+  `FetchState` across redirect hops; never return success after it (1720).
+- New test files (append-only; no existing test edited):
+  `packages/url4/tests/unit/test_source_guard_fallback.py`,
+  `packages/url4/tests/unit/test_source_guard_pools.py`,
+  `packages/url4/tests/unit/test_source_guard_deadline.py`.
+- `docs/tasks/2026-10-26-OME-17{18,19,20}-*.md` mirrors.
+
+## Test plan
+
+- 1718: unreachable first + reachable second succeeds via second (Host/SNI kept, one lookup);
+  mixed public/private answer set refused before any connection; a failure after the request
+  was sent (read error) is not retried; all addresses failing → `x.source_timeout`/
+  resolution failure within connect and total deadlines; attempt bound honoured.
+- 1719: many hostnames never exceed the bound; evicted idle pool is closed; a pool with an
+  in-flight (streaming) request is evicted from the map but closed only after its response
+  closes, without interrupting it; overlapping requests on one host; adapter `aclose` closes
+  retained and retired pools.
+- 1720: a body of many empty gzip members delivered without suspension fails with
+  `x.source_timeout` (never succeeds after the deadline); stream closed on timeout and on
+  cancellation; the deadline is shared across redirect hops; valid decoding and caps intact.
+
+## Acceptance
+
+- Verbatim Linear acceptance for OME-1718, OME-1719, OME-1720 (see the issues); url4 gates
+  green via `uv run .claude/scripts/run_gates.py url4`.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** as planned, plus a new `packages/url4/src/url4/io/_host_pools.py` (the LRU
+  registry was split out of `_guarded_transport.py` to keep that file focused, 330 lines).
+  Tests: `test_source_guard_fallback.py` (12), `test_source_guard_pools.py` (12),
+  `test_source_guard_deadline.py` (8), 32 new tests in all. No pre-existing test was edited, and no
+  manifest was needed. Mirrors: `docs/tasks/2026-10-26-OME-17{18,19,20}-*.md`.
+- **Commits:** `70d10ceff` fix(url4): fall back to the next vetted DNS answer after a
+  connection failure (OME-1718); `e6b0bb59c` fix(url4): bound the guarded transport's
+  per-host connection pools (OME-1719); `e47661226` fix(url4): enforce the source deadline
+  through compressed-body decoding (OME-1720); then this docs commit.
+- **Gates:** `run_gates.py url4`: append-only, ruff check, ruff format, pyright and pytest
+  (cov ≥95%) were all green after each commit. `check_mirror_status.py` exits 0.
+- **Deviations / open questions (conservative defaults picked, for Sergey):**
+  1. `MAX_ADDRESS_ATTEMPTS = 3`: each hop tries at most 3 vetted answers, and a module
+     constant sets the cap (it is not a `SourceGuard` field).
+  2. Connect timeout is **per attempt**: each fallback attempt gets the full
+     `connect_timeout`, and only the total deadline bounds the sum (worst case 3×10s
+     < 60s). The other reading is one connect budget shared across attempts, but then a
+     blackholed first address would starve the fallback.
+  3. `MAX_HOST_POOLS = 32`, a constructor kwarg on `GuardedTransport` that is not exposed on
+     `HttpIOLayer`/`SourceGuard` (YAGNI). When every retained pool is busy, the LRU pool still
+     leaves the map, so the bound on retained pools holds. It closes only after its last
+     in-flight response closes, so for that short time open pools can exceed the bound.
+  4. The deadline uses `time.monotonic` (`_guarded_transport._now`, which tests replace) next to
+     `asyncio.timeout` on the loop clock. The capped stream yields to the loop once per 64 KiB
+     raw step.
+  5. The `ConnectError` fallback also covers TLS handshake failures, which httpx reports as
+     `ConnectError` too. That is still the connection phase, so the request was never sent.
+     **Accepted as intended** (review): each attempt still verifies the certificate for the
+     original host name (SNI), so a fallback can never accept a wrong certificate.
+  6. Linear actor labels are now `agentic`; the mirrors were updated to match.
+- **Review round (sf-code-review @613b0a981):** (1, blocking) a cancelled `HostPools.acquire`
+  during a victim's close leaked a phantom in-flight count and left the victim half-closed:
+  fixed with a synchronous undo on `BaseException` and one shielded, tracked close task per pool
+  (shutdown awaits them). (2) Earlier fallback failures were dropped: now attached as an
+  exception note on the final error (address and class name only; the mapping is unchanged).
+  (3) The per-step `asyncio.sleep(0)` was unpinned: a cancellation test now fails if it is
+  removed (checked by mutation). 4 tests added (36 new in all); gates green.
+
+## Review round 2 (PR #1555: HupBaHa CHANGES_REQUESTED 2026-10-27, IonesioJunior inline x3) — planned
+
+- H1: `fetch()`/`fetch_ex()` decoded `response.text` after the last `past(deadline)` check, so a
+  slow charset decode could succeed late. Plan: decode inside `_get` and re-check the absolute
+  deadline after text conversion (both public paths); regression with a registered slow codec
+  advancing the fake clock.
+- H2 + Ionesio :147: `HostPools.aclose()` — one shielded `gather(..., return_exceptions=True)`
+  over every tracked close; a cancelled shutdown abandons nothing (a later `aclose()` finishes
+  them); failures logged and re-raised as one `ExceptionGroup` after all complete.
+- Ionesio :121/:108: the request path only STARTS a close (`_release`/`_evict` never await it);
+  `_start_close` adds a done-callback that logs (and so retrieves) a close error. A close error
+  can no longer fail or replace an unrelated request's result/exception, and a victim's close
+  no longer costs the evicting fetch's deadline.
+- Ionesio :164: the non-async-stream `TypeError` path closes the stream (sync `close()`) first.
+
+### Review round 2 — outcome
+
+- **Commits:** `9f711ac51` (H1: text decoded inside `_get`, deadline re-checked after it, both
+  `fetch`/`fetch_ex`); `2d78702aa` (H2 + Ionesio :108/:121/:147: the request path only starts a
+  close, a done-callback logs and retrieves close errors, `aclose()` drains through one shielded
+  `gather(return_exceptions=True)` and re-raises failures as one `ExceptionGroup`);
+  `e6afa79f8` (Ionesio :164: `_async_or_close` closes a sync stream before the `TypeError`).
+- **Tests:** +2 in `test_source_guard_deadline.py` (slow registered charset on the fake clock,
+  `fetch` and `fetch_ex`); new `test_source_guard_pool_closes.py` (7: failing close of an evicted
+  busy pool / of an idle victim never fails a request; drop-path close failure logged, not
+  "never retrieved"; cancelled shutdown then retry completes all closes; mixed failed + slow
+  closes all complete and report as a group; a failing close never replaces the request's own
+  `ReadError`; a non-async body is closed before the refusal). Every new test was RED against
+  the previous code. No `sleep(` added (hygiene ratchet).
+- **Deviation — this branch's own tests changed (none on origin/main):** in
+  `test_source_guard_pools.py`, three tests now `await _settled(...)` before asserting a pool
+  closed (a release no longer waits for the close), and
+  `test_an_acquire_cancelled_during_a_victim_close_leaks_nothing` became
+  `test_an_acquire_never_waits_for_a_victims_close` — its premise (an acquire awaiting the
+  victim's close) is exactly what the review removed; its leak/phantom-count assertions are
+  kept. Because of this, commit `2d78702aa` was gated with
+  `run_gates.py url4 --base <merge-base with origin/main>` (the files are Added vs main);
+  `--skip-append-only` was never used, and the plain `run_gates.py url4` is green at HEAD.
+- **Behaviour note:** shutdown (`GuardedTransport.aclose` → `HttpIOLayer.aclose`) now raises an
+  `ExceptionGroup` of pool-close failures after every close ends (previously the first
+  `OSError`, fail-fast); close failures outside shutdown are only logged
+  (`url4.io._host_pools`, WARNING).
+- **Gates:** `run_gates.py url4` all green (2110 passed, 17 xfailed).
+
+## Review round 3 (HupBaHa CHANGES_REQUESTED 2026-10-27T14:41Z) — planned, owner decisions (Sergey)
+
+- R3.1: close failures persist in `HostPools` state until a NON-cancelled `aclose()` raises them
+  as one `ExceptionGroup`; a cancelled shutdown never loses them. Regression: cancel a gated
+  failing close's shutdown, release the gate, retry `aclose()` → group raised, state empty.
+- R3.2: close budget = the pool bound (one constant, 32): at most `limit` closes pending; an
+  evicting acquire that needs a slot waits for one within its own request deadline, else
+  `x.source_timeout`. Each close has a hard 10 s timeout; on expiry the close is aborted and the
+  timeout is recorded as a close failure. Acceptance: limit=1, 1,000 unique hosts, gated closes
+  → retained + pending ≤ 2 (≤ 64 at the default), no sleeps.
+- R3.3: document on `_get` that the `(response, text)` tuple is the TEXT path; a raw-bytes path
+  (open PR #1478 `fetch_bytes`) must not decode. #1478 is not changed here.
+
+### Review round 3 — outcome
+
+- **Commits:** `a81d0e812` (R3.1 + R3.2 in `_host_pools.py`, deadline-bounded slot wait in
+  `_guarded_transport.py`); `ee0bba924` (R3.3, comment only in `http.py`).
+- **Tests:** new `test_source_guard_close_budget.py` (10): failing-closer cancelled shutdown →
+  retry raises the group, state empty, a second retry raises nothing; request-path failure
+  reported by the next shutdown; kept failures bounded (`limit`) with the rest counted; 1,000
+  hosts with held closes at `limit=1` → retained + closing ≤ 2 at every step, only 2 transports
+  built, 998 acquires refused at `timeout=0`; an evicting acquire waits for a slot and proceeds
+  when it frees; a non-evicting/busy-victim acquire never waits; a close past its timeout is
+  cancelled and reported as `TimeoutError`; a close's own `TimeoutError` is not relabelled;
+  waiting for a slot past the fetch deadline → `x.source_timeout`. No `sleep(` and no
+  `# type: ignore` added; every test failed (or hung) against the previous code.
+- **Abort semantics (decision to confirm):** "abort" = the 10 s `asyncio.timeout` cancelling
+  the in-progress `aclose()`. Measured here: a native asyncio cancel pierces httpcore's
+  anyio-shielded `_close_connections`, and anyio force-closes a TLS stream whose close is
+  cancelled; connections the cancelled loop had not reached are dropped with the transport
+  (released by GC), not individually aborted — doing that would need httpx/httpcore privates.
+- **Bound caveat:** a pool evicted while BUSY starts its close from its last release, which
+  never waits, so it can exceed the close budget; those are bounded by requests in flight, not
+  host churn (AIDEV-NOTE in the module).
+- **Gates:** `run_gates.py url4` all green (plain, vs HEAD — no prior test touched this round);
+  `scripts/check_module_size.py` green.
+
+## Review round 4 (HupBaHa CHANGES_REQUESTED 2026-10-27T15:36Z) — planned
+
+- R4.1: `HttpIOLayer.aclose()` and `peer/_owned.py` `_OwnedIO.aclose()` dropped the owned
+  adapter before awaiting its close, so a cancelled public shutdown made a kept close failure
+  unreachable on retry. Plan: one shielded close task per boundary (shared private helper),
+  kept across caller cancellation; every `aclose()` awaits that same task until a non-cancelled
+  caller observes success or the `ExceptionGroup`. Regressions through `HttpIOLayer` and
+  `_OwnedIO`. (`_owned.py` is on main; its existing tests are not edited.)
+- R4.2 (owner: narrow the invariant, no new waits): `_host_pools.py` docstring states the true
+  bound — idle-eviction closes ≤ limit (budgeted); busy-retired pools close on their last
+  release outside the budget, bounded by requests in flight; total ≤ retained + budget +
+  in-flight. Test: limit=1, 20 held leases on distinct hosts, release all → closing ≤ budget +
+  held leases.
+
+### Review round 4 — outcome
+
+- **Commits:** `dbd08d910` (R4.1: new public `url4/io/close_once.py` `CloseOnce` — public, not
+  `_close_once`, because `peer` importing a private `io` module would grow the cross-package
+  private-import ratchet; used by `HttpIOLayer.aclose()` and `_OwnedIO.aclose()`, owned
+  reference dropped only after the close ends); `0f10340ec` (R4.2: `_host_pools.py` invariant
+  narrowed — idle-eviction closes ≤ limit, busy-victim closes bounded by requests in flight,
+  retained + pending ≤ limit + limit + in-flight; close-budget test file STORY updated).
+- **Tests:** new `test_source_guard_shutdown_retry.py` (4: HttpIOLayer cancel-mid-close → retry
+  raises the group, then a no-op; concurrent shutdowns share one close; the same through
+  `_OwnedIO` with a real HttpIOLayer; `_OwnedIO` retry awaits the SAME close, not a second
+  one) — all 4 RED before the fix. `test_source_guard_close_budget.py` +1 (limit=1, 20 held
+  leases → closing ≤ budget + held, 19 busy-victim closes; pins current behaviour). Existing
+  main tests for `_OwnedIO`/`HttpIOLayer` close (idempotence, `_owned is None`, concurrency)
+  pass unedited.
+- **Gates:** `run_gates.py url4` green vs HEAD; `check_module_size.py` green; 2125 passed.
