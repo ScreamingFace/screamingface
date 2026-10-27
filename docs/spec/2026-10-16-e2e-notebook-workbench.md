@@ -278,6 +278,51 @@ count of failing spans and error logs); `passed` is the verdict above. The `summ
 cell reads `expected FAIL ✓` when it held and `expected FAIL ✗` with the reasons when it did
 not. A notebook without `expect` is judged as before.
 
+### 3.8 Trace view (unit 8, dev-only)
+
+Owner decisions (2026-10-27), plan `docs/plan/2026-10-27-e2e-workbench-u8-trace-view.md`:
+the bundle page's "Trace chain" table becomes one **Trace** view that tells the run's story
+across every hop, built from what the bundle already holds, plus a client span derived from
+SDK events. The verdict (§3.3, §3.7) does not change; this is presentation.
+
+Observed on a real replay bundle (2026-10-27, trace `e7117aab…`, 39 spans):
+
+- gateway `POST /v1/chat/completions` spans are already children of the engine node span that
+  made the call (`/benchmarks/candidate`, OME-1185), so one cross-service tree exists;
+- `url4.run`'s parent is the span id the client minted in its `traceparent`
+  (`screamingface/_engine/trace.py`), which no service exports, so the tree has one dangling
+  parent;
+- gateway server spans carry **no attributes** (no model, cache status, HTTP status or
+  `gateway_call_id`); model, tokens, provider and `url4.cache_status` live on the parent engine
+  span.
+
+The view, top to bottom:
+
+1. **Header:** trace id (copy), verdict, wall time, model calls, cache hits, total spend, and
+   span, event and log-line counts.
+2. **Hop path:** notebook (SDK) → engine → aigateway → provider or cache → scoreboard. Each hop
+   shows ✓, ✗ or grey, its span and log-line counts and its latency. Grey carries the reason:
+   "not instrumented" (scoreboard), "none on replay: served from cache" (provider), "no spans
+   received" (export down).
+3. **Span tree:** one tree across services, nested by `parent_span_id`. The client span is the
+   root. Siblings with the same name collapse into "×N". The path to any error opens by default.
+4. **Model calls:** one row per gateway chat span, joined by span id to the parent engine span
+   and to the SDK `Span` and `Usage` events with that span id. Each row shows model, tokens in
+   and out, cache, spend, latency and status, and expands to its gateway log lines. A line is
+   joined to a call by exact `trace_id=` token plus the span's time window, and labelled
+   "matched by time" until gateway spans carry `gateway_call_id`.
+5. **Checks:** each verdict rule in `trace.json`, in plain words, with a link to its evidence.
+6. **Export:** `spans.jsonl` converted to OTLP/JSON for download.
+
+**Client span (synthetic).** When exactly one exported span has a parent id that no exported
+span carries, and that span is `url4.run`, the view adds a root span: service
+`screamingface-sdk`, name `sdk.evaluate`, `span_id` = that parent id, start and end from the
+recorder's first and last event times. It is drawn dashed and marked "derived from SDK events".
+With zero or several such orphans nothing is synthesised and the reason is shown.
+
+Out of scope: scoreboard OTel, a SigNoz adapter for cloud bundles, and gateway span attributes.
+Each is its own leaf under OME-1636.
+
 ## 4. Run lanes
 
 | Trigger | Targets | Gate |
