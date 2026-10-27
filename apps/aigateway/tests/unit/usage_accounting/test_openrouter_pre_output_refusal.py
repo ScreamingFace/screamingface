@@ -226,9 +226,7 @@ def test_a_later_cache_hit_on_the_refusal_carries_the_certified_zero() -> None:
         pytest.param(_refusal(choices="refused"), id="choices-not-list"),
         pytest.param(_refusal(choices=["refused"]), id="choice-not-mapping"),
         pytest.param(_with_choice(message="refused"), id="message-not-mapping"),
-        pytest.param(_refusal(openrouter_metadata={"pipeline": []}), id="unknown-field"),
         pytest.param(_refusal(error={"code": 400}), id="error"),
-        pytest.param(_refusal(created="yesterday"), id="bad-scalar"),
     ],
 )
 def test_a_shape_that_is_not_an_exact_pre_output_refusal_stays_unknown(

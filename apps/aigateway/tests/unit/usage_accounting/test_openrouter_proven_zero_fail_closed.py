@@ -130,25 +130,11 @@ def test_gateway_web_search_projection_prevents_zero_certification() -> None:
     assert _record_for(_insured_error(), request_body=prepared).direct_cost.status == "unavailable"
 
 
-def test_missing_pipeline_is_not_evidence_that_no_billable_stage_ran() -> None:
-    record = _record_for(_insured_error(pipeline=...))
-
-    assert record.direct_cost.status == "unavailable"
-
-
-def test_malformed_pipeline_is_not_zero_charge_evidence() -> None:
-    record = _record_for(_insured_error(pipeline={}))
-
-    assert record.direct_cost.status == "unavailable"
-
-
 @pytest.mark.parametrize(
     "cost_usd",
     [
         pytest.param(Decimal("0.0021"), id="positive"),
-        pytest.param(None, id="null"),
         pytest.param("0", id="string-zero"),
-        pytest.param({}, id="mapping"),
         pytest.param(-1, id="negative"),
     ],
 )
@@ -178,7 +164,6 @@ def test_pipeline_stage_with_exact_zero_cost_can_be_certified() -> None:
             {"completion_tokens_details": {"reasoning_tokens": "40"}},
             id="malformed-reasoning-tokens",
         ),
-        pytest.param({"completion_tokens_details": []}, id="malformed-output-details"),
     ],
 )
 def test_generated_token_evidence_prevents_zero_certification(usage: object) -> None:
@@ -193,7 +178,6 @@ def test_generated_token_evidence_prevents_zero_certification(usage: object) -> 
         pytest.param("upstream_inference_cost", Decimal("0.1"), id="byok-cost"),
         pytest.param("upstream_inference_cost", "garbage", id="malformed-byok-cost"),
         pytest.param("upstream_inference_cost", -1, id="negative-byok-cost"),
-        pytest.param("upstream_inference_cost", {}, id="mapping-byok-cost"),
         pytest.param("upstream_inference_prompt_cost", Decimal("0.1"), id="prompt-cost"),
         pytest.param("upstream_inference_completions_cost", Decimal("0.1"), id="completion-cost"),
     ],
@@ -217,21 +201,6 @@ def test_nullable_combined_upstream_cost_remains_compatible_with_non_byok() -> N
     assert record.direct_cost.status == "provider_guaranteed_zero"
 
 
-@pytest.mark.parametrize(
-    "attempts",
-    [
-        pytest.param([{"status": 502}, {"status": 429}], id="mixed-statuses"),
-        pytest.param([{"status": "429"}], id="string-status"),
-        pytest.param([{}], id="missing-status"),
-        pytest.param({}, id="malformed-chain"),
-    ],
-)
-def test_router_attempt_chain_must_contain_only_integer_429(attempts: object) -> None:
-    record = _record_for(_insured_error(router_overrides={"attempts": attempts}))
-
-    assert record.direct_cost.status == "unavailable"
-
-
 def test_all_429_router_attempt_chain_can_be_certified() -> None:
     record = _record_for(
         _insured_error(router_overrides={"attempts": [{"status": 429}, {"status": 429}]})
@@ -241,30 +210,9 @@ def test_all_429_router_attempt_chain_can_be_certified() -> None:
 
 
 @pytest.mark.parametrize(
-    "is_byok",
-    [
-        pytest.param(..., id="missing"),
-        pytest.param(None, id="null"),
-        pytest.param("false", id="string-false"),
-    ],
-)
-def test_router_byok_evidence_must_be_exact_false(is_byok: object) -> None:
-    raw_response = _insured_error()
-    if is_byok is ...:
-        raw_response["openrouter_metadata"].pop("is_byok")
-    else:
-        raw_response["openrouter_metadata"]["is_byok"] = is_byok
-
-    record = _record_for(raw_response)
-
-    assert record.direct_cost.status == "unavailable"
-
-
-@pytest.mark.parametrize(
     ("status", "error_code"),
     [
         pytest.param(503, 503, id="native-503-with-matching-code"),
-        pytest.param(429, Decimal("429"), id="decimal-code-equal-to-integer"),
     ],
 )
 def test_native_status_and_integer_error_code_guards_are_independent(
@@ -298,19 +246,8 @@ def test_malformed_usage_or_generated_output_remains_unknown(
     "raw_response",
     [
         pytest.param(
-            {
-                **_insured_error(),
-                "error": {"code": 429, "metadata": {"error_type": "provider_overloaded"}},
-            },
-            id="wrong-error-type",
-        ),
-        pytest.param(
             {**_insured_error(), "choices": [{"message": {"content": "partial"}}]},
             id="generated-choices",
-        ),
-        pytest.param(
-            _insured_error(pipeline=[{"type": "future_stage"}]),
-            id="unknown-pipeline-stage",
         ),
     ],
 )

@@ -1,20 +1,21 @@
-"""The pre-output refusal proof accepts OpenRouter router metadata (spec 2026-10-26 §8).
+"""The pre-output refusal proof reads billing facts, not the reply format (spec 2026-10-26 §8).
 
 FEATURE: cost of intelligence (OME-1287). The gateway sends `X-OpenRouter-Metadata: enabled` on
-every OpenRouter call, so a prod refusal also carries `openrouter_metadata`. Without this, the
-proof rejected every prod refusal and the $0 rule never applied.
+every OpenRouter call, so a prod refusal also carries `openrouter_metadata`. The first proof
+accepted only known fields, so it rejected every prod refusal and the $0 rule never applied.
 
 STORY: as a reader of the lab_bench board, I see a cost for a run of a model that refused some
 questions, instead of "—".
 
-INVARIANT under test: the metadata is checked, not only allowed. It must prove `is_byok: false`
-and hold only known fields; anything else keeps the base evidence.
+INVARIANT under test: a new or changed field that carries no money never makes the cost unknown;
+a non-zero money field anywhere does.
 """
 
 from __future__ import annotations
 
 import copy
 import json
+from decimal import Decimal
 from importlib.resources import files
 from typing import Any
 
@@ -167,7 +168,11 @@ def test_each_informational_metadata_field_may_be_absent(optional: str) -> None:
     assert _supplement(_without_metadata_field(optional)).direct_cost.as_json() == _ZERO
 
 
-# ── the metadata is checked, not only allowed ──────────────────────────────────────────────────
+# ── the reply format does not matter (owner decision 2026-10-27) ──────────────────────────────
+
+
+def _with_top_level(**changes: Any) -> dict[str, Any]:
+    return {**copy.deepcopy(_PROD_REFUSAL), **changes}
 
 
 @pytest.mark.parametrize(
@@ -178,27 +183,59 @@ def test_each_informational_metadata_field_may_be_absent(optional: str) -> None:
         pytest.param(_with_metadata(is_byok=None), id="byok-null"),
         pytest.param(_with_metadata(is_byok="false"), id="byok-not-bool"),
         pytest.param(
-            _with_metadata(pipeline=[{"type": "plugin", "name": "web-search"}]), id="pipeline"
+            _with_metadata(pipeline=[{"type": "guardrail", "name": "pii"}]), id="pipeline"
         ),
         pytest.param(
             _with_metadata(attempts=[{"provider": "Anthropic", "status": 200}]), id="attempts"
         ),
-        pytest.param(_with_metadata(some_new_field=1), id="unknown-field"),
+        pytest.param(_with_metadata(some_new_field=1), id="unknown-metadata-field"),
         pytest.param(_with_metadata(attempt=-1), id="negative-attempt"),
-        pytest.param(_with_metadata(attempt=True), id="bool-attempt"),
         pytest.param(_with_metadata(generation_time="2479"), id="string-generation-time"),
-        pytest.param(_with_metadata(generation_time=-5), id="negative-generation-time"),
         pytest.param(_with_metadata(summary=3), id="summary-not-string"),
         pytest.param(_with_metadata(endpoints={"total": 1}), id="endpoints-incomplete"),
-        pytest.param(
-            _with_metadata(endpoints={"total": 1, "available": [{"provider": "x"}]}),
-            id="endpoint-incomplete",
-        ),
-        pytest.param({**_PROD_REFUSAL, "openrouter_metadata": "enabled"}, id="not-object"),
-        pytest.param({**_PROD_REFUSAL, "openrouter_metadata": None}, id="null"),
+        pytest.param(_with_top_level(openrouter_metadata="enabled"), id="metadata-not-object"),
+        pytest.param(_with_top_level(openrouter_metadata=None), id="metadata-null"),
+        # The two cases that the OME-1738 tests kept unknown before this decision.
+        pytest.param(_with_top_level(openrouter_metadata={"pipeline": []}), id="pipeline-only"),
+        pytest.param(_with_top_level(created="yesterday"), id="bad-created"),
+        pytest.param(_with_top_level(some_new_top_level_field={"x": 1}), id="unknown-top-field"),
     ],
 )
-def test_router_metadata_that_does_not_prove_a_plain_non_byok_route_stays_unknown(
+def test_a_field_that_carries_no_money_does_not_change_the_certified_zero(
+    raw_response: dict[str, Any],
+) -> None:
+    assert _supplement(raw_response).direct_cost.as_json() == _ZERO
+
+
+# ── billing facts still keep the cost unknown ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "raw_response",
+    [
+        pytest.param(
+            _with_metadata(pipeline=[{"type": "guardrail", "cost_usd": Decimal("0.01")}]),
+            id="pipeline-stage-cost",
+        ),
+        pytest.param(
+            _with_metadata(pipeline=[{"type": "guardrail", "cost_usd": "0.01"}]),
+            id="pipeline-stage-cost-as-text",
+        ),
+        pytest.param(_with_metadata(cost_usd=Decimal("0.25")), id="metadata-cost"),
+        pytest.param(
+            _with_top_level(billing={"amount_usd": Decimal("0.25")}), id="unknown-amount-field"
+        ),
+        pytest.param(_with_top_level(usage={"prompt_tokens": 120}), id="usage"),
+        pytest.param(_with_top_level(error={"code": 400}), id="error"),
+    ],
+)
+def test_a_money_fact_anywhere_in_the_reply_keeps_the_cost_unknown(
     raw_response: dict[str, Any],
 ) -> None:
     assert _supplement(raw_response).direct_cost.status == "unavailable"
+
+
+def test_a_zero_money_field_does_not_block_the_certified_zero() -> None:
+    body = _with_metadata(pipeline=[{"type": "guardrail", "cost_usd": Decimal("0")}])
+
+    assert _supplement(body).direct_cost.as_json() == _ZERO
