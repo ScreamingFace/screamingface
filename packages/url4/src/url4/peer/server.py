@@ -29,6 +29,7 @@ from url4.core.code import CodeHandler
 from url4.core.grammar import _IDENTITY_NAME_RE
 from url4.core.nodes import Node
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
+from url4.dag.remote_nodes import refuse_remote_nodes
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
 from url4.peer import _dispatch
 from url4.peer._code import CodeMounts
@@ -242,9 +243,9 @@ class Url4Node(CodeMounts):
         self_collection: str | None = None,
         processor: str | None = None,
     ) -> str:
-        # WHY the request's `processor=` wins: §27.3 lets a CALLER select the
-        # processor for this evaluation. The node's own `default_processor` is
-        # the fallback when the request names none.
+        # WHY the request's `processor=` wins: §27.3 lets a CALLER select the processor; the
+        # node's `default_processor` is the fallback. INVARIANT (#1450 F1b, C6): a node never
+        # calls another node in v1, so every evaluation it runs refuses remote-node calls.
         ctx = ExecutionContext(
             self,
             processor=processor or self._processor,
@@ -253,7 +254,7 @@ class Url4Node(CodeMounts):
             strict_fields=self._strict_fields,
             self_collection=self_collection,
         )
-        return await run(text, ctx=ctx, concurrency=self._concurrency)
+        return await refuse_remote_nodes(run(text, ctx=ctx, concurrency=self._concurrency))
 
     # --- evaluation -----------------------------------------------------------------
 
@@ -300,8 +301,7 @@ class Url4Node(CodeMounts):
 def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPort:
     """Normalize a holdings/identity handler to the one-arg port shape.
 
-    Zero-arg handlers are common (most holdings don't branch on the requested
-    collection); detect them by signature and drop the argument for them.
+    A zero-arg handler (most holdings don't branch on the collection) is detected by signature.
     """
     try:
         signature(handler).bind(None)

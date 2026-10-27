@@ -18,7 +18,7 @@ from url4.core.errors import ParseError
 from url4.core.nodes import Binding, Node, Source
 
 from url4.dag.node import DagNode  # isort: skip
-from url4.dag.nodes import ExpandNode, GuardNode, RelUrlNode, WebFetchNode  # isort: skip
+from url4.dag.nodes import ExpandNode, GuardNode, RelUrlNode, RemoteFetchNode, WebFetchNode  # isort: skip
 from url4.dag.nodes.blob import as_collection  # isort: skip
 
 if TYPE_CHECKING:  # the registry type only — this module never constructs one
@@ -83,7 +83,7 @@ def _push_label(inner: DagNode, node: Source, ann: dict[str, str | None]) -> Non
     if isinstance(inner, RelUrlNode) and inner.is_expr:
         inner.name = node.name
         inner.weight = _scalar_weight(node.weight)
-    if isinstance(inner, (RelUrlNode, WebFetchNode)) and "accept" in ann:
+    if isinstance(inner, (RelUrlNode, WebFetchNode, RemoteFetchNode)) and "accept" in ann:
         inner.accept = ann["accept"]
 
 

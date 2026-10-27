@@ -82,6 +82,10 @@ class ErrorCode(StrEnum):
     REMOTE_BLOB_UNSUPPORTED = "x.remote_blob_unsupported"
     """A ``url4://<authority>/blob/…`` ref, any authority: remote blobs are deferred from v1
     (#1450 spec §2 F1). Permanent, refused before any network I/O."""
+    REMOTE_NODE_UNSUPPORTED = "x.remote_node_unsupported"
+    """A ``url4://`` remote-node call (a remote expression, conformance case C6) made in a node
+    context: refused in v1 until node-to-node authentication is specified (#1450 spec F1b).
+    Permanent, refused before any network I/O (no DNS lookup, no connection)."""
     BLOB_DIGEST_MISMATCH = "x.blob_digest_mismatch"
     """The bytes served for a content address do not hash to it. Permanent: a content
     address that returns other content is refused, never passed on."""
