@@ -22,11 +22,28 @@ _MONEY_WORDS = ("cost", "amount")
 _PROMPT_SIDE_USAGE_FIELDS = frozenset({"prompt_tokens", "total_tokens", "prompt_tokens_details"})
 
 
+# WHY: these stages run a paid plugin or server tool. A prepared request without plugins or tools
+# should never show one, but if it does, the stage can be billed.
+_PAID_STAGE_TYPES = frozenset({"plugin", "server_tools"})
+_TOP_LEVEL_OUTPUT_FIELDS = ("output", "content")
+
+
 def is_zero(value: object) -> bool:
-    """Absent or ``None`` (nothing reported), or a number equal to zero."""
-    return value is None or (
-        isinstance(value, int | float | Decimal) and not isinstance(value, bool) and value == 0
-    )
+    """Absent or ``None`` (nothing reported), or a number equal to zero.
+
+    INVARIANT: never raises. ``Decimal("sNaN") == 0`` raises, so a ``Decimal`` is tested with
+    ``is_zero()``, which is false for every NaN.
+    """
+    if value is None:
+        return True
+    if isinstance(value, Decimal):
+        return value.is_zero()
+    return isinstance(value, int | float) and not isinstance(value, bool) and value == 0
+
+
+def is_empty(value: object) -> bool:
+    """Absent or ``None``, or an empty text, list or object: it carries no output."""
+    return value is None or (isinstance(value, str | list | tuple | Mapping) and not value)
 
 
 def _as_count(value: object) -> object:
@@ -75,6 +92,41 @@ def reports_a_charge(raw_response: Mapping[str, Any]) -> bool:
     return any(not is_zero(amount) for amount in _money_values(raw_response))
 
 
+def has_no_output(raw_response: Mapping[str, Any], message: Mapping[str, Any] | None) -> bool:
+    """Whether the reply carries no model output at all.
+
+    WHY every message field: output in a field this code does not name (``audio``, ``images``,
+    ``annotations``, a new one) is still output, and output can be billed. Only ``role`` is not
+    output.
+    """
+    message_empty = message is None or all(
+        is_empty(item) for field, item in message.items() if field != "role"
+    )
+    return message_empty and all(
+        is_empty(raw_response.get(field)) for field in _TOP_LEVEL_OUTPUT_FIELDS
+    )
+
+
+def pipeline_has_paid_stage(raw_response: Mapping[str, Any]) -> bool:
+    """Whether ``openrouter_metadata.pipeline`` names a ``plugin`` or ``server_tools`` stage.
+
+    The stage ``type`` is read as text wherever it is (a string, or text inside a list or object),
+    so no shape of it can raise or hide a paid name.
+    """
+    router = raw_response.get("openrouter_metadata")
+    pipeline = router.get("pipeline") if isinstance(router, Mapping) else None
+    if not isinstance(pipeline, list):
+        return False
+    return any(
+        isinstance(stage, Mapping)
+        and any(
+            isinstance(name, str) and name in _PAID_STAGE_TYPES
+            for name in _leaves(stage.get("type"))
+        )
+        for stage in pipeline
+    )
+
+
 def usage_shows_billed_work(raw_response: Mapping[str, Any]) -> bool:
     """Whether ``usage`` reports any work beyond reading the prompt (output, tools, a cost).
     ``usage`` that is not an object cannot show that no work was done."""
@@ -91,4 +143,10 @@ def usage_shows_billed_work(raw_response: Mapping[str, Any]) -> bool:
     )
 
 
-__all__ = ["reports_a_charge", "usage_shows_billed_work"]
+__all__ = [
+    "has_no_output",
+    "is_empty",
+    "pipeline_has_paid_stage",
+    "reports_a_charge",
+    "usage_shows_billed_work",
+]

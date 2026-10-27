@@ -167,3 +167,16 @@ Rule 7 and the request rule are shared with the 429 proof (`openrouter_provider/
 
 **BYOK.** BYOK is part of how our OpenRouter account is set up, not of one reply. Prod replies show
 `is_byok: false`. If we turn on BYOK for a provider, this rule must change.
+
+## 9. Amendment 2026-10-27: review fixes (after OME-1746)
+
+The review of PR #1571 found three gaps. The owner chose to fix them:
+
+- **No output (condition 6).** Every field of the message except `role` must be empty (absent,
+  `null`, `""`, `[]` or `{}`), whatever its name. Output in a field that this spec did not name
+  (for example `audio`, `images`, `annotations`) is output. The top-level `output` and `content`
+  must also be empty.
+- **Paid stage.** A refusal whose `openrouter_metadata.pipeline` has a `plugin` or
+  `server_tools` stage keeps the evidence unchanged, the same as the 429 rule.
+- **No crash.** The proof gives a result for any value. A stage `type` is read as text wherever
+  it is (a string, or text inside a list or object). A value such as `"sNaN"` is not a zero.
