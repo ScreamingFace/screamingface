@@ -59,6 +59,7 @@ class Dropped:
     unreadable: int = 0  # lines this loader could not parse
     over_cap: int = 0  # lines beyond this loader's cap or byte cap (a lower bound if truncated)
     truncated: tuple[str, ...] = ()  # JSONL files cut at the byte cap: over_cap is "at least"
+    spans_over_cap: int = 0  # the spans' share of over_cap (the Trace view counts its own cut)
 
 
 @dataclass(frozen=True)
@@ -187,6 +188,7 @@ def load(directory: Path, *, cap: int = LINES_CAP) -> Telemetry:
         spans=int_or_none(copied.get("dropped")),
         unreadable=events.unreadable + spans.unreadable,
         over_cap=events.over_cap + spans.over_cap,
+        spans_over_cap=spans.over_cap,
         truncated=tuple(
             name for name, lines in ((EVENTS_FILE, events), (SPANS_FILE, spans)) if lines.truncated
         ),
