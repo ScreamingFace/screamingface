@@ -286,3 +286,17 @@ def test_a_calls_log_lines_stay_one_per_line(tmp_path: Path) -> None:
     html = _render(bundle(tmp_path, run_spans(), gateway_log=log))
     assert "first\n" in _part(html, '<h3 id="trace-calls"')
     assert "2 lines · matched by time" in html
+
+
+# --- export -----------------------------------------------------------------------------------
+
+
+def test_the_export_links_the_otlp_json_download_only_with_the_token(tmp_path: Path) -> None:
+    directory = bundle(tmp_path, run_spans(), recorder=RECORDER)
+    with_token = _part(_render(directory, token=TOKEN), '<h3 id="trace-export">', "</section>")
+    href = f"/bundles/replay/quickstart/trace.otlp.json?token={TOKEN}"
+    assert f'<a href="{href}" download>' in with_token
+    without = _part(_render(directory), '<h3 id="trace-export">', "</section>")
+    assert "trace.otlp.json" not in without and "startup URL" in without
+    hostile = th.section(ts.build(directory), 'a"><script>', TOKEN)
+    assert "<script>" not in hostile

@@ -8,6 +8,8 @@ Guards, outermost first:
   per-launch token, as the ``X-Workbench-Token`` header or a ``token`` form field; otherwise
   403 and nothing is spawned. No cookie, so a browser holds no ambient credential: the token
   rides in the query string of pages opened with it, and only a token that matches is echoed.
+  ``GET /bundles/{key}/trace.otlp.json`` (the spans as OTLP/JSON) needs it too, as the header
+  or the ``token`` query parameter: it is a raw download of bundle content, not a page.
 - **Headers**: every response carries a CSP with ``default-src 'none'``, ``X-Frame-Options:
   DENY`` and ``Referrer-Policy: no-referrer`` (the last keeps the token out of Referer).
 
@@ -39,7 +41,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from screamingface._runtime.config import default_data_dir as runtime_default_data_dir
-from workbench.ui import live, pages, telemetry, trace_story
+from workbench.ui import live, otlp_json, pages, telemetry, trace_story
 from workbench.ui.bundles import BundleNotFound, BundleSummary, discover, load
 from workbench.ui.runs import Run, RunBusy, RunManager, RunRejected, RunRequest, runtime_data_dir
 
@@ -51,6 +53,7 @@ TOKEN_HEADER = "x-workbench-token"
 BODY_CAP_BYTES = 64 << 10  # a run request is a few fields
 _RUN_ID = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{4}$")
 _TRUE = frozenset({"on", "true", "1", "yes"})
+_TRACE_ID = re.compile(r"[0-9a-f]{32}")
 _SECURITY_HEADERS = (
     (b"content-security-policy", CSP.encode()),
     (b"x-frame-options", b"DENY"),
@@ -318,6 +321,31 @@ class _Workbench:
         )
         return HTMLResponse(page)
 
+    def otlp(self, request: Request, key: str) -> Response:
+        """The bundle's spans as an OTLP/JSON download (u8 Task 4); token, then path guard.
+
+        WHY the token before the lookup: without it, the status would tell a stranger which
+        bundles exist. The filename is a validated hex trace id, so it cannot break the header.
+        """
+        self.authorize(request, request.query_params.get("token"))
+        try:
+            detail = load(self.root, key)
+        except BundleNotFound as exc:
+            raise _HttpError(404, f"no bundle {key!r}") from exc
+        try:
+            spans = telemetry.load(detail.directory).spans
+        except Exception as exc:  # noqa: BLE001 - an untrusted bundle must not take the UI down
+            raise _HttpError(422, f"spans could not be read: {type(exc).__name__}") from exc
+        ids = [*detail.summary.trace_ids, *(str(s.get("trace_id")) for s in spans)]
+        name = next((i for i in ids if _TRACE_ID.fullmatch(i)), "trace")
+        body = json.dumps(otlp_json.to_otlp_json(spans), allow_nan=False)
+        disposition = f'attachment; filename="{name}.otlp.json"'
+        return Response(
+            body,
+            media_type="application/json",
+            headers={"content-disposition": disposition, "cache-control": "no-store"},
+        )
+
     async def start(self, request: Request) -> RedirectResponse:
         data = await self.authorized_fields(request)
         run_request = _run_request(data, self.notebooks)
@@ -449,6 +477,8 @@ def create_app(
     app.state.run_ids = wb.run_ids
     app.add_exception_handler(_HttpError, _error_response)
     app.add_api_route("/", wb.index, methods=["GET"])
+    # WHY first: ``{key:path}`` below would otherwise swallow the export's suffix.
+    app.add_api_route("/bundles/{key:path}/trace.otlp.json", wb.otlp, methods=["GET"])
     app.add_api_route("/bundles/{key:path}", wb.bundle, methods=["GET"])
     app.add_api_route("/runs", wb.start, methods=["POST"])
     app.add_api_route("/runs/{run_id}", wb.run_page, methods=["GET"])

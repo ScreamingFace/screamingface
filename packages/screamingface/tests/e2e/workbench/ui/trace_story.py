@@ -64,6 +64,8 @@ TIME_MATCH_CAP: Final = 20_000  # time-matched log placements kept per story; th
 COLLAPSE_AT: Final = 5  # this many same-named sibling leaves fold into one row ("×n")
 CLIENT_SPAN: Final = "sdk.evaluate"
 RUN_SPAN: Final = "url4.run"
+#: The attribute that marks the derived client span; the OTLP/JSON export leaves such spans out.
+DERIVED_ATTR: Final = "workbench.derived_from"
 CHAT_SPAN: Final = "POST /v1/chat/completions"
 _GATEWAY_SERVICE: Final = "aigateway"
 _ENGINE_SERVICE: Final = "screamingface-engine"
@@ -243,7 +245,7 @@ def _client_span(spans: Sequence[Json], recorder: Json, notes: list[str]) -> Jso
         "start_ns": first,
         "end_ns": last,
         "status": {"code": "unset", "message": ""},
-        "attributes": {"workbench.derived_from": "SDK events (recorder.json)"},
+        "attributes": {DERIVED_ATTR: "SDK events (recorder.json)"},
     }
 
 

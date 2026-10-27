@@ -3,7 +3,7 @@
 One ``<section id="trace">`` over a ``trace_story.TraceStory``, top to bottom: a header (trace
 id, verdict, wall time, model calls, cache hits, spend, counts), the hop path notebook → engine
 → aigateway → provider → scoreboard, the cross-service span tree, the model calls with their
-gateway log lines, and the verdict's checks in plain words.
+gateway log lines, the verdict's checks in plain words, and the OTLP/JSON export link.
 
 WHY the hop path is a ``<table>`` drawn as boxes: it is tabular (hop, state, reason, spans, log
 lines, latency), so a screen reader and a text search read it as rows, while CSS lays the rows
@@ -369,4 +369,19 @@ def _body(story: ts.TraceStory, key: str, token: str | None, page: int) -> str:
         f'<h3 id="trace-tree">Span tree</h3>{_tree(rows, key, token, page)}'
         f'<h3 id="trace-calls">Model calls</h3>{_calls(story, bool(rows))}'
         f'<h3 id="trace-checks">Checks</h3>{_checks(story)}'
+        f'<h3 id="trace-export">Export</h3>{_export(key, token)}'
+    )
+
+
+def _export(key: str, token: str | None) -> str:
+    """The OTLP/JSON download link; the route needs the launch token, so only with it."""
+    if token is None:
+        return (
+            "<p class='note'>Open this page from the startup URL to download the spans as "
+            "OTLP/JSON.</p>"
+        )
+    href = f"/bundles/{quote(key)}/trace.otlp.json?{urlencode({'token': token})}"
+    return (
+        f'<p><a href="{escape(href)}" download>Download spans as OTLP/JSON</a> '
+        "<span class='note'>(as received; the derived client span is not included)</span></p>"
     )
