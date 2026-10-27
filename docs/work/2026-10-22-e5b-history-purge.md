@@ -122,17 +122,19 @@ on merge; the owner runs the command per environment.
       sibling row under its service; it now compares the whole `(service, account)` address, and
       an unresolvable row still keeps every row under the service its locator names (its own
       account is skipped, so the run reports a refusal).
-    - Kept by design: the C4 unmigrated-document refusal compares services. The backfill reads a
-      document at the locator's logical account and its Connection reads the strategy's physical
-      one; every strategy keeps the service, so the service covers both. A spare refusal at
-      worst, never a lost key; pinned by a test with a configured physical account.
+    - Kept by design (owner decision 2026-10-27): the C4 unmigrated-document refusal compares
+      services. The backfill reads a document at the locator's logical account and its
+      Connection reads the strategy's physical one; every strategy keeps the service, so the
+      service covers both. A spare refusal at worst, never a lost key; pinned by a test with a
+      configured physical account.
     - Spec deviation (owner decision 2026-10-23): `--apply` requires `--journal`, and every
       journal line is flushed as it is written. Spec C5 lists the journal as optional; an apply
       commits account by account, and a run that stops part-way prints no report.
-    - Not changed: `migrate_profiles --rollback` after a purge. No key is lost: since E4a the
-      runtime reads no Profile document, a `none` pair resolves by label over its Connection rows,
-      and the purge keeps every blob a Connection addresses. A pair rolled back after the purge is
-      a `connection_only` pair, which R1 rolls back by design and a later backfill apply names
-      again. A refusal "no document left" would also refuse that legitimate case.
+    - Not changed (owner decision 2026-10-27): `migrate_profiles --rollback` after a purge. No
+      key is lost: since E4a the runtime reads no Profile document, a `none` pair resolves by
+      label over its Connection rows, and the purge keeps every blob a Connection addresses. A
+      pair rolled back after the purge is a `connection_only` pair, which R1 rolls back by design
+      and a later backfill apply names again. A refusal "no document left" would also refuse that
+      legitimate case.
     - Process: the test-change manifest for `_OFFLINE_READERS` is created at PR-open, after the
       issue is filed (as for E5a); `Refs: OME-N` goes in the PR body, not in commits.
