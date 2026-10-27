@@ -72,6 +72,7 @@
       "Usage",
       "Vote",
       "__version__",
+      "analytics",
       "benchmarks",
       "cache",
       "close",
@@ -996,6 +997,10 @@
       "__version__": {
         "kind": "value",
         "type": "str"
+      },
+      "analytics": {
+        "kind": "module",
+        "module": "screamingface.analytics"
       },
       "benchmarks": {
         "kind": "module",

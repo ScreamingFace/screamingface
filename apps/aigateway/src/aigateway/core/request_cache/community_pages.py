@@ -5,16 +5,16 @@ Spec: ``docs/spec/2026-10-15-community-cache.md``.
 
 A client walks the shareable rows of ``request_cache_entries`` page after page: each page is the
 rows after a cursor, and the cursor is the last row's ``(updated_at, key_hash)``. Each page is
-read in batches, every batch two short keyset queries on the ``(updated_at, key_hash)`` index
-(migration 0015) — the next keys and their sizes, then the rows themselves — so no connection or
-transaction is held between batches and the caller can write each batch out before the next is
-read.
+read in batches, every batch short keyset reads on the ``(updated_at, key_hash)`` index
+(migration 0015) — the next keys and their sizes (after a cursor, two reads: the rest of its tie
+run, then later rows; see ``_after``), then the rows themselves — so no connection or transaction
+is held between batches and the caller can write each batch out before the next is read.
 INVARIANT: a batch holds at most ``BATCH_BYTES`` of responses (or one row, if a single response is
-larger) and at most ``BATCH_ROWS`` rows. The second query reads exactly the rows the first one
-sized — same ``key_hash``, ``updated_at`` and size — so a row rewritten between the two (a merge
+larger) and at most ``BATCH_ROWS`` rows. The row read takes exactly the rows the key reads
+sized — same ``key_hash``, ``updated_at`` and size — so a row rewritten in between (a merge
 restore) is neither read at its new size nor sent out of order; it comes later in the walk, at its
 new ``updated_at``. The page's ``next`` comes from the keys scanned (``PageScan``), not the rows
-sent, so a row that moved or vanished between the queries cannot end the page early.
+sent, so a row that moved or vanished between the reads cannot end the page early.
 A response can be up to 1 MB (``AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES``), so a row count alone
 would let one batch of the largest responses reach ~100 MB — several times that once the route
 encodes it — against ~240 MiB of headroom on a gateway pod.
@@ -118,25 +118,58 @@ def _eligible(models: Sequence[str], now: datetime) -> QuerySet[RequestCacheEntr
     return rows.filter(model__in=list(models)) if models else rows
 
 
-def _after(rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None) -> QuerySet:
+def _after(
+    rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None
+) -> tuple[QuerySet[RequestCacheEntry], ...]:
+    """What follows ``cursor``, in order: the rest of its tie run, then every later time.
+
+    INVARIANT: ties on updated_at (a restore stamps many rows with one time) split by key_hash,
+    so a page boundary inside a run of equal times skips and repeats nothing.
+    WHY two ranges, not ``updated_at > X OR (updated_at = X AND key_hash > Y)``: that OR is no
+    index range, so every batch walked the ``(updated_at, key_hash)`` index from its start and
+    dropped the rows before the cursor (~1.4 s a batch 200k rows into dev's cache, where bulk
+    restores stamped ~188k rows with one time). Each part here starts at the cursor (~1 ms).
+    Tortoise has no row-value comparison, which would be one range.
+    """
+    if cursor is None:
+        return (rows,)
+    return tuple(rows.filter(part) for part in _tie_then_later(cursor))
+
+
+def _all_after(
+    rows: QuerySet[RequestCacheEntry], cursor: PageCursor | None
+) -> QuerySet[RequestCacheEntry]:
+    """Everything ``_after`` reads, as one predicate: for a statement that reads every match
+    (a count), where the two ranges buy no index seek."""
     if cursor is None:
         return rows
-    # INVARIANT: ties on updated_at (a restore stamps many rows with one time) split by key_hash,
-    # so a page boundary inside a run of equal times skips and repeats nothing.
-    return rows.filter(
-        Q(updated_at__gt=cursor.updated_at)
-        | Q(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash)
+    tie, later = _tie_then_later(cursor)
+    return rows.filter(tie | later)
+
+
+def _tie_then_later(cursor: PageCursor) -> tuple[Q, Q]:
+    return (
+        Q(updated_at=cursor.updated_at, key_hash__gt=cursor.key_hash),
+        Q(updated_at__gt=cursor.updated_at),
     )
 
 
 async def count_rows(*, after: PageCursor | None, models: Sequence[str], now: datetime) -> int:
-    """How many rows a walk from ``after`` would return (approximate once writes continue)."""
-    return await _after(_eligible(models, now), after).count()
+    """How many rows a walk from ``after`` would return (approximate once writes continue).
+
+    INVARIANT (spec decision 8): one ``count(*)``. Split in two, the counts scan the tie run and
+    the later rows separately (about twice the reads on Postgres) under two snapshots, so a row
+    a restore moves between them would count twice.
+    """
+    return await _all_after(_eligible(models, now), after).count()
 
 
 async def has_rows_after(*, after: PageCursor, models: Sequence[str], now: datetime) -> bool:
     """Whether any eligible row follows ``after`` — so a full page knows whether it was the last."""
-    return await _after(_eligible(models, now), after).exists()
+    for part in _after(_eligible(models, now), after):
+        if await part.exists():
+            return True
+    return False
 
 
 def _within_bytes(sizes: list[dict[str, Any]]) -> int:
@@ -149,15 +182,33 @@ def _within_bytes(sizes: list[dict[str, Any]]) -> int:
     return len(sizes)
 
 
-async def _next_keys(
-    eligible: QuerySet[RequestCacheEntry], cursor: PageCursor | None, want: int
-) -> list[dict[str, Any]]:
+async def _keys_in(part: QuerySet[RequestCacheEntry], n: int) -> list[dict[str, Any]]:
     return (
-        await _after(eligible, cursor)
-        .order_by(*_ORDER)
-        .limit(want)
+        await part.order_by(*_ORDER)
+        .limit(n)
         .values("key_hash", "updated_at", "response_size_bytes")
     )
+
+
+async def _next_keys(
+    eligible: QuerySet[RequestCacheEntry], cursor: PageCursor | None, want: int
+) -> tuple[list[dict[str, Any]], bool]:
+    """The next keys after ``cursor`` (at most ``want``), and whether fewer than that remain.
+
+    ``exhausted`` counts the keys read, before a duplicate is dropped, so a shorter list is not by
+    itself the end of the rows.
+    """
+    keys: list[dict[str, Any]] = []
+    for part in _after(eligible, cursor):
+        keys += await _keys_in(part, want - len(keys))
+        if len(keys) == want:
+            break
+    # WHY: the parts are read by separate statements, so a row a merge restore moves out of the
+    # tie run between them can be read by both; its later copy is the row as it now stands. A
+    # new copy beyond the later read leaves only the stale one, which ``_exactly`` then skips and
+    # the walk sends at its new time.
+    last = {key["key_hash"]: at for at, key in enumerate(keys)}
+    return [key for at, key in enumerate(keys) if last[key["key_hash"]] == at], len(keys) < want
 
 
 def _exactly(keys: Sequence[dict[str, Any]]) -> Q:
@@ -191,7 +242,7 @@ async def iter_page(
     left = limit
     while left > 0:
         want = min(BATCH_ROWS, left)
-        sizes = await _next_keys(eligible, cursor, want)
+        sizes, exhausted = await _next_keys(eligible, cursor, want)
         if not sizes:
             return
         taken = sizes[: _within_bytes(sizes)]
@@ -205,7 +256,7 @@ async def iter_page(
             scan.cursor = cursor
         if batch:
             yield batch
-        if len(sizes) < want and len(taken) == len(sizes):
+        if exhausted and len(taken) == len(sizes):
             return
 
 

@@ -8,6 +8,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import urlsplit
 
+from screamingface._analytics.tracking import tracked
 from screamingface._client_connections import _engine_origin
 from screamingface.client import (
     DEFAULT_ENGINE_URL,
@@ -220,6 +221,7 @@ def evaluate(
 ) -> Report: ...
 
 
+@tracked("evaluation")
 def evaluate(
     candidates: Recipe | Sequence[Recipe] | str | None = None,
     *,
@@ -328,8 +330,10 @@ def connect(
     if provider is None:
         if api_key is not None or method is not None:
             raise TypeError("provider is required when api_key or method is supplied")
+        from screamingface._analytics.prompt import offer
         from screamingface._ui.connections import ConnectionPanel
 
+        offer()
         return ConnectionPanel(default_client())
     client = default_client()
     if api_key is not None:

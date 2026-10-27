@@ -46,6 +46,12 @@
   result store's expiry rule); after that the fetch raises the new `MediaUnavailableError` with
   code `media_not_kept`. Needs an engine with OME-1271 PR 5.
 
+* **screamingface:** add opt-in local analytics via `sf.analytics.status()`, `enable()`,
+  `disable()` and `reset_identifier()`, plus `screamingface analytics` CLI controls.
+  Evaluation/submission events use random installation/process identifiers and bounded
+  background delivery to the dev analytics service. Analytics defaults off, respects
+  `DO_NOT_TRACK`, and excludes Colab and identity linking in this slice.
+
 * **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
   `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:
   `full_name`, `institution`, any other key) and the paper (`title`, `url`, `citation`, any other

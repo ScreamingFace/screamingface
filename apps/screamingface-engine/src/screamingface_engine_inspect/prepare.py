@@ -1871,6 +1871,42 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         license="apache-2.0",
     ),
+    # lab_bench_figqa — imported by Task replay on 2026-10-26 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_figqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/FigQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_figqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_figqa",
+        case_count=181,
+        case_digest="616aeb4906adcac866529fe33a45fb14bb493dfcd0b2232f2007d784e195e0cf",
+        case_set_digest="c8e3dc5b0c18ff24ae32b2877fe4a3b19fa86cebea584392412a74553f486d78",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_tableqa — imported by Task replay on 2026-10-26 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_tableqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/TableQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_tableqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_tableqa",
+        case_count=244,
+        case_digest="9be147a0caa0ba845731b8d93a7e9b4af406708e93cba62d4bc440cae87ff412",
+        case_set_digest="567bd3e6736bd8380827fac6fdfe63145564315d6f0817ea98485724fcca3174",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

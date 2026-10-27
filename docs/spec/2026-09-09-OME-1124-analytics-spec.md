@@ -45,6 +45,16 @@ Experiment evidence: HTTPBin server-set partitioned cookies passed full restart 
 
 ## 4. Consent and persistence
 
+Implementation clarification (owner confirmed 25 September 2026): the current
+product supports BYOK only on local engines; all remote engines use hosted mode.
+For this release, derive `usage_mode=byok` for the SDK's existing local-engine
+classification (localhost, loopback or unspecified IP addresses), and `hosted`
+for valid remote origins. This explicitly approved mapping supersedes the
+no-endpoint-inference restriction above for this release only. It requires no
+manual analytics mode setting or Engine metadata change. Never export the URL;
+invalid metadata still drops the event. Revisit the mapping before supporting
+remote BYOK deployments.
+
 State machine: unknown -> accepted or declined; accepted -> declined on opt-out; stale policy -> unknown. Unavailable storage is a capability failure, not an acceptance. No events buffered before consent and no retroactive replay of pre-consent activity. If consent arrives mid-evaluation, start tracking subsequent operations only.
 
 Local proposal: ~/.screamingface/analytics.json, independently overridable by an explicit SCREAMINGFACE_ANALYTICS_CONFIG path. Do not inherit arbitrary shared runtime --data-dir locations. Versioned document contains choice, consent version and optional installation UUID. Atomic writes, process lock, owner-only permissions; read before each operation/dispatch. No machine-wide file or notebook/project file. Local Jupyter and CLI share this only under the same OS user/config path. Unwritable state yields explicit session-only acceptance or analytics off; do not claim persistence. Never automatically generate an ID just by importing the package.
@@ -53,7 +63,7 @@ Proposed controls: sf.analytics.status(), enable(), disable(), reset_identifier(
 
 Prompt placement: one nonmodal analytics choice at explicit connection/setup or first interactive use, not in a constructor/import, repr or evaluation critical path. Dismissing leaves off and suppresses repeated prompts in that process. Noninteractive/headless defaults off, with explicit configuration required. A notebook run proceeds without waiting for a choice. Precise copy and accessible visual design need the brand skill during implementation; this document does not prescribe finished UI copy.
 
-Persistent IDs remain stable while consent is valid; no deliberate 90-day rotation. Reset on explicit reset, opt-out or storage loss; do not link replacement IDs. Remember accepted/declined choices without a scheduled re-prompt. Ask again only if purpose/data materially changes or the saved choice is lost. Browser expiry or clearing can lose either choice and identifier, so persistence is not guaranteed. Raw-event retention is separately 90 days.
+Persistent IDs remain stable while consent is valid; no deliberate 90-day rotation. Reset on explicit reset, opt-out or storage loss; do not link replacement IDs. Remember accepted/declined choices without a scheduled re-prompt. Ask again only if purpose/data materially changes or the saved choice is lost. Browser expiry or clearing can lose either choice and identifier, so persistence is not guaranteed. Raw events follow PostHog-managed retention, separately from identifier lifetime.
 
 DO_NOT_TRACK truthy values and explicit process disable win over saved acceptance and suppress all analytics/control-plane requests. Corrupt or unrecognised settings fail off. App authentication has no effect on analytics consent or identifier in this phase.
 
@@ -107,13 +117,13 @@ Delivery proposal: memory-only queue up to 100 events; batches up to 20, event s
 
 Gateway maps distinct_id to namespaced browser/installation ID, or session:<session_id> fallback. Set anonymous/personless processing and disable GeoIP; never forward caller IP/User-Agent or auth headers. No identify/alias, session replay, autocapture or person properties. Use one project destination shared with OME-1128 but explicit event surface. Pin SDK and verify dedup/event-time/personless behavior against a test project before production. Do not assume PostHog built-in browser sessions equal our WAS; query explicit session_id.
 
-Raw events: confirmed 90-day maximum; enforce in PostHog and any later durable stores/backups with verified deletion policy. Initial service has no durable event/dedup store. Identifier cookie lifetime is separate. Longer-lived aggregates contain no browser/installation/session IDs; individual retention beyond 90 days is unavailable. A deployment with no enforceable retention cannot pass acceptance. Restrict dashboard/admin access; isolate development and automated events in a separate test destination.
+Raw events: owner approved PostHog-managed retention on 20 October 2026, superseding the former 90-day maximum. No fixed deletion deadline is promised. Initial service has no durable event/dedup store. Identifier cookie lifetime is separate. Longer-lived aggregates contain no browser/installation/session IDs; Query availability depends on the selected PostHog plan and is not proof of physical deletion. Restrict dashboard/admin access; isolate development and automated events in a separate test destination.
 
 Dashboards: WAS; weekly active browsers/installations by scope; persistent-ID coverage among observed consented sessions; first-observed-to-repeat cohorts (not first-ever users); observed starts and succeeded/completed_with_failures/failed/cancelled outcomes, with missing finishes reported separately; observed evaluation-to-submission sequence per scope/session. No causal per-evaluation attribution without an approved in-memory association, and no report-ID join. Scoreboard database aggregates are deferred beyond the first slice; no fake person ID for aggregate events. Declined/off users are absent: no global opt-in rate or total-user claim.
 
 ## 8. Review decisions and release gates
 
-Confirmed: phase-one anonymous scope; consent-only bridge exception; process/kernel sessions; evaluation-start activity; distinct outcome health; stable IDs and no scheduled consent re-prompt; 90-day raw events and identifier-free longer-lived aggregates; explicit origin and BYOK/hosted mode with invalid metadata dropped; four initial events and deferred optional context. Delivery is best effort with bounded retries and acceptable occasional loss; analytics never blocks evaluations. Service ownership/deployment and the later bridge cookie configuration still require concrete implementation preparation.
+Confirmed: phase-one anonymous scope; consent-only bridge exception; process/kernel sessions; evaluation-start activity; distinct outcome health; stable IDs and no scheduled consent re-prompt; PostHog-managed raw-event retention and identifier-free aggregates; explicit origin and BYOK/hosted mode with invalid metadata dropped; four initial events and deferred optional context. Delivery is best effort with bounded retries and acceptable occasional loss; analytics never blocks evaluations. Service ownership/deployment and the later bridge cookie configuration still require concrete implementation preparation.
 
 Release requires: zero event/ID creation before consent; bounded nonblocking real evaluation under bridge failure; opt-out including stale runtimes; local concurrent persistence; sync/async/URL4/retry parity; actual hosted Chrome/Safari reload/restart/fresh notebook, blocked storage and private-mode matrix; expiry/deletion; payload and PostHog mapping validation; local Jupyter/CLI configuration sharing; disclosure and historical deletion procedure. Cookie availability is not login or trust. Neither proposal nor experiment is release approval.
 
@@ -135,3 +145,24 @@ See [bridge contract](2026-09-25-analytics-colab-bridge-spec.md) and the app REA
 for the service protocol. SDK integration and actual browser acceptance remain
 separate. Exact origin configuration keeps the bridge closed until the real Colab
 ancestry is validated; no manual per-notebook setup is an acceptable rollout.
+
+
+## 20 October endpoint configuration amendment
+
+One explicit SCREAMINGFACE_ANALYTICS_ENDPOINT HTTPS origin selects both event delivery and the Colab bridge. Default: https://analytics.screamingface.ai. No engine URL inference or fallback. Set before first analytics transport use; restart the process/kernel to change destinations. Local consent remains installation-wide; browser consent remains scoped to the selected service. Existing production retention/IP release gates still apply.
+
+
+### Approved explicit Colab opt-in confirmation — 20 October 2026
+
+`sf.analytics.enable()` waits at most three seconds, including worker queue delay,
+for browser consent and a usable ID. It prints a clear enabled/unavailable message
+and returns None so notebooks do not display internal state. Detailed state is
+available through `sf.analytics.status()`; CLI controls retain JSON output. Timeout invalidates the pending
+acceptance so late replies cannot enable local tracking. Automatic setup, event
+delivery, and local opt-out remain nonblocking; browser decline persistence is
+still asynchronous. Verification must cover immediate evaluation readiness,
+unavailable storage, timeout/late replies and concurrent opt-out.
+
+Public `disable()` also returns None and prints confirmation that local tracking
+has stopped. A pending browser save is explicitly labelled as pending; details
+remain in status(). CLI disable retains its JSON status output.

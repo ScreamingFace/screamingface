@@ -40,6 +40,8 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     )
     _add_data_dir(parser, default=default_data_dir())
     commands = parser.add_subparsers(dest="command", required=True)
+    analytics = commands.add_parser("analytics", help="Manage anonymous analytics consent")
+    analytics.add_argument("action", choices=("status", "enable", "disable", "reset-id"))
     up = commands.add_parser("up", help="Start the local runtime")
     _add_data_dir(up)
     up.add_argument("--foreground", action="store_true")
@@ -139,8 +141,15 @@ def _add_port_options(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(f"--{service}-port", type=int, default=None)
 
 
-def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
+def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
+    if args.command == "analytics":
+        _analytics_control(args.action)
+    else:
+        _dispatch_runtime(args)
+
+
+def _dispatch_runtime(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR0915
     try:
         # WHY before dispatch: every command that imports runtime apps (up/serve
         # children, status, doctor, prepare) must see the live checkout code, not a
@@ -181,6 +190,18 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912, PLR0915
             run_scoreboard(config)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
+
+
+def _analytics_control(action: str) -> None:
+    from screamingface import analytics
+
+    controls = {
+        "status": analytics.status,
+        "enable": analytics._enable,
+        "disable": analytics._disable,
+        "reset-id": analytics.reset_identifier,
+    }
+    print(json.dumps(controls[action]()))
 
 
 def _engine_url(value: str) -> str:

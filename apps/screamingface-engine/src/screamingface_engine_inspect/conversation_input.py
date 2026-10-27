@@ -27,7 +27,10 @@ from screamingface_engine.benchmarks.candidate_input import (
     CandidateMessage,
     parse_candidate_input,
 )
-from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_INPUT_SCHEMA,
+    CANDIDATE_INPUT_V2_SCHEMA,
+)
 
 #: The turns a conversation Case may hold. WHY not the connector's full role set: the scorer
 #: rebuilds the chat as inspect messages, and inspect has no ``developer`` message; capture
@@ -39,13 +42,29 @@ def conversation_input(messages: Sequence[Mapping[str, str]]) -> str:
     """Seal a conversation into the one input text a Case carries: the envelope, byte for
     byte as a hand-built preparer wrote it."""
 
+    return _sealed(
+        CANDIDATE_INPUT_SCHEMA,
+        [{"role": message["role"], "content": message["content"]} for message in messages],
+    )
+
+
+def picture_case_input(messages: Sequence[CandidateMessage]) -> str:
+    """Seal a Case that carries pictures into the v2 envelope, in the v1 envelope's bytes style.
+
+    FEATURE (OME-1271): the importer's picture Cases. e.g. one user message holding a PNG then
+    its question → ``{"schema":"screamingface.candidate-input.v2","messages":[{"role":"user",
+    "content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBO…"}},
+    {"type":"text","text":"How tall?"}]}]}``.
+    """
+
+    return _sealed(CANDIDATE_INPUT_V2_SCHEMA, list(messages))
+
+
+def _sealed(schema: str, messages: Sequence[Mapping[str, object]]) -> str:
+    """The envelope's bytes: keys ``schema`` then ``messages``, compact, non-ASCII as is."""
+
     return json.dumps(
-        {
-            "schema": CANDIDATE_INPUT_SCHEMA,
-            "messages": [
-                {"role": message["role"], "content": message["content"]} for message in messages
-            ],
-        },
+        {"schema": schema, "messages": list(messages)},
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -84,4 +103,9 @@ def conversation_messages(input_text: str) -> list[CandidateMessage] | None:
     return messages
 
 
-__all__ = ["CONVERSATION_ROLES", "conversation_input", "conversation_messages"]
+__all__ = [
+    "CONVERSATION_ROLES",
+    "conversation_input",
+    "conversation_messages",
+    "picture_case_input",
+]

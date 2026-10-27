@@ -27,7 +27,9 @@ Stages, in execution order (see :func:`inspect_grade_case`):
               which scorer — still zero per-scorer branches. A conversation Case (its
               input is the candidate-input envelope, OME-1527 R14) is opened back into
               its turns, so the scorer reads the chat the Candidate was shown (a v2
-              picture as inspect's ``ContentImage``, OME-1271). The reply
+              picture as inspect's ``ContentImage``, OME-1271); an envelope the shared
+              reader refuses fails that Case alone as ``invalid_candidate_input``, the
+              scorer never called. The reply
               carries why the Candidate's model stopped, in inspect's words
               (:func:`_stop_reason`), so a scorer can tell a reply cut off by the token
               limit from a finished one.
@@ -87,6 +89,7 @@ from inspect_ai.solver._multiple_choice import (
 )
 
 from screamingface_engine.benchmarks.candidate_input import (
+    CandidateInputError,
     CandidateMessage,
     ContentPart,
     FileData,
@@ -203,7 +206,14 @@ def inspect_grade_case(
 
     async def grade(request: GradeRequest) -> CaseGradeOutcome:
         # Stage 1-2 — unpack our envelope, build their benchmark-office forms.
-        state, target = _task_state(request, multiple_correct)
+        try:
+            state, target = _task_state(request, multiple_correct)
+        except CandidateInputError as exc:
+            # WHY this one error, and a named failure: the Case's own input breaks the envelope
+            # rules (a picture by URL, an unknown schema), so only this Case is unreadable.
+            # Raised, it escapes the aggregate's per-Case marking and no Case of the run gets
+            # a grade. A TypeError here is our wiring, not the Case, and still raises.
+            return _failure("invalid_candidate_input", str(exc))
         # Stage 3 — their examiner marks the script, under the Case's grading
         # scope: a judge call made inside resolves to THIS Case for the run's
         # accounting join and for the connector's log tags (OME-1240).

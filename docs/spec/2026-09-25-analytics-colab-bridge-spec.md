@@ -44,7 +44,7 @@ when the store is unavailable. A process-local dictionary is insufficient.
 ## Proposed expiry and acceptance
 
 Use a renewable 180-day cookie lifetime, retaining the same ID while valid. This is
-separate from the already agreed 90-day event retention and does not guarantee the
+separate from PostHog-managed event retention (revised by the owner on 20 October 2026) and does not guarantee the
 browser retains cookies that long. Browser acceptance must cover notebook/runtime
 replacement, full browser restart, blocked storage, two active notebooks, consent
 revocation, and no identifier creation before acceptance. No paid eval required for
