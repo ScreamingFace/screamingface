@@ -119,31 +119,37 @@ Owner decisions (2026-10-22):
   `test_reader`, `test_plugin`, `test_app_regressions`. After the reviews: `test_cache_revision`
   (new) in the gateway; in the SDK, `_cache/local.py`, the new `test_cache_local_revisions` and
   the approved fixture edit in `test_cache_local`.
-- **Commits** (rebased onto `482460344`, 2026-10-27):
-  - `1d83d9d13` feat(aigateway): accept approved http and https origins by name or address
-  - `50c5fcc46` feat(aigateway): show each configured endpoint only to its granted accounts
-  - `0a67e4d4b` feat(aigateway): share cached chats to configured endpoints across accounts
-  - `69efb15fa` feat(aigateway): reuse one bounded HTTP client per configured endpoint
-  - `d9ae79613` fix(aigateway): share no cookie and close every endpoint client at shutdown
-  - `202f40ba6` fix(aigateway): list only registered providers the caller may see
-  - `d0c7545e2` fix(aigateway): close every endpoint client even when shutdown is cancelled
-  - `61fbae090` fix(aigateway): report the remote endpoint cache revision in every export
-  - `9b24798a4` fix(screamingface): compare the configured endpoint revision on a cache pull
-  - `9812f8b34` docs(aigateway): scope endpoint privacy to the working catalog
-- **Gates:** `run_gates.py aigateway --base 482460344` after the rebase: ruff check, ruff format,
+- **Commits** (rebased again onto `27364bbf3` on 2026-10-27; every patch carried over unchanged,
+  so the SHAs in this ledger are the rebased ones and the earlier runs below apply to them):
+  - `2d70bdb8a` feat(aigateway): accept approved http and https origins by name or address
+  - `ae3c35926` feat(aigateway): show each configured endpoint only to its granted accounts
+  - `12299b5ec` feat(aigateway): share cached chats to configured endpoints across accounts
+  - `ca401f7ea` feat(aigateway): reuse one bounded HTTP client per configured endpoint
+  - `884916f3b` fix(aigateway): share no cookie and close every endpoint client at shutdown
+  - `f01f3aeb3` fix(aigateway): list only registered providers the caller may see
+  - `83a92b020` fix(aigateway): close every endpoint client even when shutdown is cancelled
+  - `5ff4949aa` fix(aigateway): report the remote endpoint cache revision in every export
+  - `41fa50df6` fix(screamingface): compare the configured endpoint revision on a cache pull
+  - `9ffbb7a0b` docs(aigateway): scope endpoint privacy to the working catalog
+- **Gates:** after the rebase onto `27364bbf3`, both stacks are green with `--base 27364bbf3`
+  and synced to its lockfiles: the gateway's run with 7504 tests collected, 443 in
+  `tests/unit/remote_endpoint`, and the SDK's with 4939, where `test_cache_local_revisions`
+  runs rather than skips. Main had added one test to that folder,
+  `test_history_purge_endpoints`; no file changed on both sides. Before that,
+  `run_gates.py aigateway --base 482460344` after the first rebase: ruff check, ruff format,
   pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
-  all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `d0c7545e2` the
-  full run is green again with 7359 and 437, and after `61fbae090` with 7363 and 441. The
-  first run for `61fbae090` failed once on the login timing test
+  all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `83a92b020` the
+  full run is green again with 7359 and 437, and after `5ff4949aa` with 7363 and 441. The
+  first run for `5ff4949aa` failed once on the login timing test
   `test_unknown_user_timing_close_to_wrong_password`, which compares bcrypt medians by wall
   clock and lies outside this branch; it passed three times alone and in the full rerun. After
-  `9b24798a4` both stacks are green against `482460344`: the gateway's run again, with the
+  `41fa50df6` both stacks are green against `482460344`: the gateway's run again, with the
   approval file grown, and `run_gates.py screamingface`, which runs the append-only check with
   the approved fixture edit, ruff, pyright, pytest with coverage at least 95%, the notebooks,
   the build and the distribution check, with 4706 tests collected. Its first run stopped at
   pyright on notebook widgets in files this branch does not touch, as the local venv lacked
   the notebook extra CI installs; synced with the notebook and runtime extras it is green. After
-  `9812f8b34` the gateway's run is green again with 7364 and 442. With
+  `9ffbb7a0b` the gateway's run is green again with 7364 and 442. With
   `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
   the five approved test transitions in the gateway and the one in the SDK. The two docstrings
   approved on 2026-10-27 lie outside the ranges it protects; the approval file pins them anyway.
@@ -187,13 +193,13 @@ Owner decisions (2026-10-22):
   - The media guard from main (OME-1542) runs before the grant check: a remote image URL sent
     to an ungranted endpoint gets a 422 naming the provider, where an unknown provider gets a
     400. A caller who guesses the ID learns it from the cache status anyway.
-  - Fixed in `d0c7545e2`: shutdown starts every close before waiting for any, so a cancelled
+  - Fixed in `83a92b020`: shutdown starts every close before waiting for any, so a cancelled
     shutdown leaves no endpoint open, and a close error nobody reads is marked read, so
     asyncio never prints its text. Two new tests failed before the change.
-  - Fixed in `d0c7545e2`: a new availability test traps the hidden pair's Connection read; it
+  - Fixed in `83a92b020`: a new availability test traps the hidden pair's Connection read; it
     fails when the skip is moved below that read, which the earlier test missed.
-- **Third review (2026-10-27),** an external review of `c14b811a2`: one finding, fixed in
-  `61fbae090`.
+- **Third review (2026-10-27),** an external review of `4d25190d4`: one finding, fixed in
+  `5ff4949aa`.
   - The endpoint's adapter revision was part of every cache key but was never registered, so
     the community pages, the snapshot manifests and the importer's comparison never named it.
     Rows keyed under another revision of this adapter would load cleanly and never hit; no wrong
@@ -217,8 +223,8 @@ Owner decisions (2026-10-22):
     apart from the shared replay of results, so the second review's "match the governing
     decisions" holds for the cache hit but is not settled for the listing. The comment cleanup
     waits on that choice. Decided on 2026-10-27, below.
-- **Fourth review (2026-10-27),** of `5e93a6bb8`: the export half holds; the pull half was still
-  open, fixed in `9b24798a4`.
+- **Fourth review (2026-10-27),** of `167537c7d`: the export half holds; the pull half was still
+  open, fixed in `41fa50df6`.
   - A pull compared revisions built by the bundled plugin loader alone, so a hosted page keyed
     under another configured-endpoint revision loaded as rows for a provider the process
     lacked. The local gateway imports composition on every start, so its keys embed that
@@ -232,12 +238,12 @@ Owner decisions (2026-10-22):
     approved one passes.
   - Rollout: an SDK with this change refuses every pull from a hosted gateway that does not yet
     report `remote_endpoint_adapter`, since a revision only the local side reports is refused.
-    The hosted gateway with `61fbae090` must deploy before an SDK release carries `9b24798a4`.
+    The hosted gateway with `5ff4949aa` must deploy before an SDK release carries `41fa50df6`.
     The refusal's hint, to upgrade screamingface, does not fit that case.
   - Left as is: the precondition at `test_cache_revision.py:46` checks only that a status code
     is present, not that it is 200.
 - **Owner decision (2026-10-27), community-cache listing:** closes the listing item of the second
-  and third reviews; fixed in `9812f8b34`.
+  and third reviews; fixed in `9ffbb7a0b`.
   - Contract: `/v1/cache/entries` gives every authenticated account the eligible rows of a
     configured endpoint, with their provider and model IDs, alias, stored response and cache
     metadata, and no VIEW filter. The catalog of available endpoints stays filtered by grants.
