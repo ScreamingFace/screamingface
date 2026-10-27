@@ -141,7 +141,13 @@ class HttpIOLayer:
         return f"{self._base_url}{target}" if relative else target
 
     async def _get(self, target: str, *, relative: bool) -> tuple[httpx.Response, str]:
-        """The response and its body as text, both produced within the fetch's deadline."""
+        """The response and its body as text, both produced within the fetch's deadline.
+
+        AIDEV-NOTE: this is the TEXT path (``fetch``/``fetch_ex``). WHY: a raw-bytes path (e.g.
+        open PR #1478's ``fetch_bytes``) must NOT go through ``response.text`` — that decodes
+        binary content. It needs the same deadline-checked GET returning the raw response, with
+        the final ``past(deadline)`` check after its own body handling instead.
+        """
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
         key = idempotency_key(url)
