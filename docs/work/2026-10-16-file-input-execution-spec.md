@@ -131,3 +131,8 @@ with the 2026-10-16 live evidence. Docs only.
   `request_too_large` everywhere; acceptance awaits Kevin's url4 wire approval. Diagram https row and
   connector label updated; PNG re-rendered with `rsvg-convert`. Linear: `OME-1543` / `OME-1544` bodies
   patched; `OME-1540` (Khoa) commented, not edited.
+- **Round 5 follow-up (owner, 2026-10-26):** F1b classification made normative: Content-Type reduced
+  by #1478's `bare_media_type`; media iff `image/png|jpeg|gif|webp` or `application/pdf` (a subset of
+  the gateway gate, `image/*` + `application/pdf`); text iff `text/*` or a url4 collection text type;
+  anything else or a missing type → `unsupported_content_type` (C8); no byte sniffing. Caps confirmed
+  to count the whole `attachments[]` (local blob refs plus https media).

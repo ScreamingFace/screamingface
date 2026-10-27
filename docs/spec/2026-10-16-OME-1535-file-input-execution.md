@@ -10,7 +10,7 @@ guarantee) into F1b, F2, F3, §2.7 and §4.
 
 **Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
 #1447), and so is every `file:line` citation unless its link names another commit: the F3
-gateway-cache link is pinned to `3f2b3a6ef` and the engine-key link to `f70cde71b`. Citations are commit-qualified links,
+gateway-cache link is pinned to `3f2b3a6ef`, the engine-key link to `f70cde71b`, the F1b classification links to `dd4bd9a47` and #1478's head `9d32862f9`. Citations are commit-qualified links,
 so they stay valid when the files move. Short prefixes: `U/` = `packages/url4/src/url4/`,
 `E/` = `apps/screamingface-engine/src/screamingface_engine/`,
 `I/` = `apps/screamingface-engine/src/screamingface_engine_inspect/`,
@@ -154,10 +154,21 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   - **Fetch identity** is `(URL, accept media range)`: the same URL under a different `;accept=` is a
     different fetch. Concurrent requests for one identity share **one in-flight attempt**
     (single-flight), so each identity is fetched at most once per run (the per-run cache, `OME-1543`).
-  - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) both classifies the result as
-    text or non-text from its Content-Type and bytes and yields those bytes; there is no second fetch.
-  - **Text and non-text.** A text result stays a text source, as today, and is not attached. A
-    non-text result is hashed into the tenant+run store (write-through, `OME-1540`) and appended to
+  - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) both classifies the result
+    and yields its bytes; there is no second fetch.
+  - **Classification (normative)** (owner, 2026-10-26, review round 5). The Content-Type is reduced to
+    one bare, lowercased media type with its parameters stripped, by #1478's parser
+    ([`bare_media_type`][pr1478-media]). The body is **media** iff that type is one of `image/png`,
+    `image/jpeg`, `image/gif`, `image/webp` or `application/pdf`: a subset of what the gateway's gate
+    accepts (any `image/*` for `image_url`, [`G/core/content_parts.py:242`][g-img-main]; `application/pdf`
+    for `file`, [`:42`][g-pdf-main]). It is **text** iff the type is `text/*` or one of the url4
+    collection text types `application/json`, `application/x-ndjson`, `application/ndjson`,
+    `application/jsonl` ([`U/dag/semantics/collection.py:135-143`][u-coll-main]). Anything else, a
+    missing Content-Type, or a value that is not exactly one media type is refused with
+    `unsupported_content_type` (permanent, C8, #1478's code), which counts as a failed source (optional
+    → omitted, required → run fails). **No byte sniffing.**
+  - **Text and media.** A text result stays a text source, as today, and is not attached. A
+    media result is hashed into the tenant+run store (write-through, `OME-1540`) and appended to
     `attachments[]` in **source order**: the order of first appearance in the expression.
   - **Retry.** A failed fetch is retried only under the guard's existing rules (`x.source_timeout` is the
     retryable code, §4) and within the run deadline.
@@ -166,9 +177,10 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     nor an attachment. A failed required source fails the run **before any model call**.
   - **Freeze.** When pre-materialization ends, `attachments[]` is frozen (F2): nothing is fetched,
     re-fetched, added or reordered after the first model call.
-  - **Per-run caps** (owned by `OME-1543`): at most **20** url4 attachments and at most
-    **8,000,000 bytes** aggregate (decoded bytes) per run, counted over the whole `attachments[]` (local
-    blob refs and https media alike) and enforced during pre-materialization. Exceeding either is
+  - **Per-run caps** (owned by `OME-1543`; scope confirmed by the owner, 2026-10-26, review round 5):
+    at most **20** entries and at most **8,000,000 bytes** aggregate (decoded bytes) per run, both
+    counted over the **whole** `attachments[]`: every local blob ref (C1, C3) plus every https media
+    result. Enforced during pre-materialization. Exceeding either is
     refused before any model call with the permanent `x.attachments_too_many` or
     `x.attachments_too_large` (§4).
 
@@ -423,7 +435,7 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 | `x.source_too_large` | url4 HTTP transport guard | 413 (proposed) | permanent | F1b; streaming cap on decoded bytes, aborted mid-stream |
 | `x.source_timeout` | url4 HTTP transport guard | 504 (proposed) | retryable | F1b; connect timeout or the total deadline across all hops |
 | `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); 500 at read (proposed) | permanent | F3; at read it is store corruption, logged as such: the node fails with this code and the node path, the run ends `failed` with it, and it is never retried or served from a cache (F3 order) |
-| `unsupported_content_type` | engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; type the node cannot carry or convert |
+| `unsupported_content_type` | url4 bytes fetch (#1478, pre-materialization classification); engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; an https Content-Type outside the F1b media and text sets, missing, or not one media type (no sniffing); or a type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
@@ -549,3 +561,7 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [pr-conv]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine_inspect/conversation_input.py#L62
 [pr-grade]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/apps/screamingface-engine/src/screamingface_engine/grading_call_scope.py#L43
 [pr-report]: https://github.com/ScreamingFace/screamingface/blob/29c99a31ffacaa462ebedfdb04b5ad89844e1ac8/packages/screamingface/src/screamingface/case_result.py#L653-L680
+[pr1478-media]: https://github.com/ScreamingFace/screamingface/blob/9d32862f9587bef310fc696c717cad7d109f378c/packages/url4/src/url4/io/media.py#L240-L256
+[g-img-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/apps/aigateway/src/aigateway/core/content_parts.py#L242
+[g-pdf-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/apps/aigateway/src/aigateway/core/content_parts.py#L42
+[u-coll-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/packages/url4/src/url4/dag/semantics/collection.py#L135-L143
