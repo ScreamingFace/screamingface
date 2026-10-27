@@ -176,3 +176,10 @@ with the 2026-10-16 live evidence. Docs only.
   fetch. The reachability rule stays: a body over zero rows does no I/O. The round-8 positive
   row-derived case is replaced by a literal-source-in-iteration case. Row-derived URLs are deferred to
   `OME-1748` (improvement-ideas). SVG description updated, PNG re-rendered.
+- **Review round 10 (2026-10-27, HupBaHa CHANGES_REQUESTED at `895e24b8e`; owner decision of
+  2026-10-27, confirming the `OME-1543` reading):** an attachment source is also
+  `x.source_not_static` when any enclosing iteration's collection depends on model execution (a
+  processed group, a model call, a remote expression, a nested model-dependent iteration, or a
+  binding to one). Cases added: a model-produced collection that turns out empty and one that turns
+  out non-empty are both refused before any I/O. §4 row and §3.1 aligned. The sign-off now requires
+  Kevin's approval of the exact current revision (rounds 7–10).

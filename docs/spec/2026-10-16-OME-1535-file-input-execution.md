@@ -13,7 +13,8 @@ manifest, identity including guard policy; superseding round 6's all-sources man
 §3 and §4, and his review-round-8 decisions (owner, 2026-10-27: exactly one attachment type per
 `;accept=`, no wildcard or list) into F1b, §3 and §4, and his review-round-9 correction (owner,
 2026-10-27: attachment URLs are literal only, because the grammar cannot express a row-derived one)
-into F1b and §4.
+into F1b and §4, and his review-round-10 decision (owner, 2026-10-27: an attachment's whole
+reachability dependency must be model-free) into F1b, §3 and §4.
 
 **Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
 #1447), and so is every `file:line` citation unless its link names another commit: the F3
@@ -186,6 +187,15 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     fetched literally, and `src=$item;accept=…` is a variable source that yields the row text and
     ignores `;accept=`. Row-derived attachment URLs are deferred to `OME-1748` (improvement idea). The
     code applies to attachment sources only; a text source may be dynamic, as today.
+  - **Model-free reachability** (owner, 2026-10-27, review round 10; confirms the `OME-1543`
+    reading). An attachment source is also refused with `x.source_not_static`, before any fetch or
+    model call, when the collection of **any enclosing iteration** depends on model execution, because
+    its cardinality and therefore the source's reachability are known only after a model call: a
+    processed group, a model call, a remote expression, a nested model-dependent iteration, or a
+    binding to one of these. The whole reachability dependency of an attachment source must be
+    model-free, so the manifest is always complete before the first model call. For example,
+    `((https://rows)!'Produce JSON rows')*(https://files/static.png;accept=image/png)!'Use $item'` is
+    refused.
   - **Identity, one flight, one attachment per identity.** The materialization identity is
     `(URL, accept, effective guard policy: ;optional, ;t=, ;retry=)`. Occurrences with an identical
     identity share **one flight**, including its whole retry sequence under that policy, and yield
@@ -223,7 +233,10 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     manifest-preorder attachments; a literal attachment source inside an iteration body is fetched
     once (one identity) when any row is reached and not at all for an empty collection; a substituted
     or variable attachment URL (`src=$item;accept=image/png`, or one derived from a fetched body) gets
-    `x.source_not_static` before any fetch; a model-derived attachment URL gets `x.source_not_static`.
+    `x.source_not_static` before any fetch; a model-derived attachment URL gets `x.source_not_static`;
+    a literal attachment source inside an iteration over a model-produced collection gets
+    `x.source_not_static` before any I/O both when that collection would turn out empty and when it
+    would turn out non-empty.
 
   Rationale for opting in through `;accept=`: the grammar does not preserve `src=`. `(src=https://a)`
   and `(https://a)` parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so a `src=`
@@ -442,7 +455,8 @@ future-compatible capability, not a v1 execution path:
      at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
      `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
-     An `https://` **attachment source** (a literal URL whose literal `;accept=` is exactly one attachment type, F1b) is pre-materialized before the
+     An `https://` **attachment source** (a literal URL whose literal `;accept=` is exactly one attachment type, reachable without any model
+     call, F1b) is pre-materialized before the
      first model call from the reachability-aware attachment manifest, through the url4 transport's
      destination guard, one flight per identity (URL, accept, guard policy); a classified result is
      hashed, written through to the tenant + run store (`OME-1540`) and appended to `attachments[]` in
@@ -493,7 +507,7 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
-| `x.source_not_static` | url4 run admission (attachment manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` **attachment source** whose URL or `;accept=` is not literal in the authored expression (row-substituted, variable, model-derived or fetched-body-derived; row-derived URLs are deferred to `OME-1748`); text sources are never refused with it; raised before any fetch or model call |
+| `x.source_not_static` | url4 run admission (attachment manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` **attachment source** whose URL or `;accept=` is not literal in the authored expression (row-substituted, variable, model-derived or fetched-body-derived; row-derived URLs are deferred to `OME-1748`), or whose reachability depends on model execution (an enclosing iteration over a processed group, a model call, a remote expression, a nested model-dependent iteration, or a binding to one); text sources are never refused with it; raised before any fetch or model call |
 | `x.attachments_too_many` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 20 url4 attachments in one run; raised before any model call |
 | `x.attachments_too_large` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 8,000,000 aggregate decoded bytes of url4 attachments in one run; raised before any model call |
 | `request_too_large` | gateway body cap (`OME-1542`, #1479) | 413 | permanent | 8 MiB request body; before any upstream spend; includes the Fusion residual (§2.7). `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code |
@@ -501,8 +515,8 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 Statuses marked *proposed* are new in this spec and need Kevin's sign-off for the url4 wire. His
 recorded approval at `e61bcde` predates these codes and statuses, so it does not cover them; they stay
 proposed until he signs off this revision. **Acceptance of this spec therefore requires Kevin's url4
-wire approval of the current revision (review rounds 7 and 8, the grammar-facing `;accept=`
-attachment opt-in, and the codes, including `x.attachments_too_many`,
+wire approval of the exact current revision (review rounds 7–10: the grammar-facing `;accept=`
+attachment opt-in, the literal-target and model-free reachability rules, and the codes, including `x.attachments_too_many`,
 `x.attachments_too_large` and `x.source_not_static`); it is awaited.** `x.source_destination_blocked` and the other `x.source_*`
 codes **are** active in v1, owned by the url4 HTTP transport guard (F1b). Only remote-node
 authentication failure has no v1 owner, because neither remote blobs (F1) nor remote-node calls (F1b)
