@@ -455,7 +455,7 @@ class Client:
         """Fetch one picture or file of a Case from this engine, checked against its placeholder.
 
         FEATURE (OME-1271): ``case.media`` lists a Case's pictures and files without fetching
-        them; this opens one. The engine keeps a run's pictures 48 hours. e.g.
+        them; this opens one. Parked pictures expire (48 hours on a local engine). e.g.
         ``client.fetch_media(case.media[0])`` shows the figure inline in Jupyter, and
         ``.save("figures/")`` writes it.
 

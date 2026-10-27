@@ -27,8 +27,8 @@ def fetch_media_bytes(http: httpx.Client, media: CaseMedia, mint: Callable[[], s
     e.g. ``CaseMedia(sha256="9f86…", size=307200)`` → the 307,200 bytes whose sha256 is ``9f86…``.
 
     Raises:
-        MediaUnavailableError: ``media_reference_invalid``, ``media_not_kept`` (404 or 410: past
-            the store's 48 hours), ``media_integrity_mismatch``, or ``media_fetch_failed``.
+        MediaUnavailableError: ``media_reference_invalid``, ``media_not_kept`` (404 or 410: the
+            store's expiry removed it), ``media_integrity_mismatch``, or ``media_fetch_failed``.
         EngineUnavailableError: the engine could not be reached.
     """
 
@@ -50,8 +50,8 @@ def fetch_media_bytes(http: httpx.Client, media: CaseMedia, mint: Callable[[], s
         ) as response:
             if response.status_code in (404, 410):
                 raise MediaUnavailableError(
-                    f"The engine no longer holds {media}; a run keeps its pictures and files "
-                    "48 hours. Run the Case again to see it.",
+                    f"The engine no longer holds {media}; parked pictures and files expire "
+                    "(48 hours on a local engine). Run the Case again to see it.",
                     code="media_not_kept",
                     permanent=True,
                 )

@@ -16,9 +16,10 @@ engine process can't read the Benchmark files (they ship only in the Runner imag
 already serves the result store at `GET /artifacts/{id}`, and that store names every item by the
 sha256 of its bytes: the same value the placeholder carries. So when a run finishes, the Runner
 parks each distinct picture and file in that store; the SDK fetches one by its placeholder's
-sha256 and checks the bytes, and the report browser gives each a button. Items live 48 hours
-(`artifact_ttl_s`), refreshed each time a run parks the same bytes again. Design agreed with the
-owner on 2026-10-27.
+sha256 and checks the bytes, and the report browser gives each a button. Items expire with the
+store's own rule: 48 hours on the filesystem store (`artifact_ttl_s`, restarted each time a run
+parks the same bytes again), and the bucket's lifecycle rule on S3, which the engine does not set.
+Design agreed with the owner on 2026-10-27.
 
 ## Planned changes
 

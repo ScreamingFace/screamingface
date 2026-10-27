@@ -9,8 +9,9 @@ placeholder is the ticket. ``case.media`` lists the tickets without any network 
 INVARIANT: a fetched picture is shown only when its size and sha256 match its placeholder, so a
 picture opened from a result is the one the model saw, or nothing.
 
-AIDEV-NOTE: the engine keeps a run's pictures 48 hours, restarted each time a run parks the same
-bytes again; a fetch after that fails by name (``media_not_kept``), never with another picture.
+AIDEV-NOTE: parked pictures expire: 48 hours on a local engine's filesystem store, restarted each
+time a run parks the same bytes again, and the bucket's lifecycle rule on a deployment's S3 store.
+A fetch after that fails by name (``media_not_kept``), never with another picture.
 """
 
 from __future__ import annotations

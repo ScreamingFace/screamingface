@@ -153,12 +153,12 @@ def test_fetch_media_returns_the_bytes_the_placeholder_names() -> None:
     assert artifact.headers["URL4-Capability"] == "capability"
 
 
-def test_a_picture_past_the_stores_48_hours_fails_by_name() -> None:
+def test_a_picture_the_store_has_expired_fails_by_name() -> None:
     with _client({}, []) as client, pytest.raises(sf.MediaUnavailableError) as raised:
         client.fetch_media(_PICTURE)
 
     assert raised.value.code == "media_not_kept"
-    assert "48 hours" in raised.value.message
+    assert "Run the Case again" in raised.value.message
 
 
 @pytest.mark.parametrize(

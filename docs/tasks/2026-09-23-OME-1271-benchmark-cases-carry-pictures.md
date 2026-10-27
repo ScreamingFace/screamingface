@@ -24,7 +24,8 @@ HLE, MathVista and others) could not be imported. A picture now travels inline i
 - PR 4, one Case the grader can't read fails alone, not the whole run
   ([#1559](https://github.com/ScreamingFace/screamingface/pull/1559)).
 - PR 5, a researcher opens a picture or file from its Case Result: the run parks each one in the
-  engine's result store under its sha256 (kept 48 hours), and the SDK fetches and checks it, with
+  engine's result store under its sha256 (until the store expires it), and the SDK fetches and
+  checks it, with
   Show picture and Save file buttons in the report browser.
 
 Owner checks left: a local-stack FigQA run, then Show picture on a Case; then the dev notebook

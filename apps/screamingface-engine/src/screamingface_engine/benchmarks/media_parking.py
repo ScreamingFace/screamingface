@@ -10,9 +10,10 @@ INVARIANT: the name a picture is parked under is the sha256 of the bytes the mod
 same value ``media_placeholder`` writes into the placeholder. Both decode the reader-checked
 ``data:`` URI as written.
 
-AIDEV-NOTE: parked items die by the store's TTL (``artifact_ttl_s``, 48 hours), restarted each
-time a run parks the same bytes again. A fetch after that is a named miss in the SDK, never a
-different picture.
+AIDEV-NOTE: parked items expire with the store's own rule: the filesystem store's sweep after
+``artifact_ttl_s`` (48 hours), restarted each time a run parks the same bytes again; the S3 store
+leaves expiry to the bucket's lifecycle rule (``artifacts/s3.py`` ``sweep``). A fetch after that is
+a named miss in the SDK, never a different picture.
 """
 
 from __future__ import annotations
