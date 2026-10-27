@@ -43,11 +43,14 @@ from url4.dag.attachment import Attachment
 from url4.dag.attachments import current_attachments
 from url4.io.layer import FetchRequest, FetchResult, fetch_result, resolve_shelf
 from url4.wire.subrequest import (
-    TRANSPORT_ONLY_PARAMS,
-    decode_expression_http,
     decode_subrequest_http,
     extract_expression_params,
 )
+
+# WHY: redundant aliases re-export the ingress rebuild from its own module, so every
+# ``url4.peer._dispatch.<name>`` import path keeps working.
+from url4.peer._reassemble import _TRANSPORT_PARAMS as _TRANSPORT_PARAMS  # isort: skip
+from url4.peer._reassemble import reassemble as reassemble  # isort: skip
 
 if TYPE_CHECKING:  # the node type only — this module never constructs one
     from url4.peer.server import Url4Node, _DataRoute
@@ -68,17 +71,6 @@ class Request:
     attachments: tuple[Attachment, ...] = field(default=(), repr=False)
     """The calling run's files, in order (F2): set for an in-process call only. An HTTP
     ingress has no calling run, so a remote caller's files never arrive here (D6)."""
-
-
-# Transport-level query params a node consumes itself rather than re-attaching
-# to the expression (spec §11.6.3). The ingress set is broader than the spec's
-# transport-only rule: it also drops params this node consumes itself
-# (delivery/cb/meta/v) and `processor`. The eval path consumes `processor` for
-# its §27.3 delegation; endpoint calls do not reassemble an expression, so the
-# value reaches the handler in request.params.
-# INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
-# can never disagree about resume/rid.
-_TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
 
 
 # --- the IOLayer ports (a node IS an io layer) -------------------------------------
@@ -203,21 +195,6 @@ async def call_endpoint(node: Url4Node, path: str, q: str, params: Mapping[str, 
 def missing_intent(path: str, needs: str) -> ResolutionError:
     """The permanent 400 for a call to ``path`` that carries no ``q=``; ``needs`` names the form."""
     return ResolutionError(f"{path!r} needs {needs}", code=ErrorCode.MISSING_INTENT, permanent=True)
-
-
-def reassemble(q: str, params: Mapping[str, str]) -> str:
-    """Rebuild the eval-path expression, re-attaching non-transport params.
-
-    The dual-convention decode lives with the wire codec
-    (:func:`url4.wire.subrequest.decode_expression_http` — one owner, spec §3.4).
-    ``broadcast`` and friends keep their §9 semantics by riding the trailing
-    ``;`` chain the envelope decode reads (a flag param decodes to value "").
-    """
-    text = decode_expression_http(q)
-    for key, value in params.items():
-        if key not in _TRANSPORT_PARAMS:
-            text += f";{key}" if value == "" else f";{key}={value}"
-    return text
 
 
 async def _text(result: str | Awaitable[str]) -> str:
