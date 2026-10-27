@@ -43,7 +43,7 @@ server = ["uvicorn>=0.30"]
 # WHY >=2.12: ResultSignal.artifact uses Field(exclude_if=...), added in pydantic 2.12. An older
 # pydantic ignores it with a warning and writes "artifact": null on the wire. The suite passes on
 # 2.12.0 and fails on 2.11.7 (test_result_signal.py).
-streaming = ["pydantic>=2.14.1"]
+streaming = ["pydantic>=2.12"]
 
 # The `url4` CLI: `url4 serve` (HTTP node) and `url4 eval` (network-free one-shot).
 # `serve` additionally needs the `server` extra (uvicorn) at runtime.
