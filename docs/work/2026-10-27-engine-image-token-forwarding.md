@@ -92,6 +92,17 @@ Epic OME-1529.
   fail under `-n auto` load (timing; passes 3/3 alone; unrelated code path); the next full run was
   green. The `screamingface` stack gate was not run: it does not import `Usage`/`TokenUsage` and
   reads cost frames with `.get`, so an extra key is ignored there.
+- **Re-verification (resumed run, 2026-10-27):** b0e2eb020 checked against this design and the
+  owner decisions; nothing missing. Gates re-run with `--base <merge-base with origin/main>` so the
+  append-only check exercises the manifest: `url4` ALL GREEN (approved OME-1744 transition matched),
+  `screamingface-engine` ALL GREEN. `git diff origin/main...HEAD --stat -- '*tests*'`: two new test
+  modules + the approved 2-line edit, nothing else.
+- **Self-review (no blocking findings):** unknown never reaches the wire as 0 (connector, cache
+  hit, span `accumulate`, run latch, `_token_usage` all keep `None`); text-only frames pinned
+  byte-identical by literal tests. Nuance: a provider that DOES break the prompt down (Gemini via
+  `bounded_image_and_file_tokens_from_gemini`) yields a known `0` on a text-only call, so those
+  frames gain `"gen_ai.usage.image_and_file_tokens":0` — correct per decision 2 (a known 0 is a
+  claim), byte-identity holds where the provider gives no breakdown.
 - **Deviations:** none from the approved design. Manifest carries an extra `approved_by` key beside
   the existing format's fields (the matcher ignores extra keys).
 
@@ -101,6 +112,8 @@ Epic OME-1529.
   the image class — out of scope by owner decision.
 - `packages/screamingface/_engine/contract.py` does not surface the new key to the SDK consumer yet.
 - Live acceptance (one tiny image call through a credentialed gateway) still to run.
+- `SpanData` (span frames / OTel span attributes via `tracing/span_tree.py`) does not carry the
+  class; only `cost.usage` frames do. Add it there if span-level consumers need it.
 
 ## Open questions
 
