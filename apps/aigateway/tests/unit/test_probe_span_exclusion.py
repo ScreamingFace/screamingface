@@ -66,7 +66,7 @@ def exporter(monkeypatch) -> InMemorySpanExporter:
 
 
 def _app(exclusion: SpanExclusion | None = None) -> FastAPI:
-    app = FastAPI()
+    app = FastAPI(telemetry=tracing.NATIVE_FASTAPI_TELEMETRY_OFF)
 
     @app.get("/healthz")
     async def healthz(request: Request) -> dict[str, str]:

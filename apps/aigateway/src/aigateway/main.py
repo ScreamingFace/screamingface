@@ -72,6 +72,7 @@ from .routes import (
 )
 from .routes.chat_accounting import accounting_error_response
 from .span_exclusion import SpanExclusion
+from .tracing import NATIVE_FASTAPI_TELEMETRY_OFF
 from .tracing import install as install_tracing
 from .unhandled_errors import unhandled_exception_handler
 
@@ -344,7 +345,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the "aigateway" logger's handlers, so our handler must exist first.
     logs.configure()
     _attach_log_filter()
-    app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
+    app = FastAPI(
+        title="aigateway",
+        version="0.1.0",
+        lifespan=_lifespan,
+        telemetry=NATIVE_FASTAPI_TELEMETRY_OFF,
+    )
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
     # OME-939: the last resort for anything no route handled — one class-name-only record with

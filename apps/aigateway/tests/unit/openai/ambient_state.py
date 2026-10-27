@@ -34,6 +34,7 @@ AMBIENT_SAFE_STATE: dict[str, Any] = {
     "pre_call_rules": [],
     "post_call_rules": [],
     "drop_params": False,
+    "openai_system_messages_first": False,
     # OME-884 review cycle 2: the ambient MUTATOR. While it was absent from this helper,
     # LiteLLM's session default leaked into every participation assertion.
     "modify_params": False,
