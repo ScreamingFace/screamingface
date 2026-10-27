@@ -111,8 +111,13 @@ See the plan. The Review Focus items each get a test in the owning task.
     carries a small inline SVG glyph only.
   - Review of T3: `Telemetry.found` names the JSONL files that exist, so the Trace header can
     tell a missing `events.jsonl` (unknown) from an empty one (0).
-  - Spec §3.8 names the synthetic span's service `screamingface-sdk`; the view renders
-    `notebook` (Task 2). Not changed in Task 5; flagged for review.
+  - Spec §3.8 names the synthetic span's service `screamingface-sdk`; Task 2 rendered
+    `notebook`. Resolved in the final review fix: the span's service is now
+    `screamingface-sdk`, per the spec. The notebook hop reads "1 derived span", so it no longer
+    disagrees with the header's span count, which leaves the derived span out.
+  - Final review fix: the header's spend is `accounting.json`'s total over every model (still
+    `unknown` when any part is unknown or there are no model rows), not the sum of per-call
+    spend; past the call cap the count reads "N shown of M".
 
 ## Findings (real run, 2026-10-27)
 
@@ -122,7 +127,19 @@ See the plan. The Review Focus items each get a test in the owning task.
   `gpt-5.5` member failed (404). Root cause: gateway spans carry no attributes or HTTP status
   (follow-up B8).
 - **No gateway line joins a call on replay.** Note on both bundles: "N gateway log lines …
-  matched no model call (no timestamp inside a call's window)" (quickstart 4, failing 3); every
-  call row reads "no log lines matched". Join by `gateway_call_id` needs B8.
+  matched no model call" (quickstart 4, failing 3); every call row reads "no log lines
+  matched". Corrected cause (final review): replay gateway lines carry **no timestamp at all**.
+  aigateway's `_FORMAT` (`apps/aigateway/src/aigateway/logs.py`) is
+  `%(levelname)s: %(name)s %(call_context)s%(message)s`, and the replay harness writes raw
+  stdout to `aigateway.log` (`harness/_local_proc.py`), so `line_ns` returns None. Time
+  matching (and Review Focus 4's ambiguous label) can fire only on the `local` target, whose
+  `runtime.log` lines are timestamped; on replay it is exercised only by synthetic
+  ISO-prefixed fixtures. The view now notes unstamped lines apart from stamped lines outside
+  every window. A join on replay needs B8 (`gateway_call_id` on the span).
+- **Merge order (for the PR body).** `_assert_trace_view` in `ui/test_ui_e2e.py` needs OME-1747
+  (6a). This branch is stacked on the unmerged UI PR (base `adb90276b` is not on
+  `origin/main`), and the replay CI lane runs `pytest tests/e2e`, so it fails until 6a lands.
+  Order: land 6a and the UI PR, then retarget this PR to `main` and merge it. State this in the
+  PR body.
 - OTLP/JSON ids are hex per the OTLP spec; protobuf `ParseDict` alone reads them as base64
   (24-byte ids, silently). Consumers must re-encode, as `test_otlp_json.py` does.

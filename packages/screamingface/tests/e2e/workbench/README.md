@@ -257,8 +257,9 @@ It is built from the bundle's own files (`trace.json`, `spans.jsonl`, `events.js
 script (`ui/trace_html.py`). The verdict does not change; this is presentation. Top to bottom:
 
 1. **Header.** Trace id (selectable), verdict, wall time, model calls, cache hits, spend, and
-   span, SDK event and log-line counts. Spend is `unknown` on replay (the accounting has no
-   model rows), never `$0`.
+   span, SDK event and log-line counts. Spend is `accounting.json`'s total over every model;
+   it is `unknown` on replay (the accounting has no model rows), never `$0`. Past 2 000 calls
+   the count reads "2000 shown of N".
 2. **Trace chain.** Five boxes: notebook (SDK) → engine → aigateway → provider or cache →
    scoreboard, each ok (✓), failed (✗) or not seen (grey, dashed) with its reason, span and
    log-line counts, and latency. On replay, provider is grey "none on replay: served from
@@ -297,8 +298,12 @@ What a replay run shows (observed 2026-10-27, both notebooks, keyless, with 6a a
 Known gaps (follow-ups B3, B8 in the plan): scoreboard is not instrumented; gateway spans carry
 no attributes, so a call's model, cache and status come from its engine parent. In the failing
 fusion both member calls sit under one failed `/benchmarks/candidate`, so both rows show that
-span's model and the error, though only one member failed. The replay gateway's lines fall
-outside the chat spans' windows, so no line joins a call ("matched no model call" note).
+span's model and the error, though only one member failed. The replay gateway's log lines
+carry no timestamp at all (aigateway's log format, `aigateway/logs.py` `_FORMAT`, has none, and
+the replay harness writes its raw stdout), so on replay no line can join a call by time (the
+note "… carries no timestamp"). Only the `local` target's timestamped `runtime.log` lines can
+be matched by time; a stamped line outside every call's window gets its own note. A join by
+`gateway_call_id` needs B8.
 
 ## Debugging a failing run
 

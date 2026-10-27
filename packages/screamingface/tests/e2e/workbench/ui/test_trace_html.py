@@ -300,3 +300,34 @@ def test_the_export_links_the_otlp_json_download_only_with_the_token(tmp_path: P
     assert "trace.otlp.json" not in without and "startup URL" in without
     hostile = th.section(ts.build(directory), 'a"><script>', TOKEN)
     assert "<script>" not in hostile
+
+
+# --- review of final --------------------------------------------------------------------------
+
+
+def test_the_header_spend_is_the_accounting_total_when_calls_share_a_model(tmp_path: Path) -> None:
+    accounting = {
+        "schema": "workbench.accounting.v1",
+        "candidates": [
+            {"name": "c", "by_model": [{"model": "m", "calls": 2, "usage": {"cost_usd": "0.0042"}}]}
+        ],
+    }
+    html = _render(bundle(tmp_path, run_spans(), accounting=accounting))
+    assert "<dt>spend</dt><dd>$0.0042</dd>" in _part(html, '<dl class="trace-head">', "</dl>")
+
+
+def test_the_header_says_how_many_calls_were_cut(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ts, "CALLS_CAP", 1)
+    html = _render(bundle(tmp_path, run_spans()))
+    assert "<dt>model calls</dt><dd>1 shown of 2</dd>" in _part(
+        html, '<dl class="trace-head">', "</dl>"
+    )
+
+
+def test_the_notebook_hop_counts_its_span_as_derived(tmp_path: Path) -> None:
+    """The header's span count leaves the derived root out; the notebook hop says it is one."""
+    html = _render(bundle(tmp_path, run_spans(), recorder=RECORDER, events=[{"kind": "x"}]))
+    row = _row_of(_part(html, '<table class="hop-path"', "</table>"), "<td>notebook</td>")
+    assert "1 derived span ·" in row and "1 spans" not in row

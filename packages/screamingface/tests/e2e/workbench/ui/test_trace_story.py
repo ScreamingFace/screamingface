@@ -565,3 +565,49 @@ def test_sdk_events_are_unknown_without_an_events_file_and_counted_with_one(
     assert ts.build(bundle(tmp_path / "none", run_spans())).events is None
     assert ts.build(bundle(tmp_path / "empty", run_spans(), events=[])).events == 0
     assert ts.build(bundle(tmp_path / "two", run_spans(), events=[{}, {}])).events == 2
+
+
+# --- review of final --------------------------------------------------------------------------
+
+
+def test_the_synthetic_client_span_belongs_to_the_sdk_service(tmp_path: Path) -> None:
+    """Spec §3.8: the derived root's service is ``screamingface-sdk``."""
+    (root,) = ts.build(bundle(tmp_path, run_spans())).roots
+    assert root.span["service"] == "screamingface-sdk"
+
+
+def test_lines_without_a_timestamp_are_noted_apart_from_lines_outside_every_window(
+    tmp_path: Path,
+) -> None:
+    """The replay gateway's log format has no timestamp at all; that is not "outside a window"."""
+    log = f"INFO:     aigateway.x gateway_call_id=call_c trace_id={TID} no stamp\n"
+    log += _line(70, "call_d")  # stamped, but after both chat windows
+    notes = ts.build(bundle(tmp_path, run_spans(), gateway_log=log)).notes
+    assert any("1 gateway log line" in n and "no timestamp" in n for n in notes), notes
+    assert any("1 gateway log line" in n and "outside every" in n for n in notes), notes
+
+
+@pytest.mark.parametrize(
+    ("rows", "spend"),
+    [
+        (
+            [
+                {"model": MODEL, "calls": 2, "usage": {"cost_usd": "0.0042"}},
+                {"model": "other", "calls": 1, "usage": {"cost_usd": "0.001"}},
+            ],
+            Decimal("0.0052"),
+        ),
+        ([{"model": MODEL, "calls": 2, "usage": {}}], None),  # one unknown part: unknown
+        ([], None),  # replay: no model rows is unknown, never $0
+    ],
+    ids=["known", "one-part-unknown", "no-rows"],
+)
+def test_the_story_spend_is_the_accounting_total(
+    tmp_path: Path, rows: list[dict[str, Any]], spend: Decimal | None
+) -> None:
+    story = ts.build(bundle(tmp_path, run_spans(), accounting=_accounting(*rows)))
+    assert story.spend == spend
+
+
+def test_without_accounting_the_story_spend_is_unknown(tmp_path: Path) -> None:
+    assert ts.build(bundle(tmp_path, run_spans())).spend is None

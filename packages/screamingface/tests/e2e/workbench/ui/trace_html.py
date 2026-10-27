@@ -119,16 +119,17 @@ def _sum_known(values: Sequence[int | None]) -> int | None:
 
 def _header(story: ts.TraceStory, rows: Sequence[_Row]) -> str:
     calls = story.calls
-    spend = tm.money_sum(c.spend for c in calls) if calls else None
+    cut = story.cut.get("calls", 0)
+    shown = f"{len(calls)} shown of {len(calls) + cut}" if cut else str(len(calls))
     spans = sum(r.node.collapsed for r in rows if not r.node.synthetic)
     ids = " ".join(f'<code class="copy">{escape(t)}</code>' for t in story.trace_ids) or "unknown"
     facts = (
         ("trace id", ids),
         ("verdict", escape(story.verdict)),
         ("wall time", duration(story.wall_ns)),
-        ("model calls", str(len(calls)) if rows else "unknown"),  # no spans: nobody looked
+        ("model calls", shown if rows else "unknown"),  # no spans: nobody looked
         ("cache hits", str(sum(c.cache == "hit" for c in calls)) if rows else "unknown"),
-        ("spend", usd(spend)),
+        ("spend", usd(story.spend)),  # accounting.json's total: per-call spend is often unknown
         ("spans", str(spans)),
         ("SDK events", cell(story.events)),
         ("log lines", cell(_sum_known([h.log_lines for h in story.hops]))),
@@ -148,11 +149,14 @@ def _glyph(state: str) -> str:
 def _hop(hop: ts.Hop) -> str:
     pill = _PILL.get(hop.state, "unknown")
     word = {"ok": "ok", "fail": "failed"}.get(hop.state, "not seen")
+    # The notebook's one span is the derived client span, which the header's count leaves out.
+    plural = "" if hop.spans == 1 else "s"
+    spans = f"{hop.spans} {'derived ' if hop.name == 'notebook' else ''}span{plural}"
     return (
         f"<tr><td>{escape(hop.name)}</td>"
         f'<td><span class="pill {pill}">{_glyph(hop.state)}{word}</span></td>'
         f"<td class='note'>{escape(hop.reason or '')}</td>"
-        f"<td class='note'>{hop.spans} spans · {cell(hop.log_lines)} log lines</td>"
+        f"<td class='note'>{escape(spans)} · {cell(hop.log_lines)} log lines</td>"
         f"<td class='note'>latency {duration(hop.latency_ns)}</td></tr>"
     )
 

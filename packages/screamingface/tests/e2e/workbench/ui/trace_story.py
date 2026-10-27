@@ -18,7 +18,10 @@ WHY log lines join by time: gateway spans carry no ``gateway_call_id`` yet (foll
 gateway log line of this trace (the exact ``trace_id=`` token rule, via
 ``telemetry.gateway_calls``) is joined to the chat-completion span whose window holds its
 leading ISO-8601 timestamp. A line inside two windows goes under both, as ``time-ambiguous``;
-a line without a timestamp, or outside every window, is counted in a note, never guessed.
+a line without a timestamp, or outside every window, is counted in a note, never guessed. The
+two are noted apart: the replay gateway's log format (``aigateway.logs._FORMAT``) has no
+timestamp at all, so on replay no line can join by time; only the ``local`` target's
+timestamped ``runtime.log`` lines can.
 A span that does name its ``gateway_call_id`` joins by that id instead. Only lines that carry a
 ``gateway_call_id`` take part (``gateway_calls`` drops the rest; ``trace.json`` counts those as
 ``unattributed_gateway_lines``). Windows are sorted by start and found by bisection, and the
@@ -63,6 +66,7 @@ CALLS_CAP: Final = 2_000
 TIME_MATCH_CAP: Final = 20_000  # time-matched log placements kept per story; the rest counted
 COLLAPSE_AT: Final = 5  # this many same-named sibling leaves fold into one row ("×n")
 CLIENT_SPAN: Final = "sdk.evaluate"
+CLIENT_SERVICE: Final = "screamingface-sdk"  # spec §3.8: the derived root's service
 RUN_SPAN: Final = "url4.run"
 #: The attribute that marks the derived client span; the OTLP/JSON export leaves such spans out.
 DERIVED_ATTR: Final = "workbench.derived_from"
@@ -139,6 +143,7 @@ class TraceStory:
     notes: tuple[str, ...]
     cut: Mapping[str, int]
     events: int | None = None  # SDK events read (the header's count); None: not counted
+    spend: Decimal | None = None  # accounting.json's total over every model; None: unknown
 
 
 # --- reading ----------------------------------------------------------------------------------
@@ -241,7 +246,7 @@ def _client_span(spans: Sequence[Json], recorder: Json, notes: list[str]) -> Jso
         "parent_span_id": None,
         "name": CLIENT_SPAN,
         "kind": "client",
-        "service": "notebook",
+        "service": CLIENT_SERVICE,
         "start_ns": first,
         "end_ns": last,
         "status": {"code": "unset", "message": ""},
@@ -427,14 +432,17 @@ class _Joined:
     windows: list[tuple[int, int, int]]  # (call index, start, end), sorted by start
     starts: list[int]  # the windows' starts, for bisection
     ambiguous: set[int]
-    unmatched: int = 0
+    unmatched: int = 0  # stamped lines outside every window
+    unstamped: int = 0  # lines with no leading timestamp: never time-matched
     placed: int = 0
     cut: int = 0  # lines a window held but ``TIME_MATCH_CAP`` left unplaced
 
     def place(self, line: str) -> None:
         at = line_ns(line)
-        upto = 0 if at is None else bisect_right(self.starts, at)
-        hits = [k for k, _, end in self.windows[:upto] if at is not None and at <= end]
+        if at is None:
+            self.unstamped += 1
+            return
+        hits = [k for k, _, end in self.windows[: bisect_right(self.starts, at)] if at <= end]
         if not hits:
             self.unmatched += 1
         elif self.placed + len(hits) > TIME_MATCH_CAP:
@@ -492,6 +500,7 @@ class _Calls:
     calls: tuple[Call, ...]
     cut: int
     unmatched: int
+    unstamped: int
     lines_cut: int
 
 
@@ -505,7 +514,7 @@ def _calls(spans: Sequence[Json], tele: tm.Telemetry, trace: Json, log: str) -> 
     calls = [_call(c, by_id.get(_parent(c) or "", {}), codes) for c in chats]
     calls = _with_spend(calls, tele.accounting)
     matched, joined = _match_logs(chats, calls, log, _trace_ids(trace, spans))
-    return _Calls(tuple(matched), cut, joined.unmatched, joined.cut)
+    return _Calls(tuple(matched), cut, joined.unmatched, joined.unstamped, joined.cut)
 
 
 # --- hops (Review Focus 1, 5) -----------------------------------------------------------------
@@ -698,6 +707,35 @@ def _span_cut(tele: tm.Telemetry, notes: list[str]) -> int:
     return cut
 
 
+def _lines(count: int) -> str:
+    plural = "s" if count != 1 else ""
+    return f"{count} gateway log line{plural} of this trace with a gateway_call_id"
+
+
+def _unjoined_notes(found: _Calls) -> list[str]:
+    """Why gateway lines joined no call: no timestamp at all (the replay gateway's format), or a
+    timestamp outside every call's window. Neither is guessed into a call."""
+    notes: list[str] = []
+    if found.unstamped:
+        notes.append(
+            f"{_lines(found.unstamped)} matched no model call: the line carries no timestamp "
+            "(the replay gateway logs none), and the gateway span no gateway_call_id"
+        )
+    if found.unmatched:
+        notes.append(
+            f"{_lines(found.unmatched)} matched no model call: its timestamp is outside every "
+            "call's window, and the gateway span has no gateway_call_id"
+        )
+    return notes
+
+
+def _total_spend(accounting: Json | None) -> Decimal | None:
+    """accounting.json's spend over every model; unknown when it has no model rows (replay) or
+    any part is unknown, never a partial sum."""
+    totals = _spend_by_model(accounting)
+    return tm.money_sum(cost for _, cost in totals.values()) if totals else None
+
+
 def build(bundle_dir: Path) -> TraceStory:
     """The run in ``bundle_dir`` as one story across every hop (see the module docstring)."""
     tele = tm.load(bundle_dir)
@@ -707,13 +745,7 @@ def build(bundle_dir: Path) -> TraceStory:
     synthetic = _client_span(spans, recorder, notes) if spans else None
     roots = _tree(spans, synthetic, notes)
     found = _calls(spans, tele, trace, _gateway_log(bundle_dir))
-    if found.unmatched:
-        plural = "s" if found.unmatched != 1 else ""
-        notes.append(
-            f"{found.unmatched} gateway log line{plural} of this trace with a gateway_call_id "
-            "matched no model call (no gateway_call_id on the gateway span, and no timestamp "
-            "inside a call's window)"
-        )
+    notes += _unjoined_notes(found)
     if found.lines_cut:
         notes.append(
             f"{found.lines_cut} time-matched gateway log lines not shown: over the "
@@ -731,4 +763,5 @@ def build(bundle_dir: Path) -> TraceStory:
         notes=tuple(notes),
         cut={"spans": span_cut, "calls": found.cut, "log_lines": found.lines_cut},
         events=len(tele.events) if EVENTS_FILE in tele.found else None,
+        spend=_total_spend(tele.accounting),
     )
