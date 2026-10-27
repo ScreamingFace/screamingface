@@ -169,3 +169,10 @@ with the 2026-10-16 live evidence. Docs only.
   ticket matches (Sergey patched it); the `OME-1543` blocked-by `OME-1538` relation was added by
   Sergey; the `OME-1544` and `OME-1543` bodies are patched. (4) Kevin's approval is asked for rounds 7
   and 8. SVG updated, PNG re-rendered.
+- **Round 9 (owner, 2026-10-27, author-side correction found while implementing `OME-1543`):** url4's
+  grammar cannot express a row-derived attachment URL. `https://h/$item` is fetched literally, and
+  `src=$item;accept=…` is a variable source that yields row text and ignores `;accept=`. So v1
+  attachment URLs and `;accept=` are literal only; anything else is `x.source_not_static` before any
+  fetch. The reachability rule stays: a body over zero rows does no I/O. The round-8 positive
+  row-derived case is replaced by a literal-source-in-iteration case. Row-derived URLs are deferred to
+  `OME-1748` (improvement-ideas). SVG description updated, PNG re-rendered.
