@@ -6,12 +6,16 @@
 # and get its stored answers with no new upstream call, whether or not I hold a grant or a key.
 # INVARIANT: a hit needs an enabled endpoint and a declared alias, and nothing else; a miss or a
 # bypass still needs the grant and the stored key before any upstream I/O.
+# INVARIANT (owner decision, 2026-10-27): `/v1/cache/entries` lists an endpoint's published rows,
+# with their provider and model IDs, stored answers and metadata, to every signed-in account. The
+# grant filters the working catalog and new upstream calls, not published cache entries.
 # WHY restarts on the same stores: `enabled`, grants and aliases are read once at startup, and the
 # stored rows live in the database, so a config change is a restart that keeps every row.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -22,6 +26,7 @@ from .conftest import Harness, chat_body, put_key, tenant_headers
 from .fixtures import (
     ACCOUNT_A,
     ACCOUNT_B,
+    ALIAS,
     CHAT_PATH,
     ENDPOINT_A,
     ENDPOINT_B,
@@ -182,4 +187,27 @@ def test_a_disabled_endpoint_serves_nothing_and_its_unchanged_return_serves_the_
     # INVARIANT: disabling touched no row, so the same unchanged endpoint serves it again.
     assert (granted.headers[CACHE], ungranted.headers[CACHE]) == ("hit", "hit")
     assert granted.json()["choices"] == ungranted.json()["choices"] == filled.json()["choices"]
+    assert _calls(byom) == []
+
+
+def test_a_published_row_reaches_an_account_the_catalog_hides_the_endpoint_from(
+    byom: Harness,
+) -> None:
+    (filled,) = _fill(byom, two_endpoint_document(), chat_body(ENDPOINT_B))
+
+    # Account B holds neither a grant nor a key for endpoint B.
+    with byom.start(two_endpoint_document()) as client:
+        catalog = client.get("/v1/models", headers=tenant_headers(ACCOUNT_B))
+        page = client.get("/v1/cache/entries", headers=tenant_headers(ACCOUNT_B))
+
+    assert ENDPOINT_B not in {row["owned_by"] for row in catalog.json()["data"]}
+    assert page.status_code == 200, page.text
+    _, *rows, _ = [json.loads(line) for line in page.text.splitlines()]
+    (row,) = [row for row in rows if row["provider"] == ENDPOINT_B]
+    assert row["model"] == f"{ENDPOINT_B}/{ALIAS}"
+    assert json.loads(row["response_json"])["choices"] == filled.json()["choices"]
+    # WHY the fields and not the block: the accounting block is built for no endpoint call yet,
+    # so `metadata_json` is null today; the listing still carries every cache metadata field.
+    cache_fields = {"created_at", "updated_at", "expires_at", "response_size_bytes"}
+    assert cache_fields | {"metadata_json"} <= row.keys()
     assert _calls(byom) == []

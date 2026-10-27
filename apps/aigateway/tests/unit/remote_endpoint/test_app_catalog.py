@@ -3,7 +3,9 @@
 # FEATURE: hosted BYOM Unit 1 — a granted account finds its endpoints in the model and provider
 # listings, in provider availability and in the model contract.
 # STORY: as a tenant granted an endpoint, I find its model in `/v1/models` and read its parameter
-# contract before I chat; another tenant cannot tell that the endpoint is configured.
+# contract before I chat; another tenant does not find it in the working catalog. Published
+# community-cache entries still name it to every account, on purpose
+# (`test_app_shared_cache.py`).
 # INVARIANT: an ungranted account and a disabled endpoint get exactly the answer each route gives
 # for a provider that is not registered, and no catalog surface reaches the upstream.
 # INVARIANT: no catalog answer names an origin, a request path or an upstream model.

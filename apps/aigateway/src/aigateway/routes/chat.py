@@ -130,7 +130,8 @@ async def _resolve_credential_target(
     # INVARIANT (hosted BYOM): this runs only on a cache miss or bypass, which needs a NEW
     # upstream call, so the endpoint grant is checked here, before any credential is resolved.
     # A hit is served earlier to every account: the shared cache has no grant gate. A denial
-    # answers exactly as an unknown provider.
+    # answers with the unknown-provider refusal; with the cache on, a denied miss still reports
+    # `miss`, since the lookup ran first, and published cache entries name the endpoint anyway.
     """
     if not permits(app, provider, account_id=account_id, operation=EndpointOperation.INVOKE):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
