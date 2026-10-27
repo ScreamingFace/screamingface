@@ -35,10 +35,31 @@ Scoreboard is refused).
 `screamingface down` to manage them. Runtime state is stored under `~/.screamingface` by default;
 set `SCREAMINGFACE_DATA_DIR` or pass `--data-dir` to override it.
 
-Set `URL4_RUNNER_CONFIG` before `up` or `restart` to use a custom runner TOML instead of the
-bundled default. An explicit Python `runner_config` takes precedence. Relative paths and `~`
-are resolved at startup. Export or repeat the variable on subsequent restarts; it is not saved
-in runtime state.
+Set `URL4_RUNNER_CONFIG` before `up` or `restart` to supply a custom runner TOML instead of the
+bundled default. A custom runner TOML is a full runner-world override: beyond model routes, it can
+affect route capabilities (such as web search), the default route, outbound policy, timeouts, and
+read-side data providers. Relative paths and `~` are resolved at startup. Export or repeat the
+variable on subsequent restarts; it is not saved in runtime state.
+
+When declaring selector variants such as free-tier or provider-specific models, Engine routes
+encode the variant with `~` (colons are reserved in URL4 route paths), while the Gateway inventory
+requires the decoded `:` ID. Because provider model-inventory settings (such as
+`AIGW_OPENROUTER_DEFAULT_MODELS` or `AIGW_HUGGINGFACE_DEFAULT_MODELS`) replace the configured model
+list rather than appending one item, specify the full intended model list:
+
+```bash
+# custom_url4.toml:
+# [aigateway]
+# default_route = "/openrouter/google/gemma-4-31b-it~free"
+#
+# [[aigateway.models]]
+# id = "openrouter/google/gemma-4-31b-it~free"
+# web_search = false
+
+export URL4_RUNNER_CONFIG="$PWD/custom_url4.toml"
+export AIGW_OPENROUTER_DEFAULT_MODELS='["openrouter/google/gemma-4-31b-it:free"]'
+screamingface up
+```
 
 The default service ports are Gateway `9105`, Scoreboard `9106`, and Engine `9108`. Override them
 with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the corresponding

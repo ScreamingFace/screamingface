@@ -1031,6 +1031,73 @@ def test_restart_refuses_a_foreign_gateway_database_url_before_stopping_anything
     assert config.state_path.exists()
 
 
+@pytest.mark.parametrize("case", ["missing", "directory", "malformed"])
+def test_restart_refuses_invalid_runner_config_before_stopping_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "bundled", "root": None})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    if case == "missing":
+        bad_config = tmp_path / "missing.toml"
+    elif case == "directory":
+        bad_config = tmp_path / "config_dir"
+        bad_config.mkdir()
+    else:
+        bad_config = tmp_path / "bad.toml"
+        bad_config.write_text("invalid [ [ toml")
+
+    monkeypatch.setenv("URL4_RUNNER_CONFIG", str(bad_config))
+    monkeypatch.setattr(
+        cli,
+        "_down",
+        lambda _config: pytest.fail("restart reached _down while runner config was refused"),
+    )
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "restart"])
+
+    with pytest.raises(RuntimeError, match=r"runner config"):
+        cli._restart(cli._config(args), args, foreground=False)
+
+    # Refusal means the running stack was left untouched.
+    assert config.state_path.exists()
+
+
+@pytest.mark.parametrize("case", ["missing", "directory", "malformed"])
+def test_up_refuses_invalid_runner_config_before_starting_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    if case == "missing":
+        bad_config = tmp_path / "missing.toml"
+    elif case == "directory":
+        bad_config = tmp_path / "config_dir"
+        bad_config.mkdir()
+    else:
+        bad_config = tmp_path / "bad.toml"
+        bad_config.write_text("invalid [ [ toml")
+
+    monkeypatch.setenv("URL4_RUNNER_CONFIG", str(bad_config))
+    config = RuntimeConfig(data_dir=tmp_path)
+
+    def never(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("a service was started")
+
+    monkeypatch.setattr(cli, "_serve", never)
+    monkeypatch.setattr(cli.subprocess, "Popen", never)
+
+    with pytest.raises(RuntimeError, match=r"runner config"):
+        cli._up(config, foreground=False)
+
+
+def test_require_runner_config_accepts_valid_toml(tmp_path: Path) -> None:
+    custom = tmp_path / "custom.toml"
+    custom.write_text("[aigateway]\ndefault_route = '/test'\n")
+    config = RuntimeConfig(data_dir=tmp_path, runner_config=custom)
+
+    cli._require_runner_config(config)
+
+
 def test_the_local_projection_skips_an_unlisted_benchmark() -> None:
     # INVARIANT (OME-1714): the local board must show what the deployed board shows. The
     # deployed board seeds from the Engine's listing, which skips an Unlisted Benchmark; this

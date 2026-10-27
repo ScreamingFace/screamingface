@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -270,6 +271,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # be honored, instead of after a paid run recorded into the wrong database.
     _refuse_foreign_gateway_database()
     _require_benchmark_assets_dir(config)
+    _require_runner_config(config)
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
@@ -353,6 +355,27 @@ def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
     folder = config.benchmark_assets_dir
     if folder is not None and not folder.is_dir():
         raise RuntimeError(f"benchmark assets folder not found: {folder}")
+
+
+def _require_runner_config(config: RuntimeConfig) -> None:
+    """Fail `up` or `restart` before anything boots (or stops) when the runner config is invalid.
+
+    WHY before `_down` (PR #1553 review): restart is down THEN up — a refusal raised only
+    by `_up` would land after `_down` already stopped a healthy stack, leaving the operator
+    with a dead stack instead of a clean error.
+    """
+    path = config.runner_config
+    if path is None or not path.exists():
+        raise RuntimeError(f"runner config not found: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"runner config is not a file: {path}")
+    try:
+        with path.open("rb") as stream:
+            tomllib.load(stream)
+    except tomllib.TOMLDecodeError as exc:
+        raise RuntimeError(f"runner config is not valid TOML ({path}): {exc}") from exc
+    except OSError as exc:
+        raise RuntimeError(f"runner config is unreadable ({path}): {exc}") from exc
 
 
 def _refuse_other_assets(config: RuntimeConfig, state: dict[str, object] | None) -> None:
@@ -588,10 +611,12 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
             scoreboard_port=values["scoreboard"],
             engine_port=values["engine"],
             benchmark_assets_dir=assets,
+            runner_config=config.runner_config,
         )
     # WHY before `_down`: a missing or replaced folder must leave the running stack untouched,
     # not stop it and then fail to bring it back.
     _require_benchmark_assets_dir(config)
+    _require_runner_config(config)
     _down(config)
     _up(config, foreground=foreground)
 
