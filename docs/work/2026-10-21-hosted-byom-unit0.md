@@ -200,7 +200,9 @@ body is fixed in the shared core session.
 - **Commits:** none until the owner allowed commit, push and PR on 2026-10-22. Then
   `feat(aigateway): serve configured remote endpoints as provider instances` holds the unit,
   and a second commit holds the two approved test lines, the approval file, the task mirror
-  and this ledger. The branch is `OME-1712-remote-endpoint-instances`.
+  and this ledger. The branch is `OME-1712-remote-endpoint-instances`. Both were squash-merged
+  as `ca31b88ef` (#1527). The Unicode follow-up below merged separately as `bdf5746a4` (#1539).
+  `main` aigateway CI is green at both commits. OME-1712 closed on 2026-10-22.
 - **Gates (after the fifth iteration):** `run_gates.py aigateway` gave ALL GATES GREEN on the
   first attempt. A separate run of the same pytest command: 6309 passed, 103 skipped, 0 failed;
   total coverage 93.82%. BYOM tests: 296 passed; core session tests: 32 passed. New code
