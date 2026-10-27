@@ -7,8 +7,10 @@ same day are folded into F1 and F2, his review-round-4 decision (C6 disabled in 
 his review-round-5 decisions (owner, 2026-10-26: https sources pre-materialized and `attachments[]`
 frozen; no engine-key change in v1; per-run attachment caps and the narrowed Case-ingress
 guarantee) into F1b, F2, F3, §2.7 and §4, and his review-round-6 decisions (owner, 2026-10-27:
-static source manifest; one materialization record per identity, required wins; v1 Case execution
-pictures-only) into F1b, §2.7, §3 and §4.
+v1 Case execution pictures-only) into §2.7 and §3, and his review-round-7 decisions (owner,
+2026-10-27: explicit attachment opt-in through `;accept=`, text sources unchanged, reachability-aware
+manifest, identity including guard policy; superseding round 6's all-sources manifest) into F1b, F2,
+§3 and §4.
 
 **Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
 #1447), and so is every `file:line` citation unless its link names another commit: the F3
@@ -150,73 +152,78 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   client's own outer hop to its node. A bare library `url4.run()` is not a node context and is
   unchanged. Plain `url4://host/path` data fetches are not remote-node calls; the transport guard
   governs them (`x.source_destination_blocked` while the peer allowlist is empty).
-- **Scope of attachments: pre-materialize, then freeze** (owner, 2026-10-26, review round 5; source
-  discovery and deduplication: owner, 2026-10-27, review round 6).
-  - **When.** Every `https://` source an expression names is fetched **before the first model call of
-    the run**. No source is fetched once model execution has started.
-  - **Static source manifest (normative)** (owner, 2026-10-27, review round 6). A run-admission and
-    materialization phase runs before normal execution is released. Admission compiles every authored
-    group, body and fragment recursively (lazy groups, nested fragments, and iteration bodies as
-    authored) and collects every executable `https://` target with its `accept` into the run's
-    **source manifest**, in preorder of the authored expression. Every target and its `accept` must be
-    **structurally known** (literal in the authored expression) before the barrier. A target that
-    exists only after substitution (row, template or `$var`), or that is derived from a model output or
-    a fetched body, is refused at admission with the permanent **`x.source_not_static`** (§4), before
-    any fetch or model call. A non-model collection input that is itself a static source is fetched as
-    part of the manifest; iterating over its rows may not create new `https://` targets (a row-derived
-    target is `x.source_not_static`).
-  - **One record per identity; required wins (normative)** (owner, 2026-10-27, review round 6). The
-    fetch identity is the normalized `(URL, accept media range)`: the same URL under a different
-    `;accept=` is a different identity. The run keeps **one materialization record per identity**
-    (the per-run cache, `OME-1543`): every occurrence, parallel siblings included, awaits that record's
-    single shared flight, and the **whole retry sequence** runs inside it. Guard policy (connect
-    timeout, total deadline, retries) is **run-level**, never per occurrence, so occurrences cannot
-    conflict on it; only `x.source_timeout` is retryable (§4), and retries stay within the run
-    deadline. If **any** occurrence of an identity is required, a terminal failure is fatal: the run
-    fails before any model call. If **every** occurrence is `;optional`, a terminal failure omits the
-    source (logged with its typed code) and the run continues; an omitted source is neither text nor
-    an attachment.
-  - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) both classifies the result
-    and yields its bytes; there is no second fetch.
-  - **Classification (normative)** (owner, 2026-10-26, review round 5). The Content-Type is reduced to
-    one bare, lowercased media type with its parameters stripped, by #1478's parser
-    ([`bare_media_type`][pr1478-media]). The body is **media** iff that type is one of `image/png`,
-    `image/jpeg`, `image/gif`, `image/webp` or `application/pdf`: a subset of what the gateway's gate
-    accepts (any `image/*` for `image_url`, [`G/core/content_parts.py:242`][g-img-main]; `application/pdf`
-    for `file`, [`:42`][g-pdf-main]). It is **text** iff the type is `text/*` or one of the url4
-    collection text types `application/json`, `application/x-ndjson`, `application/ndjson`,
-    `application/jsonl` ([`U/dag/semantics/collection.py:135-143`][u-coll-main]). Anything else, a
-    missing Content-Type, or a value that is not exactly one media type is refused with
-    `unsupported_content_type` (permanent, C8, #1478's code), a terminal failure of the record (outcome
-    as above). Pre-materialization treats `bare_media_type()` returning `None` (no Content-Type) as this
-    refusal, unlike #1478's text path, which reads an absent type as text. **No byte sniffing.**
-  - **Text and media.** A text result stays a text source, as today, and is not attached. A
-    media result is hashed into the tenant+run store (write-through, `OME-1540`) and appended to
-    `attachments[]` **once per identity**, however many occurrences name it, at the position of its
-    **first occurrence in manifest preorder**, never in completion order. Duplicates create and count
-    one attachment.
-  - **Freeze.** When pre-materialization ends, `attachments[]` is frozen (F2): nothing is fetched,
-    re-fetched, added or reordered after the first model call.
-  - **Per-run caps** (owned by `OME-1543`; scope confirmed by the owner, 2026-10-26, review round 5):
-    at most **20** entries and at most **8,000,000 bytes** aggregate (decoded bytes) per run, both
-    counted over the **whole** `attachments[]`: every local blob ref (C1, C3) plus every https media
-    result. Enforced during pre-materialization. Exceeding either is
-    refused before any model call with the permanent `x.attachments_too_many` or
-    `x.attachments_too_large` (§4).
-  - **Acceptance cases** (`OME-1543`): a source inside a nested group is in the manifest and fetched
-    before the first model call; parallel siblings naming one source cause one fetch and one
-    attachment; an iteration-row-derived URL and a model-derived URL are each refused with
-    `x.source_not_static` before any fetch or model call; one identity with mixed optional and
-    required occurrences fails the run on terminal failure, and an all-optional one is omitted; a
-    fail-then-retry with concurrent waiters runs one retry sequence and gives every waiter the same
-    outcome; reversed completion order still yields manifest-preorder attachments; the same URL under
-    two `accept` values is two identities and two fetches.
+- **Scope of attachments: explicit opt-in, pre-materialize, then freeze** (owner, 2026-10-26, review
+  round 5; opt-in, reachability, identity and classification: owner, 2026-10-27, review round 7, which
+  supersedes the round-6 all-sources manifest and "required wins").
+  - **Attachment sources (opt-in, no grammar change).** An `https://` source is an **attachment
+    source** iff its existing `;accept=` annotation names only media ranges from the **attachment
+    set**: `image/*`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`. Every
+    range in the value must be one of these; a value that also names any other range (`*/*`,
+    `text/*`, `application/*`, `application/json`, …), or no `;accept=` at all, makes it a **text
+    source**.
+  - **Text sources keep today's url4 semantics exactly.** They are not pre-materialized, not
+    deduplicated and never attached: each occurrence is fetched lazily through its own `GuardNode`
+    with its own `;optional`, `;t=` and `;retry=`, and is classified by #1478's existing text rule
+    ([`is_text_media_type`][pr1478-text]: a missing type, `text/*`, the JSON/XML/YAML/JS family,
+    `+json`/`+xml`/`+yaml`, and a non-binary `application/*` with `charset` are text) and decoded
+    through the response text, so the declared charset is honoured. **An expression with no
+    attachment source is byte-identical to today**, which is what keeps F2's text-only guarantee.
+  - **Reachability-aware manifest (normative).** Before the first model call a run-admission and
+    materialization phase builds the **attachment manifest**. Non-model collection inputs are resolved
+    first, with their normal source semantics, and execution reuses those results. An iteration body
+    over zero rows contributes nothing and causes no I/O. Only attachment sources reachable in the
+    actual rows (and in lazy groups and nested fragments as authored) enter the manifest, in preorder
+    of the expanded expression, and all of them are materialized before the first model call.
+  - **Static attachment targets.** An attachment source's URL and `;accept=` must be literal or derived
+    only from non-model collection rows resolved in this phase. One derived from a model output or a
+    fetched body is refused with the permanent **`x.source_not_static`** (§4) before any fetch or model
+    call. The code applies to attachment sources only; a text source may be dynamic, as today.
+  - **Identity, one flight, one attachment per identity.** The materialization identity is
+    `(URL, accept, effective guard policy: ;optional, ;t=, ;retry=)`. Occurrences with an identical
+    identity share **one flight**, including its whole retry sequence under that policy, and yield
+    **one attachment**, placed at the identity's **first occurrence in manifest preorder**, never in
+    completion order. Occurrences that differ in any part of the identity are separate identities,
+    each executed under its own policy and each listed as its own attachment, even when the bytes are
+    equal. A terminal failure of an `;optional` identity omits it (logged with its typed code); of a
+    required identity, it fails the run before any model call.
+  - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) yields the bytes and the
+    media type; there is no second fetch.
+  - **Classification of attachment sources (normative).** The response's bare, lowercased media type
+    ([`bare_media_type`][pr1478-media]) must be in the attachment set (a fail-closed subset of the
+    gateway's gate: any `image/*` for `image_url`, [`G/core/content_parts.py:242`][g-img-main];
+    `application/pdf` for `file`, [`:42`][g-pdf-main]) **and** match the requested `;accept=` range.
+    Otherwise, including a missing Content-Type (`bare_media_type()` returns `None`) or a value that is
+    not exactly one media type, the source fails with `unsupported_content_type` (permanent, C8,
+    #1478's code): optional → omitted, required → the run fails. **No byte sniffing.**
+  - **Write-through.** A classified attachment is hashed into the tenant+run store (write-through,
+    `OME-1540`) and appended to `attachments[]` as above. Only attachment sources write through.
+  - **Freeze.** When pre-materialization ends, `attachments[]` is frozen (F2): no attachment source is
+    fetched, re-fetched, added or reordered after the first model call.
+  - **Per-run caps** (owned by `OME-1543`; unchanged): at most **20** entries and at most
+    **8,000,000 bytes** aggregate (decoded bytes) per run, both counted over the **whole**
+    `attachments[]`: every local blob ref (C1, C3) plus every https attachment. Enforced during
+    pre-materialization; exceeding either is refused before any model call with the permanent
+    `x.attachments_too_many` or `x.attachments_too_large` (§4).
+  - **Conformance cases** (`OME-1543`): an empty collection causes no I/O and the run succeeds;
+    duplicate text-source occurrences with differing `;t=`, `;retry=` or `;optional` behave exactly as
+    today; text sources with no Content-Type, XML, `+json`, YAML, a charset-bearing `application/*`
+    type and Latin-1 text are unchanged; an attachment source with a wrong or missing type gets
+    `unsupported_content_type`; the same URL with and without a media `;accept=` takes the text path
+    and the attachment path independently; parallel siblings with an identical identity cause one
+    fetch and one attachment; reversed completion order still yields manifest-preorder attachments; a
+    model-derived attachment URL gets `x.source_not_static`.
 
-  Rationale for structure-based attaching: the grammar does not preserve `src=`. `(src=https://a)` and
-  `(https://a)` parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so "only in a
-  `src=` binding" cannot be enforced. `OME-1544` is the guard only. (Owner, 2026-10-21; revised
-  2026-10-22, `OME-1543` Q-B; lifecycle and caps 2026-10-26, review round 5; manifest and
-  deduplication 2026-10-27, review round 6.)
+  Rationale for opting in through `;accept=`: the grammar does not preserve `src=`. `(src=https://a)`
+  and `(https://a)` parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so a `src=`
+  binding cannot mark an attachment, while `;accept=` is already a per-source annotation
+  ([`U/io/layer.py:69-77`][u-accept]). `OME-1544` is the guard only. (Owner, 2026-10-21; revised
+  2026-10-22, `OME-1543` Q-B; lifecycle and caps 2026-10-26, review round 5; opt-in model
+  2026-10-27, review round 7.)
+
+  **Superseded handoff text.** `OME-1540`'s description still limits https write-through to a value
+  in a `src=` binding and cites the old F3 "steps 1–5". Both clauses are **superseded** by F1b (only
+  attachment sources write through) and F3 (steps 1–4, two authorization paths), pending Khoa's update
+  of that issue.
 
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
@@ -236,8 +243,8 @@ F1's deferred remote blobs and remote-node calls (C6); neither is enabled in v1.
 | `detail` | no | `auto` \| `low` \| `high`, carried to `image_url` parts |
 
 `Payload` stays `str` ([`U/dag/node.py:70`][u-node70]). **Nothing scans strings for blob-looking text**: a ref
-becomes an attachment only from structure (a source in the parsed AST, such as a `src=` binding or an
-`https://` source whose fetched body is non-text (F1b), or a typed part in a Case envelope), never from
+becomes an attachment only from structure (a source in the parsed AST, such as a `src=` blob binding or
+an `https://` attachment source opted in by its `;accept=` (F1b), or a typed part in a Case envelope), never from
 the contents of a payload, a member output or a JSON value.
 
 **Content layout.** Every model-calling node — ensemble members, model and recipe synthesizers
@@ -267,13 +274,14 @@ added to `attachments[]`. Any other type there stays `unsupported_content_type` 
 
 **Propagation (v1).** Attachments are fixed at run start, without exception (owner, 2026-10-26,
 review round 5): before the first model call the run resolves its local blob refs and pre-materializes
-every `https://` source (F1b); Case parts travel in the v2 envelope instead (§2.7). The list is then
+every reachable `https://` attachment source (F1b; text sources stay lazy and are never
+attached); Case parts travel in the v2 envelope instead (§2.7). The list is then
 **frozen** as one immutable snapshot that every node sees unchanged: pipelines, siblings under parallel
 fan-out, nested local sub-expressions, reducers and retries. A node cannot add, drop or reorder
 attachments in v1, and a retry never re-fetches. Because the list is fixed before execution, a local
 blob source marked `;optional` that fails to resolve **fails the whole run** with its own code (§4); it
-is never dropped from the list (D5). A failed `;optional` `https://` source is instead omitted before the
-snapshot is taken (F1b), so the snapshot is still fixed before any model call.
+is never dropped from the list (D5). A failed `;optional` `https://` attachment source is instead
+omitted before the snapshot is taken (F1b), so the snapshot is still fixed before any model call.
 A nested expression addressed to a **remote** node (C6) is refused in v1 (`x.remote_node_unsupported`,
 F1b). When node-to-node authentication enables it, the remote node resolves its own sources against
 its own store, and the outer run's attachments are not shipped to it, because that would be a remote
@@ -423,11 +431,12 @@ future-compatible capability, not a v1 execution path:
      at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
      `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
-     Every `https://` source is pre-materialized before the first model call from the static source
-     manifest (a dynamic target is `x.source_not_static`), through the url4 transport's destination
-     guard, one record per fetch identity (URL, accept) with required winning (F1b); a
-     non-text result is hashed, written through to the tenant + run store (`OME-1540`) and appended to
-     `attachments[]` in source order; a text result stays text. `attachments[]` is then frozen (F2).
+     An `https://` **attachment source** (a media-range `;accept=`, F1b) is pre-materialized before the
+     first model call from the reachability-aware attachment manifest, through the url4 transport's
+     destination guard, one flight per identity (URL, accept, guard policy); a classified result is
+     hashed, written through to the tenant + run store (`OME-1540`) and appended to `attachments[]` in
+     manifest preorder, and `attachments[]` is then frozen (F2). Every other `https://` source is a text
+     source with today's lazy, per-occurrence semantics, unchanged.
 
    The engine connector turns `attachments[]` into OpenAI content parts (`image_url` / `file` with a
    `data:` URI in F3's canonical encoding); v2 envelope parts are already in that canonical shape,
@@ -463,17 +472,17 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 |---|---|---|---|---|
 | `source_not_found` | url4 node resolver | per Spec C §13.2.5 | permanent | C5; also a digest outside the tenant + run scope (F3) |
 | `x.remote_blob_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1; every `url4://` blob ref; raised before any network I/O |
-| `x.remote_node_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1b, C6; every `url4://` remote-node call in v1; raised before any network I/O |
+| `x.remote_node_unsupported` | url4 node resolver | 422 (proposed) | permanent | F1b, C6; every `url4://` remote-node call in a node context (every `Url4Node` evaluation, and everything nested in a `Client(node=…)` evaluation); the Client's own outer hop and a bare `url4.run()` are unchanged; raised before any network I/O |
 | `x.source_destination_blocked` | url4 HTTP transport guard | 422 (proposed) | permanent | F1b; disallowed scheme, refused address range on any hop, or `https`→`http` downgrade; `OME-1704` |
 | `x.source_redirect_limit` | url4 HTTP transport guard | 422 (proposed) | permanent | F1b; more than the configured hop limit (default 3) |
 | `x.source_too_large` | url4 HTTP transport guard | 413 (proposed) | permanent | F1b; streaming cap on decoded bytes, aborted mid-stream |
 | `x.source_timeout` | url4 HTTP transport guard | 504 (proposed) | retryable | F1b; connect timeout or the total deadline across all hops |
 | `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); 500 at read (proposed) | permanent | F3; at read it is store corruption, logged as such: the node fails with this code and the node path, the run ends `failed` with it, and it is never retried or served from a cache (F3 order) |
-| `unsupported_content_type` | url4 bytes fetch (#1478, pre-materialization classification); engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; an https Content-Type outside the F1b media and text sets, missing, or not one media type (no sniffing); or a type the node cannot carry or convert |
+| `unsupported_content_type` | url4 bytes fetch (#1478, pre-materialization classification); engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; on an https attachment source, a Content-Type outside the attachment set, not matching its `;accept=`, missing, or not one media type (no sniffing); on a text source, #1478's existing text rule, unchanged; or a type the node cannot carry or convert |
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
-| `x.source_not_static` | url4 run admission (source manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` target or its `accept` known only after row, template or `$var` substitution, or derived from a model output or a fetched body; raised before any fetch or model call |
+| `x.source_not_static` | url4 run admission (attachment manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` **attachment source** whose URL or `accept` is derived from a model output or a fetched body (literal and non-model-row-derived targets are allowed); text sources are never refused with it; raised before any fetch or model call |
 | `x.attachments_too_many` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 20 url4 attachments in one run; raised before any model call |
 | `x.attachments_too_large` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 8,000,000 aggregate decoded bytes of url4 attachments in one run; raised before any model call |
 | `request_too_large` | gateway body cap (`OME-1542`, #1479) | 413 | permanent | 8 MiB request body; before any upstream spend; includes the Fusion residual (§2.7). `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code |
@@ -599,4 +608,4 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [pr1478-media]: https://github.com/ScreamingFace/screamingface/blob/9d32862f9587bef310fc696c717cad7d109f378c/packages/url4/src/url4/io/media.py#L240-L256
 [g-img-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/apps/aigateway/src/aigateway/core/content_parts.py#L242
 [g-pdf-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/apps/aigateway/src/aigateway/core/content_parts.py#L42
-[u-coll-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/packages/url4/src/url4/dag/semantics/collection.py#L135-L143
+[pr1478-text]: https://github.com/ScreamingFace/screamingface/blob/9d32862f9587bef310fc696c717cad7d109f378c/packages/url4/src/url4/io/media.py#L213-L237

@@ -147,3 +147,15 @@ with the 2026-10-16 live evidence. Docs only.
   pictures-only in §2.7 and §3; the `file` part stays future-compatible; SVG description updated, PNG
   re-rendered with `rsvg-convert`. (4) Acceptance reworded to a future condition; `OME-1544` C6 text
   patched to the node-context rule; `OME-1540` update requested from Khoa.
+- **Review round 7 (2026-10-27, HupBaHa CHANGES_REQUESTED at `96727acc8`; owner decisions of
+  2026-10-27):** F1b now uses an explicit attachment opt-in through the existing `;accept=` annotation
+  (media ranges from `image/*`, `image/png|jpeg|gif|webp`, `application/pdf` only). Every other https
+  source is a text source with today's lazy, per-occurrence `GuardNode` semantics and #1478's text
+  rule, so text-only expressions are byte-identical. For attachment sources: a reachability-aware
+  manifest (non-model collections resolved first; zero rows, no I/O); `x.source_not_static` narrowed
+  to model- or fetched-body-derived attachment targets; identity `(URL, accept, ;optional, ;t=,
+  ;retry=)` with one flight and one attachment per identity at its first manifest-preorder position
+  ("required wins" dropped); type must be in the attachment set and match `;accept=`, a missing type
+  is refused. Caps unchanged. Conformance cases pinned. §4 `x.remote_node_unsupported` row limited to
+  node contexts; the `OME-1540` `src=` and old-F3 clauses are marked superseded in F1b pending Khoa;
+  the `OME-1535` body no longer says Cases travel in `RUN_SPEC`. SVG updated, PNG re-rendered.
