@@ -66,4 +66,7 @@ the real Case; a text-only Case Result stays byte-identical.
   touched files; `check_layering.py` OK.
 - **Deviations:** module named `echoed_input.py` (not a function in `candidate_input.py`, which
   would pass 450 lines). A Case the reader refuses echoes one line,
-  `[Case input not shown: <the rule it broke>]`, instead of its raw text (owner to confirm).
+  `[Case input not shown: <the rule it broke>]`, instead of its raw text, picture or not
+  (decided 2026-10-27: the Case already failed at the Candidate call, and its raw text can be
+  megabytes of base64). `echoed_input` is not idempotent (an echoed input is refused as a
+  whole); noted in its module docstring after review.

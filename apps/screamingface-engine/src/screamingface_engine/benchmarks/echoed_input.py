@@ -9,6 +9,10 @@ proves a picture opened later is the one the model saw.
 
 INVARIANT: only the published copy changes. Grading reads the real Case before this runs, and a
 Case with no picture or file is echoed as the exact same string.
+
+AIDEV-NOTE: not idempotent. Feed it an input it already echoed and the placeholder sits where
+the reader expects a ``data:`` URI, so the whole Case comes back as the one-line refusal. Call it
+on the stored Case only, never on a Case Result's input (a replay or re-aggregate tool must not).
 """
 
 from __future__ import annotations
