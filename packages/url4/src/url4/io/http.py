@@ -125,22 +125,23 @@ class HttpIOLayer:
         return self._owned
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        response = await self._get(self._transport_url(target, relative), relative=relative)
-        return response.text
+        _response, text = await self._get(self._transport_url(target, relative), relative=relative)
+        return text
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        response = await self._get(
+        response, text = await self._get(
             self._transport_url(request.target, request.relative), relative=request.relative
         )
         content_type = response.headers.get("content-type", "")
         media_type = content_type.split(";", 1)[0].strip().lower() or None
-        return FetchResult(response.text, media_type=media_type)
+        return FetchResult(text, media_type=media_type)
 
     def _transport_url(self, target: str, relative: bool) -> str:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
         return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, target: str, *, relative: bool) -> httpx.Response:
+    async def _get(self, target: str, *, relative: bool) -> tuple[httpx.Response, str]:
+        """The response and its body as text, both produced within the fetch's deadline."""
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
         key = idempotency_key(url)
@@ -157,10 +158,14 @@ class HttpIOLayer:
                 )
         except TimeoutError as exc:
             raise source_timeout(late) from exc
+        # WHY here: charset decoding is synchronous work no asyncio.timeout can interrupt, so it
+        # runs BEFORE the final check (PR #1555 review: a slow codec succeeded late).
+        text = response.text
         if past(deadline):
-            # INVARIANT: never a success after the deadline, even one no checkpoint caught.
+            # INVARIANT: never a success after the deadline, even one no checkpoint caught —
+            # text conversion included.
             raise source_timeout(late)
-        return response
+        return response, text
 
     async def _send(
         self,

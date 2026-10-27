@@ -12,8 +12,9 @@ members) is cut off at the total deadline with ``x.source_timeout`` — it never
 from __future__ import annotations
 
 import asyncio
+import codecs
 import zlib
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any
 
 import httpx
@@ -22,6 +23,7 @@ import pytest
 import url4.io._guarded_transport as guarded_mod
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.http import HttpIOLayer, SourceGuard
+from url4.io.layer import FetchRequest
 
 PUBLIC = "93.184.216.34"
 
@@ -241,3 +243,60 @@ async def test_a_non_suspending_body_still_honours_an_external_cancel(net: _Net)
         await holder[0]
     assert body.yielded < len(body.chunks)
     assert body.closed
+
+
+SLOW_CHARSET = "url4-test-slow"
+
+
+@pytest.fixture
+def slow_charset(clock: _Clock) -> Iterator[list[float]]:
+    """A registered charset whose every decode call costs ``cost[0]`` units of (fake) time."""
+    cost = [0.0]
+    ascii_codec = codecs.lookup("ascii")
+
+    class _SlowDecoder(codecs.IncrementalDecoder):
+        def decode(self, input: bytes, final: bool = False) -> str:
+            clock.now += cost[0]
+            return bytes(input).decode("ascii")
+
+    def search(name: str) -> codecs.CodecInfo | None:
+        if name.replace("_", "-") != SLOW_CHARSET:
+            return None
+        return codecs.CodecInfo(
+            ascii_codec.encode,
+            ascii_codec.decode,
+            incrementaldecoder=_SlowDecoder,
+            name=SLOW_CHARSET,
+        )
+
+    codecs.register(search)
+    try:
+        yield cost
+    finally:
+        codecs.unregister(search)
+
+
+async def _fetch_text(net: _Net, *, extended: bool) -> str:
+    async with HttpIOLayer(guard=SourceGuard(total_timeout=100), resolver=net.resolve) as io:
+        if extended:
+            return (await io.fetch_ex(FetchRequest("https://example.com/"))).body
+        return await io.fetch("https://example.com/", relative=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extended", [False, True], ids=["fetch", "fetch_ex"])
+async def test_slow_charset_decoding_never_produces_a_late_success(
+    net: _Net, slow_charset: list[float], extended: bool
+) -> None:
+    # Review finding (PR #1555, H1): the body arrived in time, but converting it to text ran
+    # after the last deadline check — a slow charset decoder returned "ok" past the deadline.
+    def text(_request: httpx.Request) -> httpx.Response:
+        headers = {"Content-Type": f"text/plain; charset={SLOW_CHARSET}"}
+        return httpx.Response(200, headers=headers, stream=_Body([b"ok"]))
+
+    net.handler = text
+    assert await _fetch_text(net, extended=extended) == "ok"  # a fast decode still succeeds
+    slow_charset[0] = 1000
+    with pytest.raises(ResolutionError) as caught:
+        await _fetch_text(net, extended=extended)
+    assert caught.value.code == ErrorCode.SOURCE_TIMEOUT
