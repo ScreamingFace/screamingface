@@ -27,3 +27,8 @@ canonicalized once by the `OME-1271` importer (pictures only in v1) and forwarde
 the media parts plus index-only, digest-free placeholders; Case-ingress headroom holds for ordinary
 Candidate requests, Fusion may get 413 `request_too_large`; C6 refused in a node context. The `x.*`
 codes await Kevin's url4 wire approval.
+
+Review round 6 (2026-10-27): https targets come from a static source manifest built at run admission
+(dynamic or model-derived targets → `x.source_not_static`); one materialization record per
+(URL, accept), required wins, one attachment per identity in manifest preorder; v1 Case execution is
+pictures-only.

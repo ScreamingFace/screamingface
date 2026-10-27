@@ -32,8 +32,8 @@ with the 2026-10-16 live evidence. Docs only.
 ## Acceptance
 
 - The spec is merged, and Kevin (url4) and Dmitry (gateway) have reviewed it.
-- Kevin has approved the url4 wire codes of the current revision: the `x.*` codes and statuses in
-  §4 are proposed, his `e61bcde` approval predates them, and the round-5 revision awaits his approval.
+- The spec awaits Kevin's url4 wire approval of this revision: the `x.*` codes and statuses in §4
+  are proposed, and his `e61bcde` approval predates them.
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -136,3 +136,14 @@ with the 2026-10-16 live evidence. Docs only.
   the gateway gate, `image/*` + `application/pdf`); text iff `text/*` or a url4 collection text type;
   anything else or a missing type → `unsupported_content_type` (C8); no byte sniffing. Caps confirmed
   to count the whole `attachments[]` (local blob refs plus https media).
+- **Review round 6 (2026-10-27, HupBaHa CHANGES_REQUESTED at `95108819c`; owner decisions of
+  2026-10-27):** (1) F1b static source manifest: run admission compiles every authored group, body
+  and fragment recursively and collects every https target with its `accept`; a target known only
+  after substitution or derived from a model output or fetched body is refused with
+  `x.source_not_static` before any fetch or model call. (2) One materialization record per
+  (URL, accept): the whole retry sequence inside one shared flight, run-level guard policy, required
+  wins, all-optional omitted, one attachment per identity at its first manifest-preorder position.
+  Classification: `bare_media_type()` returning `None` is a refusal. (3) v1 Case execution is
+  pictures-only in §2.7 and §3; the `file` part stays future-compatible; SVG description updated, PNG
+  re-rendered with `rsvg-convert`. (4) Acceptance reworded to a future condition; `OME-1544` C6 text
+  patched to the node-context rule; `OME-1540` update requested from Khoa.

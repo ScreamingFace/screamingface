@@ -6,7 +6,9 @@ Owner decisions F1–F4 locked by Sergey on 2026-10-21 (§2); his follow-up deci
 same day are folded into F1 and F2, his review-round-4 decision (C6 disabled in v1) into F1b, and
 his review-round-5 decisions (owner, 2026-10-26: https sources pre-materialized and `attachments[]`
 frozen; no engine-key change in v1; per-run attachment caps and the narrowed Case-ingress
-guarantee) into F1b, F2, F3, §2.7 and §4.
+guarantee) into F1b, F2, F3, §2.7 and §4, and his review-round-6 decisions (owner, 2026-10-27:
+static source manifest; one materialization record per identity, required wins; v1 Case execution
+pictures-only) into F1b, §2.7, §3 and §4.
 
 **Snapshot.** Every "today" claim is pinned to `main` at [`ec4b632b2`][snap] (2026-10-21, after
 #1447), and so is every `file:line` citation unless its link names another commit: the F3
@@ -148,12 +150,32 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
   client's own outer hop to its node. A bare library `url4.run()` is not a node context and is
   unchanged. Plain `url4://host/path` data fetches are not remote-node calls; the transport guard
   governs them (`x.source_destination_blocked` while the peer allowlist is empty).
-- **Scope of attachments: pre-materialize, then freeze** (owner, 2026-10-26, review round 5).
+- **Scope of attachments: pre-materialize, then freeze** (owner, 2026-10-26, review round 5; source
+  discovery and deduplication: owner, 2026-10-27, review round 6).
   - **When.** Every `https://` source an expression names is fetched **before the first model call of
     the run**. No source is fetched once model execution has started.
-  - **Fetch identity** is `(URL, accept media range)`: the same URL under a different `;accept=` is a
-    different fetch. Concurrent requests for one identity share **one in-flight attempt**
-    (single-flight), so each identity is fetched at most once per run (the per-run cache, `OME-1543`).
+  - **Static source manifest (normative)** (owner, 2026-10-27, review round 6). A run-admission and
+    materialization phase runs before normal execution is released. Admission compiles every authored
+    group, body and fragment recursively (lazy groups, nested fragments, and iteration bodies as
+    authored) and collects every executable `https://` target with its `accept` into the run's
+    **source manifest**, in preorder of the authored expression. Every target and its `accept` must be
+    **structurally known** (literal in the authored expression) before the barrier. A target that
+    exists only after substitution (row, template or `$var`), or that is derived from a model output or
+    a fetched body, is refused at admission with the permanent **`x.source_not_static`** (§4), before
+    any fetch or model call. A non-model collection input that is itself a static source is fetched as
+    part of the manifest; iterating over its rows may not create new `https://` targets (a row-derived
+    target is `x.source_not_static`).
+  - **One record per identity; required wins (normative)** (owner, 2026-10-27, review round 6). The
+    fetch identity is the normalized `(URL, accept media range)`: the same URL under a different
+    `;accept=` is a different identity. The run keeps **one materialization record per identity**
+    (the per-run cache, `OME-1543`): every occurrence, parallel siblings included, awaits that record's
+    single shared flight, and the **whole retry sequence** runs inside it. Guard policy (connect
+    timeout, total deadline, retries) is **run-level**, never per occurrence, so occurrences cannot
+    conflict on it; only `x.source_timeout` is retryable (§4), and retries stay within the run
+    deadline. If **any** occurrence of an identity is required, a terminal failure is fatal: the run
+    fails before any model call. If **every** occurrence is `;optional`, a terminal failure omits the
+    source (logged with its typed code) and the run continues; an omitted source is neither text nor
+    an attachment.
   - **One binary-safe fetch** (#1478's `fetch_bytes`, through the guard) both classifies the result
     and yields its bytes; there is no second fetch.
   - **Classification (normative)** (owner, 2026-10-26, review round 5). The Content-Type is reduced to
@@ -165,16 +187,14 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     collection text types `application/json`, `application/x-ndjson`, `application/ndjson`,
     `application/jsonl` ([`U/dag/semantics/collection.py:135-143`][u-coll-main]). Anything else, a
     missing Content-Type, or a value that is not exactly one media type is refused with
-    `unsupported_content_type` (permanent, C8, #1478's code), which counts as a failed source (optional
-    → omitted, required → run fails). **No byte sniffing.**
+    `unsupported_content_type` (permanent, C8, #1478's code), a terminal failure of the record (outcome
+    as above). Pre-materialization treats `bare_media_type()` returning `None` (no Content-Type) as this
+    refusal, unlike #1478's text path, which reads an absent type as text. **No byte sniffing.**
   - **Text and media.** A text result stays a text source, as today, and is not attached. A
     media result is hashed into the tenant+run store (write-through, `OME-1540`) and appended to
-    `attachments[]` in **source order**: the order of first appearance in the expression.
-  - **Retry.** A failed fetch is retried only under the guard's existing rules (`x.source_timeout` is the
-    retryable code, §4) and within the run deadline.
-  - **Optional and required.** A failed `;optional` source is **omitted** (logged with its typed
-    `x.source_*` code) and the run continues; since it never produced a response, it is neither text
-    nor an attachment. A failed required source fails the run **before any model call**.
+    `attachments[]` **once per identity**, however many occurrences name it, at the position of its
+    **first occurrence in manifest preorder**, never in completion order. Duplicates create and count
+    one attachment.
   - **Freeze.** When pre-materialization ends, `attachments[]` is frozen (F2): nothing is fetched,
     re-fetched, added or reordered after the first model call.
   - **Per-run caps** (owned by `OME-1543`; scope confirmed by the owner, 2026-10-26, review round 5):
@@ -183,11 +203,20 @@ guard also fixes bug `OME-1704`, where text sources fetch any URL on main today.
     result. Enforced during pre-materialization. Exceeding either is
     refused before any model call with the permanent `x.attachments_too_many` or
     `x.attachments_too_large` (§4).
+  - **Acceptance cases** (`OME-1543`): a source inside a nested group is in the manifest and fetched
+    before the first model call; parallel siblings naming one source cause one fetch and one
+    attachment; an iteration-row-derived URL and a model-derived URL are each refused with
+    `x.source_not_static` before any fetch or model call; one identity with mixed optional and
+    required occurrences fails the run on terminal failure, and an all-optional one is omitted; a
+    fail-then-retry with concurrent waiters runs one retry sequence and gives every waiter the same
+    outcome; reversed completion order still yields manifest-preorder attachments; the same URL under
+    two `accept` values is two identities and two fetches.
 
   Rationale for structure-based attaching: the grammar does not preserve `src=`. `(src=https://a)` and
   `(https://a)` parse to the same `Url` source ([`U/core/grammar.py:186-188`][u-src]), so "only in a
   `src=` binding" cannot be enforced. `OME-1544` is the guard only. (Owner, 2026-10-21; revised
-  2026-10-22, `OME-1543` Q-B; lifecycle and caps 2026-10-26, review round 5.)
+  2026-10-22, `OME-1543` Q-B; lifecycle and caps 2026-10-26, review round 5; manifest and
+  deduplication 2026-10-27, review round 6.)
 
 **Where it runs.** Fetches happen on the node that evaluates the expression (the engine's serve path).
 Benchmark Runner Jobs keep their no-egress intent, because benchmark assets are pinned at image build
@@ -315,12 +344,15 @@ history.
 ### 2.7 Case ingress: the v2 candidate-input envelope (`OME-1678`, #1507)
 
 **Decision.** Adopted from khoaguin's proposal on #1450 ([comment 6286823021][khoa-v2]) and accepted in
-Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's pictures and PDFs are
+Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's pictures are
 **typed content parts inside the candidate-input envelope** `screamingface.candidate-input.v2`
-([`E/benchmarks/candidate_input.py`][pr-cin] in #1507):
+([`E/benchmarks/candidate_input.py`][pr-cin] in #1507). In v1 only pictures are imported and executed
+(owner, 2026-10-27, review round 6); the schema's `file` (PDF) part is described below as a
+future-compatible capability, not a v1 execution path:
 
 - Parts are only `text`, `image_url` (`url`, optional `detail` of `auto` \| `low` \| `high`) and `file`
-  (`file_data`, optional `filename`, `application/pdf` only): the set the gateway already accepts
+  (`file_data`, optional `filename`, `application/pdf` only; future-compatible, not imported in v1):
+  the set the gateway already accepts
   ([`G/core/content_parts.py`][g-parts]), so nothing in between translates.
 - Picture and file parts go in **user** messages only (Anthropic OAuth drops non-text parts from system
   messages, §1). Text-only Cases stay v1, and a v2 envelope holds at least one non-text part, so every
@@ -382,16 +414,18 @@ Sergey's review of #1507 at [`29c99a31`][pr1507]. On the benchmark path a Case's
 1. **Two separate ingress paths, one representation out** (see the diagram).
    - **Case ingress (engine).** Benchmark Cases never travel in `RUN_SPEC`: it carries only `env` and
      `io_concurrency` ([`E/child_protocol.py:94-99`][e-spec94]), and the run reads Cases from the image's
-     `cases.json` through the cases route ([`I/single_shot.py:799-818`][i-cases]). A Case's pictures and
-     PDFs are typed parts of a v2 candidate-input envelope (§2.7) that reach the connector in place; they
+     `cases.json` through the cases route ([`I/single_shot.py:799-818`][i-cases]). A Case's pictures are
+     typed parts of a v2 candidate-input envelope (§2.7) that reach the connector in place (v1 imports no
+     PDF parts, §2.7); they
      are not appended to `attachments[]`, never sit in the URL and never in a url4 expression. This path
      does not go through url4.
    - **url4 ingress.** A `src=` binding carrying `/blob/sha256/<hex>` or `blob:sha256/<hex>` is resolved
      at the evaluating node as a direct tenant + run store read (F1, F3) and appended to `attachments[]`. Any
      `url4://…/blob/…` ref, the node's own authority included, is `x.remote_blob_unsupported` (F1), and any
      `url4://` remote-node call (C6) is `x.remote_node_unsupported` (F1b), both before any I/O.
-     Every `https://` source is pre-materialized before the first model call, through the url4
-     transport's destination guard, once per fetch identity (URL, accept), single-flight (F1b); a
+     Every `https://` source is pre-materialized before the first model call from the static source
+     manifest (a dynamic target is `x.source_not_static`), through the url4 transport's destination
+     guard, one record per fetch identity (URL, accept) with required winning (F1b); a
      non-text result is hashed, written through to the tenant + run store (`OME-1540`) and appended to
      `attachments[]` in source order; a text result stays text. `attachments[]` is then frozen (F2).
 
@@ -439,6 +473,7 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 | `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
 | `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
+| `x.source_not_static` | url4 run admission (source manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` target or its `accept` known only after row, template or `$var` substitution, or derived from a model output or a fetched body; raised before any fetch or model call |
 | `x.attachments_too_many` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 20 url4 attachments in one run; raised before any model call |
 | `x.attachments_too_large` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 8,000,000 aggregate decoded bytes of url4 attachments in one run; raised before any model call |
 | `request_too_large` | gateway body cap (`OME-1542`, #1479) | 413 | permanent | 8 MiB request body; before any upstream spend; includes the Fusion residual (§2.7). `spec_too_large` (1 MiB `RUN_SPEC`, [`E/child_protocol.py:103-104`][e-spec103]) keeps its code |
@@ -446,8 +481,8 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 Statuses marked *proposed* are new in this spec and need Kevin's sign-off for the url4 wire. His
 recorded approval at `e61bcde` predates these codes and statuses, so it does not cover them; they stay
 proposed until he signs off this revision. **Acceptance of this spec therefore requires Kevin's url4
-wire approval of the current revision (review round 5, including `x.attachments_too_many` and
-`x.attachments_too_large`); it is awaited.** `x.source_destination_blocked` and the other `x.source_*`
+wire approval of the current revision (review rounds 5 and 6, including `x.attachments_too_many`,
+`x.attachments_too_large` and `x.source_not_static`); it is awaited.** `x.source_destination_blocked` and the other `x.source_*`
 codes **are** active in v1, owned by the url4 HTTP transport guard (F1b). Only remote-node
 authentication failure has no v1 owner, because neither remote blobs (F1) nor remote-node calls (F1b)
 exist in v1; it belongs to the node-to-node authentication spec.
