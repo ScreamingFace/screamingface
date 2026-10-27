@@ -158,10 +158,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         lease = await self._pools.acquire(url.host)
         try:
             response = await _first_connected(lease.transport, attempts)
-            stream = response.stream
-            if not isinstance(stream, httpx.AsyncByteStream):
-                # INVARIANT: fail closed — a body the cap cannot wrap is never handed on.
-                raise TypeError("the connection returned a body stream that is not async")
+            stream = _async_or_close(response.stream)
             decoder, decodes = await _decoder_or_close(response.headers, stream)
         except BaseException:
             # WHY BaseException: a cancelled attempt must give its pool back too.
@@ -224,6 +221,17 @@ class GuardedTransport(httpx.AsyncBaseTransport):
 
     async def aclose(self) -> None:
         await self._pools.aclose()
+
+
+def _async_or_close(stream: httpx.SyncByteStream | httpx.AsyncByteStream) -> httpx.AsyncByteStream:
+    if isinstance(stream, httpx.AsyncByteStream):
+        return stream
+    # INVARIANT: fail closed — a body the cap cannot wrap is never handed on, and it is closed
+    # first so its connection goes back to the pool (PR #1555 review).
+    close = getattr(stream, "close", None)
+    if callable(close):
+        close()
+    raise TypeError("the connection returned a body stream that is not async")
 
 
 async def _decoder_or_close(

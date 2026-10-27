@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 
 import httpx
 import pytest
@@ -218,3 +218,38 @@ async def test_a_failing_close_never_replaces_the_request_s_own_error(
     assert len(_close_failures(caplog)) == 1
     with pytest.raises(ExceptionGroup):
         await transport.aclose()
+
+
+class _SyncBody(httpx.SyncByteStream):
+    """A body stream that is not async: the guard cannot cap it, so it must close it."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield b"body"
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_a_non_async_body_stream_is_closed_before_the_guard_refuses_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Review finding (Ionesio, _guarded_transport.py:164): the fail-closed TypeError released
+    # the lease but never closed the stream, leaving the inner connection checked out.
+    body = _SyncBody()
+    pools: list[httpx.MockTransport] = []
+
+    def factory() -> httpx.AsyncBaseTransport:
+        pools.append(httpx.MockTransport(lambda _r: httpx.Response(200, stream=body)))
+        return pools[-1]
+
+    monkeypatch.setattr(guarded_mod, "_inner_transport", factory)
+    client, transport = _client(max_hosts=1)
+    async with client:
+        with pytest.raises(TypeError, match="not async"):
+            await client.get("https://a.example/")
+        assert body.closed
+        assert transport._pools._entries["a.example"].active == 0  # the lease was released
