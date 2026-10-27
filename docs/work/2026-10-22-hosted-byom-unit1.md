@@ -117,9 +117,11 @@ Owner decisions (2026-10-22):
   - `69efb15fa` feat(aigateway): reuse one bounded HTTP client per configured endpoint
   - `d9ae79613` fix(aigateway): share no cookie and close every endpoint client at shutdown
   - `202f40ba6` fix(aigateway): list only registered providers the caller may see
+  - `d0c7545e2` fix(aigateway): close every endpoint client even when shutdown is cancelled
 - **Gates:** `run_gates.py aigateway --base 482460344` after the rebase: ruff check, ruff format,
   pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
-  all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. With
+  all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `d0c7545e2` the
+  full run is green again with 7359 and 437. With
   `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
   the five approved test transitions. Earlier runs against `fade16614` were green at each part
   (6912 and 426 tests) and after the first review fixes (6920 and 433).
@@ -142,23 +144,29 @@ Owner decisions (2026-10-22):
     unregistered provider's pair has no row.
   - Open, awaiting the owner: a 401 or a 405 on `/v1/models` and `/v1/providers` is answered
     before the handler and carries no private-cache headers. Its body holds no account data.
-- **Second review (2026-10-27),** on the rebased branch: the three fixes above hold. Open,
-  awaiting the owner:
+- **Second review (2026-10-27),** on the rebased branch: the three fixes above hold.
   - An account without a grant can learn a configured endpoint's ID and alias through the
-    shared cache, against the Unit 0 rule that a denial answers as an unknown provider.
-    `GET /v1/cache/entries` lists every account's cached rows with their provider, model and
-    stored answer, which usually names the upstream model. With the cache on, a refused chat
-    reports a cache `miss` where an unknown provider reports `bypass`, because the grant check
-    runs after the cache lookup. The owner decides whether an endpoint's ID stays private once
-    it has served a cached chat; either way a cache-on test and a cache-listing test follow.
+    shared cache. `GET /v1/cache/entries` lists every account's cached rows with their
+    provider, model, stored answer and metadata. With the cache on, a refused chat reports a
+    cache `miss` where an unknown provider reports `bypass`, because the lookup runs for every
+    account before the grant check. Both match the governing decisions: the product owner
+    confirmed in PR #1433 on 2026-10-21 that every gateway cache row, metadata included, is
+    community data open to every signed-in account; the hosted BYOM design serves a hit to a
+    caller who guessed the model ID, adds no per-account partition, private-cache mode or
+    pre-cache grant gate, and keeps the community-cache policy. What is wrong is the wording:
+    the Unit 0 and Unit 1 comments promise that a tenant cannot learn which endpoints are
+    configured. Open, awaiting the owner's approval of the reworded comments, one of them in a
+    prior test file, and of a cache-on refusal test and a cache-listing test.
   - Rows pulled into a local gateway would be served to a local endpoint that reuses a hosted
-    ID with another upstream, so the no-retarget rule then spans two deployments.
+    ID with another upstream. The design already forbids retargeting a stable ID.
   - The media guard from main (OME-1542) runs before the grant check: a remote image URL sent
     to an ungranted endpoint gets a 422 naming the provider, where an unknown provider gets a
-    400. The endpoint does not implement `refuse_inadmissible_media`.
-  - Minor: a cancelled shutdown sweep leaves the endpoints after it open, and a failed close
-    task's error text can reach the log as an unretrieved task exception.
-  - Minor: the hidden-pair test traps only the operational-state read, not the Connection read.
+    400. A caller who guesses the ID learns it from the cache status anyway.
+  - Fixed in `d0c7545e2`: shutdown starts every close before waiting for any, so a cancelled
+    shutdown leaves no endpoint open, and a close error nobody reads is marked read, so
+    asyncio never prints its text. Two new tests failed before the change.
+  - Fixed in `d0c7545e2`: a new availability test traps the hidden pair's Connection read; it
+    fails when the skip is moved below that read, which the earlier test missed.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
