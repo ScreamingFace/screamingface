@@ -66,6 +66,11 @@ USD_UNIT = "usd"
 
 SavedCostProvenance = Literal["reported", "archive_matched"]
 _SAVED_COST_PROVENANCES: tuple[SavedCostProvenance, ...] = ("reported", "archive_matched")
+# The one gateway zero rule this engine prices (spec 2026-10-26 P1): an OpenRouter refusal before
+# output, which carries no `usage` and leaves no generation record, so nothing is billed.
+# INVARIANT (P5): an allowlist, not the status alone. A `provider_guaranteed_zero` from any other
+# source stays unpriced (OME-1687 R3) until the engine knows what that rule proves.
+_PRICED_ZERO_SOURCES = frozenset({"openrouter.pre_output_refusal"})
 # INVARIANT: an owner decision (2026-08-17), not something this code can verify. It lives here as a
 # named constant so the assumption is visible rather than implied by an absent multiplication.
 _CREDIT_TO_USD = Decimal(1)
@@ -225,12 +230,30 @@ def _succeeded_cost_evidence(envelope: Mapping[str, Any]) -> tuple[bool, Mapping
     return _succeeded_attempt_evidence(economics, _SUCCEEDED_ATTEMPT_DIRECT_COST)
 
 
-def _succeeded_attempt_usd(direct_cost: Mapping[str, Any] | None) -> Decimal | None:
-    """USD from the successful attempt's `direct_cost`: only a `reported` credit amount prices.
+def _is_priced_zero(direct_cost: Mapping[str, Any]) -> bool:
+    """Whether `direct_cost` is a gateway-certified zero that this engine prices as $0.
 
-    Every other status (`unavailable`, `invalid`, `provider_guaranteed_zero`, …), unit or amount
-    is a real unknown about the successful request itself (R3), so the call is unpriced.
+    FEATURE: cost of intelligence (spec 2026-10-26 P3/P4). Exact on every field: the status, the
+    credit unit, the canonical amount `"0"` and an allowlisted source.
     """
+    return (
+        direct_cost.get("status") == "provider_guaranteed_zero"
+        and direct_cost.get("unit") == OPENROUTER_CREDIT_UNIT
+        and direct_cost.get("amount") == "0"
+        and direct_cost.get("source") in _PRICED_ZERO_SOURCES
+    )
+
+
+def _succeeded_attempt_usd(direct_cost: Mapping[str, Any] | None) -> Decimal | None:
+    """USD from the successful attempt's `direct_cost`: a `reported` credit amount, or $0 for a
+    certified pre-output refusal (P3).
+
+    Every other status (`unavailable`, `invalid`, a `provider_guaranteed_zero` from a rule this
+    engine does not know, …), unit or amount is a real unknown about the successful request itself
+    (R3), so the call is unpriced.
+    """
+    if direct_cost is not None and _is_priced_zero(direct_cost):
+        return Decimal(0)
     if direct_cost is None or direct_cost.get("status") != "reported":
         return None
     return _credits_to_usd([{"unit": direct_cost.get("unit"), "amount": direct_cost.get("amount")}])
@@ -355,13 +378,16 @@ def avoided_usd_from_aigw(aigw: object) -> AvoidedCost:
     An empty result covers two different facts that the counter must both treat as an unpriced
     HIT: no reference cost at all (a legacy row, a gateway that predates the field), and a
     reference whose status or unit this engine cannot price. Only `reported` and
-    `archive_matched` statuses with a priceable unit carry a provenance.
+    `archive_matched` statuses with a priceable unit, and a certified refusal zero (P4), carry a
+    provenance.
     """
     direct_cost = _cache_reference_direct_cost(aigw)
-    if direct_cost is None:
-        return AvoidedCost()
-    status = direct_cost.get("status")
-    if status not in _SAVED_COST_PROVENANCES:
+    if direct_cost is not None and _is_priced_zero(direct_cost):
+        # P4: the replayed call was a certified free refusal, so the hit avoided exactly $0. The
+        # zero is provider evidence, hence `reported`; it is a priced hit, not an unpriced one.
+        return AvoidedCost(usd=Decimal(0), provenance="reported")
+    status = direct_cost.get("status") if direct_cost is not None else None
+    if direct_cost is None or status not in _SAVED_COST_PROVENANCES:
         return AvoidedCost()
     provenance: SavedCostProvenance = "reported" if status == "reported" else "archive_matched"
     usd = _saved_cost_usd(direct_cost)

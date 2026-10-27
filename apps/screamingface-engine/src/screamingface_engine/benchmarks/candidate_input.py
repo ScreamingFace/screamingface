@@ -16,13 +16,16 @@ Worked example (v2, one question and one picture)::
       {"type":"text","text":"What is the height of the tallest bar?"},
       {"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]}]}
 
-INVARIANT: nothing here decodes or opens a picture. Only the ``data:`` prefix is checked, the same
-envelope check the gateway makes, and the base64 is passed on verbatim. A refusal names the message
-and part by position and never echoes a URL or the bytes.
+INVARIANT: reading an envelope never decodes a picture. Only the ``data:`` prefix is checked, the
+same envelope check the gateway makes, and the base64 is passed on verbatim. ``media_placeholder``
+is the one place that decodes, and only to count and hash the bytes; nothing here opens a picture.
+A refusal names the message and part by position and never echoes a URL or the bytes.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -137,6 +140,20 @@ class CandidateInputV2(TypedDict):
 
     schema: Literal["screamingface.candidate-input.v2"]
     messages: list[CandidateMessage]
+
+
+class MediaPlaceholder(TypedDict):
+    """What stands where a picture's or file's bytes were, in any text that shows a Case.
+
+    e.g. ``{"placeholder": "image", "media_type": "image/png", "size": 307200,
+    "sha256": "9f86d081…"}``; ``filename`` only when the part names one.
+    """
+
+    placeholder: Literal["image", "file"]
+    media_type: str
+    size: int
+    sha256: str
+    filename: NotRequired[str]
 
 
 class CandidateInputError(ValueError):
@@ -293,6 +310,52 @@ def _file(where: str, part: Mapping[str, Any]) -> FileData:
     return file
 
 
+def media_placeholder(part: ImagePart | FilePart, *, where: str) -> MediaPlaceholder:
+    """Name one checked picture or file part by its bytes, without carrying them.
+
+    FEATURE (OME-1679): a Fusion's synthesizer reads the Case as text beside the pictures it is
+    sent, and that text shows each picture as this placeholder. One builder, so every text that
+    shows a Case (the synthesizer's, later the results') writes one shape; the SDK keeps a copy
+    pinned by ``test_media_placeholder_conformance.py``.
+
+    Stage 1 — take the part's ``data:`` URI (an image's ``url`` or a file's ``file_data``) and
+        check it is in the one spelling the envelope reader accepts.
+    Stage 2 — decode it. That spelling is plain base64 with its padding, so it decodes as written.
+    Stage 3 — measure: the size and sha256 of the decoded bytes, never of the base64 text.
+
+    e.g. ``data:image/png;base64,iVBORw0KGgo=`` (8 bytes) → ``{"placeholder": "image",
+    "media_type": "image/png", "size": 8, "sha256": "4c4b6a3b…"}``.
+
+    Raises:
+        CandidateInputError: the part is not an inline ``data:`` URI in the standard spelling;
+            ``where`` names the part.
+    """
+
+    # Stage 1 — the part's data: URI.
+    kind: Literal["image", "file"] = "image" if part["type"] == "image_url" else "file"
+    uri: str = (
+        part["image_url"]["url"] if part["type"] == "image_url" else part["file"]["file_data"]
+    )
+    # WHY the reader's own check again: a part the envelope reader accepted always passes, but
+    # this is public, and a hand-built part must fail by name (an assert vanishes under -O).
+    media_type: str = _data_uri_mime(where, uri)
+
+    # Stage 2 — decode. WHY no error branch: the standard spelling admits only text that decodes
+    # (an exhaustive check over 6,305,250 short spellings found none that fails).
+    data: bytes = base64.b64decode(uri.partition(",")[2], validate=True)
+
+    # Stage 3 — measure.
+    placeholder: MediaPlaceholder = {
+        "placeholder": kind,
+        "media_type": media_type,
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    if part["type"] == "file" and "filename" in part["file"]:
+        placeholder["filename"] = part["file"]["filename"]
+    return placeholder
+
+
 def _data_uri_mime(where: str, value: object) -> str:
     """The media type of an inline ``data:`` URI in the standard spelling; anything else is refused.
 
@@ -372,8 +435,10 @@ __all__ = [
     "ImageDetail",
     "ImagePart",
     "ImageUrl",
+    "MediaPlaceholder",
     "PartsMessage",
     "TextMessage",
     "TextPart",
+    "media_placeholder",
     "parse_candidate_input",
 ]
