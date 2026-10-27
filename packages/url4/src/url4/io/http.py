@@ -34,6 +34,7 @@ from url4.io._source_policy import (
     source_timeout,
     too_large,
 )
+from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
 
@@ -100,6 +101,7 @@ class HttpIOLayer:
         self._trusted = _trusted_origins(self._base_url)
         self._owned: httpx.AsyncClient | None = None  # lazily created when no client is injected
         self._closed = False
+        self._closer = CloseOnce()
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._closed:
@@ -232,9 +234,17 @@ class HttpIOLayer:
         After ``aclose`` the adapter is closed for good; a later fetch raises.
         """
         self._closed = True
-        owned, self._owned = self._owned, None
-        if owned is not None:
-            await owned.aclose()
+        # INVARIANT (PR #1555 review 4): the owned client is dropped only AFTER its close ends,
+        # inside one shielded close a cancelled caller cannot abandon — so a retry still
+        # reports a pool-close failure (httpx marks the client closed before it awaits).
+        await self._closer.run(self._close_owned)
+
+    async def _close_owned(self) -> None:
+        try:
+            if self._owned is not None:
+                await self._owned.aclose()
+        finally:
+            self._owned = None
 
     async def __aenter__(self) -> HttpIOLayer:
         return self
