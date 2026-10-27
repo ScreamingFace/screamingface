@@ -25,6 +25,8 @@ _GATEWAY_CONFIG = _REPO_ROOT / "apps/aigateway/src/aigateway/config.py"
 # messages, and a Fusion synthesizer's member answers, which ride beside the same pictures).
 # A synthesizer's text is the Case's text without the base64 plus five members' answers, tens
 # of KB in the Benchmarks run so far; the rest of the 8 MiB cap is spare.
+# AIDEV-NOTE: where this guess bites: a Case over about 7.7 MB whose members write long answers
+# would get a permanent 413 on its synthesizer call. The largest real Case is 5.21 MB (TableQA).
 _REQUEST_HEADROOM_BYTES = 256 * 1024
 
 _OPERATORS = {ast.Mult: operator.mul, ast.Add: operator.add}

@@ -114,6 +114,12 @@ the pictures stays where inspect put it.
     written, so this makes one picture one spelling for every Case, hand-built too, without
     re-encoding on each call. Pinned by `test_a_media_part_in_another_spelling_is_refused`;
     dropping each of its three rules fails a named case.
+  - After the PR review (2026-10-26): the reader also refuses a spelling whose spare bits
+    before the padding are set (`iVBORw0KGgp=` decodes like `iVBORw0KGgo=`), so one picture
+    really has one spelling; the picture count is checked before any picture is read; the two
+    system-text separators point at each other; the gateway-fit test names where its 256 KiB
+    guess would bite. New tests: two spare-bits cases, a two-`=` ending still read, and 21 URL
+    pictures refused by count.
 - **Owner verify:** merge only after #1552 (OME-1679). On the first FigQA run, read the run's
   peak memory against the 2,560 MiB budget; if it goes over, loading only the selected Cases
   (OME-1675) is the fix.

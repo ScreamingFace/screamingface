@@ -73,6 +73,8 @@ MAX_CASE_BYTES: int = 8_000_000
 MAX_PICTURES: int = 20
 
 #: How system text joins the prompt, the same blank line a text Case folds it with.
+#: AIDEV-NOTE: twin of capture.py's ``_MESSAGE_SEPARATOR``; capture imports this module, so they
+#: cannot share one constant. Change both together, or the fold differs by Case kind.
 _SYSTEM_SEPARATOR: str = "\n\n"
 
 #: The leading bytes of each picture type the envelope accepts, checked in order.
@@ -173,6 +175,10 @@ def _user_parts(user: ChatMessage, case_id: int) -> list[ContentPart]:
     # WHY an assert: Stage 1 found a part that is not text, Stage 2 allows it only as a
     # picture in a user message, and the one message after the system ones is that message.
     assert not isinstance(content, str)
+    # WHY count first: a Case with a hundred pictures is refused before any is decoded.
+    count: int = sum(part.type != "text" for part in content)
+    if count > MAX_PICTURES:
+        _refuse(case_id, f"{count} pictures; a Case carries at most {MAX_PICTURES}")
     parts: list[ContentPart] = []
     pictures: int = 0
     for part in content:
@@ -183,8 +189,6 @@ def _user_parts(user: ChatMessage, case_id: int) -> list[ContentPart]:
             continue
         pictures += 1
         parts.append(_picture_part(cast("ContentImage", part), case_id, pictures))
-    if pictures > MAX_PICTURES:
-        _refuse(case_id, f"{pictures} pictures; a Case carries at most {MAX_PICTURES}")
     return parts
 
 

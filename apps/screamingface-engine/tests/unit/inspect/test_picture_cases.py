@@ -370,6 +370,18 @@ def test_more_pictures_than_the_limit_are_refused() -> None:
     assert f"{MAX_PICTURES + 1} pictures" in message
 
 
+def test_too_many_pictures_are_refused_before_any_is_read() -> None:
+    # INVARIANT: the count comes first, so a Case with a hundred pictures is refused without
+    # decoding a hundred pictures in the import child.
+    # WHY a URL as every picture: reading one would refuse it as a URL; the count refusal proves
+    # none was read.
+    picture: ContentImage = ContentImage(image="https://insecure-website.com/a.png")
+
+    message: str = _refusal(_figqa_sample(*[picture] * (MAX_PICTURES + 1)))
+
+    assert f"{MAX_PICTURES + 1} pictures" in message
+
+
 # ── shapes the importer refuses ──────────────────────────────────────────────
 
 
