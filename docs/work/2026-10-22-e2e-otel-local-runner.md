@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1747
 stack: screamingface-engine
 status: done
 started: 2026-10-22
@@ -43,7 +43,7 @@ passthrough otherwise (the default).
 
 - **Actual files:** as planned, plus this ledger.
 - **Commits:** see `git log` on branch `e2e-otel-local-runner`.
-- **Gates:** pytest 5752 passed / 147 skipped / 13 deselected; ruff check clean; ruff format
+- **Gates:** pytest 5752 passed / 147 skipped / 13 deselected (2026-10-22); after the rebase onto main (2026-10-27) 5831 passed / 153 skipped / 13 deselected; ruff check clean; ruff format
   clean; pyright 0 errors; `check_layering.py` OK. RED first: 9 of 10 new tests failed
   (`span_sink` kwarg absent); the byte-identical default-path test passed before and after,
   as a baseline should.
