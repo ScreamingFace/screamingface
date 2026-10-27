@@ -31,6 +31,25 @@ from .auth_mode import auth_type_of
 _SERVICE_NAMESPACE = "aigateway"
 
 
+def locator_credential_name(locator: object, *, credential_provider: str) -> str | None:
+    """The credential name a well-formed locator addresses; ``None`` when it is malformed.
+
+    # WHY public: the history purge (OME-1138 E5) must tell a malformed locator apart, because it
+    # skips such an account instead of falling back to the row's UUID-derived name.
+    """
+    if not isinstance(locator, Mapping):
+        return None
+    # INVARIANT: the stored locator still names the canonical logical slot. A provider may map that
+    # credential name to a configurable physical account, but the locator cannot select it.
+    if locator.get("account", DEFAULT_CREDENTIAL_ACCOUNT) != DEFAULT_CREDENTIAL_ACCOUNT:
+        return None
+    service = locator.get("service")
+    prefix = f"{_SERVICE_NAMESPACE}:{credential_provider}:"
+    if not isinstance(service, str) or not service.startswith(prefix):
+        return None
+    return service[len(prefix) :] or None
+
+
 def credential_name_from_locator(
     locator: object,
     *,
@@ -39,18 +58,8 @@ def credential_name_from_locator(
     connection_id: UUID | str,
 ) -> str:
     """The credential name the locator addresses, or today's UUID-derived name when malformed."""
-    fallback = credential_key_for(account_id, connection_id)
-    if not isinstance(locator, Mapping):
-        return fallback
-    # INVARIANT: the stored locator still names the canonical logical slot. A provider may map that
-    # credential name to a configurable physical account, but the locator cannot select it.
-    if locator.get("account", DEFAULT_CREDENTIAL_ACCOUNT) != DEFAULT_CREDENTIAL_ACCOUNT:
-        return fallback
-    service = locator.get("service")
-    prefix = f"{_SERVICE_NAMESPACE}:{credential_provider}:"
-    if not isinstance(service, str) or not service.startswith(prefix):
-        return fallback
-    return service[len(prefix) :] or fallback
+    name = locator_credential_name(locator, credential_provider=credential_provider)
+    return name if name is not None else credential_key_for(account_id, connection_id)
 
 
 def credential_blob_address(
@@ -113,4 +122,5 @@ __all__ = [
     "credential_blob_address",
     "credential_name_from_locator",
     "credential_strategy_for_connection",
+    "locator_credential_name",
 ]
