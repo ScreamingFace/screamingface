@@ -107,3 +107,47 @@ decisions Q-A..Q-D (Linear `OME-1543` comment "Owner decisions (Sergey, 2026-10-
     `EXPORTS` ratchet in `tests/unit/test_hygiene_ratchets.py` bumped (59 → 61), a prior test.
   - **Q-D:** #1450's head says Case parts "travel in the v2 envelope instead" of url4
     attachments; the plan's `run(attachments=…)` (U2) is kept as the engine's injection point.
+
+## Round 2026-10-27 — spec review round 6 (pre-materialize + freeze, static manifest, caps): BLOCKED
+
+**Intent.** Bring the branch to #1450 at `96727acc8` (F1b "pre-materialize, then freeze", static
+source manifest / `x.source_not_static`, one record per `(URL, accept)` with required winning,
+bare-Content-Type classification, per-run caps `x.attachments_too_many` / `x.attachments_too_large`).
+
+**Done.**
+- Merged the #1482 head `a405c41e8` (C6 `x.remote_node_unsupported`) into this branch (merge, no
+  rebase): `e4871c0f6`. Conflicts resolved conservatively: `dag/nodes/blob.py` and
+  `dag/_lowering.py` keep this branch's version (the #1482 side equals the pre-rebase content
+  already here, ours is a superset); `core/errors.py` and the OME-1539 ledger take both sides;
+  `dag/_descriptor.py` takes the #1482 `RemoteFetchNode` import. No test file conflicted.
+  `run_gates.py url4` ALL GATES GREEN (append-only vs HEAD) on the merged tree.
+
+**Blocked (no code written).** The normative F1b text cannot be met without editing prior
+tests that `.claude/test-change-approvals/OME-1543.json` does not name:
+1. `tests/unit/test_https_attachments.py::test_text_https_body_is_not_attached_and_payload_is_unchanged`
+   asserts `io.byte_targets == []` for a text `https://` source. F1b: every https source goes
+   through ONE `fetch_bytes` at admission that both classifies and yields the body ("no second
+   fetch"), so a text source is fetched as bytes.
+2. `tests/unit/test_https_attachments.py::test_guard_refusal_on_the_text_fetch_surfaces_as_today`
+   asserts `io.byte_targets == []` and a refusal from the TEXT fetch; under F1b the refusal must
+   come from the admission bytes fetch.
+3. `tests/unit/test_dag.py::test_run_all_success_path_returns_row_results` (and the other
+   `StaticIOLayer` tests with an `https://` source and no `media_types`: 35 test files name an
+   https URL with `StaticIOLayer`, 6 set `media_types`): F1b reads a missing Content-Type as
+   `unsupported_content_type`, a terminal failure that fails the run for a required source.
+   Today these sources are text (the #1478 text path reads an absent type as text).
+4. The module INVARIANT "https sources stay lazy (Q-B)" in `dag/attachments.py`,
+   `dag/nodes/web_attach.py` and `tests/unit/test_https_attachments.py` is superseded by F1b
+   (round 5/6); the test-module docstring is part of a prior test file.
+Likely also affected (not verified by running): tests whose https targets carry `$` templates
+(`x.source_not_static`), and fetch-order/concurrency tests whose https fetches would move ahead
+of the first model call.
+
+**Deviations / open questions (for the owner).**
+- Approve a test-change manifest for the tests above (give the `StaticIOLayer` fixtures
+  `text/plain` / `application/json` media types; change the two `byte_targets == []`
+  assertions to "exactly one bytes fetch"), or
+- narrow F1b so a source with no Content-Type keeps the text path's "absent = text" reading in
+  pre-materialization (a spec change in #1450, contradicting its current wording), or
+- scope pre-materialization to a run that names at least one attachment-capable source (also a
+  spec change; the current text says every https source).
