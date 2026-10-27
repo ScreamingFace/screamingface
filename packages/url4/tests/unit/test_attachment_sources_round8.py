@@ -315,3 +315,65 @@ async def test_many_non_text_text_sources_can_no_longer_bypass_the_caps() -> Non
     assert await run(text, io, process=model) == "ok"
     assert model.seen == [()]
     assert io.byte_fetches() == 0
+
+
+# -- C (deferred, owner 2026-10-27): attachment targets are literal in v1 -----------------
+
+ROWS_URL = "https://rows.example/rows.json"
+ROWS: dict[str, str | bytes] = {ROWS_URL: f'["{IMG_URL}", "{PDF_URL}"]'}
+ROWS_TYPE = {ROWS_URL: "application/json"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"({ROWS_URL}*(src=$item;accept=image/png)!'d')!'r'",
+        f"({ROWS_URL}*(pic:src=$item;accept=application/pdf;optional)!'d')!'r'",
+        f"(u='{IMG_URL}', src=$u;accept=image/png)!'d'",
+        f"(u={ROWS_URL}, src=$u;accept=image/webp)!'d'",
+    ],
+)
+async def test_variable_source_with_a_media_accept_is_not_static_before_any_fetch(
+    text: str,
+) -> None:
+    # INVARIANT: a source that asks to be an attachment (an exact media ;accept=) but whose
+    # target is not a literal URL is refused, never silently read as text (row-derived
+    # attachment URLs are deferred: improvement idea "Allow row-derived attachment URLs").
+    io, model = _Web(ROWS, ROWS_TYPE), _Model()
+    with pytest.raises(ResolutionError) as caught:
+        await run(text, io, process=model)
+    assert caught.value.code == ErrorCode.SOURCE_NOT_STATIC
+    assert caught.value.permanent is True
+    assert io.events == []
+    assert model.seen == []
+
+
+@pytest.mark.asyncio
+async def test_variable_source_with_a_non_media_accept_stays_a_text_value() -> None:
+    io, model = _Web(ROWS, ROWS_TYPE), _Model()
+    text = f"({ROWS_URL}*(src=$item;accept=application/json)!'d')!'r'"
+    assert await run(text, io, process=model) == "ok"
+    assert model.seen == [(), (), ()]
+    assert io.byte_fetches() == 0
+
+
+@pytest.mark.asyncio
+async def test_literal_attachment_source_in_an_iteration_body_is_one_identity() -> None:
+    io, model = _Web(ROWS, ROWS_TYPE), _Model()
+    text = f"({ROWS_URL}*($item, src={IMG_URL};accept=image/png)!'d')!'r'"
+    assert await run(text, io, process=model) == "ok"
+    img = _att(PNG, "image/png")
+    assert model.seen == [(img,), (img,), (img,)]  # two rows and the reducer
+    assert io.byte_fetches(IMG_URL) == 1
+
+
+@pytest.mark.asyncio
+async def test_literal_attachment_source_over_an_empty_collection_is_never_fetched() -> None:
+    empty: dict[str, str | bytes] = {ROWS_URL: "[]"}
+    io = _Web(empty, ROWS_TYPE)
+    model = _Model()
+    text = f"({ROWS_URL}*(src={IMG_URL};accept=image/png)!'d')!'r'"
+    assert await run(text, io, process=model) == "ok"
+    assert model.seen == [()]
+    assert io.byte_fetches() == 0

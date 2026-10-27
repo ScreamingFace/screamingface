@@ -322,7 +322,7 @@ instead, the spec must change and the caps + freeze must cover lazily attached b
    omitted) exactly as admission decided, never with a later successful retry.
 2. Nested descriptors on a collection: the outermost one's policy and `;accept=` apply.
 
-## Round 2026-10-27c — owner decisions A–E (drop Q-B, round 8 narrowing, row targets, caps): DONE except C (BLOCKED)
+## Round 2026-10-27c — owner decisions A–E (drop Q-B, round 8 narrowing, row targets, caps): DONE (C in round 2026-10-27d)
 
 **Intent.** Apply the owner decisions of 2026-10-27 (main session, AskUserQuestion) and #1450 round 8
 (`4a020cc39`):
@@ -334,8 +334,8 @@ instead, the spec must change and the caps + freeze must cover lazily attached b
 - **B.** Round 8: an attachment source's `;accept=` is EXACTLY one lower-case type from
   `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`; the response bare type must
   EQUAL it, else `unsupported_content_type`. No `image/*`, no lists.
-- **C.** Row-derived attachment targets (rows of an admitted non-model collection) allowed; other
-  fetched-body / model derivations `x.source_not_static`.
+- **C.** (Revised by the owner later the same day, see round 2026-10-27d: row-derived attachment
+  URLs are DEFERRED; v1 attachment targets are literal.)
 - **D.** Mark the round-7/7b conservative readings owner-confirmed.
 - **E.** Investigate the security review's cap items in `_run_files.py` / `_materialize.py`.
 
@@ -414,20 +414,9 @@ answered `image/jpeg` → `unsupported_content_type`; cap breach refused before 
    `test_byte_cap_breach_cancels_the_flights_still_in_progress`,
    `test_case_bytes_count_before_any_attachment_fetch_is_spent`.
 
-**C — row-derived attachment targets: BLOCKED (syntax fork, no code written).** In today's grammar
-an attachment source's URL cannot come from a row: an absolute `Url` never substitutes
-(`(('a.png')*(src=https://img.example/$item)!'d')` fetches the literal `https://img.example/$item`,
-text and attachment sources alike), and `src=$item;accept=image/png` is a `VarRef` source whose
-value is the row TEXT (no fetch; `;accept=` is ignored on it). So neither the positive (row of an
-admitted NDJSON collection → fetched and attached) nor the negative (non-row fetched body →
-`x.source_not_static`) case is expressible without choosing new semantics. Options for the owner:
-(a) a `VarRef` source with an exact attachment `;accept=` (`src=$item;accept=image/png`) becomes an
-attachment source whose URL is the resolved value — admitted per row at run start for a row of an
-admitted non-model collection; `x.source_not_static` for a binding to a fetched body or a model
-output; (b) substitute `$item` inside an absolute URL of an attachment source only
-(`src=https://h/$item.png;accept=image/png`); (c) both. Each also needs: what a resolved value that
-is not an `http(s)://` URL is (`unsupported_content_type`? a parse error?), and whether a binding to
-a literal text (`u='https://…'`, `src=$u;accept=…`) counts as literal.
+**C — superseded by round 2026-10-27d (owner deferred row-derived attachment URLs).** The
+grammar finding stands: an absolute `Url` never substitutes, and `src=$item;accept=image/png` is a
+`VarRef` source whose value is the row text.
 
 **Deviations.**
 - Refusal precedence moved: blob refs are verified BEFORE collection admission and attachment
@@ -440,3 +429,42 @@ a literal text (`u='https://…'`, `src=$u;accept=…`) counts as literal.
 - **Gates:** `run_gates.py url4 --base 506c09178` (merge-base with `origin/main`) ALL GREEN;
   `check_module_size.py` all within baseline; `run_gates.py screamingface-engine` ALL GREEN (not
   touched; regression smoke).
+
+## Round 2026-10-27d — decision C revised: row-derived attachment URLs DEFERRED: DONE
+
+**Intent.** Owner (Sergey, 2026-10-27, via the coordinator): row-derived attachment URLs are
+deferred (follow-up improvement idea "Allow row-derived attachment URLs in url4"). v1 attachment
+sources have a literal URL and a literal `;accept=`. A source that carries an exact attachment
+`;accept=` but whose target is a variable (`src=$item;accept=image/png`, `src=$u;accept=…`) must
+not silently read as text: refuse it with `x.source_not_static` before any fetch. A literal
+attachment source in an iteration body stays one identity (fetched once if any row is reached, not
+at all over an empty collection). No row-derived admission exists in the code (none was written).
+
+**Planned / done.**
+- `dag/attachment_sources.py`: `non_literal_attachment(node)` — the target text of a `VarRef`
+  source, or a `$`-templated relative path, carrying an exact attachment `;accept=`; `not_static`
+  message names "literal URL" instead of only a model output.
+- `dag/source_scan.py`: `SourceScan.non_literal` collected in scalar position.
+- `dag/_run_files.py`: refused right after `refuse_remote`, before `check_static` and any I/O.
+- Tests added (`tests/unit/test_attachment_sources_round8.py`):
+  `test_variable_source_with_a_media_accept_is_not_static_before_any_fetch[4]` (row `$item` with
+  image/png; named row source with `;optional` and application/pdf; `$u` bound to literal text;
+  `$u` bound to a fetched https source), `test_variable_source_with_a_non_media_accept_stays_a_text_value`,
+  `test_literal_attachment_source_in_an_iteration_body_is_one_identity`,
+  `test_literal_attachment_source_over_an_empty_collection_is_never_fetched`. RED confirmed for the
+  four refusals; the other three already held. No prior test changed (no test on `origin/main` or on
+  this branch writes a variable or templated relative source with an attachment `;accept=`).
+
+**Readings (conservative).**
+1. A `$`-templated RELATIVE path with an attachment `;accept=` (`src=/files/$name;accept=image/png`)
+   is treated as substituted, so refused; a literal absolute URL containing `$` is literal (absolute
+   URLs never substitute) and is a normal attachment source.
+2. The refusal is static: it applies to every such occurrence the scan sees in scalar position,
+   reachable or not (even under an empty collection), because it is a v1 authoring error.
+3. A `;optional` on such a source does not soften the refusal (it is not a fetch failure).
+4. A pre-built `Graph` has no AST, so the scan cannot see such a source; there it reads as text
+   as before (same limitation as reading 6 of round 7).
+
+**Gates.** `run_gates.py url4 --base 506c09178` ALL GREEN (append-only also green vs HEAD: only
+new test functions); `check_module_size.py` within baseline; `run_gates.py screamingface-engine`
+ALL GREEN (not touched; regression smoke).
