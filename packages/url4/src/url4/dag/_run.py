@@ -42,7 +42,7 @@ from url4.dag.node import (  # isort: skip
 # ``url4.dag._run.<name>`` import path keeps working.
 from url4.dag._run_files import _as_attachment as _as_attachment  # isort: skip
 from url4.dag._run_files import _ast_of as _ast_of  # isort: skip
-from url4.dag._run_files import _run_files as _run_files  # isort: skip
+from url4.dag._run_files import _run_start  # isort: skip
 from url4.dag._run_files import _verify as _verify  # isort: skip
 from url4.dag._run_observe import _expression_hash as _expression_hash  # isort: skip
 from url4.dag._run_observe import _finish_observation as _finish_observation  # isort: skip
@@ -179,8 +179,10 @@ async def run(
     obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
     _wire_spawn(run_ctx, registry)
     try:
-        files, cache = await _run_files(target, attachments, run_ctx)
-        with bind_run_files(files, cache):
+        start = await _run_start(target, attachments, run_ctx)
+        with bind_run_files(
+            start.slots, start.cache, manifest=start.manifest, prefetched=start.prefetched
+        ):
             result = await Executor(run_ctx).execute(_to_node(target, registry))
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"

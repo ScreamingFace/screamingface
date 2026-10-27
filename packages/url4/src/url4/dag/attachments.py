@@ -22,23 +22,20 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from url4.core.blob_ref import BlobAddress, address_of
-from url4.core.errors import ErrorCode, ParseError, ResolutionError
-from url4.core.grammar import parse as grammar_parse
-from url4.core.nodes import (
-    Binding,
-    Expression,
-    Iteration,
-    Node,
-    RelExpr,
-    Source,
-    Url,
-    VarRef,
-)
-from url4.core.parser import split_top_level_commas
+from url4.core.errors import ResolutionError
 from url4.dag.attachment import Attachment
+from url4.dag.attachment_sources import AttachmentIdentity
+from url4.io.layer import FetchRequest, FetchResult
 
-_WEB_SCHEMES = ("http://", "https://")
+# WHY: the AST scan lives in :mod:`url4.dag.source_scan` (size, reason to change); the
+# redundant aliases keep every ``url4.dag.attachments.<name>`` import path working.
+from url4.dag.source_scan import CollectionGuard as CollectionGuard  # isort: skip
+from url4.dag.source_scan import FileRef as FileRef  # isort: skip
+from url4.dag.source_scan import Occurrence as Occurrence  # isort: skip
+from url4.dag.source_scan import SourceScan as SourceScan  # isort: skip
+from url4.dag.source_scan import collect_file_refs as collect_file_refs  # isort: skip
+from url4.dag.source_scan import refuse_remote as refuse_remote  # isort: skip
+from url4.dag.source_scan import scan_sources as scan_sources  # isort: skip
 
 
 @dataclass(frozen=True)
@@ -65,9 +62,15 @@ class RunFiles:
     non-text ``https://`` body (:meth:`attach_fetched`); nodes keep their own fetch on a miss.
     """
 
-    slots: tuple[Attachment | str, ...]
+    slots: tuple[Attachment | str | AttachmentIdentity, ...]
     cache: dict[str, CachedBlob | str] = field(default_factory=dict)
     fetched: dict[str, Attachment] = field(default_factory=dict)
+    # F1b round 7: each materialized identity's outcome (frozen before the first model call),
+    # and the collection fetches the admission phase made, replayed once each by execution.
+    manifest: Mapping[AttachmentIdentity, Attachment | ResolutionError] = field(
+        default_factory=dict
+    )
+    prefetched: dict[tuple, list[FetchResult | Exception]] = field(default_factory=dict)
 
     @property
     def attachments(self) -> tuple[Attachment, ...]:
@@ -78,21 +81,52 @@ class RunFiles:
         calls that run after its fetch (every call that reads it), not to an earlier sibling.
         """
         slotted = {slot for slot in self.slots if isinstance(slot, str)}
-        filled = [
-            slot if isinstance(slot, Attachment) else self.fetched.get(slot) for slot in self.slots
-        ]
-        filled += [att for url, att in self.fetched.items() if url not in slotted]
-        ordered: dict[str, Attachment] = {}
-        for attachment in filled:
+        filled = [self._filled(slot) for slot in self.slots]
+        filled += [(att.digest, att) for url, att in self.fetched.items() if url not in slotted]
+        ordered: dict[object, Attachment] = {}
+        for key, attachment in filled:
             if attachment is not None:
-                ordered.setdefault(attachment.digest, attachment)
+                ordered.setdefault(key, attachment)
         return tuple(ordered.values())
+
+    def _filled(
+        self, slot: Attachment | str | AttachmentIdentity
+    ) -> tuple[object, Attachment | None]:
+        """A slot's dedup key and attachment (``None`` while empty or omitted).
+
+        INVARIANT (F1b round 7): an attachment identity is its own key — never merged with
+        another identity or a blob ref, even for equal bytes; everything else dedups by digest.
+        """
+        if isinstance(slot, AttachmentIdentity):
+            outcome = self.manifest.get(slot)
+            return slot, outcome if isinstance(outcome, Attachment) else None
+        attachment = slot if isinstance(slot, Attachment) else self.fetched.get(slot)
+        return (None if attachment is None else attachment.digest), attachment
+
+    def take_prefetched(self, request: FetchRequest) -> FetchResult | None:
+        """Replay (once) a collection fetch the admission phase already made, else ``None``.
+
+        WHY one-shot: execution then performs exactly the fetches it performs today, minus the
+        ones admission made for it — a collection is resolved once, not twice.
+        """
+        pending = self.prefetched.get(prefetch_key(request))
+        if not pending:
+            return None
+        outcome = pending.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     def attach_fetched(self, url: str, blob: CachedBlob, attachment: Attachment) -> None:
         """Record a non-text ``https://`` body: cached by URL and digest, attached at its slot."""
         self.cache.setdefault(url, blob)
         self.cache.setdefault(attachment.digest, blob)
         self.fetched.setdefault(url, attachment)
+
+
+def prefetch_key(request: FetchRequest) -> tuple:
+    """The identity of a collection fetch: target, relativity, kind and ``;accept=``."""
+    return (request.target, request.relative, request.kind, request.accept)
 
 
 _RUN_FILES: ContextVar[RunFiles | None] = ContextVar("url4_run_files", default=None)
@@ -111,7 +145,11 @@ def current_attachments() -> tuple[Attachment, ...]:
 
 @contextmanager
 def bind_run_files(
-    attachments: Sequence[Attachment | str], cache: Mapping[str, CachedBlob | str] | None = None
+    attachments: Sequence[Attachment | str | AttachmentIdentity],
+    cache: Mapping[str, CachedBlob | str] | None = None,
+    *,
+    manifest: Mapping[AttachmentIdentity, Attachment | ResolutionError] | None = None,
+    prefetched: Mapping[tuple, list[FetchResult | Exception]] | None = None,
 ) -> Iterator[RunFiles]:
     """Bind ``attachments`` (and the run's cache) for one top-level run; reset on exit.
 
@@ -130,7 +168,7 @@ def bind_run_files(
             )
         yield outer
         return
-    files = RunFiles(wanted, dict(cache or {}))
+    files = RunFiles(wanted, dict(cache or {}), {}, dict(manifest or {}), dict(prefetched or {}))
     token = _RUN_FILES.set(files)
     try:
         yield files
@@ -153,184 +191,25 @@ def detached_run_files() -> Iterator[None]:
         _RUN_FILES.reset(token)
 
 
-# --- collection: which file refs the run's AST names, in source order -------------------
-
-
-@dataclass(frozen=True)
-class FileRef:
-    """One file ref the run names. ``collection`` is True when EVERY use of it is in
-    collection position (D4): then it is verified and cached, but not attached."""
-
-    address: BlobAddress
-    collection: bool = False
-
-    @property
-    def key(self) -> str:
-        """The cache / dedup key: ``sha256:<hex>``, or the ref text when it has no digest."""
-        digest = self.address.digest
-        return self.address.ref if digest is None else f"sha256:{digest}"
-
-
-def collect_file_refs(ast: Node) -> tuple[FileRef, ...]:
-    """Every file ref ``ast`` names, in source pre-order, deduped by digest (first wins).
-
-    INVARIANT (F2): structure only — value nodes the grammar parsed as file refs. Quoted text
-    is :class:`~url4.core.nodes.Text` and never a ref (C4); a ``RemoteExpr`` subtree is the
-    remote node's own business and is skipped (C6). A call's context and an iteration body
-    are source-lists kept as raw text by the parser: each segment is parsed here the same way
-    the lowering parses it; a segment that does not parse (prose, or a template that only
-    parses after row substitution) contributes nothing.
-    """
-    return scan_sources(ast).refs
-
-
-@dataclass(frozen=True)
-class SourceScan:
-    """The run's file refs, and the source-order keys of its attachment slots.
-
-    ``order`` holds, at first sight in pre-order, an attachable file ref's :attr:`FileRef.key`
-    and the URL of every ``http(s)://`` source read in scalar position (Q-B: such a source
-    attaches only if its body turns out not to be text; collection position never attaches).
-    """
-
-    refs: tuple[FileRef, ...]
-    order: tuple[str, ...]
-
-
-@dataclass
-class _Found:
-    refs: dict[str, FileRef] = field(default_factory=dict)
-    order: dict[str, None] = field(default_factory=dict)  # an ordered set
-    urls: set[str] = field(default_factory=set)
-
-
-def scan_sources(ast: Node) -> SourceScan:
-    """One structural walk (see :func:`collect_file_refs`) yielding refs and slot order."""
-    found = _Found()
-    _walk(ast, {}, False, found)
-    refs = tuple(found.refs.values())
-    attached = {ref.key for ref in refs if not ref.collection}
-    order = tuple(key for key in found.order if key in attached or key in found.urls)
-    return SourceScan(refs, order)
-
-
-def _walk(node: Node, bound: Mapping[str, Node], collection: bool, out: _Found) -> None:
-    if _add_leaf(node, collection, out):
-        return
-    match node:
-        case Expression():
-            _walk_expression(node, bound, out)
-        case Binding(value=value):
-            _walk(value, bound, collection, out)
-        case Source(value=value, expand=expand):
-            _walk(value, bound, collection or expand, out)
-        case Iteration(collection=items, body=body):
-            _walk_collection(items, bound, out)
-            _walk_source_list(body, bound, out)
-        case RelExpr():
-            _walk_rel_expr(node, bound, out)
-        case _:
-            pass  # Text, RemoteExpr (C6), holdings, VarRef in scalar use, struct, ...
-
-
-def _walk_expression(node: Expression, bound: Mapping[str, Node], out: _Found) -> None:
-    scope = dict(bound) | _bindings(node.sources)
-    for source in node.sources:
-        _walk(source, scope, False, out)
-    if node.intent is not None:
-        _walk(node.intent, scope, False, out)
-
-
-def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found) -> None:
-    # INVARIANT: a context holding a holdings ref ("@") ships verbatim to the receiving
-    # route and is never resolved caller-side (mirrors the lowering's _context_slots).
-    if node.context is not None and "@" not in node.context:
-        _walk_source_list(node.context, bound, out)
-    if node.intent is not None:
-        _walk(node.intent, bound, False, out)
-
-
-def _walk_collection(items: Node, bound: Mapping[str, Node], out: _Found) -> None:
-    if isinstance(items, Expression) and items.intent is None and not items.broadcast:
-        _walk(items, bound, False, out)  # an inline collection: its elements are values
-        return
-    if isinstance(items, VarRef) and not items.path and items.name in bound:
-        # Plan §2.9: ``$x*(…)`` reads the bound file ref in collection position.
-        items = bound[items.name]
-    _walk(items, bound, True, out)
-
-
-def _walk_source_list(text: str, bound: Mapping[str, Node], out: _Found) -> None:
-    for segment in split_top_level_commas(text):
-        if not segment.strip():
-            continue
-        try:
-            parsed = grammar_parse(segment.strip())
-        except ParseError:
-            continue
-        _walk(parsed, bound, False, out)
-
-
-def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
-    named: dict[str, Node] = {}
-    for source in sources:
-        if isinstance(source, Binding):
-            named[source.name] = source.value
-        elif isinstance(source, Source) and source.name is not None:
-            named[source.name] = source.value
-    return named
-
-
-def _add_leaf(node: Node, collection: bool, out: _Found) -> bool:
-    """Record a file ref or an absolute URL; ``True`` when ``node`` was one (a leaf).
-
-    An ``http(s)://`` source in scalar position takes a slot (Q-B); any other URL takes none.
-    """
-    address = address_of(node)
-    if address is not None:
-        _add(out, FileRef(address, collection))
-        return True
-    if not isinstance(node, Url):
-        return False
-    if not collection and node.value.startswith(_WEB_SCHEMES):
-        out.order.setdefault(node.value)
-        out.urls.add(node.value)
-    return True
-
-
-def _add(out: _Found, ref: FileRef) -> None:
-    if not ref.collection:
-        out.order.setdefault(ref.key)
-    seen = out.refs.get(ref.key)
-    if seen is None:
-        out.refs[ref.key] = ref
-    elif seen.collection and not ref.collection:
-        out.refs[ref.key] = FileRef(seen.address, False)  # first scalar position, now attached
-
-
-def refuse_remote(refs: Sequence[FileRef]) -> None:
-    """D1 / F1: any ``url4://`` blob ref fails the run before ANY I/O, local refs included."""
-    for ref in refs:
-        if ref.address.form == "remote":
-            raise ResolutionError(
-                f"remote blob refs are not supported in v1 ({ref.address.ref!r})",
-                code=ErrorCode.REMOTE_BLOB_UNSUPPORTED,
-                permanent=True,
-            )
-
-
 def attachment_slots(
-    case: Sequence[Attachment], resolved: Mapping[str, Attachment], order: Sequence[str]
-) -> tuple[Attachment | str, ...]:
+    case: Sequence[Attachment],
+    resolved: Mapping[str, Attachment],
+    order: Sequence[str | AttachmentIdentity],
+) -> tuple[Attachment | str | AttachmentIdentity, ...]:
     """Case attachments first, then each source-order key: a resolved ref's attachment, or
     an ``https://`` URL left as a pending slot. Duplicates collapse in :attr:`RunFiles.attachments`.
     """
-    return (*case, *(resolved.get(key, key) for key in order))
+    return (
+        *case,
+        *(key if isinstance(key, AttachmentIdentity) else resolved.get(key, key) for key in order),
+    )
 
 
 __all__ = [
     "CachedBlob",
+    "CollectionGuard",
     "FileRef",
+    "Occurrence",
     "RunFiles",
     "bind_run_files",
     "collect_file_refs",
@@ -339,6 +218,7 @@ __all__ = [
     "detached_run_files",
     "SourceScan",
     "attachment_slots",
+    "prefetch_key",
     "refuse_remote",
     "scan_sources",
 ]

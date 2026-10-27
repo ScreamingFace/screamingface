@@ -21,6 +21,7 @@ import hashlib
 
 from url4.core.errors import ResolutionError
 from url4.dag.attachment import OCTET_STREAM, Attachment
+from url4.dag.attachment_sources import AttachmentIdentity, not_static
 from url4.dag.attachments import CachedBlob, current_run_files
 from url4.dag.node import ExecutionContext
 from url4.io.layer import FetchRequest
@@ -55,4 +56,24 @@ async def attach_web_body(
     return attachment
 
 
-__all__ = ["attach_web_body", "cached_web_attachment"]
+def materialized_attachment(identity: AttachmentIdentity) -> str | None:
+    """An attachment source's payload: its URL text, read from the run's frozen manifest.
+
+    INVARIANT (F1b round 7): execution never fetches an attachment source. A materialized
+    identity reads as its URL; an omitted ``;optional`` one re-raises its typed failure as
+    permanent (so its guard drops it without a retry, and nothing is re-fetched); an identity
+    the run-start manifest never saw is ``x.source_not_static``. Outside a ``run()`` there is
+    no manifest: ``None``, and the node keeps today's text path.
+    """
+    files = current_run_files()
+    if files is None:
+        return None
+    outcome = files.manifest.get(identity)
+    if outcome is None:
+        raise not_static(repr(identity.url))
+    if isinstance(outcome, Attachment):
+        return identity.url
+    raise ResolutionError(str(outcome), code=outcome.code, permanent=True)
+
+
+__all__ = ["attach_web_body", "cached_web_attachment", "materialized_attachment"]

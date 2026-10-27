@@ -10,16 +10,19 @@ registry, so this module names no other lowerer.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from url4.core._annotations import checked_retries, checked_timeout
-from url4.core.errors import ParseError
 from url4.core.nodes import Binding, Node, Source
 
 from url4.dag.node import DagNode  # isort: skip
 from url4.dag.nodes import ExpandNode, GuardNode, RelUrlNode, RemoteFetchNode, WebFetchNode  # isort: skip
 from url4.dag.nodes.blob import as_collection  # isort: skip
+
+# WHY: the guard-policy decoding moved to :mod:`url4.dag.attachment_sources` (OME-1543 round
+# 7), the one decoding an attachment identity shares with its GuardNode; re-exported here.
+from url4.dag.attachment_sources import _annotation_number as _annotation_number  # isort: skip
+from url4.dag.attachment_sources import guard_policy as _guard_options  # isort: skip
+from url4.dag.attachment_sources import identity_of  # isort: skip
 
 if TYPE_CHECKING:  # the registry type only — this module never constructs one
     from url4.dag._lowering import LoweringRegistry
@@ -39,6 +42,8 @@ def _lower_source(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNo
     guard = _guard_options(ann, node)
     inner = registry.lower(node.value, {} if guard is not None else edges)
     _push_label(inner, node, ann)
+    if isinstance(inner, WebFetchNode):
+        inner.attachment = identity_of(node)  # None for every text source (F1b round 7)
     if node.expand:
         inner = ExpandNode(deps={"inner": as_collection(inner)})  # a blob ref is text (D4)
     if guard is not None:
@@ -47,35 +52,6 @@ def _lower_source(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNo
             inner, optional=optional, timeout=timeout, retries=retries, deps=dict(edges)
         )
     return inner
-
-
-def _guard_options(
-    ann: dict[str, str | None], node: Source
-) -> tuple[bool, float | None, int] | None:
-    """Decode ``;optional`` / ``;t=`` / ``;retry=`` — None when no guard is needed."""
-    optional = "optional" in ann
-    timeout = _annotation_number(ann.get("t"), "t", float, checked_timeout, node)
-    retries = _annotation_number(ann.get("retry"), "retry", int, checked_retries, node)
-    if not optional and timeout is None and not retries:
-        return None
-    return optional, timeout, retries or 0
-
-
-def _annotation_number(raw: str | None, key: str, cast: Callable, check: Callable, node: Source):
-    """Cast and range-check one guard value (the shared rule in ``core._annotations``)."""
-    if raw is None:
-        return None
-    try:
-        value = cast(raw)
-    except ValueError:
-        value = None
-    where = node.name or node.value
-    try:
-        if value is None:
-            raise ValueError(f"must be {'an integer' if cast is int else 'a number'}")
-        return check(value)
-    except ValueError as exc:
-        raise ParseError(f"invalid ;{key}={raw!r} on source {where!r}: {exc}") from None
 
 
 def _push_label(inner: DagNode, node: Source, ann: dict[str, str | None]) -> None:

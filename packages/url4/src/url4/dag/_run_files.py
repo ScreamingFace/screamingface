@@ -9,15 +9,19 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import Node as AstNode
 
 from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
+from url4.dag.attachment_sources import AttachmentIdentity  # isort: skip
+from url4.dag._materialize import Outcomes, Prefetched, check_caps, materialize  # isort: skip
 from url4.dag.attachments import (  # isort: skip
     CachedBlob,
     FileRef,
+    RunFiles,
     attachment_slots,
     current_run_files,
     scan_sources,
@@ -28,33 +32,49 @@ from url4.dag.node import DagNode, ExecutionContext, gather_or_cancel  # isort: 
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 
 
-async def _run_files(
+@dataclass(frozen=True)
+class RunStart:
+    """What :func:`url4.dag.run` binds: slots, cache, manifest outcomes, replay memo."""
+
+    slots: tuple[Attachment | str | AttachmentIdentity, ...]
+    cache: dict[str, CachedBlob | str] | None = None
+    manifest: Outcomes = field(default_factory=dict)
+    prefetched: Prefetched = field(default_factory=dict)
+
+
+async def _run_start(
     target: str | AstNode | Graph | DagNode,
     case: Sequence[Attachment],
     run_ctx: ExecutionContext,
-) -> tuple[tuple[Attachment | str, ...], dict[str, CachedBlob | str] | None]:
-    """The run's fixed ``attachments[]`` and file cache, resolved BEFORE the first node runs.
+) -> RunStart:
+    """The run's fixed ``attachments[]``, resolved and capped BEFORE the first node runs.
 
     INVARIANT (F2 / D5): every file ref the AST names is fetched once (through the run's
     bounded io) and sha256-verified here; any failure — a ``;optional`` source included —
     fails the run before any model call. A ``url4://`` blob ref fails first, with no I/O (D1).
+    INVARIANT (F1b round 7): every reachable ``https://`` attachment source is materialized
+    here too (:mod:`url4.dag._materialize`), then the whole list is capped and frozen.
     A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
-    WHY ``https://`` sources are only slotted here, not fetched (owner decision Q-B): they stay
-    lazy, so a text body and a failed ``;optional`` source behave exactly as before (D5 exempt).
+    WHY ``https://`` TEXT sources are only slotted here, not fetched (owner decision Q-B,
+    kept by round 7): they stay lazy, so they behave exactly as before (D5 exempt).
     """
     if current_run_files() is not None:
-        return tuple(case), None
+        return RunStart(tuple(case))
     ast = _ast_of(target)
     scan = scan_sources(ast) if ast is not None else None
     refs = () if scan is None else scan.refs
     refuse_remote(refs)
+    occurrences = () if scan is None else scan.occurrences
+    manifest, prefetched = await materialize(occurrences, run_ctx)
     bodies = await gather_or_cancel(_verify(ref, run_ctx) for ref in refs)
     resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
     cache: dict[str, CachedBlob | str] = {
         ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
     }
     order = () if scan is None else scan.order
-    return attachment_slots(case, resolved, order), cache
+    start = RunStart(attachment_slots(case, resolved, order), cache, manifest, prefetched)
+    check_caps(RunFiles(start.slots, {}, {}, manifest).attachments)
+    return start
 
 
 async def _verify(ref: FileRef, run_ctx: ExecutionContext) -> tuple[bytes, str | None]:
@@ -79,4 +99,4 @@ def _ast_of(target: str | AstNode | Graph | DagNode) -> AstNode | None:
     return ast
 
 
-__all__ = ["_as_attachment", "_ast_of", "_run_files", "_verify"]
+__all__ = ["RunStart", "_as_attachment", "_ast_of", "_run_start", "_verify"]

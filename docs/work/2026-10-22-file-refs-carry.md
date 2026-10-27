@@ -180,3 +180,87 @@ submodule, re-export every moved name from the original module, no behaviour cha
   is untouched). Capping them would stop regrowth; owner call.
 - `StructNode.__module__` is now `url4.dag.nodes.struct` (likewise for the other moved names);
   no test or doc depends on it.
+
+## Round 2026-10-27 — spec review round 7 (opt-in attachment sources, reachability manifest): DONE (open questions below)
+
+**Intent.** Bring the branch to #1450 at `357ce4199` (F1b "Scope of attachments", round 7): an
+`https://` source is an **attachment source** iff every range of its `;accept=` is in the
+attachment set (`image/*`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`,
+`application/pdf`); every other source is a text source and keeps today's lazy,
+per-occurrence semantics. Attachment sources are pre-materialized before the first model call
+from a reachability-aware manifest (non-model collection inputs resolved first and reused), one
+flight per identity `(URL, accept, ;optional, ;t=, ;retry=)`, classified by bare Content-Type,
+listed in manifest preorder, frozen; per-run caps 20 entries / 8,000,000 bytes.
+
+**Planned changes.**
+- `dag/attachment_sources.py` (new): attachment set, `;accept=` classification, identity,
+  guard-policy decoding shared with `_descriptor.py`, response classification.
+- `dag/_materialize.py` (new): collection pre-resolution (reuse memo), identity
+  materialization (one flight, guard policy), caps.
+- `dag/attachments.py`: identity slots in the source scan (preorder), collection guards,
+  manifest outcomes and the prefetch memo on `RunFiles`.
+- `dag/_run_files.py`, `dag/_descriptor.py`, `dag/nodes/fetch.py`, `dag/nodes/_shared.py`,
+  `core/errors.py` (`x.source_not_static`, `x.attachments_too_many`, `x.attachments_too_large`),
+  `peer/_http.py` (proposed statuses 422 / 413 / 413).
+- Tests (new): `tests/unit/test_attachment_sources_round7.py`.
+
+**Test plan.** The round-7 conformance cases, RED first: empty collection → no I/O; duplicate text
+occurrences with differing `;t=`/`;retry=`/`;optional` as today; no-header / XML / `+json` / YAML /
+charset / Latin-1 text sources unchanged; wrong or missing type on an attachment source →
+`unsupported_content_type`; same URL with and without a media `;accept=` independent; identical
+identities one flight; reversed completion order → preorder; caps; model-derived →
+`x.source_not_static`. Fake IO only, no network/DNS, no new `sleep(` calls.
+
+**Done.** One commit on `file-refs-carry` (see `git log`; message
+`feat(url4): pre-materialize opt-in https attachment sources before the first model call`).
+- `dag/attachment_sources.py` (new): attachment ranges/types, `identity_of`, `classify` (bare
+  Content-Type, no sniffing, fail-closed on a comma), `guard_policy` (moved from `_descriptor.py`,
+  re-exported there as `_guard_options` / `_annotation_number`), `not_static`.
+- `dag/source_scan.py` (new, split from `dag/attachments.py` by reason to change; every name
+  re-exported from `attachments`): the scan now records attachment-source occurrences in preorder
+  with the collection guards they are conditional on, and slots each identity in source order.
+- `dag/_materialize.py` (new): static check (`x.source_not_static`) before any I/O; collection
+  pre-resolution outer-first, stopping at an empty one, results kept in a one-shot replay memo
+  (`RunFiles.take_prefetched`, consulted by `nodes/_shared._fetch`); one guarded `fetch_bytes`
+  flight per reachable identity, concurrently; `check_caps` (20 / 8,000,000) over the whole list.
+- `dag/_run_files.py`: `_run_start` returns `RunStart` (slots, cache, manifest, replay memo);
+  the unused `_run_files` tuple wrapper and its `_run` re-export were removed (no caller in the repo).
+- `dag/attachments.py`: `RunFiles.manifest` / `prefetched`; an identity slot is its own dedup key.
+- `dag/nodes/fetch.py` + `web_attach.materialized_attachment`: an attachment source reads its
+  URL text from the frozen manifest and never fetches; an omitted `;optional` one re-raises its
+  code as permanent (dropped by its guard, no retry, no re-fetch); unknown in a run →
+  `x.source_not_static`; outside a run → today's text path.
+- `core/errors.py` + `peer/_http.py`: `x.source_not_static` 422, `x.attachments_too_many` 413,
+  `x.attachments_too_large` 413 (proposed statuses, §4).
+- Tests: `tests/unit/test_attachment_sources_round7.py`, 53 tests (all round-7 conformance cases
+  plus admission/collection shapes). No prior test edited; no new `sleep(` (the reversed-order
+  test uses events).
+- **Gates:** `run_gates.py url4` ALL GREEN (append-only vs HEAD); `check_module_size.py` green;
+  `run_gates.py screamingface-engine` ALL GREEN (not touched; regression smoke).
+
+**Conservative readings (design forks under 95%, owner to confirm).**
+1. **U3b vs round 7.** The branch's Q-B lazy path still attaches a non-text body of a TEXT
+   source (no media `;accept=`) after the first model call. Round 7 says text sources are never
+   attached and byte-identical to main (where that body is `unsupported_content_type`). Removing
+   U3b changes these prior tests, which `.claude/test-change-approvals/OME-1543.json` does not
+   list, so U3b is kept unchanged: `tests/unit/test_https_attachments.py::`
+   `test_non_text_https_body_is_attached_once_at_its_source_position`,
+   `test_https_body_with_a_blob_refs_digest_is_attached_once`,
+   `test_case_attachments_precede_an_https_attachment`,
+   `test_guard_refusal_on_the_bytes_fetch_fails_the_run_unchanged[*]` (4 params).
+2. `image/*` is in the attachment range set but the exec-value grammar (§4.2) refuses `*`, and a
+   comma splits sources, so `;accept=image/*` and multi-range values cannot be authored today.
+3. Response types are the concrete `image/png|jpeg|gif|webp` and `application/pdf` only;
+   `image/*` matches those four, never e.g. `image/svg+xml`.
+4. An attachment source under a model-derived collection (a processed group, a call, a remote
+   expression, a nested iteration, or a binding to one) is `x.source_not_static`, even though its
+   URL is literal (URLs never substitute in this grammar), because its reachability is only known
+   after a model call.
+5. A collection admission cannot resolve without running the body (a row reference `$item`, a
+   blob ref, holdings, a templated relative path) counts as reachable (may fetch for an empty one).
+6. A pre-built `Graph`/node target has no AST and so no manifest: its attachment sources are
+   `x.source_not_static`; so is one in a nested `run()` or spawned text the outer scan never saw.
+7. Caps apply to every top-level run (Case attachments + blob refs + https attachments), also
+   a run with no https attachment source.
+8. The attachment source contributes its URL text to the payload (as U3b did); an omitted
+   optional one is logged `WARN` with its code via `ExecutionContext.log`.
