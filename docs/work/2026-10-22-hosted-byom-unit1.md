@@ -110,20 +110,19 @@ Owner decisions (2026-10-22):
   `test_http_origins`, `test_app_catalog`, `test_global_cache`, `test_app_shared_cache`,
   `test_endpoint_client`. Prior tests changed only as approved: `test_definitions`,
   `test_reader`, `test_plugin`, `test_app_regressions`.
-- **Commits** (rebased onto `fade16614`):
-  - `8bdb3d8ac` feat(aigateway): accept approved http and https origins by name or address
-  - `bbeadf786` feat(aigateway): show each configured endpoint only to its granted accounts
-  - `52eb5824b` feat(aigateway): share cached chats to configured endpoints across accounts
-  - `0c60b1cb7` feat(aigateway): reuse one bounded HTTP client per configured endpoint
-  - `358af66eb` fix(aigateway): share no cookie and close every endpoint client at shutdown
-  - `b487572a7` fix(aigateway): list only registered providers the caller may see
-- **Gates:** `run_gates.py aigateway --base fade16614`: ruff check, ruff format, pyright,
-  `check_no_enterprise`, pytest with coverage at least 80%: all green after each part and again
-  after the rebase; 6912 tests collected, 426 in `tests/unit/remote_endpoint`. With
-  `.claude/test-change-approvals/OME-1721.json` in place, the full run including the append-only
-  check is green and accepts exactly the four approved test transitions. After the review fixes
-  the full run is green again: 6920 tests collected, 433 in `tests/unit/remote_endpoint`, and
-  the append-only check accepts exactly five approved test transitions.
+- **Commits** (rebased onto `482460344`, 2026-10-27):
+  - `1d83d9d13` feat(aigateway): accept approved http and https origins by name or address
+  - `50c5fcc46` feat(aigateway): show each configured endpoint only to its granted accounts
+  - `0a67e4d4b` feat(aigateway): share cached chats to configured endpoints across accounts
+  - `69efb15fa` feat(aigateway): reuse one bounded HTTP client per configured endpoint
+  - `d9ae79613` fix(aigateway): share no cookie and close every endpoint client at shutdown
+  - `202f40ba6` fix(aigateway): list only registered providers the caller may see
+- **Gates:** `run_gates.py aigateway --base 482460344` after the rebase: ruff check, ruff format,
+  pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
+  all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. With
+  `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
+  the five approved test transitions. Earlier runs against `fade16614` were green at each part
+  (6912 and 426 tests) and after the first review fixes (6920 and 433).
 - **Review fixes (2026-10-23),** after an external review of the four feature commits:
   - The shared client kept upstream cookies, so a cookie set on one account's answer rode on the
     next account's request. The client now uses a cookie jar that keeps nothing. A refusing
@@ -143,6 +142,23 @@ Owner decisions (2026-10-22):
     unregistered provider's pair has no row.
   - Open, awaiting the owner: a 401 or a 405 on `/v1/models` and `/v1/providers` is answered
     before the handler and carries no private-cache headers. Its body holds no account data.
+- **Second review (2026-10-27),** on the rebased branch: the three fixes above hold. Open,
+  awaiting the owner:
+  - An account without a grant can learn a configured endpoint's ID and alias through the
+    shared cache, against the Unit 0 rule that a denial answers as an unknown provider.
+    `GET /v1/cache/entries` lists every account's cached rows with their provider, model and
+    stored answer, which usually names the upstream model. With the cache on, a refused chat
+    reports a cache `miss` where an unknown provider reports `bypass`, because the grant check
+    runs after the cache lookup. The owner decides whether an endpoint's ID stays private once
+    it has served a cached chat; either way a cache-on test and a cache-listing test follow.
+  - Rows pulled into a local gateway would be served to a local endpoint that reuses a hosted
+    ID with another upstream, so the no-retarget rule then spans two deployments.
+  - The media guard from main (OME-1542) runs before the grant check: a remote image URL sent
+    to an ungranted endpoint gets a 422 naming the provider, where an unknown provider gets a
+    400. The endpoint does not implement `refuse_inadmissible_media`.
+  - Minor: a cancelled shutdown sweep leaves the endpoints after it open, and a failed close
+    task's error text can reach the log as an unretrieved task exception.
+  - Minor: the hidden-pair test traps only the operational-state read, not the Connection read.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
