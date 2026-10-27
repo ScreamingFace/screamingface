@@ -43,7 +43,7 @@ from litellm.exceptions import (
 from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
 from ..core.credential_blob import DispatchObservation
-from ..core.credential_blob.store import CredentialBlobMutationConflict
+from ..core.endpoint_access import EndpointOperation, permits
 from ..core.frozen_copy.headers import (
     CAPTURE_HEADER,
     COPY_HEADER,
@@ -60,11 +60,13 @@ from ..core.frozen_copy.store import (
     frozen_copy_store_for,
     log_capture_failure,
 )
+from ..core.media_intake import refuse_remote_media
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
+from ..core.plugin_base import ProviderPluginBase
 from ..core.provider_access import (
     CredentialTarget,
     ProviderAccess,
@@ -115,6 +117,7 @@ router = APIRouter()
 async def _resolve_credential_target(
     access: ProviderAccess,
     *,
+    app: Any,
     account_id: str,
     provider: str,
     selector: Selector,
@@ -124,7 +127,13 @@ async def _resolve_credential_target(
 
     # INVARIANT: both refusals render through the ONE edge table, so the 404/409/401 bodies
     # and the 400 for an undeclared mode stay byte-identical to the pre-port route.
+    # INVARIANT (hosted BYOM): this runs only on a cache miss or bypass, which needs a NEW
+    # upstream call, so the endpoint grant is checked here, before any credential is resolved.
+    # A hit is served earlier to every account: the shared cache has no grant gate. A denial
+    # answers exactly as an unknown provider.
     """
+    if not permits(app, provider, account_id=account_id, operation=EndpointOperation.INVOKE):
+        raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
     with refusals_as_http():
         target = await access.resolve(account_id, provider, selector, plugin=plugin)
         return target, access.auth_mode(target, plugin)
@@ -280,16 +289,11 @@ def _error_view(exc: Exception) -> tuple[int, Any]:
 
     INVARIANT: each branch mirrors what the app renders for that exception, so a frozen copy
     replays the error a live call produced. ``HTTPException`` is its own status and detail;
-    ``CredentialBlobMutationConflict`` is the 503 of ``main._profile_index_conflict``; anything
-    else is the fixed sanitized 500 of ``unhandled_errors`` (never the exception's message).
+    anything else is the fixed sanitized 500 of ``unhandled_errors`` (never the exception's
+    message).
     """
     if isinstance(exc, HTTPException):
         return exc.status_code, exc.detail
-    if isinstance(exc, CredentialBlobMutationConflict):
-        return 503, {
-            "code": "profile_index_conflict",
-            "message": "Profile metadata update conflicted. Try again.",
-        }
     return 500, generic_detail()
 
 
@@ -440,6 +444,30 @@ async def _begin_capture(
     )
 
 
+def _admit_media(
+    request: Request,
+    body: dict[str, Any],
+    *,
+    plugin: ProviderPluginBase[Any],
+    provider: str,
+    streaming: bool,
+) -> dict[str, Any]:
+    """The data:-only media guard, accounted like the other ingress refusals (OME-1542)."""
+    try:
+        refuse_remote_media(
+            body.get("messages") or [],
+            provider=provider,
+            allow_remote_image_urls=plugin.forwards_remote_image_urls,
+        )
+        # The provider's own slot rules (Anthropic's top-level `system`), at the same boundary.
+        plugin.refuse_inadmissible_media(body)
+    except HTTPException:
+        if not streaming:
+            begin_accounting(request, plugin=plugin, provider=provider, model=body.get("model", ""))
+        raise
+    return body
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
     # INVARIANT: authentication has already succeeded before this route-level boundary parses every
@@ -512,7 +540,18 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # including ``litellm_credential_name``, a CREDENTIAL SELECTOR: keyed it would be
     # a plan §10 stop condition, and ignored it would be a wrong-hit collision class.
     # Stripping first is what makes it neither.
-    body = plugin.strip_provider_dispatch_controls(body)
+    #
+    # FEATURE (OME-1542): then image and file parts are admitted only as `data:` URIs, so our
+    # process never fetches a caller's URL (LiteLLM would, for Anthropic, Ollama and the OpenAI
+    # wire). INVARIANT: BEFORE the cache stage, credential resolution and dispatch — a refused
+    # request can neither hit nor fill the cache, and nothing is sent upstream.
+    body = _admit_media(
+        request,
+        plugin.strip_provider_dispatch_controls(body),
+        plugin=plugin,
+        provider=provider,
+        streaming=streaming,
+    )
 
     # OME-303: non-streaming accounting is gateway-owned and default-on. Streaming
     # bypasses it until SSE usage can be observed without consuming or delaying the stream.
@@ -597,7 +636,12 @@ async def chat_completions(request: Request, response: Response, current: Curren
         # ``defaults`` are NOT merged (OME-1323, D2): the dispatch must be the request the
         # key describes.
         target, auth_mode = await _resolve_credential_target(
-            access, account_id=account_id, provider=provider, selector=selector, plugin=plugin
+            access,
+            app=request.app,
+            account_id=account_id,
+            provider=provider,
+            selector=selector,
+            plugin=plugin,
         )
 
         # OME-479 §4.5: classify every optional parameter against the provider's enabled

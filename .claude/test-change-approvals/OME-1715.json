@@ -1,0 +1,58 @@
+{
+  "issue": "OME-1715",
+  "branch": "OME-1715-e5a-put-own-address",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-22",
+  "scope": "The E5a test map, approved in full: 21 prior tests in 11 files. A1-A9: a minted row's expected address becomes its own <account_id>:<row id> (four tests renamed to match). B1-B6: PairMutation.profile_names and the name match in the pending-flow drop go; the assertions read connection_ids, WriteConflict.requested is None, and the route test seeds a pending row the flow names. C1-C2: the refresh-guard inventory entry is renamed to ConnectionBackedCredentialAdmin._strategy; profile_admin is asserted absent. D1-D4: the retired conflict renderings (profile_conflict, profile_index_conflict, credential_write_conflict 503, the main._profile_index_conflict handler) lose their rows, parametrisations and tests, with the imports only they used. Added on 2026-10-22 after the rebase onto the hosted BYOM work: the remote-endpoint harness helper stored_key reads the key at the address the pair's live Connection names instead of the `default` Profile address. Nothing else changes.",
+  "reason": "Stage E history cleanup, E5a (spec and plan accepted by the owner, 2026-10-22): a D18 PUT no longer mints its row at the `default` Profile address, so it cannot adopt a blob the E5 purge may be deleting; the Profile name it carried goes with it, the Profile-backed admin base collapses into the Connection admin, and the conflict renderings whose last emitter left in E4b are removed.",
+  "files": {
+    "apps/aigateway/tests/integration/test_pair_admin_mutations_postgres.py": {
+      "base_blob": "ab3cc3bb595a9a22f56cdf2e7776509fa625b879",
+      "approved_blob": "c2a3ea9de111c021846664390bbe128d02e2ecfa"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin.py": {
+      "base_blob": "2ed8923036d0ba1ec0010d2831fea8558b0bee42",
+      "approved_blob": "78f393890229b8312b05feea12e33014adeb1eb5"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_no_profile_writer.py": {
+      "base_blob": "412beacd3316ee85a8651bd6e5e91a5a85233875",
+      "approved_blob": "9929e52c1545a6b8d60db8e90d6e8db7812d470c"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_connection_only.py": {
+      "base_blob": "a96d046328a0d44fa462e6533357bb72e68eb831",
+      "approved_blob": "410bff86a5f28498607533c311285e6e259cb8fb"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_mutations.py": {
+      "base_blob": "bf97378465d8cc7812f8cf1de8e42e82c358436f",
+      "approved_blob": "a1425160c3b28c259c5d2b5de52ef79ee7c7b305"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_http.py": {
+      "base_blob": "9f053fe3c3ff314c40bd67dc9d4c5bb7538e7871",
+      "approved_blob": "7f5d2ccd5fdb82a8716348c87e3e8ba88e1cf1d6"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_refresh_guard_inventory.py": {
+      "base_blob": "f41fb7b86fa778c8c3e8738302f9ff1cfc969b41",
+      "approved_blob": "291c4329e10da1a7d4b73c5b2d34981b7830698b"
+    },
+    "apps/aigateway/tests/unit/test_admin_connections_mutation_routes.py": {
+      "base_blob": "7d8dc761a53f34aae8bc70f95d15d50189290eef",
+      "approved_blob": "2b5f0a6b3cd11cdcfd0ea0986b682d317c19dd19"
+    },
+    "apps/aigateway/tests/unit/test_frozen_copy_capture.py": {
+      "base_blob": "7e23e709d2d8de148a55408d6b9b0d0254699afe",
+      "approved_blob": "5247106ccf427fe11a3b90585a0cb3d2eac28f74"
+    },
+    "apps/aigateway/tests/unit/test_profile_index_offline_only.py": {
+      "base_blob": "a3381ca0947be2c84ef57d345041f7cc73b428e1",
+      "approved_blob": "3763af0cd3108e9b1596ed66d97f92cecdb2d692"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_accounting_seam.py": {
+      "base_blob": "8cfc77e9ac8fcb051da464ba31f683e1152517ac",
+      "approved_blob": "bb684a95a68040e7440642e671d49d4499c98b7f"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/conftest.py": {
+      "base_blob": "ca97fe02ac95b560a48e349f62d964cd8025763d",
+      "approved_blob": "0d49eeff858c1fab9cbcff4107e4bf36292d3155"
+    }
+  }
+}

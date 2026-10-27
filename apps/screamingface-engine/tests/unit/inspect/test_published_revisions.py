@@ -103,6 +103,37 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "onet_m6": "cfc5f0da9f9418bd",
     # OME-1701 PR 7: first frozen here, at the revision main serves, which the row holds.
     "aime26": "c3ccaa828160f661",
+    # OME-1610 (2026-10-22): every row now hand-sets its published id, so the rows not yet
+    # frozen here join at the id main serves; none of them moves.
+    "lab_bench_litqa": "109142a4408d3f4b",
+    "lab_bench_suppqa": "3aae3cdf14efeab8",
+    "lab_bench_dbqa": "21ff94a2ef9982c5",
+    "lab_bench_protocolqa": "236b15e7b2c90e9b",
+    "lab_bench_seqqa": "48e1368633436c5a",
+    "lab_bench_cloning_scenarios": "9c6f66d6acae7f05",
+    # OME-1327: the two LAB-Bench picture subsets, imported once a Case could carry a picture.
+    "lab_bench_figqa": "7376109d25378310",
+    "lab_bench_tableqa": "9990079555f06a35",
+    "frontierscience": "826050de44778515",
+    "pubmedqa": "15e20f21d0a78fd9",
+    "xstest_unsafe": "fad9dd3ebabd84a5",
+    "medqa": "0d4c53de5fd83ec4",
+    "bbq": "cb1baddfb5da6950",
+    "piqa": "b51564ee7754bc92",
+    "coconot_original": "0c4d77a9254ebc29",
+    "coconot_contrast": "0eff77619697954b",
+    "pre_flight": "11c8a1de849b8f0b",
+    "bbeh": "4e98fa90e309b145",
+    "simpleqa": "ffd3e901b78f9d0e",
+    "simpleqa_verified": "f2b42ba095cade8e",
+    "fortress_benign": "b04be10a93356ccd",
+    "strong_reject": "6794ed308fafe0a6",
+    "uccb": "022fa23a5e823aa7",
+    "air_bench": "b5d90afe0f368dab",
+    "truthfulqa_mc1": "a4ea7f621bf1640c",
+    "cyse4_malware_analysis": "0a1c3a7364512973",
+    "drop": "9be2d9ed4b5f1a67",
+    "cyse4_threat_intelligence": "92558cfb773e64d2",
 }
 
 

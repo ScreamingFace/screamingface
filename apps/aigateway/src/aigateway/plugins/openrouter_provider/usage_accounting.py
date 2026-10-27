@@ -38,6 +38,7 @@ from ..taxonomy.mapper import (
 from ..taxonomy.mapper import (
     usage_and_source as _usage_and_source,
 )
+from .pre_output_refusal import proves_pre_output_refusal
 from .zero_insurance import proves_insured_zero
 
 __all__ = [
@@ -50,6 +51,9 @@ DIRECT_COST_UNIT = "openrouter_credits"
 DIRECT_COST_SOURCE = "openrouter.usage.cost"
 EXTENSION_NAMESPACE = "openrouter.response_usage"
 ZERO_COMPLETION_INSURANCE_SOURCE = "openrouter.zero_completion_insurance"
+# INVARIANT: the engine prices a guaranteed zero only from sources it allowlists by this exact
+# string (`world/accounting.py` `_PRICED_ZERO_SOURCES`). Renaming it makes these calls unpriced.
+PRE_OUTPUT_REFUSAL_SOURCE = "openrouter.pre_output_refusal"
 
 # OpenRouter exposes these provider-cost components without a documented currency/unit.
 # They remain non-aggregable audit evidence until the provider contract supplies one.
@@ -201,7 +205,26 @@ def supplement_openrouter_usage_accounting(
     failed: bool,
     request_has_potential_auxiliary_charge: bool | None = None,
 ) -> ProviderUsageAccountingEvidence:
-    """Certify only a native, metadata-backed OpenRouter insured rejection."""
+    """Certify only a native, metadata-backed OpenRouter insured rejection, or an unbilled
+    refusal before output on a successful attempt (spec 2026-10-26 P1)."""
+    if (
+        not failed
+        and raw_response is not None
+        and evidence.direct_cost.status == "unavailable"
+        and proves_pre_output_refusal(
+            raw_response,
+            http_status=http_status,
+            request_has_potential_auxiliary_charge=request_has_potential_auxiliary_charge,
+        )
+    ):
+        # P2: only the money changes. Token usage stays as the base mapper gave it.
+        return replace(
+            evidence,
+            direct_cost=DirectCost.provider_guaranteed_zero(
+                unit=DIRECT_COST_UNIT,
+                source=PRE_OUTPUT_REFUSAL_SOURCE,
+            ),
+        )
     if (
         not failed
         or http_status != 429

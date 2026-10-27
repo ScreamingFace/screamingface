@@ -109,7 +109,8 @@ class Client:
     ``io`` is the outbound :class:`~url4.io.layer.IOLayer` — or, string-first,
     a node target: ``Client("url4://host/v1")`` is ``Client(node=...)`` with
     an owned httpx adapter. With ``io`` omitted, that adapter is created
-    lazily and owned (closed by :meth:`aclose` / ``async with``). ``node``
+    lazily and owned (closed by :meth:`aclose` / ``async with``); its ``url4://`` peer
+    allowlist is empty (spec F1b), so a remote node needs ``io=HttpIOLayer(guard=…)``. ``node``
     sets a default remote target (``"url4://host/path"`` / ``"host"``);
     without one, expressions evaluate locally against ``io``. ``processor``
     is the endpoint local intent execution dispatches to (spec: the node's

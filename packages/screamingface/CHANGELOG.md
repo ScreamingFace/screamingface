@@ -36,6 +36,12 @@
 
 ### Features
 
+* **screamingface:** add opt-in local analytics via `sf.analytics.status()`, `enable()`,
+  `disable()` and `reset_identifier()`, plus `screamingface analytics` CLI controls.
+  Evaluation/submission events use random installation/process identifiers and bounded
+  background delivery to the dev analytics service. Analytics defaults off, respects
+  `DO_NOT_TRACK`, and excludes Colab and identity linking in this slice.
+
 * **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
   `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:
   `full_name`, `institution`, any other key) and the paper (`title`, `url`, `citation`, any other
@@ -62,6 +68,10 @@
 * `SCREAMINGFACE_ACCESS_TOKEN` pre-seeds the Client's Cloudflare Access login, so a run a person
   started can reach a hosted Engine without a browser window. A malformed or expired token fails
   at Client construction with `access_env_token_invalid`.
+
+* **screamingface:** pull the community request cache into a local engine (`OME-1311`). `sf.cache.pull_from_remote(models=None, *, url=None, progress=None)`, or `screamingface cache pull [--model M]… [--url U]` in a shell, copies the hosted cache's shareable rows into the local gateway database, so a local run answers from them for free the calls the community has already made. `models` limits it to those models (exactly as the hosted cache names them; a filtered pull loses no hits). The source is the production Engine unless `url` says otherwise — never the Engine runs go to. It signs in through the hosted Engine's Cloudflare Access, shows progress in a notebook or a terminal, retries a dropped connection, and continues an interrupted pull when called again in the same process; `PullResult` says how many rows were read, added and skipped (rows the local gateway could not serve are not loaded), and `CachePullError` how far a stopped pull got. Needs `screamingface[runtime]` and a local gateway database (`screamingface up` once), and a hosted Engine and gateway that serve `GET /v1/cache/entries`.
+
+* **screamingface:** the local gateway caches by default (`OME-1311`): `screamingface up` now sets `AIGW_REQUEST_CACHE_ENABLED=true` unless it is exported otherwise. `evaluate(..., use_cache=False)` (on `Client`, `AsyncClient` and `sf.evaluate`) opts one evaluation out of the request cache: its runs are started with `Cache-Control: no-cache`, the Engine makes every model call fresh, and the report shows those calls as cache `bypass` / `opted_out`.
 
 * **screamingface:** a Fusion with `quorum` or optional members may end in a reducer (`OME-1289`, `OME-1557`). The members reach the combine call as a broadcast panel with one row per member that answered; url4 checks the quorum and the required members first. A failed optional member is a failed Answer with the reason `missing`, never a vote. A judge on such a Fusion gets a panel form of its template (`judge-template@1 returns=<r> input=panel`) and scores only the members that answered. The block form `Pipeline([Fusion(m, Reduce("context"), quorum=…), Model])` keeps its quorum and optional members. A Fusion with no quorum and no optional member keeps its url4 bytes. **Needs an Engine from the same E4a release**: an older Engine refuses the `panel` context permanently.
 

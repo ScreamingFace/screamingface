@@ -41,10 +41,11 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     :version="version"
   >
     <p>
-      Every candidate result carries a <RouterLink to="/learn/url4"><code>url4</code></RouterLink>
-      string: the complete plan <RouterLink to="/learn/engine">the engine</RouterLink> actually ran —
-      your candidate, the benchmark's routes, retry prompts, and protocol revision — written as a
-      single line of text you can read, diff, and share.
+      Every candidate result carries a
+      <RouterLink to="/learn/url4"><code>url4</code></RouterLink> string: the complete plan
+      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran — your candidate, the
+      benchmark's routes, retry prompts, and protocol revision — written as a single line of text
+      you can read, diff, and share.
     </p>
 
     <p>
@@ -104,7 +105,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
           models · data · nested url4
         </text>
         <text x="346" y="116" style="fill: var(--text-2); font-size: 26px">)</text>
-        <text x="371" y="117" style="fill: var(--accent); font-size: 26px; font-weight: 600">!</text>
+        <text x="371" y="117" style="fill: var(--accent); font-size: 26px; font-weight: 600">
+          !
+        </text>
         <rect
           x="392"
           y="82"
@@ -159,9 +162,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
       <li>
         <code>member_1</code> is the first source: a call to the model route
         <code>/openrouter/anthropic/claude-opus-4.8</code> with its parameters
-        (<code>temperature</code>, <code>max_tokens</code>), the benchmark <code>$question</code>
-        bound as <code>q</code>, and its own intent, the answer prompt. The <code>0.0</code> after
-        the name is its weight.
+        (<code>temperature</code>, <code>max_tokens</code>), the benchmark
+        <code>$question</code> bound as <code>q</code>, and its own intent, the answer prompt. The
+        <code>0.0</code> after the name is its weight.
       </li>
       <li>
         <code>recipe_result</code> is the second source: a structured value that collects the
@@ -241,7 +244,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
         </tr>
         <tr>
           <td><code>Report.benchmark.revision</code></td>
-          <td>The pinned protocol revision the run used, which appears inside the url4's routes.</td>
+          <td>
+            The pinned protocol revision the run used, which appears inside the url4's routes.
+          </td>
         </tr>
         <tr>
           <td><code>Report.to_dict()</code> · <code>Report.to_json()</code></td>
@@ -339,8 +344,10 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     </p>
 
     <p>
-      To check a published score, use <code>sf.reproduce(score)</code> instead. It runs the url4
-      against the frozen copy that the original run made. See the
+      To check a published score, use <code>sf.evaluate(pinned_cache="…")</code> or
+      <code>sf.evaluate(score_id="…")</code>. The Client reads the original recipe and seed from the
+      board, runs against the pinned cache, and returns a report with the verdict on its single
+      result's <code>reproduction</code> field. See the
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> and the
       <RouterLink to="/learn/caching">caching page</RouterLink>.
     </p>

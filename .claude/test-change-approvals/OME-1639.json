@@ -1,0 +1,42 @@
+{
+  "issue": "OME-1639",
+  "branch": "OME-1639-community-cache-sdk",
+  "approver": "owner",
+  "date": "2026-10-16",
+  "scope": "OME-1639's own edits: in test_runtime_cli.py the two local-gateway-defaults tests gain AIGW_REQUEST_CACHE_ENABLED (the exact-defaults dict and the explicit-choice dict); test_public_surface.py pins screamingface.cache in PINNED_MODULES; public_surface_snapshot.json is regenerated (+sf.cache, +use_cache on three evaluate signatures). Plus, inherited byte for byte from OME-1631.json, the migration-target edits this branch carries because it is stacked on OME-1631 via OME-1635. And, inherited byte for byte from OME-1635.json, that PR's review-round rename of the Engine's caller helper in test_traceparent_propagation.py. And, from the PR #1446 review round (2026-10-17), test_cache_local.py's gateway_modules fixture gains a check_database stand-in (a module-level helper, plus a database_reject switch) mirroring the loader's new check_database; lines are only added, no assertion or test body changes. And, from the #1433/#1439 round-2 follow-up (2026-10-20): the snapshot is regenerated for PullResult.rows_skipped, and test_cache_local.py's loader stand-in returns skipped, its batch test asserts the (inserted, skipped) pair, and the malformed_row refusal row is removed because the loader no longer raises it (owner chose skip-and-count).",
+  "reason": "Owner approved each OME-1639 edit in chat on 2026-10-16: the local cache on by default (both defaults tests extended, no assertion weakened) and the public-surface pin and regenerated snapshot for the new sf.cache namespace and use_cache= parameter. The OME-1631 entries are that PR's owner approval, re-checked here because the pre-push gate diffs this stacked branch against main. The OME-1635 entry is the owner's own review-round commit on PR #1439, confirmed in chat. The test_cache_local.py entry: LocalGateway.prepare() now calls the loader's check_database (review finding 7), so the fixture standing in for the loader must provide it. The fixture, the file and prepare() are all new in this PR (absent on main and on OME-1635); owner approved in chat on 2026-10-17. Rebased 2026-10-20 onto the rebased stack: main's #1438 also changed test_public_surface.py and the snapshot, so their blobs were refreshed; the approved edit itself (the sf.cache pin, and sf.cache plus use_cache in the snapshot) is unchanged.",
+  "files": {
+    "apps/aigateway/tests/integration/test_global_cache_store_postgres.py": {
+      "base_blob": "cacfd33c149a5dd2c4d413c210f1461c6acc2f2b",
+      "approved_blob": "aadff8cddf2da3c55a09ec5ef459238cc281d8a9"
+    },
+    "apps/aigateway/tests/unit/test_migration_0010_simplify_request_cache.py": {
+      "base_blob": "e0c5e133468e533047ba7b09c6013256e071358e",
+      "approved_blob": "f850c54109e399c54ae19b6b8a56d9a2b2e12f80"
+    },
+    "apps/aigateway/tests/unit/test_migration_0011_cache_entry_metadata.py": {
+      "base_blob": "ef4bee339e2ebc0668659051e2302ebaab6ba737",
+      "approved_blob": "9609907789596fa24f9b926dc74136f948a67a2d"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "dfaa04c2487082fcc75221375a8f4134bb40be8d",
+      "approved_blob": "ae19b4180bf31698adb8903200995906c9c69bcd"
+    },
+    "packages/screamingface/tests/test_public_surface.py": {
+      "base_blob": "b3b193d67f51f3ca114ad2f720630bec0e14b8c9",
+      "approved_blob": "cc1efd12a214fcbd00a35342ae640d5814961ecc"
+    },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "92951ac8cdeb8f9e6bcbdee5d3acd5ffcdcc4223",
+      "approved_blob": "110218b13095fe425fcc97266db8d1d658ddacaf"
+    },
+    "apps/screamingface-engine/tests/unit/test_traceparent_propagation.py": {
+      "base_blob": "6394fdb66b1b456b53797d1274435416fd0c47a0",
+      "approved_blob": "a6bc75d44eb6789cfe46ddaf27635520790f270f"
+    },
+    "packages/screamingface/tests/test_cache_local.py": {
+      "base_blob": "987801ee31dbfc42af0a95f08c37e423f57fcad8",
+      "approved_blob": "790eb27803624f5a49b2c947c650294c9ef652ea"
+    }
+  }
+}

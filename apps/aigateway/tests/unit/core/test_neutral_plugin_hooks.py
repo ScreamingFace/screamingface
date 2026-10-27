@@ -59,6 +59,7 @@ OVERRIDES: dict[str, set[str]] = {
     "OllamaProviderPlugin": {"allows_chatless_credential"},
     "OpenAIProviderPlugin": _MARKS_ERRORS,
     "OpenRouterProviderPlugin": _MARKS_ERRORS,
+    "RemoteEndpointPlugin": set(),
 }
 # WHY: optional duck-typed plugin members that `ProviderPluginBase` does not declare. A new
 # lookup either names a member of the base class or is added here on purpose.

@@ -1,0 +1,98 @@
+"""The minimal chat POST to a configured endpoint.
+
+# WHY a compatibility transport, for Unit 0 only: it never follows redirects, ignores proxy/CA
+# environment and bounds the response, but it does NOT guard DNS resolution or private addresses.
+# Unit 1 replaces it with the guarded transport before any real key is attached.
+# INVARIANT: upstream bodies and headers never cross this boundary; only the status class and a
+# Retry-After within the gateway's one bound may, so shared retry policy still works.
+# INVARIANT: the size bound counts the bytes held in memory. The request asks for `identity` and
+# an encoded answer is refused before its body is read, because httpx decodes while it reads.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+from fastapi import HTTPException
+
+from aigateway.core.api_key_validation_http import bounded_retry_after_seconds
+
+from .completion import decode_completion
+
+_MAX_RESPONSE_BYTES = 1_000_000
+# WHY bound the digits before int(): the core bound has ten digits, and int() of an arbitrarily
+# long header is wasted work before a value the bound refuses anyway.
+_MAX_RETRY_AFTER_DIGITS = 10
+_INVALID = "The remote endpoint response is invalid."
+
+
+def _error(
+    status: int, code: str, message: str, headers: dict[str, str] | None = None
+) -> HTTPException:
+    return HTTPException(
+        status_code=status, detail={"code": code, "message": message}, headers=headers
+    )
+
+
+def _upstream_error(response: httpx.Response) -> HTTPException:
+    # WHY only 429/503 keep their status: they drive the shared overload retry. Anything else,
+    # an upstream 401 included, is a provider failure — never the caller's own auth failure.
+    if response.status_code not in (429, 503):
+        return _error(502, "provider_error", "The remote endpoint returned an error.")
+    seconds = _retry_after_seconds(response.headers.get("retry-after"))
+    return _error(
+        response.status_code,
+        "provider_error",
+        "The remote endpoint is busy.",
+        headers=None if seconds is None else {"Retry-After": str(seconds)},
+    )
+
+
+def _retry_after_seconds(value: str | None) -> int | None:
+    if value is None or not value.isascii() or not value.isdecimal():
+        return None
+    if len(value) > _MAX_RETRY_AFTER_DIGITS:
+        return None
+    return bounded_retry_after_seconds(int(value))
+
+
+async def _read_bounded(response: httpx.Response) -> bytes:
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        if len(body) + len(chunk) > _MAX_RESPONSE_BYTES:
+            raise _error(502, "provider_error", _INVALID)
+        body.extend(chunk)
+    return bytes(body)
+
+
+async def post_chat_completion(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    transport: httpx.AsyncBaseTransport | None,
+) -> dict[str, Any]:
+    try:
+        # INVARIANT: core.admission is the one wall-clock authority, as for the local provider.
+        async with httpx.AsyncClient(
+            follow_redirects=False, trust_env=False, timeout=None, transport=transport
+        ) as client:
+            headers = {"Authorization": f"Bearer {api_key}", "Accept-Encoding": "identity"}
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                # INVARIANT: exactly 200, as readiness requires; another 2xx is not the contract.
+                if response.status_code != 200:
+                    raise _upstream_error(response)
+                encoding = response.headers.get("content-encoding")
+                if encoding is not None and encoding.lower() != "identity":
+                    raise _error(502, "provider_error", _INVALID)
+                completion = decode_completion(
+                    response.headers.get("content-type"), await _read_bounded(response)
+                )
+                if completion is None:
+                    raise _error(502, "provider_error", _INVALID)
+                return completion
+    except HTTPException:
+        raise
+    except (TimeoutError, httpx.HTTPError):
+        raise _error(502, "provider_unavailable", "The remote endpoint is unavailable.") from None

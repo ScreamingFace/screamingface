@@ -125,14 +125,14 @@ def test_the_resource_names_and_their_seal_are_revision_pins(
     """The same Task grading against another corpus is another Benchmark, so both the names
     (sorted, so row order never matters) and the files' seal join the revision."""
 
-    plain: str = _assembled(_cases_row(), monkeypatch).benchmark.revision
+    plain: str = _assembled(_cases_row(), monkeypatch).fingerprint
     declared: TaskReplayCasesSpec = _cases_row(
         nltk_resources=("punkt_tab", "punkt"), nltk_data_digest=_STAND_IN_DIGEST
     )
-    with_corpus: str = _assembled(declared, monkeypatch).benchmark.revision
+    with_corpus: str = _assembled(declared, monkeypatch).fingerprint
     other_bytes: str = _assembled(
         replace(declared, nltk_data_digest="0" * 64), monkeypatch
-    ).benchmark.revision
+    ).fingerprint
 
     # gsm8k is an inspect_evals import, so no local-Task source pin follows these two.
     assert benchmarks._task_replay_pins(declared)[-2:] == (

@@ -242,3 +242,29 @@ def provisioned_user_factory(client: TestClient) -> Callable[[str, str], dict]:
         return response.json()
 
     return _create
+
+
+@pytest.fixture(autouse=True)
+def _no_discovery_post_egress(monkeypatch):
+    """OME-1537: the bounded POST transport never dials a real host in the unit suite.
+
+    # WHY a degraded answer, not the GET guard's AssertionError: Ollama ALWAYS
+    # declares its listing source, and ``/api/tags`` already reaches a developer's
+    # local Ollama in route tests. Failing loudly here would turn every
+    # ``/v1/models`` route test red on a machine running Ollama; an ``unreachable``
+    # refresh makes the catalog fall back to the probe-free seeds instead — which is
+    # exactly the production outcome of a dead host, and still zero real POSTs.
+    # Injected-transport adapters (``httpx.MockTransport``) run the real code.
+    """
+    from aigateway.core.parameter_discovery import DiscoveryError, HttpxDiscoveryClient
+
+    real_post = HttpxDiscoveryClient.post
+
+    async def _guarded(self, url: str, *, json_body, timeout_s: float, max_bytes: int):
+        if self._transport is None:
+            raise DiscoveryError("unreachable")
+        return await real_post(
+            self, url, json_body=json_body, timeout_s=timeout_s, max_bytes=max_bytes
+        )
+
+    monkeypatch.setattr(HttpxDiscoveryClient, "post", _guarded)
