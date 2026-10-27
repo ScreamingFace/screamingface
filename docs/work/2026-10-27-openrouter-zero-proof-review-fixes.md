@@ -60,5 +60,9 @@ Not in scope (owner decision): review findings #3–#6, #8–#10.
 - **Gates:** `run_gates.py aigateway --base <merge-base 4cb803eab>` ALL GATES GREEN (2026-10-27):
   append-only, ruff, format, pyright, no-enterprise, pytest with coverage; 779 accounting tests
   pass (28 new). No prior test changed.
-- **Deviations:** none. A stage `type` is read as text in any shape, so `["plugin"]` and
+- **Deviations:** after a second review, the owner narrowed fix #1 (2026-10-27): the refusal
+  proof checks a list of output fields (`content`, `refusal`, `reasoning`, `reasoning_details`,
+  `tool_calls`, `function_call`, `audio`, `images`) instead of every message field, so a new
+  non-output field (a label, a flag) cannot make every prod refusal unknown. Other findings of
+  the second review are not done (hypothetical formats). A stage `type` is read as text in any shape, so `["plugin"]` and
   `{"name": "server_tools"}` count as paid stages (fail toward unknown for a paid name).

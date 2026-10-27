@@ -77,8 +77,7 @@ def test_the_base_bodies_are_certified() -> None:
     [
         pytest.param(_refusal(message={"audio": {"id": "a1", "data": "UklGR"}}), id="audio"),
         pytest.param(_refusal(message={"images": [{"type": "image_url"}]}), id="images"),
-        pytest.param(_refusal(message={"annotations": [{"type": "url_citation"}]}), id="notes"),
-        pytest.param(_refusal(message={"some_new_output": "text"}), id="unknown-field"),
+        pytest.param(_refusal(message={"function_call": {"name": "f"}}), id="function-call"),
         pytest.param(_refusal(message={"content": [{"type": "text"}]}), id="content-parts"),
         pytest.param(_refusal(output=[{"type": "output_text", "text": "x"}]), id="top-output"),
         pytest.param(_refusal(content="partial"), id="top-content"),
@@ -99,6 +98,20 @@ def test_a_refusal_with_output_in_any_field_stays_unknown(body: dict[str, Any]) 
     ],
 )
 def test_an_empty_message_field_does_not_block_the_refusal_zero(message: dict[str, Any]) -> None:
+    assert _refusal_proven(_refusal(message=message))
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        pytest.param({"refusal_category": "bio"}, id="label"),
+        pytest.param({"is_refusal": True}, id="flag"),
+        pytest.param({"annotations": [{"type": "url_citation"}]}, id="annotations"),
+    ],
+)
+def test_a_message_field_that_is_not_output_does_not_block_the_refusal_zero(
+    message: dict[str, Any],
+) -> None:
     assert _refusal_proven(_refusal(message=message))
 
 

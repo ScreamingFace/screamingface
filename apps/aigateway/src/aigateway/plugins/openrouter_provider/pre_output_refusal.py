@@ -6,9 +6,10 @@ output and no ``usage``, and OpenRouter keeps no generation record for it (live 
 and 2026-10-27). Nothing is billed, so the attempt's covered cost is zero.
 
 INVARIANT: the proof reads only the facts that tell if OpenRouter billed the call: the refusal
-signal, no output in any field, no ``usage``, no paid pipeline stage and no non-zero money
-field. Every other field of the reply, ``openrouter_metadata`` included, is ignored, so a new or
-changed field never makes the cost unknown (owner decision 2026-10-27, spec §8 and §9).
+signal, no output (``billing_facts`` lists the output fields), no ``usage``, no paid pipeline
+stage and no non-zero money field. Every other field is ignored, so a new or changed field that
+carries no output or money never makes the cost unknown (owner decision 2026-10-27, spec §8
+and §9).
 """
 
 from __future__ import annotations

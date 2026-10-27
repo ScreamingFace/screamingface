@@ -172,10 +172,11 @@ Rule 7 and the request rule are shared with the 429 proof (`openrouter_provider/
 
 The review of PR #1571 found three gaps. The owner chose to fix them:
 
-- **No output (condition 6).** Every field of the message except `role` must be empty (absent,
-  `null`, `""`, `[]` or `{}`), whatever its name. Output in a field that this spec did not name
-  (for example `audio`, `images`, `annotations`) is output. The top-level `output` and `content`
-  must also be empty.
+- **No output (condition 6).** The message fields `content`, `refusal`, `reasoning`,
+  `reasoning_details`, `tool_calls`, `function_call`, `audio` and `images` must be empty
+  (absent, `null`, `""`, `[]` or `{}`), and so must the top-level `output` and `content`. Other
+  message fields are ignored, so a new field that is not output (a label, a flag) does not make
+  the cost unknown.
 - **Paid stage.** A refusal whose `openrouter_metadata.pipeline` has a `plugin` or
   `server_tools` stage keeps the evidence unchanged, the same as the 429 rule.
 - **No crash.** The proof gives a result for any value. A stage `type` is read as text wherever

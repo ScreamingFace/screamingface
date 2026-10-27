@@ -26,6 +26,18 @@ _PROMPT_SIDE_USAGE_FIELDS = frozenset({"prompt_tokens", "total_tokens", "prompt_
 # should never show one, but if it does, the stage can be billed.
 _PAID_STAGE_TYPES = frozenset({"plugin", "server_tools"})
 _TOP_LEVEL_OUTPUT_FIELDS = ("output", "content")
+# WHY a list and not "every field": a new message field that is not output (a label, a flag)
+# must not make every refusal unknown. Billed output normally also comes with `usage.cost`.
+_MESSAGE_OUTPUT_FIELDS = (
+    "content",
+    "refusal",
+    "reasoning",
+    "reasoning_details",
+    "tool_calls",
+    "function_call",
+    "audio",
+    "images",
+)
 
 
 def is_zero(value: object) -> bool:
@@ -92,17 +104,9 @@ def reports_a_charge(raw_response: Mapping[str, Any]) -> bool:
     return any(not is_zero(amount) for amount in _money_values(raw_response))
 
 
-def has_no_output(raw_response: Mapping[str, Any], message: Mapping[str, Any] | None) -> bool:
-    """Whether the reply carries no model output at all.
-
-    WHY every message field: output in a field this code does not name (``audio``, ``images``,
-    ``annotations``, a new one) is still output, and output can be billed. Only ``role`` is not
-    output.
-    """
-    message_empty = message is None or all(
-        is_empty(item) for field, item in message.items() if field != "role"
-    )
-    return message_empty and all(
+def has_no_output(raw_response: Mapping[str, Any], message: Mapping[str, Any]) -> bool:
+    """Whether the message output fields and the top-level output fields are all empty."""
+    return all(is_empty(message.get(field)) for field in _MESSAGE_OUTPUT_FIELDS) and all(
         is_empty(raw_response.get(field)) for field in _TOP_LEVEL_OUTPUT_FIELDS
     )
 
@@ -111,7 +115,7 @@ def pipeline_has_paid_stage(raw_response: Mapping[str, Any]) -> bool:
     """Whether ``openrouter_metadata.pipeline`` names a ``plugin`` or ``server_tools`` stage.
 
     The stage ``type`` is read as text wherever it is (a string, or text inside a list or object),
-    so no shape of it can raise or hide a paid name.
+    so a ``type`` of any shape gives a result and never raises.
     """
     router = raw_response.get("openrouter_metadata")
     pipeline = router.get("pipeline") if isinstance(router, Mapping) else None

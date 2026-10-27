@@ -142,9 +142,10 @@ The second (`source: openrouter.pre_output_refusal`, spec
 `docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md`) is a SUCCEEDED HTTP 200 attempt
 that a provider refused before any output. OpenRouter keeps no generation record for it, so
 nothing is billed. The raw body must have no `usage` and no `error`, exactly one choice with
-`finish_reason` `content_filter` and `native_finish_reason` `refusal`, and no output: every
-message field except `role` is empty (absent, `null`, `""`, `[]` or `{}`) whatever its name, and
-the top-level `output` and `content` are empty. Because the attempt succeeded,
+`finish_reason` `content_filter` and `native_finish_reason` `refusal`, and no output: the message
+fields `content`, `refusal`, `reasoning`, `reasoning_details`, `tool_calls`, `function_call`,
+`audio` and `images` and the top-level `output` and `content` are all empty (absent, `null`,
+`""`, `[]` or `{}`). Other message fields are ignored. Because the attempt succeeded,
 this zero is also its `succeeded_attempt_direct_cost`, and the cache-entry metadata keeps it for
 a later hit. A refusal that carries a `usage.cost` keeps its `reported` price. Token counts stay
 unknown.
