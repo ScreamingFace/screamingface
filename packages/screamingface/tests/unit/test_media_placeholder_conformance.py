@@ -17,6 +17,8 @@ import pytest
 from screamingface.case_result import (
     _PLACEHOLDER_FIELDS,
     _PLACEHOLDER_OPTIONAL_FIELDS,
+    CaseGrade,
+    CaseResult,
     _decoded_placeholder,
 )
 
@@ -73,3 +75,46 @@ def test_the_sdk_measures_the_picture_the_engine_pins() -> None:
         "size": 8,
         "sha256": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
     }
+
+
+# The engine's echo of a one-picture v2 Case, byte for byte as its twin pins it
+# (apps/screamingface-engine/tests/unit/test_echoed_input.py, OME-1271).
+_ENGINE_ECHO = (
+    '{"schema":"screamingface.candidate-input.v2","messages":[{"role":"user","content":'
+    '[{"type":"image_url","image_url":{"url":{"placeholder":"image","media_type":"image/png",'
+    '"size":8,"sha256":"4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6"'
+    "}}}]}]}"
+)
+# The same echo for a named PDF: the engine's placeholder carries the filename, and the part
+# keeps its own beside it.
+_ENGINE_FILE_ECHO = (
+    '{"schema":"screamingface.candidate-input.v2","messages":[{"role":"user","content":'
+    '[{"type":"file","file":{"file_data":{"placeholder":"file","media_type":"application/pdf",'
+    '"size":8,"sha256":"e16fa5d9b51928755db85b917f0297babaf22c7a47e97d9212adab56e61ba04e",'
+    '"filename":"paper.pdf"},"filename":"paper.pdf"}}]}]}'
+)
+
+
+def _echoed_case(value: str) -> CaseResult:
+    """A scored Case Result whose input is ``value``, as the engine published it."""
+
+    return CaseResult(
+        case_id=1,
+        input=value,
+        output="a bar chart",
+        finish_reason="stop",
+        grade=CaseGrade(method="fixture", score=1.0, metrics={}, checks=()),
+        failures=(),
+        metadata={},
+    )
+
+
+def test_the_sdk_reads_the_engines_echoed_picture_as_its_placeholder_line() -> None:
+    # INVARIANT (OME-1271): a Case Result whose input the engine echoed with placeholders reads
+    # as the picture's line, not as the raw object; a drift on either side fails this literal.
+    assert _echoed_case(_ENGINE_ECHO).conversation == (
+        ("user", "image/png · 8 B · sha256 4c4b6a3b…"),
+    )
+    assert _echoed_case(_ENGINE_FILE_ECHO).conversation == (
+        ("user", "paper.pdf · application/pdf · 8 B · sha256 e16fa5d9…"),
+    )
