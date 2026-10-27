@@ -124,3 +124,46 @@ unpriced. This keeps OME-1687 R3 for zero rules that the engine does not know.
 - Engine (`tests/unit/test_pre_output_refusal_pricing.py`): P3, P4, P5; the prior test
   `test_a_successful_attempt_without_a_reported_credit_price_is_unpriced[guaranteed_zero]` stays
   unchanged and green.
+
+## 8. Amendment 2026-10-27: check billing facts, not the reply format
+
+The gateway sends `X-OpenRouter-Metadata: enabled` on every OpenRouter call
+(`openrouter_provider/plugin.py` `_TRUSTED_ATTRIBUTION`). A live refusal on 2026-10-27 with that
+header had one more top-level field (it also had no generation record, 2 of 2 refusals):
+
+```json
+"openrouter_metadata": {"requested": "anthropic/claude-opus-5.5", "strategy": "direct",
+  "region": "EZE", "summary": "available=5, selected=Claude Platform on AWS", "attempt": 1,
+  "is_byok": false, "endpoints": {"total": 11, "available": [{"provider": "...",
+  "model": "...", "selected": true}, "..."]}, "generation_time": 2479}
+```
+
+P1 condition 4 accepted only known top-level fields, so it rejected that field and the rule never
+applied in prod. The owner decision (2026-10-27): the proof checks only the facts that tell if
+OpenRouter billed the call. The format of the reply (which fields exist, the types of fields that
+carry no money) does not change the result. A cost stays unknown only in rare cases.
+
+P1 is replaced by:
+
+**P1'.** The gateway certifies the zero for one OpenRouter attempt when all of these are true:
+
+1. The attempt succeeded and its HTTP status is 200.
+2. The base mapper gave `direct_cost.status == "unavailable"` (a reported cost always wins).
+3. The request has no potential auxiliary charge (no plugins, no `openrouter:*` tools, no file
+   parts). This is a fact about our request, not about the reply.
+4. The reply has no `usage` (absent or `null`), and no `error`. When OpenRouter bills a call, it
+   sends `usage` with the cost.
+5. `choices` is a list with exactly one choice. Its `finish_reason` is `"content_filter"` and its
+   `native_finish_reason` is `"refusal"`.
+6. The message has no output: `content`, `reasoning` and `refusal` are absent, `null` or `""`, and
+   `tool_calls` and `reasoning_details` are absent, `null` or `[]`.
+
+7. No money field anywhere in the reply holds a non-zero value: a value under any key that
+   contains `cost` or `amount` (for example a pipeline `cost_usd`) is absent, `null` or zero. A
+   value that is not a number (for example `"0.25"`) is not a zero.
+
+All other fields are ignored, in the body, the choice, the message and `openrouter_metadata`.
+Rule 7 and the request rule are shared with the 429 proof (`openrouter_provider/billing_facts.py`).
+
+**BYOK.** BYOK is part of how our OpenRouter account is set up, not of one reply. Prod replies show
+`is_byok: false`. If we turn on BYOK for a provider, this rule must change.
