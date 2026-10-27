@@ -126,8 +126,8 @@ def _header(story: ts.TraceStory, rows: Sequence[_Row]) -> str:
         ("trace id", ids),
         ("verdict", escape(story.verdict)),
         ("wall time", duration(story.wall_ns)),
-        ("model calls", str(len(calls))),
-        ("cache hits", str(sum(c.cache == "hit" for c in calls))),
+        ("model calls", str(len(calls)) if rows else "unknown"),  # no spans: nobody looked
+        ("cache hits", str(sum(c.cache == "hit" for c in calls)) if rows else "unknown"),
         ("spend", usd(spend)),
         ("spans", str(spans)),
         ("SDK events", cell(story.events)),
@@ -192,7 +192,7 @@ def _label(row: _Row) -> str:
     css = "span" + (" err" if row.err else "") + (" synthetic" if node.synthetic else "")
     raw: object = span.get("attributes")
     attributes = next(iter(tm.dicts([raw])), _NO_ATTRIBUTES)
-    meta = [escape(span.get("service")), _span_duration(span)]
+    meta = [cell(span.get("service")), _span_duration(span)]
     meta += [
         f"{label} {escape(value)}"
         for label, key in (("model", "gen_ai.request.model"), ("cache", "url4.cache_status"))
@@ -203,7 +203,7 @@ def _label(row: _Row) -> str:
     times = f' <b class="times">×{node.collapsed}</b>' if node.collapsed > 1 else ""
     derived = ' <span class="pill unknown">derived from SDK events</span>' if node.synthetic else ""
     return (
-        f'<span class="{css}"><span class="sname">{escape(span.get("name"))}</span>{times} '
+        f'<span class="{css}"><span class="sname">{cell(span.get("name"))}</span>{times} '
         f'<span class="note">{" · ".join(meta)}</span>{derived}</span>'
     )
 
@@ -305,7 +305,12 @@ def _call_row(n: int, call: ts.Call) -> str:
     )
 
 
-def _calls(story: ts.TraceStory) -> str:
+def _calls(story: ts.TraceStory, spans: bool) -> str:
+    if not spans:
+        return (
+            "<p class='warn'>Model calls unknown: no spans received, and the calls are read "
+            "from the gateway's chat spans.</p>"
+        )
     if not story.calls:
         return "<p class='muted'>No model calls (no gateway chat-completion spans).</p>"
     head = ("#", "Model", "Provider", "Cache", "In tok", "Out tok", "Spend (USD)", "Latency",
@@ -362,6 +367,6 @@ def _body(story: ts.TraceStory, key: str, token: str | None, page: int) -> str:
         f"{_header(story, rows)}"
         f'<h3 id="trace-hops">Trace chain</h3>{_hops(story)}{_notes(story)}'
         f'<h3 id="trace-tree">Span tree</h3>{_tree(rows, key, token, page)}'
-        f'<h3 id="trace-calls">Model calls</h3>{_calls(story)}'
+        f'<h3 id="trace-calls">Model calls</h3>{_calls(story, bool(rows))}'
         f'<h3 id="trace-checks">Checks</h3>{_checks(story)}'
     )

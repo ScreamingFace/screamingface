@@ -10,6 +10,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from workbench.ui import trace_html as th
@@ -85,6 +86,17 @@ def test_with_no_spans_the_view_still_shows_hops_checks_and_says_no_spans(tmp_pa
     tree = _part(html, '<h3 id="trace-tree"')
     assert "no spans received" in tree and "<details" not in tree
     assert "the engine log carries the run&#x27;s trace id" in html
+    header = _part(html, '<dl class="trace-head">', "</dl>")
+    assert "<dt>model calls</dt><dd>unknown</dd>" in header  # nobody observed them: not 0
+    assert "<dt>cache hits</dt><dd>unknown</dd>" in header
+    assert "<dt>SDK events</dt><dd>unknown</dd>" in header  # no events.jsonl: not 0
+    assert "No model calls" not in html
+    assert "no spans received" in _part(html, '<h3 id="trace-calls"')
+
+
+def test_an_empty_events_file_is_a_measured_zero(tmp_path: Path) -> None:
+    html = _render(bundle(tmp_path, run_spans(), events=[]))
+    assert "<dt>SDK events</dt><dd>0</dd>" in _part(html, '<dl class="trace-head">', "</dl>")
 
 
 # --- span tree --------------------------------------------------------------------------------
@@ -95,6 +107,7 @@ def test_the_synthetic_client_span_is_marked_derived_from_sdk_events(tmp_path: P
     tree = _part(html, '<h3 id="trace-tree"')
     row = tree[tree.index("sdk.evaluate") - 200 : tree.index("sdk.evaluate") + 200]
     assert "synthetic" in row and "derived from SDK events" in row
+    assert '<span class="span synthetic"><span class="sname">sdk.evaluate</span>' in tree
     assert tree.index("sdk.evaluate") < tree.index("url4.run") < tree.index(CHAT)
 
 
@@ -115,6 +128,25 @@ def test_the_path_to_an_error_is_open_and_red(tmp_path: Path) -> None:
         opener = tree[tree.rindex("<details", 0, at) : at]
         assert opener.startswith('<details open class="err-path"'), (name, opener)
     assert 'class="span err"' in tree
+
+
+def test_a_failing_gateway_hop_shows_a_cross_and_the_failure_code(tmp_path: Path) -> None:
+    trace = trace_doc(
+        expect={"outcome": "fail", "failure_codes": ["upstream_error"], "stage": "candidate"},
+        observed={"failures": [{"code": "upstream_error", "stage": "candidate"}]},
+    )
+    spans = run_spans(candidate_status="error")
+    html = _render(bundle(tmp_path, spans, trace=trace, recorder=RECORDER))
+    row = _row_of(_part(html, '<table class="hop-path"', "</table>"), "<td>aigateway</td>")
+    assert 'class="pill fail"' in row and th._GLYPH["fail"] in row  # pyright: ignore[reportPrivateUsage]
+    assert "2 of 2 calls failed: upstream_error" in row
+
+
+def test_a_span_without_service_or_name_reads_unknown(tmp_path: Path) -> None:
+    bare = {k: v for k, v in span("a", None, "A").items() if k not in ("service", "name")}
+    tree = _part(_render(bundle(tmp_path, [bare])), '<h3 id="trace-tree"')
+    assert '<span class="sname">unknown</span>' in tree
+    assert "None" not in tree
 
 
 def test_an_off_error_branch_below_the_top_levels_stays_closed(tmp_path: Path) -> None:
@@ -230,6 +262,23 @@ def test_the_bundle_page_has_the_trace_view_and_keeps_the_raw_trace_json(tmp_pat
     assert "sdk.evaluate" in _part(page, '<section id="trace">', "</section>")
     assert "<summary>Raw trace.json</summary>" in page
     assert "<th>Trace found</th>" not in page  # the old hop table is gone
+
+
+def test_a_story_that_cannot_be_built_names_the_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "out"
+    bundle(root / KEY, run_spans())
+
+    def boom(_directory: Path) -> ts.TraceStory:
+        raise LookupError("bad bundle")
+
+    monkeypatch.setattr(ts, "build", boom)
+    manager = RunManager(root, workdir=tmp_path, environ={})
+    app = create_app(root=root, manager=manager, token=TOKEN, port=9113, notebooks=())
+    client = TestClient(app, base_url="http://127.0.0.1:9113", follow_redirects=False)
+    trace = _part(client.get(f"/bundles/{KEY}").text, '<section id="trace">', "</section>")
+    assert "could not be built from this bundle: LookupError" in trace
 
 
 def test_a_calls_log_lines_stay_one_per_line(tmp_path: Path) -> None:

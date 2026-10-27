@@ -302,10 +302,11 @@ class _Workbench:
         except Exception as exc:  # noqa: BLE001 - an untrusted bundle must not take the page down
             note = f"telemetry could not be read: {type(exc).__name__}"
             loaded = telemetry.Telemetry(notes=(note,))
+        story_error: str | None = None
         try:
             story = trace_story.build(detail.directory)
-        except Exception:  # noqa: BLE001 - an untrusted bundle must not take the page down
-            story = None
+        except Exception as exc:  # noqa: BLE001 - an untrusted bundle must not take the page down
+            story, story_error = None, type(exc).__name__
         page = pages.bundle_page(
             detail,
             loaded,
@@ -313,6 +314,7 @@ class _Workbench:
             token=self.page_token(request),
             story=story,
             trace_page=_positive(request.query_params.get("trace_page")),
+            story_error=story_error,
         )
         return HTMLResponse(page)
 

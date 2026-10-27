@@ -51,7 +51,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from workbench.bundle import SPANS_FILE
+from workbench.bundle import EVENTS_FILE, SPANS_FILE
 from workbench.redaction import redact_named_tree
 from workbench.telemetry_recorder import RECORDER_FILE
 from workbench.ui import telemetry as tm
@@ -728,5 +728,5 @@ def build(bundle_dir: Path) -> TraceStory:
         checks=_checks(trace),
         notes=tuple(notes),
         cut={"spans": span_cut, "calls": found.cut, "log_lines": found.lines_cut},
-        events=len(tele.events),
+        events=len(tele.events) if EVENTS_FILE in tele.found else None,
     )

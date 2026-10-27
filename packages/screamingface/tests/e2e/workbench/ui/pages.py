@@ -670,8 +670,10 @@ def bundle_page(
     token: str | None,
     story: TraceStory | None = None,
     trace_page: int = 1,
+    story_error: str | None = None,
 ) -> str:
-    """The bundle page. ``story`` is ``None`` when the Trace view could not be built."""
+    """The bundle page. ``story`` is ``None`` when the Trace view could not be built;
+    ``story_error`` then names why (the exception type)."""
     trace = detail.trace
     raw = (
         "<details><summary>Raw trace.json</summary>"
@@ -690,7 +692,8 @@ def bundle_page(
         trace_section(story, detail.summary.key, token, trace_page, appendix=raw)
         if story is not None
         else '<section id="trace"><h2>Trace</h2><p class="warn">The Trace view could not be '
-        f"built from this bundle.</p>{raw}</section>"
+        f"built from this bundle{': ' + _e(story_error) if story_error else ''}.</p>"
+        f"{raw}</section>"
     )
     body = (
         f"{_verdict_section(detail)}"

@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: repo
-status: planned
+status: in_progress
 started: 2026-10-27
 finished:
 ---
@@ -46,3 +46,13 @@ See the plan. The Review Focus items each get a test in the owning task.
 - **Commits:**
 - **Gates:**
 - **Deviations:**
+  - Task 3 `trace_html.section(story, key, token, page: int = 1, *, appendix="")`: `page` is
+    1-based (matches `tm.page_of` and the `trace_page` query), not the plan's `page: int = 0`;
+    `appendix` carries the raw trace.json into the section.
+  - Task 3 `trace_html` has its own `_pager`/`_link` instead of reusing `telemetry_html._pager`:
+    a different query key (`trace_page`) and anchor (`#trace-tree`).
+  - Task 3 hop path is a CSS-styled `<table>` (boxes + arrows, column under 480px), not an SVG
+    row: tabular data stays readable as rows to screen readers and text search; each state
+    carries a small inline SVG glyph only.
+  - Review of T3: `Telemetry.found` names the JSONL files that exist, so the Trace header can
+    tell a missing `events.jsonl` (unknown) from an empty one (0).

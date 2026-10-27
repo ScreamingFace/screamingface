@@ -70,6 +70,9 @@ class Telemetry:
     accounting: Json | None = None
     dropped: Dropped = Dropped()
     notes: tuple[str, ...] = ()  # why something is missing, in the writer's words
+    # the JSONL files that exist, even empty: WHY a reader must tell "none recorded" (0) from
+    # "no file" (unknown), and the rows alone cannot
+    found: tuple[str, ...] = ()
 
     @property
     def present(self) -> bool:
@@ -118,6 +121,9 @@ class _Lines:
     unreadable: int = 0
     over_cap: int = 0
     truncated: bool = False
+    found: bool = (
+        False  # the file exists (it may be empty): an empty file is 0, a missing one unknown
+    )
 
 
 def _jsonl(path: Path, cap: int) -> _Lines:
@@ -126,6 +132,7 @@ def _jsonl(path: Path, cap: int) -> _Lines:
     if read is None:
         return out
     data, truncated = read
+    out.found = True
     *whole, tail = data.split(b"\n")
     out.truncated = truncated
     out.over_cap += 1 if truncated else 0  # the bytes past the cap hold AT LEAST one line
@@ -200,6 +207,9 @@ def load(directory: Path, *, cap: int = LINES_CAP) -> Telemetry:
         accounting=accounting,
         dropped=dropped,
         notes=_notes(summary) + tuple(read_notes),
+        found=tuple(
+            name for name, lines in ((EVENTS_FILE, events), (SPANS_FILE, spans)) if lines.found
+        ),
     )
 
 

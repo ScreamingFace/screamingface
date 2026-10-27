@@ -557,3 +557,11 @@ def test_the_unmatched_note_counts_only_lines_with_a_gateway_call_id(tmp_path: P
     log = f"INFO:     aigateway.x gateway_call_id=call_c trace_id={TID} no stamp\n"
     story = ts.build(bundle(tmp_path, run_spans(), gateway_log=log))
     assert any("with a gateway_call_id" in n for n in story.notes), story.notes
+
+
+def test_sdk_events_are_unknown_without_an_events_file_and_counted_with_one(
+    tmp_path: Path,
+) -> None:
+    assert ts.build(bundle(tmp_path / "none", run_spans())).events is None
+    assert ts.build(bundle(tmp_path / "empty", run_spans(), events=[])).events == 0
+    assert ts.build(bundle(tmp_path / "two", run_spans(), events=[{}, {}])).events == 2
