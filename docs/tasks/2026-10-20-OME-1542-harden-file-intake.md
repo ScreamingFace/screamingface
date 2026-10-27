@@ -13,9 +13,12 @@ closed: 2026-10-23
 # Harden file intake in the gateway: body cap, data: URIs only, Anthropic system images
 
 A configurable request body cap (413 naming the limit), image and file parts accepted only as
-`data:` URIs so the gateway never fetches a caller's URL (Codex keeps forwarding https image URLs,
-which OpenAI fetches), and a typed 422 for media in an Anthropic system prompt instead of a silent
-drop. Spec `docs/spec/2026-10-20-harden-file-intake.md`, plan
+`data:` URIs so the gateway never fetches a caller's URL (an `http(s)` image URL gets 422
+`remote_url`), and a typed 422 for media in an Anthropic system prompt instead of a silent drop.
+Owner-approved exception (PR #1479, 2026-10-20): Codex forwards **https** image URLs only, which
+OpenAI fetches; plaintext `http` on Codex gets 422 `remote_url_not_https`. Cache keys are
+unchanged (spec §4: no cacheable request can carry a URL); the original "hash only `data:` parts"
+item was dropped. Linear scope/acceptance amended to this delivered policy on 2026-10-27. Spec `docs/spec/2026-10-20-harden-file-intake.md`, plan
 `docs/plan/2026-10-20-harden-file-intake.md`, ledger `docs/work/2026-10-20-harden-file-intake.md`.
 
 - 2026-10-09: ticket filed by the owner (Backlog).
