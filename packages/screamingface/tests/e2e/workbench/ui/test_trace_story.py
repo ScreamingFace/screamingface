@@ -478,3 +478,82 @@ def test_hostile_shapes_degrade_to_unknown(tmp_path: Path) -> None:
     assert story.verdict == "unknown"
     assert story.calls[0].latency_ns is None
     assert story.trace_ids == (TID,)  # from the spans when trace.json has none
+
+
+# --- review fixes -----------------------------------------------------------------------------
+
+
+def test_an_sdk_evaluate_error_in_the_result_fails_the_notebook_hop(tmp_path: Path) -> None:
+    """The notebooks write ``evaluate_error`` as ``{"type", "code"}``; a caught one leaves
+    ``error: null`` (debug_failing_run), so the hop must read the dict, not a string."""
+    evaluate_error = {"type": "ScreamingFaceError", "code": "run_failed"}
+    trace = trace_doc(error=None, result={"evaluate_error": evaluate_error})
+    events = [{"kind": "started", "sequence": 1}]
+    story = ts.build(bundle(tmp_path, run_spans(), trace=trace, events=events))
+    notebook = hop(story, "notebook")
+    assert notebook.state == "fail"
+    assert notebook.reason == "ScreamingFaceError: run_failed"
+
+
+def test_a_cell_traceback_fails_the_notebook_hop_with_its_last_line(tmp_path: Path) -> None:
+    error = "Traceback (most recent call last):\n  File 'x', line 1\nValueError: boom\n\n"
+    story = ts.build(
+        bundle(tmp_path, run_spans(), trace=trace_doc(error=error), events=[{"kind": "x"}])
+    )
+    assert (hop(story, "notebook").state, hop(story, "notebook").reason) == (
+        "fail",
+        "ValueError: boom",
+    )
+
+
+def test_an_unknown_writer_span_drop_count_is_said_not_zeroed(tmp_path: Path) -> None:
+    story = ts.build(bundle(tmp_path, run_spans()))  # no telemetry.json: the writer's count
+    assert story.cut["spans"] == 0
+    assert any("dropped-span count is unknown" in n for n in story.notes), story.notes
+    tmp_path.joinpath("telemetry.json").write_text(json.dumps({"spans": {"dropped": 0}}))
+    assert not any("dropped-span count" in n for n in ts.build(tmp_path).notes)
+
+
+def test_a_byte_truncated_spans_file_makes_the_cut_a_lower_bound(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from workbench.ui import telemetry as tm
+
+    monkeypatch.setattr(tm, "JSONL_BYTES_CAP", 600)
+    bundle(tmp_path, run_spans())
+    tmp_path.joinpath("telemetry.json").write_text(json.dumps({"spans": {"dropped": 0}}))
+    story = ts.build(tmp_path)
+    assert story.cut["spans"] >= 1
+    assert any(f"at least {story.cut['spans']}" in n for n in story.notes), story.notes
+
+
+def test_time_matched_placements_are_capped_and_the_rest_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ts, "TIME_MATCH_CAP", 3)
+    spans = run_spans()
+    spans[4] = span("chat2", "cand", CHAT, service=GATEWAY, start=20, end=30, status="unset")
+    log = "".join(_line(25, f"call_{i}") for i in range(3))  # each line lands in both windows
+    story = ts.build(bundle(tmp_path, spans, gateway_log=log))
+    assert sum(len(c.log_lines) for c in story.calls) == 2  # one line, under both calls
+    assert story.cut["log_lines"] == 2
+
+
+def test_engine_spans_without_a_trace_json_hop_say_the_log_hop_is_unknown(
+    tmp_path: Path,
+) -> None:
+    story = ts.build(bundle(tmp_path, run_spans(), trace=trace_doc(hops=[])))
+    engine = hop(story, "engine")
+    assert engine.state == "ok"
+    assert engine.reason == "log hop unknown: trace.json has no engine hop"
+
+
+def test_only_the_engine_service_counts_as_the_engine_hop(tmp_path: Path) -> None:
+    spans = [*run_spans(), span("odd", "run", "x", service="not-the-engine-proxy")]
+    assert hop(ts.build(bundle(tmp_path, spans)), "engine").spans == 3
+
+
+def test_the_unmatched_note_counts_only_lines_with_a_gateway_call_id(tmp_path: Path) -> None:
+    log = f"INFO:     aigateway.x gateway_call_id=call_c trace_id={TID} no stamp\n"
+    story = ts.build(bundle(tmp_path, run_spans(), gateway_log=log))
+    assert any("with a gateway_call_id" in n for n in story.notes), story.notes

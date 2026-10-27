@@ -19,7 +19,15 @@ gateway log line of this trace (the exact ``trace_id=`` token rule, via
 ``telemetry.gateway_calls``) is joined to the chat-completion span whose window holds its
 leading ISO-8601 timestamp. A line inside two windows goes under both, as ``time-ambiguous``;
 a line without a timestamp, or outside every window, is counted in a note, never guessed.
-A span that does name its ``gateway_call_id`` joins by that id instead.
+A span that does name its ``gateway_call_id`` joins by that id instead. Only lines that carry a
+``gateway_call_id`` take part (``gateway_calls`` drops the rest; ``trace.json`` counts those as
+``unattributed_gateway_lines``). Windows are sorted by start and found by bisection, and the
+time-matched placements are capped (``TIME_MATCH_CAP``): overlapping windows copy one line into
+every call they hold, so a hostile bundle could otherwise multiply a 1 MiB log by 2 000 calls.
+
+WHY the engine hop is the exact service name: the workbench starts the engine with
+``OTEL_SERVICE_NAME=screamingface-engine`` (``targets.py``); a substring would let any other
+service whose name merely contains "engine" pass for it.
 
 INVARIANTS:
 - bundle files are untrusted: ``telemetry.load`` caps, skips and redacts them; every field here
@@ -35,6 +43,7 @@ from __future__ import annotations
 
 import json
 import re
+from bisect import bisect_right
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -42,6 +51,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Final, Literal
 
+from workbench.bundle import SPANS_FILE
 from workbench.redaction import redact_named_tree
 from workbench.telemetry_recorder import RECORDER_FILE
 from workbench.ui import telemetry as tm
@@ -50,11 +60,14 @@ from workbench.ui.bundles import LOG_CAP_BYTES, regular_file
 TRACE_FILE: Final = "trace.json"
 GATEWAY_LOG: Final = Path("logs") / "aigateway.txt"
 CALLS_CAP: Final = 2_000
+TIME_MATCH_CAP: Final = 20_000  # time-matched log placements kept per story; the rest counted
 COLLAPSE_AT: Final = 5  # this many same-named sibling leaves fold into one row ("×n")
 CLIENT_SPAN: Final = "sdk.evaluate"
 RUN_SPAN: Final = "url4.run"
 CHAT_SPAN: Final = "POST /v1/chat/completions"
 _GATEWAY_SERVICE: Final = "aigateway"
+_ENGINE_SERVICE: Final = "screamingface-engine"
+_REASON_CAP: Final = 200  # a hop's reason is one line, never a whole traceback
 _NO_PARENT: Final = frozenset({"", "0" * 16})
 _TRACE_ID: Final = re.compile(r"[0-9a-f]{32}")
 # A gateway log line's leading timestamp: ISO 8601 date, time, optional fraction and zone.
@@ -408,17 +421,27 @@ def line_ns(line: str) -> int | None:
 @dataclass
 class _Joined:
     lines: list[list[str]]
+    windows: list[tuple[int, int, int]]  # (call index, start, end), sorted by start
+    starts: list[int]  # the windows' starts, for bisection
     ambiguous: set[int]
     unmatched: int = 0
+    placed: int = 0
+    cut: int = 0  # lines a window held but ``TIME_MATCH_CAP`` left unplaced
 
-    def place(self, line: str, windows: Sequence[tuple[int, int, int]]) -> None:
+    def place(self, line: str) -> None:
         at = line_ns(line)
-        hits = [k for k, start, end in windows if at is not None and start <= at <= end]
-        self.unmatched += not hits
-        for k in hits:
-            self.lines[k].append(line)
-        if len(hits) > 1:
-            self.ambiguous.update(hits)
+        upto = 0 if at is None else bisect_right(self.starts, at)
+        hits = [k for k, _, end in self.windows[:upto] if at is not None and at <= end]
+        if not hits:
+            self.unmatched += 1
+        elif self.placed + len(hits) > TIME_MATCH_CAP:
+            self.cut += 1
+        else:
+            self.placed += len(hits)
+            for k in hits:
+                self.lines[k].append(line)
+            if len(hits) > 1:
+                self.ambiguous.update(hits)
 
 
 def _window(k: int, span: Json) -> tuple[int, int, int] | None:
@@ -428,8 +451,8 @@ def _window(k: int, span: Json) -> tuple[int, int, int] | None:
 
 def _match_logs(
     chats: Sequence[Json], calls: Sequence[Call], text: str, trace_ids: Iterable[str]
-) -> tuple[list[Call], int]:
-    """Each call with its gateway log lines and how they matched; and the unmatched count."""
+) -> tuple[list[Call], _Joined]:
+    """Each call with its gateway log lines and how they matched; and the join's counts."""
     groups = tm.gateway_calls(text, trace_ids)
     claimed: dict[int, str] = {}
     for k, chat in enumerate(chats):
@@ -437,12 +460,13 @@ def _match_logs(
         if call_id is not None and call_id in groups:
             claimed[k] = call_id
     lines = [list(groups[claimed[k]].lines) if k in claimed else [] for k in range(len(chats))]
-    joined = _Joined(lines, set())
     windows = [w for k, c in enumerate(chats) if k not in claimed and (w := _window(k, c))]
+    windows.sort(key=lambda w: w[1])
+    joined = _Joined(lines, windows, [start for _, start, _ in windows], set())
     taken = set(claimed.values())
     for call_id, group in groups.items():
         for line in group.lines if call_id not in taken else ():
-            joined.place(line, windows)
+            joined.place(line)
 
     def match(k: int) -> Match:
         if k in claimed:
@@ -452,7 +476,7 @@ def _match_logs(
     out = [
         replace(c, log_lines=tuple(joined.lines[k]), match=match(k)) for k, c in enumerate(calls)
     ]
-    return out, joined.unmatched
+    return out, joined
 
 
 def _observed_codes(trace: Json) -> list[str]:
@@ -465,6 +489,7 @@ class _Calls:
     calls: tuple[Call, ...]
     cut: int
     unmatched: int
+    lines_cut: int
 
 
 def _calls(spans: Sequence[Json], tele: tm.Telemetry, trace: Json, log: str) -> _Calls:
@@ -476,8 +501,8 @@ def _calls(spans: Sequence[Json], tele: tm.Telemetry, trace: Json, log: str) -> 
     codes = _observed_codes(trace)
     calls = [_call(c, by_id.get(_parent(c) or "", {}), codes) for c in chats]
     calls = _with_spend(calls, tele.accounting)
-    matched, unmatched = _match_logs(chats, calls, log, _trace_ids(trace, spans))
-    return _Calls(tuple(matched), cut, unmatched)
+    matched, joined = _match_logs(chats, calls, log, _trace_ids(trace, spans))
+    return _Calls(tuple(matched), cut, joined.unmatched, joined.cut)
 
 
 # --- hops (Review Focus 1, 5) -----------------------------------------------------------------
@@ -493,7 +518,8 @@ def _hop_state(
     rules: tuple[tuple[bool, tuple[HopState, str | None]], ...] = (
         (found is False, ("fail", f"trace id missing from the {name} log")),
         (failure is not None, ("fail", failure)),
-        (found is True or spans > 0, ("ok", None if spans else "no spans received")),
+        (found is True, ("ok", None if spans else "no spans received")),
+        (spans > 0, ("ok", f"log hop unknown: trace.json has no {name} hop")),
     )
     grey: tuple[HopState, str | None] = ("grey", f"no {name} evidence: no spans, no log hop")
     return next((outcome for holds, outcome in rules if holds), grey)
@@ -505,11 +531,30 @@ def _service_hop(name: HopName, spans: Sequence[Json], trace: Json, failure: str
     return Hop(name, state, reason, len(spans), tm.int_or_none(hop.get("lines")), _extent(spans))
 
 
+def _evaluate_error(trace: Json) -> str | None:
+    """The SDK error the notebook caught, as its result records it: ``{"type", "code"}``. A
+    notebook may catch it and finish cleanly (debug_failing_run), so ``error`` stays null."""
+    caught = _dict(_dict(trace.get("result")).get("evaluate_error"))
+    kind, code = _str(caught.get("type")), _str(caught.get("code"))
+    if kind is None and code is None:
+        return None
+    return _short(f"{kind or 'error'}: {code or 'unknown code'}")
+
+
+def _short(value: object) -> str | None:
+    """A cell failure's last non-blank line (the root cause), capped: never a whole traceback."""
+    lines = [line.strip() for line in (_str(value) or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    return last if len(last) <= _REASON_CAP else last[: _REASON_CAP - 1] + "…"
+
+
 def _notebook_hop(tele: tm.Telemetry, trace: Json, recorder: Json, synthetic: bool) -> Hop:
     first = tm.int_or_none(recorder.get("first_event_ns"))
     last = tm.int_or_none(recorder.get("last_event_ns"))
     latency = None if first is None or last is None else max(0, last - first)
-    failure = _str(trace.get("error")) or _str(_dict(trace.get("result")).get("evaluate_error"))
+    failure = _evaluate_error(trace) or _short(trace.get("error"))
     state: HopState = "grey" if not tele.events else "fail" if failure else "ok"
     reason = "no SDK events recorded" if not tele.events else failure
     return Hop("notebook", state, reason, int(synthetic), None, latency)
@@ -542,7 +587,7 @@ def _hops(
     recorder: Json,
     synthetic: bool,
 ) -> tuple[Hop, ...]:
-    engine = [s for s in spans if "engine" in str(s.get("service"))]
+    engine = [s for s in spans if s.get("service") == _ENGINE_SERVICE]
     gateway = [s for s in spans if s.get("service") == _GATEWAY_SERVICE]
     gateway_failure = _gateway_failure(calls)
     engine_errors = sum(is_error(s) for s in engine)
@@ -636,6 +681,20 @@ def _gateway_log(bundle_dir: Path) -> str:
     return "" if data is None else data.decode(errors="replace")
 
 
+def _span_cut(tele: tm.Telemetry, notes: list[str]) -> int:
+    """Spans cut by the writer and by this reader; a note when that count is not exact."""
+    dropped = tele.dropped
+    cut = dropped.spans_over_cap + (dropped.spans or 0)
+    if dropped.spans is None:
+        notes.append(
+            "the bundle writer's dropped-span count is unknown (telemetry.json does not say): "
+            "the span cut counts only this reader's cap"
+        )
+    if SPANS_FILE in dropped.truncated:
+        notes.append(f"{SPANS_FILE} was cut at its byte cap: at least {cut} spans not shown")
+    return cut
+
+
 def build(bundle_dir: Path) -> TraceStory:
     """The run in ``bundle_dir`` as one story across every hop (see the module docstring)."""
     tele = tm.load(bundle_dir)
@@ -648,9 +707,16 @@ def build(bundle_dir: Path) -> TraceStory:
     if found.unmatched:
         plural = "s" if found.unmatched != 1 else ""
         notes.append(
-            f"{found.unmatched} gateway log line{plural} of this trace matched no model call "
-            "(no gateway_call_id on the gateway span, and no timestamp inside a call's window)"
+            f"{found.unmatched} gateway log line{plural} of this trace with a gateway_call_id "
+            "matched no model call (no gateway_call_id on the gateway span, and no timestamp "
+            "inside a call's window)"
         )
+    if found.lines_cut:
+        notes.append(
+            f"{found.lines_cut} time-matched gateway log lines not shown: over the "
+            f"{TIME_MATCH_CAP} placement cap"
+        )
+    span_cut = _span_cut(tele, notes) if spans else tele.dropped.spans_over_cap
     return TraceStory(
         trace_ids=_trace_ids(trace, spans),
         verdict=_verdict(trace),
@@ -660,5 +726,5 @@ def build(bundle_dir: Path) -> TraceStory:
         calls=found.calls,
         checks=_checks(trace),
         notes=tuple(notes),
-        cut={"spans": tele.dropped.spans_over_cap + (tele.dropped.spans or 0), "calls": found.cut},
+        cut={"spans": span_cut, "calls": found.cut, "log_lines": found.lines_cut},
     )
