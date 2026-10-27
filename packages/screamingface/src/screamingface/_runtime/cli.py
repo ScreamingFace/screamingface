@@ -358,24 +358,11 @@ def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
 
 
 def _require_runner_config(config: RuntimeConfig) -> None:
-    """Fail `up` or `restart` before anything boots (or stops) when the runner config is invalid.
-
-    WHY before `_down` (PR #1553 review): restart is down THEN up — a refusal raised only
-    by `_up` would land after `_down` already stopped a healthy stack, leaving the operator
-    with a dead stack instead of a clean error.
-    """
-    path = config.runner_config
-    if path is None or not path.exists():
-        raise RuntimeError(f"runner config not found: {path}")
-    if not path.is_file():
-        raise RuntimeError(f"runner config is not a file: {path}")
     try:
-        with path.open("rb") as stream:
+        with open(str(config.runner_config), "rb") as stream:
             tomllib.load(stream)
-    except tomllib.TOMLDecodeError as exc:
-        raise RuntimeError(f"runner config is not valid TOML ({path}): {exc}") from exc
-    except OSError as exc:
-        raise RuntimeError(f"runner config is unreadable ({path}): {exc}") from exc
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise RuntimeError(f"runner config is invalid ({config.runner_config}): {exc}") from exc
 
 
 def _refuse_other_assets(config: RuntimeConfig, state: dict[str, object] | None) -> None:
