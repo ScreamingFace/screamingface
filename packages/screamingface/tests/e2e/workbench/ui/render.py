@@ -5,11 +5,16 @@ outputs may carry hostile markup (contained by ``sandboxed_iframe``: ``sandbox="
 scripts, no same-origin, no forms, no top navigation), and the file itself may be oversized
 or malformed (``notebook_html`` then returns a small marker document instead of raising, so
 the bundle page still renders).
+
+It also holds the small value formatters the bundle page's Telemetry and Trace sections share
+(``escape``, ``cell``, ``usd``, ``duration``). WHY here: both sections render the same untrusted
+values, so one rule (escaped; ``None`` is "unknown", never 0) lives in one place.
 """
 
 from __future__ import annotations
 
 import html
+from decimal import Decimal
 from pathlib import Path
 
 import nbformat
@@ -70,3 +75,27 @@ def sandboxed_iframe(document: str) -> str:
         '<iframe class="nb" sandbox="" referrerpolicy="no-referrer" '
         f'srcdoc="{html.escape(document, quote=True)}"></iframe>'
     )
+
+
+def escape(value: object) -> str:
+    """``value`` as text, HTML-escaped (quotes too: safe inside an attribute)."""
+    return html.escape(str(value), quote=True)
+
+
+def cell(value: object) -> str:
+    """A scalar cell: escaped, or "unknown" for ``None`` (never 0, never "None")."""
+    return "unknown" if value is None else escape(value)
+
+
+def usd(amount: Decimal | None) -> str:
+    return "unknown" if amount is None else escape(f"${amount}")
+
+
+def duration(ns: int | None) -> str:
+    if ns is None:
+        return "unknown"
+    try:
+        ms = ns / 1e6
+    except OverflowError:  # the loader bounds ns to uint64; this is the last line of defence
+        return "unknown"
+    return f"{ms / 1000:.2f} s" if ms >= 1000 else f"{ms:.1f} ms"

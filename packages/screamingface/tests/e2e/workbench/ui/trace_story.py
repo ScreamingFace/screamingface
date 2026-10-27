@@ -136,6 +136,7 @@ class TraceStory:
     checks: tuple[Check, ...]
     notes: tuple[str, ...]
     cut: Mapping[str, int]
+    events: int | None = None  # SDK events read (the header's count); None: not counted
 
 
 # --- reading ----------------------------------------------------------------------------------
@@ -727,4 +728,5 @@ def build(bundle_dir: Path) -> TraceStory:
         checks=_checks(trace),
         notes=tuple(notes),
         cut={"spans": span_cut, "calls": found.cut, "log_lines": found.lines_cut},
+        events=len(tele.events),
     )

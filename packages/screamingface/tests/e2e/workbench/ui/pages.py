@@ -28,6 +28,9 @@ from workbench.ui.telemetry import Telemetry, money
 from workbench.ui.telemetry_html import STYLE as TELEMETRY_STYLE
 from workbench.ui.telemetry_html import TelemetryView
 from workbench.ui.telemetry_html import section as telemetry_section
+from workbench.ui.trace_html import STYLE as TRACE_STYLE
+from workbench.ui.trace_html import section as trace_section
+from workbench.ui.trace_story import TraceStory
 
 # pytest's exit codes (pytest.ExitCode), worded for a human reading the run page.
 _EXIT_MEANING = {
@@ -198,7 +201,8 @@ def layout(title: str, body: str, *, token: str | None) -> str:
     return (
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        f"<title>{_e(title)} · e2e workbench</title><style>{_STYLE}{TELEMETRY_STYLE}</style>"
+        f"<title>{_e(title)} · e2e workbench</title>"
+        f"<style>{_STYLE}{TELEMETRY_STYLE}{TRACE_STYLE}</style>"
         "</head><body>"
         f"<header><h1><a href='/{_q(token)}'>e2e workbench</a></h1>"
         f"<span class='muted'>{_e(title)}</span></header><main>{body}</main></body></html>"
@@ -546,37 +550,6 @@ def _strs(value: object) -> list[str]:
     return [i for i in items if isinstance(i, str)]
 
 
-def _hop_table(trace: Mapping[str, Any]) -> str:
-    rows = []
-    for hop in _dicts(trace.get("hops")):
-        found = hop.get("found")
-        pill = verdict_pill(found if isinstance(found, bool) else None)
-        pill = pill.replace(">PASS<", ">found<").replace(">FAIL<", ">missing<")
-        missing = "<br>".join(f"<code>{_e(t)}</code>" for t in _strs(hop.get("missing_ids")))
-        rows.append(
-            f"<tr><td>{_scalar(hop.get('name'))}</td><td>{pill}</td>"
-            f"<td>{_scalar(hop.get('lines'))}</td><td>{missing or '—'}</td></tr>"
-        )
-    if not rows:
-        return "<p class='muted'>No hops recorded in trace.json.</p>"
-    return (
-        "<table><thead><tr><th>Hop</th><th>Trace found</th><th>Matching lines</th>"
-        f"<th>Missing ids</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
-    )
-
-
-def _chain_facts(trace: Mapping[str, Any]) -> str:
-    lifecycle = trace.get("lifecycle")
-    facts = []
-    if isinstance(lifecycle, dict):
-        for name, seen in lifecycle.items():  # pyright: ignore[reportUnknownVariableType]
-            facts.append(f"{_e(name)}: {'yes' if seen is True else 'no'}")
-    unattributed = trace.get("unattributed_gateway_lines")
-    if isinstance(unattributed, int):
-        facts.append(f"aigateway lines without gateway_call_id: {unattributed}")
-    return f"<p class='note'>{' · '.join(facts)}</p>" if facts else ""
-
-
 def _candidates(trace: Mapping[str, Any]) -> str:
     result = trace.get("result")
     candidates = result.get("candidates") if isinstance(result, dict) else None  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -695,13 +668,11 @@ def bundle_page(
     view: TelemetryView | None = None,
     *,
     token: str | None,
+    story: TraceStory | None = None,
+    trace_page: int = 1,
 ) -> str:
+    """The bundle page. ``story`` is ``None`` when the Trace view could not be built."""
     trace = detail.trace
-    chain = (
-        f"{_hop_table(trace)}{_chain_facts(trace)}"
-        if trace is not None
-        else "<p class='muted'>Unavailable without a readable trace.json.</p>"
-    )
     raw = (
         "<details><summary>Raw trace.json</summary>"
         f"<pre>{_e(json.dumps(trace, indent=2, default=str))}</pre></details>"
@@ -715,12 +686,18 @@ def bundle_page(
         token=token,
         gateway_log=detail.logs.get("aigateway"),
     )
+    trace_html = (
+        trace_section(story, detail.summary.key, token, trace_page, appendix=raw)
+        if story is not None
+        else '<section id="trace"><h2>Trace</h2><p class="warn">The Trace view could not be '
+        f"built from this bundle.</p>{raw}</section>"
+    )
     body = (
         f"{_verdict_section(detail)}"
-        f"<section><h2>Trace chain</h2>{chain}{raw}</section>"
+        f"{trace_html}"
         f"<section><h2>Result</h2>{_candidates(trace or {})}</section>"
         f"{telemetry_html}"
-        f"<section><h2>Logs</h2>{_logs(detail.logs, _failed_hops(trace))}</section>"
+        f'<section id="logs"><h2>Logs</h2>{_logs(detail.logs, _failed_hops(trace))}</section>'
         f'<section id="executed-notebook"><h2>Executed notebook</h2>'
         f"{_notebook_section(detail)}</section>"
     )

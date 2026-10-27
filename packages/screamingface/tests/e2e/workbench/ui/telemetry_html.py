@@ -14,15 +14,17 @@ case tables show at most ``TABLE_CAP`` rows and say how many more the files hold
 
 from __future__ import annotations
 
-import html
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Final
 from urllib.parse import quote, urlencode
 
 from workbench.ui import telemetry as tm
+from workbench.ui.render import cell as _v
+from workbench.ui.render import duration as _duration
+from workbench.ui.render import escape as _e
+from workbench.ui.render import usd as _usd
 
 WATERFALL_PAGE: Final = 200
 TABLE_CAP: Final = 2_000
@@ -54,29 +56,6 @@ class TelemetryView:
 
     spans_page: int = 1
     unfold: bool = False
-
-
-def _e(value: object) -> str:
-    return html.escape(str(value), quote=True)
-
-
-def _v(value: object) -> str:
-    """A scalar cell: escaped, or "unknown" for ``None`` (never 0, never "None")."""
-    return "unknown" if value is None else _e(value)
-
-
-def _usd(amount: Decimal | None) -> str:
-    return "unknown" if amount is None else _e(f"${amount}")
-
-
-def _duration(ns: int | None) -> str:
-    if ns is None:
-        return "unknown"
-    try:
-        ms = ns / 1e6
-    except OverflowError:  # the loader bounds ns to uint64; this is the last line of defence
-        return "unknown"
-    return f"{ms / 1000:.2f} s" if ms >= 1000 else f"{ms:.1f} ms"
 
 
 def _table(head: Sequence[str], rows: Sequence[str], cls: str = "") -> str:

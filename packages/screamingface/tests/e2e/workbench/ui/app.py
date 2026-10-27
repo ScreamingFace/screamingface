@@ -39,7 +39,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response, Streamin
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from screamingface._runtime.config import default_data_dir as runtime_default_data_dir
-from workbench.ui import live, pages, telemetry
+from workbench.ui import live, pages, telemetry, trace_story
 from workbench.ui.bundles import BundleNotFound, BundleSummary, discover, load
 from workbench.ui.runs import Run, RunBusy, RunManager, RunRejected, RunRequest, runtime_data_dir
 
@@ -302,7 +302,18 @@ class _Workbench:
         except Exception as exc:  # noqa: BLE001 - an untrusted bundle must not take the page down
             note = f"telemetry could not be read: {type(exc).__name__}"
             loaded = telemetry.Telemetry(notes=(note,))
-        page = pages.bundle_page(detail, loaded, view, token=self.page_token(request))
+        try:
+            story = trace_story.build(detail.directory)
+        except Exception:  # noqa: BLE001 - an untrusted bundle must not take the page down
+            story = None
+        page = pages.bundle_page(
+            detail,
+            loaded,
+            view,
+            token=self.page_token(request),
+            story=story,
+            trace_page=_positive(request.query_params.get("trace_page")),
+        )
         return HTMLResponse(page)
 
     async def start(self, request: Request) -> RedirectResponse:
