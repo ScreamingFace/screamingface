@@ -129,6 +129,7 @@ Owner decisions (2026-10-22):
   - `d0c7545e2` fix(aigateway): close every endpoint client even when shutdown is cancelled
   - `61fbae090` fix(aigateway): report the remote endpoint cache revision in every export
   - `9b24798a4` fix(screamingface): compare the configured endpoint revision on a cache pull
+  - `9812f8b34` docs(aigateway): scope endpoint privacy to the working catalog
 - **Gates:** `run_gates.py aigateway --base 482460344` after the rebase: ruff check, ruff format,
   pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
   all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `d0c7545e2` the
@@ -141,10 +142,13 @@ Owner decisions (2026-10-22):
   the approved fixture edit, ruff, pyright, pytest with coverage at least 95%, the notebooks,
   the build and the distribution check, with 4706 tests collected. Its first run stopped at
   pyright on notebook widgets in files this branch does not touch, as the local venv lacked
-  the notebook extra CI installs; synced with the notebook and runtime extras it is green. With
+  the notebook extra CI installs; synced with the notebook and runtime extras it is green. After
+  `9812f8b34` the gateway's run is green again with 7364 and 442. With
   `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
-  the five approved test transitions. Earlier runs against `fade16614` were green at each part
-  (6912 and 426 tests) and after the first review fixes (6920 and 433).
+  the five approved test transitions in the gateway and the one in the SDK. The two docstrings
+  approved on 2026-10-27 lie outside the ranges it protects; the approval file pins them anyway.
+  Earlier runs against `fade16614` were green at each part (6912 and 426 tests) and after the
+  first review fixes (6920 and 433).
 - **Review fixes (2026-10-23),** after an external review of the four feature commits:
   - The shared client kept upstream cookies, so a cookie set on one account's answer rode on the
     next account's request. The client now uses a cookie jar that keeps nothing. A refusing
@@ -176,7 +180,8 @@ Owner decisions (2026-10-22):
     pre-cache grant gate, and keeps the community-cache policy. What is wrong is the wording:
     the Unit 0 and Unit 1 comments promise that a tenant cannot learn which endpoints are
     configured. Open, awaiting the owner's approval of the reworded comments, one of them in a
-    prior test file, and of a cache-on refusal test and a cache-listing test.
+    prior test file, and of a cache-on refusal test and a cache-listing test. Decided and done
+    on 2026-10-27, below.
   - Rows pulled into a local gateway would be served to a local endpoint that reuses a hosted
     ID with another upstream. The design already forbids retargeting a stable ID.
   - The media guard from main (OME-1542) runs before the grant check: a remote image URL sent
@@ -211,7 +216,7 @@ Owner decisions (2026-10-22):
     hosted BYOM design leaves metadata visibility to the endpoint access policy and keeps it
     apart from the shared replay of results, so the second review's "match the governing
     decisions" holds for the cache hit but is not settled for the listing. The comment cleanup
-    waits on that choice.
+    waits on that choice. Decided on 2026-10-27, below.
 - **Fourth review (2026-10-27),** of `5e93a6bb8`: the export half holds; the pull half was still
   open, fixed in `9b24798a4`.
   - A pull compared revisions built by the bundled plugin loader alone, so a hosted page keyed
@@ -231,6 +236,33 @@ Owner decisions (2026-10-22):
     The refusal's hint, to upgrade screamingface, does not fit that case.
   - Left as is: the precondition at `test_cache_revision.py:46` checks only that a status code
     is present, not that it is 200.
+- **Owner decision (2026-10-27), community-cache listing:** closes the listing item of the second
+  and third reviews; fixed in `9812f8b34`.
+  - Contract: `/v1/cache/entries` gives every authenticated account the eligible rows of a
+    configured endpoint, with their provider and model IDs, alias, stored response and cache
+    metadata, and no VIEW filter. The catalog of available endpoints stays filtered by grants.
+    A new upstream call on a miss needs the grant and a key; an eligible hit needs neither,
+    under the other cache rules. The listing code does not change.
+  - Comments reworded in `core/endpoint_access.py`, `routes/chat.py` and
+    `routes/cache_entries.py`, and the STORY of this unit's `test_app_catalog.py`: the catalog
+    routes and upstream entry points answer a denied endpoint as an absent one and add no
+    signal of their own; grants do not make identifiers in published cache entries
+    confidential. The old promise that an ungranted tenant cannot learn of an endpoint is gone.
+  - Prior tests changed, docstrings only, shown and approved on 2026-10-27 and pinned in the
+    approval file: `test_app_access` and `test_app_cache_order`. The latter also drops the stale
+    `CacheBypass` claim.
+  - The cache-on refusal was already pinned by Unit 0's
+    `test_an_ungranted_account_gets_a_hit_but_no_new_upstream_call`, which asserts the reported
+    `miss`; no new test for it.
+  - New test in `test_app_shared_cache.py`: an account without the grant finds the endpoint's
+    published row in the listing, with its provider, model, response and cache fields, and not
+    in `/v1/models`; no upstream call. It passed at once, as it pins current behavior. A
+    listing that dropped `byom_` rows made it fail; that mutation was reverted.
+  - Found: a BYOM row's `metadata_json` is null today. The accounting block comes from usage
+    accounting records, and an endpoint call writes none; the design defers that integration.
+    The test checks that the field is present, not its content.
+  - The design text for this contract is prepared at version 7 in a branch of the design
+    repository and not committed.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
@@ -244,8 +276,8 @@ Owner decisions (2026-10-22):
     was ever stored for this provider.
   - The pool bound is httpx's own default (100 connections, 20 kept alive); core admission caps
     concurrent calls per provider first.
-  - Left unchanged, pending owner approval: the docstring of `test_app_cache_order.py` still says
-    the instance inherits `CacheBypass`, which is no longer true. The test itself still passes.
+  - Fixed on 2026-10-27 with the owner's approval: the docstring of `test_app_cache_order.py` no
+    longer says the instance inherits `CacheBypass`; it explains the test-only projection.
   - Known limit: a chat already in flight when shutdown closes its endpoint client gets httpx's
     closed-client error as a 500. The server drains in-flight requests before the lifespan
     shutdown runs, so this window is not handled in code.
