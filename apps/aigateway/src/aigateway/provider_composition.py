@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -50,17 +51,23 @@ async def close_remote_endpoints(registry: ProviderRegistry) -> None:
 
     # WHY here: this module is the one place that knows the concrete adapter, so the lifespan
     # needs no attribute probing on plugins and `compose_providers` still returns the policy.
+    # WHY start every close before waiting for any: neither a failed close nor a cancelled
+    # shutdown can then leave another endpoint open. `asyncio.wait`, unlike `gather`, cancels
+    # none of the closes when the shutdown itself is cancelled.
     """
+    closing: dict[asyncio.Future[None], str] = {}
     for plugin in registry.all():
-        if not isinstance(plugin, RemoteEndpointPlugin):
-            continue
-        # WHY per endpoint: one failed close must not leave the endpoints after it open.
-        try:
-            await plugin.aclose()
-        except Exception as exc:
+        if isinstance(plugin, RemoteEndpointPlugin):
+            started = plugin.begin_close()
+            if started is not None:
+                closing[started] = plugin.custom_llm_provider
+    if not closing:
+        return
+    await asyncio.wait(closing)
+    for started, provider in closing.items():
+        error = None if started.cancelled() else started.exception()
+        if error is not None:
             # INVARIANT: the error's text is not logged; it may carry the endpoint's origin.
             logger.warning(
-                "remote endpoint %s did not close cleanly: %s",
-                plugin.custom_llm_provider,
-                type(exc).__name__,
+                "remote endpoint %s did not close cleanly: %s", provider, type(error).__name__
             )

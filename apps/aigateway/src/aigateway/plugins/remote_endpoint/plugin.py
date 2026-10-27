@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -138,9 +139,9 @@ class RemoteEndpointPlugin(ProviderPluginBase):
             client=self._client.open(self._transport),
         )
 
-    async def aclose(self) -> None:
-        """Close this endpoint's client; a chat after this gets a 502 and opens none."""
-        await self._client.aclose()
+    def begin_close(self) -> asyncio.Future[None] | None:
+        """Start closing this endpoint's client; a chat after this gets a 502 and opens none."""
+        return self._client.begin_close()
 
     def _declared(self, model: object) -> ChatTarget | None:
         prefix = f"{self.custom_llm_provider}/"

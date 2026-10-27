@@ -7,13 +7,15 @@
 # INVARIANT: once shutdown closed it, a chat gets a safe 502 and opens no new client.
 # INVARIANT: the shared client keeps no cookie, so one account's upstream session never rides on
 # another account's request.
-# INVARIANT: shutdown closes every endpoint's client, even when another endpoint's close fails
-# or the close itself is cancelled.
+# INVARIANT: shutdown closes every endpoint's client, even when another endpoint's close fails,
+# the close itself is cancelled or the whole shutdown is cancelled.
+# INVARIANT: a close error never reaches the log as text; it may carry the endpoint's origin.
 """
 
 from __future__ import annotations
 
 import asyncio
+import gc
 import ssl
 from typing import Any, cast
 
@@ -260,3 +262,72 @@ def test_a_cancelled_close_still_finishes_and_a_repeat_waits_for_it() -> None:
     asyncio.run(cancel_then_repeat())
 
     assert upstream.finished == 1
+
+
+def test_a_cancelled_shutdown_still_closes_every_endpoint() -> None:
+    registry = ProviderRegistry()
+    install_remote_endpoints(registry, parse_remote_endpoint_config(two_endpoint_document()))
+    plugins = [p for p in registry.all() if isinstance(p, RemoteEndpointPlugin)]
+    upstreams = [_Closing(hold=True), _Closing(hold=True)]
+    for plugin, upstream in zip(plugins, upstreams, strict=True):
+        cast(Any, plugin)._transport = upstream
+
+    async def chat_then_cancel_the_shutdown() -> None:
+        for plugin in plugins:
+            body = {**chat_body(plugin.custom_llm_provider), "api_key": KEY[ACCOUNT_A]}
+            assert await plugin.chat_completion(body) == COMPLETION
+        sweep = asyncio.ensure_future(close_remote_endpoints(registry))
+        await asyncio.wait_for(upstreams[0].entered.wait(), timeout=5)
+        sweep.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await sweep
+        for upstream in upstreams:
+            upstream.released.set()
+        # WHY poll: nothing waits for the closes any more; each must finish on its own.
+        for _ in range(100):
+            if all(upstream.finished for upstream in upstreams):
+                break
+            await asyncio.sleep(0.01)
+
+    asyncio.run(chat_then_cancel_the_shutdown())
+
+    assert [upstream.finished for upstream in upstreams] == [1, 1]
+
+
+class _FailingLater(_Closing):
+    """An upstream transport whose close waits until released, then fails naming the origin."""
+
+    async def aclose(self) -> None:
+        self.entered.set()
+        await self.released.wait()
+        raise RuntimeError(f"the pool for {ORIGIN_A} failed to close")
+
+
+def test_a_close_error_nobody_waits_for_is_never_printed() -> None:
+    upstream = _FailingLater()
+    reported: list[dict[str, Any]] = []
+
+    async def cancel_the_wait_then_fail() -> None:
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(lambda _, context: reported.append(context))
+        owner = transport.EndpointClient()
+        owner.open(upstream)
+        waiting = asyncio.ensure_future(owner.aclose())
+        await asyncio.wait_for(upstream.entered.wait(), timeout=5)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        upstream.released.set()
+        for _ in range(100):
+            if cast(Any, owner)._closing.done():
+                break
+            await asyncio.sleep(0.01)
+        assert cast(Any, owner)._closing.done()
+        # WHY collect: asyncio reports an unread task error when the task is destroyed.
+        del owner, waiting
+        gc.collect()
+
+    asyncio.run(cancel_the_wait_then_fail())
+
+    # INVARIANT: asyncio never prints the close's error; its text may carry the origin.
+    assert reported == []

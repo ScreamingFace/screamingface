@@ -80,16 +80,34 @@ class EndpointClient:
             self._client = _open_client(transport)
         return self._client
 
-    async def aclose(self) -> None:
+    def begin_close(self) -> asyncio.Future[None] | None:
+        """Start the one close and return it; None when no client was ever opened.
+
+        # WHY synchronous: shutdown starts every endpoint's close before it waits for any, so a
+        # cancelled shutdown cannot leave an endpoint unclosed.
+        """
         self._closed = True
         if self._client is None:
-            return
-        # WHY one shielded task: httpx marks the client closed before its pool finishes closing,
-        # so a cancelled close could never be retried. The task runs to its end on its own, and
-        # a repeat call waits for that same close.
+            return None
+        # WHY one task: httpx marks the client closed before its pool finishes closing, so a
+        # cancelled close could never be retried. The task runs to its end on its own, and a
+        # repeat call waits for that same close.
         if self._closing is None:
             self._closing = asyncio.ensure_future(self._client.aclose())
-        await asyncio.shield(self._closing)
+            self._closing.add_done_callback(_read_close_error)
+        return self._closing
+
+    async def aclose(self) -> None:
+        closing = self.begin_close()
+        if closing is not None:
+            await asyncio.shield(closing)
+
+
+def _read_close_error(closing: asyncio.Future[None]) -> None:
+    # WHY: a caller cancelled while it waits never reads the close's error, and asyncio would
+    # then print its text, which may carry the endpoint's origin. A caller still waiting gets it.
+    if not closing.cancelled():
+        closing.exception()
 
 
 def _unavailable() -> HTTPException:

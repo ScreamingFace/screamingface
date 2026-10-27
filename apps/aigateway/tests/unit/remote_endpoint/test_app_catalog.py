@@ -20,6 +20,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aigateway.core.oauth.store import OAuthConnectionStore
+
 from .conftest import Harness, put_key, tenant_headers
 from .fixtures import (
     ACCOUNT_A,
@@ -249,6 +251,27 @@ def test_a_hidden_pair_is_never_read_for_the_availability_listing(
         store = cast(FastAPI, client.app).state.credential_store
         # WHY a failing read: a listing that still read the hidden pair would answer 503.
         byom.monkeypatch.setattr(store, "operational_state", unreadable)
+        rows = _availability(client, ACCOUNT_A)
+
+    assert ENDPOINT_B not in rows
+
+
+@pytest.mark.parametrize(
+    "later",
+    [two_endpoint_document(b_enabled=False), two_endpoint_document(b_accounts=(ACCOUNT_B,))],
+    ids=["endpoint disabled", "grant withdrawn"],
+)
+def test_a_hidden_pair_s_connection_is_never_read_for_the_availability_listing(
+    byom: Harness, later: dict[str, Any]
+) -> None:
+    _connect_a_to_b(byom)
+
+    async def unreadable(self: OAuthConnectionStore, account_id: str, connection_id: str) -> None:
+        raise RuntimeError("connection unavailable")
+
+    with byom.start(later) as client:
+        # WHY a failing read: a listing that read the hidden pair's Connection would fail.
+        byom.monkeypatch.setattr(OAuthConnectionStore, "get", unreadable)
         rows = _availability(client, ACCOUNT_A)
 
     assert ENDPOINT_B not in rows
