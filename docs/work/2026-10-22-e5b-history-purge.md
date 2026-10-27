@@ -1,9 +1,9 @@
 ---
 ticket: OME-1750
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-22
-finished:
+finished: 2026-10-27
 ---
 
 # e5b-history-purge — the offline command that purges the retired Profile storage (Stage E history cleanup, E5b)
@@ -97,7 +97,8 @@ on merge; the owner runs the command per environment.
     `tests/unit/remote_endpoint/test_history_purge_endpoints.py` (1),
     `tests/integration/test_history_purge_postgres.py` (3, `needs_postgres`).
   - No schema change, no migration.
-- **Commits** (after the rebase onto `origin/main` `eee25716d`; squash-merged as one):
+- **Commits:** squash-merged as `1ccf80a89` (#1573) from, after the rebase onto `origin/main`
+  `eee25716d`:
   - `6fcef51d4` feat(aigateway): add the offline purge of retired Profile storage
   - `208f6eae7` fix(aigateway): keep blobs any account's Connection addresses in the history purge
   - `11daafd88` docs(work): record the owner decisions on the E5b review findings
@@ -106,8 +107,9 @@ on merge; the owner runs the command per environment.
   - `6557ef955` docs(aigateway): name what connection_unresolvable means in the purge's help
   - `42f44d905` fix(aigateway): refuse a purge whose sweep keeps unproven rows, and journal the
     sweep as it commits
-  - The issue `OME-1750`, its manifest `.claude/test-change-approvals/OME-1750.json` and the
-    mirror `docs/tasks/2026-10-27-OME-1750-e5b-history-purge.md` land in the PR's last commit.
+  - `8309fdb3a` docs(aigateway): file the E5b purge as OME-1750 with its test-change manifest
+    (the manifest `.claude/test-change-approvals/OME-1750.json` and the mirror
+    `docs/tasks/2026-10-27-OME-1750-e5b-history-purge.md`)
 - **Gates:**
   - `run_gates.py aigateway --base origin/main`: all green (approved test transition, append-only
     check, ruff check, ruff format, pyright, no-enterprise, pytest with coverage).

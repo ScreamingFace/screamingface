@@ -1,13 +1,13 @@
 ---
 id: OME-1750
 linear_url: https://linear.app/openmined/issue/OME-1750/add-the-offline-purge-of-retired-profile-storage-stage-e-e5b
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-27
-closed:
+closed: 2026-10-27
 ---
 
 # Add the offline purge of retired Profile storage (Stage E, E5b)
