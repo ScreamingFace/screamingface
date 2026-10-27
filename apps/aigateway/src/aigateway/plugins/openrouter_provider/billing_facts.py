@@ -28,9 +28,11 @@ _PAID_STAGE_TYPES = frozenset({"plugin", "server_tools"})
 _TOP_LEVEL_OUTPUT_FIELDS = ("output", "content")
 # WHY a list and not "every field": a new message field that is not output (a label, a flag)
 # must not make every refusal unknown. Billed output normally also comes with `usage.cost`.
+# WHY `refusal` is not here: Anthropic puts a fixed policy notice in it when it refuses before
+# output, with no `usage` and no cost (prod cache, 2026-10-27; spec 2026-10-26 §10). A refusal
+# after billed output carries `usage`, which the refusal proof rejects on its own.
 _MESSAGE_OUTPUT_FIELDS = (
     "content",
-    "refusal",
     "reasoning",
     "reasoning_details",
     "tool_calls",
