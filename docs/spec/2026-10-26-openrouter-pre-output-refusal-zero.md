@@ -124,3 +124,31 @@ unpriced. This keeps OME-1687 R3 for zero rules that the engine does not know.
 - Engine (`tests/unit/test_pre_output_refusal_pricing.py`): P3, P4, P5; the prior test
   `test_a_successful_attempt_without_a_reported_credit_price_is_unpriced[guaranteed_zero]` stays
   unchanged and green.
+
+## 8. Amendment 2026-10-27: router metadata
+
+The gateway sends `X-OpenRouter-Metadata: enabled` on every OpenRouter call
+(`openrouter_provider/plugin.py` `_TRUSTED_ATTRIBUTION`). A live refusal on 2026-10-27 with that
+header had one more top-level field (it also had no generation record, 2 of 2 refusals):
+
+```json
+"openrouter_metadata": {"requested": "anthropic/claude-opus-5.5", "strategy": "direct",
+  "region": "EZE", "summary": "available=5, selected=Claude Platform on AWS", "attempt": 1,
+  "is_byok": false, "endpoints": {"total": 11, "available": [{"provider": "...",
+  "model": "...", "selected": true}, "..."]}, "generation_time": 2479}
+```
+
+P1 condition 4 rejected that field, so the rule never applied in prod. Change to condition 4:
+
+**4a.** The raw body may also have `openrouter_metadata`. When it is present, it must be an
+object with only the fields `requested`, `strategy`, `region`, `summary`, `attempt`, `is_byok`,
+`endpoints`, `generation_time`, and:
+
+- `is_byok` is exactly `false` (with BYOK the provider bills our own key, so OpenRouter's missing
+  record proves nothing);
+- `requested`, `strategy`, `region`, `summary` are strings when present;
+- `attempt` and `generation_time` are non-negative integers when present;
+- `endpoints` has the same shape that the 429 rule accepts (`zero_insurance.py`).
+
+Any other field (for example `pipeline` or `attempts`, which can name a paid stage) keeps the
+evidence unchanged. A body without `openrouter_metadata` is handled as before.

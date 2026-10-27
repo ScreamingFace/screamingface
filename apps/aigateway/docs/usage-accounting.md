@@ -112,7 +112,10 @@ direct_cost_status == complete
 in the current request.
 
 `provider_guaranteed_zero` is an exact zero backed by a provider billing guarantee rather than a
-reported usage amount. AIGateway currently emits it only for a native OpenRouter HTTP 429 whose raw
+reported usage amount. AIGateway emits it in exactly two OpenRouter cases, each marked by its
+`source`.
+
+The first (`source: openrouter.zero_completion_insurance`) is a native OpenRouter HTTP 429 whose raw
 integer `error.code` agrees, complete error metadata proves zero-completion insurance applies,
 router `is_byok` is exactly `false`, and any present usage-level `is_byok` is also exactly `false`.
 The prepared request must contain no OpenRouter plugin, OpenRouter server tool or file part. Router
@@ -128,6 +131,20 @@ then removes that account-specific field before caller response and cache serial
 synthesize zero token counts. Guaranteed-zero attempts count as covered when reported retry costs
 are present, but are never added to `known_direct_cost_subtotals`; a request containing only
 guaranteed-zero attempts remains `direct_cost_status=partial` with no subtotal.
+
+The second (`source: openrouter.pre_output_refusal`, spec
+`docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md`) is a SUCCEEDED HTTP 200 attempt
+that a provider refused before any output. OpenRouter keeps no generation record for it, so
+nothing is billed. The raw body must have no `usage`, exactly one choice with `finish_reason`
+`content_filter` and `native_finish_reason` `refusal`, and a message with no content, reasoning,
+refusal text, reasoning details or tool calls. Only known top-level fields are accepted. When
+`openrouter_metadata` is present (the gateway always asks for it), router `is_byok` must be
+exactly `false` and the metadata may hold only `requested`, `strategy`, `region`, `summary`,
+`attempt`, `is_byok`, `endpoints` and `generation_time`; a `pipeline` or `attempts` field keeps the
+cost unknown. The prepared request must have no potential auxiliary charge, as for the 429 case.
+Because the attempt succeeded, this zero is also its `succeeded_attempt_direct_cost`, and the
+cache-entry metadata keeps it for a later hit. A refusal that carries a `usage.cost` keeps its
+`reported` price. Token counts stay unknown.
 
 An attempt carrying `provider_guaranteed_zero` uses the explicit wire marker
 `aigw.provider_attempt.v2`; all pre-existing direct-cost statuses retain

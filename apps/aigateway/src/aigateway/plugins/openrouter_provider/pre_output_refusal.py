@@ -7,12 +7,23 @@ Nothing is billed, so the attempt's covered cost is zero.
 
 INVARIANT: every condition must hold. A field this proof does not know, any output, or any usage
 object keeps the evidence as the base mapper gave it.
+
+AIDEV-NOTE (spec §8): the gateway sends `X-OpenRouter-Metadata: enabled` on every call, so a prod
+refusal always carries `openrouter_metadata`. A test body without it is not the prod shape.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+
+from .response_shape import (
+    endpoints_are_valid,
+    mapping,
+    optional_count,
+    optional_string,
+    response_scalars_are_valid,
+)
 
 _RESPONSE_FIELDS = frozenset(
     {
@@ -25,6 +36,21 @@ _RESPONSE_FIELDS = frozenset(
         "service_tier",
         "choices",
         "usage",
+        "openrouter_metadata",
+    }
+)
+# WHY no `pipeline` and no `attempts`: either can name a paid stage or a fallback attempt, and the
+# live refusal (2026-10-27) carried neither. An unseen field keeps the cost unknown.
+_ROUTER_FIELDS = frozenset(
+    {
+        "requested",
+        "strategy",
+        "region",
+        "summary",
+        "attempt",
+        "is_byok",
+        "endpoints",
+        "generation_time",
     }
 )
 _CHOICE_FIELDS = frozenset(
@@ -39,21 +65,24 @@ _EMPTY_TEXT_FIELDS = ("content", "refusal", "reasoning")
 _EMPTY_LIST_FIELDS = ("reasoning_details", "tool_calls")
 
 
-def _mapping(value: object) -> Mapping[str, Any] | None:
-    return value if isinstance(value, Mapping) else None
-
-
-def _scalars_are_valid(raw_response: Mapping[str, Any]) -> bool:
-    strings = ("id", "object", "model", "provider")
-    nullable_strings = ("system_fingerprint", "service_tier")
-    created = raw_response.get("created")
+def _router_metadata_is_plain(raw_response: Mapping[str, Any]) -> bool:
+    """Absent, or a non-BYOK route whose every field is known and well typed (spec §8, 4a)."""
+    if "openrouter_metadata" not in raw_response:
+        return True
+    router = mapping(raw_response["openrouter_metadata"])
     return (
-        all(field not in raw_response or type(raw_response[field]) is str for field in strings)
+        router is not None
+        and _ROUTER_FIELDS.issuperset(router)
+        # WHY: with BYOK the upstream bills our own key, so OpenRouter's missing record proves
+        # nothing about what was charged.
+        and router.get("is_byok") is False
         and all(
-            raw_response.get(field) is None or type(raw_response[field]) is str
-            for field in nullable_strings
+            optional_string(router, field)
+            for field in ("requested", "strategy", "region", "summary")
         )
-        and ("created" not in raw_response or (type(created) is int and created >= 0))
+        and optional_count(router, "attempt")
+        and optional_count(router, "generation_time")
+        and endpoints_are_valid(router.get("endpoints"))
     )
 
 
@@ -78,16 +107,21 @@ def proves_pre_output_refusal(
         or request_has_potential_auxiliary_charge is not False
         or not _RESPONSE_FIELDS.issuperset(raw_response)
         or raw_response.get("usage") is not None
-        or not _scalars_are_valid(raw_response)
+        or not response_scalars_are_valid(
+            raw_response,
+            strings=("id", "object", "model", "provider"),
+            nullable_strings=("system_fingerprint", "service_tier"),
+        )
+        or not _router_metadata_is_plain(raw_response)
     ):
         return False
     choices = raw_response.get("choices")
     if not isinstance(choices, list) or len(choices) != 1:
         return False
-    choice = _mapping(choices[0])
+    choice = mapping(choices[0])
     if choice is None or not _CHOICE_FIELDS.issuperset(choice):
         return False
-    message = _mapping(choice.get("message"))
+    message = mapping(choice.get("message"))
     return (
         choice.get("finish_reason") == "content_filter"
         and choice.get("native_finish_reason") == "refusal"

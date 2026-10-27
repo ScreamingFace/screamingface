@@ -7,6 +7,10 @@ from decimal import Decimal
 from typing import Any
 
 from ..taxonomy import canonical_amount
+from .response_shape import endpoints_are_valid as _endpoints_are_valid
+from .response_shape import mapping as _mapping
+from .response_shape import optional_string as _optional_string
+from .response_shape import response_scalars_are_valid
 
 _RESPONSE_FIELDS = frozenset(
     {
@@ -79,10 +83,6 @@ _ATTEMPT_FIELDS = frozenset({"provider", "model", "status"})
 _NONBILLABLE_STAGE_TYPES = frozenset({"context_compression", "guardrail", "response_healing"})
 
 
-def _mapping(value: object) -> Mapping[str, Any] | None:
-    return value if isinstance(value, Mapping) else None
-
-
 def _exact_amount(value: object) -> str | None:
     return canonical_amount(value) if type(value) in (Decimal, int) else None
 
@@ -105,42 +105,12 @@ def _known_counts(
     )
 
 
-def _optional_string(value: Mapping[str, Any], field: str, *, nullable: bool = False) -> bool:
-    if field not in value:
-        return True
-    item = value[field]
-    return (nullable and item is None) or type(item) is str
-
-
 def _response_scalars_are_valid(raw_response: Mapping[str, Any]) -> bool:
-    strings_valid = all(
-        _optional_string(raw_response, field) for field in ("id", "model", "object", "service_tier")
-    ) and _optional_string(raw_response, "system_fingerprint", nullable=True)
-    created = raw_response.get("created")
-    return strings_valid and (
-        "created" not in raw_response or (type(created) is int and created >= 0)
+    return response_scalars_are_valid(
+        raw_response,
+        strings=("id", "model", "object", "service_tier"),
+        nullable_strings=("system_fingerprint",),
     )
-
-
-def _endpoints_are_valid(value: object) -> bool:
-    if value is None:
-        return True
-    endpoints = _mapping(value)
-    if endpoints is None or not {"total", "available"}.issuperset(endpoints):
-        return False
-    total = endpoints.get("total")
-    available = endpoints.get("available")
-    if type(total) is not int or total < 0 or not isinstance(available, list):
-        return False
-    for item_value in available:
-        item = _mapping(item_value)
-        if item is None or set(item) != {"provider", "model", "selected"}:
-            return False
-        if type(item["provider"]) is not str or type(item["model"]) is not str:
-            return False
-        if type(item["selected"]) is not bool:
-            return False
-    return True
 
 
 def _usage_proves_no_charge(raw_response: Mapping[str, Any]) -> bool:
