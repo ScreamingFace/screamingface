@@ -7,7 +7,12 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 const GH_BLOB = 'https://github.com/ScreamingFace/screamingface/blob/main'
 const GH_PR = 'https://github.com/ScreamingFace/screamingface/pull'
 
-const fileUrl = `(img:src=https://example.com/chart.png)!'Describe the chart'`
+const fileUrl = `(https://example.org/chart.png;accept=image/png)!'Describe the chart'`
+
+const textVsAttachment = `(https://example.org/notes.md)!'Summarize'                      # text source, as today
+(https://example.org/data.json;accept=application/json)!'Sum'   # text source: not a media range
+(https://example.org/scan.pdf;accept=application/pdf)!'Read'    # attachment source
+(https://example.org/a.png;accept=*/*)!'Describe'              # text source: */* is not media`
 
 const guardConfig = `from url4.io.http import HttpIOLayer, SourceGuard
 
@@ -58,8 +63,9 @@ const modelsRow = `GET /v1/models
     <p>A file enters a run in one of two ways:</p>
     <ul>
       <li>
-        <strong>A url4 source:</strong> an <code>https://</code> file URL, or a
-        <code>sha256</code> blob ref. Both are resolved by the node that evaluates the expression.
+        <strong>A url4 source:</strong> an <code>https://</code> URL whose
+        <code>;accept=</code> names a media range, or a <code>sha256</code> blob ref. Both are
+        resolved by the node that evaluates the expression.
       </li>
       <li>
         <strong>A benchmark Case:</strong> pictures and PDFs written inline in the Case itself. This
@@ -72,20 +78,61 @@ const modelsRow = `GET /v1/models
     <CodeBlock :code="fileUrl" language="bash" />
 
     <p>
-      The source is fetched lazily, when the run needs it, exactly like any other URL source. What
-      changes is what the engine does with the body:
+      <em>Specified (OME-1543), not on main.</em> An <code>https://</code> source becomes an
+      <strong>attachment source</strong> only when its <code>;accept=</code> names media ranges, and
+      only these: <code>image/*</code>, <code>image/png</code>, <code>image/jpeg</code>,
+      <code>image/gif</code>, <code>image/webp</code>, <code>application/pdf</code>. There is no new
+      syntax: <code>;accept=</code> is the existing per-source annotation. <code>src=</code> does
+      not mark an attachment, because <code>(src=https://a)</code> and
+      <code>(https://a)</code> parse to the same source.
     </p>
+
+    <CodeBlock :code="textVsAttachment" language="bash" />
+
     <ul>
-      <li><strong>Text body:</strong> unchanged. It is a text source, as it always was.</li>
       <li>
-        <strong>Non-text body</strong> (an image, a PDF): <em>specified.</em> The bytes are hashed,
-        stored for the run, and sent to the model as a file part at that source's position. On main
-        today the body is still decoded as text.
-        <em>Lands with <a :href="`${GH_PR}/1478`" target="_blank" rel="noopener">#1478</a>:</em> the
-        text path refuses a binary body with <code>unsupported_content_type</code> instead of
-        decoding it, a step toward the attachment.
+        <strong>Every other <code>https://</code> source is a text source</strong>, read exactly as
+        today: no <code>;accept=</code>, or one that names any non-media range (<code>*/*</code>,
+        <code>text/*</code>, <code>application/json</code>, …). It is fetched lazily, each
+        occurrence under its own <code>;optional</code>, <code>;t=</code> and <code>;retry=</code>,
+        and never attached. An expression with no attachment source behaves byte for byte as it does
+        today.
+      </li>
+      <li>
+        <strong>Fetched before the first model call.</strong> The run first resolves its non-model
+        collection inputs, then fetches every attachment source those rows actually reach, once
+        each. An iteration over zero rows fetches nothing. Occurrences with the same URL,
+        <code>;accept=</code> and guard policy share one fetch and yield one attachment, placed at
+        their first occurrence in the expression, never in completion order.
+      </li>
+      <li>
+        <strong>Then frozen.</strong> The bytes are hashed and stored for the run, and the list of
+        attachments is fixed: every node sees the same list, nothing is fetched, re-fetched, added
+        or reordered after the first model call, and a retry reuses it. Each model call sends the
+        attachments as file parts first, then the text.
+      </li>
+      <li>
+        <strong>The response type decides, no sniffing.</strong> The response's
+        <code>Content-Type</code> must be in the media set above and match the requested
+        <code>;accept=</code>. A wrong or missing type fails the source with
+        <code>unsupported_content_type</code>. A failed <code>;optional</code> attachment source is
+        left out; a required one fails the run before any model call.
+      </li>
+      <li>
+        <strong>Static targets only.</strong> An attachment source's URL and
+        <code>;accept=</code> must be literal or come from non-model collection rows. One built from
+        a model output or a fetched body is refused with <code>x.source_not_static</code> before any
+        fetch. Text sources may still be dynamic.
       </li>
     </ul>
+
+    <p>
+      <em>On main today</em> there are no attachments: every <code>https://</code> source is read as
+      text.
+      <em>Lands with <a :href="`${GH_PR}/1478`" target="_blank" rel="noopener">#1478</a>:</em> the
+      text path refuses a binary body with <code>unsupported_content_type</code> instead of decoding
+      it.
+    </p>
 
     <h3>The transport guard</h3>
 
@@ -170,9 +217,10 @@ const modelsRow = `GET /v1/models
         <code>(url4://n2.example/v1(…)!'…')!'…'</code>, is refused until node-to-node authentication
         is specified. <em>Lands with #1482:</em> the code is <code>x.remote_node_unsupported</code>,
         permanent, before any I/O, wherever a node evaluates: every expression a
-        <code>Url4Node</code> runs, and anything nested inside a <code>Client(node=…)</code> call (the
-        client's own hop to its node still goes through). A bare library <code>url4.run()</code>
-        and plain <code>url4://host/path</code> data fetches are not affected. <em>On main today:</em> the guard refuses it as
+        <code>Url4Node</code> runs, and anything nested inside a <code>Client(node=…)</code> call
+        (the client's own hop to its node still goes through). A bare library
+        <code>url4.run()</code> and plain <code>url4://host/path</code> data fetches are not
+        affected. <em>On main today:</em> the guard refuses it as
         <code>x.source_destination_blocked</code>, because its peer allowlist is empty by default.
       </li>
       <li>
@@ -221,6 +269,22 @@ const modelsRow = `GET /v1/models
           <td>Case size with pictures inline</td>
           <td>at most 8,000,000 bytes, leaving room under the gateway cap</td>
           <td>lands with #1554</td>
+        </tr>
+        <tr>
+          <td>url4 attachments per run</td>
+          <td>
+            at most 20, counting blob refs and <code>https://</code> attachments together. Over it:
+            <code>x.attachments_too_many</code>, before any model call.
+          </td>
+          <td>specified (OME-1543)</td>
+        </tr>
+        <tr>
+          <td>url4 attachment bytes per run</td>
+          <td>
+            at most 8,000,000 decoded bytes in total. Over it: <code>x.attachments_too_large</code>,
+            before any model call.
+          </td>
+          <td>specified (OME-1543)</td>
         </tr>
         <tr>
           <td>One fetched source</td>
@@ -295,8 +359,33 @@ const modelsRow = `GET /v1/models
         </tr>
         <tr>
           <td><code>unsupported_content_type</code></td>
-          <td>A binary body on a text path. Permanent.</td>
-          <td>lands with #1478</td>
+          <td>
+            A binary body on a text path (lands with #1478). On an attachment source: a
+            <code>Content-Type</code> that is missing, outside the media set or not matching its
+            <code>;accept=</code> (specified, OME-1543). Permanent.
+          </td>
+          <td>lands with #1478; specified</td>
+        </tr>
+        <tr>
+          <td><code>x.source_not_static</code></td>
+          <td>
+            An attachment source whose URL or <code>;accept=</code> comes from a model output or a
+            fetched body. Permanent, before any fetch or model call.
+          </td>
+          <td>specified (OME-1543)</td>
+        </tr>
+        <tr>
+          <td><code>x.attachments_too_many</code></td>
+          <td>More than 20 url4 attachments in one run. Permanent, before any model call.</td>
+          <td>specified (OME-1543)</td>
+        </tr>
+        <tr>
+          <td><code>x.attachments_too_large</code></td>
+          <td>
+            More than 8,000,000 decoded bytes of url4 attachments in one run. Permanent, before any
+            model call.
+          </td>
+          <td>specified (OME-1543)</td>
         </tr>
         <tr>
           <td><code>source_not_found</code></td>
@@ -316,8 +405,8 @@ const modelsRow = `GET /v1/models
         <tr>
           <td><code>x.remote_node_unsupported</code></td>
           <td>
-            A <code>url4://</code> remote-node call in a node context (<code>Url4Node</code>, or nested
-            in a <code>Client</code> call). Permanent, no I/O.
+            A <code>url4://</code> remote-node call in a node context (<code>Url4Node</code>, or
+            nested in a <code>Client</code> call). Permanent, no I/O.
           </td>
           <td>lands with #1482</td>
         </tr>
