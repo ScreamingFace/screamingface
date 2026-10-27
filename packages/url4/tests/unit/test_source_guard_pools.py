@@ -92,6 +92,12 @@ async def _get(client: httpx.AsyncClient, host: str) -> bytes:
     return response.content
 
 
+async def _settled(pools: HostPools) -> None:
+    """Wait for the closes started so far: a release only STARTS one (PR #1555 review)."""
+    if pools._closing:
+        await asyncio.wait(set(pools._closing))
+
+
 async def _open(client: httpx.AsyncClient, host: str) -> httpx.Response:
     """A request left IN FLIGHT: its headers arrived, its body is not read or closed."""
     return await client.send(client.build_request("GET", f"https://{host}/"), stream=True)
@@ -146,6 +152,7 @@ async def test_eviction_never_interrupts_a_request_in_flight(net: _Net) -> None:
         (a_pool,) = net.pool_for("a.example")
         assert a_pool.closed == 0  # ...but never closes it under the open request
         assert await in_flight.aread() == b"held-body"  # the request completes intact
+        await _settled(transport._pools)
         assert a_pool.closed == 1  # and the pool closes once that request is done
 
 
@@ -153,7 +160,7 @@ async def test_eviction_never_interrupts_a_request_in_flight(net: _Net) -> None:
 async def test_overlapping_requests_keep_an_evicted_pool_open_until_the_last_ends(
     net: _Net,
 ) -> None:
-    client, _transport = _client(net, max_hosts=1)
+    client, transport = _client(net, max_hosts=1)
     async with client:
         first = await _open(client, "a.example")
         second = await _open(client, "a.example")
@@ -163,6 +170,7 @@ async def test_overlapping_requests_keep_an_evicted_pool_open_until_the_last_end
         await first.aclose()  # a second close of the same response releases nothing more
         assert a_pool.closed == 0
         assert await second.aread() == b"held-body"
+        await _settled(transport._pools)
         assert a_pool.closed == 1
 
 
@@ -239,6 +247,7 @@ async def test_a_lease_released_twice_frees_its_pool_only_once(net: _Net) -> Non
     await first.release()
     assert net.pools[0].closed == 0
     await second.release()
+    await _settled(pools)
     assert net.pools[0].closed == 1
     await pools.aclose()
 
@@ -258,9 +267,11 @@ class _SlowClose(httpx.AsyncBaseTransport):
 
 
 @pytest.mark.asyncio
-async def test_an_acquire_cancelled_during_a_victim_close_leaks_nothing() -> None:
-    # Review finding (OME-1719): a cancel while the evicted pool closed used to leave the new
-    # entry with a phantom in-flight count (never closable) and the victim half-closed.
+async def test_an_acquire_never_waits_for_a_victims_close() -> None:
+    # Review findings: (OME-1719) a cancel while the evicted pool closed left a phantom
+    # in-flight count; (PR #1555, Ionesio :108) the acquire awaited the victim's close, so the
+    # close's error failed it and the close's time counted against its fetch deadline. Now the
+    # acquire only STARTS the close, so it has no await a cancel or a close error can hit.
     gate, started = asyncio.Event(), asyncio.Event()
     made: list[_SlowClose] = []
 
@@ -270,16 +281,16 @@ async def test_an_acquire_cancelled_during_a_victim_close_leaks_nothing() -> Non
 
     pools = HostPools(factory, limit=1)
     await (await pools.acquire("a.example")).release()  # a.example is idle
-    acquiring = asyncio.create_task(pools.acquire("b.example"))  # evicts a, awaits its close
-    await started.wait()
-    acquiring.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await acquiring
-    victim, cancelled_entry = made
+    acquiring = asyncio.create_task(pools.acquire("b.example"))  # evicts a, starts its close
+    await started.wait()  # a.example's close is running, held open by the gate...
+    assert acquiring.done()  # ...and the acquire did not wait for it
+    victim, b_pool = made
+    assert victim.closed == 0
+    await (await acquiring).release()
     gate.set()
-    # The victim's close was not abandoned: it runs to completion despite the cancel.
+    # The victim's close runs to completion; b.example is closable (no phantom lease).
     await (await pools.acquire("c.example")).release()  # evicts b.example
     await pools.aclose()
     assert victim.closed == 1
-    assert cancelled_entry.closed == 1  # no phantom lease kept b.example's pool open
+    assert b_pool.closed == 1
     assert [pool.closed for pool in made] == [1, 1, 1]
