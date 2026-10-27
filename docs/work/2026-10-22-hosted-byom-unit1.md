@@ -72,6 +72,10 @@ Owner decisions (2026-10-22):
   `provider_access_availability`, `oauth_connections`: a `VIEW` check before a remote endpoint is
   listed, described or admitted, answering as each route answers an unknown provider; the two
   listings become `private, no-store` with `Vary: Authorization`.
+- Added after the third review: `packages/screamingface/src/screamingface/_cache/local.py`. The
+  revisions a community-cache pull compares also import the composition module, so they name
+  the configured-endpoint adapter as the local gateway's keys do. Nothing is configured, read or
+  started. This lands in a second package, so at PR-open it gets its own leaf under the epic.
 
 ## Test plan
 
@@ -97,6 +101,9 @@ Owner decisions (2026-10-22):
   - an account without a grant still gets a hit for an enabled, declared target.
 - Transport: concurrent calls reuse one client per endpoint; shutdown closes it; a call after
   close is a safe 502.
+- SDK pull, in a fresh process with no user environment: the local revisions name
+  `remote_endpoint_adapter` at the adapter's value, a hosted page keyed under another revision
+  of it is refused with `revision_mismatch`, and collecting them never imports the app.
 
 ## Acceptance
 
@@ -109,7 +116,9 @@ Owner decisions (2026-10-22):
 - **Actual files:** as planned, plus `global_cache.py` (new) and five new test files:
   `test_http_origins`, `test_app_catalog`, `test_global_cache`, `test_app_shared_cache`,
   `test_endpoint_client`. Prior tests changed only as approved: `test_definitions`,
-  `test_reader`, `test_plugin`, `test_app_regressions`.
+  `test_reader`, `test_plugin`, `test_app_regressions`. After the reviews: `test_cache_revision`
+  (new) in the gateway; in the SDK, `_cache/local.py`, the new `test_cache_local_revisions` and
+  the approved fixture edit in `test_cache_local`.
 - **Commits** (rebased onto `482460344`, 2026-10-27):
   - `1d83d9d13` feat(aigateway): accept approved http and https origins by name or address
   - `50c5fcc46` feat(aigateway): show each configured endpoint only to its granted accounts
@@ -119,13 +128,20 @@ Owner decisions (2026-10-22):
   - `202f40ba6` fix(aigateway): list only registered providers the caller may see
   - `d0c7545e2` fix(aigateway): close every endpoint client even when shutdown is cancelled
   - `61fbae090` fix(aigateway): report the remote endpoint cache revision in every export
+  - `9b24798a4` fix(screamingface): compare the configured endpoint revision on a cache pull
 - **Gates:** `run_gates.py aigateway --base 482460344` after the rebase: ruff check, ruff format,
   pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
   all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `d0c7545e2` the
   full run is green again with 7359 and 437, and after `61fbae090` with 7363 and 441. The
   first run for `61fbae090` failed once on the login timing test
   `test_unknown_user_timing_close_to_wrong_password`, which compares bcrypt medians by wall
-  clock and lies outside this branch; it passed three times alone and in the full rerun. With
+  clock and lies outside this branch; it passed three times alone and in the full rerun. After
+  `9b24798a4` both stacks are green against `482460344`: the gateway's run again, with the
+  approval file grown, and `run_gates.py screamingface`, which runs the append-only check with
+  the approved fixture edit, ruff, pyright, pytest with coverage at least 95%, the notebooks,
+  the build and the distribution check, with 4706 tests collected. Its first run stopped at
+  pyright on notebook widgets in files this branch does not touch, as the local venv lacked
+  the notebook extra CI installs; synced with the notebook and runtime extras it is green. With
   `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
   the five approved test transitions. Earlier runs against `fade16614` were green at each part
   (6912 and 426 tests) and after the first review fixes (6920 and 433).
@@ -188,7 +204,7 @@ Owner decisions (2026-10-22):
     pull check builds its revision set from that loader alone, so it neither requires nor checks
     this name: a pull from an older hosted gateway is not refused, and a change of this revision
     is not caught on pull. The SDK comment that every hosted row is an OpenRouter row is now out
-    of date. Both belong to the SDK package and are left for a separate unit.
+    of date. Both were first left for a separate unit, then fixed here after the fourth review.
   - Already on main and out of scope: the Anthropic, Hugging Face and OpenAI adapters also put
     a revision into their keys without registering it.
   - Open, awaiting the owner: this review calls cache metadata public by accepted decision. The
@@ -196,6 +212,25 @@ Owner decisions (2026-10-22):
     apart from the shared replay of results, so the second review's "match the governing
     decisions" holds for the cache hit but is not settled for the listing. The comment cleanup
     waits on that choice.
+- **Fourth review (2026-10-27),** of `5e93a6bb8`: the export half holds; the pull half was still
+  open, fixed in `9b24798a4`.
+  - A pull compared revisions built by the bundled plugin loader alone, so a hosted page keyed
+    under another configured-endpoint revision loaded as rows for a provider the process
+    lacked. The local gateway imports composition on every start, so its keys embed that
+    revision. The pull now imports the composition module too; it reads no config and starts
+    nothing. A new test collects the revisions in a fresh process with only `PATH` and an empty
+    `HOME`; two of its three checks failed before the change. It runs where the runtime extra
+    is installed, as in the local gates, and skips in the SDK test job, which installs none.
+  - Prior test changed, shown and approved on 2026-10-27 and pinned in the approval file: the
+    stand-in fixture of `test_cache_local` gains an empty composition module. Run with `fastapi`
+    blocked, as in the SDK test job, the fixture from main fails twice against the fix and the
+    approved one passes.
+  - Rollout: an SDK with this change refuses every pull from a hosted gateway that does not yet
+    report `remote_endpoint_adapter`, since a revision only the local side reports is refused.
+    The hosted gateway with `61fbae090` must deploy before an SDK release carries `9b24798a4`.
+    The refusal's hint, to upgrade screamingface, does not fit that case.
+  - Left as is: the precondition at `test_cache_revision.py:46` checks only that a status code
+    is present, not that it is 200.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
