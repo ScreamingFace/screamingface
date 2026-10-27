@@ -19,7 +19,7 @@ Node set
 - :class:`Url`          — an absolute ``scheme://…`` reference (any scheme,
   including a bare ``url4://`` remote reference, spec §5.2 rules 3.3/5).
 - :class:`RelUrl`       — a ``/path`` data reference relative to the current node.
-- :class:`BlobRef`      — a bare ``blob:<alg>/<id>`` content-addressed identifier.
+- :class:`BlobRef`      — a bare ``<namespace>:<algorithm>/<digest>`` content identifier.
 - :class:`Binding`      — ``name=value`` / ``name:value`` (name-only descriptor).
 - :class:`RelExpr`      — ``/path?params&q=(context)!intent`` relative expression.
 - :class:`RemoteExpr`   — ``url4://node/path?params&q=(context)!intent``.
@@ -90,7 +90,10 @@ class RelUrl:
 
 @dataclass(frozen=True)
 class BlobRef:
-    """A bare ``blob:<alg>/<id>`` token (§5.2 rule 10): an identifier, never text.
+    """A bare content identifier ``<namespace>:<algorithm>/<digest>`` (§5.2 rule 10, §5.4.4).
+
+    An identifier, never text, whatever its namespace: an unsupported one is refused as
+    ``unsupported_mode`` at resolution.
 
     FEATURE: file refs (``OME-1539``). Distinct from the quoted ``'blob:…'``, which
     stays :class:`Text` (C4); resolved from the evaluating node's own store (C3).

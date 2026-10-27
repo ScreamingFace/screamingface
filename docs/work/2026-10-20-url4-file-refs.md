@@ -184,3 +184,48 @@ is unaffected; the one-hop allowance is single-use and matches only its own auth
   before the remote call's own I/O: deps of the `RemoteFetchNode` (e.g. a fetched intent)
   resolve first, as for any node; (5) a `url4://<own name>/…` remote expression at a node is
   refused too (spec: every `url4://` remote-node call); relative calls are unchanged.
+
+## Amendment 2026-10-27 — generic content identifiers (design PR 31 review, finding 1)
+
+**Intent.** HupBaHa's CHANGES_REQUESTED review of OpenMined/screamingface-design PR 31 (Part B
+§5.4.4, 2026-10-27) found that #1482 recognised only lower-case `blob:<alg>/<id>`: another
+namespace stayed `Text` (reaching an executor as text) and `blob:md5/…` was `source_not_found`
+(indistinguishable from missing bytes). Owner decision (Sergey, 2026-10-27): implement generic
+content IDs. The parser recognises every syntactically valid `<namespace>:<algorithm>/<digest>`
+(Part B §8 `content-id`); v1 supports only `blob:sha256/<64 lowercase hex>`; any other
+namespace or algorithm (case-sensitive) is permanent `unsupported_mode` before any I/O. The
+digest is an opaque key: `.`/`..` are not digests (stay text). Quoted forms stay literal text.
+
+**Planned changes.**
+- `core/blob_ref.py` — the `content-id` regex; `BlobAddress.form` gains `"unsupported"`;
+  no case-folding of the token digest.
+- `dag/nodes/blob.py` — `unsupported` → `unsupported_mode`, permanent, before any I/O.
+- `core/nodes.py` — `BlobRef` docstring (any content identifier).
+- Tests: new `tests/spec/test_content_id_conformance.py`; this PR's own
+  `tests/unit/test_blob_refs.py` cases that pinned the narrower shape change (see manifest).
+
+**Test plan.** Other namespace, `blob:md5`, `blob:sha3-256`, `BLOB:`/`SHA256` → parse as
+`BlobRef`, round-trip, run → `unsupported_mode` permanent with zero requests; upper-case hex →
+`source_not_found` with zero requests; `.`/`..` digests → `Text`, no address; quoted → literal
+text, never fetched; non-productions (`blob:/x`, `1x:…`, `a/b` digest) → `Text`.
+
+**Outcome (amendment 2026-10-27).**
+- **Actual files:** as planned: `core/blob_ref.py` (content-id regex, `unsupported` form, no
+  digest case-folding), `dag/nodes/blob.py` (`unsupported_mode` check before any I/O),
+  `core/nodes.py` (docstrings only), new `tests/spec/test_content_id_conformance.py` (34 cases).
+- **Test-change manifest (this PR's own tests; none exists on `origin/main`):**
+  `tests/unit/test_blob_refs.py` — `test_a_token_that_is_not_blob_shaped_stays_text` drops
+  `blob:SHA256/abc`, `blob:sha256/a.b`, `blobs:sha256/abc` (now content IDs, covered by the
+  conformance file); `test_upper_case_hex_is_looked_up_lower_case_and_kept_as_written` →
+  `test_upper_case_hex_is_an_opaque_key_and_never_case_folded` (`source_not_found`, no I/O);
+  `test_a_token_no_store_can_hold_is_source_not_found_without_io` drops `blob:md5/abc` (now
+  `unsupported_mode`); `test_address_of_a_token_a_remote_ref_and_a_non_ref` uses lower-case hex.
+- **Gates:** `run_gates.py url4 --base 506c09178` ALL GATES GREEN (2318 passed, 17 xfailed;
+  `--base` = merge-base with `origin/main`, since the HEAD-based append-only check would flag this
+  PR's own tests); `scripts/check_module_size.py` all capped modules within baseline;
+  `scripts/check_suppressions.py` 3/3.
+- **Deviations:** (1) upper-case sha256 hex is `source_not_found` (namespace and algorithm are
+  supported; the opaque key is simply not held) — the previous lower-casing lookup is gone;
+  (2) namespace/algorithm compare case-sensitively (`BLOB:`/`SHA256` → `unsupported_mode`);
+  (3) the relative path form `/blob/sha256/<HEX>` is unchanged (implementation-defined mapping,
+  §5.4.4); (4) `.`/`..` digests stay `Text` (outside the production), as before.

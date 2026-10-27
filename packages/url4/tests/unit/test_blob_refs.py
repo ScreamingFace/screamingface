@@ -102,11 +102,8 @@ def test_bare_token_without_src_is_a_parse_error() -> None:
     [
         "blob:sha256/",
         "blob:/abc",
-        "blob:SHA256/abc",
-        "blob:sha256/a.b",
         "blob:sha256/a/b",
         "blob:-x/abc",
-        "blobs:sha256/abc",
     ],
 )
 def test_a_token_that_is_not_blob_shaped_stays_text(token: str) -> None:
@@ -259,18 +256,18 @@ async def test_bare_token_resolves_from_the_node_own_store() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upper_case_hex_is_looked_up_lower_case_and_kept_as_written() -> None:
+async def test_upper_case_hex_is_an_opaque_key_and_never_case_folded() -> None:
+    # WHY (owner decision 2026-10-27): v1 supports only blob:sha256/<64 lowercase hex>.
     io = _store()
-    node = BlobRefNode.token(f"blob:sha256/{HEX.upper()}")
-    got = await _resolve(node, io)
-    assert got.digest == f"sha256:{HEX}"
-    assert await node.resolve({}, ExecutionContext(io)) == f"blob:sha256/{HEX.upper()}"
-    assert {r.target for r in io.byte_requests} == {f"/blob/sha256/{HEX}"}
+    with pytest.raises(ResolutionError) as caught:
+        await _resolve(BlobRefNode.token(f"blob:sha256/{HEX.upper()}"), io)
+    assert (caught.value.code, caught.value.permanent) == (ErrorCode.SOURCE_NOT_FOUND, True)
+    assert io.byte_requests == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "token", ["blob:md5/abc", f"blob:sha256/{HEX[:-1]}", f"blob:sha256/{HEX}0", "blob:sha256/zz"]
+    "token", [f"blob:sha256/{HEX[:-1]}", f"blob:sha256/{HEX}0", "blob:sha256/zz"]
 )
 async def test_a_token_no_store_can_hold_is_source_not_found_without_io(token: str) -> None:
     io = _store()
@@ -538,7 +535,7 @@ async def test_an_untyped_blob_in_collection_position_is_read_as_text() -> None:
 def test_address_of_a_token_a_remote_ref_and_a_non_ref() -> None:
     from url4.core.blob_ref import address_of
 
-    address = address_of(BlobRef(f"blob:sha256/{HEX.upper()}"))
+    address = address_of(BlobRef(f"blob:sha256/{HEX}"))
     assert address is not None
     assert (address.form, address.digest, address.target) == (
         "token",

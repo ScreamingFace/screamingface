@@ -54,7 +54,7 @@ class BlobRefNode:
 
     @classmethod
     def token(cls, token: str) -> BlobRefNode:
-        """A bare ``blob:<alg>/<id>`` token, from the node's own store (C3)."""
+        """A bare content identifier, from the node's own store (C3)."""
         return cls(token_address(token))
 
     @classmethod
@@ -86,9 +86,17 @@ class BlobRefNode:
                 code=ErrorCode.REMOTE_BLOB_UNSUPPORTED,
                 permanent=True,
             )
+        if address.form == "unsupported":
+            # Part B §5.4.4 rule 4: a namespace/algorithm v1 does not support. Never text,
+            # never source_not_found (that would read as missing bytes); no I/O.
+            raise ResolutionError(
+                f"content identifier {address.ref!r} names an unsupported namespace or algorithm",
+                code=ErrorCode.UNSUPPORTED_MODE,
+                permanent=True,
+            )
         digest = address.digest
         if digest is None:
-            # C5: no store holds a ref of another algorithm or a malformed digest; no I/O.
+            # C5: no store holds a malformed sha256 digest; no I/O.
             raise _not_found(address.ref)
         body, media_type = await _fetch_bytes(
             ctx, FetchRequest(address.target, relative=True, kind="relative")
