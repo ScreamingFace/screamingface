@@ -25,6 +25,8 @@ from url4.dag.node import (  # isort: skip
 
 
 from url4.dag.nodes.web_attach import attach_web_body, cached_web_attachment  # isort: skip
+from url4.dag.nodes.web_attach import materialized_attachment  # isort: skip
+from url4.dag.attachment_sources import AttachmentIdentity  # isort: skip
 from url4.dag.nodes._shared import (  # isort: skip
     SlotSpec,
     _as_text,
@@ -79,12 +81,14 @@ class WebFetchNode:
     accept: str | None = None
     collection: bool = False
     deps: Mapping[str, DagNode] = field(default_factory=dict)
+    attachment: AttachmentIdentity | None = None  # set at lowering for an attachment source
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         kind = _kind_of(self.url)
         attachable = kind == "http" and not self.collection
-        if attachable and cached_web_attachment(self.url):
-            return str(self.url)
+        known = self._already_attached(attachable)
+        if known is not None:
+            return known
         request = FetchRequest(self.url, relative=False, kind=kind, accept=self.accept)
         try:
             return await _fetch(ctx, request)
@@ -96,6 +100,19 @@ class WebFetchNode:
                 raise
             await attach_web_body(ctx, request, exc)
             return str(self.url)
+
+    def _already_attached(self, attachable: bool) -> str | None:
+        """The URL text when the run already holds this source's attachment, else ``None``.
+
+        F1b round 7: an attachment source was materialized before the first model call and is
+        read here, never fetched (:func:`materialized_attachment`). Q-B: a text source whose
+        non-text body this run already attached is a cache hit.
+        """
+        if self.attachment is not None and not self.collection:
+            return materialized_attachment(self.attachment)
+        if attachable and cached_web_attachment(self.url):
+            return str(self.url)
+        return None
 
 
 def _kind_of(url: str) -> Literal["http", "url4", "other"]:

@@ -152,7 +152,12 @@ extra (`url4[streaming]`) because it is pydantic models.
   never shipped to a remote node. The one late entry: an `http(s)://` source
   stays lazy, and when its body is not text `WebFetchNode` hashes it into the run
   cache and fills its source-position slot (`dag/nodes/web_attach.py`, Q-B); a
-  text body is unchanged and never attached.
+  text body is unchanged and never attached. An `https://` source whose `;accept=`
+  names only image/PDF ranges is an **attachment source** (#1450 F1b round 7): it
+  is fetched once per identity (URL, accept, guard policy) as bytes before the
+  first model call, from a reachability-aware manifest (`dag/source_scan.py`,
+  `dag/_materialize.py`), classified by its bare Content-Type, listed in preorder
+  and capped (20 entries, 8,000,000 bytes); execution only reads it.
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 

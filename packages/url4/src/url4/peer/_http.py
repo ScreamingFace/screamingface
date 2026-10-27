@@ -52,6 +52,10 @@ _STATUS_BY_CODE: dict[str, int] = {
     ErrorCode.SOURCE_REDIRECT_LIMIT: 422,
     ErrorCode.SOURCE_TOO_LARGE: 413,
     ErrorCode.SOURCE_TIMEOUT: 504,
+    # Run admission of https attachment sources (spec F1b §4, proposed statuses, OME-1543).
+    ErrorCode.SOURCE_NOT_STATIC: 422,
+    ErrorCode.ATTACHMENTS_TOO_MANY: 413,
+    ErrorCode.ATTACHMENTS_TOO_LARGE: 413,
     # url4 2.0 code pointers (contracts C8). A caller applying Spec C §13.2.1 to the
     # status recovers the class: 501 is exactly `unsupported_mode`; `intent_error` has
     # no §13.2.1 row, so 422 keeps it permanent (500 would read as transient) and the
