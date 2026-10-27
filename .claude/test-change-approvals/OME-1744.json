@@ -1,6 +1,6 @@
 {
   "issue": "OME-1744",
-  "branch": "engine-image-token-forwarding",
+  "branch": "OME-1744-engine-image-token-forwarding",
   "approver": "owner (Sergey, sergio-bershadsky, AskUserQuestion in the main session, 2026-10-27)",
   "approved_by": "sergio-bershadsky",
   "date": "2026-10-27",
