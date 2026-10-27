@@ -8,7 +8,14 @@ workbench never imports it.
   ``Usage``, ``Log``, ``Terminated``) becomes one JSON line in ``events.jsonl``.
 - ``EventRecorder.finish(report)`` (the result cell) writes ``report.json``
   (``Report.to_dict()``), ``accounting.json`` (each candidate's accounting by model and by
-  stage) and ``recorder.json`` (counts and per-file outcome) beside it.
+  stage) and ``recorder.json`` (counts, per-file outcome, and ``first_event_ns`` /
+  ``last_event_ns``) beside it.
+
+WHY the event times: the SDK's evaluate call has no span of its own, so the Trace view (u8)
+derives a client span ``sdk.evaluate`` and needs real bounds for it. They are wall-clock
+``time.time_ns()`` stamps of when the first and the last event reached the recorder — the
+closest the notebook side gets to the call's start and end. ``None`` when no event arrived
+(unknown, never 0).
 
 INVARIANT: redaction before disk. Every value goes through ``workbench.redaction`` (the one
 redactor, applied to values — never to serialised JSON) before it is written, and the value
@@ -36,6 +43,7 @@ from collections.abc import Callable, Mapping, Set
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
+from time import time_ns
 from typing import IO, Any, Final
 
 from workbench.redaction import redact, redact_named_tree
@@ -139,6 +147,8 @@ class EventRecorder:
         self._dropped = 0
         self._failed = 0
         self._finished = False
+        self._first_event_ns: int | None = None
+        self._last_event_ns: int | None = None
         self._fh: IO[str] | None
         try:
             # "w": a rerun into the same bundle never inherits the previous run's events.
@@ -150,6 +160,10 @@ class EventRecorder:
         with self._lock:
             if self._finished:
                 return
+            # Stamped for every handled event, dropped ones too: the call was still running.
+            self._last_event_ns = time_ns()
+            if self._first_event_ns is None:
+                self._first_event_ns = self._last_event_ns
             if self._recorded >= self.cap:
                 self._dropped += 1
                 return
@@ -181,6 +195,8 @@ class EventRecorder:
                 "failed": self._failed,
                 "cap": self.cap,
             },
+            "first_event_ns": self._first_event_ns,
+            "last_event_ns": self._last_event_ns,
             "files": {
                 REPORT_FILE: self._write(REPORT_FILE, report, lambda r: r.to_dict()),
                 ACCOUNTING_FILE: self._write(ACCOUNTING_FILE, report, _accounting),

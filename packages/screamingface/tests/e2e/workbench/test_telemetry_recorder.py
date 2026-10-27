@@ -361,3 +361,28 @@ def test_a_container_under_a_secret_named_field_is_masked_whole(tmp_path: Path) 
         "credentials": MASK,
         "usage": {"max_tokens": 9},
     }
+
+
+def test_finish_stamps_the_first_and_last_event_time_for_the_client_span(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Trace view's synthetic ``sdk.evaluate`` span takes its bounds from these (u8 Task 1)."""
+    from workbench import telemetry_recorder
+
+    clock = iter([100, 250])
+    monkeypatch.setattr(telemetry_recorder, "time_ns", lambda: next(clock))
+    recorder = EventRecorder(tmp_path / "events.jsonl")
+    first, second = _events()[:2]
+    recorder(first)
+    recorder(second)
+    summary = recorder.finish(None)
+    assert (summary["first_event_ns"], summary["last_event_ns"]) == (100, 250)
+    written = json.loads((tmp_path / RECORDER_FILE).read_text())
+    assert (written["first_event_ns"], written["last_event_ns"]) == (100, 250)
+
+
+def test_no_events_leaves_both_event_times_null_never_zero(tmp_path: Path) -> None:
+    summary = EventRecorder(tmp_path / "events.jsonl").finish(None)
+    written = json.loads((tmp_path / RECORDER_FILE).read_text())
+    assert (written["first_event_ns"], written["last_event_ns"]) == (None, None)
+    assert summary["first_event_ns"] is None
