@@ -1,9 +1,9 @@
 ---
 ticket: OME-1271
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-27
-finished:
+finished: 2026-10-27
 ---
 
 # media-on-demand — park each Case's pictures and files at finish, so a researcher can open one
