@@ -151,3 +151,32 @@ of the first model call.
   pre-materialization (a spec change in #1450, contradicting its current wording), or
 - scope pre-materialization to a run that names at least one attachment-capable source (also a
   spec change; the current text says every https source).
+
+## Round 2026-10-27 — module-size ratchet: pure refactor of four url4 modules: DONE
+
+**Intent.** Four url4 modules failed `packages/url4/scripts/check_module_size.py` (it is not in
+the card's `url4` gates; run separately). Split each by reason to change into a private
+submodule, re-export every moved name from the original module, no behaviour change, no test edit.
+
+**Done.**
+| Module (before → after, cap) | Moved to | Commit |
+|---|---|---|
+| `dag/_run.py` 336 → 234 (271) | `dag/_run_files.py` (run-start file resolution), `dag/_run_observe.py` (RunStarted/RunFinished bookkeeping) | `a5212b598` |
+| `dag/nodes/fetch.py` 307 → 245 (290) | `dag/nodes/struct.py` (`StructNode` + decoding helpers) | `b8bc987a9` |
+| `peer/_dispatch.py` 224 → 201 (214) | `peer/_reassemble.py` (`reassemble`, `_TRANSPORT_PARAMS`) | `38964a0a7` |
+| `dag/_lowering.py` 654 → 622 (640) | `dag/_iteration_refs.py` (`_ROW_NAMES`, `_body_intent_refs`, `_body_ref_edges`) | `8cc91b413` |
+
+- `run()` and `_to_node` stay in `dag/_run.py`: `test_iteration.py` spies `compile_expression`
+  on `url4.dag._run`, so the outer compile must still look it up there.
+- Re-exports are redundant-alias imports (`from m import x as x`), so every prior
+  `url4.dag._run.*` / `url4.dag.nodes.fetch.*` / `url4.peer._dispatch.*` / `url4.dag._lowering.*`
+  path still resolves.
+- Gates: `check_module_size.py` all within baseline; `run_gates.py url4` ALL GREEN (append-only
+  vs HEAD and vs `02771b601`, no test file changed); `run_gates.py screamingface-engine` ALL GREEN
+  (not touched; regression smoke).
+
+**Deviations / open questions.**
+- The new submodules are not added to the ratchet's `BASELINE` (conservative: the gate script
+  is untouched). Capping them would stop regrowth; owner call.
+- `StructNode.__module__` is now `url4.dag.nodes.struct` (likewise for the other moved names);
+  no test or doc depends on it.
