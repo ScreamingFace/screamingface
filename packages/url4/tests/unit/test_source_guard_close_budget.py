@@ -6,7 +6,8 @@ on demand, or never ends; deadlines are already-expired values or a replaced gua
 FEATURE: url4 source fetch destination guard (OME-1544) — bounded per-host pools (OME-1719).
 STORY: as an operator of a long-lived node, fetching from ever more host names while closes
 stall never piles up pools that are closing — at most ``limit`` are retained and ``limit`` more
-are closing — and every close failure is reported by the next completed shutdown.
+are closing from idle evictions, plus at most one per request in flight for pools evicted while
+busy — and every close failure is reported by the next completed shutdown.
 """
 
 from __future__ import annotations
@@ -252,3 +253,23 @@ async def test_waiting_for_a_close_slot_past_the_fetch_deadline_is_a_source_time
         assert caught.value.permanent is False
         assert len(made) == 2
         gate.set()
+
+
+@pytest.mark.asyncio
+async def test_busy_victims_close_outside_the_budget_bounded_by_requests_in_flight() -> None:
+    # Review 4, finding 2 (owner: narrow the invariant, no new waits). A pool evicted while a
+    # request holds it closes on that request's release, outside the close budget — so the
+    # executable bound is closing <= budget + requests in flight, not 2 * limit.
+    gate = asyncio.Event()
+    made, pools = _maker(gate=gate)
+    held = [await pools.acquire(f"h{index}.example", timeout=0) for index in range(20)]
+    assert len(pools) == 1  # retained stays at `limit` while every lease is held...
+    assert not pools._closing  # ...and nothing closes under a request in flight
+    for lease in held:
+        await lease.release()
+        assert len(pools._closing) <= 1 + len(held)  # budget (limit=1) + leases held
+    assert len(pools) + len(pools._closing) <= 1 + 1 + len(held)  # retained + budget + held
+    assert len(pools._closing) == 19  # every busy victim started its close on release
+    gate.set()
+    await pools.aclose()
+    assert [pool.closed for pool in made] == [1] * 20

@@ -19,13 +19,15 @@ its deadline). A close error is logged when it happens.
 INVARIANT (review 3): a close failure is KEPT until a shutdown that is not cancelled reports it
 — :meth:`HostPools.aclose` waits for every close, then raises everything kept as one
 ``ExceptionGroup``. At most ``limit`` failures are kept; the rest are counted in its message.
-INVARIANT (review 3): at most ``limit`` closes are pending (the same bound as the retained
-pools, so retained + closing <= 2 * limit). An acquire that must evict an idle pool while the
-budget is full waits for a slot within its ``timeout`` (the fetch's deadline), else
-``TimeoutError``. Every close is bounded by :data:`CLOSE_TIMEOUT`, so a slot always frees.
-AIDEV-NOTE: a pool evicted while BUSY is closed by its last release, which never waits (see
-above); that close may exceed the budget, but such pools are bounded by requests in flight, not
-by host churn.
+INVARIANT (review 3, narrowed in review 4): closes started by IDLE evictions are budgeted — at
+most ``limit`` of them pending. An acquire that must evict an idle pool while the budget is full
+waits for a slot within its ``timeout`` (the fetch's deadline), else ``TimeoutError``. Every
+close is bounded by :data:`CLOSE_TIMEOUT`, so a slot always frees.
+INVARIANT (review 4): a pool evicted while BUSY is closed by its last release, OUTSIDE the
+budget (a release never waits) — those closes are bounded by the number of requests in flight,
+not by host churn. So: retained <= ``limit``; pending closes <= ``limit`` + requests in flight;
+retained + pending <= ``limit`` + ``limit`` + requests in flight. Sequential host churn (no
+request held across evictions) therefore stays within ``2 * limit``.
 
 FEATURE: url4 source fetch destination guard (OME-1544) — bounded per-host pools (OME-1719).
 """
