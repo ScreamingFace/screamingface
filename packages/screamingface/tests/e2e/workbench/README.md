@@ -116,7 +116,8 @@ assets, as for `just screamingface workbench`):
 2. Tick `quickstart` and press **Start run**. The run page streams pytest's output, and after
    the `collected 1 item` line shows `running quickstart… 00:07`, ticking every second.
 3. Wait for the end (a few minutes on replay). The page reloads with `exit 0` and a PASS
-   bundle. Open it: both hops found, the trace ids, the candidate's score, spend
+   bundle. Open it: the Trace view (five hops, the span tree from `sdk.evaluate` down to the
+   gateway calls), the trace ids, the candidate's score, spend
    (`unknown` or an amount, never `None`), cache hits, cache-saved cost, and the executed
    notebook in a frame.
 4. Start another run, press **Cancel run** while it is running and confirm. The page ends
@@ -131,7 +132,7 @@ assets, as for `just screamingface workbench`):
 |---|---|
 | `/` | The run form: target (`replay`, or `local` with a "spends real tokens" checkbox), notebooks (none checked = all). The runs found under `<out>/runs/`. Every bundle under `<out>`, newest first: verdict pill (PASS, FAIL, or "unreadable" when `trace.json` is missing or malformed), target, notebook, trace ids, reasons, time. |
 | `/runs/<id>` | Status, which notebook is running and for how long (`running quickstart… mm:ss`, from pytest's `collected` line to that notebook's result), the pytest output streamed live, a Cancel button, the live model calls and telemetry counts (see Telemetry), and links to the bundles the run wrote. After the run ends it shows the exit code and the partial output, including when the run crashed or was cancelled. |
-| `/bundles/<key>` | Verdict and reasons, the hop table (found, matching lines, missing ids), per candidate the score, spend (`cost_usd`), cache hits and cache-saved cost, the total spend, one collapsible log excerpt per hop, the Telemetry section (see Telemetry), and the executed notebook. A money value the notebook reported as null (nothing priceable observed), or did not report, shows `unknown`, never `0`; one unknown amount makes the total `unknown`. |
+| `/bundles/<key>` | Verdict and reasons, the Trace view (see "Reading the Trace view"), per candidate the score, spend (`cost_usd`), cache hits and cache-saved cost, the total spend, one collapsible log excerpt per hop, the Telemetry section (see Telemetry), and the executed notebook. A money value the notebook reported as null (nothing priceable observed), or did not report, shows `unknown`, never `0`; one unknown amount makes the total `unknown`. |
 
 The progress line is derived from pytest's own `-v` lines. `log_cli` stays off: it would print
 around the redaction hook (see "Not redacted" below).
@@ -198,8 +199,11 @@ UI exits with 128 + the signal number. SIGKILL on the UI itself cannot be handle
 run first.
 
 `test_ui_e2e.py` launches a real `replay` run for `quickstart` through these routes and checks
-the bundle is listed PASS with both hops found, its Telemetry section, and the run's telemetry
-stream (gated like the replay lane).
+the bundle is listed PASS, its Trace view (five hops, `url4.run` under the derived
+`sdk.evaluate` root, a gateway chat span under `/benchmarks/candidate`), its Telemetry section,
+and the run's telemetry stream (gated like the replay lane). The tree assertions need the
+engine's span export (unit 6a, OME-1747) on the branch: without it the engine exports no
+`url4.run` and the test fails at the tree.
 `test_shutdown.py` boots the real entry point with a fake run and signals only the UI process.
 
 ### Telemetry
@@ -244,6 +248,57 @@ What a replay run shows (observed 2026-10-22, `quickstart`, run in the UI on por
   `chat.completions {provider}` span, and the report's accounting has no model or stage rows
   ("No model rows."). Both appear only on a real dispatch (`local`, paid), which has not been
   run yet.
+
+### Reading the Trace view
+
+The bundle page's **Trace** section (spec §3.8, u8 plan) tells one run's story across every hop.
+It is built from the bundle's own files (`trace.json`, `spans.jsonl`, `events.jsonl`,
+`recorder.json`, `accounting.json`, `logs/*.txt`; `ui/trace_story.py`) and rendered without
+script (`ui/trace_html.py`). The verdict does not change; this is presentation. Top to bottom:
+
+1. **Header.** Trace id (selectable), verdict, wall time, model calls, cache hits, spend, and
+   span, SDK event and log-line counts. Spend is `unknown` on replay (the accounting has no
+   model rows), never `$0`.
+2. **Trace chain.** Five boxes: notebook (SDK) → engine → aigateway → provider or cache →
+   scoreboard, each ok (✓), failed (✗) or not seen (grey, dashed) with its reason, span and
+   log-line counts, and latency. On replay, provider is grey "none on replay: served from
+   cache" and scoreboard is grey "not instrumented". A failed gateway call turns aigateway ✗
+   with the failure code. Under 480px the boxes stack into a column.
+3. **Span tree.** One tree across services, nested by `parent_span_id`. Its root is
+   `sdk.evaluate`, a client span **derived from SDK events** (dashed, labelled): it is made only
+   when exactly one span's parent is outside the bundle and that span is `url4.run`; the span id
+   is that parent, the bounds come from `recorder.json`. Otherwise no root is invented and a
+   note says why. Five or more same-named sibling leaves fold into "×N"; the path to any error
+   starts open and red. 500 rows per page; a page that starts mid-subtree repeats its ancestors.
+   A cycle in the parents cannot loop: each span is visited once.
+4. **Model calls.** One row per gateway `POST /v1/chat/completions` span, described by its
+   engine parent (`/benchmarks/candidate`: model, provider, cache, tokens). Gateway lines join
+   a call by the exact `trace_id=` token and the span's time window, labelled "matched by time"
+   ("ambiguous" when two windows hold the line, and then shown under both). A failed call's row
+   is red.
+5. **Checks.** Each rule the verdict applied, from `trace.json`, in plain words (✓ held /
+   ✗ not held) with its evidence.
+6. **Export.** "Download spans as OTLP/JSON" (`GET /bundles/<key>/trace.otlp.json`, launch token
+   required): the spans as received, grouped by service, hex ids and string nanosecond times
+   per the OTLP/JSON encoding. The derived client span is not exported. A protobuf
+   `json_format.ParseDict` needs the three id fields re-encoded to base64 first (proto3 JSON).
+
+What a replay run shows (observed 2026-10-27, both notebooks, keyless, with 6a applied):
+
+- **`quickstart`.** 39 spans + the derived root (40 tree rows), 59 SDK events, 8 log lines;
+  hops notebook, engine and aigateway ✓, provider and scoreboard grey; 2 model calls, both
+  cache `hit`, spend `unknown`; `url4.run` under `sdk.evaluate`, both gateway chat spans under
+  `/benchmarks/candidate`. The OTLP/JSON download parsed as `TracesData`: 39 spans in 2
+  resources (`screamingface-engine` 35, `aigateway` 4), one 16-byte trace id.
+- **`debug_failing_run`.** aigateway ✗ "2 of 2 calls failed: upstream_error"; the error path
+  from `sdk.evaluate` down to `/benchmarks/candidate` is open and red; both call rows are red
+  with `upstream_error`.
+
+Known gaps (follow-ups B3, B8 in the plan): scoreboard is not instrumented; gateway spans carry
+no attributes, so a call's model, cache and status come from its engine parent. In the failing
+fusion both member calls sit under one failed `/benchmarks/candidate`, so both rows show that
+span's model and the error, though only one member failed. The replay gateway's lines fall
+outside the chat spans' windows, so no line joins a call ("matched no model call" note).
 
 ## Debugging a failing run
 

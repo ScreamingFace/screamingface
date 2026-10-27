@@ -4,6 +4,10 @@ No fake spawn: ``RunManager`` runs the same pytest lane CI runs
 (``tests/e2e/workbench/test_notebooks.py`` on the replay stack), and the test reads the result
 back through the pages a developer would open. Gated like the replay lane: the e2e gate
 (``SCREAMINGFACE_TEST_E2E=1`` + docker) and prepared ifeval assets, or it skips with the reason.
+
+The Trace view (u8 plan, Task 5) is read as a tree of span names: an ``HTMLParser`` maps each
+``<li>`` to its first ``sname``, so "``url4.run`` under ``sdk.evaluate``" is a parent edge, not
+a substring that would also hold for a sibling or a span on another page.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -78,7 +83,8 @@ def test_a_replay_run_through_the_ui_lands_a_passing_bundle(client: TestClient) 
     assert row, index.text
     assert '<span class="pill pass">PASS</span>' in row.group(0)
 
-    # 4. Its bundle page: both hops of the chain found, the notebook in an empty sandbox.
+    # 4. Its bundle page: the Trace view (five hops, one tree from the client span down to the
+    # gateway), the notebook in an empty sandbox.
     page = client.get(f"/bundles/{key}")
     assert page.status_code == 200
     _assert_bundle_page(page.text)
@@ -88,15 +94,72 @@ def test_a_replay_run_through_the_ui_lands_a_passing_bundle(client: TestClient) 
 
 
 def _assert_bundle_page(text: str) -> None:
-    hop_row = r'<tr><td>(engine|aigateway)</td><td><span class="pill (\w+)"'
-    hops = dict(re.findall(hop_row, text))
-    assert hops == {"engine": "pass", "aigateway": "pass"}, text
-    assert text.count(">found<") >= 2
+    _assert_trace_view(text)
     assert '<iframe class="nb" sandbox=""' in text
     # 5. Spend per candidate: an amount or "unknown", never the string "None".
     candidates = text.split("<th>Candidate</th>", 1)[1].split("</table>", 1)[0]
     assert "<th>Spend (USD)</th>" in text and "None" not in candidates, candidates
     assert re.search(r"Total spend: <b>(\$[0-9.]+|unknown)</b>", text), text
+
+
+class _TreeEdges(HTMLParser):
+    """``(name, parent name)`` per tree ``<li>``, and which rows are the derived client span."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stack: list[str | None] = []  # the open <li>s' span names, outermost first
+        self.edges: list[tuple[str, str | None]] = []
+        self.synthetic: list[str] = []
+        self._name: bool = False
+        self._synthetic: bool = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        css = (dict(attrs).get("class") or "").split()
+        if tag == "li":
+            self.stack.append(None)
+        elif tag == "span" and "synthetic" in css:
+            self._synthetic = True
+        elif tag == "span" and "sname" in css and self.stack and self.stack[-1] is None:
+            self._name = True
+
+    def handle_data(self, data: str) -> None:
+        if not self._name:
+            return
+        self._name = False
+        self.stack[-1] = data
+        parents = [n for n in self.stack[:-1] if n is not None]
+        self.edges.append((data, parents[-1] if parents else None))
+        if self._synthetic:
+            self.synthetic.append(data)
+        self._synthetic = False
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "li" and self.stack:
+            self.stack.pop()
+
+
+def _assert_trace_view(text: str) -> None:
+    """Five hops; ``sdk.evaluate`` (derived) roots ``url4.run``; a gateway chat span sits under
+    the engine's ``/benchmarks/candidate`` (u8 plan, Task 5; spec §3.8)."""
+    assert '<section id="trace"><h2>Trace</h2>' in text, text
+    section = text.split('<section id="trace">', 1)[1].split("</section>", 1)[0]
+    hop_path = section.split('<table class="hop-path">', 1)[1].split("</table>", 1)[0]
+    hop_row = r'<tr><td>(\w+)</td><td><span class="pill (\w+)"'
+    assert re.findall(hop_row, hop_path) == [
+        ("notebook", "pass"),
+        ("engine", "pass"),
+        ("aigateway", "pass"),
+        ("provider", "unknown"),
+        ("scoreboard", "unknown"),
+    ], hop_path
+    tree = section.split('<ul class="tree">', 1)[1].split('<h3 id="trace-calls">', 1)[0]
+    parsed = _TreeEdges()
+    parsed.feed('<ul class="tree">' + tree)
+    assert parsed.synthetic == ["sdk.evaluate"], parsed.edges
+    assert ("sdk.evaluate", None) in parsed.edges, parsed.edges
+    assert "derived from SDK events" in tree, tree
+    assert ("url4.run", "sdk.evaluate") in parsed.edges, parsed.edges
+    assert ("POST /v1/chat/completions", "/benchmarks/candidate") in parsed.edges, parsed.edges
 
 
 def _assert_telemetry_section(text: str) -> None:
