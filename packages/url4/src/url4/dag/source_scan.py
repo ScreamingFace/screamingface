@@ -82,25 +82,37 @@ Occurrence = tuple[AttachmentIdentity, tuple[CollectionGuard, ...]]
 
 
 @dataclass(frozen=True)
+class OccurrenceSlot:
+    """A slot-order marker for ``occurrences[index]`` (F1b round 7).
+
+    WHY a per-occurrence marker, not the identity: an identity's one slot sits at its first
+    REACHABLE occurrence in manifest preorder, and reachability is only known after admission
+    (:func:`reachable_order` resolves the markers then).
+    """
+
+    index: int
+
+
+@dataclass(frozen=True)
 class SourceScan:
     """The run's file refs, and the source-order keys of its attachment slots.
 
     ``order`` holds, at first sight in pre-order, an attachable file ref's :attr:`FileRef.key`,
     the URL of every ``http(s)://`` text source read in scalar position (Q-B: such a source
     attaches only if its body turns out not to be text; collection position never attaches),
-    and the :class:`AttachmentIdentity` of every attachment source (F1b round 7).
+    and an :class:`OccurrenceSlot` for EVERY attachment-source occurrence (F1b round 7).
     ``occurrences`` lists every attachment-source occurrence in preorder with its guards.
     """
 
     refs: tuple[FileRef, ...]
-    order: tuple[str | AttachmentIdentity, ...]
+    order: tuple[str | OccurrenceSlot, ...]
     occurrences: tuple[Occurrence, ...] = ()
 
 
 @dataclass
 class _Found:
     refs: dict[str, FileRef] = field(default_factory=dict)
-    order: dict[str | AttachmentIdentity, None] = field(default_factory=dict)  # an ordered set
+    order: dict[str | OccurrenceSlot, None] = field(default_factory=dict)  # an ordered set
     urls: set[str] = field(default_factory=set)
     occurrences: list[Occurrence] = field(default_factory=list)
 
@@ -117,7 +129,7 @@ def scan_sources(ast: Node) -> SourceScan:
     order = tuple(
         key
         for key in found.order
-        if isinstance(key, AttachmentIdentity) or key in attached or key in found.urls
+        if isinstance(key, OccurrenceSlot) or key in attached or key in found.urls
     )
     return SourceScan(refs, order, tuple(found.occurrences))
 
@@ -167,9 +179,29 @@ def _add_attachment(node: Source, out: _Found, guards: _Guards) -> bool:
     identity = identity_of(node)
     if identity is None:
         return False
-    out.order.setdefault(identity)
+    out.order.setdefault(OccurrenceSlot(len(out.occurrences)))
     out.occurrences.append((identity, guards))
     return True
+
+
+def reachable_order(
+    order: Sequence[str | OccurrenceSlot],
+    occurrences: Sequence[Occurrence],
+    first_reachable: frozenset[int],
+) -> tuple[str | AttachmentIdentity, ...]:
+    """The slot order once reachability is known: each identity at its first reachable occurrence.
+
+    INVARIANT (F1b round 7): one attachment per identity, at that identity's first occurrence
+    in MANIFEST preorder — the manifest holds only reachable occurrences, so an unreachable
+    occurrence takes no slot; blob-ref and Q-B URL slots keep their source-order positions.
+    """
+    placed: list[str | AttachmentIdentity] = []
+    for key in order:
+        if not isinstance(key, OccurrenceSlot):
+            placed.append(key)
+        elif key.index in first_reachable:
+            placed.append(occurrences[key.index][0])
+    return tuple(placed)
 
 
 def _walk_expression(
@@ -218,7 +250,9 @@ def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
         if isinstance(source, Binding):
             named[source.name] = source.value
         elif isinstance(source, Source) and source.name is not None:
-            named[source.name] = source.value
+            # WHY the descriptor, not its value: ``$xs*(…)`` admission needs the binding's
+            # ``;retry=`` / ``;t=`` / ``;optional`` / ``;accept=`` (``_materialize._unwrap``).
+            named[source.name] = source
     return named
 
 
@@ -264,8 +298,10 @@ __all__ = [
     "CollectionGuard",
     "FileRef",
     "Occurrence",
+    "OccurrenceSlot",
     "SourceScan",
     "collect_file_refs",
+    "reachable_order",
     "refuse_remote",
     "scan_sources",
 ]
