@@ -280,6 +280,14 @@ async def test_a_broken_picture_in_the_fusion_input_is_refused_before_any_call()
         json.dumps([{"input": "What is 6 times 7?"}]),
         json.dumps({"input": {"schema": "screamingface.candidate-input.v2"}, "outputs": _OUTPUTS}),
         json.dumps({"input": None, "outputs": _OUTPUTS}),
+        # WHY a picture Case under each of these: only the Fusion shape decides, not what `input`
+        # holds, so a JSON prompt that merely has an `input` key keeps its bytes.
+        json.dumps({"input": _picture_case(), "metadata": "from a custom recipe"}),
+        json.dumps({"input": _picture_case()}),
+        json.dumps({"input": _picture_case(), "outputs": _OUTPUTS, "panel": "[]"}),
+        '{"input": "What is 6 times 7?", "input": '
+        + json.dumps(_picture_case())
+        + ', "outputs": {}}',
     ],
     ids=[
         "no input",
@@ -290,11 +298,16 @@ async def test_a_broken_picture_in_the_fusion_input_is_refused_before_any_call()
         "a top-level array",
         "input an object",
         "input null",
+        "a key no Fusion writes",
+        "neither outputs nor panel",
+        "both outputs and panel",
+        "a repeated input",
     ],
 )
 async def test_any_other_json_text_is_sent_as_written(context: str) -> None:
-    # WHY: the engine learns one key, `input`, and nothing else about recipes; anything that is
-    # not a picture Case under it keeps today's path.
+    # WHY: the engine learns the Fusion context's shape (the combine parser's) and nothing else
+    # about recipes; anything not of that shape, or not a picture Case under it, keeps today's
+    # path. A repeated key would be silently dropped on rebuild, so it keeps the text too.
     assert _messages(context, None) == [{"role": "user", "content": context}]
 
 

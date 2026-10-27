@@ -48,11 +48,11 @@ def test_a_picture_is_named_by_its_decoded_bytes() -> None:
     ],
     ids=["wrapped onto lines", "padding dropped", "upper-case type"],
 )
-def test_one_picture_spelled_another_way_gets_one_placeholder(url: str) -> None:
-    # WHY: the gateway and every provider read these as the same picture, so the placeholder does.
-    placeholder = media_placeholder(_image(url), where="message 0 part 1")
-
-    assert (placeholder["media_type"], placeholder["sha256"]) == ("image/png", _PNG_SHA256)
+def test_a_picture_in_another_spelling_is_refused(url: str) -> None:
+    # INVARIANT: the builder holds the envelope reader's one-spelling rule, so it never decodes
+    # a spelling the connector would then forward and the gateway's strict check refuse.
+    with pytest.raises(CandidateInputError, match="message 0 part 1: .*standard spelling"):
+        media_placeholder(_image(url), where="message 0 part 1")
 
 
 def test_a_file_placeholder_carries_its_filename() -> None:
@@ -74,12 +74,12 @@ def test_a_file_placeholder_carries_its_filename() -> None:
 def test_a_picture_that_is_not_base64_is_refused_by_place() -> None:
     # WHY refuse rather than guess: a placeholder must describe real bytes, and the provider
     # rejects this picture anyway. The refusal never repeats the payload.
-    with pytest.raises(
-        CandidateInputError, match="message 0 part 1: the image is not valid base64"
-    ):
+    with pytest.raises(CandidateInputError, match="message 0 part 1: .*standard spelling") as e:
         media_placeholder(
             _image("data:image/png;base64,***not-base64***"), where="message 0 part 1"
         )
+
+    assert "not-base64" not in str(e.value)
 
 
 def test_a_picture_that_is_not_inline_is_refused_by_place() -> None:

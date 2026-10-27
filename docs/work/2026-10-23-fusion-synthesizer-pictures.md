@@ -3,7 +3,7 @@ ticket: OME-1679
 stack: screamingface-engine
 status: done
 started: 2026-10-23
-finished: 2026-10-26
+finished: 2026-10-27
 ---
 
 # fusion-synthesizer-pictures — the Fusion synthesizer sees the Case's pictures
@@ -34,8 +34,8 @@ their exact bytes, so goldens replay. Design recorded on OME-1679 (2026-10-23).
 
 ## Test plan
 
-- Placeholder: a PNG data URI gives size and sha256 of the decoded bytes; wrapped/unpadded base64
-  gives the same placeholder; a filename is carried; broken base64 is refused by name.
+- Placeholder: a PNG data URI gives size and sha256 of the decoded bytes; wrapped, unpadded or
+  upper-case spellings are refused; a filename is carried; broken base64 is refused by name.
 - A picture Fusion context reaches the gateway with the image part first and no base64 in the text;
   the text holds the placeholder.
 - Text-only Fusion contexts (plain prompt Case, v1 Case) reach the gateway byte for byte as today.
@@ -55,14 +55,17 @@ their exact bytes, so goldens replay. Design recorded on OME-1679 (2026-10-23).
 - **Actual files:** as planned, except the placeholder tests live in a new
   `tests/unit/test_media_placeholder.py` (not appended to `test_candidate_input.py`), and the SDK
   twin is a new `packages/screamingface/tests/unit/test_media_placeholder_conformance.py`.
-  `candidate_input.py`'s `_json_object` became public `json_object` so the Fusion reader reuses it.
+  `candidate_input.py`'s `_data_uri_mime` refuses every spelling but the standard one (the same
+  check, and the same two tests, as #1554, moved here by the second review).
 - **Commits:** see the PR.
 - **Gates:** relevant tests only — engine `test_media_placeholder.py`, `test_fusion_context.py`,
   `test_media_placeholder_conformance.py`, `test_candidate_input.py`, `test_aigateway_connector.py`,
   `test_world_golden_parity.py`, `test_combine_wiring.py`, `test_combine_quorum_panel.py`,
   `test_combine_writer_world.py`, `test_combine_judge_world.py`: 156 passed. SDK
   `test_media_placeholder_conformance.py`, `test_candidate_input_schema_conformance.py`: 4 passed.
-  ruff + pyright clean on every touched file, both lanes. Full suites run in CI.
+  ruff + pyright clean on every touched file, both lanes. Full suites run in CI. After the second
+  review (2026-10-27): the first five engine files 152 passed, the SDK conformance file 2 passed,
+  ruff, pyright and the layering check clean.
 - **Deviations:**
   - The tests named in the plan as `test_fusion_pictures.py` shipped as `test_fusion_context.py`,
     beside the module `fusion_context.py`.
@@ -78,5 +81,19 @@ their exact bytes, so goldens replay. Design recorded on OME-1679 (2026-10-23).
     one keeps today's path. Pinned by the two `test_a_grading_call_with_…` tests; the review also
     added three `test_any_other_json_text_is_sent_as_written` cases (a top-level array, `input`
     an object, `input` null).
+  - Second review on #1552 (2026-10-27), three points:
+    - A picture in a non-standard spelling (spaces, no padding, upper-case type, parameters,
+      spare base64 bits) is refused at the envelope reader, and the placeholder builder uses the
+      same check instead of tidying the spelling first. Nothing is re-encoded: the spec says
+      refuse. No new size bound in the connector: Cases are capped at 8 MB at import and sealed
+      by their digest, the gateway refuses a body over 8 MiB, and the whole Fusion read takes
+      17 ms on a 7.88 MB context.
+    - The Fusion reader rewrites only the combine parser's context shape; any other JSON with an
+      `input` key, or one with a key twice, is sent as written.
+    - Not fixed here: a Fusion used as another Fusion's synthesizer. Its last synthesizer's
+      `input` is url4 struct text with the Case pasted in, not JSON (checked by compiling
+      `sf.Fusion([a], synthesizer=sf.Fusion([b], synthesizer=sf.Model(s)))` with the SDK and
+      running it through the engine), so the picture stays base64 there. The fix starts in the
+      SDK's compiler: OME-1741.
   - Kept as decided on 2026-10-23: the placeholder in the envelope module, broken base64 refused
     by name, the SDK twin and the stale comment fix in this PR.
