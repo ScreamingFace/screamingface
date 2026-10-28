@@ -121,6 +121,14 @@ _UNVERIFIED_HOSTED_MODELS: frozenset[tuple[str, str]] = frozenset(
 # read `openrouter` and no model could ever be classified at all.
 _ROUTING_PREFIXES: frozenset[str] = frozenset({"openrouter"})
 
+# WHY: a submitted route carries the Engine's url4 spelling, where a gateway selector colon is
+# escaped as `~` (`encode_route_id`, OME-873), and the submission schema rejects `:` outright.
+# The release registry and the hosted-edition list use gateway ids, so a route is decoded back
+# before either lookup; otherwise every `:free`/`:batch` entry is unreachable (PR #1534 review).
+# AIDEV-NOTE: mirrors the Engine's `decode_route_id`; `~` is reserved for this escape alone.
+_URL4_SELECTOR_ESCAPE = "~"
+_GATEWAY_SELECTOR = ":"
+
 
 def _matches_any(name: str, markers: tuple[str, ...]) -> bool:
     lowered = name.lower()
@@ -162,7 +170,8 @@ def _split_route(route: str) -> tuple[str, str] | None:
     A bare `claude-opus-4.8` carries no owner to reason about, and guessing from the string is
     exactly the hole this parsing closes, so the caller fails closed on None.
     """
-    segments = [segment for segment in route.lower().split("/") if segment]
+    gateway_route = route.lower().replace(_URL4_SELECTOR_ESCAPE, _GATEWAY_SELECTOR)
+    segments = [segment for segment in gateway_route.split("/") if segment]
     if segments and segments[0] in _ROUTING_PREFIXES:
         segments = segments[1:]
     if len(segments) < 2:
@@ -210,6 +219,17 @@ def _in_family(model: str, families: tuple[str, ...]) -> bool:
     return any(model == family or model.startswith(f"{family}-") for family in families)
 
 
+def _is_unverified_hosted(parsed: tuple[str, str]) -> bool:
+    """Whether the route names a hosted-only edition, under any selector.
+
+    INVARIANT: compares the model BEFORE its selector, and the caller runs it ahead of the owner
+    rule, so `qwen3.6-plus:free` cannot re-open what the bare edition is denied (PR #1534
+    review). The registry lookup stays exact: a selector is credited only when audited itself.
+    """
+    owner, model = parsed
+    return (owner, model.partition(_GATEWAY_SELECTOR)[0]) in _UNVERIFIED_HOSTED_MODELS
+
+
 def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     """The rules themselves, so `classify_model` stays one decision and one log.
 
@@ -217,7 +237,7 @@ def _owner_verdict(parsed: tuple[str, str] | None) -> ModelOpenness:
     these two lines files `openai/gpt-oss-120b` as closed on its owner's name; widening the
     family check beyond `_OPEN_FAMILIES_BY_OWNER[owner]` re-opens the crafted-name hole.
     """
-    if parsed is None or parsed in _UNVERIFIED_HOSTED_MODELS:
+    if parsed is None or _is_unverified_hosted(parsed):
         return "unknown"
     owner, model = parsed
     if (

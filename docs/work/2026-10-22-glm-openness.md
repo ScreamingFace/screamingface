@@ -97,3 +97,50 @@ licensing. No weights downloaded, no gate acceptance, and no inference runs perf
 
 Validation after evidence changes: 289 focused tests passed; `git diff --check` passed.
 Classifier code and audited route membership are unchanged.
+
+## Review round — Dmitry, 2026-10-27 (CHANGES_REQUESTED at 01a36f888)
+
+Status: DONE (2026-10-28).
+
+Intent: address three verified findings.
+
+1. URL4 selector spelling. Submitted routes use the Engine's `~` escape for a gateway `:`
+   (`world/models/registry.py` `encode_route_id`); the submission schema accepts `~` and
+   rejects `:`. The registry stores gateway ids, so all 16 `:free`/`:batch` entries were
+   unreachable from a real submission.
+2. Hosted-Qwen deny bypass. `openrouter/qwen/qwen3.6-plus~free` (and `~batch`, and
+   `qwen3.8-max-prime~free`) missed the exact-tuple deny and fell through to the `qwen`
+   owner rule, classifying open.
+3. Evidence CSV weight totals omitted `.pt` artifacts (e.g. `moondream3-preview`
+   `model_fp8.pt`, 10,505,451,019 bytes).
+
+Planned changes:
+- `classification/openness.py`: decode `~` to `:` when splitting a route (mirrors the
+  Engine's `decode_route_id`; `~` is reserved for that escape), and check the hosted-edition
+  deny list against the model base before any `:` selector, ahead of the owner rule.
+- Tests (new only): URL4-spelled routes for all 16 selector registry keys resolve open via
+  `classify_model` and `classify_entry`; hosted-Qwen `~free`/`~batch` variants return
+  unknown and close the entry with the route reported.
+- Evidence CSV: recompute `weight_file_count`/`weight_bytes` from the pinned Hugging Face
+  manifests with `.pt`/`.pth` included; state the counted suffix set in the spec.
+
+Acceptance: reviewer's two route probes pass; scoreboard gates green; CSV totals
+reproducible from the stated suffix set.
+
+Outcome:
+- Verified all three findings against the code before changing anything: the schema
+  accepts `~` and rejects `:`; the Engine encodes `:` as `~`; `_split_route` did not decode;
+  the hosted deny compared the whole model segment; the CSV totals matched exactly
+  safetensors+bin+GGUF for all 99 rows.
+- `classification/openness.py`: `_split_route` decodes `~` to `:`; new
+  `_is_unverified_hosted` compares the model before its selector, ahead of the owner rule.
+  Registry lookup stays exact.
+- New test file `tests/unit/classification/test_route_selectors.py` (no prior test changed).
+  RED: 26 failed (16 selector releases + 10 hosted-Qwen variants). GREEN: 45 passed.
+- Evidence CSV recomputed from pinned manifests with `pt`/`pth` added: 5 rows changed
+  (Ling-3.0-flash-VL, moondream3-preview, MiMo-V2.6 Flash/Pro/Pro-UltraSpeed; four distinct
+  `.pt` files). Spec states the counted suffix set.
+- Gates: ALL GATES GREEN via `run_gates.py scoreboard --base ae12925` (the PR merge base).
+  Against current `origin/main` the append-only check flags two tests the branch never
+  touched (main moved ahead); not a change of this PR.
+- Deviation: ruff PLR0911 required splitting the hosted check into a helper.

@@ -69,6 +69,11 @@ standard model configuration/tokenizer. Also verified the complementary MiniMax-
 repository, making 86 weight repositories inspected in this pass. No classifications
 changed under the existing downloadable-and-locally-runnable definition.
 
+`weight_file_count` and `weight_bytes` count every file in the primary repository's
+manifest at the pinned revision whose extension is `safetensors`, `bin`, `gguf`, `pt` or
+`pth` (review of PR #1534 found `.pt` artifacts omitted; recomputed 2026-10-28, which
+changed five rows).
+
 The evidence CSV now records full commit IDs, byte totals from manifests, access gates,
 mapping basis, inference evidence, and specific qualifications:
 
