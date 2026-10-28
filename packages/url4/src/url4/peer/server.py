@@ -1,12 +1,11 @@
 """The node-side SDK — :class:`Url4Node`: registries and evaluation.
 
-A node IS an :class:`~url4.io.layer.IOLayer`: it implements ``fetch`` (routing
-relative targets to its own endpoints / eval path / data routes and delegating
-absolute URIs outbound), ``fetch_ex``, and ``fetch_holdings`` (``@`` and
-``@identity``, spec §5.6). In-process evaluation is therefore just
-``run(expression, io=self)`` — and the HTTP adapter in :mod:`url4.peer._http`
-reuses the same ``fetch`` dispatch, so HTTP behavior and in-process behavior
-can never diverge.
+A node IS an :class:`~url4.io.layer.IOLayer`: it implements ``fetch`` (routing relative targets
+to its own endpoints / eval path / data routes and delegating absolute URIs outbound),
+``fetch_ex``, the binary-safe ``fetch_bytes`` (:mod:`url4.peer._bytes`), and ``fetch_holdings``
+(``@`` and ``@identity``, spec §5.6). In-process evaluation is therefore just
+``run(expression, io=self)`` — and the HTTP adapter in :mod:`url4.peer._http` reuses the same
+``fetch`` dispatch, so HTTP behavior and in-process behavior can never diverge.
 
 The dispatch half — how a relative target resolves against these registries —
 lives in :mod:`url4.peer._dispatch` (the second review's F2 split, made when
@@ -31,7 +30,7 @@ from url4.core.nodes import Node
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.dag.remote_nodes import refuse_remote_nodes
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
-from url4.peer import _dispatch
+from url4.peer import _bytes, _dispatch
 from url4.peer._code import CodeMounts
 from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
@@ -225,6 +224,7 @@ class Url4Node(CodeMounts):
     # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2
     # split) — one owner, so HTTP (url4.peer._http) and in-process behavior
     # cannot diverge.
+    fetch_bytes = _bytes.fetch_bytes  # binary-safe: a module function, bound as a method
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         return await _dispatch.fetch(self, target, relative=relative)

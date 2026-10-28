@@ -7,24 +7,25 @@ validates the run's knobs (``_validate_concurrency``), builds the per-run
 :class:`~url4.dag.ExecutionContext` (``_run_context`` — the composition root
 that owns the default ``HttpIOLayer``, imported lazily so the static import
 graph names no transport), mints the observation bookkeeping
-(``_start_observation`` / ``_finish_observation`` / ``_expression_hash``), and
-delegates to ``_wire_spawn`` (which stays in :mod:`url4.dag.executor` because
-it builds executors). ``url4.dag`` re-exports :func:`run` unchanged, so no
-public import path moves.
+(``_start_observation`` / ``_finish_observation`` / ``_expression_hash``, now in
+:mod:`url4.dag._run_observe`), resolves the run's files at start (now in
+:mod:`url4.dag._run_files`), and delegates to ``_wire_spawn`` (which stays in
+:mod:`url4.dag.executor` because it builds executors). ``url4.dag`` re-exports
+:func:`run` unchanged, so no public import path moves.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import secrets
-from typing import Literal, cast
+from collections.abc import Sequence
+from typing import cast
 
 from url4.core.nodes import Node as AstNode
 from url4.io.layer import IOLayer
-from url4.observe import Observer, RunFinished, RunStarted
+from url4.observe import Observer
 
-from url4.dag._context import _ObsState  # isort: skip
+from url4.dag.attachment import Attachment  # isort: skip
+from url4.dag.attachments import bind_run_files  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.executor import Executor, _wire_spawn  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -35,6 +36,17 @@ from url4.dag.node import (  # isort: skip
     ProcessFn,
     default_process,
 )
+
+# WHY: the run-start file resolution and the observation bookkeeping live in their own
+# private modules (module-size cap); the redundant aliases re-export them so every
+# ``url4.dag._run.<name>`` import path keeps working.
+from url4.dag._run_files import _as_attachment as _as_attachment  # isort: skip
+from url4.dag._run_files import _ast_of as _ast_of  # isort: skip
+from url4.dag._run_files import _run_start  # isort: skip
+from url4.dag._run_files import _verify as _verify  # isort: skip
+from url4.dag._run_observe import _expression_hash as _expression_hash  # isort: skip
+from url4.dag._run_observe import _finish_observation as _finish_observation  # isort: skip
+from url4.dag._run_observe import _start_observation as _start_observation  # isort: skip
 
 
 def _validate_concurrency(concurrency: int | None) -> None:
@@ -85,6 +97,7 @@ async def run(
     observer: Observer | None = None,
     trace_id: str | None = None,
     root_span_id: str | None = None,
+    attachments: Sequence[Attachment] = (),
 ) -> str:
     """Evaluate a url4 expression (text, parse tree, graph, or node) to a string.
 
@@ -140,6 +153,11 @@ async def run(
     the engine minting fresh ones. Only meaningful together with ``observer``;
     ignored (no-op) when ``observer`` is ``None``, since no ids are ever minted
     or emitted in that case.
+
+    ``attachments`` are the Case's files (supplied by the engine), bound in order as the
+    head of the run's fixed ``attachments[]`` side-channel
+    (:func:`~url4.dag.attachments.current_attachments`), for every model call this run makes.
+    A nested ``run()`` inherits the outer list; binding a different one raises ``ValueError``.
     """
     if ctx is not None and (
         io is not None or processor is not None or process is not default_process
@@ -161,7 +179,11 @@ async def run(
     obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
     _wire_spawn(run_ctx, registry)
     try:
-        result = await Executor(run_ctx).execute(_to_node(target, registry))
+        start = await _run_start(target, attachments, run_ctx)
+        with bind_run_files(
+            start.slots, start.cache, manifest=start.manifest, prefetched=start.prefetched
+        ):
+            result = await Executor(run_ctx).execute(_to_node(target, registry))
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
         _finish_observation(obs, status)
@@ -172,54 +194,6 @@ async def run(
     finally:
         if owned_io is not None:
             await owned_io.aclose()
-
-
-def _start_observation(
-    run_ctx: ExecutionContext,
-    observer: Observer | None,
-    target: str | AstNode | Graph | DagNode,
-    trace_id: str | None = None,
-    root_span_id: str | None = None,
-) -> _ObsState | None:
-    """Mint the run's ``_ObsState``, wire it onto ``run_ctx``, and emit
-    :class:`~url4.observe.RunStarted` — once, here, for the top-level owned
-    run only. ``None`` (a no-op run) when no ``observer`` was passed.
-
-    ``trace_id``/``root_span_id``, when supplied, are used verbatim instead of
-    minting fresh ones — letting a caller's own run-root identity (e.g. a
-    hosting service's ``publish.run``) agree with the engine's."""
-    if observer is None:
-        return None
-    obs = _ObsState(observer, trace_id if trace_id is not None else secrets.token_hex(16))
-    run_ctx._obs = obs
-    run_ctx._current_span_id = root_span_id if root_span_id is not None else secrets.token_hex(8)
-    obs.emit(RunStarted(obs.trace_id, run_ctx._current_span_id, _expression_hash(target)))
-    return obs
-
-
-def _finish_observation(obs: _ObsState | None, status: Literal["ok", "error", "cancelled"]) -> None:
-    """Emit :class:`~url4.observe.RunFinished`; a no-op when ``obs`` is ``None``."""
-    if obs is not None:
-        obs.emit(RunFinished(status, obs.next_seq()))
-
-
-def _expression_hash(target: str | AstNode | Graph | DagNode) -> str:
-    """A short, deterministic fingerprint of ``target`` for
-    :class:`~url4.observe.RunStarted` — identifies "which expression" without
-    carrying (and potentially leaking) the full source text through the
-    observation stream.
-
-    A raw hand-built :class:`DagNode` has no engine-guaranteed ``__repr__`` —
-    the default object repr is id-based and differs run to run, which would
-    break the "deterministic" contract above. ``str``/``AstNode``/``Graph``
-    targets stringify structurally (source text / a dataclass repr), so only
-    the ``DagNode`` fallback needs the type-name-only fingerprint.
-    """
-    if isinstance(target, (str, AstNode, Graph)):
-        fingerprint = str(target)
-    else:
-        fingerprint = type(target).__name__
-    return hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
 
 
 def _run_context(
