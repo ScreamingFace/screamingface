@@ -86,8 +86,10 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 Invariants:
 - **F1.** Rows are insert-only. A sealed copy accepts no insert.
 - **F2.** Copies and rows are kept forever (Q15). No list endpoint returns stored requests.
-- **F3.** One entry is at most `frozen_copy_max_entry_bytes` (new setting, default 2,000,000 bytes, request
-  plus response JSON). A larger one is not stored and is reported as `failed`.
+- **F3.** One entry is at most `frozen_copy_max_entry_bytes` (request plus response JSON). Its default is
+  `max_request_bytes` plus a 2 MiB response headroom, 10 MiB with the 8 MiB request cap (OME-1756; it was
+  2,000,000 bytes, which refused picture Cases), so any call the gateway accepts fits. A larger one is not
+  stored and is reported as `failed`.
 
 ## 4. AI Gateway behaviour
 
