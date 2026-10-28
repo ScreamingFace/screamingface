@@ -1,6 +1,6 @@
 {
   "issue": "OME-1477",
-  "branch": "OME-1477-import-mmmu",
+  "branch": "OME-1477-pr1-import-mmmu",
   "approver": "owner, to confirm on the PR (requested in the OME-1477 session)",
   "date": "2026-10-28",
   "scope": "Prior-test edits for the one new Benchmark mmmu_multiple_choice, and nothing else: one table row in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87→88 and 70→71 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (its revision literal), and test_inspect_imported_benchmarks.py (family mcq). No existing row or assertion changes.",
