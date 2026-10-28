@@ -29,6 +29,7 @@ from screamingface_engine.artifacts import (
     allowed_result_bytes,
     decide_result_delivery,
 )
+from screamingface_engine.benchmarks.picture_admission import run_expression_scope
 from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
 from screamingface_engine.job_env import RunShape
@@ -1107,17 +1108,20 @@ class Url4Executor(Executor):
         run (PRD 04). Either way the observation events reach `bridge`."""
         if self._run_shape == "direct":
             return await self._dispatch_direct(url4, trace, bridge)
-        if trace is not None:
-            body = await url4_run(
-                url4,
-                self._io,
-                observer=bridge,
-                trace_id=trace.trace_id,
-                root_span_id=trace.root_span_id,
-                **self._run_kwargs,
-            )
-        else:
-            body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+        # FEATURE (OME-1548): a picture Benchmark's Cases route reads the linked Candidate from
+        # the run's own url4, to refuse a model that can't see pictures before any paid call.
+        with run_expression_scope(url4):
+            if trace is not None:
+                body = await url4_run(
+                    url4,
+                    self._io,
+                    observer=bridge,
+                    trace_id=trace.trace_id,
+                    root_span_id=trace.root_span_id,
+                    **self._run_kwargs,
+                )
+            else:
+                body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
         return _EvalResult(body)
 
     async def _dispatch_direct(
