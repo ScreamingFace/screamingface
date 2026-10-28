@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1477",
+  "branch": "OME-1477-import-mmmu",
+  "approver": "owner, to confirm on the PR (requested in the OME-1477 session)",
+  "date": "2026-10-28",
+  "scope": "Prior-test edits for the one new Benchmark mmmu_multiple_choice, and nothing else: one table row in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87→88 and 70→71 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (its revision literal), and test_inspect_imported_benchmarks.py (family mcq). No existing row or assertion changes.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as lab_bench_figqa and lab_bench_tableqa did); the rows are the review act for its declaration, family, policy and revision.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "b8d0329bc612d90c04878922bdfff0cafa6aed4d",
+      "approved_blob": "b75ad60df8e3bc94c6a2b330f258ed37f8bea0e4"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "f4cea20ce982a11314537497c33b1bbdf5ffde93",
+      "approved_blob": "ccd251580c000854b0585de07f11ed36a73ac717"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450",
+      "approved_blob": "15988f661f6d6ccc2d99a2a32e2b1e3f456938ac"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "7d373bb6e49e2a9903814df614bf47c54af70632",
+      "approved_blob": "7fec32bb5740a169ad07e93ec9763a74a05cb668"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac",
+      "approved_blob": "ad46c52dc9617805a935afd7d6fa8479241754e2"
+    }
+  }
+}

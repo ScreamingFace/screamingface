@@ -90,6 +90,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1327: the two picture subsets, the same scorer and family.
     "lab_bench_figqa": "mcq",
     "lab_bench_tableqa": "mcq",
+    # OME-1477: MMMU's multiple-choice task, graded by inspect's choice scorer.
+    "mmmu_multiple_choice": "mcq",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.

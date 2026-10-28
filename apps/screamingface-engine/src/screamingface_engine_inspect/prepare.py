@@ -1907,6 +1907,82 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         choice_shuffle_seed=7,
         license="cc-by-sa-4.0",
     ),
+    # mmmu_multiple_choice — imported by Task replay on 2026-10-28 from
+    #   inspect_evals.mmmu.mmmu:mmmu_multiple_choice.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face MMMU/MMMU/Accounting
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Agriculture
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Architecture_and_Engineering
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Art
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Art_Theory
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Basic_Medical_Science
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Biology
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Chemistry
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Clinical_Medicine
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Computer_Science
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Design
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Diagnostics_and_Laboratory_Medicine
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Economics
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Electronics
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Energy_and_Power
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Finance
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Geography
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/History
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Literature
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Manage
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Marketing
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Materials
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Math
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Mechanical_Engineering
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Music
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Pharmacy
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Physics
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Psychology
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Public_Health
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Sociology
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    "mmmu_multiple_choice": TaskReplayCasesSpec(
+        task="inspect_evals.mmmu.mmmu:mmmu_multiple_choice",
+        case_count=847,
+        case_digest="08e8974a3be10a26d0e1f32e4d1ae1f8d16fa8535900dc7eb157462fa8474f32",
+        case_set_digest="a0c8fa933dc84d4ee19863522884d85fd46d06b1346a1c2ce958e3d74fbb5769",
+        source_pins={
+            "MMMU/MMMU": "171b0ef74cd1704464e6940860968009d8cdd59a",
+        },
+        # License: apache-2.0, the MMMU/MMMU card header at the pinned revision 171b0ef7. The
+        #   importer read no card because the eval loads 30 Hub configs, one per subject
+        #   (owner accepted on OME-1477, 2026-10-28).
+        license="apache-2.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
