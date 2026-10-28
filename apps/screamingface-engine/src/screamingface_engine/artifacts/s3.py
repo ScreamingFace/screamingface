@@ -159,6 +159,24 @@ class S3ArtifactStore:
         """
         return 0
 
+    # --- keyed objects (the run blob store, OME-1540) ------------------------------------
+
+    def put_object(self, key: str, data: bytes) -> None:
+        """Store `data` under an explicit `key`, acknowledged before returning.
+
+        FEATURE: the run blob store (OME-1540) keys objects by tenant + run + digest, so it
+        cannot use the content-hash-only key of `write_bytes`.
+
+        AIDEV-NOTE: `key` is signed and sent unencoded (see `sigv4.canonical_request`), so the
+        caller must pass only `[A-Za-z0-9._/-]` — `artifacts.blobs` builds every key it sends.
+        """
+        self._request("PUT", key, payload_sha256=hashlib.sha256(data).hexdigest(), content=data)
+
+    def get_object(self, key: str) -> bytes | None:
+        """The whole object under `key`, or None when absent. For small, capped objects only."""
+        response = self._request("GET", key, allow_missing=True)
+        return None if response is None else response.content
+
     # --- one signed request --------------------------------------------------------------
 
     def _url_path(self, key: str) -> str:

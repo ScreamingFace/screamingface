@@ -127,6 +127,20 @@ class Settings(BaseSettings):
     # decision on OME-892). Hourly is far finer than the 48h TTL it enforces, and one
     # directory scan an hour costs nothing.
     artifact_sweep_interval_s: float = 3600.0
+    # FEATURE: the run blob store (OME-1540; spec OME-1535 F1b, §4). Owner decision 2026-10-28
+    # (Q4a): one blob is at most the spec's per-run attachment total, and only the five spec
+    # attachment types are kept. Over the cap → 413 `x.blob_too_large`; any other type → 415
+    # `x.blob_unsupported_media_type`. Blobs share `artifact_ttl_s` and its sweep.
+    blob_max_bytes: int = Field(default=8_000_000, gt=0)
+    blob_media_types: list[str] = Field(
+        default_factory=lambda: [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+        ]
+    )
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     #
     # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
