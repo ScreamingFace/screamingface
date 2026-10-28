@@ -1,7 +1,7 @@
 ---
 id: OME-1552
 linear_url: https://linear.app/openmined/issue/OME-1552/document-url4-file-sources-and-blob-refs-in-the-public-docs
-status: in_progress
+status: in_review
 type: docs
 priority: medium
 labels: [blocked, url4-engine, agentic, autonomous]
@@ -17,5 +17,5 @@ what v1 refuses (`x.remote_blob_unsupported`, `x.remote_node_unsupported`); the 
 the gateway and per-Case limits; `input_modalities` on `/v1/models` and loud refusal of
 unsupported parts. Every claim is marked on main, lands with an open PR, or specified only.
 
-Source of truth: file-input spec #1450 (`OME-1535`). Parent epic `OME-1529`. PR waits until
-#1450 merges. Ledger: `../work/2026-10-21-url4-file-docs.md`.
+Source of truth: file-input spec #1450 (`OME-1535`), merged as `638be5024`. Parent epic
+`OME-1529`. Ledger: `../work/2026-10-21-url4-file-docs.md`.

@@ -81,3 +81,19 @@ This ledger is reused rather than a second `2026-10-26-…` ledger for the same 
 - **Python-client blob upload:** none exists; the page says "coming".
 - **Gates:** `public-docs`: `npx oxlint .`, `npx eslint .`, `npm run build` (vue-tsc + vite) all
   clean; prettier check clean on the page.
+
+## Revision 2026-10-28 (spec rounds 8-10, merged #1450 at `638be5024`)
+
+Branch rebased onto `origin/main` (merge commits flattened, no content commits dropped).
+
+- **Attachment opt-in:** `;accept=` must be exactly one lower-case attachment type
+  (`image/png|jpeg|gif|webp`, `application/pdf`); no `image/*`, no lists; the response type must
+  equal it, else `unsupported_content_type`. Wildcard examples removed from the page.
+- **Literal targets:** URL and `;accept=` literal; row-derived URLs deferred (`OME-1748`);
+  variable/templated gets `x.source_not_static`.
+- **Model-free reachability:** an attachment in an iteration over a model-dependent collection gets
+  `x.source_not_static` before any I/O; example added.
+- **Caps:** 20 entries / 8,000,000 bytes over the whole `attachments[]` (blob refs plus https).
+- **Status markers:** spec now merged; #1478, #1482 still open ("lands with"); per-Case picture caps
+  moved to "on main (#1554)" (verified `picture_input.py` on `origin/main`).
+- **Gates:** `public-docs`: `npx oxlint .`, `npx eslint .`, `npm run build` clean; prettier applied.

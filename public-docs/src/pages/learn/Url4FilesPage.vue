@@ -10,9 +10,12 @@ const GH_PR = 'https://github.com/ScreamingFace/screamingface/pull'
 const fileUrl = `(https://example.org/chart.png;accept=image/png)!'Describe the chart'`
 
 const textVsAttachment = `(https://example.org/notes.md)!'Summarize'                      # text source, as today
-(https://example.org/data.json;accept=application/json)!'Sum'   # text source: not a media range
+(https://example.org/data.json;accept=application/json)!'Sum'   # text source: not an attachment type
 (https://example.org/scan.pdf;accept=application/pdf)!'Read'    # attachment source
-(https://example.org/a.png;accept=*/*)!'Describe'              # text source: */* is not media`
+(https://example.org/a.png;accept=image/png)!'Describe'         # attachment source`
+
+const notStatic = `# x.source_not_static: the rows come from a model call
+((https://rows)!'Produce JSON rows')*(https://files/static.png;accept=image/png)!'Use $item'`
 
 const guardConfig = `from url4.io.http import HttpIOLayer, SourceGuard
 
@@ -47,11 +50,11 @@ const modelsRow = `GET /v1/models
     :navigation="navigation"
   >
     <blockquote>
-      <strong>Partly unreleased.</strong> The contract is the file-input spec in
-      <a :href="`${GH_PR}/1450`" target="_blank" rel="noopener">#1450</a>, still in review. Each
-      section says where its behaviour stands: <em>on main</em> (merged, not yet in a published
-      <code>url4</code> release; the last one is 1.5.1), <em>lands with #N</em> (an open pull
-      request), or <em>specified</em> (in the spec, no code yet).
+      <strong>Partly unreleased.</strong> The contract is the file-input spec, merged with
+      <a :href="`${GH_PR}/1450`" target="_blank" rel="noopener">#1450</a>; much of its code is not
+      merged yet. Each section says where its behaviour stands: <em>on main</em> (merged, not yet in
+      a published <code>url4</code> release; the last one is 1.5.1), <em>lands with #N</em> (an open
+      pull request), or <em>specified</em> (in the spec, no code yet).
     </blockquote>
 
     <p>
@@ -63,9 +66,9 @@ const modelsRow = `GET /v1/models
     <p>A file enters a run in one of two ways:</p>
     <ul>
       <li>
-        <strong>A url4 source:</strong> an <code>https://</code> URL whose
-        <code>;accept=</code> names a media range, or a <code>sha256</code> blob ref. Both are
-        resolved by the node that evaluates the expression.
+        <strong>A url4 source:</strong> an <code>https://</code> URL whose <code>;accept=</code> is
+        exactly one attachment type, or a <code>sha256</code> blob ref. Both are resolved by the
+        node that evaluates the expression.
       </li>
       <li>
         <strong>A benchmark Case:</strong> pictures and PDFs written inline in the Case itself. This
@@ -79,21 +82,25 @@ const modelsRow = `GET /v1/models
 
     <p>
       <em>Specified (OME-1543), not on main.</em> An <code>https://</code> source becomes an
-      <strong>attachment source</strong> only when its <code>;accept=</code> names media ranges, and
-      only these: <code>image/*</code>, <code>image/png</code>, <code>image/jpeg</code>,
-      <code>image/gif</code>, <code>image/webp</code>, <code>application/pdf</code>. There is no new
-      syntax: <code>;accept=</code> is the existing per-source annotation. <code>src=</code> does
-      not mark an attachment, because <code>(src=https://a)</code> and
+      <strong>attachment source</strong> only when its <code>;accept=</code> is
+      <strong>exactly one</strong> lower-case type from the attachment types:
+      <code>image/png</code>, <code>image/jpeg</code>, <code>image/gif</code>,
+      <code>image/webp</code>, <code>application/pdf</code>. There are no wildcards
+      (<code>image/*</code>) and no lists: a url4 value admits neither <code>*</code> nor a comma.
+      There is no new syntax: <code>;accept=</code> is the existing per-source annotation.
+      <code>src=</code> does not mark an attachment, because <code>(src=https://a)</code> and
       <code>(https://a)</code> parse to the same source.
     </p>
 
     <CodeBlock :code="textVsAttachment" language="bash" />
 
+    <CodeBlock :code="notStatic" language="bash" />
+
     <ul>
       <li>
         <strong>Every other <code>https://</code> source is a text source</strong>, read exactly as
-        today: no <code>;accept=</code>, or one that names any non-media range (<code>*/*</code>,
-        <code>text/*</code>, <code>application/json</code>, …). It is fetched lazily, each
+        today: no <code>;accept=</code>, or any value that is not one of the attachment types
+        (<code>text/csv</code>, <code>application/json</code>, …). It is fetched lazily, each
         occurrence under its own <code>;optional</code>, <code>;t=</code> and <code>;retry=</code>,
         and never attached. An expression with no attachment source behaves byte for byte as it does
         today.
@@ -101,9 +108,10 @@ const modelsRow = `GET /v1/models
       <li>
         <strong>Fetched before the first model call.</strong> The run first resolves its non-model
         collection inputs, then fetches every attachment source those rows actually reach, once
-        each. An iteration over zero rows fetches nothing. Occurrences with the same URL,
-        <code>;accept=</code> and guard policy share one fetch and yield one attachment, placed at
-        their first occurrence in the expression, never in completion order.
+        each, and builds the attachment manifest. An iteration over zero rows fetches nothing.
+        Occurrences with the same URL, <code>;accept=</code> and guard policy share one fetch and
+        yield one attachment, placed at their first occurrence in the expression, never in
+        completion order.
       </li>
       <li>
         <strong>Then frozen.</strong> The bytes are hashed and stored for the run, and the list of
@@ -113,16 +121,25 @@ const modelsRow = `GET /v1/models
       </li>
       <li>
         <strong>The response type decides, no sniffing.</strong> The response's
-        <code>Content-Type</code> must be in the media set above and match the requested
-        <code>;accept=</code>. A wrong or missing type fails the source with
+        <code>Content-Type</code>, bare and lower-cased, must <strong>equal</strong> the requested
+        <code>;accept=</code> type: a <code>;accept=image/png</code> source answered with
+        <code>image/jpeg</code> fails. A different or missing type fails the source with
         <code>unsupported_content_type</code>. A failed <code>;optional</code> attachment source is
         left out; a required one fails the run before any model call.
       </li>
       <li>
-        <strong>Static targets only.</strong> An attachment source's URL and
-        <code>;accept=</code> must be literal or come from non-model collection rows. One built from
-        a model output or a fetched body is refused with <code>x.source_not_static</code> before any
-        fetch. Text sources may still be dynamic.
+        <strong>Literal targets only.</strong> An attachment source's URL and
+        <code>;accept=</code> must both be literal in the expression. A row-substituted, variable
+        (<code>src=$item;accept=image/png</code>), model-derived or fetched-body-derived URL is
+        refused with <code>x.source_not_static</code> before any fetch. Attachment URLs taken from
+        collection rows are deferred (OME-1748). Text sources may still be dynamic.
+      </li>
+      <li>
+        <strong>Model-free reachability.</strong> An attachment source inside an iteration whose
+        collection depends on a model call (a processed group, a model call, a remote expression, a
+        nested model-dependent iteration, or a binding to one) is refused with
+        <code>x.source_not_static</code> before any I/O, even when that collection would be empty.
+        Whether it is reached must be known before the first model call.
       </li>
     </ul>
 
@@ -263,26 +280,27 @@ const modelsRow = `GET /v1/models
         <tr>
           <td>Pictures per Case</td>
           <td>at most 20, refused at import by name</td>
-          <td>lands with #1554</td>
+          <td>on main (#1554)</td>
         </tr>
         <tr>
           <td>Case size with pictures inline</td>
           <td>at most 8,000,000 bytes, leaving room under the gateway cap</td>
-          <td>lands with #1554</td>
+          <td>on main (#1554)</td>
         </tr>
         <tr>
           <td>url4 attachments per run</td>
           <td>
-            at most 20, counting blob refs and <code>https://</code> attachments together. Over it:
-            <code>x.attachments_too_many</code>, before any model call.
+            at most 20, counted over the whole attachment list: every local blob ref plus every
+            <code>https://</code> attachment. Over it: <code>x.attachments_too_many</code>, before
+            any model call.
           </td>
           <td>specified (OME-1543)</td>
         </tr>
         <tr>
           <td>url4 attachment bytes per run</td>
           <td>
-            at most 8,000,000 decoded bytes in total. Over it: <code>x.attachments_too_large</code>,
-            before any model call.
+            at most 8,000,000 decoded bytes over the same whole list. Over it:
+            <code>x.attachments_too_large</code>, before any model call.
           </td>
           <td>specified (OME-1543)</td>
         </tr>
@@ -361,16 +379,17 @@ const modelsRow = `GET /v1/models
           <td><code>unsupported_content_type</code></td>
           <td>
             A binary body on a text path (lands with #1478). On an attachment source: a
-            <code>Content-Type</code> that is missing, outside the media set or not matching its
-            <code>;accept=</code> (specified, OME-1543). Permanent.
+            <code>Content-Type</code> that is missing or not equal to its <code>;accept=</code>
+            type (specified, OME-1543). Permanent.
           </td>
           <td>lands with #1478; specified</td>
         </tr>
         <tr>
           <td><code>x.source_not_static</code></td>
           <td>
-            An attachment source whose URL or <code>;accept=</code> comes from a model output or a
-            fetched body. Permanent, before any fetch or model call.
+            An attachment source whose URL or <code>;accept=</code> is not literal, or that sits in
+            an iteration whose collection depends on a model call. Permanent, before any fetch or
+            model call.
           </td>
           <td>specified (OME-1543)</td>
         </tr>
