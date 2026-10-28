@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections import OrderedDict
 from collections.abc import Callable
 from html import escape
 from pathlib import Path
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
 #: accepts, and a browser draws each from a ``data:`` URI; any other picture is saved instead.
 _IN_PLACE_TYPES: frozenset[str] = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 _QUESTION_OPEN = "<div class='sf-pane__q'>"
+#: How many opened pictures stay drawn. WHY a bound: each is kept as base64 in the kernel, and
+#: clicking through FigQA's 181 figures would hold about 320 MB; past this, the least recently
+#: opened goes back to its button (one click fetches it again).
+_KEPT_PICTURES = 20
 #: WHY loud: the button is the only way to see a Case's picture, so it is the one filled, accent
 #: button in the card, at least 28px tall, with an icon that says "picture" before the words do.
 MEDIA_STYLE = """<style>
@@ -66,7 +71,8 @@ class MediaPanel:
         # WHY by element id: ipyevents reports only the clicked element's id.
         self._targets: dict[str, CaseMedia] = {}
         # WHY by sha256: the same picture opened once shows on every Case and page that has it.
-        self._kept: dict[str, str] = {}
+        # Ordered oldest-opened first, so the bound drops the one opened longest ago.
+        self._kept: OrderedDict[str, str] = OrderedDict()
         self.notice = widgets.HTML()
         self.notice.add_class("sf-case-media")
 
@@ -134,13 +140,18 @@ class MediaPanel:
             if _draws_in_place(item):
                 encoded: str = base64.b64encode(fetched.data).decode("ascii")
                 self._kept[item.sha256] = f"data:{item.media_type};base64,{encoded}"
+                self._kept.move_to_end(item.sha256)
+                while len(self._kept) > _KEPT_PICTURES:
+                    self._kept.popitem(last=False)
                 self.notice.value = ""
             else:
                 # WHY the full path: the browser's folder may not exist yet, and ``save`` reads a
                 # path that isn't a folder as the file to write.
                 saved: Path = fetched.save(self.folder / item.default_name)
                 self.notice.value = f"<p>Saved to {escape(str(saved))}</p>"
-        except (OSError, ScreamingFaceError) as exc:
+        # WHY ValueError too: a file named by the Benchmark with a NUL byte can't be written, and
+        # the researcher should see why, not a traceback.
+        except (OSError, ValueError, ScreamingFaceError) as exc:
             reason: str = exc.user_message if isinstance(exc, ScreamingFaceError) else str(exc)
             self.notice.value = f'<p role="alert">{escape(reason)}</p>'
 

@@ -460,9 +460,9 @@ class Client:
         """Fetch one picture or file of a Case from this engine, checked against its placeholder.
 
         FEATURE (OME-1271): ``case.media`` lists a Case's pictures and files without fetching
-        them; this opens one. Parked pictures expire (48 hours on a local engine). e.g.
-        ``client.fetch_media(case.media[0])`` shows the figure inline in Jupyter, and
-        ``.save("figures/")`` writes it.
+        them; this opens one. A local engine drops parked pictures after a while (48 hours by
+        default). e.g. ``client.fetch_media(case.media[0])`` shows the figure inline in
+        Jupyter, and ``.save("figures/")`` writes it.
 
         Raises:
             MediaUnavailableError: the engine no longer holds it, or sent other bytes.

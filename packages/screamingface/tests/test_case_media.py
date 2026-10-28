@@ -349,6 +349,49 @@ def test_a_picture_the_engine_no_longer_holds_shows_the_reason(tmp_path: Path, m
     assert "Show picture</button>" in browser.cases.value  # still there, to try again
 
 
+def test_a_file_whose_name_cannot_be_written_shows_the_reason(tmp_path: Path, monkeypatch) -> None:
+    # WHY: the Benchmark names its files, and a name with a NUL byte can't be written on any
+    # system; the researcher reads why in the notice, not a traceback.
+    monkeypatch.setattr(
+        "screamingface._default_client.fetch_media", _fetch_from({_PDF_SHA256: _PDF_BYTES})
+    )
+    unwritable: str = _ENGINE_FILE_ECHO.replace("methods.pdf", "methods\\u0000.pdf")
+    browser = _browser(unwritable, tmp_path, monkeypatch)
+    _click(browser, "Save file")
+
+    assert "null byte" in browser.media.notice.value
+    assert 'role="alert"' in browser.media.notice.value
+
+
+def test_only_the_most_recently_opened_pictures_stay_drawn(tmp_path: Path, monkeypatch) -> None:
+    # WHY: each drawn picture is kept as base64 in the kernel, and clicking through FigQA's 181
+    # figures would hold about 320 MB; past the bound, the one opened longest ago goes back to
+    # its button. A bound of 1 here, so two pictures are enough to cross it.
+    import ipywidgets
+
+    from screamingface._ui import media_panel
+
+    other_bytes: bytes = _PNG_BYTES + b"\x00"
+    other = CaseMedia(
+        kind="image",
+        media_type="image/png",
+        size=len(other_bytes),
+        sha256=hashlib.sha256(other_bytes).hexdigest(),
+    )
+    monkeypatch.setattr(
+        "screamingface._default_client.fetch_media",
+        _fetch_from({_PNG_SHA256: _PNG_BYTES, other.sha256: other_bytes}),
+    )
+    monkeypatch.setattr(media_panel, "_KEPT_PICTURES", 1)
+    panel = media_panel.MediaPanel(ipywidgets, folder=tmp_path, redraw=lambda: None)
+
+    panel.open(_PICTURE)
+    panel.open(other)
+
+    assert panel._control(other, "").startswith("<img")
+    assert panel._control(_PICTURE, "").startswith("<button")
+
+
 def test_a_static_report_shows_the_placeholder_without_a_button() -> None:
     # WHY: a static report has no kernel to answer a click, so a button there would do nothing.
     from screamingface._ui.report_view import cases_page_html

@@ -24,7 +24,8 @@ HLE, MathVista and others) could not be imported. A picture now travels inline i
 - PR 4, one Case the grader can't read fails alone, not the whole run
   ([#1559](https://github.com/ScreamingFace/screamingface/pull/1559)).
 - PR 5, a researcher opens a picture or file from its Case Result: the run parks each one in the
-  engine's result store under its sha256 (until the store expires it), and the SDK fetches and
+  engine's result store under its sha256 (a local engine drops them after 48 hours; a deployment
+  sets no expiry yet), and the SDK fetches and
   checks it, with a
   Show picture or Save file button on each placeholder line in the report browser.
 

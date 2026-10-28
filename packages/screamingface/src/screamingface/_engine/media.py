@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Callable
 
 import httpx
 
+from screamingface.case_result import _SHA256_RE
 from screamingface.errors import EngineUnavailableError, MediaUnavailableError
 from screamingface.media import CaseMedia
 
-_SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _CHUNK_BYTES = 65536
 
 
@@ -50,8 +49,8 @@ def fetch_media_bytes(http: httpx.Client, media: CaseMedia, mint: Callable[[], s
         ) as response:
             if response.status_code in (404, 410):
                 raise MediaUnavailableError(
-                    f"The engine no longer holds {media}; parked pictures and files expire "
-                    "(48 hours on a local engine). Run the Case again to see it.",
+                    f"The engine no longer holds {media}; a local engine drops parked pictures "
+                    "and files after a while (48 hours by default). Run the Case again to see it.",
                     code="media_not_kept",
                     permanent=True,
                 )

@@ -31,6 +31,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_V2_SCHEMA
 from screamingface_engine.benchmarks.media_parking import (
     MediaParking,
     park_case_media,
+    park_cases_media,
     parking_media,
 )
 from screamingface_engine.runner.main import build_executor
@@ -88,11 +89,16 @@ class _RecordingWriter:
 
 
 class _UnreachableWriter(_RecordingWriter):
-    """A result store whose object storage can't be reached."""
+    """A result store whose object storage can't be reached; it counts each attempt."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempts: int = 0
 
     def write_bytes(self, encoded: bytes) -> ResultArtifact:
         """Fail the way the S3 adapter does when the bucket is unreachable."""
 
+        self.attempts += 1
         raise S3StorageError("PUT 4c4b… could not reach object storage: timed out")
 
 
@@ -167,6 +173,24 @@ def test_a_store_that_cannot_be_reached_is_logged_and_never_raised(
     assert _PNG_SHA256 in caplog.text
 
 
+def test_a_store_that_fails_once_is_not_tried_again_in_the_same_run(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # WHY: a store that is down answers each write only at its timeout (30 s for S3), so
+    # trying FigQA's 181 pictures would hold the run's finish for 90 minutes, once per
+    # Candidate. Two pictures here, parked for two Candidates: one attempt, one warning.
+    writer = _UnreachableWriter()
+    parking = MediaParking(writer)
+    case_input: str = _v2(_QUESTION, _picture(), {"type": "file", "file": {"file_data": _PDF}})
+
+    with caplog.at_level(logging.WARNING):
+        parking.park(case_input)
+        parking.park(case_input)
+
+    assert writer.attempts == 1
+    assert len(caplog.records) == 1
+
+
 def test_park_case_media_writes_only_inside_a_bound_run() -> None:
     writer = _RecordingWriter()
     case_input: str = _v2(_QUESTION, _picture())
@@ -179,24 +203,25 @@ def test_park_case_media_writes_only_inside_a_bound_run() -> None:
     assert writer.written == [_PNG_BYTES]
 
 
-# --- where a run parks: the finalizer, inside the run's binding ------------------------------
+# --- where a run parks: beside the finalizer, inside the run's binding -----------------------
 
 
-def test_the_finalizer_parks_each_picture_under_the_sha256_its_echo_shows() -> None:
+def test_a_parked_picture_is_named_by_the_sha256_its_echoed_placeholder_shows() -> None:
     # INVARIANT: the claim ticket the published placeholder carries opens the parked bytes;
     # a mismatch would hand the researcher nothing, or worse, another picture.
     writer = _RecordingWriter()
     selected = SelectedCase(case_id=1, input=_v2(_QUESTION, _picture()), metadata={})
 
     with parking_media(MediaParking(writer)):
-        result = finalize_candidate_result(
-            failure_policy="withhold",
-            benchmark_id="benchmark",
-            benchmark_revision="revision",
-            selected_cases=[selected],
-            cases=[],
-            scorer=lambda cases: CandidateScore(score=0.0, metrics={}),
-        )
+        park_cases_media([selected.input])
+    result = finalize_candidate_result(
+        failure_policy="withhold",
+        benchmark_id="benchmark",
+        benchmark_revision="revision",
+        selected_cases=[selected],
+        cases=[],
+        scorer=lambda cases: CandidateScore(score=0.0, metrics={}),
+    )
 
     echoed: dict[str, Any] = json.loads(result.as_payload()["cases"][0]["input"])
     placeholder: dict[str, Any] = echoed["messages"][0]["content"][1]["image_url"]["url"]

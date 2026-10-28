@@ -19,7 +19,8 @@ parks each distinct picture and file in that store; the SDK fetches one by its p
 sha256 and checks the bytes, and the report browser puts its button on its placeholder line in
 the Case card. Items expire with the
 store's own rule: 48 hours on the filesystem store (`artifact_ttl_s`, restarted each time a run
-parks the same bytes again), and the bucket's lifecycle rule on S3, which the engine does not set.
+parks the same bytes again). On S3 that is a bucket lifecycle rule, which no deployment configures
+today, so a deployment keeps every parked picture until someone deletes it.
 Design agreed with the owner on 2026-10-27.
 
 ## Planned changes
@@ -85,3 +86,15 @@ Design agreed with the owner on 2026-10-27.
   a bug: Save file wrote the file as the browser's not-yet-created folder; it now writes to the
   full path. Gates: the six browser, media, navigation, Colab and pagination test files, 77
   passed; ruff, ruff format, pyright clean. Owner check left: the dev notebook run.
+- **After review (2026-10-28):** parking now runs in a worker thread at the two async places a
+  Candidate's result is finished (`benchmark_aggregation.py`, `incremental.py`), not inside the
+  finalizer on the run's event loop: the writer is synchronous, and a slow store froze the loop. A
+  store that fails once is not tried again in that run, so a store that is down costs one timeout,
+  not one per picture per Candidate. The expiry wording now says what is true: no deployment
+  configures a bucket expiry rule today, so a deployment keeps parked pictures (ops follow-up).
+  SDK: the browser keeps at most 20 opened pictures drawn (each held as base64 in the kernel), a
+  file name the system can't write shows a notice instead of a traceback, and `_engine/media.py`
+  shares the sha256 pattern with `case_result.py`. Each new test fails when its fix is removed.
+  Gates: engine, `test_media_parking.py` plus the aggregation, early-grading and echo tests, 118
+  passed; SDK, the media, browser, navigation, Colab, pagination and public-surface tests, 119
+  passed; ruff, ruff format, pyright clean on touched files.
