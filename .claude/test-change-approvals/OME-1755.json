@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1755",
+  "branch": "OME-1755-judge-reads-original-question",
+  "approver": "Khoa Duy Nguyen (owner)",
+  "date": "2026-10-28",
+  "scope": "Three fingerprint literals only, in _FINGERPRINTS of test_benchmark_fingerprints.py: xstest_safe 1044036b2049e623 -> 141b1d86dc202e60, xstest_unsafe fad9dd3ebabd84a5 -> 306cf7e61c72c919, uccb 022fa23a5e823aa7 -> 2dbcedb55406dc6e. No other edit to that test or file; every published_revision stays as it was.",
+  "reason": "Owner decision 2026-10-28 on OME-1755: fix the judge question for every judged row with no opt-in flag and no published revision change (no leaderboard scores exist on these rows yet). The three rows' Grading Material now also holds each Sample's own input, which moves their Case Digest and so their computed fingerprint; the file's own rule says a grading fix with the same Cases updates only this literal. The Case inputs the Candidate sees are byte-identical (checked on all 1,489 Cases).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "f4cea20ce982a11314537497c33b1bbdf5ffde93",
+      "approved_blob": "ce2cff330a97f6ec5fbfc08a83f1318f31531606"
+    }
+  }
+}
