@@ -134,7 +134,12 @@ Owner decisions (2026-10-22):
   - `5ff4949aa` fix(aigateway): report the remote endpoint cache revision in every export
   - `41fa50df6` fix(screamingface): compare the configured endpoint revision on a cache pull
   - `9ffbb7a0b` docs(aigateway): scope endpoint privacy to the working catalog
-- **Gates:** after the rebase onto `27364bbf3`, both stacks are green with `--base 27364bbf3`
+  - `a244a9ecf` fix(aigateway): keep an answer holding the caller's key out of the shared cache
+  - `0ea1d35b7` fix(aigateway): drain endpoint closes through a cancelled shutdown
+- **Gates:** after `0ea1d35b7`, `run_gates.py aigateway --base 27364bbf3` is green with 7510
+  tests collected, 449 in `tests/unit/remote_endpoint`; the append-only check accepts the
+  approved conftest transition. The SDK is untouched by the fifth review. Earlier: after the
+  rebase onto `27364bbf3`, both stacks are green with `--base 27364bbf3`
   and synced to its lockfiles: the gateway's run with 7504 tests collected, 443 in
   `tests/unit/remote_endpoint`, and the SDK's with 4939, where `test_cache_local_revisions`
   runs rather than skips. Main had added one test to that folder,
@@ -275,6 +280,37 @@ Owner decisions (2026-10-22):
     The test checks that the field is present, not its content.
   - The design text for this contract is prepared at version 7 in a branch of the design
     repository and not committed.
+- **Fifth review (2026-10-28),** of `4663dd61d`: two findings, both fixed.
+  - High, fixed in `a244a9ecf`: an endpoint answer that repeated the caller's key was stored in
+    the shared cache, so an ungranted account without a key got the key on a hit and in
+    `/v1/cache/entries`. The store now refuses a response holding a credential value sealed
+    into the call's dispatch body, for every provider, and logs the refusal by provider and key
+    prefix only. The caller still gets its live answer, with `X-AIGW-Cache-Write: not_stored`.
+  - New test in `test_app_shared_cache.py`, with a transport that repeats the raw Bearer: the
+    owner gets the key, the other account gets a refusal without it, the listing has no row and
+    no key, the log has no key, and the upstream is called once. Before the fix the write was
+    `stored` and the other account got a hit.
+  - Prior test changed, shown and approved on 2026-10-28 with the owner's comment text and
+    pinned in the approval file: the `remote_endpoint` conftest's fake upstream encodes its echo
+    in base64 and `echo_of` decodes it. Without it six cache tests fail against the fix, since
+    their answers held the key; every comparison already went through `echo_of`.
+  - Medium, fixed in `0ea1d35b7`: a cancelled shutdown stopped waiting for the endpoint closes,
+    so a loop that ended next cancelled them unfinished. `close_remote_endpoints` now keeps
+    waiting through any number of cancellations, up to 5 s in all, then raises the
+    cancellation. A close still running at the bound is logged by provider and left running.
+    The lifespan cleanup runs in nested `finally` blocks, so a cancellation at the usage
+    accounting, endpoint or loopback step skips none of the steps after it.
+  - New tests: the reviewer's schedule, cancelled twice, where the loop ends right after the
+    sweep: both closes finish, where before both stayed unfinished. A close that never ends
+    holds the sweep only to the bound. In the new `test_app_shutdown.py`, a cancellation at
+    each of three steps still runs all five in order; before, every later step was skipped.
+  - Prior test changed, approved as shown on 2026-10-28: on this branch's
+    `test_a_cancelled_shutdown_still_closes_every_endpoint`, the bound is patched to 0.05 s and
+    the poll comment says the sweep gave up at its bound. Its assertions are unchanged; it now
+    pins the give-up path. Production keeps 5 s.
+  - Left as is: a teardown that cancels the close task itself, as `asyncio.run` does to every
+    task once its main coroutine ends, still stops that close. The drain only keeps the
+    shutdown from ending before the closes.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
