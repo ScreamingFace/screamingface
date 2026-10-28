@@ -277,6 +277,9 @@ def _token_usage(usage: _SpanUsage) -> TokenUsage:
         cache_read_tokens=usage.cache_read_tokens or 0,
         cache_creation_tokens=usage.cache_creation_tokens or 0,
         reasoning_tokens=usage.reasoning_tokens or 0,
+        # INVARIANT (OME-1744): NOT flattened like the classes above — the wire spells "unknown"
+        # for this one by omitting the key, so `None` must reach it as `None`.
+        image_and_file_tokens=usage.image_and_file_tokens,
     )
 
 
@@ -301,6 +304,8 @@ class _SpanUsage:
     cache_creation_tokens: int | None
     reasoning_tokens: int | None
     cost_usd: Decimal | None
+    # FEATURE: image/file token accounting (OME-1744). A subset of `input_tokens`, never added.
+    image_and_file_tokens: int | None = None
 
 
 @dataclass
@@ -390,6 +395,15 @@ class _RunState:
         self._sum_cache_read = 0
         self._sum_cache_creation = 0
         self._sum_reasoning = 0
+        # WHY this class POISONS at run level, unlike the three above (owner decision, OME-1744):
+        # the OME-869 rule exists because a poisoned int publishes ZERO, a false claim. This class
+        # is optional on the wire — `None` is published as an omitted key — so poisoning finally
+        # says what it means, exactly as the AIDEV-NOTE above anticipates. A run total that
+        # silently skipped an unknown call would present a partial media count as the whole.
+        # INVARIANT: `None` until the first call; latches unknown on the first unknown call and
+        # never unlatches (the `_subtree_cost` / `_subtree_unpriced` pattern below).
+        self._sum_image_and_file: int | None = None
+        self._image_and_file_unknown = False
         self._providers_models: set[tuple[str, str]] = set()
         # `None` until the first priced call: a run that made no model call at all stays unpriced,
         # which is the shape it published before cost reporting existed.
@@ -495,6 +509,10 @@ class _RunState:
         self._sum_cache_read += event.cache_read_tokens or 0
         self._sum_cache_creation += event.cache_creation_tokens or 0
         self._sum_reasoning += event.reasoning_tokens or 0
+        if event.image_and_file_tokens is None:
+            self._image_and_file_unknown = True
+        else:
+            self._sum_image_and_file = (self._sum_image_and_file or 0) + event.image_and_file_tokens
         self._providers_models.add((event.provider, event.model))
         # INVARIANT: the run total latches UNPRICED on the first call it cannot price, and never
         # unlatches. A grand total that silently omits a step while presenting itself as a total is
@@ -530,6 +548,7 @@ class _RunState:
                 cache_creation_tokens=event.cache_creation_tokens,
                 reasoning_tokens=event.reasoning_tokens,
                 cost_usd=event.cost_usd,
+                image_and_file_tokens=event.image_and_file_tokens,
             )
             return
         span.usage = _SpanUsage(
@@ -546,6 +565,9 @@ class _RunState:
             ),
             reasoning_tokens=accumulate(prior.reasoning_tokens, event.reasoning_tokens),
             cost_usd=accumulate(prior.cost_usd, event.cost_usd),
+            image_and_file_tokens=accumulate(
+                prior.image_and_file_tokens, event.image_and_file_tokens
+            ),
         )
 
     def _finish(self, event: NodeFinished) -> list[Traced]:
@@ -693,6 +715,9 @@ class _RunState:
                 cache_read_tokens=self._sum_cache_read,
                 cache_creation_tokens=self._sum_cache_creation,
                 reasoning_tokens=self._sum_reasoning,
+                image_and_file_tokens=(
+                    None if self._image_and_file_unknown else self._sum_image_and_file
+                ),
             ),
             cost=CostBreakdown(total_usd=total or Decimal("0")),
         )

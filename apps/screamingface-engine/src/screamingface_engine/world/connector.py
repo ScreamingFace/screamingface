@@ -676,6 +676,29 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
+_MAX_TOKEN_COUNT = 2**53 - 1
+"""The gateway's own bound on a token count (`aigateway.core.usage_modalities`)."""
+
+
+def _image_and_file_tokens(usage: object) -> int | None:
+    """The image/file subset of the prompt, as aigateway states it, or `None` for unknown.
+
+    FEATURE: image/file token accounting (OME-1744). aigateway writes it at
+    `usage.prompt_tokens_details.image_and_file_tokens` — under `usage`, NOT under `_aigw` — so this
+    reads `usage` even when `_aigw` is authoritative for every other class.
+
+    INVARIANT: anything that is not a bounded non-negative int is unknown (`None`), never 0 — unlike
+    `_token_count`, whose zero fallback predates any wire spelling of "unknown". A known 0 passes
+    through: the provider broke the input down and it held no media.
+    """
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    value = details.get("image_and_file_tokens") if isinstance(details, dict) else None
+    # WHY `type(...) is int`: bool is an int subclass, and `True` is not a token count.
+    if type(value) is not int or not 0 <= value <= _MAX_TOKEN_COUNT:
+        return None
+    return value
+
+
 def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
     """Report a cache hit: zero tokens consumed, and priced at zero.
 
@@ -718,6 +741,9 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
         cache_creation_tokens=0,
         reasoning_tokens=0,
         cost_usd=_hit_cost(call),
+        # WHY unknown and not the zero its siblings get (owner decision, OME-1744): the stored
+        # body's breakdown is the ORIGINAL call's, so a hit makes no claim about this class.
+        image_and_file_tokens=None,
     )
 
 
@@ -778,6 +804,7 @@ def _report_usage(
         # the successful request's own cost is unknown (R3), and for an older gateway's non-complete
         # status (`usd_from_aigw`).
         cost_usd=None if call is None else call.cost_usd,
+        image_and_file_tokens=_image_and_file_tokens(reported),
     )
 
 
