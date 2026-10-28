@@ -506,3 +506,71 @@ async def test_healthz_reports_the_mount_tables_config_digest() -> None:
     async with _client(app) as client:
         health = (await client.get("/healthz")).json()
     assert health["config_digest"] == TABLE.config_digest
+
+
+async def test_a_gateway_unsupported_content_part_reaches_a_mount_caller_as_422_intent_error() -> (
+    None
+):
+    """OME-1545, spec #1450 §4: the gateway backstop refusal, through the real chain.
+
+    The gateway's 422 is turned into a `ResolutionError` by the real `_raise_for_status`, then
+    into an `ErrorInfo` by url4's real `_error_info`, and only then terminates the direct run —
+    so the mount caller sees url4's `intent_error` (422) with the gateway's diagnosis kept.
+    """
+    from screamingface_engine.world.connector import _raise_for_status
+    from url4.core.errors import ResolutionError
+    from url4.streaming.lifecycle import _error_info
+
+    gateway_message = "codex cannot accept a file content part: this provider carries no file parts"
+    upstream = httpx.Response(
+        422,
+        json={
+            "detail": {
+                "code": "unsupported_content_part",
+                "provider": "codex",
+                "part_type": "file",
+                "reason": "this provider carries no file parts",
+                "message": gateway_message,
+            }
+        },
+        request=httpx.Request("POST", "http://aigateway.test/v1/chat/completions"),
+    )
+    with pytest.raises(ResolutionError) as caught:
+        _raise_for_status(upstream)
+    error = _error_info(caught.value)
+
+    def script(topic: str, target: str) -> list[Any]:
+        return [_terminated(topic, "failed", **error.model_dump())]
+
+    app, _ = _app(script)
+    async with _client(app) as client:
+        resp = await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
+    assert resp.status_code == 422
+    assert _error(resp)["code"] == "intent_error"
+    assert _error(resp)["message"] == gateway_message
+
+
+async def test_a_different_permanent_gateway_code_still_reaches_a_mount_caller_unchanged() -> None:
+    """Only `unsupported_content_part` is translated: `provider_refused` stays itself, 502."""
+    from screamingface_engine.world.connector import _raise_for_status
+    from url4.core.errors import ResolutionError
+    from url4.streaming.lifecycle import _error_info
+
+    upstream = httpx.Response(
+        422,
+        json={"detail": {"code": "provider_refused", "message": "the provider refused"}},
+        request=httpx.Request("POST", "http://aigateway.test/v1/chat/completions"),
+    )
+    with pytest.raises(ResolutionError) as caught:
+        _raise_for_status(upstream)
+    error = _error_info(caught.value)
+
+    def script(topic: str, target: str) -> list[Any]:
+        return [_terminated(topic, "failed", **error.model_dump())]
+
+    app, _ = _app(script)
+    async with _client(app) as client:
+        resp = await client.get("/v1/chat/completions?q=(a)!b", headers=EMAIL)
+    assert resp.status_code == 502
+    assert _error(resp)["code"] == "provider_refused"
+    assert _error(resp)["message"] == "the provider refused"
