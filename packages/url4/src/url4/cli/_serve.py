@@ -27,10 +27,10 @@ import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from pathlib import Path
 
 from url4.cli._command import run_command
 from url4.cli._config import _HEALTH_PATH, ConfigError, ProviderSpec, ServeConfig, resolve
+from url4.cli._files import FileData, read_text
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import resolve_shelf
 from url4.peer._asgi import lifespan as _lifespan
@@ -148,10 +148,7 @@ async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = 
     if spec.value is not None:
         return spec.value
     if spec.file is not None:
-        try:
-            return await asyncio.to_thread(Path(spec.file).read_text, encoding="utf-8")
-        except OSError as exc:
-            raise ResolutionError(f"data file {spec.file!r} cannot be read: {exc}") from exc
+        return await read_text(spec.file)
     if spec.command is not None:
         argv = [token.replace("{collection}", collection or "") for token in spec.command]
         return await run_command(argv, "", timeout)
@@ -160,7 +157,13 @@ async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = 
 
 
 def make_data_provider(spec: ProviderSpec, timeout: float) -> DataCallable:
-    """A ``Url4Node.data`` provider backed by a :class:`ProviderSpec`."""
+    """A ``Url4Node.data`` provider backed by a :class:`ProviderSpec`.
+
+    A ``file`` provider also reads binary-safe (:class:`~url4.cli._files.FileData`); ``value`` and
+    ``command`` providers are text only.
+    """
+    if spec.file is not None:
+        return FileData(spec.file)
 
     async def provider() -> str:
         return await _provide(spec, timeout)

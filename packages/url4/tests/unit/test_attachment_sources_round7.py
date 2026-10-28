@@ -632,7 +632,7 @@ async def test_attachment_source_on_an_adapter_without_bytes_fetch_is_unsupporte
     model = _Model()
     with pytest.raises(ResolutionError) as caught:
         await run(f"(src={IMG_URL};accept=image/png)!'d'", _TextOnly(), process=model)
-    assert caught.value.code == ErrorCode.UNSUPPORTED_CONTENT_TYPE
+    assert caught.value.code == ErrorCode.UNSUPPORTED_MODE
     assert model.seen == []
 
 

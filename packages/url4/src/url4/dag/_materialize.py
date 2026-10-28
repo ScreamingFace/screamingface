@@ -306,9 +306,11 @@ class _AttachmentFetchNode:
         identity = self.identity
         fetch = getattr(ctx.io, "fetch_bytes", None)
         if fetch is None:
+            # WHY unsupported_mode, not unsupported_content_type: the io lacks a capability (as
+            # a code pointer on an io without SupportsCode does); no body's type was ever seen.
             raise ResolutionError(
-                f"attachment source {identity.url!r} needs a binary-safe adapter (fetch_bytes)",
-                code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
+                f"attachment source {identity.url!r} needs a binary-safe io layer (fetch_bytes)",
+                code=ErrorCode.UNSUPPORTED_MODE,
                 permanent=True,
             )
         request = FetchRequest(identity.url, relative=False, kind="http", accept=identity.accept)

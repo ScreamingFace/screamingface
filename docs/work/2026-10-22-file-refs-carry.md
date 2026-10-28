@@ -492,3 +492,59 @@ Owner-approved (Sergey, 2026-10-28) so the OME-1543 PR can open right after #147
 `test_hygiene_ratchets.py`; append-only green); `check_module_size.py` and
 `check_suppressions.py` within baseline; `run_gates.py screamingface-engine --base origin/main`
 ALL GREEN.
+
+## Round 2026-10-28 — local e2e bugs (node `fetch_bytes`, binary `[data]` files): DONE
+
+Owner-approved (Sergey, 2026-10-28). Two bugs from a local end-to-end run.
+
+**Intent.**
+1. `Url4Node` has no `fetch_bytes`, so on a node every https attachment source is refused by
+   `dag/_materialize.py` with a misleading `unsupported_content_type` before the destination guard
+   runs. Give the node a binary-safe `fetch_bytes` (absolute → outbound `fetch_bytes`, through
+   its guard; relative → the node's own dispatch, bytes-safe for data routes), and make the
+   "io has no binary-safe port" case an accurate typed error.
+2. `url4 serve` `[data]` files are read with `read_text(utf-8)`: a binary file (a
+   `/blob/sha256/<hex>` route) raises `UnicodeDecodeError` → 500 `internal_error`. Read file data
+   as bytes on the binary path; on the text path a non-UTF-8 file is a typed permanent error.
+
+**Planned changes.** `peer/server.py` + `peer/_dispatch.py` (node `fetch_bytes`, bytes data
+dispatch), `cli/_serve.py` (file provider with a bytes read; typed decode error),
+`dag/_materialize.py` (code of the no-bytes-port refusal); new tests
+`tests/unit/test_node_bytes_fetch.py`.
+
+**Test plan.** RED first: a `build_node(ServeConfig)` node with a fake guarded transport attaches
+an `https` source with `;accept=image/png` (guard consulted: resolver sees the host; a metadata
+address is refused with `x.source_destination_blocked`); a binary `[data]` file serves a verified
+`/blob/sha256/<hex>` ref in-process; the text read of it is a typed permanent error, not 500.
+
+**Acceptance.** `run_gates.py url4 --base origin/main` green; module-size + suppressions green;
+engine gate green.
+
+**Outcome.**
+- New `peer/_bytes.py`: `Url4Node.fetch_bytes` (bound as a class attribute in `peer/server.py`).
+  Absolute target → the outbound layer's own `fetch_bytes` (its destination guard, size cap and
+  deadline apply); an outbound without the port → `unsupported_mode` (permanent), never
+  text-encoded. Relative target → the node's dispatch order; a data route whose provider has
+  `read_bytes` (`SupportsReadBytes`) is read byte-exact, everything else is its text UTF-8 encoded.
+- New `cli/_files.py`: `FileData` (text `__call__` + `read_bytes`) for `[data]` file routes;
+  every file text read (data, holdings, identities) maps `UnicodeDecodeError` to
+  `unsupported_content_type` (permanent, C8) instead of a 500 `internal_error`.
+- `dag/_materialize.py`: the no-bytes-port refusal is now `unsupported_mode` (was the misleading
+  `unsupported_content_type`).
+- Splits forced by `check_module_size.py` (by reason to change, caps untouched).
+- Tests: new `tests/unit/test_node_bytes_fetch.py` (12, RED first).
+
+**Deviations.**
+- Code choice: §4 of the OME-1535 spec has no code for "the io has no binary-safe port"; used
+  `unsupported_mode` (501), the existing permanent code the repo already uses for the analogous
+  missing-capability case (relative code pointer on an io without `SupportsCode`, `dag/nodes/code.py`).
+  Spec §4 should list it (owner/Kevin follow-up).
+- One branch-own test changed (not on `origin/main`, not in the manifest's pinned blobs):
+  `test_attachment_sources_round7.py::test_attachment_source_on_an_adapter_without_bytes_fetch_is_unsupported`
+  now expects `unsupported_mode` — the owner-directed fix of exactly that code.
+- Out of scope, noted: over HTTP the node still serves data routes through the text port, so a
+  remote GET of a binary `[data]` file is now a typed 4xx `unsupported_content_type`, not bytes.
+
+**Gates.** `run_gates.py url4 --base origin/main` ALL GREEN (append-only green);
+`check_module_size.py` within caps; `check_suppressions.py` 3/3 baseline;
+`run_gates.py screamingface-engine --base origin/main` ALL GREEN.
