@@ -153,3 +153,10 @@ claimed "any selector" (narrowed; best-effort limit recorded in the spec), the n
 selected CSV rows with a substring check (now `partition`), and `_split_route`'s docstring
 did not mention decoding. Added tests: unprefixed selector route, mixed case, repeated
 selectors, `~` in the owner segment (all already behaved correctly).
+
+### Self-review loop, round 2 (2026-10-28)
+
+Fresh independent review of 8bd7cbb07 + 5620c24ee: no new findings. 779 classification and
+scores tests pass. Probes confirmed fail-closed behavior for trailing, nested and unprefixed
+selectors. Pre-existing, not introduced here: an owner-scoped family match such as
+`openai/gpt-oss-120b~x` classifies open, as `gpt-oss-120b~x` did before decoding. Loop ended.
