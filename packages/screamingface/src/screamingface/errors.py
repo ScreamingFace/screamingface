@@ -209,6 +209,18 @@ class ReproductionError(_DiagnosticError):
         super().__init__(message, code=code, permanent=True, hint=hint)
 
 
+class MediaUnavailableError(_DiagnosticError):
+    """A Case's picture or file could not be opened from the engine (OME-1271).
+
+    ``code`` is ``media_not_kept`` (the engine no longer holds it: a run keeps its pictures 48
+    hours), ``media_integrity_mismatch`` (the bytes are not the ones the placeholder names),
+    ``media_reference_invalid`` (the placeholder's sha256 is not 64 hex digits), or
+    ``media_fetch_failed`` (any other engine answer).
+    """
+
+    _default_code: str = "media_fetch_failed"
+
+
 class EngineUnavailableError(_DiagnosticError):
     """The configured SF Engine could not be reached."""
 
@@ -267,6 +279,7 @@ __all__ = [
     "EngineUnavailableError",
     "ExecutionError",
     "LeaderboardError",
+    "MediaUnavailableError",
     "PlanningError",
     "ProviderConnectionError",
     "ReproductionError",

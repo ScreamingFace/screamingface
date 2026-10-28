@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -151,6 +152,15 @@ def close() -> None:
     pull = sys.modules.get("screamingface._cache.pull")
     if pull is not None:
         pull.close_sessions()
+
+
+def fetch_media(media: CaseMedia) -> FetchedMedia:
+    """Fetch one picture or file of a Case with the process-wide Client (``Client.fetch_media``).
+
+    e.g. ``sf.fetch_media(report.candidates[0].cases[0].media[0])``.
+    """
+
+    return default_client().fetch_media(media)
 
 
 @overload
