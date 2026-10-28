@@ -70,3 +70,23 @@ Built on the `OME-1543` chain; the PR opens after #1478/#1482/`OME-1543` land.
   - `connector.py` grows from 1634 to 1659 lines (already above the 450-line guideline); the logic
     lives in the new module to keep the growth to wiring.
   - Initial draft of the module preceded its tests (the connector tests were RED first).
+
+### Round 2 (2026-10-28) — gateway `unsupported_content_part` → url4 `intent_error`
+
+- **Decision:** owner (Sergey, 2026-10-28) — implement spec #1450 §4: the engine connector
+  translates the gateway's `unsupported_content_part` refusal into url4 `intent_error`, keeping the
+  response's permanence and carrying the gateway `info` as the cause. Only that code; every other
+  gateway mapping unchanged. The sync run route stays 502 (url4-cloud contract, `test_rest.py`);
+  a mount call answers 422 (`intent_error` in url4's table).
+- **Files:** `world/attachment_parts.py` (+30: `GatewayContentPartRefusal`, `intent_error_for`,
+  `INTENT_ERROR` / `UNSUPPORTED_CONTENT_PART`); `world/connector.py::_raise_for_status` (+7 wiring,
+  1659 → 1666 lines). The cause is the Python `__cause__` (a `GatewayContentPartRefusal` holding a
+  copy of the gateway `info`); on the wire `ErrorInfo` has only `code`/`message`/`permanent`, so
+  the gateway's own `message` is the `intent_error` message the caller reads.
+- **Tests (new only):** `tests/unit/test_unsupported_content_part_refusal.py` (9: translation,
+  cause, permanence kept on a 503, four other codes unchanged, helper edges);
+  `tests/unit/test_mount_routes.py` +2 appended (real chain `_raise_for_status` → `_error_info` →
+  mount: 422 `intent_error` with the gateway message; `provider_refused` stays 502 unchanged).
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` — ALL GATES GREEN;
+  `packages/url4/scripts/check_module_size.py` — all capped modules within baseline (url4
+  untouched; connector.py is not on that list).

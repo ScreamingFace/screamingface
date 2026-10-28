@@ -72,8 +72,10 @@ from screamingface_engine.world.accounting import (
     signal_accounting_from_aigw,
 )
 from screamingface_engine.world.attachment_parts import (
+    INTENT_ERROR,
     AttachmentPartError,
     attachment_parts,
+    intent_error_for,
     place_on_last_user_message,
 )
 from screamingface_engine.world.cache import attempt_body_field, with_cache_policy
@@ -1639,6 +1641,7 @@ def _raise_for_status(resp: httpx.Response) -> None:
         payload = resp.json()
     except ValueError:
         payload = None
+    refusal = None
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, dict):
@@ -1646,7 +1649,11 @@ def _raise_for_status(resp: httpx.Response) -> None:
             if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
                 code = upstream_code
             message = detail.get("message", message)
+            refusal = intent_error_for(detail)
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
+    if refusal is not None:
+        # Spec #1450 §4: the ONE translated gateway code; permanence kept, `info` as the cause.
+        raise ResolutionError(message, code=INTENT_ERROR, permanent=permanent) from refusal
     raise ResolutionError(message, code=code, permanent=permanent)
 
 

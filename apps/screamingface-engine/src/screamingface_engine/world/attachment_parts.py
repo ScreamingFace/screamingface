@@ -47,6 +47,8 @@ from screamingface_engine.benchmarks.candidate_input import (
 _SHA256_PREFIX = "sha256:"
 SOURCE_NOT_FOUND = "source_not_found"
 BLOB_DIGEST_MISMATCH = "x.blob_digest_mismatch"
+INTENT_ERROR = "intent_error"
+UNSUPPORTED_CONTENT_PART = "unsupported_content_part"
 
 
 class AttachmentRef(Protocol):
@@ -187,14 +189,42 @@ def _digest_mismatch(digest: str) -> AttachmentPartError:
     )
 
 
+class GatewayContentPartRefusal(Exception):
+    """The gateway's ``unsupported_content_part`` refusal, kept as the cause of an ``intent_error``.
+
+    ``info`` is the gateway's own detail (``code``, ``provider``, ``part_type``, ``reason``,
+    ``message``), copied so the cause cannot change after the fact.
+    """
+
+    def __init__(self, info: dict[str, Any]) -> None:
+        self.info = dict(info)
+        super().__init__(str(self.info.get("message", UNSUPPORTED_CONTENT_PART)))
+
+
+def intent_error_for(detail: dict[str, Any]) -> GatewayContentPartRefusal | None:
+    """The refusal to raise ``intent_error`` from, or ``None`` for any other gateway code.
+
+    WHY the one exception to verbatim wrapping (spec #1450 §4): in url4 terms a model that cannot
+    take a part is an admission condition (C9), so the gateway backstop's code is translated to
+    ``intent_error``; the caller keeps the response's permanence. Every other code stays as is.
+    """
+    if detail.get("code") != UNSUPPORTED_CONTENT_PART:
+        return None
+    return GatewayContentPartRefusal(detail)
+
+
 __all__ = [
     "BLOB_DIGEST_MISMATCH",
+    "INTENT_ERROR",
     "SOURCE_NOT_FOUND",
+    "UNSUPPORTED_CONTENT_PART",
     "AttachmentPartError",
     "AttachmentRef",
     "BlobReader",
+    "GatewayContentPartRefusal",
     "attachment_parts",
     "bound_blob_reader",
     "canonical_data_uri",
+    "intent_error_for",
     "place_on_last_user_message",
 ]
