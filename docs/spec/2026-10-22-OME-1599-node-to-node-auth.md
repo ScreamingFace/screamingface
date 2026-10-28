@@ -7,6 +7,29 @@ stand unchanged: every `url4://…/blob/…` ref fails with `x.remote_blob_unsup
 remote-node call with `x.remote_node_unsupported`, both before any I/O, and the #1521 peer allowlist
 stays empty.
 
+Revised 2026-10-28: every open question now carries a stated **working assumption** (§10), chosen as
+the conservative option consistent with merged spec #1450, so the draft can be reviewed without
+Kevin's live input. An assumption is not a decision; each one names what changes if Kevin answers
+otherwise.
+
+## Decisions requested from Kevin
+
+Tick or overrule; details, consequences and the alternative for each are in §10.
+
+- [ ] **Q1** `URL4-Auth-Token` carries only the delegation/share **grant** (JWS); node authentication is
+  the RFC 9421 `Signature` that covers it.
+- [ ] **Q2** No grammar change for C2: a share grant never appears in the expression; C2 stays refused
+  (`x.remote_blob_unsupported`) until grant delivery is specified, and C6 ships first.
+- [ ] **Q3** A node's identity **is** its canonical `url4://` authority; no separate node id.
+- [ ] **Q4** Keys are discovered at `https://<authority>/.well-known/url4/node-keys` (JWKS), outside
+  the url4 grammar.
+- [ ] **Q5** The `x.peer_*` codes stay `x.`-prefixed extensions with the proposed statuses;
+  `x.peer_auth_expired` is 401 and retryable once after re-signing.
+- [ ] **Q6** A delegation grant's `sub` is opaque; the receiver maps `(peer, sub)` to a local tenant;
+  url4 defines no cross-node tenant identity.
+
+Not a Kevin decision: consent hooks (§10, note on Q7) are outside `OME-1599`'s scope.
+
 ## 1. Why, and what this gates
 
 Spec #1450 sets a bar before two deferred features may ship:
@@ -22,7 +45,7 @@ The destination half of the bar already exists: the #1521 guard (`url4/io/_sourc
 and size caps, deadlines, and a `peer_hosts` allowlist that is empty by default. This spec supplies the
 missing half: **who is calling, on whose behalf, and whether the receiver allows it.**
 
-Current state on `origin/main` (`506c091`):
+Current state on `origin/main` (drafted at `506c091`, re-verified at `6ea6a0011` on 2026-10-28):
 
 | Fact | Where |
 |---|---|
@@ -151,8 +174,8 @@ A node never self-issues a `share` for another node's data: a share grant verifi
 issued n1 a share grant naming that digest (the `OME-1599` acceptance "A's blob can't be fetched by B
 without a grant").
 
-How a share grant reaches the reader is **open** (Q2): either it travels with the ref in the
-expression, or n2 returns it in a C6 response that hands blobs back to n1.
+How a share grant reaches the reader is **open** (Q2). Working assumption: never in the expression;
+C2 stays refused until delivery is specified (§10).
 
 ### 5.5 Inbound: the receiver's order (normative)
 
@@ -257,7 +280,7 @@ requests are signed". The guard's `trusted_first_hop` (the operator's `base_url`
 - **C6 first.** It needs only §5.1–5.8 plus the delegation grant. The receiver resolves inner sources
   against its own store under the child run (#1450 §3, row C6: "n2 resolves C3 against its own store"); a C3
   bare blob in the inner expression therefore resolves only to blobs ingested into that child run.
-- **C2 second.** It also needs the share-grant delivery (Q2) and the rest of F1's remote-blob bar
+- **C2 second.** It also needs the share-grant delivery (Q2; assumed out of band, so a follow-up) and the rest of F1's remote-blob bar
   (media-type sniffing, per-run file count and byte limits). Fetched bytes are written through to the
   caller's tenant + run store and verified (F3), and the share grant's `jti` is recorded as provenance.
 - Both stay off by default per node and per peer; the v1 refusals remain the behaviour of an
@@ -293,25 +316,74 @@ Receiver side (one test per §5.5 step, in order):
 - End to end with two in-process nodes over ASGI: C6 happy path with trace propagation and child-run
   budget; C2 happy path with a share grant.
 
-## 10. Open questions for Kevin
+## 10. Open questions for Kevin, with working assumptions
 
-- **Q1 `URL4-Auth-Token` semantics.** Part B §3.5 names the header. Does its normative text allow it to
-  carry the JWS grant proposed in §5.4, with node authentication in RFC 9421 `Signature` headers? Or
-  does §3.5 intend the token itself to be the whole credential? (§3.5 was not available locally while
-  drafting.)
-- **Q2 Share-grant delivery for C2.** Does a `url4://n2/blob/sha256/<hex>` ref need a grammar slot for
-  a grant (for example a `grant=` binding next to `src=`), or do grants travel only out of band and in
-  C6 responses?
-- **Q3 Identity = authority.** Is the `url4://` authority the node identity, or should url4 define a
-  separate node id (for example a key thumbprint) so a node can move hosts?
-- **Q4 Key discovery path.** Is `/.well-known/url4/node-keys` acceptable, or should discovery be an
-  `@identity`-style url4 route (spec §5.6) on the node?
-- **Q5 Codes and statuses.** Adopt the `x.peer_*` codes in Spec C, or keep them `x.`-prefixed? Is 401
-  right for `x.peer_auth_expired`, and should it be retryable?
-- **Q6 Tenant mapping.** Should a delegation grant's `sub` be opaque, as here, or should url4 define
-  cross-node tenant identity?
-- **Q7 Consent hooks.** `server.py` defers "consent hooks" with auth. Do they belong in this spec
-  (a per-request operator callback after §5.5 step 7), or in Part C?
+Each assumption is the conservative option consistent with spec #1450 (F1, F1b, F3, §4): it opens
+nothing #1450 keeps closed and changes no grammar. Overruling one changes only the sections named.
+
+**Q1 `URL4-Auth-Token` semantics.** Part B §3.5 names the header; locally only the v1 package spec's
+deferral mentions it (`2026-07-11-url4-package-v1-spec.md` §13). May it carry the §5.4 grant, with node
+authentication in RFC 9421 `Signature` headers, or is the token meant to be the whole credential?
+- *Assumption:* the token carries only the grant; the HTTP signature authenticates the node and
+  covers the token.
+- *Consequence:* two artefacts per request; the grant cannot be lifted onto another request (T3, T4)
+  without the token itself being request-bound.
+- *If Kevin says otherwise:* the token must become request-bound on its own (a JWS over method,
+  authority, path, query and `Content-Digest`, with `nonce`, in the DPoP style). §5.3 and §5.4 merge,
+  §5.5 steps 1 and 4 verify one JWS instead of two; R1–R8, the codes and the tests' intent stay.
+
+**Q2 Share-grant delivery for C2.** Does `url4://n2/blob/sha256/<hex>` need a grammar slot for a grant
+(for example `grant=` next to `src=`), or do grants travel only out of band and in C6 responses?
+- *Assumption:* no grammar slot. A grant never appears in an authored expression; C2 stays refused
+  with `x.remote_blob_unsupported` (F1) until delivery is specified in a follow-up; C6 ships first
+  (§7).
+- *Consequence:* this spec enables C6 only; the share-grant format (§5.4) and the receiver checks
+  (§5.5) are fixed now so C2 needs no protocol change later, only a delivery path.
+- *If Kevin says otherwise:* a `grant=` slot is a Part A/B grammar change. The grant then sits in
+  expression text, so it must be literal like an attachment source (F1b static rule), becomes part of
+  the run manifest, and is redacted from logs, spans and errors (R8). §7's C2 order and §9 gain the
+  grammar tests.
+
+**Q3 Identity = authority.** Is the `url4://` authority the node identity, or should url4 define a
+separate node id (for example a key thumbprint) so a node can move hosts?
+- *Assumption:* identity is the canonical authority (§5.1); `Url4Node.name` stays a display name.
+- *Consequence:* no new naming scheme or registry; moving hosts is a new identity that peers
+  re-allowlist.
+- *If Kevin says otherwise:* grants gain a `node` claim; inbound allowlist entries are keyed by node
+  id; discovery must bind authority to node id (a signed statement in the JWKS), and `keyid` becomes
+  `<node-id>#<kid>`. The receiver order (§5.5) is unchanged.
+
+**Q4 Key discovery path.** Is `/.well-known/url4/node-keys` acceptable, or should discovery be an
+`@identity`-style url4 route on the node?
+- *Assumption:* the `.well-known` JWKS over plain https, outside the url4 grammar.
+- *Consequence:* discovery uses no expression evaluation, so it cannot recurse into peer calls; it
+  reuses the #1521 guard with redirects off.
+- *If Kevin says otherwise:* only the path changes; the rules stay (allowlist before fetch, from the
+  claimed authority only, no redirects, 64 KiB cap, cache clamp). Fetching through the url4 evaluator
+  is not allowed either way.
+
+**Q5 Codes and statuses.** Adopt the `x.peer_*` codes into Spec C, or keep them `x.`-prefixed? Is 401
+right for `x.peer_auth_expired`, and should it be retryable?
+- *Assumption:* keep them `x.`-prefixed extension codes with the proposed statuses, like every #1450
+  §4 code; `x.peer_auth_expired` is 401 and retryable once after re-signing.
+- *Consequence:* no Spec C change needed to ship; one retry absorbs a stale signature, and a second
+  failure surfaces clock skew.
+- *If Kevin says otherwise:* adopted codes are renamed without the prefix, permanence unchanged. If
+  expired is permanent, the caller's retry test (§9) flips and skew fails on the first attempt.
+
+**Q6 Tenant mapping.** Should a delegation grant's `sub` be opaque, as here, or should url4 define
+cross-node tenant identity?
+- *Assumption:* opaque. The receiver maps `(peer authority, sub)` to a local tenant (default one
+  tenant per peer, `peer:<authority>`) and opens a child run under it (§5.5 step 8).
+- *Consequence:* F3 tenant + run scoping stays purely local; the confused-deputy defence (T2) rests
+  on the grant naming tenant and run, not on shared tenant ids.
+- *If Kevin says otherwise:* the allowlist's tenant map is keyed by the url4 tenant id, the grant
+  carries it in a defined claim, and the spec must state who vouches for it (the calling node alone
+  cannot). F3's order is unchanged.
+
+**Note on Q7, consent hooks (not a Kevin decision).** `server.py` defers "consent hooks" together with
+auth. `OME-1599`'s scope does not include them, so this spec leaves them to Part C. §5.5 has a natural
+insertion point after step 7 that needs no protocol change.
 
 ## 11. Out of scope
 

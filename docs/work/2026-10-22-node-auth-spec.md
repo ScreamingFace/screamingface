@@ -40,3 +40,10 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
 - **Gates:** `git diff --check` clean; `check_mirror_status.py` run (see commit).
 - **Deviations:** url4 Part B §3.5 (`URL4-Auth-Token`) text was not available locally, so the
   header's binding is proposed and raised as open question Q1 rather than quoted.
+- **2026-10-28 revision (approved by Sergey):** rebased onto `origin/main` (`6ea6a0011`); code facts in
+  §1 re-verified. Added a "Decisions requested from Kevin" checklist at the top and, in §10, a
+  working assumption per question (conservative, consistent with #1450), its consequence, and what
+  changes if Kevin answers otherwise, so review does not need Kevin live. Six questions (Q1–Q6) go to
+  Kevin; the draft's former Q7 (consent hooks) is outside `OME-1599`'s scope and is now a note left
+  to Part C. Linear `OME-1599` had no comments listing the questions; the six are the draft's own.
+  Still DRAFT; no PR.
