@@ -1,9 +1,9 @@
 ---
 ticket: OME-1716
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-22
-finished:
+finished: 2026-10-28
 ---
 
 # Recognize verified open-weight releases
@@ -160,3 +160,10 @@ Fresh independent review of 8bd7cbb07 + 5620c24ee: no new findings. 779 classifi
 scores tests pass. Probes confirmed fail-closed behavior for trailing, nested and unprefixed
 selectors. Pre-existing, not introduced here: an owner-scoped family match such as
 `openai/gpt-oss-120b~x` classifies open, as `gpt-oss-120b~x` did before decoding. Loop ended.
+
+## Close-out (2026-10-28)
+
+PR #1534 approved by Dmitry on re-review at head `505448361` (all three findings resolved,
+no remaining findings in scope) and squash-merged as `798e81aaf`. CI and CodeQL green.
+Deployment to prod has not been verified here. Known limit carried forward (spec): the
+`qwen` owner rule still credits other `qwen/...` names.
