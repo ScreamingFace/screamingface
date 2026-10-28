@@ -245,6 +245,7 @@ async def _lifespan(app):
             scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
             if scheduler is not None:
                 await scheduler.stop()
+        finally:
             # §9.12: closed explicitly here rather than left to __del__, which is not
             # guaranteed to run and cannot await. An unclosed handler leaks its connection
             # pool across TestClient lifecycles and across a reload in dev.
@@ -252,21 +253,21 @@ async def _lifespan(app):
                 await app.state.taxonomy_plugin.close()
             except Exception:
                 logger.warning("usage accounting handler did not close cleanly")
-        finally:
-            app.state.usage_accounting_handler = None
-            # FEATURE (hosted BYOM): each configured endpoint's reused client closes with the app.
-            try:
-                await close_remote_endpoints(app.state.providers)
-            except Exception:
-                logger.warning("a remote endpoint client did not close cleanly")
             finally:
+                app.state.usage_accounting_handler = None
+                # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
                 try:
-                    await auth.close_loopback_callbacks(app)
+                    await close_remote_endpoints(app.state.providers)
+                except Exception:
+                    logger.warning("a remote endpoint client did not close cleanly")
                 finally:
-                    # Clear the process-wide active store so it does not leak across app
-                    # instances (e.g. multiple TestClient lifecycles in one process).
-                    set_active_secret_store(None)
-                    await close_db()
+                    try:
+                        await auth.close_loopback_callbacks(app)
+                    finally:
+                        # Clear the process-wide active store so it does not leak across app
+                        # instances (e.g. multiple TestClient lifecycles in one process).
+                        set_active_secret_store(None)
+                        await close_db()
 
 
 async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
