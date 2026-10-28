@@ -1,12 +1,17 @@
 ---
 ticket: OME-1208
 stack: aigateway
-status: in_progress   # S1 + S2'a + S2'b1 + S2'b2 + S2'b3 + S2'b4 + S2'c + S4 DONE (commit 2c39a949, PR #1029); R1 review fixes DONE uncommitted, gates green 2026-09-23
+status: done   # S1 + S2'a + S2'b1 + S2'b2 + S2'b3 + S2'b4 + S2'c + S4 + R1 merged as PR #1029 (7cff8a569), 2026-09-23
 started: 2026-09-22
-finished:
+finished: 2026-09-23
 ---
 
 # OME-1208 — Move the provider-access backing from legacy Profiles toward Connections (Stage B)
+
+> **Closed 2026-09-23 — historical record.** Merged as PR #1029 (`7cff8a569`). The Stage B
+> backfill this unit added has been applied, and `OME-1759` (OME-1138 Stage E, E5c) deleted
+> `python -m aigateway.migrate_profiles` together with `backfill_classify.py` and
+> `backfill_apply.py`. The commands below no longer exist; do not run them.
 
 ## Intent
 
