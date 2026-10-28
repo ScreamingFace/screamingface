@@ -18,7 +18,9 @@ Stages, in execution order (``main``):
               by this module's readers), seals the declaration, and replays it once more as
               every build will.
     Stage 2 — the card: the one Hugging Face Case Source's dataset card gives a cleared
-              licence, else ``TODO`` for the owner (D13). Network, import side only.
+              licence, else ``TODO`` for the owner (D13). Network, import side only. A
+              dataset that looks like a bundle of other datasets (many configs, or a
+              per-row source column) gets a warning, never a different licence (OME-1757).
     Stage 3 — write: the declaration and the BenchmarkSpec row are inserted at their
               files' anchor comments (task_replay_rows.py), using this module's renderers.
 
@@ -1359,6 +1361,7 @@ def _import_by_task_replay_cli(
         import_by_task_replay as replay_both_times,
     )
     from screamingface_engine_inspect.task_replay_rows import (
+        AGGREGATE_DATASET_WARNING,
         CardLicense,
         card_license_of,
         write_task_replay_rows,
@@ -1409,6 +1412,7 @@ def _import_by_task_replay_cli(
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
         whole_run_headline=args.whole_run_headline,
         retrieval_policy=retrieval_policy,
+        aggregate_signal=card.aggregate_signal,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(
@@ -1421,6 +1425,10 @@ def _import_by_task_replay_cli(
         "a human decides the license and reviews the diff before merge.",
         file=sys.stderr,
     )
+    if card.aggregate_signal is not None:
+        # WHY a warning, never a refusal: the shape only hints at a bundle (OME-1757); the
+        # human deciding the licence line is the one who checks each source.
+        print(f"WARNING: {AGGREGATE_DATASET_WARNING} ({card.aggregate_signal}).", file=sys.stderr)
 
 
 def _with_nltk_data(imported: TaskReplayImport, resources: list[str]) -> TaskReplayImport:

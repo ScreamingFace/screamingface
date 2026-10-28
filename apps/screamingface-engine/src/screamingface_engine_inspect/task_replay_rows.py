@@ -71,6 +71,18 @@ _TASK_REPLAY_CASES_ANCHOR: str = (
 _CASE_SOURCE_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:/\-?=&%+#~@ ]*\Z")
 #: What a Hub repo id may hold to land as a source_pins key (OME-1460).
 _HUB_REPO_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._\-/]+\Z")
+#: A card column that names, per row, which source dataset the row came from (OME-1757).
+#: MathVista's ``metadata.source`` names one of 31 datasets, some NonCommercial.
+_SOURCE_COLUMN: str = "source"
+#: The importer's warning for a dataset that bundles other datasets (OME-1757): the card's
+#: one license line cannot speak for every source, so a human checks each by hand.
+AGGREGATE_DATASET_WARNING: str = (
+    "aggregate dataset — check each source's licence by hand before writing the licence line"
+)
+#: How many configs of one Hub repo make an eval look like a bundle (OME-1757). WHY 3, not
+#: 2: two is a Cases config plus a helper (air_bench reads judge_prompts beside its Cases);
+#: the bundles seen read dozens (MMMU 30 subjects, bbh 28 tasks).
+_BUNDLE_CONFIG_COUNT: int = 3
 
 
 @dataclass(frozen=True)
@@ -90,6 +102,7 @@ def render_task_replay_rows(
     provenance: ProvenanceFacts | None = None,
     whole_run_headline: str | None = None,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
+    aggregate_signal: str | None = None,
 ) -> TaskReplayRows:
     """Stages 2 to 4 — render a Task-replay declaration and its BenchmarkSpec row (spec R6).
 
@@ -103,6 +116,9 @@ def render_task_replay_rows(
             Headline Score (``--whole-run-headline``, OME-1527); None for every other import.
         retrieval_policy: the exam's web-search rule (``--retrieval-policy``, OME-1527 R13),
             already checked when declared; None for every other import.
+        aggregate_signal: why the dataset looks like a bundle of other datasets
+            (:attr:`CardLicense.aggregate_signal`, OME-1757); the license note then warns
+            that each source's licence needs a hand check. None for every other import.
 
     Returns:
         The declaration text (for TASK_REPLAY_CASES) and the BenchmarkSpec row text.
@@ -112,7 +128,7 @@ def render_task_replay_rows(
             a headline key without an honoured whole-run metric.
     """
 
-    _refuse_injectable_import(imported, license, card_license)
+    _refuse_injectable_import(imported, license, card_license, aggregate_signal)
     if whole_run_headline is not None:
         if imported.facts.whole_run_metric is None:
             raise ImporterError(
@@ -124,7 +140,9 @@ def render_task_replay_rows(
                 f"{whole_run_headline!r} cannot be written into generated code — refusing "
                 "(injection guard)"
             )
-    cases: str = "\n".join(_declaration_lines(key, imported, license, card_license)) + "\n"
+    cases: str = (
+        "\n".join(_declaration_lines(key, imported, license, card_license, aggregate_signal)) + "\n"
+    )
     benchmark: str = (
         "\n".join(
             _benchmark_row_lines(
@@ -146,6 +164,7 @@ def write_task_replay_rows(
     provenance: ProvenanceFacts | None = None,
     whole_run_headline: str | None = None,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
+    aggregate_signal: str | None = None,
 ) -> TaskReplayRows:
     """Stages 1 to 5 — insert a Task-replay import's two rows into prepare.py and benchmarks.py.
 
@@ -157,6 +176,7 @@ def write_task_replay_rows(
         card_license: see render_task_replay_rows.
         whole_run_headline: see render_task_replay_rows.
         retrieval_policy: see render_task_replay_rows.
+        aggregate_signal: see render_task_replay_rows.
 
     Returns:
         The rows written.
@@ -181,6 +201,7 @@ def write_task_replay_rows(
         provenance=provenance,
         whole_run_headline=whole_run_headline,
         retrieval_policy=retrieval_policy,
+        aggregate_signal=aggregate_signal,
     )
     # Stage 5 — compose both files before writing either.
     new_texts: dict[Path, str] = {
@@ -197,7 +218,10 @@ def write_task_replay_rows(
 
 
 def _refuse_injectable_import(
-    imported: TaskReplayImport, license: str, card_license: str | None
+    imported: TaskReplayImport,
+    license: str,
+    card_license: str | None,
+    aggregate_signal: str | None = None,
 ) -> None:
     """Stage 2 — refuse any string that could escape the generated rows."""
 
@@ -218,7 +242,13 @@ def _refuse_injectable_import(
     # another control character could end the comment and start code.
     # WHY printable only for the excluded ids: each lands inside a JSON string literal, which
     # escapes every quote, backslash and line break; onet_m6's ids are Thai (OME-1460).
-    for text in (*imported.facts.custom_metrics, *(declaration.excluded_sample_ids or ())):
+    # WHY the aggregate signal here: it lands only in the license note's comment (OME-1757).
+    signal: tuple[str, ...] = () if aggregate_signal is None else (aggregate_signal,)
+    for text in (
+        *imported.facts.custom_metrics,
+        *(declaration.excluded_sample_ids or ()),
+        *signal,
+    ):
         if not text.isprintable():
             raise ImporterError(
                 f"{text!r} cannot be written into generated code — refusing (injection guard)"
@@ -269,7 +299,11 @@ def _answer_key_lines(declaration: TaskReplayCasesSpec) -> list[str]:
 
 
 def _declaration_lines(
-    key: str, imported: TaskReplayImport, license: str, card_license: str | None
+    key: str,
+    imported: TaskReplayImport,
+    license: str,
+    card_license: str | None,
+    aggregate_signal: str | None = None,
 ) -> list[str]:
     """Stage 3 — the TaskReplayCasesSpec entry: sources as comments, the seal as values."""
 
@@ -304,7 +338,7 @@ def _declaration_lines(
         lines.append("        ),")
         lines.append(f'        nltk_data_digest="{declaration.nltk_data_digest}",')
     lines.extend(_fetch_pin_lines(declaration))
-    lines.extend(_license_lines(license, card_license))
+    lines.extend(_license_lines(license, card_license, aggregate_signal))
     lines.append("    ),")
     return lines
 
@@ -356,10 +390,25 @@ def _case_source_comment_lines(sources: tuple[CaseSource, ...]) -> list[str]:
     return lines
 
 
-def _license_lines(license: str, card_license: str | None) -> list[str]:
-    """The license value, with a review note whenever the owner still has to decide (D13)."""
+def _license_lines(
+    license: str, card_license: str | None, aggregate_signal: str | None = None
+) -> list[str]:
+    """The license value, with a review note whenever the owner still has to decide (D13).
+
+    An aggregate dataset (OME-1757) gets a warning above the value, cleared or not: the
+    card's one license line does not speak for the datasets it bundles. MathVista's card
+    says cc-by-sa-4.0, but 195 of its 1,000 testmini Cases come from NonCommercial sources.
+    """
 
     lines: list[str] = []
+    if aggregate_signal is not None:
+        lines.extend(
+            (
+                "        # TODO(review): aggregate dataset — check each source's licence by hand",
+                "        # before writing the licence line.",
+                f"        #   Why it looks like one: {aggregate_signal}.",
+            )
+        )
     if license == LICENSE_TODO:
         reason: str = (
             f"the card says {card_license!r}, not a cleared license"
@@ -494,6 +543,10 @@ class CardLicense:
     value: str
     #: The card's own license when it was not on the cleared list (D13), else None.
     card_says: str | None
+    #: Why the dataset looks like a bundle of other datasets, each under its own terms
+    #: (OME-1757), e.g. ``the eval reads 30 configs of MMMU/MMMU``; None when it does not.
+    #: It only warns: the value above is decided exactly as without it.
+    aggregate_signal: str | None = None
 
 
 def card_license_of(
@@ -505,6 +558,16 @@ def card_license_of(
     cleared license only (D13): medqa's card says ``unknown``; written as the value it would
     pass R7's gate with nobody deciding, so it is written as TODO and named in the note.
 
+    Stages, in execution order:
+
+        Stage 1 — the configs: an eval reading many configs of one Hub repo looks like a
+                  bundle (MMMU: 30 subject configs, so no single card is read either).
+        Stage 2 — the card: with one Hugging Face Case Source, its card gives the license,
+                  and a per-row ``source`` column in its features also marks a bundle
+                  (MathVista: cc-by-sa-4.0 on the card, 31 source datasets in the rows).
+        Stage 3 — decide: a cleared license is the value, any other is TODO (D13). The
+                  bundle signal never changes the value; it only rides along as a warning.
+
     Example: ``hugging-face bigbio/med_qa · pin revision ddef…`` reads the card at ``ddef…``;
     ``Apache-2.0`` → ``apache-2.0``; ``UNKNOWN`` → TODO, the card says ``unknown``.
 
@@ -513,40 +576,105 @@ def card_license_of(
         dataset_info: ``(repo id, revision) → Hub dataset info`` (HfApi().dataset_info).
 
     Returns:
-        What to write, and the card's own value when the owner must decide instead.
+        What to write, the card's own value when the owner must decide instead, and why the
+        dataset looks like a bundle when it does.
     """
 
     hugging_face: list[CaseSource] = [source for source in sources if source.kind == HUGGING_FACE]
-    card_value: str | None = (
-        _card_license_text(hugging_face[0], dataset_info) if len(hugging_face) == 1 else None
-    )
+    # Stage 1 — the configs
+    signal: str | None = _many_configs_signal(hugging_face)
+    card_value: str | None = None
+    # Stage 2 — the card
+    if len(hugging_face) == 1:
+        card: Any = _card_of(hugging_face[0], dataset_info)
+        card_value = _card_license_text(card)
+        signal = signal or _source_column_signal(card)
+    # Stage 3 — decide
     if card_value is None:
-        return CardLicense(value=LICENSE_TODO, card_says=None)
+        return CardLicense(value=LICENSE_TODO, card_says=None, aggregate_signal=signal)
     cleared: bool = card_value in CLEARED_DATASET_LICENSES
     return CardLicense(
-        value=card_value if cleared else LICENSE_TODO, card_says=None if cleared else card_value
+        value=card_value if cleared else LICENSE_TODO,
+        card_says=None if cleared else card_value,
+        aggregate_signal=signal,
     )
 
 
-def _card_license_text(
-    source: CaseSource, dataset_info: Callable[[str, str | None], Any]
-) -> str | None:
-    """The card's license at the source's revision, lowercased; None when the card has none.
-
-    A list of licenses is joined.
-    """
+def _card_of(source: CaseSource, dataset_info: Callable[[str, str | None], Any]) -> Any:
+    """The Hub card at the source's revision, as a mapping; empty when there is none."""
 
     revision: str | None = (
         source.pin.removeprefix("revision ") if source.pin.startswith("revision ") else None
     )
-    card: Any = getattr(dataset_info(source.hub_repo_id(), revision), "card_data", None) or {}
+    return getattr(dataset_info(source.hub_repo_id(), revision), "card_data", None) or {}
+
+
+def _card_license_text(card: Any) -> str | None:
+    """The card's license, lowercased; None when the card has none.
+
+    A list of licenses is joined.
+    """
+
     value: Any = card.get("license") if hasattr(card, "get") else None
     if isinstance(value, list):
         value = ", ".join(str(item) for item in value)
     return str(value).lower() if value else None
 
 
+def _many_configs_signal(hugging_face: list[CaseSource]) -> str | None:
+    """Say so when the eval reads many configs of one Hub repo, else None (OME-1757 Stage 1).
+
+    Example: 30 sources ``MMMU/MMMU/Accounting`` … ``MMMU/MMMU/Sociology`` → ``the eval
+    reads 30 configs of MMMU/MMMU``; air_bench's Cases config plus its judge_prompts → None.
+    """
+
+    configs: dict[str, set[str]] = {}
+    for source in hugging_face:
+        configs.setdefault(source.hub_repo_id(), set()).add(source.location)
+    for repo_id, locations in configs.items():
+        if len(locations) >= _BUNDLE_CONFIG_COUNT:
+            return f"the eval reads {len(locations)} configs of {repo_id}"
+    return None
+
+
+def _source_column_signal(card: Any) -> str | None:
+    """Say so when the card's features hold a per-row ``source`` column, else None.
+
+    The card's ``dataset_info`` is one mapping, or a list of them when the repo has several
+    configs; a column may sit inside a struct, as MathVista's ``metadata.source`` does.
+    """
+
+    dataset_info: Any = card.get("dataset_info") if hasattr(card, "get") else None
+    per_config: list[Any] = dataset_info if isinstance(dataset_info, list) else [dataset_info]
+    # WHY features only: a split or a config could also be called "source" without naming
+    # any row's dataset.
+    columns: set[str] = set()
+    for info in per_config:
+        if isinstance(info, dict):
+            columns |= _feature_names(info.get("features"))
+    if _SOURCE_COLUMN in columns:
+        return f"the card's rows carry a {_SOURCE_COLUMN!r} column naming each row's dataset"
+    return None
+
+
+def _feature_names(node: Any) -> set[str]:
+    """Every column name in a card's ``features`` list, nested struct fields included."""
+
+    names: set[str] = set()
+    if isinstance(node, dict):
+        name: Any = node.get("name")
+        if isinstance(name, str):
+            names.add(name)
+        for value in node.values():
+            names |= _feature_names(value)
+    elif isinstance(node, list):
+        for item in node:
+            names |= _feature_names(item)
+    return names
+
+
 __all__ = [
+    "AGGREGATE_DATASET_WARNING",
     "CardLicense",
     "TaskReplayRows",
     "card_license_of",
