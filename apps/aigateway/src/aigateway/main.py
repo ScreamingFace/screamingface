@@ -238,28 +238,35 @@ async def _lifespan(app):
 
         yield
     finally:
-        # The scheduler's owned task must never outlive the app: cancel and await it.
-        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
-        if scheduler is not None:
-            await scheduler.stop()
-        # §9.12: closed explicitly here rather than left to __del__, which is not
-        # guaranteed to run and cannot await. An unclosed handler leaks its connection
-        # pool across TestClient lifecycles and across a reload in dev.
+        # WHY nested `finally` blocks: a cancelled shutdown raises past `except Exception`, and
+        # it must skip none of the steps after the one it hit; each still runs once, in order.
         try:
-            await app.state.taxonomy_plugin.close()
-        except Exception:
-            logger.warning("usage accounting handler did not close cleanly")
-        app.state.usage_accounting_handler = None
-        # FEATURE (hosted BYOM): each configured endpoint's reused client closes with the app.
-        try:
-            await close_remote_endpoints(app.state.providers)
-        except Exception:
-            logger.warning("a remote endpoint client did not close cleanly")
-        await auth.close_loopback_callbacks(app)
-        # Clear the process-wide active store so it does not leak across app
-        # instances (e.g. multiple TestClient lifecycles in one process).
-        set_active_secret_store(None)
-        await close_db()
+            # The scheduler's owned task must never outlive the app: cancel and await it.
+            scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+            if scheduler is not None:
+                await scheduler.stop()
+            # §9.12: closed explicitly here rather than left to __del__, which is not
+            # guaranteed to run and cannot await. An unclosed handler leaks its connection
+            # pool across TestClient lifecycles and across a reload in dev.
+            try:
+                await app.state.taxonomy_plugin.close()
+            except Exception:
+                logger.warning("usage accounting handler did not close cleanly")
+        finally:
+            app.state.usage_accounting_handler = None
+            # FEATURE (hosted BYOM): each configured endpoint's reused client closes with the app.
+            try:
+                await close_remote_endpoints(app.state.providers)
+            except Exception:
+                logger.warning("a remote endpoint client did not close cleanly")
+            finally:
+                try:
+                    await auth.close_loopback_callbacks(app)
+                finally:
+                    # Clear the process-wide active store so it does not leak across app
+                    # instances (e.g. multiple TestClient lifecycles in one process).
+                    set_active_secret_store(None)
+                    await close_db()
 
 
 async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:

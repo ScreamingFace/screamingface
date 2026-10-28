@@ -264,7 +264,8 @@ def test_a_cancelled_close_still_finishes_and_a_repeat_waits_for_it() -> None:
     assert upstream.finished == 1
 
 
-def test_a_cancelled_shutdown_still_closes_every_endpoint() -> None:
+def test_a_cancelled_shutdown_still_closes_every_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("aigateway.provider_composition._CLOSE_DRAIN_SECONDS", 0.05)
     registry = ProviderRegistry()
     install_remote_endpoints(registry, parse_remote_endpoint_config(two_endpoint_document()))
     plugins = [p for p in registry.all() if isinstance(p, RemoteEndpointPlugin)]
@@ -283,7 +284,7 @@ def test_a_cancelled_shutdown_still_closes_every_endpoint() -> None:
             await sweep
         for upstream in upstreams:
             upstream.released.set()
-        # WHY poll: nothing waits for the closes any more; each must finish on its own.
+        # WHY poll: the sweep gave up at its bound; each close must still finish on its own.
         for _ in range(100):
             if all(upstream.finished for upstream in upstreams):
                 break
@@ -331,3 +332,62 @@ def test_a_close_error_nobody_waits_for_is_never_printed() -> None:
 
     # INVARIANT: asyncio never prints the close's error; its text may carry the origin.
     assert reported == []
+
+
+def _held_endpoints(*upstreams: _Closing) -> tuple[ProviderRegistry, list[RemoteEndpointPlugin]]:
+    """Two configured endpoints whose clients will use ``upstreams``."""
+    registry = ProviderRegistry()
+    install_remote_endpoints(registry, parse_remote_endpoint_config(two_endpoint_document()))
+    plugins = [p for p in registry.all() if isinstance(p, RemoteEndpointPlugin)]
+    for plugin, upstream in zip(plugins, upstreams, strict=True):
+        cast(Any, plugin)._transport = upstream
+    return registry, plugins
+
+
+async def _chat_once_each(plugins: list[RemoteEndpointPlugin]) -> None:
+    for plugin in plugins:
+        body = {**chat_body(plugin.custom_llm_provider), "api_key": KEY[ACCOUNT_A]}
+        assert await plugin.chat_completion(body) == COMPLETION
+
+
+def test_a_cancelled_shutdown_waits_for_every_close_before_the_loop_ends() -> None:
+    upstreams = (_Closing(hold=True), _Closing(hold=True))
+    registry, plugins = _held_endpoints(*upstreams)
+
+    async def cancel_the_shutdown_twice_then_end_the_loop() -> None:
+        await _chat_once_each(plugins)
+        sweep = asyncio.ensure_future(close_remote_endpoints(registry))
+        entered = asyncio.gather(*(upstream.entered.wait() for upstream in upstreams))
+        await asyncio.wait_for(entered, timeout=5)
+        for upstream in upstreams:
+            asyncio.get_running_loop().call_later(0.05, upstream.released.set)
+        sweep.cancel()
+        await asyncio.sleep(0.01)
+        sweep.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await sweep
+        # WHY nothing after the sweep: the loop ends here and cancels every task still running,
+        # so a close the sweep stopped waiting for would never finish.
+
+    asyncio.run(cancel_the_shutdown_twice_then_end_the_loop())
+
+    assert [upstream.finished for upstream in upstreams] == [1, 1]
+
+
+def test_a_close_that_never_ends_holds_the_shutdown_only_until_the_bound(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr("aigateway.provider_composition._CLOSE_DRAIN_SECONDS", 0.05)
+    upstreams = (_Closing(hold=True), _Closing())
+    registry, plugins = _held_endpoints(*upstreams)
+
+    async def shut_down() -> None:
+        await _chat_once_each(plugins)
+        await asyncio.wait_for(close_remote_endpoints(registry), timeout=5)
+
+    asyncio.run(shut_down())
+
+    assert [upstream.finished for upstream in upstreams] == [0, 1]
+    assert plugins[0].custom_llm_provider in caplog.text
+    assert plugins[1].custom_llm_provider not in caplog.text
+    assert ORIGIN_A not in caplog.text
