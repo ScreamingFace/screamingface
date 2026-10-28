@@ -139,7 +139,10 @@ Owner decisions (2026-10-22):
   - `268d25edb` fix(aigateway): match every sealed credential in the decoded answer before
     storing it
   - `ec46846b1` fix(aigateway): close usage accounting after a cancelled scheduler stop
-- **Gates:** on the tree committed as `ec46846b1`, `run_gates.py aigateway --base 27364bbf3` is
+  - `239727627` fix(aigateway): match a credential repeated as a JSON number before storing it
+- **Gates:** on the tree committed as `239727627`, `run_gates.py aigateway --base 27364bbf3` is
+  green with 7530 tests collected, 453 in `tests/unit/remote_endpoint`. On the tree committed
+  as `ec46846b1`, the same gates were
   green with 7524 tests collected, 452 in `tests/unit/remote_endpoint`; the append-only check
   accepts the approved `test_chat_route_accounting.py` transition. The run before the fixture
   edit failed those 12 tests and passed the other 7400. The SDK is untouched by the fifth and
@@ -359,6 +362,21 @@ Owner decisions (2026-10-22):
     and in `test_succeeded_attempt_cost_route.py`, which shares the fixture. No source path
     seals a short placeholder key. Approved as shown on 2026-10-28 and pinned in the approval
     file: the fixture token becomes `tok-oauth-fixture-0001`; no assertion changes.
+- **Seventh review (2026-10-28),** of the local commits through `a8f10d43c`: one finding, fixed.
+  - High: the guard walked strings, mapping keys and containers but skipped numbers, so a key of
+    digits such as `12345678`, which the admin route accepts, repeated as the JSON number
+    `12345678` was stored and served to an ungranted account on a hit and in
+    `/v1/cache/entries`. The serialized check before the sixth review caught it. The walk still
+    matches strings decoded, and now matches every other leaf, a number, a boolean or null, in
+    its JSON text, which is what the replay sends. No length floor comes back. A key split
+    across leaves or encoded is out of scope, as before.
+  - New tests: guard unit cases for that key repeated as an integer, a float, a longer integer
+    and an integer field name, and an answer with numbers, a boolean and null that do not hold
+    it. In `test_app_shared_cache.py`, an endpoint repeats that key as a number: the owner gets
+    it, the write is `not_stored`, the other account gets no answer and no hit, no listed row
+    holds the key, and the upstream is called once. Before the fix the four guard cases failed
+    and the app test failed with the write `stored`; the reviewer's probe passes on the fix
+    in both its string and number cases. No prior test changes.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
