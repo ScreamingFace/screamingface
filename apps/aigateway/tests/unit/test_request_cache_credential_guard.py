@@ -34,6 +34,20 @@ def test_a_sealed_key_anywhere_in_an_answer_is_found(key: str) -> None:
     assert not holds_sealed_credential(_answer("nothing to see"), body)
 
 
+# WHY: the wire text of the JSON number 12345678 repeats the key "12345678" verbatim.
+@pytest.mark.parametrize("echo", [12345678, 12345678.0, 9123456780, {12345678: "x"}])
+def test_a_key_of_digits_repeated_as_a_number_is_found(echo: object) -> None:
+    body = {"api_key": "12345678"}
+
+    assert holds_sealed_credential({**_answer("ok"), "credential_echo": echo}, body)
+
+
+def test_numbers_booleans_and_null_without_the_key_are_storable() -> None:
+    answer = {**_answer("ok"), "seed": 1234567, "ratio": 0.5, "cached": True, "note": None}
+
+    assert not holds_sealed_credential(answer, {"api_key": "12345678"})
+
+
 def test_a_padded_key_is_found_without_its_padding() -> None:
     assert holds_sealed_credential(_answer("sk-padded-0001"), {"api_key": " sk-padded-0001 "})
 

@@ -320,3 +320,45 @@ def test_a_key_json_escapes_repeated_by_the_endpoint_is_never_shared(
     _, *rows, _ = [json.loads(line) for line in page.text.splitlines()]
     assert [row for row in rows if row["provider"] == ENDPOINT_B] == []
     assert sent == [f"Bearer {key}"]
+
+
+def _repeating_the_key_as_a_number(sent: list[str]) -> httpx.MockTransport:
+    """An endpoint that records each Bearer it gets and repeats a key of digits as a number."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(request.headers["authorization"])
+        message = {"role": "assistant", "content": "ok"}
+        choice = {"index": 0, "message": message, "finish_reason": "stop"}
+        echo = int(sent[-1].removeprefix("Bearer "))
+        payload = {"object": "chat.completion", "choices": [choice], "credential_echo": echo}
+        return httpx.Response(200, json=payload)
+
+    return httpx.MockTransport(answer)
+
+
+def test_a_key_of_digits_repeated_as_a_number_is_never_shared(byom: Harness) -> None:
+    key = "12345678"
+    body = chat_body(ENDPOINT_B)
+    sent: list[str] = []
+
+    with byom.start(two_endpoint_document()) as client:
+        assert put_key(client, ACCOUNT_A, ENDPOINT_B, key).status_code == 200
+        plugin = cast(FastAPI, client.app).state.providers.get(ENDPOINT_B)
+        plugin._transport = _repeating_the_key_as_a_number(sent)
+        owner = _post(client, ACCOUNT_A, body)
+        # Account B holds neither a grant nor a key for endpoint B.
+        other = _post(client, ACCOUNT_B, body)
+        page = client.get("/v1/cache/entries", headers=tenant_headers(ACCOUNT_B))
+
+    # INVARIANT: a key repeated as a JSON number does not reach the shared cache either.
+    assert owner.status_code == 200, owner.text
+    assert owner.json()["credential_echo"] == int(key)
+    assert owner.headers["X-AIGW-Cache-Write"] == "not_stored"
+    assert other.status_code != 200
+    assert other.headers.get(CACHE) != "hit"
+    assert key not in other.text
+    assert page.status_code == 200, page.text
+    _, *rows, _ = [json.loads(line) for line in page.text.splitlines()]
+    assert [row for row in rows if row["provider"] == ENDPOINT_B] == []
+    assert not any(key in json.dumps(row) for row in rows)
+    assert sent == [f"Bearer {key}"]

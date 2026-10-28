@@ -5,11 +5,13 @@
 # INVARIANT: every non-empty sealed credential counts, however short. `credential_values` keeps
 # its floor of eight characters for redacting error text; the cache needs every credential.
 # WHY the decoded strings and mapping keys, not the serialized text: JSON escapes `"` and `\\`,
-# so a key holding either no longer appears verbatim once serialized.
+# so a key holding either no longer appears verbatim once serialized. Every other leaf, a number,
+# a boolean or null, is matched in its JSON text, which is what the replay sends.
 """
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -31,12 +33,15 @@ def holds_sealed_credential(response: object, dispatch_body: Mapping[str, Any]) 
     pending: list[object] = [response]
     while pending:
         value = pending.pop()
-        if isinstance(value, str):
-            if any(credential in value for credential in sealed):
-                return True
-        elif isinstance(value, Mapping):
+        if isinstance(value, Mapping):
             pending.extend(value.keys())
             pending.extend(value.values())
         elif isinstance(value, list | tuple):
             pending.extend(value)
+        else:
+            # WHY the JSON text of any other leaf: the number 12345678 is sent as the key
+            # "12345678" verbatim. A string is matched decoded, as escaping would hide it.
+            text = value if isinstance(value, str) else json.dumps(value)
+            if any(credential in text for credential in sealed):
+                return True
     return False
