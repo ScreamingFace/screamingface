@@ -1907,6 +1907,30 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         choice_shuffle_seed=7,
         license="cc-by-sa-4.0",
     ),
+    # mathvista — imported by Task replay on 2026-10-28 from
+    #   inspect_evals.mathvista.mathvista:mathvista.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face AI4Math/MathVista
+    #     pin revision 2b6ad69445fbb5695c9b165475e8decdbeb97747
+    "mathvista": TaskReplayCasesSpec(
+        task="inspect_evals.mathvista.mathvista:mathvista",
+        case_count=1000,
+        case_digest="1f45337d57095342cd70695d0a24becf71acbed771a0e50f9718b8f58b863b37",
+        case_set_digest="1c875da5086d1cc253992084b1c7651c417d98a978438e67eb42c26525310c90",
+        keep_sample_metadata=True,
+        source_pins={
+            "AI4Math/MathVista": "2b6ad69445fbb5695c9b165475e8decdbeb97747",
+        },
+        shuffle_seed=20260917,
+        # License: owner decision on OME-1479, 2026-10-28: CC-BY-SA-4.0, the AI4Math/MathVista
+        #  card, accepted for now; it comes out if we go commercial. The card's licence covers
+        #  MathVista's own work, while its 31 source datasets keep their own terms. Over the
+        #  1,000 testmini Cases: NonCommercial TabMWP 62, IconQA 62, ScienceQA 9 and DVQA 62
+        #  (195 of 1,000); GPL-3.0 ChartQA 50; terms unknown FigureQA 62 (behind Microsoft's
+        #  download page), KVQA 60 (no licence stated) and DocVQA 12 (behind the RRC portal
+        #  login). The importer's warning for such bundles is OME-1757.
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

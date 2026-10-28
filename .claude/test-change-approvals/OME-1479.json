@@ -1,0 +1,34 @@
+{
+  "issue": "OME-1479",
+  "branch": "OME-1479-import-mathvista",
+  "approver": "owner, to confirm on the PR (requested in the OME-1479 session)",
+  "date": "2026-10-28",
+  "scope": "Prior-test edits for the one new Benchmark mathvista, and nothing else: one table row in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87→88 and 70→71 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (its revision literal), and test_inspect_imported_benchmarks.py (family mcq, and the seeded set, since the eval shuffles with no seed); one stand-in metadata entry in replayed_cases_helpers.py, because mathvista's solver and scorer read question_type. No existing row or assertion changes.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as lab_bench_figqa, lab_bench_tableqa and bbh did); the rows are the review act for its declaration, family, policy and revision.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "b8d0329bc612d90c04878922bdfff0cafa6aed4d",
+      "approved_blob": "55a276c1ce4d94f881424658f104fe1655c61737"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "f4cea20ce982a11314537497c33b1bbdf5ffde93",
+      "approved_blob": "c6eca317087591cc26b6fbb8ed033bf794442f8e"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450",
+      "approved_blob": "b335f59b255939d81812c2fd6e65eae892b8d750"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "7d373bb6e49e2a9903814df614bf47c54af70632",
+      "approved_blob": "5c94ead894145fd2f30ed3fff515dabbee3cdde3"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac",
+      "approved_blob": "c2e0a86f67efdba0d4643de5b47901ee39e4f95f"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "febb1e9f36356a0618d9e62ab4e551a9872605f2",
+      "approved_blob": "0edac759b3bba391533de72fb982b22fc4e9f855"
+    }
+  }
+}
