@@ -22,6 +22,12 @@
       "date": "2026-10-27",
       "reason": "spec #1450 round 7: text sources are never attached; Q-B removed",
       "scope": "packages/url4/tests/unit/test_https_attachments.py: the module docstring and exactly test_non_text_https_body_is_attached_once_at_its_source_position, test_https_body_with_a_blob_refs_digest_is_attached_once, test_case_attachments_precede_an_https_attachment, test_guard_refusal_on_the_bytes_fetch_fails_the_run_unchanged (all params) move to an attachment source with an exact ;accept= (intent kept: once-attachment, blob-digest dedupe, Case-before-https order, guard refusal). Pinned against this branch's HEAD 37722dce5 (the file is new on this branch; it does not exist on origin/main)."
+    },
+    {
+      "approved_by": "sergio-bershadsky",
+      "date": "2026-10-28",
+      "reason": "owner decision 2026-10-28: an io with no binary-safe bytes port refuses an attachment source with unsupported_mode (501, permanent), matching the dag/nodes/code.py precedent, instead of the misleading unsupported_content_type; spec #1450 §4 gap goes to Kevin's wire review",
+      "scope": "packages/url4/tests/unit/test_attachment_sources_round7.py: exactly test_attachment_source_on_an_adapter_without_bytes_fetch_is_unsupported now expects UNSUPPORTED_MODE (intent kept: the refusal is permanent and nothing falls back to text). Pinned against this branch's HEAD 6e7f51a52 (the file is new on this branch; it does not exist on origin/main)."
     }
   ]
 }
