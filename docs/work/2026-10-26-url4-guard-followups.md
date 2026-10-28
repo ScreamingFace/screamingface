@@ -207,3 +207,8 @@ body processing with cooperative checkpoints.
   main tests for `_OwnedIO`/`HttpIOLayer` close (idempotence, `_owned is None`, concurrency)
   pass unedited.
 - **Gates:** `run_gates.py url4` green vs HEAD; `check_module_size.py` green; 2125 passed.
+
+## Merged
+
+- Squash-merged as `ca7738b16` (#1555) on 2026-10-27; OME-1718, OME-1719 and OME-1720 Done in
+  Linear. Last commit (round-4 ledger record) 2026-10-27.

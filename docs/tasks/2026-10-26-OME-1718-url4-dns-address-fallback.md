@@ -1,12 +1,12 @@
 ---
 id: OME-1718
 linear_url: https://linear.app/openmined/issue/OME-1718/try-remaining-vetted-dns-addresses-after-connection-failure
-status: in_review
+status: done
 type: bug
 priority: medium
 labels: [bug, url4-sdk, agentic, autonomous]
 created: 2026-10-22
-closed:
+closed: 2026-10-27
 ---
 
 # Try remaining vetted DNS addresses after connection failure
@@ -19,3 +19,5 @@ the one total deadline bounds all attempts.
 
 Follow-up to `OME-1544` (PR #1521). Parent epic `OME-1529`.
 Ledger: `../work/2026-10-26-url4-guard-followups.md`.
+
+Merged in PR #1555 as `ca7738b16` on 2026-10-27.
