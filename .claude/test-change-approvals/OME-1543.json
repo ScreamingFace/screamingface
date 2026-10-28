@@ -1,6 +1,6 @@
 {
   "issue": "OME-1543",
-  "branch": "file-refs-carry",
+  "branch": "OME-1543-file-refs-carry",
   "approver": "Sergey Bershadsky (owner)",
   "date": "2026-10-22",
   "scope": "one value: the url4 EXPORTS ratchet 59 -> 61 for the two new root exports Attachment and current_attachments; no other test line changes",

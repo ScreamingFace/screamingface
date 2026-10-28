@@ -468,3 +468,27 @@ at all over an empty collection). No row-derived admission exists in the code (n
 **Gates.** `run_gates.py url4 --base 506c09178` ALL GREEN (append-only also green vs HEAD: only
 new test functions); `check_module_size.py` within baseline; `run_gates.py screamingface-engine`
 ALL GREEN (not touched; regression smoke).
+
+## Round 2026-10-28 — reconcile onto the rebased #1482 head: DONE
+
+Owner-approved (Sergey, 2026-10-28) so the OME-1543 PR can open right after #1478 merges.
+`file-refs-carry` (head `1e7e7cd31`) had merged an older #1482 head (`a405c41e8`, merge
+`e4871c0f6`); #1482 (`OME-1539-url4-file-refs`) is now `963e55fa4`, stacked on #1478
+(`OME-1538-url4-bytes-fetch` `0ca51beb7`, on main `ca7738b16` incl. #1555).
+
+**Done.**
+- New branch `OME-1543-file-refs-carry` from `963e55fa4`; replayed with `cherry-pick -x` the 22
+  OME-1543 commits (`d0f3b66d0` … `1e7e7cd31`): reachable from `1e7e7cd31`, not from `a405c41e8`,
+  minus the merge `e4871c0f6` and minus the five pre-rebase #1482 commits (`796b05551`,
+  `b208b35d9`, `850dfc5fd`, `fd9979b08`, `a7e051ed0`).
+- No conflicts. The merge `e4871c0f6` carried no conflict-resolution hunks (empty `--cc`), and the
+  only file both the replay and the upstream rebase touch is `dag/nodes/blob.py` (auto-merged).
+- `.claude/test-change-approvals/OME-1543.json`: `branch` → `OME-1543-file-refs-carry`. Blob pins
+  unchanged and still exact (`test_hygiene_ratchets.py` base `d34dfb69` = `963e55fa4` = origin/main,
+  approved `c2492021` = HEAD; `test_https_attachments.py` approved `36b98bfd` = HEAD).
+- `file-refs-carry` kept untouched as the backup (not deleted, not force-pushed).
+
+**Gates.** `run_gates.py url4 --base origin/main` ALL GREEN (approved OME-1543 transition on
+`test_hygiene_ratchets.py`; append-only green); `check_module_size.py` and
+`check_suppressions.py` within baseline; `run_gates.py screamingface-engine --base origin/main`
+ALL GREEN.
