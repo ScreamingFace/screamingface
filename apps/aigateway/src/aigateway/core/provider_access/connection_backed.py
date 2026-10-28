@@ -230,7 +230,7 @@ class ConnectionBackedProviderAccess:
     async def _repair_api_key_only(
         self, plugin: Any, connection: OAuthConnection
     ) -> OAuthConnection:
-        auth_type = auth_type_of(None, connection)
+        auth_type = auth_type_of(connection)
         modes = available_auth_modes(plugin)
         if auth_type != "oauth" or "oauth" in modes or "api_key" not in modes:
             return connection

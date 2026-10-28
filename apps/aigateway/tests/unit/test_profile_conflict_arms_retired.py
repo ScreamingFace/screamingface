@@ -3,10 +3,15 @@
 # FEATURE: OME-1138 E5 — since OME-1209 E4b no request path writes a Profile document, so
 # `CredentialBlobMutationConflict` (CAS retries on the index blob run out) cannot reach a request,
 # and no `WriteConflict` is raised as `retry_exhausted` or with a Profile subject.
-# INVARIANT: only the offline `ProfileIndexStore` calls `ORMStore.mutate`; if a request path ever
-# calls it again, this guard fails before an unrendered conflict ships.
+# INVARIANT: no module calls `ORMStore.mutate` since its last caller, the offline
+# `ProfileIndexStore`, went with E5c; if a request path ever calls it again, this guard fails before
+# an unrendered conflict ships.
 # INVARIANT: such a conflict reaching a request is a plain unhandled error (the sanitized 500),
 # and a captured chat call replays the same.
+
+Retired at OME-1138 Stage E, E5c: `test_only_the_offline_profile_index_calls_mutate` — the offline
+index is deleted, so no module is left to call `mutate`; successor:
+`test_no_module_calls_the_blob_store_mutate`.
 """
 
 from __future__ import annotations
@@ -38,8 +43,8 @@ def _mutate_callers() -> set[str]:
     return callers
 
 
-def test_only_the_offline_profile_index_calls_mutate() -> None:
-    assert _mutate_callers() == {"core/profile_index.py"}
+def test_no_module_calls_the_blob_store_mutate() -> None:
+    assert _mutate_callers() == set()
 
 
 def test_the_app_registers_no_profile_index_conflict_handler(client: Any) -> None:
