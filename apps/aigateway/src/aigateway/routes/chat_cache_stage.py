@@ -265,6 +265,7 @@ async def store_global_response(
     *,
     outcome: GlobalCacheOutcome,
     result: Any,
+    sealed_credentials: tuple[str, ...],
     accounting: AccountingSession | None = None,
 ) -> WriteStatus:
     """Fill the global entry after a successful dispatch. Never raises.
@@ -277,6 +278,10 @@ async def store_global_response(
     INVARIANT: every refusal to fill is reported as ``not_stored`` and the caller's
     response is returned untouched. There is no failure mode here that costs an
     answer — only ones that cost an entry.
+
+    INVARIANT: a response holding any of ``sealed_credentials``, the credential values this
+    call's dispatch carried, is never stored. A row is replayed to every account and listed in
+    the published cache, so an upstream that repeats the caller's key would hand it to them.
 
     WHY ``result`` is typed ``Any`` rather than ``dict``: this function remains total at
     its boundary even though the chat route now rejects non-object provider results before
@@ -301,19 +306,28 @@ async def store_global_response(
         )
         return "not_stored"
     try:
-        size_bytes = len(
-            json.dumps(
-                result,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            ).encode("utf-8")
+        serialized = json.dumps(
+            result,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
         )
     except (TypeError, ValueError):
         # A response the gateway cannot serialize cannot be stored; the caller still
         # gets it. No body content is logged.
         logger.warning("provider response was not serializable; not stored")
         return "not_stored"
+    if any(value in serialized for value in sealed_credentials):
+        # Presence only, never content: neither the credential nor any excerpt is logged.
+        logger.warning(
+            "global cache fill skipped: response holds the call's credential "
+            "provider=%s model=%r key=%s…",
+            key.provider,
+            key.model,
+            key.key_hash[:KEY_PREFIX_LENGTH],
+        )
+        return "not_stored"
+    size_bytes = len(serialized.encode("utf-8"))
     # WHY the cap is enforced HERE and not left to the store (plan U5 — oversized
     # responses stay ineligible): rows currently have ``expires_at = NULL``, so an oversized entry
     # is permanent. This is the only bound on how much one response can occupy, and it is a WRITE

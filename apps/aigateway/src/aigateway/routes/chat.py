@@ -763,7 +763,11 @@ async def chat_completions(request: Request, response: Response, current: Curren
         write_status = None
         if cache_outcome.should_store:
             write_status = await store_global_response(
-                request, outcome=cache_outcome, result=result, accounting=accounting
+                request,
+                outcome=cache_outcome,
+                result=result,
+                sealed_credentials=credential_values(body),
+                accounting=accounting,
             )
         set_global_cache_headers(response, cache_outcome, write_status=write_status)
         # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the

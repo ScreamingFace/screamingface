@@ -16,10 +16,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from .conftest import Harness, chat_body, put_key, tenant_headers
@@ -211,3 +212,43 @@ def test_a_published_row_reaches_an_account_the_catalog_hides_the_endpoint_from(
     cache_fields = {"created_at", "updated_at", "expires_at", "response_size_bytes"}
     assert cache_fields | {"metadata_json"} <= row.keys()
     assert _calls(byom) == []
+
+
+def test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller(
+    byom: Harness, caplog: pytest.LogCaptureFixture
+) -> None:
+    body = chat_body(ENDPOINT_B)
+    sent: list[str] = []
+
+    def repeat_the_key(request: httpx.Request) -> httpx.Response:
+        sent.append(request.headers["authorization"])
+        message = {"role": "assistant", "content": f"you sent {sent[-1]}"}
+        choice = {"index": 0, "message": message, "finish_reason": "stop"}
+        return httpx.Response(200, json={"object": "chat.completion", "choices": [choice]})
+
+    with byom.start(two_endpoint_document()) as client:
+        assert put_key(client, ACCOUNT_A, ENDPOINT_B, KEY[ENDPOINT_B]).status_code == 200
+        plugin = cast(FastAPI, client.app).state.providers.get(ENDPOINT_B)
+        plugin._transport = httpx.MockTransport(repeat_the_key)
+        owner = _post(client, ACCOUNT_A, body)
+        # Account B holds neither a grant nor a key for endpoint B.
+        other = _post(client, ACCOUNT_B, body)
+        page = client.get("/v1/cache/entries", headers=tenant_headers(ACCOUNT_B))
+
+    # WHY the owner still gets it: the answer is theirs, from their own key and call.
+    assert owner.status_code == 200, owner.text
+    assert KEY[ENDPOINT_B] in owner.json()["choices"][0]["message"]["content"]
+    assert (owner.headers[CACHE], owner.headers["X-AIGW-Cache-Write"]) == ("miss", "not_stored")
+    # INVARIANT: an answer holding a resolved credential is never stored, so no other account
+    # gets it on a hit or reads it in the published listing.
+    # WHY a refusal: with no row to hit, the call needs the grant B lacks.
+    assert other.status_code != 200
+    assert KEY[ENDPOINT_B] not in other.text
+    assert page.status_code == 200, page.text
+    assert KEY[ENDPOINT_B] not in page.text
+    _, *rows, _ = [json.loads(line) for line in page.text.splitlines()]
+    assert [row for row in rows if row["provider"] == ENDPOINT_B] == []
+    assert sent == [f"Bearer {KEY[ENDPOINT_B]}"]
+    # INVARIANT: the refusal is logged by provider and key prefix, never with the credential.
+    assert "holds the call's credential" in caplog.text
+    assert KEY[ENDPOINT_B] not in caplog.text
