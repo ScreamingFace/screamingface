@@ -23,6 +23,7 @@ from screamingface_engine import engine_version, job_env
 from screamingface_engine.benchmarks.candidate_input import (
     CandidateInputError,
     CandidateMessage,
+    ContentPart,
     parse_candidate_input,
 )
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
@@ -69,6 +70,11 @@ from screamingface_engine.world.accounting import (
     read_aigw,
     retained_operation_accounting,
     signal_accounting_from_aigw,
+)
+from screamingface_engine.world.attachment_parts import (
+    AttachmentPartError,
+    attachment_parts,
+    place_on_last_user_message,
 )
 from screamingface_engine.world.cache import attempt_body_field, with_cache_policy
 from screamingface_engine.world.cache_readback import (
@@ -455,6 +461,9 @@ class _ModelEndpoint:
                 current_case_attempt() if in_candidate_invocation() else None,
             )
             params = apply_answer_seed(params, egress.answer_seed)
+            # FEATURE (OME-1545, spec F2/F3): the run's url4 files, read and verified before the
+            # request is formed; empty for a text-only call, which then stays byte-identical.
+            parts = await _attachment_parts(request)
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
@@ -468,7 +477,9 @@ class _ModelEndpoint:
                     http_client=self._http_client,
                     cfg=self._cfg,
                     scope=scope,
-                    messages=_messages(request.context, request.intent),
+                    messages=place_on_last_user_message(
+                        _messages(request.context, request.intent), parts
+                    ),
                     params=params,
                     spec=spec,
                     tavily_http=self._tavily_http,
@@ -1491,6 +1502,20 @@ def _messages(context: str | None, intent: str | None) -> list[dict[str, Any]]:
         # appends assistant tool calls and tool results), so it holds plain dicts.
         messages.extend(dict(message) for message in native)
     return messages
+
+
+async def _attachment_parts(request: Request) -> list[ContentPart]:
+    """The run's url4 files as content parts for this call; ``[]`` when it carries none."""
+    if not request.attachments:
+        return []
+    # INVARIANT (spec §2.7 gate 2, D6; F2 Judge): under OME-1271 v1 the grader receives no files,
+    # so a grading call that would carry one is refused by name, before any byte is read.
+    if current_grading_case() is not None:
+        _invalid_candidate_input("a grading call carries a picture or file; judges read text only")
+    try:
+        return await attachment_parts(request.attachments)
+    except AttachmentPartError as exc:
+        raise ResolutionError(str(exc), code=exc.code, permanent=True) from exc
 
 
 def _native_messages(context: str | None) -> list[CandidateMessage] | None:
