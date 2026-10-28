@@ -136,9 +136,16 @@ Owner decisions (2026-10-22):
   - `9ffbb7a0b` docs(aigateway): scope endpoint privacy to the working catalog
   - `a244a9ecf` fix(aigateway): keep an answer holding the caller's key out of the shared cache
   - `0ea1d35b7` fix(aigateway): drain endpoint closes through a cancelled shutdown
-- **Gates:** after `0ea1d35b7`, `run_gates.py aigateway --base 27364bbf3` is green with 7510
+  - `268d25edb` fix(aigateway): match every sealed credential in the decoded answer before
+    storing it
+  - `ec46846b1` fix(aigateway): close usage accounting after a cancelled scheduler stop
+- **Gates:** on the tree committed as `ec46846b1`, `run_gates.py aigateway --base 27364bbf3` is
+  green with 7524 tests collected, 452 in `tests/unit/remote_endpoint`; the append-only check
+  accepts the approved `test_chat_route_accounting.py` transition. The run before the fixture
+  edit failed those 12 tests and passed the other 7400. The SDK is untouched by the fifth and
+  sixth reviews. After `0ea1d35b7`, the same gates were green with 7510
   tests collected, 449 in `tests/unit/remote_endpoint`; the append-only check accepts the
-  approved conftest transition. The SDK is untouched by the fifth review. Earlier: after the
+  approved conftest transition. Earlier: after the
   rebase onto `27364bbf3`, both stacks are green with `--base 27364bbf3`
   and synced to its lockfiles: the gateway's run with 7504 tests collected, 443 in
   `tests/unit/remote_endpoint`, and the SDK's with 4939, where `test_cache_local_revisions`
@@ -311,6 +318,47 @@ Owner decisions (2026-10-22):
   - Left as is: a teardown that cancels the close task itself, as `asyncio.run` does to every
     task once its main coroutine ends, still stops that close. The drain only keeps the
     shutdown from ending before the closes.
+- **Sixth review (2026-10-28),** of the local commits through `fd26ae5e6`: three findings, all
+  fixed.
+  - High: the shared cache guard could still be bypassed two ways. It reused
+    `credential_values`, which drops a credential under eight characters, and it searched the
+    serialized JSON, where `"` and `\` are escaped. A key holding either was stored: the
+    reviewer's `sk-secret-"quoted"-0001` came back `stored` and another account got it on a hit.
+    The new `core/request_cache/credential_guard.py` takes every non-empty sealed credential
+    with no floor, through the new `sealed_values` that `credential_values` now also reads, and
+    walks the decoded answer's strings and mapping keys before any serialization. A body whose
+    credentials cannot be read counts as holding one.
+  - Contradiction shown to the owner: every key route refuses a key under eight characters
+    after stripping (`normalize_api_key`, used by the admin connection and OAuth routes), so the
+    short-key bypass is not reachable through them today. The floor is removed from the guard
+    anyway, so a credential sealed from any other source counts. The short key is covered by
+    the guard's unit tests; the app test uses the quoted and backslash keys.
+  - New tests: `test_request_cache_credential_guard.py` covers a three-character key, keys with
+    `"` and `\`, a key used as a field name, nested lists and tuples, padding, credential
+    headers and their Bearer token, a header that is not a credential, bodies with no
+    credential, and an unreadable body. In `test_app_shared_cache.py`, an endpoint repeats a key
+    holding `"` or `\`: the owner gets it, the write is `not_stored`, the other account gets no
+    answer, the listing has no row, and the upstream is called once. Against the old guard,
+    restored for the check, both cases fail with the write `stored`. Mutation checks: keeping
+    the floor, skipping mapping keys, skipping tuples, or failing open each fails a guard test.
+  - Medium: a cancellation during the snapshot scheduler's stop skipped the usage accounting
+    close, since both sat in one `try`. The scheduler stop now has its own `finally`.
+    `test_app_shutdown.py` starts its step list with the scheduler, through a stand-in, and adds
+    it as a cancellation case. Against the old lifespan that case fails and the other three
+    pass.
+  - Testing gap: the first regression read `caplog`, which stays empty once the app turns off
+    propagation on its logger, so it passed or failed by test order. It now attaches its own
+    handler to the `aigateway` logger, as `test_dispatch_failure_records.py` does, and passes
+    alone and in its folder.
+  - Prior tests changed, shown and approved on 2026-10-28, two in files this branch adds: the
+    log capture in `test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller`,
+    and the scheduler step and case in `test_app_shutdown.py`.
+  - Second contradiction, found by the gates: with no floor, the OAuth token `tok` in the
+    `_arrange_account` fixture of `test_chat_route_accounting.py` is part of the `input_tokens`
+    field name, so the guard refused every write there and 12 cache tests failed in that file
+    and in `test_succeeded_attempt_cost_route.py`, which shares the fixture. No source path
+    seals a short placeholder key. Approved as shown on 2026-10-28 and pinned in the approval
+    file: the fixture token becomes `tok-oauth-fixture-0001`; no assertion changes.
 - **Deviations:**
   - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
     route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
