@@ -169,6 +169,9 @@ def _split_route(route: str) -> tuple[str, str] | None:
 
     A bare `claude-opus-4.8` carries no owner to reason about, and guessing from the string is
     exactly the hole this parsing closes, so the caller fails closed on None.
+
+    The result is in gateway spelling: a url4 `~` selector escape is decoded back to `:` first,
+    so `z-ai/glm-5.3~batch` splits as `("z-ai", "glm-5.3:batch")`.
     """
     gateway_route = route.lower().replace(_URL4_SELECTOR_ESCAPE, _GATEWAY_SELECTOR)
     segments = [segment for segment in gateway_route.split("/") if segment]
@@ -220,11 +223,17 @@ def _in_family(model: str, families: tuple[str, ...]) -> bool:
 
 
 def _is_unverified_hosted(parsed: tuple[str, str]) -> bool:
-    """Whether the route names a hosted-only edition, under any selector.
+    """Whether the route names a hosted-only edition, bare or with a trailing selector.
 
-    INVARIANT: compares the model BEFORE its selector, and the caller runs it ahead of the owner
-    rule, so `qwen3.6-plus:free` cannot re-open what the bare edition is denied (PR #1534
-    review). The registry lookup stays exact: a selector is credited only when audited itself.
+    INVARIANT: compares the model segment BEFORE its `:` selector, and the caller runs it ahead
+    of the owner rule, so `qwen3.6-plus:free` cannot re-open what the bare edition is denied
+    (PR #1534 review). The registry lookup stays exact: a selector is credited only when
+    audited itself.
+
+    AIDEV-NOTE: best effort while `qwen` stays in `_OPEN_OWNERS`. That owner rule credits ANY
+    `qwen/...` name, so a different model string (`qwen3.6-plus-x`, `qwen3.6-plus/x`) still
+    classifies open, as it did before this list existed. Closing that needs the owner rule
+    replaced by registry entries, not a longer deny list.
     """
     owner, model = parsed
     return (owner, model.partition(_GATEWAY_SELECTOR)[0]) in _UNVERIFIED_HOSTED_MODELS

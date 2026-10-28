@@ -98,3 +98,11 @@ mapping basis, inference evidence, and specific qualifications:
 Source verification establishes published releases and documented mappings. It does not
 prove byte-for-byte hosted/local equivalence, access approval for every person, license
 compatibility with every use, or successful execution of every model on local hardware.
+
+## Known limit — hosted-edition deny list (PR #1534 review, 2026-10-28)
+
+Routes are decoded from url4 spelling (`~` → `:`) before classification. The hosted-Qwen
+deny list then matches the exact model segment, bare or with a trailing selector. It is best
+effort while `qwen` remains an open owner: that rule credits any `qwen/...` name, so a
+different model string (for example `qwen3.6-plus-x`) still classifies open, as before this
+PR. A complete fix replaces the owner rule with registry entries and is out of scope here.

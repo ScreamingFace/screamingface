@@ -144,3 +144,12 @@ Outcome:
   Against current `origin/main` the append-only check flags two tests the branch never
   touched (main moved ahead); not a change of this PR.
 - Deviation: ruff PLR0911 required splitting the hosted check into a helper.
+
+### Self-review loop, round 1 (2026-10-28)
+
+Independent read-only review of 8bd7cbb07: no blocking issues; CSV totals reproduce for all
+99 rows under the stated suffix rule. Three low items fixed: the hosted-edition docstring
+claimed "any selector" (narrowed; best-effort limit recorded in the spec), the new test
+selected CSV rows with a substring check (now `partition`), and `_split_route`'s docstring
+did not mention decoding. Added tests: unprefixed selector route, mixed case, repeated
+selectors, `~` in the owner segment (all already behaved correctly).

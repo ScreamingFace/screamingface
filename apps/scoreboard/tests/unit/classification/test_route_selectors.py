@@ -16,7 +16,11 @@ from scoreboard.classification.openness import classify_entry, classify_model
 # test_verified_releases.py), so dropping a registry key cannot drop its test case.
 AUDIT = Path(__file__).parents[3] / "docs" / "open-weight-evidence-2026-10-22.csv"
 with AUDIT.open() as evidence:
-    SELECTOR_ROUTES = [row["route"] for row in csv.DictReader(evidence) if ":" in row["route"]]
+    # WHY partition, not `":" in route`: a route is `name[:selector]`; parse that shape rather
+    # than search the string. The count assertion below pins the selection.
+    SELECTOR_ROUTES = [
+        row["route"] for row in csv.DictReader(evidence) if row["route"].partition(":")[2]
+    ]
 
 
 def url4_spelling(gateway_route: str) -> str:
@@ -69,3 +73,26 @@ def test_a_verified_qwen_release_keeps_the_owner_rule_under_a_selector() -> None
 def test_a_route_without_a_selector_is_unchanged_by_decoding() -> None:
     assert classify_model("openrouter/z-ai/glm-5.3") == "open"
     assert classify_model("openrouter/anthropic/claude-opus-5.5") == "closed"
+
+
+def test_a_selector_route_without_the_routing_prefix_is_decoded_too() -> None:
+    assert classify_model("z-ai/glm-5.3~batch") == "open"
+
+
+def test_a_hosted_qwen_selector_is_denied_whatever_its_case() -> None:
+    assert classify_model("openrouter/Qwen/Qwen3.6-PLUS~FREE") == "unknown"
+
+
+@pytest.mark.parametrize(
+    "route",
+    [
+        # INVARIANT: decoding never widens the exact registry. Repeated selectors and a `~` in
+        # the owner segment decode to names no list holds, so they fail closed.
+        "openrouter/z-ai/glm-5.3~~batch",
+        "openrouter/z-ai/glm-5.3~batch~x",
+        "openrouter/qwen~free/anything",
+        "openrouter/openai~x/gpt-oss-120b",
+    ],
+)
+def test_a_malformed_selector_fails_closed(route: str) -> None:
+    assert classify_model(route) == "unknown"
