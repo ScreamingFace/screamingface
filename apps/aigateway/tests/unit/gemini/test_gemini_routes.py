@@ -9,12 +9,11 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.gemini_provider.auth import credential_service_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 
 def _account_id(client) -> str:
@@ -118,17 +117,6 @@ async def test_gemini_authenticated_profile_uses_oauth_not_env_key_or_client_key
     monkeypatch.setenv("GEMINI_API_KEY", "env-key")
     account_id = _account_id(authenticated_client)
     _seed_authenticated_gemini_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-    # WHY: resolve reads the pair's authority, not the document (OME-1209 E4a).
     seed_migrated_pair(authenticated_client, account_id, "gemini-cli")
     captured: dict = {}
 
@@ -170,16 +158,6 @@ async def test_gemini_refresh_error_marks_profile_error(
         account_id,
         expires_at_ms=int((time.time() - 60) * 1000),
     )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     connection_id = seed_migrated_pair(authenticated_client, account_id, "gemini-cli")
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -203,8 +181,7 @@ async def test_gemini_refresh_error_marks_profile_error(
 
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
-    # WHY the Connection: the pair's effective Connection is the authority a refusal marks;
-    # no runtime path writes the legacy document's state (OME-1209 E4a).
+    # WHY the Connection: the pair's effective Connection is the authority a refusal marks.
     assert _connection_status(authenticated_client, account_id, connection_id) == "error"
 
 
@@ -217,16 +194,6 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
     account_id = _account_id(authenticated_client)
     credential_name = credential_name_for(account_id, "default")
     _seed_authenticated_gemini_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     connection_id = seed_migrated_pair(authenticated_client, account_id, "gemini-cli")
     invalidated: list[str] = []
 
@@ -268,21 +235,9 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
 
 
 @pytest.mark.asyncio
-async def test_error_profile_is_rejected_before_dispatch(
-    credential_blobs, authenticated_client
-) -> None:
+async def test_error_profile_is_rejected_before_dispatch(authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.ERROR,
-        )
-    )
-    seed_migrated_pair(authenticated_client, account_id, "gemini-cli", state=ProfileState.ERROR)
+    seed_migrated_pair(authenticated_client, account_id, "gemini-cli", state=SeedState.ERROR)
     fake_chat = AsyncMock()
 
     with patch(

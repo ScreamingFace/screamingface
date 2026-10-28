@@ -21,7 +21,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
@@ -30,8 +29,6 @@ from aigateway.core.parameter_discovery import (
     RawResponse,
 )
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openrouter_provider.discovery import MODELS_URL
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
@@ -85,7 +82,7 @@ class _Clock:
 def openrouter_enabled(monkeypatch) -> None:
     """Enable the plugin and seed exactly the two models the fixture catalog holds.
 
-    # AIDEV-NOTE: patches the plugin INSTANCE, not the environment. ``PLUGIN`` is a
+    # WHY: patches the plugin INSTANCE, not the environment. ``PLUGIN`` is a
     # module-level singleton built at import time, and ``load_plugins`` hands that
     # same object to every app — so once any test module has imported the plugin,
     # ``AIGW_OPENROUTER_*`` set later cannot reach it and the models silently fail
@@ -114,23 +111,7 @@ def _install_runtime(client: TestClient, catalog_client: _CatalogClient, clock: 
     )
 
 
-async def _seed_profile(credential_blobs, account_id: str) -> None:
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "openrouter", "default"),
-            account_id=account_id,
-            provider="openrouter",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
-
-
-async def _contract(credential_blobs, client: TestClient, model: str) -> dict:
-    account_id = client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, account_id)
+async def _contract(client: TestClient, model: str) -> dict:
     resp = client.get("/v1/model-parameters", params={"model": model})
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -149,12 +130,12 @@ async def test_the_route_serves_the_seeded_openrouter_models(
 
 @pytest.mark.asyncio
 async def test_the_route_publishes_the_observed_per_model_verdict(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     catalog_client = _CatalogClient()
     _install_runtime(authenticated_client, catalog_client, _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, _FABLE)
+    body = await _contract(authenticated_client, _FABLE)
 
     seed = body["parameters"]["seed"]
     # the fable row omits seed while the flash row lists it → a real negative.
@@ -168,12 +149,12 @@ async def test_the_route_publishes_the_observed_per_model_verdict(
 
 @pytest.mark.asyncio
 async def test_two_models_get_different_evidence_from_one_catalog(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     _install_runtime(authenticated_client, _CatalogClient(), _Clock())
 
-    flash = await _contract(credential_blobs, authenticated_client, _FLASH)
-    fable = await _contract(credential_blobs, authenticated_client, _FABLE)
+    flash = await _contract(authenticated_client, _FLASH)
+    fable = await _contract(authenticated_client, _FABLE)
 
     assert flash["parameters"]["seed"]["provider"]["support"] == "supported"
     assert fable["parameters"]["seed"]["provider"]["support"] == "unsupported"
@@ -186,7 +167,7 @@ async def test_two_models_get_different_evidence_from_one_catalog(
 
 @pytest.mark.asyncio
 async def test_a_catalog_outage_degrades_to_labelled_local_evidence(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     # No last-good value to fall back on: the contract must still serve, from the
     # provider's reviewed labelled-local evidence, and say so.
@@ -194,7 +175,7 @@ async def test_a_catalog_outage_degrades_to_labelled_local_evidence(
         authenticated_client, _CatalogClient(error=DiscoveryError("unreachable")), _Clock()
     )
 
-    body = await _contract(credential_blobs, authenticated_client, _FABLE)
+    body = await _contract(authenticated_client, _FABLE)
 
     assert body["freshness"]["degraded"] is True
     assert body["parameters"]["seed"]["provider"]["source"] == "openrouter:static"
@@ -203,13 +184,13 @@ async def test_a_catalog_outage_degrades_to_labelled_local_evidence(
 
 @pytest.mark.asyncio
 async def test_the_stale_window_serves_the_last_good_verdict_flagged(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     # fresh read → TTL expiry → outage: the observed negative still stands, but the
     # client is told it is stale rather than being handed a silent fabrication.
     clock = _Clock()
     _install_runtime(authenticated_client, _CatalogClient(), clock)
-    fresh = await _contract(credential_blobs, authenticated_client, _FABLE)
+    fresh = await _contract(authenticated_client, _FABLE)
     assert fresh["parameters"]["seed"]["provider"]["stale"] is False
 
     runtime: DiscoveryRuntime = cast(FastAPI, authenticated_client.app).state.discovery_runtime
@@ -217,7 +198,7 @@ async def test_the_stale_window_serves_the_last_good_verdict_flagged(
     runtime._client = _CatalogClient(error=DiscoveryError("unreachable"))  # noqa: SLF001
     clock.advance(61.0)
 
-    stale = await _contract(credential_blobs, authenticated_client, _FABLE)
+    stale = await _contract(authenticated_client, _FABLE)
     assert stale["freshness"]["stale"] is True
     assert stale["parameters"]["seed"]["provider"]["support"] == "unsupported"
     assert stale["parameters"]["seed"]["provider"]["stale"] is True

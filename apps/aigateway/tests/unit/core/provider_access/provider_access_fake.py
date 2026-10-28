@@ -1,10 +1,9 @@
 """The pure in-memory witness of the provider-access PORT CONTRACT (OME-1200, A1 of OME-1138).
 
-# FEATURE: the contract suite runs unchanged over this fake and over the Profile-backed
-# implementation on the real app (`provider_access_harness.py`), so any later backing must pass
-# the same suite. The fake models every side effect the contract names — eviction, marking,
-# session invalidation, the last-used touch — so a test asserting one of them is meaningful on
-# both witnesses.
+# FEATURE: the contract suite runs unchanged over this fake and over the real app
+# (`connection_backed_harness.py`), so any backing must pass the same suite. The fake models
+# every side effect the contract names — eviction, marking, session invalidation, the last-used
+# touch — so a test asserting one of them is meaningful on both witnesses.
 # AIDEV-NOTE: keep this a SECOND implementation, not a mirror of the real one: it stores dicts,
 # never rows, and records its writes in plain lists the fake harness reads back.
 """
@@ -21,7 +20,6 @@ from aigateway.core.auth_types import AuthMode, AuthType
 from aigateway.core.credential_blob import DispatchObservation, OperationalOutcome
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import ProfileDefaults, ProfileState
 from aigateway.core.provider_access import (
     Authorization,
     AvailabilityRow,
@@ -37,15 +35,15 @@ from aigateway.core.provider_access import (
     contract_auth_mode,
     reauth_url_for,
 )
+from tests.unit.seed_state import SeedState
 
 PROVIDER = "anthropic"
 
 
 @dataclass
 class _FakeProfile:
-    state: ProfileState
+    state: SeedState
     auth_type: str
-    defaults: ProfileDefaults
     credential: str | None
     broken: bool = False
     malformed: bool = False
@@ -69,15 +67,10 @@ class FakeProviderAccess:
 
     profiles: dict[tuple[str, str, str], _FakeProfile] = field(default_factory=dict)
     connections: list[tuple[str, str, _FakeConnection]] = field(default_factory=list)
-    reads: int = 0
-    reads_fail: bool = False
     evicted: list[str] = field(default_factory=list)
     invalidated: list[str] = field(default_factory=list)
 
     def _read(self, account_id: str, provider: str, name: str) -> _FakeProfile | None:
-        self.reads += 1
-        if self.reads_fail:
-            raise RuntimeError("index unreadable")
         return self.profiles.get((account_id, provider, name))
 
     async def resolve(
@@ -92,9 +85,9 @@ class FakeProviderAccess:
         profile = self._read(account_id, provider, selector.name)
         if profile is None:
             return self._resolve_connection(account_id, provider, selector, plugin, policy)
-        if profile.state is ProfileState.PENDING:
+        if profile.state is SeedState.PENDING:
             raise TargetPending(provider, selector.name)
-        if profile.state is ProfileState.ERROR:
+        if profile.state is SeedState.ERROR:
             raise TargetReauthRequired(provider, reauth_url_for(None), requested=selector.name)
         name = credential_name_for(account_id, selector.name)
         return CredentialTarget(
@@ -251,7 +244,7 @@ class FakeProviderAccess:
     def _mark_error(self, target: CredentialTarget) -> None:
         backing_kind, key = target._backing
         if backing_kind == "profile":
-            self.profiles[key].state = ProfileState.ERROR
+            self.profiles[key].state = SeedState.ERROR
         else:
             self._row(target).status = "error"
 
@@ -265,17 +258,16 @@ class FakeHarness:
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return asyncio.run(fn(*args, **kwargs))
 
-    def seed_profile(
+    def seed_credential(
         self,
         *,
         name: str = "default",
-        state: ProfileState = ProfileState.AUTHENTICATED,
+        state: SeedState = SeedState.AUTHENTICATED,
         auth_type: str = "oauth",
-        defaults: ProfileDefaults | None = None,
         credential: str | None = "tok",
     ) -> None:
         self.access.profiles[(self.account_id, PROVIDER, name)] = _FakeProfile(
-            state, auth_type, defaults or ProfileDefaults(), credential
+            state, auth_type, credential
         )
 
     def seed_connection(
@@ -301,13 +293,7 @@ class FakeHarness:
             if credential_key_for(acct, UUID(connection.id)) == credential_name:
                 connection.malformed = True
 
-    def fail_index_reads(self) -> None:
-        self.access.reads_fail = True
-
-    def index_reads(self) -> int:
-        return self.access.reads
-
-    def profile_state(self, name: str = "default") -> str | None:
+    def credential_state(self, name: str = "default") -> str | None:
         profile = self.access.profiles.get((self.account_id, PROVIDER, name))
         return None if profile is None else profile.state.value
 

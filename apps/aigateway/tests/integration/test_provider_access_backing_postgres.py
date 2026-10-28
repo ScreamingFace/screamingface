@@ -6,10 +6,11 @@
 # INVARIANT (D14): one write owner per owned pair — the native routes and the legacy op 8 both
 # advance the SAME marker row first, so whoever holds that row lock decides, and the other
 # re-evaluates its `WHERE generation = <stale>` to zero rows.
-# AIDEV-NOTE: the lane's fixtures are bound from `test_lifecycle_postgres_races.py` (one container
-# per module, migrated to head by the tortoise CLI — a broken 0012 fails at fixture time). Run
-# with `AIGW_TEST_PG=1`; the module skips otherwise. The admin account is shared by every test,
-# so each test resets the (account, anthropic) pair and seeds a uniquely named document.
+# WHY each test resets the pair: the lane's fixtures are bound from
+# `test_lifecycle_postgres_races.py` (one container per module, migrated to head by the tortoise
+# CLI — a broken 0012 fails at fixture time), so the admin account is shared by every test; each
+# test resets the (account, anthropic) pair and seeds a uniquely named blob. Run with
+# `AIGW_TEST_PG=1`; the module skips otherwise.
 """
 
 from __future__ import annotations
@@ -30,11 +31,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access.models import ProviderCredentialSlot
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -58,12 +57,6 @@ def _app(client: TestClient) -> FastAPI:
     if not isinstance(app, FastAPI):
         raise AssertionError("TestClient is not running the expected FastAPI app")
     return app
-
-
-def _index(app: FastAPI) -> ProfileIndexStore:
-    # WHY a store built here (OME-1209 E4b): the app wires no Profile index; this one reads and
-    # writes the same index blob through the app's credential store.
-    return ProfileIndexStore(credential_store=app.state.credential_store)
 
 
 def _call(
@@ -119,26 +112,14 @@ async def _reset_pair(app: FastAPI, account_id: str) -> None:
     """The shared admin account starts every test with NO authority for the anthropic pair."""
     await ProviderCredentialSlot.filter(account_id=account_id, provider=PROVIDER).delete()
     await OAuthConnection.filter(account_id=account_id, provider=PROVIDER).delete()
-    for document in await _index(app).list(account_id, provider=PROVIDER):
-        await _index(app).remove(document.id)
 
 
 async def _seed_migrated_pair(
     app: FastAPI, account_id: str, *, name: str, auth_type: AuthType, blob: str
 ) -> UUID:
-    """What the backfill leaves: document + Profile blob + effective Connection at that blob."""
+    """A migrated pair: the name-address blob + the effective Connection at that blob."""
     await app.state.credential_store.write(
         credential_service_for(credential_name_for(account_id, name)), "default", blob
-    )
-    await _index(app).upsert(
-        Profile(
-            id=profile_id_for(account_id, PROVIDER, name),
-            account_id=account_id,
-            provider=PROVIDER,
-            name=name,
-            state=ProfileState.AUTHENTICATED,
-            auth_type=auth_type,
-        )
     )
     store = OAuthConnectionStore()
     connection = await store.create_pending(
@@ -170,10 +151,6 @@ def _marker(client: TestClient, account_id: str) -> Any:
 
 def _connection(client: TestClient, account_id: str, connection_id: UUID | str) -> Any:
     return _call(client, OAuthConnectionStore().get, account_id, connection_id)
-
-
-def _document(client: TestClient, account_id: str, name: str) -> Profile | None:
-    return _call(client, _index(_app(client)).get, account_id, PROVIDER, name)
 
 
 def _profile_blob(client: TestClient, account_id: str, name: str) -> str | None:

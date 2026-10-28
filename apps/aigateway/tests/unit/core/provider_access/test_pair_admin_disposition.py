@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from asyncpg import exceptions as asyncpg_exceptions
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 from tortoise.exceptions import OperationalError
 
 from aigateway.core.oauth.models import OAuthConnection
@@ -43,27 +43,27 @@ CREDENTIAL_PROVIDER = credential_service_provider_for(ANTHROPIC, PROVIDER)
 
 
 @pytest.fixture
-def harness(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def harness(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-def _inventory(harness: ProfileBackedHarness) -> PairInventory:
+def _inventory(harness: RealAppHarness) -> PairInventory:
     return harness.call(pair_inventory, harness.client.app, harness.account_id)
 
 
-def _only(harness: ProfileBackedHarness) -> PairCredential | PairConflict | None:
+def _only(harness: RealAppHarness) -> PairCredential | PairConflict | None:
     inventory = _inventory(harness)
     results = [*inventory.credentials, *inventory.conflicts]
     assert len(results) <= 1, results
     return results[0] if results else None
 
 
-def _profile_address(harness: ProfileBackedHarness, name: str = "default") -> dict[str, str]:
+def _profile_address(harness: RealAppHarness, name: str = "default") -> dict[str, str]:
     return credential_locator_for(CREDENTIAL_PROVIDER, harness.account_id, name)
 
 
 def _api_key_connection(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     *,
     locator: dict[str, str] | None = None,
     provider: str = PROVIDER,
@@ -81,7 +81,7 @@ def _api_key_connection(
     return str(connection_id)
 
 
-def _update_connection(harness: ProfileBackedHarness, connection_id: str, **fields: Any) -> None:
+def _update_connection(harness: RealAppHarness, connection_id: str, **fields: Any) -> None:
     async def update() -> None:
         await OAuthConnection.filter(id=connection_id).update(**fields)
 
@@ -89,7 +89,7 @@ def _update_connection(harness: ProfileBackedHarness, connection_id: str, **fiel
 
 
 def _mark(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     state: MigrationState,
     *,
     effective: str | None = None,
@@ -109,7 +109,7 @@ def _mark(
     harness.call(advance)
 
 
-def _marker_rows(harness: ProfileBackedHarness) -> list[dict[str, Any]]:
+def _marker_rows(harness: RealAppHarness) -> list[dict[str, Any]]:
     async def rows() -> list[dict[str, Any]]:
         return await ProviderCredentialSlot.filter(account_id=harness.account_id).values(
             "provider", "migration_state", "generation", "effective_connection_id"
@@ -131,7 +131,7 @@ def test_an_empty_account_lists_nothing(harness) -> None:
 
 def test_a_migrated_pair_with_no_effective_connection_lists_nothing(harness) -> None:
     # Row 6, with a leftover compatibility document: a read never resurrects it.
-    harness.seed_profile(auth_type="api_key", credential="sk-ant-api03-left-over-0001")
+    harness.seed_blob(auth_type="api_key", credential="sk-ant-api03-left-over-0001")
     _mark(harness, "migrated")
 
     assert _only(harness) is None
@@ -187,7 +187,7 @@ def test_two_live_connections_are_ambiguous_even_on_a_migrated_pair(harness) -> 
 
 
 def test_a_quarantined_pair_is_unresolved_and_its_note_never_surfaces(harness) -> None:
-    harness.seed_profile()
+    harness.seed_blob()
     _mark(harness, "quarantined", note="credentials_differ")
 
     conflict = _only(harness)
@@ -202,7 +202,7 @@ def test_a_quarantined_pair_is_unresolved_and_its_note_never_surfaces(harness) -
 @pytest.mark.parametrize("status", ["active", "pending", "error"])
 def test_a_migrated_pair_lists_its_effective_connection(harness, status) -> None:
     # The compat mirror's state never decides: the effective Connection does.
-    harness.seed_profile(auth_type="api_key", credential="sk-ant-api03-mirror-0004")
+    harness.seed_blob(auth_type="api_key", credential="sk-ant-api03-mirror-0004")
     effective = _api_key_connection(harness, locator=_profile_address(harness))
     _mark(harness, "migrated", effective=effective)
     _update_connection(harness, effective, status=status)
@@ -245,14 +245,14 @@ def test_a_live_row_is_never_taken_for_a_revoked_reference(harness) -> None:
 # --- row 2: unknown or inconsistent state -------------------------------------------------------
 
 
-def _assert_authority_unavailable(harness: ProfileBackedHarness) -> None:
+def _assert_authority_unavailable(harness: RealAppHarness) -> None:
     with pytest.raises(CredentialAuthorityUnavailable) as refused:
         _inventory(harness)
     assert refused.value.provider == PROVIDER
 
 
 def test_an_unknown_marker_state_is_unavailable(harness) -> None:
-    harness.seed_profile()
+    harness.seed_blob()
     _mark(harness, "none")
 
     async def corrupt() -> None:
@@ -362,7 +362,7 @@ def test_results_are_sorted_by_provider_and_one_per_provider(harness) -> None:
 
 
 def test_the_inventory_writes_nothing_and_reads_no_credential(harness, monkeypatch) -> None:
-    harness.seed_profile()
+    harness.seed_blob()
     _api_key_connection(harness)
     before = _marker_rows(harness)
     reads: list[tuple[str, str]] = []

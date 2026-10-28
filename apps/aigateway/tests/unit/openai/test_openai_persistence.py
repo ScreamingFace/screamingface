@@ -14,10 +14,8 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openai_provider.plugin import PLUGIN
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
@@ -212,16 +210,6 @@ async def test_chat_uses_effective_openai_profile(authenticated_client, credenti
         _service_for(credential_name_for(account_id, "default")),
         "default",
         json.dumps({"auth_type": "api_key", "api_key": _NEW_KEY}),
-    )
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "openai", "default"),
-            account_id=account_id,
-            provider="openai",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
     )
     seed_migrated_pair(authenticated_client, account_id, "openai", auth_type="api_key")
     plugin = authenticated_client.app.state.providers.get("openai")

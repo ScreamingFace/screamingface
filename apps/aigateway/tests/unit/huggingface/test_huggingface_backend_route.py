@@ -20,7 +20,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
@@ -29,8 +28,6 @@ from aigateway.core.parameter_discovery import (
     RawResponse,
 )
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.huggingface_provider.settings import HuggingFacePluginSettings
 
 _NO_TOOLS = "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale"
@@ -91,7 +88,7 @@ class _Clock:
 def huggingface_seeded(monkeypatch) -> None:
     """Seed exactly the two models the fixture catalog holds.
 
-    # AIDEV-NOTE: patches the plugin INSTANCE, not the environment — ``PLUGIN`` is a
+    # WHY: patches the plugin INSTANCE, not the environment — ``PLUGIN`` is a
     # module-level singleton built at import time, so ``AIGW_HUGGINGFACE_*`` set
     # after any test has imported the module cannot reach it.
     """
@@ -115,23 +112,7 @@ def _install_runtime(client: TestClient, router_client: _RouterClient, clock: _C
     )
 
 
-async def _seed_profile(credential_blobs, account_id: str) -> None:
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "huggingface", "default"),
-            account_id=account_id,
-            provider="huggingface",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
-
-
-async def _contract(credential_blobs, client: TestClient, model: str) -> dict:
-    account_id = client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, account_id)
+async def _contract(client: TestClient, model: str) -> dict:
     resp = client.get("/v1/model-parameters", params={"model": model})
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -149,14 +130,14 @@ async def test_the_route_serves_the_seeded_huggingface_models(
 
 @pytest.mark.asyncio
 async def test_all_three_tool_cells_agree_within_one_document(
-    huggingface_seeded, authenticated_client, credential_blobs
+    huggingface_seeded, authenticated_client
 ) -> None:
     # THE consistency requirement: `tools` and `tool_choice` are request paths and
     # `function` is a tool type, but they describe ONE capability. A document that
     # reported them differently would be self-contradictory.
     _install_runtime(authenticated_client, _RouterClient(), _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
+    body = await _contract(authenticated_client, _NO_TOOLS)
 
     assert body["parameters"]["tools"]["provider"]["support"] == "unsupported"
     assert body["parameters"]["tool_choice"]["provider"]["support"] == "unsupported"
@@ -165,27 +146,25 @@ async def test_all_three_tool_cells_agree_within_one_document(
 
 @pytest.mark.asyncio
 async def test_the_gateway_still_forwards_what_the_backend_lacks(
-    huggingface_seeded, authenticated_client, credential_blobs
+    huggingface_seeded, authenticated_client
 ) -> None:
     # Evidence axis only. The gateway's projection is unchanged, so dispatch keeps
     # behaving identically whether this read hit a warm cache, a cold one, or an
     # outage — only the reported provider evidence moves.
     _install_runtime(authenticated_client, _RouterClient(), _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
+    body = await _contract(authenticated_client, _NO_TOOLS)
 
     assert body["parameters"]["tools"]["gateway"]["status"] == "enabled"
     assert body["tools"]["function"]["gateway_status"] == "enabled"
 
 
 @pytest.mark.asyncio
-async def test_the_models_summary_does_not_move(
-    huggingface_seeded, authenticated_client, credential_blobs
-) -> None:
+async def test_the_models_summary_does_not_move(huggingface_seeded, authenticated_client) -> None:
     # The inline summary is served without discovery at all; this pins that a
     # backend reporting no tool support cannot silently shrink it.
     _install_runtime(authenticated_client, _RouterClient(), _Clock())
-    await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
+    await _contract(authenticated_client, _NO_TOOLS)
 
     rows = {r["id"]: r for r in authenticated_client.get("/v1/models").json()["data"]}
     assert rows[_NO_TOOLS]["supported_tools"] == rows[_NO_JSON]["supported_tools"] == ["function"]
@@ -193,12 +172,12 @@ async def test_the_models_summary_does_not_move(
 
 @pytest.mark.asyncio
 async def test_two_backends_get_different_evidence_from_one_catalog(
-    huggingface_seeded, authenticated_client, credential_blobs
+    huggingface_seeded, authenticated_client
 ) -> None:
     _install_runtime(authenticated_client, _RouterClient(), _Clock())
 
-    no_tools = await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
-    no_json = await _contract(credential_blobs, authenticated_client, _NO_JSON)
+    no_tools = await _contract(authenticated_client, _NO_TOOLS)
+    no_json = await _contract(authenticated_client, _NO_JSON)
 
     assert no_tools["tools"]["function"]["provider_support"] == "unsupported"
     assert no_json["tools"]["function"]["provider_support"] == "supported"
@@ -214,7 +193,7 @@ async def test_two_backends_get_different_evidence_from_one_catalog(
 
 @pytest.mark.asyncio
 async def test_a_router_outage_degrades_to_labelled_static_evidence(
-    huggingface_seeded, authenticated_client, credential_blobs
+    huggingface_seeded, authenticated_client
 ) -> None:
     # No last-good value to fall back on: the contract must still serve, from the
     # provider's reviewed labelled-static evidence, and say so — never a fabricated
@@ -223,7 +202,7 @@ async def test_a_router_outage_degrades_to_labelled_static_evidence(
         authenticated_client, _RouterClient(error=DiscoveryError("unreachable")), _Clock()
     )
 
-    body = await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
+    body = await _contract(authenticated_client, _NO_TOOLS)
 
     assert body["freshness"]["degraded"] is True
     assert body["tools"]["function"]["provider_support"] == "supported"
@@ -232,13 +211,13 @@ async def test_a_router_outage_degrades_to_labelled_static_evidence(
 
 @pytest.mark.asyncio
 async def test_the_stale_window_serves_the_last_good_verdict_flagged(
-    huggingface_seeded, authenticated_client, credential_blobs
+    huggingface_seeded, authenticated_client
 ) -> None:
     # fresh read → TTL expiry → outage: the observed negative still stands, but the
     # client is told it is stale rather than being handed a silent fabrication.
     clock = _Clock()
     _install_runtime(authenticated_client, _RouterClient(), clock)
-    fresh = await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
+    fresh = await _contract(authenticated_client, _NO_TOOLS)
     assert fresh["parameters"]["tools"]["provider"]["stale"] is False
 
     runtime: DiscoveryRuntime = cast(FastAPI, authenticated_client.app).state.discovery_runtime
@@ -246,7 +225,7 @@ async def test_the_stale_window_serves_the_last_good_verdict_flagged(
     runtime._client = _RouterClient(error=DiscoveryError("unreachable"))  # noqa: SLF001
     clock.advance(61.0)
 
-    stale = await _contract(credential_blobs, authenticated_client, _NO_TOOLS)
+    stale = await _contract(authenticated_client, _NO_TOOLS)
     assert stale["freshness"]["stale"] is True
     assert stale["parameters"]["tools"]["provider"]["support"] == "unsupported"
     assert stale["parameters"]["tools"]["provider"]["stale"] is True

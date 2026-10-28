@@ -1,12 +1,14 @@
 """Two harnesses for the provider-access PORT CONTRACT suite (OME-1200, A1 of OME-1138).
 
 # FEATURE: the contract tests run unchanged over a pure in-memory fake
-# (`provider_access_fake.py`) and over the Profile-backed implementation on the real app, so
-# any later backing must pass the same suite.
-# AIDEV-NOTE: the harness hides HOW a state is seeded (a `Profile` row + blob today, a slot
-# tomorrow) and HOW a side effect is observed (a recorder on the strategy cache and the plugin
-# hook today); tests only name the situation. Keep Profile/Connection vocabulary inside this
-# file and the fake.
+# (`provider_access_fake.py`) and over the real app (`connection_backed_harness.py`), so any
+# backing must pass the same suite.
+# WHY the harness hides HOW a situation is seeded and HOW a side effect is observed (a recorder on
+# the strategy cache and the plugin hook): tests only name the situation, so the Connection
+# vocabulary stays inside the harnesses and the fake.
+# FEATURE: OME-1138 Stage E, E5c — the Profile index is gone, so the real-app harness seeds no
+# document: `seed_blob` writes only the credential blob at the name address, which is what a
+# Profile-era install can still hold.
 """
 
 from __future__ import annotations
@@ -21,15 +23,14 @@ from uuid import uuid4
 from provider_access_fake import PROVIDER, FakeHarness, FakeProviderAccess
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.provider_access import ProviderAccess
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.plugin import PLUGIN as ANTHROPIC
+from tests.unit.seed_state import SeedState
 
 
 class Harness(Protocol):
@@ -46,13 +47,12 @@ class Harness(Protocol):
         self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any
     ) -> Any: ...
 
-    def seed_profile(
+    def seed_credential(
         self,
         *,
         name: str = "default",
-        state: ProfileState = ProfileState.AUTHENTICATED,
+        state: SeedState = SeedState.AUTHENTICATED,
         auth_type: str = "oauth",
-        defaults: ProfileDefaults | None = None,
         credential: str | None = "tok",
     ) -> None: ...
 
@@ -66,11 +66,7 @@ class Harness(Protocol):
         """Make the stored credential yield a non-mapping result instead of headers."""
         ...
 
-    def fail_index_reads(self) -> None: ...
-
-    def index_reads(self) -> int: ...
-
-    def profile_state(self, name: str = "default") -> str | None: ...
+    def credential_state(self, name: str = "default") -> str | None: ...
 
     def connection_status(self, connection_id: str) -> str | None: ...
 
@@ -89,7 +85,7 @@ class Harness(Protocol):
         ...
 
 
-# --- the Profile-backed implementation on the real app --------------------------------------
+# --- the real app ----------------------------------------------------------------------------
 
 
 def _oauth_blob(access_token: str) -> str:
@@ -115,29 +111,15 @@ class _MalformedStrategy:
         return None
 
 
-class ProfileBackedHarness:
+class RealAppHarness:
     def __init__(self, client: Any, credential_blobs: Any, monkeypatch: Any) -> None:
         self.client = client
         self.blobs = credential_blobs
         self.monkeypatch = monkeypatch
         self.access = client.app.state.provider_access
         self.account_id = client.get("/v1/auth/me").json()["id"]
-        self._reads = 0
-        self._fail = False
         self._evicted: list[str] = []
         self._invalidated: list[str] = []
-        # WHY the class, not the app's store: since OME-1209 E4b the app wires no index, so a
-        # read could only come through a store built on the spot; the class sees every one.
-        real_get = ProfileIndexStore.get
-        self._real_get = real_get
-
-        async def counting_get(index: ProfileIndexStore, *args: Any, **kwargs: Any) -> Any:
-            self._reads += 1
-            if self._fail:
-                raise RuntimeError("the profile index blob could not be decoded")
-            return await real_get(index, *args, **kwargs)
-
-        monkeypatch.setattr(ProfileIndexStore, "get", counting_get)
 
         # Recorders: the real cache still evicts; the real plugin hook is a no-op for Anthropic,
         # so recording the call IS the observable.
@@ -154,38 +136,19 @@ class ProfileBackedHarness:
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return self.client.portal.call(partial(fn, *args, **kwargs))
 
-    def seed_profile(
-        self,
-        *,
-        name: str = "default",
-        state: ProfileState = ProfileState.AUTHENTICATED,
-        auth_type: str = "oauth",
-        defaults: ProfileDefaults | None = None,
-        credential: str | None = "tok",
+    def seed_blob(
+        self, *, name: str = "default", auth_type: str = "oauth", credential: str | None = "tok"
     ) -> None:
-        if credential is not None:
-            value = (
-                _oauth_blob(credential)
-                if auth_type == "oauth"
-                else json.dumps({"auth_type": "api_key", "api_key": credential})
-            )
-            self.blobs.write(
-                credential_service_for(credential_name_for(self.account_id, name)),
-                "default",
-                value,
-            )
-        idx = ProfileIndexStore(credential_store=self.blobs.store)
-        self.call(
-            idx.upsert,
-            Profile(
-                id=profile_id_for(self.account_id, PROVIDER, name),
-                account_id=self.account_id,
-                provider=PROVIDER,
-                name=name,
-                state=state,
-                auth_type=cast(AuthType, auth_type),
-                defaults=defaults or ProfileDefaults(),
-            ),
+        """Only the credential blob at the `name` address: no Connection, no marker."""
+        if credential is None:
+            return
+        value = (
+            _oauth_blob(credential)
+            if auth_type == "oauth"
+            else json.dumps({"auth_type": "api_key", "api_key": credential})
+        )
+        self.blobs.write(
+            credential_service_for(credential_name_for(self.account_id, name)), "default", value
         )
 
     def seed_connection(
@@ -226,19 +189,6 @@ class ProfileBackedHarness:
             build=_MalformedStrategy,
         )
 
-    def fail_index_reads(self) -> None:
-        self._fail = True
-
-    def index_reads(self) -> int:
-        return self._reads
-
-    def profile_state(self, name: str = "default") -> str | None:
-        # WHY the unspied `get`: an observation reads the same index blob without passing the
-        # counting spy, so it never moves `index_reads()`.
-        idx = ProfileIndexStore(credential_store=self.blobs.store)
-        profile = self.call(self._real_get, idx, self.account_id, PROVIDER, name)
-        return None if profile is None else profile.state.value
-
     def _connection_row(self, connection_id: str) -> dict[str, Any] | None:
         rows = self.client.get("/v1/oauth/connections").json()["connections"]
         return next((row for row in rows if row["id"] == connection_id), None)
@@ -264,5 +214,5 @@ __all__ = [
     "FakeHarness",
     "FakeProviderAccess",
     "Harness",
-    "ProfileBackedHarness",
+    "RealAppHarness",
 ]

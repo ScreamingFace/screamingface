@@ -19,11 +19,11 @@ from dataclasses import replace
 from typing import Any
 
 import pytest
-from connection_backed_admin_probes import blob_at_connection_address, document, marker
+from connection_backed_admin_probes import blob_at_connection_address, blob_at_name_address, marker
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of, callback, pending_entry, use_tokens
 from fastapi import HTTPException
-from provider_access_harness import PROVIDER, ProfileBackedHarness
+from provider_access_harness import PROVIDER, RealAppHarness
 
 from aigateway.core.api_key_validation import (
     ApiKeyValidationResult,
@@ -54,8 +54,8 @@ class _ValidKeys:
 
 
 @pytest.fixture
-def legacy(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    harness = ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def legacy(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    harness = RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
     authenticated_client.app.state.api_key_validation_service = _ValidKeys()
     return harness
 
@@ -120,7 +120,7 @@ def _assert_connection_conflict(response: Any) -> None:
 
 
 def test_a_native_key_create_claims_an_unmarked_pair_and_keeps_it_legacy_owned(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
     created = _create(legacy)
 
@@ -132,7 +132,7 @@ def test_a_native_key_create_claims_an_unmarked_pair_and_keeps_it_legacy_owned(
 
 
 def test_a_native_key_create_loses_to_an_ownership_change_during_its_validation(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
     _validation(legacy).during = lambda: _claim_the_current_pair(legacy.account_id)
 
@@ -145,7 +145,7 @@ def test_a_native_key_create_loses_to_an_ownership_change_during_its_validation(
 def test_a_native_key_create_on_a_migrated_pair_keeps_the_marker(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile()
+    migrated.seed_credential()
     before = marker(migrated)
 
     assert _create(migrated, label="side").status_code == 201
@@ -157,7 +157,7 @@ def test_a_native_key_create_on_a_migrated_pair_keeps_the_marker(
 
 
 def test_a_native_key_replacement_captures_the_pair_after_its_validation(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
     connection_id = _create(legacy).json()["id"]
     _validation(legacy).during = lambda: _claim_the_current_pair(legacy.account_id)
@@ -171,7 +171,7 @@ def test_a_native_key_replacement_captures_the_pair_after_its_validation(
 
 
 def test_a_native_key_replacement_that_lost_the_pair_after_its_capture_writes_nothing(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     connection_id = _create(legacy).json()["id"]
     _owner_change_after_the_next_pair_read(monkeypatch)
@@ -188,7 +188,7 @@ def test_a_native_key_replacement_that_lost_the_pair_after_its_capture_writes_no
 # --- delete ---------------------------------------------------------------------------------
 
 
-def test_a_native_delete_claims_the_pair(legacy: ProfileBackedHarness) -> None:
+def test_a_native_delete_claims_the_pair(legacy: RealAppHarness) -> None:
     connection_id = _create(legacy).json()["id"]
 
     assert legacy.client.delete(f"/v1/oauth/connections/{connection_id}").status_code == 204
@@ -199,7 +199,7 @@ def test_a_native_delete_claims_the_pair(legacy: ProfileBackedHarness) -> None:
 
 
 def test_a_native_delete_that_lost_the_pair_keeps_the_connection_and_its_blob(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     connection_id = _create(legacy).json()["id"]
     _owner_change_after_the_next_pair_read(monkeypatch)
@@ -218,7 +218,7 @@ def _start(harness: Any, label: str = "work") -> Any:
 
 
 def test_a_native_oauth_start_and_its_callback_each_claim_and_keep_the_pair_legacy_owned(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
     use_tokens(legacy, "native-tok")
     started = _start(legacy)
@@ -238,7 +238,7 @@ def test_a_native_oauth_start_and_its_callback_each_claim_and_keep_the_pair_lega
 
 
 def test_a_second_native_oauth_start_supersedes_the_first_flow(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
     # WHY: each start is an ownership change (§5.3); the first callback claims the pair its start
     # published, which the second start has since moved — the latest start wins, the first 409s.
@@ -276,7 +276,7 @@ def _loopback(harness: Any, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_native_oauth_start_that_cannot_bind_its_loopback_leaves_the_flow_in_flight(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # WHY (OME-307 Blocker 5): a start that never started must not supersede the flow in flight —
     # the redirect binds BEFORE the claim, so a 503 claims nothing and writes no row.
@@ -307,7 +307,7 @@ def test_a_native_oauth_start_that_cannot_bind_its_loopback_leaves_the_flow_in_f
 
 
 def test_a_native_oauth_start_that_lost_its_claim_closes_its_loopback_listener(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _loopback(legacy, monkeypatch)
     listener = _Listener()
@@ -325,7 +325,7 @@ def test_a_native_oauth_start_that_lost_its_claim_closes_its_loopback_listener(
 
 
 def test_a_native_oauth_start_loses_to_an_ownership_change_after_its_capture(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _owner_change_after_the_next_pair_read(monkeypatch)
 
@@ -335,7 +335,7 @@ def test_a_native_oauth_start_loses_to_an_ownership_change_after_its_capture(
 
 
 def test_a_native_callback_after_another_ownership_change_loses_and_activates_nothing(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
     use_tokens(legacy, "late-tok")
     started = _start(legacy)
@@ -352,23 +352,24 @@ def test_a_native_callback_after_another_ownership_change_loses_and_activates_no
 
 
 def test_a_native_callback_that_lost_the_pair_leaves_a_same_named_profile_unchanged(
-    legacy: ProfileBackedHarness,
+    legacy: RealAppHarness,
 ) -> None:
-    # WHY: the callback's compat-document update runs in its claim's transaction — a lost claim
-    # must not turn a same-named legacy api_key Profile into an authenticated OAuth one.
-    legacy.seed_profile(name="work", auth_type="api_key", credential=KEY)
-    before = document(legacy, "work")
+    # WHY: a lost claim must not turn the same-named api_key credential into an OAuth one; it
+    # loses with the native 409 and the blob at the name address stays exactly as it was.
+    legacy.seed_blob(name="work", auth_type="api_key", credential=KEY)
+    before = blob_at_name_address(legacy, "work")
     use_tokens(legacy, "late-tok")
     started = _start(legacy, label="work")
     legacy.call(_claim_the_current_pair, legacy.account_id)
 
     _assert_connection_conflict(callback(legacy, started.json()["state"]))
 
-    assert document(legacy, "work") == before
+    assert before is not None
+    assert blob_at_name_address(legacy, "work") == before
 
 
 def test_a_native_callback_that_lost_the_pair_before_activation_activates_nothing(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     real_extract = auth_routes._extract_connection_identity
 
@@ -388,7 +389,7 @@ def test_a_native_callback_that_lost_the_pair_before_activation_activates_nothin
 
 
 def test_a_native_callback_publication_failure_does_not_claim_the_pair(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     use_tokens(legacy, "not-published")
     started = _start(legacy)
@@ -412,10 +413,10 @@ def test_a_native_callback_publication_failure_does_not_claim_the_pair(
 
 
 def test_a_native_callback_publication_failure_leaves_same_named_profile_unchanged(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    legacy.seed_profile(name="work", auth_type="api_key", credential=KEY)
-    before = document(legacy, "work")
+    legacy.seed_blob(name="work", auth_type="api_key", credential=KEY)
+    before = blob_at_name_address(legacy, "work")
     use_tokens(legacy, "not-published")
     started = _start(legacy, label="work")
 
@@ -429,7 +430,8 @@ def test_a_native_callback_publication_failure_leaves_same_named_profile_unchang
     response = callback(legacy, started.json()["state"])
 
     assert response.status_code == 503, response.text
-    assert document(legacy, "work") == before
+    assert before is not None
+    assert blob_at_name_address(legacy, "work") == before
     connection_id = started.json()["connection_id"]
     assert _row(legacy, connection_id).status == "error"
     assert blob_at_connection_address(legacy, connection_id) is None
@@ -447,7 +449,7 @@ async def _store_down(*_args: Any, **_kwargs: Any) -> None:
     ],
 )
 def test_a_native_callback_that_fails_to_publish_keeps_the_pair_generation(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch, broken: str, code: str
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch, broken: str, code: str
 ) -> None:
     # WHY (§5.3): check and publication are atomic, and a failed callback is not an ownership
     # change — the claim commits only together with the activated row and its blob.
