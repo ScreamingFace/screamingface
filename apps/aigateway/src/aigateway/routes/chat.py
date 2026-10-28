@@ -766,7 +766,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
                 request,
                 outcome=cache_outcome,
                 result=result,
-                sealed_credentials=credential_values(body),
+                dispatch_body=body,
                 accounting=accounting,
             )
         set_global_cache_headers(response, cache_outcome, write_status=write_status)

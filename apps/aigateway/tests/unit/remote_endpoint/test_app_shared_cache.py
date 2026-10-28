@@ -16,6 +16,9 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, cast
 
 import httpx
@@ -214,8 +217,32 @@ def test_a_published_row_reaches_an_account_the_catalog_hides_the_endpoint_from(
     assert _calls(byom) == []
 
 
+class _Recording(logging.Handler):
+    def __init__(self, records: list[logging.LogRecord]) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.records = records
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@contextmanager
+def _gateway_log() -> Iterator[list[logging.LogRecord]]:
+    """Every record the `aigateway` loggers emit inside the block."""
+    # WHY on the `aigateway` logger, not caplog: `logs.configure` turns propagation off, so
+    # caplog sees these records only in some test orders.
+    records: list[logging.LogRecord] = []
+    handler = _Recording(records)
+    logger = logging.getLogger("aigateway")
+    logger.addHandler(handler)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+
+
 def test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller(
-    byom: Harness, caplog: pytest.LogCaptureFixture
+    byom: Harness,
 ) -> None:
     body = chat_body(ENDPOINT_B)
     sent: list[str] = []
@@ -226,7 +253,7 @@ def test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller(
         choice = {"index": 0, "message": message, "finish_reason": "stop"}
         return httpx.Response(200, json={"object": "chat.completion", "choices": [choice]})
 
-    with byom.start(two_endpoint_document()) as client:
+    with _gateway_log() as records, byom.start(two_endpoint_document()) as client:
         assert put_key(client, ACCOUNT_A, ENDPOINT_B, KEY[ENDPOINT_B]).status_code == 200
         plugin = cast(FastAPI, client.app).state.providers.get(ENDPOINT_B)
         plugin._transport = httpx.MockTransport(repeat_the_key)
@@ -250,5 +277,46 @@ def test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller(
     assert [row for row in rows if row["provider"] == ENDPOINT_B] == []
     assert sent == [f"Bearer {KEY[ENDPOINT_B]}"]
     # INVARIANT: the refusal is logged by provider and key prefix, never with the credential.
-    assert "holds the call's credential" in caplog.text
-    assert KEY[ENDPOINT_B] not in caplog.text
+    messages = [record.getMessage() for record in records]
+    assert any("holds the call's credential" in message for message in messages)
+    assert not any(KEY[ENDPOINT_B] in message for message in messages)
+
+
+def _repeating_the_key(sent: list[str]) -> httpx.MockTransport:
+    """An endpoint that records each Bearer it gets and repeats it, unencoded, in its answer."""
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(request.headers["authorization"])
+        message = {"role": "assistant", "content": f"you sent {sent[-1]}"}
+        choice = {"index": 0, "message": message, "finish_reason": "stop"}
+        return httpx.Response(200, json={"object": "chat.completion", "choices": [choice]})
+
+    return httpx.MockTransport(answer)
+
+
+# WHY no short key here: every key route refuses one under eight characters; the guard's own
+# tests cover short credentials, which other credential sources may still carry.
+@pytest.mark.parametrize("key", ['sk-secret-"quoted"-0001', "sk-back\\slash-0001"])
+def test_a_key_json_escapes_repeated_by_the_endpoint_is_never_shared(
+    byom: Harness, key: str
+) -> None:
+    body = chat_body(ENDPOINT_B)
+    sent: list[str] = []
+
+    with byom.start(two_endpoint_document()) as client:
+        assert put_key(client, ACCOUNT_A, ENDPOINT_B, key).status_code == 200
+        plugin = cast(FastAPI, client.app).state.providers.get(ENDPOINT_B)
+        plugin._transport = _repeating_the_key(sent)
+        owner = _post(client, ACCOUNT_A, body)
+        # Account B holds neither a grant nor a key for endpoint B.
+        other = _post(client, ACCOUNT_B, body)
+        page = client.get("/v1/cache/entries", headers=tenant_headers(ACCOUNT_B))
+
+    # INVARIANT: JSON escaping of the key does not let the answer reach the shared cache.
+    assert key in owner.json()["choices"][0]["message"]["content"]
+    assert owner.headers["X-AIGW-Cache-Write"] == "not_stored"
+    assert other.status_code != 200
+    assert page.status_code == 200, page.text
+    _, *rows, _ = [json.loads(line) for line in page.text.splitlines()]
+    assert [row for row in rows if row["provider"] == ENDPOINT_B] == []
+    assert sent == [f"Bearer {key}"]

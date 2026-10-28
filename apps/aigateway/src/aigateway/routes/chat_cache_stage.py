@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -34,6 +35,7 @@ from fastapi import Request, Response
 from ..core.cache_ports import CACHE_UNAVAILABLE_REASON, PUBLISHED_CACHE_REASONS, CacheBypass
 from ..core.plugin_base import ProviderPluginBase
 from ..core.request_cache import CacheUnavailable, RequestCacheWrite
+from ..core.request_cache.credential_guard import holds_sealed_credential
 from ..core.request_cache.entry_metadata import CacheEntryMetadata
 from ..core.request_cache.global_controls import GlobalCacheControls
 from ..core.request_cache.global_keys import GlobalCacheKeyResult
@@ -265,7 +267,7 @@ async def store_global_response(
     *,
     outcome: GlobalCacheOutcome,
     result: Any,
-    sealed_credentials: tuple[str, ...],
+    dispatch_body: Mapping[str, Any],
     accounting: AccountingSession | None = None,
 ) -> WriteStatus:
     """Fill the global entry after a successful dispatch. Never raises.
@@ -279,7 +281,7 @@ async def store_global_response(
     response is returned untouched. There is no failure mode here that costs an
     answer — only ones that cost an entry.
 
-    INVARIANT: a response holding any of ``sealed_credentials``, the credential values this
+    INVARIANT: a response holding a credential sealed into ``dispatch_body``, the body this
     call's dispatch carried, is never stored. A row is replayed to every account and listed in
     the published cache, so an upstream that repeats the caller's key would hand it to them.
 
@@ -317,7 +319,7 @@ async def store_global_response(
         # gets it. No body content is logged.
         logger.warning("provider response was not serializable; not stored")
         return "not_stored"
-    if any(value in serialized for value in sealed_credentials):
+    if holds_sealed_credential(result, dispatch_body):
         # Presence only, never content: neither the credential nor any excerpt is logged.
         logger.warning(
             "global cache fill skipped: response holds the call's credential "
