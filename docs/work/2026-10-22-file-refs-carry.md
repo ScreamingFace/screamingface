@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # sub-issue A of OME-1543 (plan §5); filed at PR-open, after #1450 and #1482 merge
+ticket: OME-1543
 stack: url4
 status: in_progress
 started: 2026-10-22
