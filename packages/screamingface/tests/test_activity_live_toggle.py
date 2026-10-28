@@ -110,6 +110,17 @@ def test_style_lets_the_browser_own_row_visibility_and_chevron():
     )
 
 
+# INVARIANT: the view's first child is the only carrier of the activity stylesheet, so the
+# browser-side toggle rule above reaches the page once, not once per row.
+def test_view_injects_the_activity_style_once_ahead_of_the_rows(monkeypatch: Any):
+    monkeypatch.setattr(_NotebookEvaluationView, "_show", lambda self: None)
+    view = _NotebookEvaluationView((candidate("one"), candidate("two")), 1, tick=False)
+
+    first: Any = view._html.children[0]
+    assert first.value == STYLE
+    assert all("<style>" not in row.html.value for row in view._activity_rows)
+
+
 def test_finished_row_renders_at_most_once_per_step_and_only_on_change(monkeypatch: Any):
     log = ActivityLog()
     panel = CandidateActivityRow(log, ("one", "two"), 0)
@@ -159,6 +170,20 @@ def test_queued_row_without_activity_renders_once(monkeypatch: Any):
         now[0] += STEP
 
     assert calls == [0]
+
+
+# INVARIANT: a row that ends with no activity and no `end` signal still swaps "yet" for
+# "for this run", because finishing is part of what the row shows.
+def test_finishing_alone_renders_again(monkeypatch: Any):
+    panel = CandidateActivityRow(ActivityLog(), ("one",), 0)
+    now = _clock(monkeypatch)
+    panel.refresh(_row("queued"), elapsed=1.0)
+    assert "No structured activity received yet." in panel.html.value
+
+    now[0] += STEP
+    panel.refresh(_row("stopped"), elapsed=None)
+
+    assert "No structured activity received for this run." in panel.html.value
 
 
 def test_end_renders_the_run_ended_outcome(monkeypatch: Any):

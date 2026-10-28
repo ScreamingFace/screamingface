@@ -91,7 +91,7 @@ class CandidateActivityRow:
             self._refresh_activity()
 
     def _render_key(self) -> tuple[object, ...]:
-        return self._log.revision(self._index), self._completed_at_ms
+        return self._log.revision(self._index), self._finished, self._completed_at_ms
 
     def _step(self) -> int:
         return int(time.time() // self._RENDER_STEP_SECONDS)
