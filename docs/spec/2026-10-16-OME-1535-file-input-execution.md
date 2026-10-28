@@ -85,7 +85,10 @@ carries **no media type**; the media type lives on the enclosing [`ResultData.me
   `allow_remote_images=False` ([`G/plugins/ollama_provider/plugin.py:90-99`][g-oll]): a PDF or a remote image URL
   gets 422 `unsupported_content_part`; data-URI images are unchanged. *History:* before #1447 (e.g. at
   `637594595`) LiteLLM's `ollama_chat` conversion **silently dropped** `file` parts (observed 2026-10-16:
-  PDF answered 200 with +7 prompt tokens and an unrelated answer). PDF-to-text for Ollama stays with `OME-1550`.
+  PDF answered 200 with +7 prompt tokens and an unrelated answer). A PDF sent to a model that cannot take files
+  is **refused by name** per §3 item 4 (the engine connector reports the gateway's `unsupported_content_part` as
+  url4 `intent_error`, §4); there is no PDF-to-text fallback in v1 (owner decision 2026-10-28). `OME-1550` covers
+  office formats only.
 - Anthropic, OpenRouter and OpenAI (API key) do not call `check_messages`; their parts go through LiteLLM as sent.
 - Still open:
   - **No request body cap** anywhere in the gateway (the only size checks under `G/` are on responses or object-store uploads). → `OME-1542`
