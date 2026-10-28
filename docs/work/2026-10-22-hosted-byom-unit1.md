@@ -119,6 +119,9 @@ Owner decisions (2026-10-22):
   `test_reader`, `test_plugin`, `test_app_regressions`. After the reviews: `test_cache_revision`
   (new) in the gateway; in the SDK, `_cache/local.py`, the new `test_cache_local_revisions` and
   the approved fixture edit in `test_cache_local`.
+- **Tickets:** OME-1721 for the gateway. The SDK change is its own leaf, OME-1758, filed under
+  OME-1306 at PR-open on 2026-10-28 with the owner's confirmation; mirror
+  `docs/tasks/2026-10-28-OME-1758-sdk-endpoint-cache-revision.md`.
 - **Commits** (rebased again onto `27364bbf3` on 2026-10-27; every patch carried over unchanged,
   so the SHAs in this ledger are the rebased ones and the earlier runs below apply to them):
   - `2d70bdb8a` feat(aigateway): accept approved http and https origins by name or address
@@ -135,7 +138,10 @@ Owner decisions (2026-10-22):
   and synced to its lockfiles: the gateway's run with 7504 tests collected, 443 in
   `tests/unit/remote_endpoint`, and the SDK's with 4939, where `test_cache_local_revisions`
   runs rather than skips. Main had added one test to that folder,
-  `test_history_purge_endpoints`; no file changed on both sides. Before that,
+  `test_history_purge_endpoints`; no file changed on both sides. On 2026-10-28,
+  `AIGW_TEST_PG=1 uv run pytest -m needs_postgres` from `apps/aigateway`: 72 passed. With the
+  local `pg_dump` 15 the five snapshot upload tests fail against the PostgreSQL 16 container;
+  with `pg_dump` 16 on `PATH` they pass. Before that,
   `run_gates.py aigateway --base 482460344` after the first rebase: ruff check, ruff format,
   pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
   all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `83a92b020` the
