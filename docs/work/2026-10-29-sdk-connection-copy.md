@@ -79,20 +79,23 @@ Plan: `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L8".
   - preflight hint: "Open sf.connect() to connect the provider, or ask the operator of your hosted
     Engine to connect it in AI Gateway, then retry." A hosted Engine lists provider access
     read-only (D15); an operator sets an account's Connection through the gateway's admin routes.
-  - `model_not_found`: "AI Gateway does not list Model '<id>'". The gateway answers this code from
-    what it lists (seeded, admitted, cached live listing) before any credential read, and a
-    degraded live listing gives the same 404, so the message states what AI Gateway lists rather
-    than what the provider serves. It agrees with the Engine's own 404 description ("AI Gateway
-    does not know the model").
+  - `model_not_found`: "Model '<id>' is not in AI Gateway's catalogue". The gateway answers this
+    code from its own catalogue (seeded, admitted, cached live listing) before any credential read,
+    and a degraded live listing gives the same 404, so the message names AI Gateway's catalogue
+    rather than what the provider serves.
   - Model discovery docstrings, the card docstring and README: "Connection-specific".
-- **Commits:** `fix(screamingface): describe Connections in the SDK's messages`, then
-  `fix(screamingface): reword the Model discovery docstrings and the 404 message`.
+- **Commits:**
+  - `155522fae` fix(screamingface): describe Connections in the SDK's messages
+  - `8bf237066` fix(screamingface): reword the Model discovery docstrings and the 404 message
+  - a third commit that restores the catalogue wording of `model_not_found` (its sha is in the PR
+    and the close comment)
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface --base origin/main` (the merge
   base, `a7e5d8577`) — ALL GATES GREEN: append-only (2 approved OME-1779 transitions), ruff check,
-  ruff format, pyright, pytest (4949 passed, 38 skipped; coverage 97.06%), notebooks, build, distribution.
+  ruff format, pyright, pytest (4949 passed, 38 skipped, coverage 97.06%, measured on the same test set before the third commit; the gate rerun after it passed the 95% floor), notebooks, build, distribution. Run with the
+  `notebook` extra installed (`uv sync --locked --extra notebook`), as CI does.
   `check_mirror_status.py` passes.
 - **Review:** two independent read-only reviews of the diff. Applied: the `model_not_found`
-  wording; README:1206 uses the hint's own words; the four public "profile-specific" docstrings;
+  wording no longer blames the provider; README:1206 uses the hint's own words; the four public "profile-specific" docstrings;
   the proxy test records the forwarded body and its INVARIANT states the allowlist; the
   `# quiet` comment is gone; the CHANGELOG line names only the messages this PR changes. Checked
   and kept: the proxy test's claim that every nonblank `X-Profile` is a 400
@@ -114,7 +117,8 @@ Plan: `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L8".
     missed them. In the card and `_validate_parameter` docstrings "profile" meant the contract's
     account context, so both now say Connection-specific.
   - The planned R3 guard test was not added (see above).
-  - Two review decisions conflicted. For the `model_not_found` wording, the later decision's
-    exact string ("AI Gateway does not list Model '<id>'") was used, not the variant ending "for
-    its provider". The `free_port()` / `server_close()` fix was deferred per the later decision,
-    not applied.
+  - `model_not_found` wording: the second commit briefly used "AI Gateway does not list Model
+    '<id>'" from one review decision; the lead then confirmed the first commit's "Model '<id>' is
+    not in AI Gateway's catalogue", which the third commit restores (test first, then source).
+  - The `free_port()` / `server_close()` fix in `_CaptureProxy` was deferred, not applied (see
+    Follow-up), as the lead's later decision directed; an earlier decision had asked for it.

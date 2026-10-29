@@ -365,7 +365,7 @@ def _raise_model_details_error(response: httpx.Response) -> None:
     if code == "model_not_found" and isinstance(detail.get("model"), str):
         model = detail["model"]
         raise PlanningError(
-            f"AI Gateway does not list Model {model!r}",
+            f"Model {model!r} is not in AI Gateway's catalogue",
             code="model_not_found",
             status=response.status_code,
             permanent=True,

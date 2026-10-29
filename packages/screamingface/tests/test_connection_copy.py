@@ -66,17 +66,17 @@ async def _async_get(handler: Callable[[httpx.Request], httpx.Response], model: 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["sync", "async"])
-async def test_model_not_found_says_ai_gateway_does_not_list_the_model(mode: str) -> None:
-    # WHY: the gateway answers `model_not_found` from what it lists (seeded, admitted and the
+async def test_model_not_found_names_the_gateway_catalogue_without_a_profile(mode: str) -> None:
+    # WHY: the gateway answers `model_not_found` from its own catalogue (seeded, admitted and the
     # cached live listing) before it reads any credential. A degraded live listing answers the
-    # same 404, so the message states what AI Gateway lists, not what the provider serves.
+    # same 404, so the message names AI Gateway's catalogue, not what the provider serves.
     with pytest.raises(sf.PlanningError) as caught:
         if mode == "sync":
             _sync_get(_model_not_found, "openrouter/nope")
         else:
             await _async_get(_model_not_found, "openrouter/nope")
 
-    assert caught.value.message == "AI Gateway does not list Model 'openrouter/nope'"
+    assert caught.value.message == "Model 'openrouter/nope' is not in AI Gateway's catalogue"
     assert caught.value.code == "model_not_found"
     assert caught.value.status == 404
     assert caught.value.permanent is True

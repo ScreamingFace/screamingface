@@ -16,7 +16,7 @@ SDK's messages stop pointing users at a "selected provider profile":
 
 - The `provider_not_connected` preflight hint says to connect the provider with `sf.connect()`, or
   to ask the operator of a hosted Engine to connect it in AI Gateway.
-- A relayed `model_not_found` reads `AI Gateway does not list Model '<id>'`.
+- A relayed `model_not_found` reads `Model '<id>' is not in AI Gateway's catalogue`.
 - The README and the Model discovery docstrings (`Client.models.get`, `sf.models.get`,
   `ModelDetails`, `ModelParameter`, `ModelCapability`) call the contract Connection-specific.
 

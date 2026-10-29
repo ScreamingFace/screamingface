@@ -29,7 +29,7 @@
 
 ### Fixes
 
-* Two SDK messages drop the retired Profile wording (`OME-1779`). The `provider_not_connected` hint now says to connect the provider with `sf.connect()`, or to ask the operator of a hosted Engine to connect it in AI Gateway. A `model_not_found` error now reads `AI Gateway does not list Model '<id>'`. The Model discovery docstrings call `ModelDetails` Connection-specific. Error codes are unchanged, and so are the messages for `profile_not_found`, `profile_pending_auth` and `auth_required`.
+* Two SDK messages drop the retired Profile wording (`OME-1779`). The `provider_not_connected` hint now says to connect the provider with `sf.connect()`, or to ask the operator of a hosted Engine to connect it in AI Gateway. A `model_not_found` error now reads `Model '<id>' is not in AI Gateway's catalogue`. The Model discovery docstrings call `ModelDetails` Connection-specific. Error codes are unchanged, and so are the messages for `profile_not_found`, `profile_pending_auth` and `auth_required`.
 
 * `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.
 
