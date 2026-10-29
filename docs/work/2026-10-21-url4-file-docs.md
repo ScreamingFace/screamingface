@@ -97,3 +97,23 @@ Branch rebased onto `origin/main` (merge commits flattened, no content commits d
 - **Status markers:** spec now merged; #1478, #1482 still open ("lands with"); per-Case picture caps
   moved to "on main (#1554)" (verified `picture_input.py` on `origin/main`).
 - **Gates:** `public-docs`: `npx oxlint .`, `npx eslint .`, `npm run build` clean; prettier applied.
+
+## Revision 2026-10-29 (HupBaHa CHANGES_REQUESTED on #1586 at `bd300f713`)
+
+- **Case media (High):** pictures only on main (#1507); PDF Case parts schema-reserved, not v1
+  (spec §2.7, `origin/main` lines 381-383, 409-411). "Does not go through url4" replaced: Case media
+  skips the url4 attachment-source syntax/manifest; the Case still runs through the Cases route and
+  url4 execution.
+- **Spec + release status:** #1450 is a merged draft; Kevin's wire approval (rounds 7-10) pending.
+  "Specified" became "proposed"; every `x.*` row says "code proposed". Versions verified 2026-10-29:
+  PyPI `url4` latest 1.4.1 (`pip index versions url4`, PyPI JSON); GitHub releases `url4-v1.5.0`,
+  `url4-v1.5.1` (2026-08-27) have 0 assets and are not on PyPI; `packages/url4` version 1.5.1.
+- **Credentialed URLs:** guard list gains the userinfo refusal, marked "Lands with (PR pending)",
+  and states main allows it (owner decision 2026-10-28, separate PR).
+- **Mobile tables:** both tables in a focusable `role="region"` scroll container; long source paths
+  wrap. Measured at 390 px (Playwright, `vite preview`): document scrollWidth 380, regions 332 px
+  wide scrolling 420 / 517 px tables, no other prose element past the viewport.
+- **Copy nits:** proposed-only label moved before the first example; url4 blocks use `text`; blob
+  ref example split into resolving forms and non-resolving forms.
+- **Gates:** `npm run type-check`, `npm run build`, `npx oxlint .`, `npx eslint .` exit 0; prettier
+  clean.
