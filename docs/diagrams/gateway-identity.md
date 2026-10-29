@@ -229,6 +229,6 @@ curl -H 'X-User-Email: me@openmined.org' \
 
 Credential provisioning is separate from identity. Each principal has an isolated credential
 namespace. A caller with no usable credential for the requested provider authenticates and then gets
-`404 profile_not_found` (the legacy wire code retained until Stage E). If the account/provider pair
-has several active Connections, resolution returns `409 connection_ambiguous`; callers cannot choose
-one with a request header.
+`404 profile_not_found` (the code keeps its Profile-era name; the SDK decodes it). If the
+account/provider pair has several active Connections, resolution returns `409 connection_ambiguous`;
+callers cannot choose one with a request header.

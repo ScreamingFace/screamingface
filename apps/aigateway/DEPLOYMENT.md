@@ -165,6 +165,74 @@ DELETE FROM request_cache_entries;
 That is a deliberate cache reset, not application-data loss. The table contains only the global
 request cache; it stores no account/profile identity.
 
+### Stage E retired the Profile storage: rollback floor and upgrade path
+
+Stage E of `OME-1138` moved provider-credential authority from Profiles to Connections, then shipped
+an offline purge of the Profile storage and deleted the code that read it. Three things follow for
+an operator.
+
+**Rollback floor after the purge.** E5b (`1ccf80a89`, #1573) added the offline command
+`python -m aigateway.purge_profile_history`. In every account it can prove, its `--apply` deletes
+the Profile index rows and every provider-credential blob that no Connection addresses; an account
+it cannot prove keeps all its rows. Once `--apply` has run against an environment's database, every
+image that runs there must include E4b (`f7e54869b`, "stop writing Profile documents", #1516). An
+image older than E4a reads Profile documents the purge deleted, and an image older than E4b writes
+them again. Every 0.2.x release predates E4b. The database backup taken before `--apply` is the only
+way back to the purged data.
+
+**Upgrade path for an install that still holds Profile rows.** Since E4a (`b66f94f08`, #1491) a
+Profile-only credential no longer resolves, and E5c (`7cb093014`, #1596) deleted both offline
+commands: `migrate_profiles`, the Stage B backfill that classifies each account/provider pair and,
+where it can, gives a Profile-only pair a Connection on its existing credential, and
+`purge_profile_history`. No image built from `7cb093014` onward, and so no release from 1.0.0 on,
+can migrate or purge Profile rows. Such an install therefore upgrades in two steps:
+
+1. Run an E5b-era image, built from `1ccf80a89` or a later commit before `7cb093014`. For example,
+   the dev build `ghcr.io/screamingface/screamingface-aigateway:main-1ccf80a` (dev builds are tagged
+   `main-<first 7 characters of the commit SHA>` and are built for amd64 only). With it, run both
+   commands in the gateway's own environment (in its pod, for example), dry run first, and back the
+   database up before the purge's `--apply`:
+
+   ```bash
+   python -m aigateway.migrate_profiles --dry-run --all
+   python -m aigateway.migrate_profiles --apply --all --journal /tmp/backfill.jsonl
+   python -m aigateway.purge_profile_history --dry-run --all
+   python -m aigateway.purge_profile_history --apply --all --journal /tmp/purge.jsonl
+   ```
+
+   The backfill goes first because the purge skips, whole, any account that still has a Profile
+   document naming a blob no Connection addresses on a pair that is not migrated. The backfill
+   exits 3 when an account lost a race with a concurrent write and was rolled back; run it again.
+   The purge exits 4 when it kept something the operator must review (a skipped account, the legacy
+   global index row, or rows it could not prove); each skipped account carries its reason in the
+   report. Copy both journals out of the pod afterwards; they are the record of the run. On SQLite,
+   stop the gateway before the purge: SQLite has no row locks to fence a concurrent write.
+2. Upgrade to 1.0.0 or any later image built from `7cb093014` onward. Profile rows the purge did
+   not delete are inert there.
+
+**The retired Profile routes answer 410.** Since E3 (`08f534317`, #1464) the 13 Profile routes
+under `/v1/auth/profiles`, `/v1/auth/{provider}/profiles` and
+`/v1/admin/accounts/{account_id}/profiles` answer `410 Gone` with `Cache-Control: private, no-store`
+and this body:
+
+```json
+{"detail": {"code": "legacy_profile_api_retired", "message": "…", "successor": "<METHOD> <path>"}}
+```
+
+The answer is static. It needs no token, does not read the request body, touches no storage and
+writes no audit record, and the routes are gone from the OpenAPI schema. A 410 with this code means
+a client still calls the Profile API and must move to the route named in `successor`. The admin
+`PATCH /v1/admin/accounts/{account_id}/profiles/{provider}/{name}` has no successor (`null`): a
+provider pair has no name or label to edit. There is no `Deprecation`/`Sunset` window; the 410
+answers stay. The full route table is `RETIRED_ROUTES` in
+`src/aigateway/routes/legacy_profiles_retired.py`.
+
+Sources: `docs/spec/2026-10-21-OME-1715-e5-history-cleanup.md` lines 141–143 (C6, the rollback
+floor) and 216–217 (Q5, the upgrade path); the header of the deleted `purge_profile_history.py`
+(`git show 1ccf80a89:apps/aigateway/src/aigateway/purge_profile_history.py`);
+`src/aigateway/routes/legacy_profiles_retired.py` and
+`docs/spec/2026-10-14-OME-1209-retire-legacy-profiles.md` §3 R1 and §7 Q1 (the 410 answer).
+
 ## The Global Response Cache
 
 `config.requestCache.enabled` (env `AIGW_REQUEST_CACHE_ENABLED`) turns on **one global cache shared
