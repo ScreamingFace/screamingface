@@ -1,7 +1,7 @@
 ---
 ticket: OME-1775
 stack: screamingface-engine
-status: spec
+status: plan
 started: 2026-10-29
 ---
 
@@ -42,3 +42,9 @@ plan → code.
   retryable. New rules: R1 widened to all no-answer outcomes in a failed Case, with a retry guard
   (§4.1, a url4 retry that the replay does not make); R2 `max-age` re-issue; R3 connect-phase
   failure. Owner accepted D1a–D1e ("yup"). Spec rewritten.
+- 2026-10-29: Linear title renamed to "Do not mark a capture partial for an outcome its replay
+  reproduces exactly". Plan written: `docs/plan/2026-10-29-OME-1775-replay-exact-not-partial.md`.
+  Scouts confirmed one tally per run, the final Case results all pass `finalize_candidate_result`,
+  and the aggregation ends before the summary. So the tally collects the Case results itself (spec
+  E5/E6 changed, no executor change). Five prior tests change (R2/R3). Open: P1 (aigateway contract
+  test sub-issue), P2, P3.
