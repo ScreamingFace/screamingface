@@ -1,6 +1,6 @@
 ---
 ticket: OME-1775
-status: draft 2026-10-29 (waiting for owner approval of D1–D5)
+status: draft 2026-10-29 (D2, D3, D5 decided; D1, D4 open)
 date: 2026-10-29
 related: OME-1307 (parent epic, E14), Q27 (the rule this spec narrows), OME-1769 (capture opt-in), OME-1687 (same principle for cost)
 ---
@@ -81,7 +81,7 @@ A replay can change a Case result only if it makes a failed Case score. It canno
 | E2 | `world/connector.py:1158-1165`, `world/web_tools.py:320-345` | Pass the Case id when they record an outcome. There is no other change: the `said` rule and the `ambiguous` rule stay. |
 | E3 | `capture_outcomes.py:138-180` `status()`, `attributes()`, `_lost()` | Take the set of failed Case ids. `_lost()` skips an `error` outcome whose Case id is in the set. The default is an empty set, which gives today's behavior. |
 | E4 | `runner/executor.py:806-830` and `:1044-1060` | Give the tally the failed Case ids from the run result before it writes the summary attributes. A failed run (`_failed_run_logs`) has no Case results, so it passes no set and keeps today's rule. |
-| E5 | `capture_outcomes.py` `attributes()` | Add `capture.unused.error = <n>`: the count of R1 outcomes. This keeps them visible. `capture.partial.error` counts only the outcomes that still make the run `partial`. |
+| E5 | `capture_outcomes.py` `attributes()` | `capture.partial.error` counts only the `error` outcomes that still make the run `partial`. No new attribute (D3). |
 | E6 | `docs/spec/2026-10-06-e14-reproducible-submission/02-frozen-copy-design.md` | Add a Q32 row that narrows Q27 with R1–R3. Update §5.2 items 5 and 6. |
 
 No gateway, SDK or Scoreboard change is needed for R1. The SDK reads only `capture.status`.
@@ -117,15 +117,14 @@ sub-issue under OME-1307 (D4).
 
 ## 7. Tests
 
-### Prior tests that change (owner approval required, D5)
+### Prior tests that change (approved 2026-10-29, D5)
 
 - `tests/unit/test_capture_outcomes.py:53-55`, the D1 row `("chat", "error", "a")` → `partial`. It
   stays `partial` when the Case is not in the failed set. Add the new rows beside it. Do not change the row.
 
 ### New tests (RED first)
 
-1. `test_capture_outcomes.py`: an `error` in a failed Case → `complete`, `capture.unused.error = 1`,
-   no `capture.partial.error`.
+1. `test_capture_outcomes.py`: an `error` in a failed Case → `complete`, and no `capture.partial.error`.
 2. `test_capture_outcomes.py`: an `error` in a scored Case → `partial`.
 3. `test_capture_outcomes.py`: an `error` with no Case → `partial`.
 4. `test_capture_outcomes.py`: `ambiguous`, `failed`, `refused` and `missing` in a failed Case →
@@ -143,13 +142,13 @@ sub-issue under OME-1307 (D4).
 
 ## 8. Owner decisions
 
-| # | Question | Recommendation |
+| # | Question | Status |
 |---|---|---|
-| D1 | Scope of the rule | `error` outcomes in failed Cases only (R1–R2). Do not forgive `ambiguous`, and do not forgive `error` in scored Cases. |
-| D2 | Case level or Attempt level | Case level (R3). The Case result is already in the run result. Attempt-level status is not, and X2 is rare. |
-| D3 | Keep a count of the outcomes the rule forgives | Yes: `capture.unused.error` (E5). |
-| D4 | File the SDK verdict change (§5) as a client-sf sub-issue under OME-1307 | Yes. Without it, a rare replay race reports `failed` for a correct replay. |
-| D5 | Test change approval | Approve the additions in §7. No prior assertion is removed. |
+| D1 | Scope of the rule | Open. Recommendation: `error` outcomes in failed Cases only (R1–R2). `failed`, `refused` and `missing` mean the model used an answer the copy lacks; `ambiguous` means the copy may hold an unused answer. |
+| D2 | Case level or Attempt level | **Decided 2026-10-29: Case level** (R3). |
+| D3 | A separate count of the forgiven outcomes | **Decided 2026-10-29: no.** No new attribute (E5). |
+| D4 | File the SDK verdict change (§5) as a client-sf sub-issue under OME-1307 | Open. Without it, a rare replay race reports `failed` for a correct replay. |
+| D5 | Test change approval (§7) | **Approved 2026-10-29.** |
 
 ## 9. Open questions
 
