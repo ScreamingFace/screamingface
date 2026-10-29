@@ -11,9 +11,11 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
 # FEATURE (OME-1756): the room one frozen-copy entry keeps for the recorded response, on top of the
-# request cap. An entry is the request (the body after the `cache` control is popped, so never
-# larger than what the request cap let in) plus the response the caller received, both as compact
-# JSON, where a base64 picture counts once, byte for byte.
+# request cap. An entry is the request (the body after the `cache` control is popped) plus the
+# response the caller received, both re-serialised as compact JSON, where a base64 picture counts
+# once, byte for byte. Re-serialising never makes the request larger, except that Python rewrites
+# exponent floats (`1e9` becomes `1000000000.0`, 9 bytes more); a chat body has a handful of
+# numbers, so that is bytes, not megabytes.
 # WHY 2 MiB: twice the 1,000,000 B response bound of the local and remote-endpoint transports and
 # the request cache; a chat answer is text, so even a very long one is well under it.
 FROZEN_COPY_RESPONSE_HEADROOM_BYTES = 2 * 1024 * 1024

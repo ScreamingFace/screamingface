@@ -19,10 +19,14 @@ TableQA too), so their calls were answered but never recorded, and a replay fail
 
 ## What one entry stores (measured from the code)
 
-- Chat lane: the request body after the `cache` control is popped (only ever smaller than the wire
-  body), plus the response body the caller received. Both are counted as compact JSON with
-  `ensure_ascii=False`, so a base64 data URI counts once, byte for byte: no second base64 and no
-  extra escaping (base64 has no character JSON escapes).
+- Chat lane: the request body after the `cache` control is popped, plus the response body the
+  caller received. Both are re-serialised as compact JSON with `ensure_ascii=False`, so a base64
+  data URI counts once, byte for byte: no second base64 and no extra escaping (base64 has no
+  character JSON escapes). The request is never larger than the wire body, except for rewritten
+  floats: Python writes `1e9` as `1000000000.0` (+9 B) and `1E2` as `100.0` (+2 B). A chat body
+  carries a handful of numbers (`temperature`, `top_p`, `max_tokens`), so that adds bytes. Only a
+  crafted body of about 230,000 exponent literals (2 MiB / 9 B) could use up the headroom, and
+  then only its capture fails, never the call.
 - Tool lane: description plus `{"result": ...}`, both from ONE request body, so it is already
   under `max_request_bytes`.
 - Storage: `request_json` / `response_json` are Tortoise `JSONField`s (TEXT on SQLite, JSONB on
@@ -67,7 +71,10 @@ TableQA too), so their calls were answered but never recorded, and a replay fail
   fixed `default=2_000_000`, 4 of the 6 new tests fail, the route test with the live symptom
   (`X-AIGW-Capture: failed`, `FrozenCopyEntryTooLarge` in the log).
 - **Deviations:** pydantic floor raised to `>=2.10` (the release whose `default_factory` receives
-  the validated fields); the lock already resolved 2.13.4, so only the specifier line moved.
+  the validated fields); the lock already resolved 2.13.5, so only the specifier line moved.
   No prior test was edited.
 - **Owner-verify:** after deploy, a capture run over MMMU multiple-choice should report every Case
   `stored` (none `failed`), and its replay should have no `frozen_copy_miss`. Not run here (paid).
+  Frozen copies captured before this change keep their gaps: the oversized picture Cases were
+  never stored, a sealed copy accepts no insert, and nothing re-captures them. A submission whose
+  copy predates the deploy must be captured again to replay those Cases.
