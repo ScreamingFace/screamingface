@@ -14,11 +14,12 @@ closed:
 
 Close-out leaf L10 of the Stage E epic. `apps/aigateway/DEPLOYMENT.md` gains a Stage E section under
 "Migrations": the rollback floor after the E5b purge (every image must include E4b `f7e54869b`), the
-upgrade path for an install that still holds Profile rows (an E5b-era image such as `main-1ccf80a`
-runs `migrate_profiles` and then `purge_profile_history`, then 1.0.0), and what the 410
-`legacy_profile_api_retired` routes mean. Profile-era wording is corrected in the chart README, the
-gateway README and `docs/diagrams/gateway-identity.md`. Docs only. The L4c `0016` downgrade floor
-lands with L4c.
+upgrade path for a Helm install that still holds Profile rows (an E5b-era image such as
+`main-1ccf80a` runs `migrate_profiles` and then `purge_profile_history`, then an image built from E5c
+`7cb093014` onward), and what the 410 `legacy_profile_api_retired` routes mean. Profile-era wording
+is corrected in the chart README, the gateway README and `docs/diagrams/gateway-identity.md`, which
+now also lists the credential-resolution refusals. Docs only. The L4c `0016` downgrade floor lands
+with L4c.
 
 Spec: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.10. Plan:
 `docs/plan/2026-10-29-ome-1138-closeout.md` §3 "L10". Ledger:

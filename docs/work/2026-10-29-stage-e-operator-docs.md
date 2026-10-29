@@ -69,8 +69,8 @@ Docs only, no RED. Verification instead:
 
 - **Actual files:** the four planned docs, this ledger and the mirror
   `docs/tasks/2026-10-29-OME-1780-stage-e-operator-docs.md`. No code, no test.
-- **Commits:** one commit, `docs(aigateway): document the Stage E rollback floor and upgrade path`;
-  see the PR for its sha.
+- **Commits:** `8788c1be6` `docs(aigateway): document the Stage E rollback floor and upgrade path`,
+  then `docs(aigateway): apply the review decisions to the Stage E operator docs` (see the PR).
 - **Evidence for each statement** (all at `origin/main` `a7e5d8577`):
   - SHAs: `f7e54869b` E4b (#1516), `b66f94f08` E4a (#1491, "Profile-only credentials no longer
     resolve"), `1ccf80a89` E5b (#1573), `7cb093014` E5c (#1596, deletes `migrate_profiles.py` and
@@ -88,6 +88,28 @@ Docs only, no RED. Verification instead:
   - Auth-disabled Connections: `core/oauth/store.py` `ensure_anonymous_account`.
   - `profile_not_found`: `routes/provider_access_http.py` `render_refusal`; SDK decoder
     `packages/screamingface/src/screamingface/_engine/catalog.py:341`; spec OME-1209 R3 and Q2.
+  - Second round (lead decisions on two independent reviews):
+    - Chart unchanged and no migration added: `git diff --stat 1ccf80a89 origin/main --
+      apps/aigateway/charts` and `-- apps/aigateway/src/aigateway/migrations` are both empty. The
+      chart's `job-migrate.yaml` is a `pre-install,pre-upgrade` hook on the same image, and
+      `image.tag` overrides `Chart.AppVersion`.
+    - Purge precondition: spec `docs/spec/2026-10-21-OME-1715-e5-history-cleanup.md:153` (E5a or
+      later on every replica) and `:156-160` (why). E5a is `8cb1e54e0` (#1541), an ancestor of
+      `1ccf80a89`.
+    - Exit 2: both commands' `main()` at `1ccf80a89` return `EXIT_USAGE` (2) on `NoMasterKey`.
+      Exit 4: `PurgeReport.refused()` = a skipped account, `legacy_index` starting `kept_`, or
+      `kept_unproven_rows > 0`.
+    - Backfill dispositions `migrated` / `quarantined` / `none` with a per-pair `category`
+      (`backfill_classify.py`, `backfill_apply.py` `PairRecord`).
+    - Resolution on main: `connection_authority.migrated_target` (revoked or gone → 404
+      `profile_not_found`, pending → 409 `profile_pending_auth`, error → 401 `auth_required` with
+      `reauth_url`); `connection_backed.resolve` refuses a `quarantined` pair with
+      `PairNotManageable("unresolved")`, rendered as 409 `credential_pair_unresolved`; an unmigrated
+      pair is served only from a single active row (`_active_connection`); `main.py` wires
+      `SelectorPolicy.REJECT_EXPLICIT`.
+    - 0.2.0 (`aigateway-v0.2.0`): `core/credential_store.py` wraps the OS secret manager (macOS
+      `security`, Linux `secret-tool`, Windows `keyring`); the Profile index lived there, not in the
+      database. 0.2.1 (`fe1b65561`) already used `credential_blobs`.
 - **Gates:**
   - `uv run .claude/scripts/run_gates.py repo --base origin/main`: ALL GATES GREEN.
   - `uv run --no-project --with pyyaml python .github/scripts/verify_chart_wiring.py`: 121/121.
@@ -95,7 +117,8 @@ Docs only, no RED. Verification instead:
     `tests/unit/auth/test_login.py::test_unknown_user_timing_close_to_wrong_password` (7272 passed,
     1 failed, 107 skipped, coverage 94.01%). It is a bcrypt timing comparison within 10%, and the
     host load average was 30-170 on 10 cores; in isolation it passed 1 of 3 runs. This diff
-    touches no Python. Attempt 2: ALL GATES GREEN.
+    touches no Python. Attempt 2: ALL GATES GREEN. The pre-push run of the first commit: ALL GATES
+    GREEN. PR #1612 CI on the first commit: every check passed.
   - No Cyrillic in the diff; every cited path exists.
 - **Review:** an independent read-only review verified every claim and raised one major and
   several minor points, all fixed before commit: 1.0.0 is not released yet (now "1.0.0 or any later
@@ -103,6 +126,14 @@ Docs only, no RED. Verification instead:
   "for good" overstated R3 (removed); Stage E shipped a purge rather than deleting the storage
   itself; the 410 envelope is cited to the route module; the purge's scope ("every account it can
   prove") and exit 4 are stated exactly; journals are copied out of the pod.
+- **Second round, after the PR opened:** the lead's decisions on both reviews were applied in a
+  second commit: the Stage B / Stage E opening sentence; the E5a-on-every-replica precondition and a
+  Helm-only upgrade (this repository's chart, `--set image.tag=main-1ccf80a`, pre-upgrade migration
+  Job, commands in that pod); a backup before each `--apply`; `kubectl cp` of the journals before a
+  restart; the backfill's `quarantined` / `none` report; the three exit-4 cases and exit 2; local
+  SQLite and 0.2.0 excluded; no release version named ("an image built from `7cb093014` or later");
+  repo-root path for the route module; the closeout spec §7 for "permanent"; and the four
+  credential-resolution refusals in `gateway-identity.md`.
 - **Deviations:**
   - Spec §4.10 item 4 (the L4c `0016` floor) is not written; it lands with L4c, per the owner.
   - The spec's "`apps/aigateway/README.md:92` and its '`profile_not_found` … retained until
@@ -110,3 +141,13 @@ Docs only, no RED. Verification instead:
     is fixed; README:92 itself said "OAuth profiles", fixed.
   - Not changed, reported instead: `apps/aigateway/README.md:144` still says "mark the profile or
     connection for re-authentication" (Google OAuth expiry). It is outside the spec's list.
+  - The two decision messages disagreed on naming 1.0.0 ("the first release after E5c (1.0.0)" vs
+    "don't name 1.0.0"); the later one was applied, so no version is named.
+  - Not written as asked: "those users reconnect the provider through the Connection API" holds
+    only for a pair left `none`. On main a `quarantined` pair fails closed before any Connection is
+    read, and a native create, OAuth start, key replacement or delete on it keeps the state
+    (`connection_native.claim_native_write`, "no auto-promotion"), so a new Connection does not
+    clear it; the code comment says only the offline backfill can settle such a pair, and E5c
+    deleted it. The docs state exactly that and name no remedy. Open question for the owner.
+  - `docs/spec/2026-10-29-ome-1138-closeout.md` is cited for "permanent" at the lead's request; it
+    reaches main with PR #1607.

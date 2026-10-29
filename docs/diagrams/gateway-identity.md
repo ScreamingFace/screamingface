@@ -228,7 +228,10 @@ curl -H 'X-User-Email: me@openmined.org' \
 ## Credential resolution outcomes
 
 Credential provisioning is separate from identity. Each principal has an isolated credential
-namespace. A caller with no usable credential for the requested provider authenticates and then gets
-`404 profile_not_found` (the code keeps its Profile-era name; the SDK decodes it). If the
-account/provider pair has several active Connections, resolution returns `409 connection_ambiguous`;
-callers cannot choose one with a request header.
+namespace. A caller with no credential for the requested provider authenticates and then gets
+`404 profile_not_found` (the code keeps its Profile-era name; the SDK decodes it). When the
+Connection a migrated pair names is still pending, resolution returns `409 profile_pending_auth`;
+when it has errored, `401 auth_required` with a `reauth_url`. A pair the Stage B backfill
+quarantined is refused with `409 credential_pair_unresolved`. If the account/provider pair has
+several active Connections, resolution returns `409 connection_ambiguous`; callers cannot choose one
+with a request header.

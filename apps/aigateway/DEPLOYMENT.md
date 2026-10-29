@@ -167,31 +167,34 @@ request cache; it stores no account/profile identity.
 
 ### Stage E retired the Profile storage: rollback floor and upgrade path
 
-Stage E of `OME-1138` moved provider-credential authority from Profiles to Connections, then shipped
-an offline purge of the Profile storage and deleted the code that read it. Three things follow for
-an operator.
+Stage B (`OME-1208`) moved provider-credential authority from Profiles to Connections. Stage E
+(`OME-1138`) retired the Profile routes, readers and writers, deleted the Profile code, and shipped
+a one-off purge of the stored Profile rows. Three things follow for an operator.
 
 **Rollback floor after the purge.** E5b (`1ccf80a89`, #1573) added the offline command
 `python -m aigateway.purge_profile_history`. In every account it can prove, its `--apply` deletes
-the Profile index rows and every provider-credential blob that no Connection addresses; an account
-it cannot prove keeps all its rows. Once `--apply` has run against an environment's database, every
-image that runs there must include E4b (`f7e54869b`, "stop writing Profile documents", #1516). An
-image older than E4a reads Profile documents the purge deleted, and an image older than E4b writes
-them again. Every 0.2.x release predates E4b. The database backup taken before `--apply` is the only
-way back to the purged data.
+the Profile index rows and every provider-credential blob that no Connection addresses; it skips the
+rest entirely. Once `--apply` has run against an environment's database, every image that runs
+there must include E4b (`f7e54869b`, "stop writing Profile documents", #1516). An image older than
+E4a reads Profile documents the purge deleted, and an image older than E4b writes them again. Every
+0.2.x release predates E4b. The database backup taken before `--apply` is the only way back to the
+purged data.
 
-**Upgrade path for an install that still holds Profile rows.** Since E4a (`b66f94f08`, #1491) a
+**Upgrade path for a Helm install that still holds Profile rows.** Since E4a (`b66f94f08`, #1491) a
 Profile-only credential no longer resolves, and E5c (`7cb093014`, #1596) deleted both offline
-commands: `migrate_profiles`, the Stage B backfill that classifies each account/provider pair and,
-where it can, gives a Profile-only pair a Connection on its existing credential, and
-`purge_profile_history`. No image built from `7cb093014` onward, and so no release from 1.0.0 on,
-can migrate or purge Profile rows. Such an install therefore upgrades in two steps:
+commands, `migrate_profiles` (the Stage B backfill) and `purge_profile_history`. No image built from
+`7cb093014` (E5c) onward, including any release cut after it, can migrate or purge Profile rows.
+Such an install therefore upgrades in two steps:
 
-1. Run an E5b-era image, built from `1ccf80a89` or a later commit before `7cb093014`. For example,
-   the dev build `ghcr.io/screamingface/screamingface-aigateway:main-1ccf80a` (dev builds are tagged
-   `main-<first 7 characters of the commit SHA>` and are built for amd64 only). With it, run both
-   commands in the gateway's own environment (in its pod, for example), dry run first, and back the
-   database up before the purge's `--apply`:
+1. Upgrade the gateway itself, every replica, to an E5b-era image: one built from `1ccf80a89` or a
+   later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`,
+   which is unchanged from `1ccf80a89` to `a7e5d8577`, with `--set image.tag=main-1ccf80a` (the dev
+   build of `1ccf80a89`; dev builds are tagged `main-<first 7 characters of the commit SHA>` and are
+   built for amd64 only). Its pre-upgrade Job applies the migrations. The purge's `--apply` needs
+   E5a (`8cb1e54e0`) or later on every replica, which an E5b-era image includes: an older replica's
+   PUT on a deleted account could adopt a leftover blob, and a deleted account has no row for the
+   purge to lock. Then run both commands in one of the upgraded gateway pods, dry run first, with a
+   database backup before each `--apply`:
 
    ```bash
    python -m aigateway.migrate_profiles --dry-run --all
@@ -200,15 +203,28 @@ can migrate or purge Profile rows. Such an install therefore upgrades in two ste
    python -m aigateway.purge_profile_history --apply --all --journal /tmp/purge.jsonl
    ```
 
+   After each `--apply`, copy its journal out of the pod (`kubectl cp`, for example) before the pod
+   restarts, because `/tmp` does not survive a restart.
+
+   The backfill migrates each pair it can prove onto a Connection and reports every other pair as
+   `quarantined` or `none`, with a category. A pair left `none` is served from its single active
+   Connection, like any pair the backfill never touched; a user without one connects the provider
+   again through the Connection API. A `quarantined` pair is refused with
+   `409 credential_pair_unresolved`, and a new Connection does not clear it.
+
    The backfill goes first because the purge skips, whole, any account that still has a Profile
-   document naming a blob no Connection addresses on a pair that is not migrated. The backfill
-   exits 3 when an account lost a race with a concurrent write and was rolled back; run it again.
-   The purge exits 4 when it kept something the operator must review (a skipped account, the legacy
-   global index row, or rows it could not prove); each skipped account carries its reason in the
-   report. Copy both journals out of the pod afterwards; they are the record of the run. On SQLite,
-   stop the gateway before the purge: SQLite has no row locks to fence a concurrent write.
-2. Upgrade to 1.0.0 or any later image built from `7cb093014` onward. Profile rows the purge did
-   not delete are inert there.
+   document naming a blob no Connection addresses on a pair that is not migrated; it also skips an
+   account with a `quarantined` pair. The backfill exits 3 when an account lost a race with a
+   concurrent write and was rolled back; run it again. The purge exits 4 when it kept something the
+   operator must review: a skipped account (its `skipped` field names the reason), a `legacy_index`
+   of `kept_*`, or `kept_unproven_rows` above 0. Both commands exit 2 when they refuse to run
+   without the master key.
+2. Upgrade to an image built from `7cb093014` or later. Profile rows the purge did not delete are
+   inert there.
+
+This procedure covers Helm installs only; local SQLite installs are not covered. It does not apply
+to 0.2.0 either, which kept Profiles in the operating system's credential store, not in the
+database.
 
 **The retired Profile routes answer 410.** Since E3 (`08f534317`, #1464) the 13 Profile routes
 under `/v1/auth/profiles`, `/v1/auth/{provider}/profiles` and
@@ -223,15 +239,19 @@ The answer is static. It needs no token, does not read the request body, touches
 writes no audit record, and the routes are gone from the OpenAPI schema. A 410 with this code means
 a client still calls the Profile API and must move to the route named in `successor`. The admin
 `PATCH /v1/admin/accounts/{account_id}/profiles/{provider}/{name}` has no successor (`null`): a
-provider pair has no name or label to edit. There is no `Deprecation`/`Sunset` window; the 410
-answers stay. The full route table is `RETIRED_ROUTES` in
-`src/aigateway/routes/legacy_profiles_retired.py`.
+provider pair has no name or label to edit. The retirement has "no `Deprecation`/`Sunset` window",
+and the 410 answers are permanent. The full route table is `RETIRED_ROUTES` in
+`apps/aigateway/src/aigateway/routes/legacy_profiles_retired.py`.
 
-Sources: `docs/spec/2026-10-21-OME-1715-e5-history-cleanup.md` lines 141–143 (C6, the rollback
-floor) and 216–217 (Q5, the upgrade path); the header of the deleted `purge_profile_history.py`
-(`git show 1ccf80a89:apps/aigateway/src/aigateway/purge_profile_history.py`);
-`src/aigateway/routes/legacy_profiles_retired.py` and
-`docs/spec/2026-10-14-OME-1209-retire-legacy-profiles.md` §3 R1 and §7 Q1 (the 410 answer).
+Sources:
+
+- Rollback floor and upgrade path: `docs/spec/2026-10-21-OME-1715-e5-history-cleanup.md` lines
+  141–143 (C6), 153 and 156–160 (the purge precondition) and 216–217 (Q5); the header of the
+  deleted `purge_profile_history.py`
+  (`git show 1ccf80a89:apps/aigateway/src/aigateway/purge_profile_history.py`).
+- The 410 answer: `docs/spec/2026-10-14-OME-1209-retire-legacy-profiles.md` §3 R1 and §7 Q1;
+  `apps/aigateway/src/aigateway/routes/legacy_profiles_retired.py` for the `{"detail": {...}}`
+  envelope; `docs/spec/2026-10-29-ome-1138-closeout.md` §7 (the 410 shells are permanent).
 
 ## The Global Response Cache
 
