@@ -65,4 +65,9 @@ no opt-in flag, no published revision moves.
   text (a picture-only last user turn) instead of inspect's bare ValueError. No shipped row hits
   either: all 17 judged rows replay to their pinned digests with the guards. The three moved
   fingerprints sit in the held block with an OME-1755 note.
+- **Second review fix (2026-10-29):** the multi-turn guard counted the system message as a turn,
+  which would have refused every HLE Case (inspect_evals' record_to_sample builds system + one
+  user message). It now counts only user and assistant turns. Checked with the real
+  `inspect_evals.hle.dataset.record_to_sample` (0.20.0) on a text and a picture record: both keep
+  exactly the question text, no refusal.
 - **Owner-verify:** none left beyond merging.

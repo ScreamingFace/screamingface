@@ -39,8 +39,10 @@ from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
 from inspect_ai.model import (  # noqa: E402
     ChatMessage,
     ChatMessageAssistant,
+    ChatMessageSystem,
     ChatMessageUser,
     ContentImage,
+    ContentText,
     Model,
     ModelOutput,
     get_model,
@@ -343,7 +345,9 @@ def test_a_conversation_whose_question_would_lose_its_earlier_turns_is_refused_b
         solver=[prompt_template("The patient says: {prompt}"), generate()],
     )
 
-    with pytest.raises(PrepareError, match=r"case 1: .*3 turns.*drop the earlier ones"):
+    with pytest.raises(
+        PrepareError, match=r"case 1: .*3 user and assistant turns.*drop the earlier ones"
+    ):
         captured_case_records(task, _spec(keep_sample_input=True))
 
 
@@ -365,3 +369,28 @@ def test_a_picture_only_question_is_refused_by_case_not_by_inspects_bare_error()
 
     with pytest.raises(PrepareError, match=r"case 1: the judge's question has no text"):
         captured_case_records(task, _spec(keep_sample_input=True, has_answer_key=False))
+
+
+def test_an_hle_shaped_sample_keeps_its_question_text_because_a_system_message_is_no_turn() -> None:
+    """HLE's record_to_sample builds every input as a system message then one user message
+    holding the question and, sometimes, a picture. The Case input folds the system text in,
+    so the question is kept: exactly the user's text, never refused, since the system
+    message is not an earlier turn (2,500 Cases would otherwise be refused)."""
+
+    # WHY these bytes: a PNG signature and padding; capture reads only the data URI's type.
+    picture: str = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+    ).decode("ascii")
+    question: str = "What does the figure show?"
+    hle_input: list[ChatMessage] = [
+        ChatMessageSystem(content="Your response should be in the following format: ..."),
+        ChatMessageUser(content=[ContentText(text=question), ContentImage(image=picture)]),
+    ]
+    task: Task = Task(
+        dataset=MemoryDataset([Sample(input=hle_input, target="a cat", id=1)]),
+        solver=[generate()],
+    )
+
+    record: PreparedCase = captured_case_records(task, _spec(keep_sample_input=True))[0]
+
+    assert record["grading_material"][SAMPLE_INPUT_KEY] == question

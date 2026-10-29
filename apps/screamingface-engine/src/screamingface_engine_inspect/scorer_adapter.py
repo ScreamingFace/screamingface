@@ -119,6 +119,9 @@ _CANDIDATE_MODEL = "screamingface/candidate"
 #: the Case input gives the judge (OME-1755), so every other Case's material keeps its bytes.
 SAMPLE_INPUT_KEY: str = "sample_input"
 
+#: The roles that make up a conversation's turns; a system message frames them but is not one.
+_TRANSCRIPT_ROLES: frozenset[str] = frozenset({"user", "assistant"})
+
 
 def inspect_grade_case(
     scorer: Scorer,
@@ -665,9 +668,10 @@ def kept_sample_input(sample_input: str | list[ChatMessage], case_input: str) ->
 
     Two shapes are refused instead of kept, because the kept text could not stand for them:
 
-    * a Sample whose input is several turns (a healthbench-style conversation): the kept text
-      is its last user turn only, so a judge that reads ``state.input`` as the transcript
-      would lose every earlier turn;
+    * a Sample whose input is several user or assistant turns (a healthbench-style
+      conversation): the kept text is its last user turn only, so a judge that reads
+      ``state.input`` as the transcript would lose every earlier turn. A leading system
+      message is not a turn (HLE: system + one user question keeps the question);
     * a Sample whose last user turn holds no text (a picture-only question): inspect's own
       ``input_text`` raises, so there is no question to keep. Under ``eval()`` inspect's
       judge would raise the same way.
@@ -699,10 +703,17 @@ def kept_sample_input(sample_input: str | list[ChatMessage], case_input: str) ->
         ) from exc
     if original == graded:
         return None
-    if not isinstance(sample_input, str) and len(sample_input) > 1:
+    # WHY count only user and assistant turns: a system message is not an earlier turn, and
+    # inspect's judge never quotes it (HLE's every Sample is system + one user question).
+    turns: int = (
+        0
+        if isinstance(sample_input, str)
+        else sum(message.role in _TRANSCRIPT_ROLES for message in sample_input)
+    )
+    if turns > 1:
         raise ValueError(
-            f"the Sample's input is {len(sample_input)} turns; keeping its last user turn for "
-            "the judge would drop the earlier ones"
+            f"the Sample's input is {turns} user and assistant turns; keeping its last user "
+            "turn for the judge would drop the earlier ones"
         )
     return original
 
