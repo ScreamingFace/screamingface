@@ -189,10 +189,10 @@ const modelsRow = `GET /v1/models
       </li>
       <li>Proxy environment variables are ignored.</li>
       <li>
-        <em>Lands with (PR pending):</em> a URL with embedded credentials (userinfo, as in
-        <code>https://user:pass@host/…</code>) is refused before any connection.
-        <em>On main today</em> such a URL is allowed, and its credentials are sent to that host as
-        HTTP Basic authentication.
+        <em>Lands with <a :href="`${GH_PR}/1605`" target="_blank" rel="noopener">#1605</a>:</em> a
+        URL with embedded credentials (userinfo, as in <code>https://user:pass@host/…</code>) is
+        refused before any connection. <em>On main today</em> such a URL is allowed, and its
+        credentials are sent to that host as HTTP Basic authentication.
       </li>
     </ul>
 
