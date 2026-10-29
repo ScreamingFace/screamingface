@@ -214,13 +214,20 @@ operator already created, read-only, into the App AND every runner pod, and poin
 `URL4_RUNNER_CONFIG` at it. The App's catalog and mount table and the worker's execution parse
 the same file, so the two pod templates always carry the same source, key, path and checksum.
 
+The checksum comes from the publication review. `check-publication` reads this world file and
+the Gateway's configured-endpoints file, and refuses every Gateway target the world declares
+without both `public_schema = false` and `web_search = false`. With `--print-checksum` it prints
+the reviewed file's sha256 and nothing else, and only when the review passes; its findings go to
+stderr. A failed review leaves `contentChecksum` empty, and the render refuses. Run it where
+both files are, with the Engine version this chart deploys.
+
 ```sh
 kubectl create secret generic url4-world --from-file=url4.toml=./world.toml
 helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
   --reuse-values \
   --set worldConfig.existingSecret=url4-world \
   --set-string worldConfig.key=url4.toml \
-  --set-string worldConfig.contentChecksum="$(shasum -a 256 world.toml | cut -d' ' -f1)"
+  --set-string worldConfig.contentChecksum="$(URL4_RUNNER_CONFIG=./world.toml screamingface-engine admin check-publication --endpoints ./endpoints.toml --print-checksum)"
 ```
 
 - **The file is complete.** It replaces the image's `url4.toml`; it is not an overlay. Copy the
@@ -228,8 +235,25 @@ helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
 - **`contentChecksum` is required with a source.** The chart never reads an object it did not
   render, so it cannot hash the file itself. Pass a revision of the file's CONTENT: changing it
   rolls the App and the pool together, and warm children go with their worker pod, because they
-  inherit its environment. Using the file's sha256, as above, makes the App's `/healthz`
-  `config_digest` the post-rollout check that the App loaded that exact file.
+  inherit its environment. The review prints the file's sha256, so the App's `/healthz`
+  `config_digest` is the post-rollout check that the App loaded that exact file.
+- **Rerun the review when either file changes.** A new Gateway target that this world declares
+  without the two flags would otherwise appear in `/openapi.json` and in `/metrics` under its
+  own path.
+- **Each pod keeps the file it started with.** The file is mounted by `subPath`, which the
+  kubelet never live-updates, so the warm and cold children of one worker always run the same
+  file. A new revision reaches a pod only through the rollout its checksum starts.
+- **Publish a changed file under a new Secret name.** A pod that starts reads the Secret as it
+  is at that moment, so a Secret edited in place reaches restarted and scaled-up pods before
+  the review and the rollout. Create each revision as a new Secret and point `existingSecret`
+  at it in the same upgrade.
+- **The rollout window fails fast.** The App and the pool roll as two Deployments. The App
+  stamps its file's sha256 on every run it queues, and a worker serving another file refuses
+  that run with the retryable `world_config_mismatch` and starts no child. A run in the window
+  fails instead of running under a world the App that accepted it never served; the caller
+  retries it.
+- **`podAnnotations` cannot set `checksum/world-config`.** The render refuses it: the key would
+  replace the chart's revision on both pod templates, and a changed file would roll neither.
 - **`key`** names the file inside the source (default `url4.toml`); it is always mounted as
   `url4.toml`. Set it explicitly on the first upgrade that adds `worldConfig`: `--reuse-values`
   keeps the previous release's values, which have no `worldConfig` block and so no default.

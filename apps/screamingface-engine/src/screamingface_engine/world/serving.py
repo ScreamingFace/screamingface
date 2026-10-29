@@ -42,8 +42,8 @@ from screamingface_engine.world.config import (
     DEFAULT_EVAL_PATH,
     WorldConfig,
     WorldConfigError,
-    config_file_digest,
-    load_config,
+    WorldFile,
+    read_world_file,
 )
 from screamingface_engine.world.factory import World, build_world
 from screamingface_engine.world.publication import private_mount_paths
@@ -163,7 +163,7 @@ async def derive_mount_table(
     *,
     env: Mapping[str, str],
     engine_routes: Iterable[str],
-    config: WorldConfig | None = None,
+    world: WorldFile | None = None,
 ) -> MountTable:
     """The App's mount table, from the same `world` module the run children build.
 
@@ -174,17 +174,23 @@ async def derive_mount_table(
 
     The mount SET is the one the removed node tier served (PRD 05): parity first; exposing more
     is an owner decision (PRD 04 §6).
+
+    ``world`` is the App's one read of the file; without it the file is read here, once.
     """
-    # WHY resolved here, with the same `include_extra_models` `build_world` uses for `None`: the
-    # world and its private set must come from one parse.
-    resolved = config if config is not None else load_config(env, include_extra_models=True)
-    io, aclose = await compose_serving_world(env=env, engine_routes=engine_routes, config=resolved)
+    # WHY one read (OME-1770 review): the mounts, their private set and the digest `/healthz`
+    # reports must describe the same file, and a live-updated mount can change between two reads.
+    # Read here with the same `include_extra_models` `build_world` uses for `None`.
+    if world is None:
+        world = read_world_file(env, include_extra_models=True)
+    io, aclose = await compose_serving_world(
+        env=env, engine_routes=engine_routes, config=world.config
+    )
     try:
-        mounts = mount_descriptors(io, private_paths=private_mount_paths(resolved))
+        mounts = mount_descriptors(io, private_paths=private_mount_paths(world.config))
     finally:
         if aclose is not None:
             await aclose()
-    return MountTable(mounts=mounts, config_digest=config_file_digest(env))
+    return MountTable(mounts=mounts, config_digest=world.digest)
 
 
 _ENGINE_STATUS: dict[str, int] = {

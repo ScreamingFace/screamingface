@@ -38,6 +38,7 @@ spec:
         # is what rolls the pod when the file changes; see `remoteEndpoints`.
         checksum/remote-endpoints: {{ .Values.remoteEndpoints.contentChecksum | quote }}
         {{- end }}
+        {{- include "aigateway.guardRemoteEndpointsWiring" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

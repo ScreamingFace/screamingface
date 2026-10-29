@@ -10,6 +10,8 @@ The answers match the removed node tier's (MNT-C2, MNT-9): url4's error envelope
 (`{"error": {"code", "message"}}`) and the status url4 would have given the code.
 
 - identity: the verified `X-User-Email`, from the same source as `GET /?q=` — none → 403
+- a private mount (OME-1770): every answer to a caller without a proven grant is the 404 of a
+  route this Engine never declared (`rest.mount_denial`)
 - a stated `X-Profile` → 400 `x_profile_unsupported`, after identity and before every other
   answer below (OME-1381); a blank one is absence
 - endpoint without `q` → 400 `missing_intent`; a bad `X-Answer-Seed` → 400 `malformed_header`
@@ -41,6 +43,7 @@ from screamingface_engine.request_scope import (
     requests_selector,
     states_frozen_copy_mode,
 )
+from screamingface_engine.rest.mount_denial import deny, granted
 from screamingface_engine.rest.routes import (
     WAIT_GONE,
     _converge_cache,
@@ -150,10 +153,11 @@ def register_mounts(app: FastAPI, table: MountTable, *, require_identity: bool =
             name=PRIVATE_ROUTE_NAME if private else f"mount:{mount.path}",
         )
         # AC14 parity: a mount speaks GET only, and a wrong method gets the NODE's answer —
-        # url4's `method_not_allowed` envelope — not the framework's `{"detail": ...}` 405.
+        # url4's `method_not_allowed` envelope — not the framework's `{"detail": ...}` 405. A
+        # private mount answers it as an undeclared path instead (OME-1770 review).
         app.router.add_api_route(
             mount.path,
-            _method_not_allowed,
+            _not_declared if private else _method_not_allowed,
             methods=_OTHER_METHODS,
             include_in_schema=False,
             name=PRIVATE_ROUTE_NAME if private else f"mount-method:{mount.path}",
@@ -170,6 +174,10 @@ _OTHER_METHODS = ["POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
 async def _method_not_allowed() -> Response:
     return _envelope(405, "method_not_allowed", "url4 nodes speak GET", {"Allow": "GET"})
+
+
+async def _not_declared(request: Request) -> Response:
+    deny(request)
 
 
 def _handler_for(
@@ -221,6 +229,14 @@ async def _call(request: Request, mount: MountDescriptor, **kwargs: Any) -> Resp
         # scheduler, an unavailable artifact) — and every answer is counted.
         problem = exc.problem
         response = _envelope(problem.status, _problem_code(problem.status), problem.detail or "")
+    if (
+        not mount.public_schema
+        and kwargs["require_identity"]
+        and response.status_code >= 400
+        and not await granted(request, mount.path[1:])
+    ):
+        # Before the count: a denial is not a call of this mount (`rest.mount_denial`).
+        deny(request)
     counter = getattr(getattr(request.app.state, "metrics", None), "mount_calls", None)
     if counter is not None:
         path = mount.path if mount.public_schema else PRIVATE_PATH

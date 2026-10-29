@@ -416,8 +416,8 @@ class _ModelEndpoint:
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
+        spec = self._routes[request.path]
         try:
-            spec = self._routes[request.path]
             # INVARIANT (F2): the caller's state is read HERE, per call, from the request scope —
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
@@ -477,11 +477,31 @@ class _ModelEndpoint:
                     retrieval_policy=retrieval_policy,
                     cache_attempt=egress.cache_attempt,
                 )
+        except _GatewayRefusal as exc:
+            # INVARIANT (OME-1770 review): the Gateway refuses an ungranted account a private
+            # target as an unknown provider. Relayed, that refusal tells the caller this Engine
+            # declares the route; url4's own answer for an undeclared route does not.
+            if spec.public_schema or not exc.refuses_provider(provider_of(spec.id)):
+                raise
+            raise _undeclared_route(request.path) from None
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
             if exc.outcome is not None:
                 bind_model_outcome(error, exc.outcome)
             raise error from exc
+
+
+_NODE_NAME = "aigateway"
+"""The world node's name, which url4's undeclared-route error quotes."""
+
+
+def _undeclared_route(path: str) -> ResolutionError:
+    """url4's own error for a path the node does not declare (`url4.peer._dispatch`), verbatim."""
+    return ResolutionError(
+        f"node {_NODE_NAME!r} has no endpoint, eval path, or data route at {path!r}",
+        code=ErrorCode.ENDPOINT_NOT_FOUND,
+        permanent=True,
+    )
 
 
 _GATEWAY_CLIENTS: WeakKeyDictionary[Url4Node, httpx.AsyncClient] = WeakKeyDictionary()
@@ -557,7 +577,7 @@ async def build_aigateway_world(
     # instead of reaching HttpIOLayer. Left None, the node lazily builds HttpIOLayer and can
     # fetch any URL — which is what a token-bearing run has always been able to do.
     node = Url4Node(
-        "aigateway",
+        _NODE_NAME,
         default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
@@ -1676,6 +1696,21 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
+class _GatewayRefusal(ResolutionError):
+    """A non-2xx aigateway answer, with its status and the plain-text `detail` it carried."""
+
+    def __init__(
+        self, message: str, *, code: str, permanent: bool, status: int, detail: str | None
+    ) -> None:
+        super().__init__(message, code=code, permanent=permanent)
+        self.status = status
+        self.detail = detail
+
+    def refuses_provider(self, provider: str) -> bool:
+        """Whether this is the Gateway's refusal of `provider` as unknown to the caller."""
+        return self.status == 400 and self.detail == f"unknown provider: {provider}"
+
+
 def _raise_for_status(resp: httpx.Response) -> None:
     """Turn a non-2xx (or redirected) aigateway response into a `ResolutionError`.
 
@@ -1708,6 +1743,7 @@ def _raise_for_status(resp: httpx.Response) -> None:
         payload = resp.json()
     except ValueError:
         payload = None
+    text: str | None = None
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, dict):
@@ -1715,8 +1751,12 @@ def _raise_for_status(resp: httpx.Response) -> None:
             if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
                 code = upstream_code
             message = detail.get("message", message)
+        elif isinstance(detail, str):
+            text = detail
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
-    raise ResolutionError(message, code=code, permanent=permanent)
+    raise _GatewayRefusal(
+        message, code=code, permanent=permanent, status=resp.status_code, detail=text
+    )
 
 
 __all__ = [

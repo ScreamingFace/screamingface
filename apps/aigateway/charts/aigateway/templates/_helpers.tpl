@@ -195,6 +195,26 @@ true
 {{- end -}}
 {{- end -}}
 
+{{/*
+INVARIANT (OME-1771 review): values cannot replace the wiring above. `podAnnotations` and
+`extraEnv` render after the chart's own entries, so a user `checksum/remote-endpoints` would
+replace the content revision, and a user `AIGW_REMOTE_ENDPOINTS_CONFIG` would point the process at
+a file the chart never mounted. Renders nothing; refuses the render instead. Without a source the
+chart writes no path, so an operator's own `extraEnv` entry stays allowed.
+*/}}
+{{- define "aigateway.guardRemoteEndpointsWiring" -}}
+{{- if hasKey (.Values.podAnnotations | default dict) "checksum/remote-endpoints" -}}
+{{- fail "podAnnotations must not set checksum/remote-endpoints: the chart writes it from remoteEndpoints.contentChecksum" -}}
+{{- end -}}
+{{- if include "aigateway.remoteEndpointsEnabled" . -}}
+{{- range .Values.extraEnv -}}
+{{- if eq (toString .name) "AIGW_REMOTE_ENDPOINTS_CONFIG" -}}
+{{- fail "extraEnv must not set AIGW_REMOTE_ENDPOINTS_CONFIG while remoteEndpoints has a source: the chart points it at the mounted file" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "aigateway.remoteEndpointsDir" -}}
 /etc/aigateway/remote-endpoints
 {{- end -}}

@@ -35,6 +35,9 @@ UNMATCHED_PATH = "<unmatched>"
 # carry `PRIVATE_ROUTE_NAME`, which is how the middleware recognizes them.
 PRIVATE_PATH = "<private>"
 PRIVATE_ROUTE_NAME = "private-route"
+# FEATURE (OME-1770 review): a private route that answers a caller without a proven grant as an
+# undeclared path sets this scope key, so the request is counted as the unmatched path it posed as.
+DENIED_ROUTE = "screamingface_engine.denied_route"
 
 
 def build_metrics() -> Metrics:
@@ -106,13 +109,17 @@ def _route_label(scope: Scope) -> str:
     Plain Starlette routes and `Mount`s (the `/diagrams` static assets) do not, so those are
     resolved by asking the router itself; anything still unmatched is a genuine 404.
     """
+    if scope.get(DENIED_ROUTE):
+        return UNMATCHED_PATH
     route = scope.get("route")
     if getattr(route, "name", None) == PRIVATE_ROUTE_NAME:
         return PRIVATE_PATH
     path_format = getattr(route, "path_format", None)
-    if isinstance(path_format, str) and path_format:
-        return path_format
-    return _match_against_router(scope)
+    return (
+        path_format
+        if isinstance(path_format, str) and path_format
+        else _match_against_router(scope)
+    )
 
 
 def _match_against_router(scope: Scope) -> str:

@@ -74,6 +74,44 @@ An independent review of `5cafdd906` found two problems. Both are fixed in this 
   Fix: the commands set `key`. New render tests apply each README's own command to the chart's
   previous defaults.
 
+### Review follow-up 2 (2026-10-29)
+
+A second review found four more problems. The owner chose the fix for each on 2026-10-29.
+
+- **World config skew (high).** The App read the file up to four times at startup. Kubernetes
+  live-updates a mounted Secret, so a cold child could read a newer file than its pod's warm
+  child, and the App and runner Deployments roll independently. Fix, all three parts:
+  - The App reads the file once; the catalog, the private set, the mounts and the digest all
+    come from that read (`world/config.py` `read_world_file`).
+  - The chart mounts the file with `subPath`, so a running pod never sees a changed file. The
+    committed render test asserted a directory mount; the owner approved changing that one
+    assertion (`.claude/test-change-approvals/OME-1770.json`).
+  - The App stamps its digest on every queued run (`job_env.WORLD_DIGEST`). A worker whose own
+    digest differs refuses the run with a named, retryable failure, `world_config_mismatch`, the
+    way it refuses an unknown spec version. A message without a stamp runs as before.
+- **The publication review was optional (medium).** `admin check-publication --print-checksum`
+  prints only the reviewed file's sha256, and only when the review passes. The README takes
+  `worldConfig.contentChecksum` from it, so a failed review leaves the checksum empty and Helm
+  refuses to render. The README also says to publish each revision under a new Secret name: a
+  pod that starts reads the Secret as it is then, so a Secret edited in place would reach
+  restarted pods before the review and the rollout.
+- **A denied caller could tell a private route exists (medium).** Every answer a caller without a
+  grant can provoke now equals an undeclared route's:
+  - the connector turns the Gateway's denial of a private route into url4's own
+    `endpoint_not_found`, byte for byte, so the run's frames match too;
+  - a private mount answers the framework's 404 without identity, on any other method, and on
+    any failure after which the Gateway's details lookup says the caller has no grant; the
+    happy path makes no extra call;
+  - `/metrics` counts such a denial as `<unmatched>`. The committed test asserted a 405 under
+    `<private>` for a POST; the owner approved changing that one assertion.
+- **Helm values could override the wiring (medium).** The render refuses `podAnnotations` that
+  set `checksum/world-config` or `checksum/remote-endpoints`, and a Gateway `extraEnv` that sets
+  `AIGW_REMOTE_ENDPOINTS_CONFIG` while `remoteEndpoints` has a source.
+
+Residual, documented: response timing still differs between a private and an undeclared route,
+and the Gateway's shared response cache serves a hit to every account (Unit 0's documented
+trade-off).
+
 ## Test plan
 
 - Engine discovery: a granted account with a usable Connection lists the model and passes details
@@ -135,9 +173,27 @@ pending (Acceptance). Hosted readiness is not claimed.
       through `/ws`, cold and warm.
     - Charts: both READMEs set `key` in the first-upgrade command. Each render test file gains a
       test that applies its README's command to the chart's values without the new block.
+  - Review follow-up 2:
+    - Engine source: `world/config.py` (`read_world_file`, `WorldFile`, `real_model_ids`),
+      `world/serving.py`, `catalog/__init__.py`, `app.py`, `job_env.py` (`WORLD_DIGEST`),
+      `runner_queue.py`, `adapters/queue_runner.py`, `adapters/factory.py`,
+      `worker/supervisor.py` (`world_config_mismatch`), `worker/loop.py`, `cli.py`
+      (`--print-checksum`), `world/connector.py` (the Gateway denial of a private route),
+      `rest/mount_denial.py` (new), `rest/mounts.py`, `metrics.py`.
+    - Engine tests: `test_world_config_revision.py` and `test_private_route_denial.py` (new);
+      appended tests in `test_publication_review.py` and `test_chart_render_world_config.py`;
+      one assertion changed in each of `test_chart_render_world_config.py` and
+      `test_route_publication.py`, pinned in `.claude/test-change-approvals/OME-1770.json`.
+    - Engine chart: `templates/_helpers.tpl`, `templates/deployment.yaml`,
+      `templates/deployment-runner.yaml`, `README.md`.
+    - Gateway chart (OME-1771): `templates/_helpers.tpl`, `templates/deployment.yaml`,
+      `README.md`; appended tests in `tests/unit/test_chart_render_remote_endpoints.py`.
 - **Commits:** `5cafdd906` feat(screamingface-engine): run configured endpoint chat routes privately
   with one world config, plus this ledger update. PR #1606 (`Refs` OME-1770, OME-1771, OME-1773),
-  opened 2026-10-29 with the owner's approval.
+  opened 2026-10-29 with the owner's approval. Review follow-up: `d03d7f933` (ledger), `66121feac`
+  fix(url4): name no declared route in the unknown processor refusal. Review follow-up 2: the
+  commit that carries this ledger line, fix(screamingface-engine): keep one world config revision
+  per run and hide private routes from ungranted callers.
 - **Gates (2026-10-29, this worktree):**
   - `run_gates.py screamingface-engine`: all green (ruff, format, pyright, layering, pytest with
     coverage floor 80). The same suite without coverage: 5919 passed, 153 skipped.
@@ -146,6 +202,15 @@ pending (Acceptance). Hosted readiness is not claimed.
   - `run_gates.py screamingface`: all green (ruff, format, pyright, pytest with coverage floor 95,
     notebooks, build, distribution check), after `uv sync --extra notebook` as CI does.
   - Chart checks: render tests above, `helm lint` on both charts, `verify_chart_wiring.py`.
+  - Review follow-up 2, each gate run alone:
+    - `run_gates.py screamingface-engine`: all green, with both OME-1770 test transitions
+      approved. The same suite without coverage: 5973 passed, 153 skipped.
+    - `run_gates.py aigateway`: the first run failed one test, the known load-sensitive
+      `test_unknown_user_timing_close_to_wrong_password` (7290 passed), while two other sessions
+      ran their gates on the same machine. It passed alone three times, and the rerun on a quiet
+      machine was all green. This branch touches no Gateway source.
+    - `run_gates.py repo`: all green. `verify_chart_wiring.py`: 121 of 121 checks. `helm lint`:
+      both charts pass.
 - **Deviations:**
   - CORRECTED 2026-10-29: the `packages/url4` change was first dropped on a wrong reachability
     verdict. The probe behind it used a nested expression of literals, which dispatched no reduce.
@@ -158,7 +223,19 @@ pending (Acceptance). Hosted readiness is not claimed.
     characterization tests. The SDK and Gateway changes are tests only, so no `client-sf` issue is
     needed unless the owner wants the SDK test filed separately. The owner chose a separate leaf:
     OME-1773 (`client-sf`), filed at PR-open under OME-1306.
-  - The catalog builder parses the world config a second time at startup to read the private set.
+  - CORRECTED 2026-10-29: the catalog builder parsed the world config a second time at startup
+    to read the private set. Review follow-up 2 removed every second read: the App reads the
+    file once and hands that read to the catalog, the mounts and the queue runner.
+  - The App's one read uses the default parse, without the job-scoped `URL4_CLOUD_EXTRA_MODELS`
+    overlay. The mount table used to opt into that overlay; the App's own environment never sets
+    it in production, and review F3 already keeps the App's parse from absorbing it.
+  - `worker/supervisor.py`, `world/connector.py` and `metrics.py` were already over 450 lines.
+    Each grew by a small addition inside the responsibility it already holds: one more message
+    refusal, the mapping of one Gateway answer, one more label rule. The new grant check got its
+    own module, `rest/mount_denial.py`, so `rest/mounts.py` stays under 450.
+  - A background run of the whole Engine unit suite with `-n 4` hung with idle workers while
+    another session's Gateway tests ran on the same machine. It was stopped; the gate runs below
+    ran one at a time.
   - Both chart READMEs gained a section, committed with the owner's approval. Their first-upgrade
     commands lacked `key` until the review follow-up.
   - The first Engine gate run hung with idle workers while the Gateway gate ran beside it; the same

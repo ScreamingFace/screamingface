@@ -16,6 +16,7 @@ Gateway file, which also holds private origins.
 
 from __future__ import annotations
 
+import hashlib
 import tomllib
 from pathlib import Path
 
@@ -178,3 +179,72 @@ def test_the_command_reports_an_unreadable_file_without_its_content(
     out = capsys.readouterr()
     assert exited.value.code == 2
     assert "private-lab" not in out.out + out.err
+
+
+# --- the review is the deployment step (OME-1770 review) --------------------------------------
+#
+# WHY: a review an operator may skip publishes a forgotten `public_schema = false` in the shared
+# schema and `/metrics`. With `--print-checksum` the review hands out the content checksum the
+# chart requires with a private source, so a failed review leaves that value empty and the render
+# refuses; the README's upgrade takes the checksum from nowhere else.
+
+_PRIVATE = f'id = "{_TARGET}"\nweb_search = false\npublic_schema = false'
+
+
+def test_print_checksum_prints_only_the_reviewed_files_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world, endpoints = _files(tmp_path, _PRIVATE)
+    monkeypatch.setenv(job_env.RUNNER_CONFIG, str(world))
+
+    cli.main(["admin", "check-publication", "--endpoints", str(endpoints), "--print-checksum"])
+
+    out = capsys.readouterr()
+    assert out.out == hashlib.sha256(world.read_bytes()).hexdigest() + "\n"
+    assert "1 of 2 configured target(s) declared" in out.err
+
+
+@pytest.mark.parametrize(
+    ("declaration", "edit", "code"),
+    [
+        (f'id = "{_TARGET}"', None, 1),
+        (_PRIVATE, f'origin = "{_ORIGIN}', 2),
+    ],
+    ids=["published-target", "unreadable-file"],
+)
+def test_print_checksum_prints_no_checksum_when_the_review_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    declaration: str,
+    edit: str | None,
+    code: int,
+) -> None:
+    world, endpoints = _files(tmp_path, declaration)
+    if edit is not None:
+        endpoints.write_text(edit)
+    monkeypatch.setenv(job_env.RUNNER_CONFIG, str(world))
+
+    with pytest.raises(SystemExit) as exited:
+        cli.main(["admin", "check-publication", "--endpoints", str(endpoints), "--print-checksum"])
+
+    out = capsys.readouterr()
+    assert exited.value.code == code
+    assert out.out == ""
+    assert out.err
+    assert "private-lab" not in out.err
+
+
+def test_the_readme_upgrade_takes_the_checksum_from_the_review() -> None:
+    readme = Path(__file__).resolve().parents[2] / "deploy" / "helm" / "README.md"
+    [line] = [
+        line
+        for line in readme.read_text(encoding="utf-8").splitlines()
+        if "worldConfig.contentChecksum=" in line
+    ]
+
+    assert '"$(' in line
+    assert "admin check-publication" in line
+    assert "--endpoints" in line
+    assert "--print-checksum" in line
+    assert "shasum" not in line

@@ -99,6 +99,7 @@ spec:
         # children inherit the worker's env, so rolling the pool is what drains them.
         checksum/world-config: {{ .Values.worldConfig.contentChecksum | quote }}
         {{- end }}
+        {{- include "screamingface-engine.guardPodAnnotations" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

@@ -50,6 +50,7 @@ spec:
         # OME-1770: the SAME supplied content revision as the pool's — see `worldConfig`.
         checksum/world-config: {{ .Values.worldConfig.contentChecksum | quote }}
         {{- end }}
+        {{- include "screamingface-engine.guardPodAnnotations" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

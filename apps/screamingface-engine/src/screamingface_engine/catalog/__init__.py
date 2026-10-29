@@ -37,7 +37,12 @@ from screamingface_engine.catalog.port import (
 )
 from screamingface_engine.config import Settings
 from screamingface_engine.network_policy import is_numeric_loopback_url
-from screamingface_engine.world.config import WorldConfigError, declared_model_ids, load_config
+from screamingface_engine.world.config import (
+    WorldConfig,
+    WorldConfigError,
+    load_config,
+    real_model_ids,
+)
 from screamingface_engine.world.publication import private_model_ids
 
 logger = logging.getLogger(__name__)
@@ -91,6 +96,7 @@ def build_executable_catalog_service(
     settings: Settings,
     env: Mapping[str, str],
     *,
+    world: WorldConfig | None = None,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
     local_model_prefixes: tuple[str, ...] = (),
 ) -> ExecutableCatalog | None:
@@ -108,18 +114,22 @@ def build_executable_catalog_service(
     Job start, where a bad route actually changes what runs. This mirrors the reasoning at
     ``runner/main.py``'s ``_world`` — a bad config surfaces as a scoped failure, not as a
     process that dies before it can report anything.
+
+    ``world`` is the App's one read of the file (OME-1770 review): given, the file is not read
+    again, so the catalog and the mounts cannot come from two versions of a live-updated mount.
     """
 
     if not settings.aigateway_base_url:
         return None
     try:
-        model_ids = declared_model_ids(env)
-        private = private_model_ids(load_config(env))
+        resolved = world if world is not None else load_config(env)
     except WorldConfigError:
         # The cause is logged, not raised: `rest/catalog.py` turns None into the generic 503, so
         # an unauthenticated caller never learns why this deployment's world is unusable.
         logger.error("model discovery disabled: the declared world is unusable", exc_info=True)
         return None
+    model_ids = real_model_ids(resolved)
+    private = private_model_ids(resolved)
     logger.info("model discovery projects onto %d declared route(s)", len(model_ids))
     local = LocalModels(prefixes=local_model_prefixes) if local_model_prefixes else None
     source = build_catalog_service(settings, client_factory=client_factory, local=local)

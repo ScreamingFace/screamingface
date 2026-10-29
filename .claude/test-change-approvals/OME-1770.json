@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1770",
+  "branch": "OME-1770-hosted-byom-unit2",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-29",
+  "scope": "Two single-assertion changes, each approved on its own. (1) apps/screamingface-engine/tests/unit/test_chart_render_world_config.py, test_one_source_reaches_both_pods_identically: the assertion that URL4_RUNNER_CONFIG is the mount path plus '/url4.toml' becomes two assertions, that it equals the mount path and that the mount's subPath is 'url4.toml'. (2) apps/screamingface-engine/tests/unit/test_route_publication.py, test_metrics_label_a_private_mount_without_its_path: the assertion that POST on a private mount is counted as path=\"<private>\" with status 405 becomes path=\"<unmatched>\" with status 404. Every other change to these two files is an appended test; each file is listed only because this approval pins its whole content. No other edits.",
+  "reason": "The second review of PR #1606 found that a running pod saw its live-updated world config change, and that a private mount answered an ungranted caller differently from a route the Engine never declared. On 2026-10-29 the owner chose to mount the world file by subPath, so a pod keeps the file it started with, and to answer every refusal of a private mount to a caller without a proven grant as the framework's 404 for an undeclared path, counted as <unmatched>. The two old assertions pinned the directory mount and the 405 answer.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_chart_render_world_config.py": {
+      "base_blob": "235612752889e49d85032d228d59cef4bd4e18c0",
+      "approved_blob": "8171a09966f1f63a06771590ba6bfa690509b38d"
+    },
+    "apps/screamingface-engine/tests/unit/test_route_publication.py": {
+      "base_blob": "e0b63434e961f8a32e5227718ef77e99f5412a38",
+      "approved_blob": "130c57f26798456d2681e16680401c4b51771237"
+    }
+  }
+}

@@ -215,7 +215,7 @@ async def test_metrics_label_a_private_mount_without_its_path() -> None:
     assert _ENDPOINT not in metrics
     assert 'screamingface_engine_mount_calls_total{path="<private>",status="200"} 1.0' in metrics
     assert 'method="GET",path="<private>",status="200"' in metrics
-    assert 'method="POST",path="<private>",status="405"' in metrics
+    assert 'method="POST",path="<unmatched>",status="404"' in metrics
     assert f'screamingface_engine_mount_calls_total{{path="/{_PUBLIC}",status="200"}} 1.0' in (
         metrics
     )

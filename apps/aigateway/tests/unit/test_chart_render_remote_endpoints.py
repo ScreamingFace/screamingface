@@ -204,3 +204,46 @@ def test_the_readme_upgrade_renders_for_a_release_from_before_this_block(tmp_pat
     gateway = _gateway(docs)
     assert _env(gateway)[_ENV]["value"].endswith("/endpoints.toml")
     assert gateway["spec"]["template"]["metadata"]["annotations"][_ANNOTATION] == _REVISION
+
+
+_SOURCE = (
+    "remoteEndpoints.existingSecret=private-endpoints",
+    f"remoteEndpoints.contentChecksum={_REVISION}",
+)
+
+
+@pytest.mark.parametrize("sets", [_SOURCE, ()], ids=["with-source", "without-source"])
+def test_a_pod_annotation_cannot_replace_the_endpoints_checksum(sets: tuple[str, ...]) -> None:
+    """INVARIANT (OME-1771 review): the content revision on the pod is the one the chart wrote.
+
+    WHY refused, not merged: `podAnnotations` renders after the chart's own keys, so a user key
+    of the same name silently replaced the revision, and a changed file then rolled nothing.
+    """
+    result = _run(*sets, f"podAnnotations.{_ANNOTATION}=stale")
+
+    assert result.returncode != 0, "the chart rendered a replaced content revision"
+    assert _ANNOTATION in result.stderr
+
+
+def test_extra_env_cannot_point_the_gateway_at_another_endpoints_file() -> None:
+    """INVARIANT (OME-1771 review): with a source, the file the process reads is the mounted one.
+
+    A second `AIGW_REMOTE_ENDPOINTS_CONFIG` in `extraEnv` renders after the chart's entry and
+    wins, so the pod would read a file the chart never mounted.
+    """
+    result = _run(
+        *_SOURCE,
+        f"extraEnv[0].name={_ENV}",
+        "extraEnv[0].value=/tmp/other.toml",
+    )
+
+    assert result.returncode != 0, "the chart rendered a second endpoints path"
+    assert _ENV in result.stderr
+
+
+def test_extra_env_may_still_name_the_file_when_the_chart_mounts_none() -> None:
+    """Without a source the chart writes no path, so an operator's own `extraEnv` entry is the
+    only one and stays allowed, as it was before `remoteEndpoints` existed."""
+    docs = _render(f"extraEnv[0].name={_ENV}", "extraEnv[0].value=/etc/baked/endpoints.toml")
+
+    assert _env(_gateway(docs))[_ENV]["value"] == "/etc/baked/endpoints.toml"

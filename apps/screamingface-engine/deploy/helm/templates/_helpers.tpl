@@ -295,15 +295,37 @@ true
 /etc/screamingface-engine/world
 {{- end -}}
 
-{{- define "screamingface-engine.worldConfigEnv" -}}
-- name: URL4_RUNNER_CONFIG
-  value: {{ printf "%s/url4.toml" (include "screamingface-engine.worldConfigDir" .) | quote }}
+{{- define "screamingface-engine.worldConfigPath" -}}
+{{ include "screamingface-engine.worldConfigDir" . }}/url4.toml
 {{- end -}}
 
+{{- define "screamingface-engine.worldConfigEnv" -}}
+- name: URL4_RUNNER_CONFIG
+  value: {{ include "screamingface-engine.worldConfigPath" . | quote }}
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1770 review): a running pod never sees the file change. The kubelet live-updates a
+projected ConfigMap or Secret directory, so a cold child could read a newer file than its pod's
+warm child and the App; a `subPath` mount is never updated, and a new revision reaches a pod only
+through the rollout `contentChecksum` starts.
+*/}}
 {{- define "screamingface-engine.worldConfigMount" -}}
 - name: world-config
-  mountPath: {{ include "screamingface-engine.worldConfigDir" . }}
+  mountPath: {{ include "screamingface-engine.worldConfigPath" . | quote }}
+  subPath: url4.toml
   readOnly: true
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1770 review): `podAnnotations` renders after the chart's own keys on both pod
+templates, so a user key of the same name would silently replace the world-config revision and a
+changed file would roll nothing. Renders nothing; refuses the render instead.
+*/}}
+{{- define "screamingface-engine.guardPodAnnotations" -}}
+{{- if hasKey (.Values.podAnnotations | default dict) "checksum/world-config" -}}
+{{- fail "podAnnotations must not set checksum/world-config: the chart writes it from worldConfig.contentChecksum" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "screamingface-engine.worldConfigVolume" -}}

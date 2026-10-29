@@ -114,7 +114,8 @@ def test_one_source_reaches_both_pods_identically(
         projected = world["volume"][volume_key]
         assert projected[name_key] == "private-world"
         assert projected["items"] == [{"key": "world.toml", "path": "url4.toml"}]
-        assert world["path"] == world["mount"]["mountPath"] + "/url4.toml"
+        assert world["path"] == world["mount"]["mountPath"]
+        assert world["mount"]["subPath"] == "url4.toml"
         annotations = deployment["spec"]["template"]["metadata"]["annotations"]
         assert annotations[_ANNOTATION] == _REVISION
         wired[component] = (projected, world["mount"]["mountPath"], world["path"])
@@ -207,3 +208,46 @@ def test_the_readme_upgrade_renders_for_a_release_from_before_this_block(tmp_pat
     for deployment in _deployments(docs).values():
         assert _env(deployment)[_ENV]["value"].endswith("/url4.toml")
         assert deployment["spec"]["template"]["metadata"]["annotations"][_ANNOTATION] == _REVISION
+
+
+_SOURCE = (
+    "worldConfig.existingSecret=private-world",
+    f"worldConfig.contentChecksum={_REVISION}",
+)
+
+
+@pytest.mark.parametrize("sets", [_SOURCE, ()], ids=["with-source", "without-source"])
+def test_a_pod_annotation_cannot_replace_the_world_config_checksum(sets: tuple[str, ...]) -> None:
+    """INVARIANT (OME-1770 review): the content revision on both pods is the one the chart wrote.
+
+    WHY refused, not merged: `podAnnotations` renders after the chart's own keys on both pod
+    templates, so a user key of the same name silently replaced the revision, and a changed
+    file then rolled neither the App nor the pool.
+    """
+    result = _run(*sets, f"podAnnotations.{_ANNOTATION}=stale")
+
+    assert result.returncode != 0, "the chart rendered a replaced content revision"
+    assert _ANNOTATION in result.stderr
+
+
+def test_the_world_file_is_pinned_for_the_life_of_each_pod() -> None:
+    """INVARIANT (OME-1770 review): a running pod never sees the mounted file change.
+
+    WHY `subPath`: the kubelet live-updates a projected ConfigMap or Secret directory, so a cold
+    child would read a newer file than its pod's warm child and the App. A `subPath` mount is
+    never updated; a new revision reaches a pod only through the rollout its checksum starts.
+    """
+    for component, deployment in _deployments(_render(*_SOURCE)).items():
+        world = _world_volume(deployment)
+        assert world is not None, component
+        assert world["mount"]["mountPath"] == world["path"], component
+        assert world["mount"]["subPath"] == "url4.toml", component
+
+
+def test_an_empty_checksum_from_a_failed_review_refuses_to_render() -> None:
+    """WHY (OME-1770 review): the README takes `contentChecksum` from the publication review,
+    which prints nothing when the review fails. The empty value must stop the upgrade."""
+    result = _run("worldConfig.existingSecret=private-world", "worldConfig.contentChecksum=")
+
+    assert result.returncode != 0
+    assert "contentChecksum" in result.stderr
