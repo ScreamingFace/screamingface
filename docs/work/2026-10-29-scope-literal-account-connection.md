@@ -42,9 +42,12 @@ three sub-issues, one per landing.
   `apps/screamingface-engine/tests/unit/test_model_parameters_proxy.py`. No src change.
 - `.claude/test-change-approvals/OME-1781.json` covering every changed prior test file (§6).
 - `docs/tasks/` mirrors for the three sub-issues.
-- Release note (plan §3 "L6a/b/c"): the squash title is a visible `refactor(aigateway)` commit,
-  and the PR body states that the scope literal is renamed and `contract_id` and
-  `context.revision` change once.
+- Release note (plan §3 "L6a/b/c"): the change is breaking for a client that compares `scope`
+  to the old value, so the commit and PR title are `refactor(aigateway)!: …` with a
+  `BREAKING CHANGE:` footer, and the PR body carries the same sentence as its release-note line:
+  the wire value of `scope` in `GET /v1/model-parameters` changes to `account_connection`, and
+  `contract_id` and `context.revision` change once. release-please carries it into the aigateway
+  changelog.
 
 ## Test plan
 
@@ -66,13 +69,19 @@ three sub-issues, one per landing.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned. Gateway: the producer, the composer docstring and 15 test modules
+- **Actual files:** as planned, plus the module docstring (see Deviations). Gateway: the
+  producer, the composer docstrings and 15 test modules
   (the new test lives in `test_model_parameter_contract.py`). SDK: 5 test files. Engine: 1 test
   file. Plus `.claude/test-change-approvals/OME-1781.json` (21 files, base and approved blobs),
   this ledger, and the mirrors `docs/tasks/2026-10-29-OME-1781-…-gateway.md`, `…-OME-1782-…-sdk.md`
   and `…-OME-1783-…-engine.md`.
 - **Commits:** see branch `OME-1781-scope-literal-account-connection` —
-  `refactor(aigateway): rename the contract scope to account_connection`.
+  `d97f45e49 refactor(aigateway): rename the contract scope to account_connection`, then
+  `refactor(aigateway)!: mark the scope rename as breaking` (module docstring, review records,
+  `BREAKING CHANGE:` footer; added on top because the first commit was already pushed). The PR
+  title is `refactor(aigateway)!: rename the contract scope to account_connection`, so the squash
+  commit keeps the breaking marker. PR #1613; merge after #1607, which lands the close-out spec
+  and plan this ledger cites.
 - **Gates:** `run_gates.py <stack> --base origin/main`, each ALL GATES GREEN with the append-only
   check passing on the OME-1781 approvals:
   - `aigateway`: ruff, format, pyright, no-enterprise, pytest cov>=80 (full suite on this code:
@@ -82,13 +91,21 @@ three sub-issues, one per landing.
   - `screamingface-engine`: ruff, format, pyright, layering, pytest cov>=80 (5879 passed,
     153 skipped).
 - **Deviations:**
-  - Spec §4.6 and §6 say "16 gateway test modules"; its own list and the grep give 15.
+  - Spec §4.6 and §6 (and the plan) say "16 gateway test modules"; the spec's own list names 15,
+    and the grep gives 15. The manifest therefore carries 21 prior test files (15 gateway + 5 SDK
+    + 1 Engine).
   - `test_model_execution_access.py` carried the old literal only in a test name; the test is
     renamed to `test_other_account_connection_does_not_grant_access`, body unchanged.
-  - Left as is (outside this leaf): the module docstring of `core/model_parameter_contract.py`
-    still says "FEATURE: profile-bound detailed parameter contract", and test fixtures still use
-    `prof:` tokens in `context_identity` strings. Profile vocabulary there belongs to the later
-    vocabulary leaves (L4b/L5).
+  - Beyond the spec's "(model, profile)" docstring, the module docstring of
+    `core/model_parameter_contract.py` (line 3) now says "FEATURE: connection-bound detailed
+    parameter contract" (owner decision at review, 2026-10-29; the file was already in the diff).
+  - Left as is (owner decision at review): the other Profile wording in gateway src
+    (`routes/model_parameters.py`, `core/chat_parameters`, `plugin_base/_contract.py`,
+    `model_capabilities.py`) goes to L4b; the SDK wording (`discovery.py`, cards, evaluation
+    docstrings) goes to L8. Test fixtures still use `prof:` tokens in `context_identity` strings.
+  - Review fix: `test_digests_move_when_only_the_scope_changes` asserts `contract_id` and
+    `context.revision` separately, since a pair comparison passes if only one id moves; the
+    manifest's approved blob for `test_model_parameter_contract.py` was regenerated.
   - Gate environment: the SDK suite's e2e harness (`tests/e2e/harness/inspect_stack.py:38`) runs
     `uv sync --extra benchmarks` inside `apps/screamingface-engine`. Run in the same checkout
     before the Engine gate, it installs 77 extra packages into the Engine venv, and the Engine

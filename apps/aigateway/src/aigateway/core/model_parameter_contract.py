@@ -1,6 +1,6 @@
 """OME-479 detailed ``/v1/model-parameters`` document composition (app layer).
 
-FEATURE: profile-bound detailed parameter contract. Overlays a provider plugin's
+FEATURE: connection-bound detailed parameter contract. Overlays a provider plugin's
 OWN observations with its OWN gateway rules (the SAME rule source as the
 ``/v1/models`` summary) into the locked v1 document, and derives the opaque
 ``contract_id`` / ``context.revision`` digests.

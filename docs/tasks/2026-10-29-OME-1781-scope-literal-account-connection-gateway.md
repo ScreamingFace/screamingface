@@ -16,8 +16,8 @@ Close-out leaf L6a of the OME-1138 epic. The `/v1/model-parameters` document now
 `context.scope = "account_connection"` instead of the Profile-era `"account_profile"` (owner
 decision, 2026-10-29). `scope` is a digest input, so `contract_id` and `context.revision` change
 once; nothing in the repo persists either value. One producer
-(`apps/aigateway/src/aigateway/routes/model_parameters.py`), the composer docstring, 15 test
-modules, and a new contract test pinning that a scope change rotates both identities. Ships in one
+(`apps/aigateway/src/aigateway/routes/model_parameters.py`), the composer and module docstrings,
+15 test modules, and a new contract test pinning that a scope change rotates both identities. Ships in one
 PR with OME-1782 (SDK fixtures) and OME-1783 (Engine fixture); prior-test changes are under
 `.claude/test-change-approvals/OME-1781.json`.
 
