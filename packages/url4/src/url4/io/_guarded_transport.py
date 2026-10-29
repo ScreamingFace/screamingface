@@ -24,7 +24,9 @@ from url4.io._source_policy import (
     IPAddress,
     SourceGuard,
     check_destination,
+    credentials_refused,
     destination_blocked,
+    has_userinfo,
     literal_ip,
     source_timeout,
     too_large,
@@ -159,6 +161,7 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         try:
             response = await _first_connected(lease.transport, attempts)
             stream = _async_or_close(response.stream)
+            await _refuse_credentialed_location(response, stream)
             decoder, decodes = await _decoder_or_close(response.headers, stream)
         except BaseException:
             # WHY BaseException: a cancelled attempt must give its pool back too.
@@ -195,7 +198,12 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         """``request`` re-addressed to each vetted IP to try, in order, keeping SNI and ``Host``."""
         url = request.url
         address = check_destination(
-            url.scheme, url.host, self._guard, peer=state.peer, previous_scheme=previous
+            url.scheme,
+            url.host,
+            self._guard,
+            peer=state.peer,
+            previous_scheme=previous,
+            credentials=bool(url.userinfo),
         )
         extensions = dict(request.extensions)
         if address is None:
@@ -243,6 +251,20 @@ def _async_or_close(stream: httpx.SyncByteStream | httpx.AsyncByteStream) -> htt
     if callable(close):
         close()
     raise TypeError("the connection returned a body stream that is not async")
+
+
+async def _refuse_credentialed_location(
+    response: httpx.Response, stream: httpx.AsyncByteStream
+) -> None:
+    """Refuse a redirect whose RAW ``Location`` carries userinfo, before httpx follows it.
+
+    WHY here: httpx normalizes ``Location: https://@host`` (and ``//@host``) to an empty
+    userinfo before the next hop reaches :meth:`GuardedTransport._pinned`, so only the raw
+    header still shows the ``@`` (PR #1605 review 2).
+    """
+    if response.has_redirect_location and has_userinfo(response.headers["Location"]):
+        await stream.aclose()
+        raise credentials_refused()
 
 
 async def _decoder_or_close(
