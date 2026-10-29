@@ -94,7 +94,8 @@ earlier failure ended the Attempt. Either way it fails, and url4 does not retry 
     included, so only a tool `error` is a no-answer outcome.
   - Its Case ended failed: the final Case result, after the Attempt fold
     (`benchmarks/shared_grading/attempt_fold.py:48-94`), is not scored. Then every Attempt of the
-    Case failed (D2).
+    Case failed (D2). A run can hold one final result for each Candidate. A Case that scored for
+    any Candidate in the run does not count as failed.
   - No later call with the same lane and request digest, in the same case key, at a higher
     occurrence, gave the model an answer (the retry guard, §4.1).
 - **R2. A `max-age` re-issue whose last response is 2xx is not `ambiguous` because of the re-issue.**
@@ -160,8 +161,8 @@ case.
 | E2 | `world/connector.py:1163-1195` `_CaptureProbe` | `status()` takes `answered`. It applies R2: when `responses > 1`, not `retried`, and `answered`, it returns the last header's status. A call that returns normally always ended on a 2xx, because `_fetch_completion` calls `_raise_for_status` after each `probe.read` (`:1140-1156`). |
 | E3 | `world/connector.py:902-905` `_post_completion` | Call `probe.lost_reply()` only when the failure is not `_NEVER_SENT` (R3). Update the docstring at `:888-890` and the `_CaptureProbe` docstring. |
 | E4 | `world/connector.py:1243-1256`, `world/web_tools.py:316-347` | Pass the Case id, case key, occurrence and `answered` when they record an outcome. Chat: `answered` is true when `_fetch_completion` returned, false when it raised. Tool: `answered` is true for `stored` and `failed`, false for `error`. There is no other change: the `said` rule stays. |
-| E5 | `capture_outcomes.py:138-180` `status()`, `attributes()`, `_lost()` | Take the set of failed Case ids. `_lost()` skips an outcome that meets R1, including the retry guard. The default is an empty set, which gives today's behavior. |
-| E6 | `runner/executor.py:806-830` and `:1044-1060` | Give the tally the failed Case ids from the run result before it writes the summary attributes. A failed run (`_failed_run_logs`) has no Case results, so it passes no set and keeps today's rule. |
+| E5 | `capture_outcomes.py:117-180` `CaptureTally` | Keep the final result of each Case (keyed by `str(case_id)`; scored in any result wins). `_lost()` skips an outcome that meets R1, including the retry guard. With no Case results, the behavior is today's. |
+| E6 | `benchmarks/aggregation.py:105` `finalize_candidate_result` | Note each final Case result in the bound tally. Every final Case result goes through this function, and the aggregation ends before the executor writes the summary attributes, so the executor does not change. |
 | E7 | `capture_outcomes.py` `attributes()` | Each `capture.partial.<reason>` count includes only the outcomes that still make the run `partial`. No new attribute (D3). |
 | E8 | `docs/spec/2026-10-06-e14-reproducible-submission/02-frozen-copy-design.md` | Add a Q32 row that narrows Q27 with R1–R4. Update §5.2 items 5, 6 and 7. |
 
@@ -188,7 +189,7 @@ The owner accepts this rare false `failed` verdict (D4). No SDK change is filed.
 | X4 | Lost transport reply (`ambiguous`) in a failed Case | `partial` (R4) |
 | X5 | Cancelled grading call in a Case whose grading failed | Case failed, so `complete` (R1). The grading case key uses Attempt 1 (`case_context.py:98`), and the Case id is the same. |
 | X6 | Cancelled run-level call (case key `""`) | `partial` (R4) |
-| X7 | The run fails or is stopped | No Case results, so today's rule applies (E6) |
+| X7 | The run fails or is stopped before its final Case results | No Case results, so today's rule applies (E6) |
 | X8 | Tool call cancelled in a failed Case | `complete` (R1). Same rule as chat. |
 | X9 | Tool execution crashed (not cancelled) in a failed Case | `complete` (R1). At replay the lookup misses and the Case fails again. |
 | X10 | A call ran out of deadline before send, all url4 retries also failed, and the Case failed | `complete` (R1). No later occurrence answered. |
@@ -262,9 +263,10 @@ The owner accepts this rare false `failed` verdict (D4). No SDK change is filed.
 - **Q1.** The 3 frames_oracle partials have no `evaluation_coverage` in their metadata, so their
   partial reasons are not confirmed. Their recipes use `;optional` members. If their cancelled calls
   were in scored Cases (X3), this rule does not cover them.
-- **Q2.** E6 needs the Case results before the summary attributes are written. The plan must confirm
-  the field and the order in `runner/executor.py:1044-1060`, and that the Case id type in the result
-  equals the type in the case context.
+- **Q2 (closed).** The aggregation ends before `await task` returns in the executor, so the Case
+  results are in the tally before the summary attributes are written (`runner/executor.py:1068,
+  1076, 1095`). The Case id at the call and in the result are joined on `str()`
+  (`benchmarks/case_context.py:32`). The plan checks that both name the same Case (T0).
 - **Q3 (closed).** "Answered" is "`_fetch_completion` returned". It raises on every non-2xx after
   `probe.read` (`world/connector.py:1140-1156`), so a normal return means the last response was 2xx.
 
