@@ -36,6 +36,7 @@ from screamingface_engine.evidence_retention import subject_retained
 from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
 from screamingface_engine.request_scope import RequestScope
+from screamingface_engine.runner.blob_reader import bound_run_blob_reader
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
@@ -720,8 +721,12 @@ async def _run_process(
     #
     # `run_and_reclaim` keeps the RAW publisher: it needs `delete_stream`, which is
     # JetStream's, not the wire port's — the relay only stands where frames are published.
+    #
+    # FEATURE (OME-1529): the run blob store's reader is bound for the whole run, so every model
+    # call of it — and every url4 fragment it spawns — reads this run's ref-only files.
     with (
         run_scope(params.topic, trace_id),
+        bound_run_blob_reader(os.environ),
         SpanRelay(publisher, span_sink(os.environ), traceparent=traceparent) as relay,
     ):
         run_once = lambda: _run_and_log(executor, relay, params, traceparent)  # noqa: E731

@@ -19,8 +19,8 @@ nor any log carries the bytes — the digest names the file.
 AIDEV-NOTE: the engine never fetches over the network here. Bytes come from the frozen url4
 snapshot (``body``, already verified and run-scoped by url4 at run start) or, when the snapshot
 holds only the ref, from the :class:`BlobReader` the engine wiring binds for the run
-(:func:`bound_blob_reader`; the run blob store, ``OME-1540``, is not built yet, and with no reader
-bound the ref cannot be read).
+(:func:`bound_blob_reader`; the Runner binds the run blob store's, ``OME-1540``, in
+``runner.blob_reader``; with no reader bound the ref cannot be read).
 AIDEV-NOTE: this module imports no url4 engine surface (``test_only_engine_extensions_import_url4``
 confines that to the listed adapters): an attachment is read structurally (:class:`AttachmentRef`,
 which ``url4.Attachment`` satisfies) and failures are :class:`AttachmentPartError`, which the
@@ -163,7 +163,7 @@ async def _verified_body(attachment: AttachmentRef) -> bytes:
     if _hashes_to(attachment.body, attachment.digest):
         return attachment.body
     if attachment.body:
-        raise _digest_mismatch(attachment.digest)
+        raise digest_mismatch(attachment.digest)
     # WHY: an empty body that does not hash to the digest means the snapshot holds only the ref.
     reader = _reader.get()
     stored = None if reader is None else await reader.read(attachment.digest)
@@ -172,7 +172,7 @@ async def _verified_body(attachment: AttachmentRef) -> bytes:
             f"attachment {attachment.digest} is not readable in this run", code=SOURCE_NOT_FOUND
         )
     if not _hashes_to(stored, attachment.digest):
-        raise _digest_mismatch(attachment.digest)
+        raise digest_mismatch(attachment.digest)
     return stored
 
 
@@ -183,7 +183,12 @@ def _hashes_to(body: bytes, digest: str) -> bool:
     )
 
 
-def _digest_mismatch(digest: str) -> AttachmentPartError:
+def digest_mismatch(digest: str) -> AttachmentPartError:
+    """The permanent ``x.blob_digest_mismatch`` for ``digest``; the message names the digest only.
+
+    Public so a reader adapter whose store detects corruption itself (the run blob store,
+    ``OME-1540``) raises the very failure this module raises, not a second spelling of it.
+    """
     return AttachmentPartError(
         f"attachment bytes do not hash to {digest}", code=BLOB_DIGEST_MISMATCH
     )
@@ -225,6 +230,7 @@ __all__ = [
     "attachment_parts",
     "bound_blob_reader",
     "canonical_data_uri",
+    "digest_mismatch",
     "intent_error_for",
     "place_on_last_user_message",
 ]
