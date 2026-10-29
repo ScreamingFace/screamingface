@@ -1,12 +1,13 @@
 ---
 id: OME-1721
 linear_url: https://linear.app/openmined/issue/OME-1721/extend-configured-remote-endpoints-with-approved-origins-granted
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-22
+closed: 2026-10-29
 ---
 
 # Extend configured remote endpoints with approved origins, granted catalogs, a shared chat cache and a reused client

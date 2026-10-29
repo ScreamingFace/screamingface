@@ -1,9 +1,9 @@
 ---
 ticket: OME-1721
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-22
-finished:
+finished: 2026-10-29
 ---
 
 # hosted-byom-unit1 — remote endpoints: chat catalog, shared cache, approved origins
@@ -140,6 +140,9 @@ Owner decisions (2026-10-22):
     storing it
   - `ec46846b1` fix(aigateway): close usage accounting after a cancelled scheduler stop
   - `239727627` fix(aigateway): match a credential repeated as a JSON number before storing it
+- **Merge:** squash-merged to main on 2026-10-29 as `559630247` (#1590) from branch head
+  `5016e0fc8`, which also carried the ledger commits `fd26ae5e6`, `a8f10d43c` and `5016e0fc8`.
+  The PR checks on that head: 18 passed, 4 skipped. OME-1721 and OME-1758 closed the same day.
 - **Gates:** on the tree committed as `239727627`, `run_gates.py aigateway --base 27364bbf3` is
   green with 7530 tests collected, 453 in `tests/unit/remote_endpoint`. On the tree committed
   as `ec46846b1`, the same gates were
@@ -195,6 +198,9 @@ Owner decisions (2026-10-22):
     unregistered provider's pair has no row.
   - Open, awaiting the owner: a 401 or a 405 on `/v1/models` and `/v1/providers` is answered
     before the handler and carries no private-cache headers. Its body holds no account data.
+    Decided by the owner on 2026-10-29: these answers hold no account-specific data and take no
+    part in the shared LLM response cache, so the missing private-cache headers are accepted as
+    a Unit 1 limit.
 - **Second review (2026-10-27),** on the rebased branch: the three fixes above hold.
   - An account without a grant can learn a configured endpoint's ID and alias through the
     shared cache. `GET /v1/cache/entries` lists every account's cached rows with their
@@ -394,4 +400,8 @@ Owner decisions (2026-10-22):
     longer says the instance inherits `CacheBypass`; it explains the test-only projection.
   - Known limit: a chat already in flight when shutdown closes its endpoint client gets httpx's
     closed-client error as a 500. The server drains in-flight requests before the lifespan
-    shutdown runs, so this window is not handled in code.
+    shutdown runs, so this window is not handled in code. `aigateway` starts uvicorn with no
+    graceful-shutdown timeout, so the window opens on a forced exit only. Accepted by the owner
+    on 2026-10-29 as a Unit 1 limit: on a forced shutdown an active request can fail. The error
+    does not prove that the upstream did not run the request, and nothing guarantees against a
+    second run or a second charge when the client retries.

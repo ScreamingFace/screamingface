@@ -1,12 +1,13 @@
 ---
 id: OME-1758
 linear_url: https://linear.app/openmined/issue/OME-1758/compare-the-configured-endpoint-cache-revision-on-an-sdk-cache-pull
-status: in_progress
+status: done
 type: fix
 priority: high
 labels: [client-sf, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-28
+closed: 2026-10-29
 ---
 
 # Compare the configured endpoint cache revision on an SDK cache pull
