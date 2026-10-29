@@ -18,21 +18,23 @@ from fixtures.slice_snapshot import _CaptureProxy
 
 
 class _Recorder:
-    """A loopback stand-in for the gateway that keeps the headers of every request it gets."""
+    """A loopback stand-in for the gateway that keeps the headers and body of every request."""
 
     def __init__(self) -> None:
         self.headers: list[dict[str, str]] = []
+        self.bodies: list[bytes] = []
         seen = self.headers
+        bodies = self.bodies
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def log_message(self, *args: object) -> None:  # quiet
+            def log_message(self, *args: object) -> None:
                 pass
 
             def do_POST(self) -> None:
                 length = int(self.headers.get("content-length") or 0)
-                self.rfile.read(length)
+                bodies.append(self.rfile.read(length))
                 seen.append({key.lower(): value for key, value in self.headers.items()})
                 payload = json.dumps({"ok": True}).encode("utf-8")
                 self.send_response(200)
@@ -66,13 +68,15 @@ def test_capture_proxy_does_not_forward_the_retired_x_profile_header(
 ) -> None:
     recorder, proxy = proxied
 
+    body = b'{"model": "openrouter/m"}'
     response = httpx.post(
         f"{proxy.url}/v1/chat/completions",
-        content=b'{"model": "openrouter/m"}',
+        content=body,
         headers={
             "Content-Type": "application/json",
             "Accept": "application/json",
             "X-Profile": "default",
+            "X-Unlisted": "1",
         },
         timeout=10.0,
     )
@@ -80,11 +84,13 @@ def test_capture_proxy_does_not_forward_the_retired_x_profile_header(
     assert response.status_code == 200
     assert len(recorder.headers) == 1
     forwarded = recorder.headers[0]
-    # INVARIANT: the proxy forwards Content-Type and Accept, so the body still reaches the gateway
-    # as JSON; the retired selector is not among them.
+    # INVARIANT: of the caller's headers the proxy forwards only Content-Type and Accept, so the
+    # body still reaches the gateway as JSON and the retired selector never does.
     assert forwarded["content-type"] == "application/json"
     assert forwarded["accept"] == "application/json"
     assert "x-profile" not in forwarded
+    assert "x-unlisted" not in forwarded
+    assert recorder.bodies == [body]
     assert proxy.records == [
         {"request_body": {"model": "openrouter/m"}, "status": 200, "cache_header": None}
     ]

@@ -37,9 +37,15 @@ Plan: `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L8".
   assertion for the variable nothing reads (prior test; manifest).
 - `packages/screamingface/tests/e2e/fixtures/slice_snapshot.py` — the capture proxy stops
   forwarding `x-profile` (prior test file; manifest).
-- New test module `packages/screamingface/tests/test_connection_copy.py`.
+- New test modules `packages/screamingface/tests/test_connection_copy.py` and
+  `packages/screamingface/tests/e2e/test_capture_proxy_headers.py` (beside the fixture it imports).
 - `.claude/test-change-approvals/OME-N.json`, `docs/tasks/2026-10-29-OME-N-sdk-connection-copy.md`
   at PR-open.
+- Added by the scope extension from the owner's close-out review (docstrings and comments only):
+  `src/screamingface/models.py` (`sf.models.get`), `src/screamingface/discovery.py`
+  (`ModelParameter`, `ModelCapability`, `ModelDetails` and the `__repr__` comment),
+  `src/screamingface/_ui/cards.py` (`model_details_card_html`) and the `_validate_parameter`
+  docstring in `src/screamingface/_evaluation/model_parameters.py`.
 
 ## Test plan
 
@@ -51,12 +57,15 @@ Plan: `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L8".
   retained branch is untouched).
 - RED: the e2e capture proxy, run against a loopback recorder, forwards `Content-Type` and
   `Accept` but not `X-Profile`.
-- The `Models.get` / `AsyncModels.get` docstrings carry no "profile" wording.
+- RED: the `help()` docstrings of `Client.models.get`, `AsyncClient.models.get`, `sf.models.get`,
+  `sf.ModelDetails`, `sf.ModelParameter` and `sf.ModelCapability` say "Connection-specific" and
+  never "profile".
 
 ## Acceptance
 
-- `git grep -n -i "provider profile"` over `packages/screamingface` finds only the new test that
-  pins its absence.
+- `git grep -n -i "provider profile\|profile-specific\|profile-bound\|profile fields" --
+  packages/screamingface ':!packages/screamingface/tests/test_connection_copy.py'` finds nothing
+  (the excluded module is the test that pins their absence).
 - `AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE` appears nowhere in `packages/screamingface`.
 - `x-profile` is not in the capture proxy's forwarded-header allowlist.
 - `uv run .claude/scripts/run_gates.py screamingface` green; every changed prior test is in the
@@ -64,34 +73,48 @@ Plan: `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L8".
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus `packages/screamingface/tests/e2e/test_capture_proxy_headers.py`
-  (the capture-proxy test lives beside the fixture so it can import it),
-  `.claude/test-change-approvals/OME-1779.json` and
+- **Actual files:** as planned, plus `.claude/test-change-approvals/OME-1779.json` and
   `docs/tasks/2026-10-29-OME-1779-sdk-connection-copy.md`.
 - **Final copy:**
   - preflight hint: "Open sf.connect() to connect the provider, or ask the operator of your hosted
     Engine to connect it in AI Gateway, then retry." A hosted Engine lists provider access
     read-only (D15); an operator sets an account's Connection through the gateway's admin routes.
-  - `model_not_found`: "Model '<id>' is not in AI Gateway's catalogue". The gateway answers it
-    from its own catalogue (seeded, admitted, cached live listing) before any credential read, so
-    the message names that catalogue rather than the provider.
-  - `Models.get` / `AsyncModels.get` docstrings and README: "Connection-specific".
-- **Commits:** `fix(screamingface): describe Connections in the SDK's messages` (one commit; the
-  sha is in the PR and the close comment).
-- **Gates:** `uv run .claude/scripts/run_gates.py screamingface --base origin/main` — ALL GATES
-  GREEN: append-only (2 approved OME-1779 transitions), ruff check, ruff format, pyright, pytest
-  (4945 passed, 38 skipped; coverage 97.06%), notebooks, build, distribution.
+  - `model_not_found`: "AI Gateway does not list Model '<id>'". The gateway answers this code from
+    what it lists (seeded, admitted, cached live listing) before any credential read, and a
+    degraded live listing gives the same 404, so the message states what AI Gateway lists rather
+    than what the provider serves. It agrees with the Engine's own 404 description ("AI Gateway
+    does not know the model").
+  - Model discovery docstrings, the card docstring and README: "Connection-specific".
+- **Commits:** `fix(screamingface): describe Connections in the SDK's messages`, then
+  `fix(screamingface): reword the Model discovery docstrings and the 404 message`.
+- **Gates:** `uv run .claude/scripts/run_gates.py screamingface --base origin/main` (the merge
+  base, `a7e5d8577`) — ALL GATES GREEN: append-only (2 approved OME-1779 transitions), ruff check,
+  ruff format, pyright, pytest (4949 passed, 38 skipped; coverage 97.06%), notebooks, build, distribution.
   `check_mirror_status.py` passes.
-- **Review:** independent read-only review of the diff. Fixed from it: the `model_not_found`
-  message first read "is not available from its provider", which blames the provider when live
-  discovery is degraded; README:1206 now uses the hint's own words; the proxy test's INVARIANT
-  states the allowlist. Not changed (outside spec §4.8, returned as a question): the public
-  docstrings still saying "profile-specific" at `src/screamingface/models.py:18` (`sf.models.get`)
-  and `src/screamingface/discovery.py:99,145,165` (`ModelDetails` and its row types), plus the
-  private "profile-bound" / "profile fields" docstrings at
-  `src/screamingface/_evaluation/model_parameters.py` (`_validate_parameter`) and
-  `src/screamingface/_ui/cards.py:358`. Noted, not changed: `_CaptureProxy` takes its port with
-  bind-then-release `free_port()`, a small pre-existing race now reachable in the default lane.
-- **Deviations:** the planned R3 guard test was not added; the retained decoder is already pinned
-  by `tests/test_model_parameter_discovery.py::test_models_get_explains_a_missing_provider_profile`
-  (message, code, hint), and the diff leaves that branch untouched.
+- **Review:** two independent read-only reviews of the diff. Applied: the `model_not_found`
+  wording; README:1206 uses the hint's own words; the four public "profile-specific" docstrings;
+  the proxy test records the forwarded body and its INVARIANT states the allowlist; the
+  `# quiet` comment is gone; the CHANGELOG line names only the messages this PR changes. Checked
+  and kept: the proxy test's claim that every nonblank `X-Profile` is a 400
+  `x_profile_unsupported` holds on `origin/main` (`routes/chat.py:477` calls
+  `selector_from_request`; `main.py:424` sets `REJECT_EXPLICIT`).
+- **R3 decoder:** no new guard test. The existing
+  `tests/test_model_parameter_discovery.py::test_models_get_explains_a_missing_provider_profile`
+  pins the rendered message ("Codex profile 'default' is not connected"), the code and the hint,
+  and the diff leaves that branch untouched.
+- **Follow-up (deferred, needs the owner's approval as further prior-test edits):**
+  `_CaptureProxy` in `tests/e2e/fixtures/slice_snapshot.py` takes its port with bind-then-release
+  `free_port()` (a small race under xdist, now reachable in the default lane) and its
+  `shutdown()` never calls `server_close()`.
+- **Deviations:**
+  - Scope extended by the owner's close-out review: the public docstrings at
+    `src/screamingface/models.py:18` and `src/screamingface/discovery.py:99,145,165`, the
+    `discovery.py:222` comment, `_ui/cards.py:358` and the `_validate_parameter` docstring in
+    `_evaluation/model_parameters.py`. They are in the unit's intent, though spec §4.8's line list
+    missed them. In the card and `_validate_parameter` docstrings "profile" meant the contract's
+    account context, so both now say Connection-specific.
+  - The planned R3 guard test was not added (see above).
+  - Two review decisions conflicted. For the `model_not_found` wording, the later decision's
+    exact string ("AI Gateway does not list Model '<id>'") was used, not the variant ending "for
+    its provider". The `free_port()` / `server_close()` fix was deferred per the later decision,
+    not applied.

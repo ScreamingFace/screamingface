@@ -355,7 +355,7 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
 
 
 def model_details_card_html(details: ModelDetails) -> str:
-    """Render only the profile fields actually held by one ModelDetails."""
+    """Render only the fields actually held by one Connection-specific ModelDetails."""
 
     # WHY: freshness collapses to a single derived word — never a fabricated freshness metric.
     freshness = "degraded" if details.degraded else ("stale" if details.stale else "fresh")

@@ -16,6 +16,7 @@ import pytest
 from test_provider_access_preflight import _MODEL, _AsyncRun, _Engine, _evaluate, _Run
 
 import screamingface as sf
+import screamingface.models as public_models
 from screamingface._engine.catalog import AsyncModels, Models
 
 _README = Path(__file__).resolve().parents[1] / "README.md"
@@ -65,26 +66,38 @@ async def _async_get(handler: Callable[[httpx.Request], httpx.Response], model: 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["sync", "async"])
-async def test_model_not_found_names_the_gateway_catalogue_without_a_profile(mode: str) -> None:
-    # WHY: the gateway answers `model_not_found` from its own catalogue (seeded, admitted and the
-    # cached live listing) before it reads any credential, so the message names that catalogue,
-    # not a Connection, a selection or the provider itself.
+async def test_model_not_found_says_ai_gateway_does_not_list_the_model(mode: str) -> None:
+    # WHY: the gateway answers `model_not_found` from what it lists (seeded, admitted and the
+    # cached live listing) before it reads any credential. A degraded live listing answers the
+    # same 404, so the message states what AI Gateway lists, not what the provider serves.
     with pytest.raises(sf.PlanningError) as caught:
         if mode == "sync":
             _sync_get(_model_not_found, "openrouter/nope")
         else:
             await _async_get(_model_not_found, "openrouter/nope")
 
-    assert caught.value.message == "Model 'openrouter/nope' is not in AI Gateway's catalogue"
+    assert caught.value.message == "AI Gateway does not list Model 'openrouter/nope'"
     assert caught.value.code == "model_not_found"
     assert caught.value.status == 404
     assert caught.value.permanent is True
     assert caught.value.details == _MODEL_NOT_FOUND["detail"]
 
 
-@pytest.mark.parametrize("get", [Models.get, AsyncModels.get])
-def test_model_details_docstrings_describe_the_connection_context(get: Any) -> None:
-    doc = get.__doc__ or ""
+@pytest.mark.parametrize(
+    "documented",
+    [
+        Models.get,
+        AsyncModels.get,
+        public_models.get,
+        sf.ModelDetails,
+        sf.ModelParameter,
+        sf.ModelCapability,
+    ],
+)
+def test_model_details_docstrings_describe_the_connection_context(documented: Any) -> None:
+    # STORY: as a researcher reading help() on the Model discovery API, I am told the contract
+    # depends on my provider Connection, not on a provider profile.
+    doc = documented.__doc__ or ""
 
     assert "Connection-specific" in doc
     assert "profile" not in doc.lower()
