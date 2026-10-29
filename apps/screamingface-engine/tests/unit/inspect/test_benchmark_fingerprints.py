@@ -78,7 +78,7 @@ _FINGERPRINTS: dict[str, str] = {
     "lab_bench_figqa": "7376109d25378310",
     "lab_bench_tableqa": "9990079555f06a35",
     # OME-1479: MathVista, maths over pictures, the last of the four picture Benchmarks.
-    "mathvista": "cc2aeecb949b920a",
+    "mathvista": "ca4cd0f692d18f0e",
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",

@@ -18,8 +18,10 @@ importer takes it by Task replay, the LAB-Bench FigQA/TableQA pattern. Onboardin
 paid state-of-the-art run is OME-1673.
 
 - 2026-10-28: `mathvista` imported by Task replay at `AI4Math/MathVista` commit `2b6ad694`
-  (inspect_evals' own pin), row order forced by seed 20260917: 1,000 Cases, Case Digest
-  `1f45337d…`, published revision `cc2aeecb949b920a`. No render rule of our own: the eval's
+  (inspect_evals' own pin), row order forced by seed 20260917: 1,000 Cases.
+- 2026-10-29: re-sealed on linux/amd64 inside the Engine image, after CI's image build refused
+  the Mac seal (Pillow's PNG bytes differ by platform for the same pixels): Case Digest
+  `5097c2f0…`, the one CI computed, published revision `ca4cd0f692d18f0e`. No render rule of our own: the eval's
   solver ran for real, and the Sample metadata its scorer reads (`question_type`) is kept.
   Licence CC-BY-SA-4.0 from the card, accepted by the owner with the source datasets' own
   terms listed beside the row (195 NonCommercial Cases, 50 GPL-3.0, 134 unknown); it comes out

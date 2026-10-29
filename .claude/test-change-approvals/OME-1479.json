@@ -8,11 +8,11 @@
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
       "base_blob": "b8d0329bc612d90c04878922bdfff0cafa6aed4d",
-      "approved_blob": "55a276c1ce4d94f881424658f104fe1655c61737"
+      "approved_blob": "f32204597337ccdcd42babd121d25ac172247fb3"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
       "base_blob": "f4cea20ce982a11314537497c33b1bbdf5ffde93",
-      "approved_blob": "c6eca317087591cc26b6fbb8ed033bf794442f8e"
+      "approved_blob": "8a03c0034915f6ec3d3d41906eb4e7dd68eae03c"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
       "base_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450",
@@ -24,7 +24,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac",
-      "approved_blob": "c2e0a86f67efdba0d4643de5b47901ee39e4f95f"
+      "approved_blob": "01bed71c6ff6bf24c4c764391f3a69fc0bd18161"
     },
     "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
       "base_blob": "febb1e9f36356a0618d9e62ab4e551a9872605f2",

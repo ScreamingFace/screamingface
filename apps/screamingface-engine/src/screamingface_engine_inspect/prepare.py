@@ -1909,14 +1909,17 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # mathvista — imported by Task replay on 2026-10-28 from
     #   inspect_evals.mathvista.mathvista:mathvista.
+    # Sealed on linux/amd64 inside the Engine image (2026-10-29), as the image build replays
+    #   it: inspect_evals re-encodes each picture with Pillow, whose PNG bytes differ by
+    #   platform for the same pixels, so a Mac-sealed digest never matched the build.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face AI4Math/MathVista
     #     pin revision 2b6ad69445fbb5695c9b165475e8decdbeb97747
     "mathvista": TaskReplayCasesSpec(
         task="inspect_evals.mathvista.mathvista:mathvista",
         case_count=1000,
-        case_digest="1f45337d57095342cd70695d0a24becf71acbed771a0e50f9718b8f58b863b37",
-        case_set_digest="1c875da5086d1cc253992084b1c7651c417d98a978438e67eb42c26525310c90",
+        case_digest="5097c2f00db0479d46373bee56690ea26faf359ee8ca1288ea742137f9274050",
+        case_set_digest="a42c628ddc55f925569eadec54abfd624e131e37738d5ed4ed6428d3b2290073",
         keep_sample_metadata=True,
         source_pins={
             "AI4Math/MathVista": "2b6ad69445fbb5695c9b165475e8decdbeb97747",

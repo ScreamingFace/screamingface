@@ -6758,7 +6758,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mathvista",
-        published_revision="cc2aeecb949b920a",
+        published_revision="ca4cd0f692d18f0e",
         title="MathVista (testmini)",
         description=(
             "1,000 maths questions about a picture (MathVista's testmini split: function "
@@ -6772,15 +6772,20 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "'ANSWER: $ANSWER' template around the dataset's own query, which carries the "
             "precision and unit hint, for a free-form one. Grading is the eval's own pattern "
             "scorer: the letter, or the text after 'ANSWER:', must equal the answer exactly "
-            "(case ignored), so no judge tokens are spent. Serving order is pinned by a policy "
-            "seed (inspect_evals shuffles per run). Benchmark score = plain accuracy over the "
-            "cases run. No mid-run check surface (elimination attack over few options)."
+            "(case ignored), so no judge tokens are spent; 'ANSWER: 1.50', '1.5 cm' or a "
+            "trailing space score wrong against 1.5, so scores here are stricter than, and "
+            "not directly comparable to, the paper's and the labs' own more lenient grading. "
+            "Serving order is pinned by a policy seed (inspect_evals shuffles per run). "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over few options)."
         ),
         focus="Maths reasoning over charts, plots and figures (picture input)",
         dataset_url="https://huggingface.co/datasets/AI4Math/MathVista",
-        # Not saturated: the best lab-reported score is 0.903 (Qwen3.5), but the same model
-        # cards put GPT-5.2 at 0.83 and Claude Opus 4.5 at 0.80, so real headroom across the
-        # field, as for MMMU and FigQA; above the 0.603 human baseline, so not "hard".
+        # The catalogue says "saturated" (headroom 1 - 0.903 = 0.097, at or under the 0.10
+        # floor), but that verdict reads only the single best model. The tier reads the field:
+        # the same model cards put GPT-5.2 at 0.83 and Claude Opus 4.5 at 0.80, and this
+        # exam's exact-match grading is stricter than theirs, so still "medium", as MMMU and
+        # FigQA; above the 0.603 human baseline, so not "hard".
         difficulty="medium",
         # A per-Case mean over the eval's own pattern scorer (no whole-run metric, not
         # inverted, a decline is never the right answer): Group A, as for its siblings.
