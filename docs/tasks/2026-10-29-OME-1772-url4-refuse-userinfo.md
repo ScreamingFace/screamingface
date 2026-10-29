@@ -1,12 +1,12 @@
 ---
 id: OME-1772
 linear_url: https://linear.app/openmined/issue/OME-1772/refuse-url4-source-urls-with-embedded-credentials-userinfo-before-any
-status: in_review
+status: done
 type: bug
 priority: high
 labels: [url4-sdk, agentic, autonomous]
 created: 2026-10-29
-closed:
+closed: 2026-10-29
 ---
 
 # Refuse url4 source URLs with embedded credentials (userinfo) before any I/O
@@ -17,3 +17,5 @@ hop, so no `Authorization: Basic` header is ever sent. `%40` outside the netloc 
 HupBaHa's review of #1586 (`OME-1552`).
 
 Parent epic `OME-1529`. Ledger: `../work/2026-10-29-url4-refuse-userinfo.md`.
+
+Merged as `a7e5d8577` (PR #1605, approved by HupBaHa) on 2026-10-29.
