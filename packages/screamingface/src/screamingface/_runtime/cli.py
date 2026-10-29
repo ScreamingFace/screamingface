@@ -13,7 +13,6 @@ import subprocess
 import sys
 import threading
 import time
-import tomllib
 from collections import deque
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -358,10 +357,18 @@ def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
 
 
 def _require_runner_config(config: RuntimeConfig) -> None:
+    # WHY the Engine loader and not a bare tomllib parse: startup validates the whole world
+    # contract (routes, default_route, model world), so a syntactically valid file with bad
+    # world semantics must be refused HERE — before `_restart` calls `_down` on a healthy stack.
+    from screamingface._runtime.server import require_runtime_extra
+
+    require_runtime_extra()
+    from screamingface_engine import job_env
+    from screamingface_engine.world.config import WorldConfigError, load_config
+
     try:
-        with open(str(config.runner_config), "rb") as stream:
-            tomllib.load(stream)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        load_config({**os.environ, job_env.RUNNER_CONFIG: str(config.runner_config)})
+    except WorldConfigError as exc:
         raise RuntimeError(f"runner config is invalid ({config.runner_config}): {exc}") from exc
 
 

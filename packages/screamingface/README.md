@@ -37,12 +37,14 @@ set `SCREAMINGFACE_DATA_DIR` or pass `--data-dir` to override it.
 
 Set `URL4_RUNNER_CONFIG` before `up` or `restart` to supply a custom runner TOML as a full
 runner-world override (routes, capabilities, timeouts, providers). Relative paths and `~` resolve
-at startup; the variable is not saved in runtime state. Route variants (such as `:free`) are declared
-with `~` in TOML (e.g. `model~free`) and paired with their decoded `:` ID in Gateway settings (e.g.
-`AIGW_OPENROUTER_DEFAULT_MODELS`), which replace rather than append to the model inventory:
+at startup; neither this variable nor the paired Gateway variable below is saved in runtime state, so
+re-export both on each `up`/`restart`. Route variants (such as `:free`) are declared
+with `~` in TOML (e.g. `openrouter/vendor/model~free`) and paired with their decoded `:` ID in
+Gateway settings (`AIGW_OPENROUTER_DEFAULT_MODELS`, whose entries must start with `openrouter/`),
+which replace rather than append to the model inventory:
 
 ```bash
-URL4_RUNNER_CONFIG=custom.toml AIGW_OPENROUTER_DEFAULT_MODELS='["vendor/model:free"]' screamingface up
+URL4_RUNNER_CONFIG=custom.toml AIGW_OPENROUTER_DEFAULT_MODELS='["openrouter/vendor/model:free"]' screamingface up
 ```
 
 The default service ports are Gateway `9105`, Scoreboard `9106`, and Engine `9108`. Override them

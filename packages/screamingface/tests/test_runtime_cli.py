@@ -1031,7 +1031,7 @@ def test_restart_refuses_a_foreign_gateway_database_url_before_stopping_anything
     assert config.state_path.exists()
 
 
-@pytest.mark.parametrize("name", ["missing.toml", "malformed.toml"])
+@pytest.mark.parametrize("name", ["missing.toml", "malformed.toml", "world.toml"])
 def test_restart_refuses_invalid_runner_config_before_stopping_anything(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
 ) -> None:
@@ -1041,8 +1041,13 @@ def test_restart_refuses_invalid_runner_config_before_stopping_anything(
     monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
 
     bad_config = tmp_path / name
-    if name.startswith("malformed"):
+    if name == "malformed.toml":
         bad_config.write_text("invalid [ [ toml")
+    elif name == "world.toml":
+        # Syntactically valid TOML, but the WORLD contract is broken: `default_route` names
+        # no declared route, so only the Engine loader (not a bare tomllib parse) can catch
+        # it. This is the case that must never reach `_down` in `restart`.
+        bad_config.write_text("[aigateway]\ndefault_route = 7\n")
 
     monkeypatch.setenv("URL4_RUNNER_CONFIG", str(bad_config))
     monkeypatch.setattr(
