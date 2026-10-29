@@ -57,5 +57,12 @@ no opt-in flag, no published revision moves.
   `keep_sample_metadata`), not a hand opt-in; a test refuses any row where it disagrees with the
   judge. Chosen over a literal "keep whenever it differs" rule, which would also have moved the
   Grading Material of every templated judge-free row (most multiple-choice rows).
-- **Owner-verify:** the next image build with the HF token prepares the three rows under the new
-  digests (the gated xstest rows SKIP on a PR build without the token, as before).
+- **Image build:** CI's "Build the deployable images" (linux/amd64, with the HF token) prepared the
+  three rows under the new digests on 21c9d2a18 (`inspect-uccb` 5d3ec34b…, `inspect-xstest_safe`
+  30dc0e07…, `inspect-xstest_unsafe` da01da03…; jobs 122837364605 and 122837133680).
+- **Review round (2026-10-29):** Case Preparation now refuses, naming the Case, a kept question that
+  would drop earlier turns of a multi-turn Sample input, and a judged Sample whose question has no
+  text (a picture-only last user turn) instead of inspect's bare ValueError. No shipped row hits
+  either: all 17 judged rows replay to their pinned digests with the guards. The three moved
+  fingerprints sit in the held block with an OME-1755 note.
+- **Owner-verify:** none left beyond merging.

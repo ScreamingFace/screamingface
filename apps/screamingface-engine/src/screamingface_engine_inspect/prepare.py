@@ -1983,7 +1983,10 @@ def prepared_case(
             kept_sample_input,
         )
 
-        kept: str | None = kept_sample_input(sample.input, input_text)
+        try:
+            kept: str | None = kept_sample_input(sample.input, input_text)
+        except ValueError as exc:
+            raise PrepareError(f"case {case_id}: {exc}") from exc
         if kept is not None:
             record[SAMPLE_INPUT_KEY] = kept
     # WHY "case_id" beside "id": the benchmark's url4 protocol template reads

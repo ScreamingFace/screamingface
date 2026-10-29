@@ -663,20 +663,48 @@ def kept_sample_input(sample_input: str | list[ChatMessage], case_input: str) ->
     process?" → the question is kept. A Case whose input is the Sample's text → None, so its
     Grading Material keeps its bytes.
 
+    Two shapes are refused instead of kept, because the kept text could not stand for them:
+
+    * a Sample whose input is several turns (a healthbench-style conversation): the kept text
+      is its last user turn only, so a judge that reads ``state.input`` as the transcript
+      would lose every earlier turn;
+    * a Sample whose last user turn holds no text (a picture-only question): inspect's own
+      ``input_text`` raises, so there is no question to keep. Under ``eval()`` inspect's
+      judge would raise the same way.
+
     Args:
         sample_input: the Sample's input, as the eval's dataset built it.
         case_input: the Case input Case Preparation stores for the Candidate.
 
     Returns:
         The Sample's input text to keep, or None when the judge already reads the same text.
+
+    Raises:
+        ValueError: one of the two refused shapes; the caller names the Case.
     """
 
     conversation: list[CandidateMessage] | None = conversation_messages(case_input)
     graded_input: str | list[ChatMessage] = (
         case_input if conversation is None else _chat(conversation)
     )
-    original: str = _input_text(sample_input)
-    return None if original == _input_text(graded_input) else original
+    try:
+        original: str = _input_text(sample_input)
+        graded: str = _input_text(graded_input)
+    except ValueError as exc:
+        # WHY re-raised with our words: inspect's "input_text requested from TaskState but
+        # none available" names neither the shape nor what to do about it.
+        raise ValueError(
+            "the judge's question has no text (the last user turn is only a picture or a "
+            f"file), so it cannot be kept for the judge: {exc}"
+        ) from exc
+    if original == graded:
+        return None
+    if not isinstance(sample_input, str) and len(sample_input) > 1:
+        raise ValueError(
+            f"the Sample's input is {len(sample_input)} turns; keeping its last user turn for "
+            "the judge would drop the earlier ones"
+        )
+    return original
 
 
 def _input_text(state_input: str | list[ChatMessage]) -> str:

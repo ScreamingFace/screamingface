@@ -21,6 +21,7 @@ Runs only with the `inspect` extra installed.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import textwrap
@@ -35,9 +36,17 @@ pytest.importorskip("inspect_ai")
 from inspect_ai import Task  # noqa: E402
 from inspect_ai import eval as inspect_eval  # noqa: E402
 from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
-from inspect_ai.model import ChatMessage, Model, ModelOutput, get_model  # noqa: E402
+from inspect_ai.model import (  # noqa: E402
+    ChatMessage,
+    ChatMessageAssistant,
+    ChatMessageUser,
+    ContentImage,
+    Model,
+    ModelOutput,
+    get_model,
+)
 from inspect_ai.scorer import model_graded_qa  # noqa: E402
-from inspect_ai.solver import Solver, generate, system_message  # noqa: E402
+from inspect_ai.solver import Solver, generate, prompt_template, system_message  # noqa: E402
 
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
     GradeRequest,
@@ -54,6 +63,7 @@ from screamingface_engine_inspect.import_replay import (  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     TASK_REPLAY_CASES,
     PreparedCase,
+    PrepareError,
     TaskReplayCasesSpec,
     case_digest,
 )
@@ -315,3 +325,43 @@ def test_the_generated_row_writes_the_flag_its_digest_covers() -> None:
     exec("declared = {\n" + rows.cases + "}", namespace)  # noqa: S102 — our own rendered row
     assert "        keep_sample_input=True,\n" in rows.cases
     assert namespace["declared"]["judged_stand_in"].keep_sample_input is True
+
+
+def test_a_conversation_whose_question_would_lose_its_earlier_turns_is_refused_by_case() -> None:
+    """A healthbench-style Sample is a whole transcript; the kept text would be its last user
+    turn only, so a judge reading ``state.input`` would grade without the earlier turns. When
+    a solver rewrites that turn (here a template), Case Preparation refuses by Case number
+    instead of keeping a question that drops two turns."""
+
+    conversation: list[ChatMessage] = [
+        ChatMessageUser(content="My knee hurts."),
+        ChatMessageAssistant(content="Since when?"),
+        ChatMessageUser(content="Two days."),
+    ]
+    task: Task = Task(
+        dataset=MemoryDataset([Sample(input=conversation, target="rest", id=1)]),
+        solver=[prompt_template("The patient says: {prompt}"), generate()],
+    )
+
+    with pytest.raises(PrepareError, match=r"case 1: .*3 turns.*drop the earlier ones"):
+        captured_case_records(task, _spec(keep_sample_input=True))
+
+
+def test_a_picture_only_question_is_refused_by_case_not_by_inspects_bare_error() -> None:
+    """MMMU's open task and HLE carry pictures. A judged Sample whose question is only a
+    picture has no text for the judge to quote (inspect's own ``input_text`` raises), so Case
+    Preparation names the Case and the reason instead of surfacing inspect's bare ValueError."""
+
+    # WHY these bytes: a PNG signature and padding; capture reads only the data URI's type.
+    picture: str = "data:image/png;base64," + base64.b64encode(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+    ).decode("ascii")
+    task: Task = Task(
+        dataset=MemoryDataset(
+            [Sample(input=[ChatMessageUser(content=[ContentImage(image=picture)])], id=1)]
+        ),
+        solver=[system_message(SYSTEM_TEXT), generate()],
+    )
+
+    with pytest.raises(PrepareError, match=r"case 1: the judge's question has no text"):
+        captured_case_records(task, _spec(keep_sample_input=True, has_answer_key=False))
