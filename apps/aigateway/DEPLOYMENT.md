@@ -183,7 +183,7 @@ purged data.
 **Upgrade path for a Helm install that still holds Profile rows.** Since E4a (`b66f94f08`, #1491) a
 Profile-only credential no longer resolves, and E5c (`7cb093014`, #1596) deleted both offline
 commands, `migrate_profiles` (the Stage B backfill) and `purge_profile_history`. No image built from
-`7cb093014` (E5c) onward, including any release cut after it, can migrate or purge Profile rows.
+`7cb093014` onward, including any release cut after it, can migrate or purge Profile rows.
 Such an install therefore upgrades in two steps:
 
 1. Upgrade the gateway itself, every replica, to an E5b-era image: one built from `1ccf80a89` or a

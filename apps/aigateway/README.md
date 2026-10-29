@@ -141,7 +141,7 @@ contract before changing provider registration or model routing.
 
 Google OAuth blobs that do not include `expires_at_ms` are treated as not locally
 expired. The gateway then relies on upstream 401/403 dispatch failures to mark
-the profile or connection for re-authentication instead of guessing an expiry.
+the Connection `error` for re-authentication instead of guessing an expiry.
 
 ## Operations
 
