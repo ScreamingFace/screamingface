@@ -40,6 +40,14 @@ _NOT_EMBEDDED = (ipaddress.IPv6Address("::"), ipaddress.IPv6Address("::1"))
 # One inet_aton part: hex (``0x``, digits optional), octal (leading ``0``) or decimal. ASCII only.
 _ATON_PART = re.compile(r"0[xX][0-9a-fA-F]*|0[0-7]*|[1-9][0-9]*")
 
+# The authority as httpx's own URL regex (RFC 3986 §3.2) delimits it: after an optional scheme
+# and ``//``, up to the first ``/``, ``?`` or ``#``. Group 1 is the text before the authority.
+_AUTHORITY = re.compile(r"((?:[A-Za-z][A-Za-z0-9+.-]*:)?//)([^/?#]*)")
+
+# What urlsplit (and WHATWG) strip from the ends, and the tab / newline they drop anywhere.
+_C0_OR_SPACE = "".join(map(chr, range(0x21)))
+_DROPPED = str.maketrans("", "", "\t\r\n")
+
 
 @dataclass(frozen=True, slots=True)
 class SourceGuard:
@@ -66,6 +74,36 @@ class SourceGuard:
 
 def destination_blocked(message: str) -> ResolutionError:
     return ResolutionError(message, code=ErrorCode.SOURCE_DESTINATION_BLOCKED, permanent=True)
+
+
+def credentials_refused() -> ResolutionError:
+    # INVARIANT: the message never echoes the credentials it refused.
+    return destination_blocked("a source URL with embedded credentials (userinfo) is refused")
+
+
+def has_userinfo(raw: str) -> bool:
+    """Whether ``raw``'s authority carries userinfo (any ``@``, even a bare one), read lexically.
+
+    WHY lexical: it needs no parse that can fail — a malformed authority such as
+    ``https://u:p@[::1`` makes urlsplit and httpx raise, and an empty ``https://@host`` is
+    normalized away by httpx — so no credentialed URL slips past as "malformed" (PR #1605).
+    """
+    match = _AUTHORITY.match(_lexical(raw))
+    return match is not None and "@" in match.group(2)
+
+
+def redact_userinfo(raw: str) -> str:
+    """``raw`` with any userinfo (through the authority's last ``@``) replaced by ``***``."""
+    cleaned = _lexical(raw)
+    match = _AUTHORITY.match(cleaned)
+    if match is None or "@" not in match.group(2):
+        return raw
+    host = match.group(2).rpartition("@")[2]
+    return f"{match.group(1)}***@{host}{cleaned[match.end() :]}"
+
+
+def _lexical(raw: str) -> str:
+    return raw.strip(_C0_OR_SPACE).translate(_DROPPED)
 
 
 def redirect_limit(message: str) -> ResolutionError:
@@ -102,8 +140,7 @@ def check_destination(
         raise destination_blocked(f"scheme {scheme!r} is not allowed for a source fetch")
     if credentials:
         # WHY: httpx turns userinfo into ``Authorization: Basic`` for the host (OME-1552).
-        # INVARIANT: the message never echoes the credentials.
-        raise destination_blocked("a source URL with embedded credentials (userinfo) is refused")
+        raise credentials_refused()
     if previous_scheme == "https" and scheme == "http":
         raise destination_blocked("a redirect from https to http is refused")
     name = _normal_host(host)
@@ -121,14 +158,24 @@ def check_url(url: str, guard: SourceGuard, *, peer: bool = False) -> None:
     WHY a stdlib parse: httpx rejects ``https://0177.0.0.1/`` as an invalid URL, so only a
     pre-check can report that loopback spelling as the blocked destination it is.
     """
+    credentials = has_userinfo(url)
+    parts = _split(url)
+    if parts is None:
+        # WHY raised here, outside any handler: no parse error rides along as __context__.
+        if credentials:
+            raise credentials_refused()
+        return  # malformed: the transport layer reports it as it always has
+    scheme, host = parts
+    check_destination(scheme, host, guard, peer=peer, credentials=credentials)
+
+
+def _split(url: str) -> tuple[str, str] | None:
+    """``(scheme, host)`` of ``url``, or ``None`` when the stdlib cannot parse it."""
     try:
         parts = urlsplit(url)
-        host = parts.hostname or ""
+        return parts.scheme.lower(), parts.hostname or ""
     except ValueError:
-        return  # malformed: the transport layer reports it as it always has
-    # WHY the raw netloc: httpx normalizes an empty ``https://@host`` away; the stdlib keeps it.
-    credentials = "@" in parts.netloc
-    check_destination(parts.scheme.lower(), host, guard, peer=peer, credentials=credentials)
+        return None
 
 
 def vet_address(address: IPAddress, guard: SourceGuard) -> None:
@@ -213,8 +260,11 @@ __all__ = [
     "SourceGuard",
     "check_destination",
     "check_url",
+    "credentials_refused",
     "destination_blocked",
+    "has_userinfo",
     "literal_ip",
+    "redact_userinfo",
     "redirect_limit",
     "source_timeout",
     "too_large",

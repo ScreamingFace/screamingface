@@ -193,3 +193,100 @@ async def test_the_transport_alone_refuses_a_credentialed_request(net: _Net) -> 
     _assert_refused(caught.value)
     assert net.lookups == []
     assert net.sent == []
+
+
+# --- PR #1605 review 1: a malformed credentialed authority never reaches an error message ---
+
+USER, SECRET = "alice", "s3cret"
+
+MALFORMED_CREDENTIALED = [
+    f"https://{USER}:{SECRET}@[::1",  # unclosed bracket, no path
+    f"https://{USER}:{SECRET}@[::1/x",  # unclosed bracket before a path
+    f"https://{USER}:{SECRET}@[not-an-ip]/x",  # bracketed non-address
+    f"https://{USER}:{SECRET}@[::1]:bad/x",  # bracketed host, non-numeric port
+    f"https://{USER}:{SECRET}@example.com:port/x",  # named host, non-numeric port
+]
+
+
+def _whole_chain(error: BaseException) -> list[BaseException]:
+    """``error`` and every exception reachable through ``__cause__`` / ``__context__``."""
+    seen: list[BaseException] = []
+    pending: list[BaseException | None] = [error]
+    while pending:
+        current = pending.pop()
+        if current is None or any(current is known for known in seen):
+            continue
+        seen.append(current)
+        pending += [current.__cause__, current.__context__]
+    return seen
+
+
+def _assert_no_secret(error: BaseException) -> None:
+    for link in _whole_chain(error):
+        for text in (str(link), repr(link), *getattr(link, "__notes__", [])):
+            assert SECRET not in text
+            assert USER not in text
+
+
+@pytest.mark.parametrize("url", MALFORMED_CREDENTIALED)
+def test_check_url_refuses_a_malformed_credentialed_authority(url: str) -> None:
+    with pytest.raises(ResolutionError) as caught:
+        check_url(url, SourceGuard())
+    _assert_refused(caught.value)
+    _assert_no_secret(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", MALFORMED_CREDENTIALED)
+async def test_fetch_refuses_a_malformed_credentialed_url_without_echoing_it(
+    net: _Net, url: str
+) -> None:
+    async with _io(net) as io:
+        with pytest.raises(ResolutionError) as caught:
+            await io.fetch(url, relative=False)
+    _assert_refused(caught.value)
+    _assert_no_secret(caught.value)
+    assert net.lookups == []
+    assert net.sent == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", MALFORMED_CREDENTIALED)
+async def test_an_invalid_target_error_never_carries_its_userinfo(url: str) -> None:
+    # An injected client skips the guard: httpx itself rejects the target, and the wrapped
+    # error (message, repr and exception chain) must still not repeat the credentials.
+    sent: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, text="BODY")
+
+    io = HttpIOLayer(client=httpx.AsyncClient(transport=httpx.MockTransport(record)))
+    with pytest.raises(ResolutionError) as caught:
+        await io.fetch(url, relative=False)
+    _assert_no_secret(caught.value)
+    assert sent == []
+
+
+# --- PR #1605 review 2: an empty-userinfo Location is refused before httpx normalizes it ----
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://@other.example/landing",  # empty userinfo, absolute
+        "//@other.example/landing",  # empty userinfo, scheme-relative
+        "https://:@other.example/landing",  # empty username and password
+    ],
+)
+async def test_a_redirect_to_an_empty_userinfo_location_is_refused(
+    net: _Net, location: str
+) -> None:
+    net.handler = _redirect_to(location)
+    async with _io(net) as io:
+        with pytest.raises(ResolutionError) as caught:
+            await io.fetch("https://example.com/", relative=False)
+    _assert_refused(caught.value)
+    assert [r.url.path for r in net.sent] == ["/"]  # the second hop never reached the wire
+    assert net.lookups == ["example.com"]  # other.example was never looked up
