@@ -142,7 +142,7 @@ def build_model_parameter_document(
     freshness: dict[str, Any],
     source_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Compose the locked v1 detailed contract for one (model, profile) context.
+    """Compose the locked v1 detailed contract for one (model, connection) context.
 
     ``source_revision`` is the discovered snapshot's SOURCE identity — which
     documents were read, under which gateway-side reading. It is optional because a

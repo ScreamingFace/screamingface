@@ -127,7 +127,7 @@ def _parameters(*, without: str | None = None) -> dict[str, Any]:
         canonical_id=_MODEL,
         gateway_provider="openrouter",
         auth_mode="api_key",
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:test|prof:1",
         rules=_rules(without=without),
         observations=plugin.chat_parameter_observations(model=_MODEL, auth_type="api_key"),

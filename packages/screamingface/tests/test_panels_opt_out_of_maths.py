@@ -91,7 +91,7 @@ def _model_details() -> sf.ModelDetails:
         provider="openrouter",
         upstream_id="openai/gpt-5.5",
         contract_id="pc_fixture",
-        scope="account_profile",
+        scope="account_connection",
         auth_mode="api_key",
         context_revision="ctx_fixture",
         source_revision=None,
