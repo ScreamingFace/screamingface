@@ -1,12 +1,12 @@
 ---
 id: OME-1744
 linear_url: https://linear.app/openmined/issue/OME-1744/forward-image-and-file-tokens-from-the-gateway-into-the-engines-run
-status: in_review
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-10-27
-closed:
+closed: 2026-10-28
 ---
 
 # Forward image and file tokens from the gateway into the engine's run cost
@@ -19,3 +19,5 @@ the run cost as `gen_ai.usage.image_and_file_tokens` on url4's `Usage`/`TokenUsa
 - **Input totals** are unchanged, because image tokens are already inside them.
 
 Split from `OME-1546` (gateway half, #1481). Parent epic `OME-1529`. Live non-zero acceptance stays open: no credentials were available.
+
+Merged as `8de39b882` (PR #1572, approved by IonesioJunior) on 2026-10-28.
