@@ -6,7 +6,7 @@ started: 2026-10-28
 finished: 2026-10-28
 ---
 
-# frozen-copy-fits-picture-calls — a capture run records every call the gateway accepts
+# frozen-copy-fits-picture-calls — a capture run records the picture calls the gateway accepts
 
 ## Intent
 
@@ -22,11 +22,17 @@ TableQA too), so their calls were answered but never recorded, and a replay fail
 - Chat lane: the request body after the `cache` control is popped, plus the response body the
   caller received. Both are re-serialised as compact JSON with `ensure_ascii=False`, so a base64
   data URI counts once, byte for byte: no second base64 and no extra escaping (base64 has no
-  character JSON escapes). The request is never larger than the wire body, except for rewritten
-  floats: Python writes `1e9` as `1000000000.0` (+9 B) and `1E2` as `100.0` (+2 B). A chat body
-  carries a handful of numbers (`temperature`, `top_p`, `max_tokens`), so that adds bytes. Only a
-  crafted body of about 230,000 exponent literals (2 MiB / 9 B) could use up the headroom, and
-  then only its capture fails, never the call.
+  character JSON escapes). The request cap counts wire bytes, but the entry counts the
+  re-serialised request, and Python writes the exponent float `1e9` as `1000000000.0` (+9 B) and
+  `1E2` as `100.0` (+2 B). A normal chat body carries a handful of numbers (`temperature`,
+  `top_p`, `max_tokens`), so it gains a few bytes. A body packed with exponent numbers (for
+  example a large tool schema) can gain megabytes: the review measured 3,400,175 B on the wire
+  becoming 11,050,175 B stored, and an exactly 8,388,608 B wire body becoming 10,548,608 B before
+  any response. Such a call is still answered; only its capture reports `failed`.
+- Response: only the local and remote-endpoint transports bound a response (1,000,000 B). Cloud
+  providers have no byte bound, so a response over the 2 MiB headroom does not fit: the review
+  sent an 8 MiB - 4 KiB picture request with a 3 MiB answer and got HTTP 200 with
+  `X-AIGW-Capture: failed` and no entry stored.
 - Tool lane: description plus `{"result": ...}`, both from ONE request body, so it is already
   under `max_request_bytes`.
 - Storage: `request_json` / `response_json` are Tortoise `JSONField`s (TEXT on SQLite, JSONB on
@@ -49,27 +55,39 @@ TableQA too), so their calls were answered but never recorded, and a replay fail
 - The default entry cap is the request cap plus the response headroom, and above the request cap
   (fails if the default is lowered back to a fixed number).
 - Raising `AIGW_MAX_REQUEST_BYTES` raises the entry cap with it; an explicit entry cap wins.
-- Store: an entry whose request is just under the request cap, plus a response, is captured and
+- Store: an entry whose request is exactly the request cap, plus a response, is captured and
   read back unchanged; one byte over the derived cap is refused.
-- Route: a picture chat call just under the request cap is answered, stored (`X-AIGW-Capture:
+- Route: a picture chat call of exactly the request cap on the wire is answered, stored (`X-AIGW-Capture:
   stored`) and replays with the same answer.
 - The existing refusal tests (`test_frozen_copy_capture.py` size-cap section) are unchanged and
   still run with their explicit small caps.
 
 ## Acceptance
 
-- Every call the gateway accepts in a capture run fits one entry under the default settings.
+- Every picture Case we run (MMMU's largest is 3.78 MB) fits one entry under the default
+  settings, and so does any call up to the request cap whose response is under 2 MiB and whose
+  request does not grow when re-serialised. The two exceptions (a cloud-provider response over
+  2 MiB, a request packed with exponent numbers) are answered, and their capture reports `failed`
+  (`X-AIGW-Capture: failed`). Neither gets a new bound in this ticket: a response bound would touch
+  every provider transport.
 
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus `docs/tasks/2026-10-28-OME-1756-frozen-copy-fits-picture-calls.md`.
-- **Commits:** `fix(aigateway): size the frozen-copy entry cap from the request cap (OME-1756)`.
+- **Commits:** `fix(aigateway): size the frozen-copy entry cap from the request cap (OME-1756)`;
+  `docs(aigateway): state the float-rewrite exception and the old-copies gap (OME-1756)`;
+  review follow-up `docs(aigateway): narrow the frozen-copy fit promise to its two exceptions
+  (OME-1756)`, which also makes the route test send exactly `max_request_bytes`.
 - **Gates:** only the touched lanes. `test_frozen_copy_entry_cap.py` (6), the five other
   `test_frozen_copy_*.py` files and `test_body_cap_route.py`: 156 passed. The Engine's
   `test_picture_case_limits_fit_the_gateway.py` (reads `config.py` source with `ast`): 1 passed.
   ruff check + ruff format + pyright on `config.py` and the new test: clean. Mutation: with the old
   fixed `default=2_000_000`, 4 of the 6 new tests fail, the route test with the live symptom
   (`X-AIGW-Capture: failed`, `FrozenCopyEntryTooLarge` in the log).
+- **Review follow-up gates:** `test_frozen_copy_entry_cap.py` (6) plus `test_frozen_copy_store.py`,
+  `test_frozen_copy_capture.py`, `test_frozen_copy_routes.py`: 106 passed; the route test now sends
+  exactly 8,388,608 B and asserts it. ruff check + ruff format + pyright on `config.py` and the
+  test: clean.
 - **Deviations:** pydantic floor raised to `>=2.10` (the release whose `default_factory` receives
   the validated fields); the lock already resolved 2.13.5, so only the specifier line moved.
   No prior test was edited.
