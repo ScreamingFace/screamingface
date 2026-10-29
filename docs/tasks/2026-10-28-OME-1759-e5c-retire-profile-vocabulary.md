@@ -1,13 +1,13 @@
 ---
 id: OME-1759
 linear_url: https://linear.app/openmined/issue/OME-1759/retire-the-profile-vocabulary-from-the-gateway-stage-e-e5c
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-28
-closed:
+closed: 2026-10-29
 ---
 
 # Retire the Profile vocabulary from the gateway (Stage E, E5c)

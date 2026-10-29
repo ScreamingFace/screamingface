@@ -1,9 +1,9 @@
 ---
 ticket: OME-1759
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-28
-finished:
+finished: 2026-10-29
 ---
 
 # e5c-retire-profile-vocabulary — remove the Profile vocabulary from the gateway (Stage E history cleanup, E5c)
@@ -74,14 +74,19 @@ codes `profile_index_conflict` and `profile_conflict` stay (out of scope, R3).
     backfill was applied and `migrate_profiles` is gone, so no open record still reads as
     instructions for the deleted command.
   - Manifest: `.claude/test-change-approvals/OME-1759.json` (the 87 modified test files).
-- **Commits:** on `OME-1759-e5c-retire-profile-vocabulary`:
-  1. `test(aigateway): stop seeding Profile documents and retire their suites`
-  2. `refactor(aigateway): delete the Profile model, index and offline tools`
-  3. `docs(aigateway): drop the Profile index from the runbook and record E5c`
+- **Commits:** squash-merged as `7cb093014` (#1596) from, after the rebase onto `origin/main`
+  `cfb178b30`:
+  - `a55d47efc` test(aigateway): stop seeding Profile documents and retire their suites
+  - `67356573e` refactor(aigateway): delete the Profile model, index and offline tools
+  - `15f189dc4` docs(aigateway): drop the Profile index from the runbook and record E5c
 - **Gates:** `ruff check` clean; `ruff format --check` 853 files formatted; `pyright` 0 errors;
   `check_no_enterprise.py` OK; `pytest --cov=aigateway --cov-fail-under=80` 7124 passed,
   107 skipped, coverage 93.96%. The append-only check lists 87 modified test files and no
-  deleted, renamed or retyped one; all 87 are approved through the manifest.
+  deleted, renamed or retyped one; all 87 are approved through the manifest. The same gates ran
+  again in the pre-push hook after the rebase onto `cfb178b30`, all green.
+  `AIGW_TEST_PG=1 pytest -m needs_postgres`: 67 passed, including the two edited suites
+  `test_pair_admin_mutations_postgres.py` and `test_provider_access_backing_postgres.py`. PR CI
+  green.
 - **Deviations:**
   - `test_profile_index_offline_only.py` stays a live suite, not a retirement docstring: three of
     its tests still hold, and it hosts the E5c guard.
@@ -106,3 +111,9 @@ codes `profile_index_conflict` and `profile_conflict` stay (out of scope, R3).
     `test_provider_access_availability_route.py::`
     `test_body_carries_no_name_id_label_default_auth_method_or_locator` have been vacuous since
     E4a.
+  - Not done here, though spec §6 put it in this change set: the design catalog's contract
+    exporter still imports `Profile` and `ProfileIndex` from the deleted `profile_models`, its
+    model projector pins them in the schema inventory, and the catalog's `Profile`,
+    `ProfileState`, `ProfileIndex` and `ProfileDefaults` datamodel cards still cite the deleted
+    modules. The catalog cannot be regenerated from `main` until that lands as its own leaf under
+    `OME-1138`.
