@@ -25,9 +25,7 @@ from unittest.mock import patch
 
 import pytest
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
+from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
@@ -70,20 +68,7 @@ def _seed_codex_credential(credential_blobs, account_id: str) -> None:
     )
 
 
-async def _seed_profile(
-    client, credential_blobs, account_id: str, *, provider: str, defaults: ProfileDefaults
-) -> None:
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, provider, "default"),
-            account_id=account_id,
-            provider=provider,
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            defaults=defaults,
-        )
-    )
+async def _seed_profile(client, account_id: str, *, provider: str) -> None:
     seed_migrated_pair(client, account_id, provider)
 
 
@@ -109,18 +94,11 @@ _ANTHROPIC_DISPATCH = f"{_ANTHROPIC_PLUGIN}.chat_completion"
 async def test_a_caller_fault_is_reported_alone_beside_an_invalid_historical_default(
     credential_blobs, authenticated_client
 ) -> None:
-    # The Profile still carries an invalid historical `temperature`, and the caller sends an
-    # unknown field. Stage C (D2) ignores the stored value entirely, so the error names ONLY
-    # the caller's own field — `temperature`, which they never sent, is not in the request.
+    # The caller sends an unknown field. Since Stage C (D2) only the caller's own values are
+    # classified, so the error names ONLY that field and nothing is dispatched.
     account_id = _account_id(authenticated_client)
     _seed_anthropic_credential(credential_blobs, account_id)
-    await _seed_profile(
-        authenticated_client,
-        credential_blobs,
-        account_id,
-        provider="anthropic",
-        defaults=ProfileDefaults(temperature=1.5),
-    )
+    await _seed_profile(authenticated_client, account_id, provider="anthropic")
 
     captured: dict[str, Any] = {}
     with patch(_ANTHROPIC_DISPATCH, _capture(captured)):
@@ -155,13 +133,7 @@ async def test_the_refusal_precedes_provider_preparation_and_everything_after_it
     # caller's own: Codex enables no `temperature` (OME-634).
     account_id = _account_id(authenticated_client)
     _seed_codex_credential(credential_blobs, account_id)
-    await _seed_profile(
-        authenticated_client,
-        credential_blobs,
-        account_id,
-        provider="codex",
-        defaults=ProfileDefaults(),
-    )
+    await _seed_profile(authenticated_client, account_id, provider="codex")
 
     def _tripwire(_self, body):
         raise AssertionError("provider preparation ran before the parameter contract")
@@ -191,13 +163,7 @@ async def test_the_refusal_precedes_credential_access(
     # is direct evidence that no credential was read. The refused value is the
     # caller's own `temperature`, which Codex does not enable.
     account_id = _account_id(authenticated_client)
-    await _seed_profile(
-        authenticated_client,
-        credential_blobs,
-        account_id,
-        provider="codex",
-        defaults=ProfileDefaults(),
-    )
+    await _seed_profile(authenticated_client, account_id, provider="codex")
 
     resp = authenticated_client.post(
         "/v1/chat/completions",

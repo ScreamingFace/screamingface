@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 from connection_backed_admin_probes import marker
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 
 from aigateway.core.api_key_validation import (
     ApiKeyValidationResult,
@@ -50,9 +50,9 @@ class _ValidKeys:
 
 
 @pytest.fixture
-def harness(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
+def harness(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
     authenticated_client.app.state.api_key_validation_service = _ValidKeys()
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 async def _claim_current(account_id: str) -> None:
@@ -60,11 +60,11 @@ async def _claim_current(account_id: str) -> None:
     await claim_pair(await PairAuthorityStore().read(account_id, PROVIDER))
 
 
-def _claim(harness: ProfileBackedHarness) -> None:
+def _claim(harness: RealAppHarness) -> None:
     harness.call(_claim_current, harness.account_id)
 
 
-def _quarantine(harness: ProfileBackedHarness, note: str) -> None:
+def _quarantine(harness: RealAppHarness, note: str) -> None:
     async def quarantine() -> None:
         current = await PairAuthorityStore().read(harness.account_id, PROVIDER)
         await PairAuthorityStore().advance(
@@ -78,13 +78,13 @@ def _quarantine(harness: ProfileBackedHarness, note: str) -> None:
     harness.call(quarantine)
 
 
-def _resolve(harness: ProfileBackedHarness) -> CredentialTarget:
+def _resolve(harness: RealAppHarness) -> CredentialTarget:
     return harness.call(
         harness.access.resolve, harness.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC
     )
 
 
-def _record(harness: ProfileBackedHarness, target: CredentialTarget) -> Any:
+def _record(harness: RealAppHarness, target: CredentialTarget) -> Any:
     return harness.call(
         harness.access.record_dispatch_failure, target, 401, REVOKED, plugin=ANTHROPIC
     )
@@ -113,9 +113,7 @@ class _LosesThePairThenFails:
         return "", 0, False
 
 
-def _fail_in_the_window(
-    harness: ProfileBackedHarness, credential_name: str, exc: Exception
-) -> None:
+def _fail_in_the_window(harness: RealAppHarness, credential_name: str, exc: Exception) -> None:
     credential_strategy_cache(harness.client.app).get_or_create(
         provider=PROVIDER,
         auth_type="oauth",

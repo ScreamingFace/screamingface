@@ -1,17 +1,19 @@
-"""What configured endpoints must NOT change: the unconfigured app, the legacy backfill, the layers.
+"""What configured endpoints must NOT change: the unconfigured app and the layers.
 
 # FEATURE: hosted BYOM Unit 0 — configured endpoints are additive. With no config the gateway is
 # today's gateway; with a config, bundled providers, their auth routes and the provider listing
-# are unchanged, and the legacy Profile backfill never touches an endpoint's Connection pair.
+# are unchanged.
 # INVARIANT: `core/` never imports a plugin; only the top-level composition names the adapter.
+
+Retired at OME-1138 Stage E, E5c: `test_the_legacy_backfill_leaves_endpoint_pairs_untouched`
+— the `migrate_profiles` backfill it ran is gone; successor: the import guard in
+test_profile_index_offline_only.py.
 """
 
 from __future__ import annotations
 
 import ast
-import asyncio
 import inspect
-import sqlite3
 from pathlib import Path
 from typing import cast
 
@@ -19,14 +21,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway
-from aigateway import migrate_profiles
-from aigateway.config import Settings
 from aigateway.core.endpoint_access import PERMIT_ALL
 from aigateway.core.loader import load_plugins
 from aigateway.core.registry import ProviderRegistry
 
-from .conftest import Harness, put_key, tenant_headers
-from .fixtures import ACCOUNT_A, ACCOUNT_B, ENDPOINT_A, ENDPOINT_B, two_endpoint_document
+from .conftest import Harness, tenant_headers
+from .fixtures import ACCOUNT_A, ENDPOINT_A, ENDPOINT_B, two_endpoint_document
 
 _SRC = Path(inspect.getfile(aigateway)).resolve().parent
 _ADAPTER = "aigateway.plugins.remote_endpoint"
@@ -64,36 +64,6 @@ def test_without_config_the_app_is_the_bundled_app(byom: Harness) -> None:
     assert all(
         f"/v1/auth/{endpoint}" not in " ".join(paths) for endpoint in (ENDPOINT_A, ENDPOINT_B)
     )
-
-
-# --- the legacy backfill -------------------------------------------------------------------------
-
-
-def _dump(db_path: Path) -> list[str]:
-    with sqlite3.connect(db_path) as conn:
-        return list(conn.iterdump())
-
-
-def test_the_legacy_backfill_leaves_endpoint_pairs_untouched(byom: Harness) -> None:
-    pairs = [(ACCOUNT_A, ENDPOINT_A), (ACCOUNT_B, ENDPOINT_A), (ACCOUNT_A, ENDPOINT_B)]
-    with byom.start(two_endpoint_document()) as client:
-        for account, provider in pairs:
-            assert put_key(
-                client, account, provider, f"key-{account[:4]}-{provider[-4:]}"
-            ).is_success
-    before = _dump(byom.blobs.db_path)
-
-    # WHY the real CLI entry: it builds its OWN registry from `load_plugins` only, so it does not
-    # know the configured instances; their pairs must be skipped, never quarantined or rewritten.
-    report = asyncio.run(migrate_profiles.run(Settings(), mode="apply", account=None, journal=None))
-
-    assert _dump(byom.blobs.db_path) == before
-    records = [r for result in report.accounts for r in result.records]
-    endpoint_records = [r for r in records if r.provider in (ENDPOINT_A, ENDPOINT_B)]
-    assert len(endpoint_records) == len(pairs)
-    assert {(r.action, r.applied) for r in endpoint_records} == {("skip", False)}
-    for account, provider in pairs:
-        assert byom.stored_key(account, provider) == f"key-{account[:4]}-{provider[-4:]}"
 
 
 # --- the layer boundary --------------------------------------------------------------------------

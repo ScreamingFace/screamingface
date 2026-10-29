@@ -4,8 +4,7 @@
 # effective Connection through ONE authority. Since OME-1209 E3b these tests drive it through the
 # D18 admin PUT (`set_pair_api_key`), its only caller; the Profile-era op 8 retired with its
 # routes.
-# WHY no mirror (OME-1209 E4b): the authority write leaves a legacy document as it was; an R1
-# rollback is not coherent for a pair changed after E4b (spec §8 Q7).
+# WHY no mirror (OME-1209 E4b): the authority write leaves a legacy document as it was.
 # INVARIANT (design card): marker → Connection row → blob, one transaction; the marker advance is
 # the fence, so a stale writer changes nothing and surfaces `WriteConflict`.
 """
@@ -19,10 +18,9 @@ import pytest
 from connection_backed_admin_probes import (
     KEY,
     blob_at_connection_address,
-    blob_at_profile_address,
+    blob_at_name_address,
     connection,
     delete,
-    document,
     marker,
     put_pair_key,
 )
@@ -31,12 +29,12 @@ from provider_access_harness import PROVIDER
 
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import ProfileDefaults, ProfileState
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
     PairAuthorityStore,
     WriteConflict,
 )
+from tests.unit.seed_state import SeedState
 
 
 @pytest.fixture
@@ -58,8 +56,7 @@ def test_an_unreadable_marker_store_propagates_instead_of_guessing_the_owner(
     with pytest.raises(RuntimeError):
         put_pair_key(migrated)
 
-    assert document(migrated) is None
-    assert blob_at_profile_address(migrated) is None
+    assert blob_at_name_address(migrated) is None
 
 
 # --- the D18 key write on a migrated pair ---------------------------------------------------
@@ -68,18 +65,14 @@ def test_an_unreadable_marker_store_propagates_instead_of_guessing_the_owner(
 def test_set_api_key_writes_the_effective_connection_and_leaves_the_document(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    # The document carries HISTORICAL defaults; the write must leave it exactly as it was (E4b).
-    migrated.seed_document(
-        name="default", auth_type="oauth", defaults=ProfileDefaults(max_tokens=7)
-    )
+    migrated.seed_blob(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
-    before = document(migrated)
 
     put_pair_key(migrated)
 
     # The ONE blob of the pair sits at the Connection's locator (the Profile address); nothing
     # is written at the UUID-derived address a Connection-native write would use.
-    assert json.loads(blob_at_profile_address(migrated) or "{}") == {
+    assert json.loads(blob_at_name_address(migrated) or "{}") == {
         "auth_type": "api_key",
         "api_key": KEY,
     }
@@ -97,8 +90,6 @@ def test_set_api_key_writes_the_effective_connection_and_leaves_the_document(
         connection_id,
         2,
     )
-    assert before is not None
-    assert document(migrated) == before
     credential_name = credential_name_for(migrated.account_id, "default")
     assert migrated.evicted() == [credential_name]
     assert migrated.invalidated() == [credential_name]
@@ -107,12 +98,11 @@ def test_set_api_key_writes_the_effective_connection_and_leaves_the_document(
 def test_set_api_key_reactivates_an_errored_connection_and_drops_the_error_placeholder(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_document(name="default", state=ProfileState.ERROR, auth_type="oauth")
+    migrated.seed_blob(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(
-        name="default", state=ProfileState.ERROR, auth_type="oauth"
+        name="default", state=SeedState.ERROR, auth_type="oauth"
     )
     assert connection(migrated, connection_id).label == f"error:{connection_id}"
-    before = document(migrated)
 
     put_pair_key(migrated)
 
@@ -125,15 +115,11 @@ def test_set_api_key_reactivates_an_errored_connection_and_drops_the_error_place
     # WHY: `mark_error` left the OAuth placeholder label; an API key has no identity to name the
     # row by, so it takes the Connection-native `api-key-<id>` label (unique by construction).
     assert row.label == f"api-key-{connection_id}"
-    # WHY unchanged (OME-1209 E4b): the reactivation mirrors nothing onto the document.
-    assert before is not None
-    assert document(migrated) == before
-    assert migrated.profile_state("default") == "authenticated"
+    assert migrated.credential_state("default") == "authenticated"
 
 
 def test_set_api_key_completes_a_pending_connection(migrated: ConnectionBackedHarness) -> None:
-    migrated.seed_document(name="default", state=ProfileState.PENDING, credential=None)
-    connection_id = migrated.seed_authority(name="default", state=ProfileState.PENDING)
+    connection_id = migrated.seed_authority(name="default", state=SeedState.PENDING)
 
     put_pair_key(migrated)
 
@@ -143,8 +129,8 @@ def test_set_api_key_completes_a_pending_connection(migrated: ConnectionBackedHa
         "api_key",
         "default",
     )
-    assert json.loads(blob_at_profile_address(migrated) or "{}")["api_key"] == KEY
-    assert migrated.profile_state("default") == "authenticated"
+    assert json.loads(blob_at_name_address(migrated) or "{}")["api_key"] == KEY
+    assert migrated.credential_state("default") == "authenticated"
 
 
 # WHY "deleted" only: a revoked effective row with a stale reference is an inconsistent pair the
@@ -153,12 +139,11 @@ def test_set_api_key_completes_a_pending_connection(migrated: ConnectionBackedHa
 def test_set_api_key_without_a_usable_effective_connection_starts_a_new_one(
     migrated: ConnectionBackedHarness, how: str
 ) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
+    migrated.seed_blob(name="default", auth_type="oauth")
     old_id = migrated.seed_authority(name="default", auth_type="oauth")
     if how == "deleted":
         delete(migrated)
     generation_before = marker(migrated).generation
-    before = document(migrated)
 
     put_pair_key(migrated)
 
@@ -174,22 +159,17 @@ def test_set_api_key_without_a_usable_effective_connection_starts_a_new_one(
         "api_key",
         f"api-key-{new_id}",
     )
-    # WHY its own address (E5a, history cleanup): a minted row never takes a Profile address. The
-    # R1 rollback tool refuses this pair loudly (its alias document), as it does a native repair
-    # (Stage E spec Q7).
+    # WHY its own address (E5a, history cleanup): a minted row never takes a Profile address.
     assert fresh.credential_locator == credential_locator_for(PROVIDER, migrated.account_id, new_id)
     assert json.loads(blob_at_connection_address(migrated, new_id) or "{}")["api_key"] == KEY
-    assert blob_at_profile_address(migrated) is None
+    assert blob_at_name_address(migrated) is None
     assert connection(migrated, old_id).status == "revoked"
-    # WHY unchanged (OME-1209 E4b): neither the DELETE nor the PUT writes the document.
-    assert before is not None
-    assert document(migrated) == before
 
 
 def test_a_stale_marker_loses_and_writes_nothing(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
+    migrated.seed_blob(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
     real_read = PairAuthorityStore.read
     other_writer = PairAuthorityStore()
@@ -220,10 +200,7 @@ def test_a_stale_marker_loses_and_writes_nothing(
     assert (info.value.provider, info.value.requested) == (PROVIDER, None)
     row = connection(migrated, connection_id)
     assert (row.status, row.auth_type) == ("active", "oauth")
-    assert json.loads(blob_at_profile_address(migrated) or "{}")["access_token"] == "tok"
-    doc = document(migrated)
-    assert doc is not None
-    assert doc.auth_type == "oauth"
+    assert json.loads(blob_at_name_address(migrated) or "{}")["access_token"] == "tok"
     assert marker(migrated).generation == 2
     assert migrated.evicted() == []
 
@@ -231,7 +208,7 @@ def test_a_stale_marker_loses_and_writes_nothing(
 def test_a_connection_revoked_between_read_and_publish_wins(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
+    migrated.seed_blob(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
     store = OAuthConnectionStore()
     real_list = OAuthConnectionStore.list
@@ -261,10 +238,7 @@ def test_a_connection_revoked_between_read_and_publish_wins(
     # INVARIANT: nothing resurrected — the revoked row keeps its status AND its auth type (the
     # unfenced `set_auth_type` rolled back with the transaction).
     assert (row.status, row.auth_type) == ("revoked", "oauth")
-    assert json.loads(blob_at_profile_address(migrated) or "{}")["access_token"] == "tok"
-    doc = document(migrated)
-    assert doc is not None
-    assert doc.auth_type == "oauth"
+    assert json.loads(blob_at_name_address(migrated) or "{}")["access_token"] == "tok"
     assert marker(migrated).generation == 1
     assert migrated.evicted() == []
 
@@ -274,7 +248,7 @@ def test_a_failing_credential_store_rolls_back_the_connection_and_the_marker(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
+    migrated.seed_blob(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
 
     async def boom(*_args: Any, **_kwargs: Any) -> None:
@@ -287,12 +261,9 @@ def test_a_failing_credential_store_rolls_back_the_connection_and_the_marker(
 
     assert KEY not in str(info.value) and KEY not in repr(info.value)
     assert KEY not in caplog.text
-    # ONE transaction: the Connection row, the document and the marker all rolled back.
+    # ONE transaction: the Connection row and the marker both rolled back.
     row = connection(migrated, connection_id)
     assert (row.status, row.auth_type) == ("active", "oauth")
-    doc = document(migrated)
-    assert doc is not None
-    assert (doc.state, doc.auth_type) == (ProfileState.AUTHENTICATED, "oauth")
-    assert json.loads(blob_at_profile_address(migrated) or "{}")["access_token"] == "tok"
+    assert json.loads(blob_at_name_address(migrated) or "{}")["access_token"] == "tok"
     assert marker(migrated).generation == 1
     assert migrated.evicted() == []

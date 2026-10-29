@@ -1009,8 +1009,8 @@ def test_connection_completion_persist_failure_is_sanitized_and_non_active(
 
 
 # WHY no index-conflict 503 test (OME-1209 E4b): the callback writes no Profile document, so no
-# index CAS conflict can surface on it; `core/provider_access/test_no_profile_writer.py` pins the
-# callback leaving a same-named document as it was.
+# index CAS conflict can surface on it; since E5c (OME-1138) the index no longer exists
+# (`test_profile_index_offline_only.py`).
 
 
 @pytest.mark.parametrize(

@@ -5,8 +5,8 @@ credential row, the order index-first writers needed on PostgreSQL. E4b removes 
 from completion, so every writer now takes marker → Connection row → blob.
 
 Successors:
-- no index write on completion: `core/provider_access/test_no_profile_writer.py::`
-  `test_a_native_callback_leaves_a_same_named_document_as_it_was`;
+- no index write on completion: since OME-1138 Stage E, E5c the index no longer exists
+  (`test_profile_index_offline_only.py`);
 - the one lock order on PostgreSQL:
   `tests/integration/test_provider_access_shared_addresses_postgres.py`.
 """

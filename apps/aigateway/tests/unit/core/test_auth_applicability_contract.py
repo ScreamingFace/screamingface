@@ -294,9 +294,9 @@ def test_the_real_anthropic_contract_shows_both_disabled_kinds_side_by_side() ->
 
 @pytest.mark.asyncio
 async def test_the_route_reports_native_top_k_enabled_on_an_api_key_credential(
-    authenticated_client, credential_blobs
+    authenticated_client,
 ) -> None:
-    body = await _anthropic_contract(authenticated_client, credential_blobs, "api_key")
+    body = await _anthropic_contract(authenticated_client, "api_key")
     entry = body["parameters"][_NATIVE_TOP_K]
 
     assert body["context"]["auth_mode"] == "api_key"
@@ -306,9 +306,9 @@ async def test_the_route_reports_native_top_k_enabled_on_an_api_key_credential(
 
 @pytest.mark.asyncio
 async def test_the_route_reports_native_top_k_wrong_auth_on_an_oauth_credential(
-    authenticated_client, credential_blobs
+    authenticated_client,
 ) -> None:
-    body = await _anthropic_contract(authenticated_client, credential_blobs, "oauth")
+    body = await _anthropic_contract(authenticated_client, "oauth")
     entry = body["parameters"][_NATIVE_TOP_K]
 
     assert body["context"]["auth_mode"] == "oauth"
@@ -324,9 +324,9 @@ async def test_the_route_reports_native_top_k_wrong_auth_on_an_oauth_credential(
 
 @pytest.mark.asyncio
 async def test_the_served_oauth_contract_never_calls_a_shipped_projection_unimplemented(
-    authenticated_client, credential_blobs
+    authenticated_client,
 ) -> None:
-    body = await _anthropic_contract(authenticated_client, credential_blobs, "oauth")
+    body = await _anthropic_contract(authenticated_client, "oauth")
 
     # Every Anthropic path is ruled, so after this unit NO row in the served document
     # may claim the gateway has no projection for it.
@@ -338,23 +338,10 @@ async def test_the_served_oauth_contract_never_calls_a_shipped_projection_unimpl
     assert unimplemented == []
 
 
-async def _anthropic_contract(client, credential_blobs, auth_type: AuthType) -> dict[str, Any]:
-    from aigateway.core.credential_names import profile_id_for
-    from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import Profile, ProfileState
+async def _anthropic_contract(client, auth_type: AuthType) -> dict[str, Any]:
     from tests.unit.migrated_pair_seed import seed_migrated_pair
 
     account_id = client.get("/v1/auth/me").json()["id"]
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type=auth_type,
-        )
-    )
     # WHY the key: a migrated api_key pair reads its blob at resolve; an OAuth one reads none.
     key = "sk-ant-api03-never-validated" if auth_type == "api_key" else None
     seed_migrated_pair(client, account_id, "anthropic", auth_type=auth_type, credential=key)

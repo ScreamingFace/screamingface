@@ -13,8 +13,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Coroutine
-from functools import partial
 from typing import Any, cast, get_args
 
 import pytest
@@ -22,12 +20,10 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway.main as main_module
-from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
 from aigateway.core.provider_access import profile_authorize as authorize_module
 from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 ROUTE = "/v1/provider-access"
 STATUSES: frozenset[str] = frozenset(get_args(AvailabilityStatus))
@@ -50,34 +46,13 @@ class _Edge:
         self.client = client
         self.app = _app(client)
         self.account_id: str = client.get("/v1/auth/me").json()["id"]
-        # WHY a store built here (OME-1209 E4b): the app wires no Profile index.
-        self.index = ProfileIndexStore(credential_store=self.app.state.credential_store)
         self.registered: set[str] = {
             plugin.custom_llm_provider for plugin in self.app.state.providers.all()
         }
 
-    def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
-        portal = self.client.portal
-        assert portal is not None
-        return portal.call(partial(fn, *args, **kwargs))
-
-    def seed(self, provider: str, state: str, name: str, **fields: Any) -> Profile:
-        profile = Profile(
-            id=profile_id_for(self.account_id, provider, name),
-            account_id=self.account_id,
-            provider=provider,
-            name=name,
-            state=ProfileState(state),
-            **fields,
-        )
-        self.call(self.index.upsert, profile)
-        return profile
-
     def seed_pair(self, provider: str, state: str, **fields: Any) -> None:
         """A migrated pair whose effective Connection is in `state` — what availability reads."""
-        seed_migrated_pair(
-            self.client, self.account_id, provider, state=ProfileState(state), **fields
-        )
+        seed_migrated_pair(self.client, self.account_id, provider, state=SeedState(state), **fields)
 
     def get(self, headers: dict[str, str] | None = None) -> Any:
         response = self.client.get(ROUTE, headers=headers)
@@ -241,12 +216,6 @@ def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
     monkeypatch.setattr(authorize_module, "credential_strategy_from", _no_strategy)
     for name in ("write", "mutate", "delete"):
         monkeypatch.setattr(store, name, _no_write)
-    for name in (
-        "upsert",
-        "remove",
-        "mark_authenticated_error",
-    ):
-        monkeypatch.setattr(edge.index, name, _no_write)
 
     statuses = edge.statuses(edge.get().json())
 
@@ -255,25 +224,6 @@ def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
 
 
 def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edge) -> None:
-    oauth = edge.seed(
-        "anthropic",
-        "authenticated",
-        "work-oauth",
-        account_label="alice@example.com",
-        scopes=["user:inference"],
-        defaults=ProfileDefaults(
-            model="anthropic/claude-x", system_prompt="be terse", max_tokens=99
-        ),
-    )
-    key = edge.seed(
-        "openai",
-        "authenticated",
-        "team-key",
-        auth_type="api_key",
-        defaults=ProfileDefaults(model="openai/gpt-x", temperature=0.25),
-    )
-    broken = edge.seed("codex", "error", "broken-oauth")
-
     body = edge.get().json()
 
     # Structural: the only keys are the three the contract names, and the only leaf values are
@@ -283,24 +233,21 @@ def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edg
     leaves = {value for row in body["providers"] for value in row.values()}
     assert all(isinstance(leaf, str) for leaf in leaves)
     assert leaves <= edge.registered | STATUSES
-    # Explicit: none of the seeded identifying values leaks in any form.
+    # Explicit: none of these identifying values leaks in any form.
     text = json.dumps(body)
     for forbidden in (
         edge.account_id,
-        oauth.id,
-        oauth.name,
+        "work-oauth",
         "alice@example.com",
         "user:inference",
         "claude-x",
         "be terse",
         "99",
-        key.id,
-        key.name,
+        "team-key",
         "api_key",
         "gpt-x",
         "0.25",
-        broken.id,
-        broken.name,
+        "broken-oauth",
         "/v1/auth/",
         "reauth_url",
     ):

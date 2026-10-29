@@ -5,10 +5,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 _MODEL = "anthropic/claude-opus-4-8"
 _GEMINI = "gemini-cli/gemini-2.5-flash"
@@ -77,26 +75,14 @@ def test_profileless_environment_access_is_live_and_secret_free(
 
 async def _profile(
     client,
-    credential_blobs,
     account_id,
     *,
     name="default",
     auth_type: AuthType = "api_key",
-    state=ProfileState.AUTHENTICATED,
+    state=SeedState.AUTHENTICATED,
 ):
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", name),
-            account_id=account_id,
-            provider="anthropic",
-            name=name,
-            state=state,
-            auth_type=auth_type,
-        )
-    )
-    # WHY: resolve reads the pair's authority, not the document (OME-1209 E4a); an api-key
-    # target's resolve reads its blob's operational register, so that blob exists unvalidated.
+    # WHY: an api-key target's resolve reads its blob's operational register, so that blob
+    # exists unvalidated.
     seed_migrated_pair(
         client,
         account_id,
@@ -115,8 +101,8 @@ async def test_stored_target_is_configured_without_credential_validation(
 ):
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
     _assert_access(_details(authenticated_client), "missing")
-    await _profile(authenticated_client, credential_blobs, account_id, auth_type=auth_type)
-    # WHY: a profile record is configuration, not proof that its secret is valid.
+    await _profile(authenticated_client, account_id, auth_type=auth_type)
+    # WHY: a stored target is configuration, not proof that its secret is valid.
     response = _details(authenticated_client)
     _assert_access(response, "configured")
     assert account_id not in response.text
@@ -127,7 +113,7 @@ async def test_other_account_profile_does_not_grant_access(
     authenticated_client, credential_blobs, provisioned_user_factory
 ):
     other = provisioned_user_factory("different-account")["id"]
-    await _profile(authenticated_client, credential_blobs, other)
+    await _profile(authenticated_client, other)
     _assert_access(_details(authenticated_client), "missing")
 
 
@@ -135,15 +121,15 @@ async def test_other_account_profile_does_not_grant_access(
 @pytest.mark.parametrize(
     ("state", "status", "code"),
     [
-        (ProfileState.PENDING, 409, "profile_pending_auth"),
-        (ProfileState.ERROR, 401, "auth_required"),
+        (SeedState.PENDING, 409, "profile_pending_auth"),
+        (SeedState.ERROR, 401, "auth_required"),
     ],
 )
 async def test_profile_failures_remain_typed(
     authenticated_client, credential_blobs, state, status, code
 ):
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await _profile(authenticated_client, credential_blobs, account_id, state=state)
+    await _profile(authenticated_client, account_id, state=state)
     response = _details(authenticated_client)
     assert response.status_code == status
     assert response.json()["detail"]["code"] == code

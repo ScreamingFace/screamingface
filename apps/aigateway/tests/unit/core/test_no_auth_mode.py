@@ -17,6 +17,10 @@ the type checker enforces it rather than a validation rule someone can forget.
 INVARIANT: ``none`` is resolved from the PROVIDER's own declaration, never from a
 missing profile. A provider that merely permits a profile-less request still
 resolves to a real mode.
+
+Retired at OME-1138 Stage E, E5c: `test_a_resolved_profile_still_wins_over_the_provider_declaration`
+— no Profile resolves any more; successor: `test_a_connection_auth_type_still_wins`. The
+`profile` case of `test_none_cannot_be_persisted` went with the Profile model.
 """
 
 from __future__ import annotations
@@ -32,14 +36,13 @@ from aigateway.core.auth_types import AuthMode, AuthType
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import OAuthConnectionResponse
 from aigateway.core.plugin_base import ModelEntry, OAuthConfig, ProviderPluginBase
-from aigateway.core.profile_models import Profile
 from aigateway.core.provider_access import auth_mode_for, auth_type_of
 
 
-def resolved_auth_mode(profile: Any, connection: Any, *, plugin: Any) -> Any:
+def resolved_auth_mode(connection: Any, *, plugin: Any) -> Any:
     """The port composition the retired `routes/chat_credentials.py` shim wrapped (E2b)."""
-    stored = profile is not None or connection is not None
-    return auth_mode_for(auth_type_of(profile, connection) if stored else None, plugin=plugin)
+    stored = None if connection is None else auth_type_of(connection)
+    return auth_mode_for(stored, plugin=plugin)
 
 
 class _NoAuthPlugin(ProviderPluginBase):
@@ -91,20 +94,14 @@ def test_the_resolved_mode_admits_none_and_the_persisted_type_does_not() -> None
     assert set(get_args(AuthType)) == {"oauth", "api_key"}
 
 
-# WHY the two ignores below: pyright REJECTING these calls is the primary result —
-# it is the static half of the guarantee, and the reason the split was chosen over
-# widening AuthType. The ignores let the runtime half be asserted as well, so the
-# protection survives a caller that reaches these models untyped (e.g. from parsed
+# WHY the ignore below: pyright REJECTING this call is the primary result — it is
+# the static half of the guarantee, and the reason the split was chosen over
+# widening AuthType. The ignore lets the runtime half be asserted as well, so the
+# protection survives a caller that reaches the model untyped (e.g. from parsed
 # JSON). Same pattern, same reason as test_chat_parameter_contract.py.
 @pytest.mark.parametrize(
     "build",
     [
-        lambda: Profile(
-            id="a:p:default",
-            provider="p",
-            name="default",
-            auth_type="none",  # type: ignore[arg-type]
-        ),
         lambda: OAuthConnectionResponse(
             id=UUID(int=1),
             account_id=UUID(int=2),
@@ -116,7 +113,7 @@ def test_the_resolved_mode_admits_none_and_the_persisted_type_does_not() -> None
             created_at=datetime(2026, 7, 27, tzinfo=UTC),
         ),
     ],
-    ids=["profile", "oauth_connection"],
+    ids=["oauth_connection"],
 )
 def test_none_cannot_be_persisted(build: Any) -> None:
     # A regression guard with a specific target: someone later "simplifying" the two
@@ -134,26 +131,18 @@ def test_none_cannot_be_persisted(build: Any) -> None:
 
 
 def test_a_provider_declaring_no_auth_resolves_to_none() -> None:
-    assert resolved_auth_mode(None, None, plugin=_NoAuthPlugin()) == "none"
+    assert resolved_auth_mode(None, plugin=_NoAuthPlugin()) == "none"
 
 
 def test_a_provider_that_merely_allows_a_profileless_request_still_resolves_real_auth() -> None:
     # INVARIANT under test: the trigger is the provider declaration, NOT the absent
-    # profile. Both doubles reach this call with (None, None).
-    assert resolved_auth_mode(None, None, plugin=_ChatlessButAuthenticatedPlugin()) == "oauth"
-
-
-def test_a_resolved_profile_still_wins_over_the_provider_declaration() -> None:
-    profile = Profile(id="a:p:default", provider="p", name="default", auth_type="api_key")
-    plugin = _ChatlessButAuthenticatedPlugin()
-    assert resolved_auth_mode(profile, None, plugin=plugin) == "api_key"
+    # profile. Both doubles reach this call with no stored credential.
+    assert resolved_auth_mode(None, plugin=_ChatlessButAuthenticatedPlugin()) == "oauth"
 
 
 def test_a_connection_auth_type_still_wins() -> None:
     connection = OAuthConnection(provider="p", label="default", auth_type="api_key")
-    assert resolved_auth_mode(None, connection, plugin=_ChatlessButAuthenticatedPlugin()) == (
-        "api_key"
-    )
+    assert resolved_auth_mode(connection, plugin=_ChatlessButAuthenticatedPlugin()) == "api_key"
 
 
 # --- what the provider advertises ---------------------------------------------

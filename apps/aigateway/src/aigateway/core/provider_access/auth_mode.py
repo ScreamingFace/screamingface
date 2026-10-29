@@ -11,26 +11,19 @@ from typing import Any, cast
 
 from ..auth_types import AuthMode, AuthType
 from ..oauth.models import OAuthConnection
-from ..profile_models import Profile
 from .types import CredentialTarget, UnsupportedAuthMode
 
 
-def auth_type_of(profile: Profile | None, connection: OAuthConnection | None) -> AuthType:
+def auth_type_of(connection: OAuthConnection) -> AuthType:
     """The PERSISTED credential type of a stored target.
 
     # INVARIANT: the auth type is never caller-declared — it is derived solely from the stored
-    # connection/profile. A connection's own `auth_type` wins; a bare profile uses its
-    # `auth_type`; with neither resolved, oauth is the safe default. Single source so chat
-    # dispatch and the detailed contract cannot disagree about which mode a target uses.
+    # Connection; an empty stored value falls back to oauth. Single source so chat dispatch and
+    # the detailed contract cannot disagree about which mode a target uses.
     """
-    if connection is not None:
-        # WHY: tortoise-orm >=1.1.8 types CharField as `str`; the stored column is a bare
-        # CharField, so narrowing it back to AuthType is ours to assert. `or "oauth"` keeps the
-        # documented fallback for an empty stored value.
-        return cast(AuthType, connection.auth_type or "oauth")
-    if profile is not None:
-        return profile.auth_type
-    return "oauth"
+    # WHY: tortoise-orm >=1.1.8 types CharField as `str`; the stored column is a bare CharField,
+    # so narrowing it back to AuthType is ours to assert.
+    return cast(AuthType, connection.auth_type or "oauth")
 
 
 def available_auth_modes(plugin: Any) -> tuple[AuthMode, ...]:

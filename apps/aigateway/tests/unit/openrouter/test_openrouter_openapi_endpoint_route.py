@@ -27,12 +27,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aigateway.core.chat_parameters import ProviderParameterObservation
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openrouter_provider.discovery import MODELS_URL, OPENAPI_URL
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
@@ -77,18 +74,7 @@ class _Clock:
         return 1000.0
 
 
-async def _contract(credential_blobs, client: TestClient) -> dict[str, Any]:
-    account_id = client.get("/v1/auth/me").json()["id"]
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "openrouter", "default"),
-            account_id=account_id,
-            provider="openrouter",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
+async def _contract(client: TestClient) -> dict[str, Any]:
     resp = client.get("/v1/model-parameters", params={"model": _MODEL})
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -96,26 +82,26 @@ async def _contract(credential_blobs, client: TestClient) -> dict[str, Any]:
 
 @pytest.mark.asyncio
 async def test_the_route_publishes_evidence_sourced_from_the_openapi_document(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     _install_runtime(
         authenticated_client, _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
     )
-    body = await _contract(credential_blobs, authenticated_client)
+    body = await _contract(authenticated_client)
     sources = {row["provider"]["source"] for row in body["parameters"].values()}
     assert "openrouter:openapi" in sources
 
 
 @pytest.mark.asyncio
 async def test_the_route_publishes_the_declared_shape_of_an_unprojected_field(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     # service_tier has no gateway rule, so this row is visible-but-DISABLED — and the
     # endpoint schema is the only shape a client can see for it.
     _install_runtime(
         authenticated_client, _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
     )
-    row = (await _contract(credential_blobs, authenticated_client))["parameters"]["service_tier"]
+    row = (await _contract(authenticated_client))["parameters"]["service_tier"]
     assert row["gateway"]["status"] == "disabled"
     assert row["gateway"]["reason"] == "projection_not_implemented"
     assert row["schema"] == {"type": "string", "enum": ["auto", "default", "flex"]}
@@ -123,19 +109,19 @@ async def test_the_route_publishes_the_declared_shape_of_an_unprojected_field(
 
 @pytest.mark.asyncio
 async def test_the_route_publishes_the_providers_deprecation_verdict(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     _install_runtime(
         authenticated_client, _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
     )
-    params = (await _contract(credential_blobs, authenticated_client))["parameters"]
+    params = (await _contract(authenticated_client))["parameters"]
     assert params["route"]["provider"]["deprecated"] is True
     assert params["temperature"]["provider"]["deprecated"] is False
 
 
 @pytest.mark.asyncio
 async def test_a_gateway_owned_rule_schema_still_outranks_the_endpoints(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     # the endpoint declares a bare `{"type": "number"}` for temperature; the gateway's
     # own rule carries the bounds it VALIDATES against. Evidence must never displace
@@ -143,7 +129,7 @@ async def test_a_gateway_owned_rule_schema_still_outranks_the_endpoints(
     _install_runtime(
         authenticated_client, _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
     )
-    row = (await _contract(credential_blobs, authenticated_client))["parameters"]["temperature"]
+    row = (await _contract(authenticated_client))["parameters"]["temperature"]
     assert row["gateway"]["status"] == "enabled"
     assert row["schema"]["maximum"] is not None
 
@@ -197,7 +183,7 @@ def test_the_source_revision_and_lifecycle_both_reach_contract_identity() -> Non
 
 @pytest.mark.asyncio
 async def test_the_new_source_moves_no_gateway_decision(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     # F12 semantics, owner-locked: dynamic observations move the EVIDENCE axis only.
     # A deprecated, endpoint-observed `route` must not become dispatchable, and the
@@ -205,7 +191,7 @@ async def test_the_new_source_moves_no_gateway_decision(
     _install_runtime(
         authenticated_client, _RoutingClient({MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI})
     )
-    params = (await _contract(credential_blobs, authenticated_client))["parameters"]
+    params = (await _contract(authenticated_client))["parameters"]
     assert params["route"]["gateway"]["status"] == "disabled"
 
     row = next(

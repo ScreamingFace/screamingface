@@ -4,9 +4,9 @@
 # parameters, admission and dispatch-failure marking onto `core/provider_access`; this test is
 # what keeps them there, and what stops a NEW module from reaching around the port.
 # INVARIANT: outside the owners listed in `_OWNERS`, no module under `src/aigateway/` imports
-# `Profile`, `ProfileState`, `ProfileIndexStore` or `OAuthConnection`. Since E2a (OME-1209) the
-# credential vocabulary — `AuthMode`, `AuthType`, `credential_name_for`, `profile_id_for` — lives in
-# `core/auth_types.py` and `core/credential_names.py`, and no non-owner imports `profile_models`.
+# `OAuthConnection`, nor any Profile name OME-1138 Stage E, E5c deleted (`Profile`, `ProfileState`,
+# `ProfileIndexStore`) should one come back. The credential vocabulary — `AuthMode`, `AuthType`,
+# `credential_name_for` — lives in `core/auth_types.py` and `core/credential_names.py`.
 # AIDEV-NOTE: this checks the SOURCE, not runtime behaviour. A module that imports the row lazily
 # inside a function is still a direct dependency, and the AST walk sees it.
 """
@@ -30,10 +30,8 @@ _BANNED = frozenset({"Profile", "ProfileState", "ProfileIndexStore", "OAuthConne
 # WHY an allow-list keyed by path, with a reason each: every entry is a promise about WHEN it
 # goes away, so the boundary cannot quietly widen. Paths are relative to `src/aigateway/`.
 _OWNERS: dict[str, str] = {
-    # The boundary itself and the legacy modules it adapts — these ARE the compatibility window.
+    # The boundary itself and the Connection row it reads.
     "core/provider_access/": "the port and its Profile-backed implementation; Stage B swaps it",
-    "core/profile_models.py": "the legacy row and its value types",
-    "core/profile_index.py": "the legacy index store",
     "core/oauth/": "the Connection row, its store and the OAuth flows",
     # Management surfaces reduced to shells at A3 and retired at Stage E (OME-1209).
     "routes/admin.py": "tenant admin listing; moves onto the admin port at A3",
