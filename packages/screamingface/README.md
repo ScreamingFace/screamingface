@@ -1137,7 +1137,7 @@ benchmarks = sf.benchmarks.list()
 boards = sf.leaderboards.list()
 draco_board = sf.leaderboards.get("draco", top=50)
 
-# After evaluating a Benchmark whose Scoreboard accepts submissions:
+# After evaluating, with capture=True, a Benchmark whose Scoreboard accepts submissions:
 submission = sf.leaderboards.submit(
     report.candidates.only,
     authors=["alice@example.com", "bob@example.org"],
@@ -1155,7 +1155,7 @@ sf.leaderboards.edit(
     paper_metadata={"title": "Our ensemble", "url": "https://arxiv.org/abs/2610.01234"},
 )
 
-# Replay the published run at $0 from its pinned cache and check that it reproduces:
+# Replay the published run at $0 from its pinned cache (None unless it ran with capture=True):
 replay = sf.evaluate(pinned_cache=same_submission.pinned_cache)
 reproduction = replay.candidates.only.reproduction
 if reproduction is not None:
@@ -1219,8 +1219,8 @@ or introduce a separate discovery operation.
 
 ### Replay a published run
 
-Every `evaluate` captures a **pinned cache** by default: every model and web-tool answer of the
-run, stored with it (`CandidateResult.pinned_cache`). After the result is submitted,
+`evaluate(..., capture=True)` captures a **pinned cache**: every model and web-tool answer of the
+run, stored with it (`CandidateResult.pinned_cache`). Capture is off by default. After the result is submitted,
 `sf.evaluate(pinned_cache="<id>")` replays that run at $0: the recipe and answer seed come from the
 public board, and every call is answered from the pinned cache. `CandidateResult.reproduction` then
 says whether the replay gave the published score: `exact`, or `failed` with a `reason` and the

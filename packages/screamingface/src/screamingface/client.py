@@ -223,7 +223,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -237,7 +237,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -295,10 +295,10 @@ class Client:
         `CandidateResult.reproduction`. An exact replay is recorded on the Scoreboard unless
         `record_reproduction=False`. A replay that cannot start raises `sf.ReproductionError`.
 
-        `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
-        `capture=False` turns it off. An Engine that did not capture a run is reported with an
-        `EvaluationWarning`.
+        `capture` is off by default. `capture=True` makes the Engine store every model and
+        web-tool result of each run in a pinned cache (`CandidateResult.pinned_cache`), so the
+        score can be reproduced later. An Engine that did not capture a run it was asked to
+        capture is reported with an `EvaluationWarning`.
 
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
@@ -324,7 +324,7 @@ class Client:
                 progress=progress,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-        capture = True if capture is None else capture
+        capture = bool(capture)
         # FEATURE (OME-1193): validate the declared sitting at the door — a bad seed must
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
@@ -702,7 +702,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -716,7 +716,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -769,10 +769,10 @@ class AsyncClient:
     ) -> Report:
         """Asynchronously evaluate Recipes, replay a complete URL4, or replay a pinned cache.
 
-        `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
-        `capture=False` turns it off. An Engine that did not capture a run is reported with an
-        `EvaluationWarning`.
+        `capture` is off by default. `capture=True` makes the Engine store every model and
+        web-tool result of each run in a pinned cache (`CandidateResult.pinned_cache`), so the
+        score can be reproduced later. An Engine that did not capture a run it was asked to
+        capture is reported with an `EvaluationWarning`.
 
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
@@ -798,7 +798,7 @@ class AsyncClient:
                 progress=progress,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-        capture = True if capture is None else capture
+        capture = bool(capture)
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
         _use_cache_value(use_cache)

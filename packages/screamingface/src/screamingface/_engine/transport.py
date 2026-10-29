@@ -1406,9 +1406,10 @@ def _cache_headers(use_cache: bool) -> dict[str, str]:
 def _frozen_copy_headers(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
     """The frozen-copy mode as start headers; nothing for a normal run.
 
-    INVARIANT (OME-1307): absence is the transport default; the public `evaluate` turns capture on
-    (Q22). `X-Capture` is sent only when true, and `X-Replay-Frozen-Copy` only for `reproduce`; the
-    Engine refuses both together, so this helper refuses to build both.
+    INVARIANT (OME-1307): absence is the transport default, and the public `evaluate` keeps it:
+    capture is opt-in (`capture=True`). `X-Capture` is sent only when true, and
+    `X-Replay-Frozen-Copy` only for a replay; the Engine refuses both together, so this helper
+    refuses to build both.
     """
     if capture and replay_frozen_copy is not None:
         raise ValueError("capture and replay_frozen_copy are mutually exclusive")

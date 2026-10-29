@@ -172,7 +172,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
     use_cache: bool = True,
 ) -> Report: ...
 
@@ -186,7 +186,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
     use_cache: bool = True,
 ) -> Report: ...
 
@@ -264,7 +264,7 @@ def evaluate(
         )
     # One home for these checks: the Client's (review fix, no third copy here).
     candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-    capture = True if capture is None else capture
+    capture = bool(capture)
     if isinstance(candidates, str):
         if benchmark is not None:
             raise TypeError("benchmark must not be passed when evaluating a complete URL4")

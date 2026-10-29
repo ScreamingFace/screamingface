@@ -4,6 +4,11 @@
 
 ### Breaking changes
 
+* **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
+  opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to
+  store the run's answers so the score can be reproduced. A run without `capture=True` has no
+  `pinned_cache` and no `capture_status`. A replay still never captures.
+
 * `sf.configure(engine_url=...)` with a non-default Engine now requires `scoreboard_url=`, and
   `SCREAMINGFACE_ENGINE_URL` requires `SCREAMINGFACE_SCOREBOARD_URL`. Previously the pair fell
   back to the hosted leaderboard, so a local or preview run could publish there.

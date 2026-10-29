@@ -29,8 +29,8 @@ Stages of one rehearsal, in execution order:
    an untaped model is ``fake_gateway_unmatched_request`` (the Tape contract —
    ``lookup`` returns the exchange or ``None``, and ``None`` surfaces as a loud error,
    deliberately no default response), any other route is ``fake_gateway_unroutable``.
-   The frozen-copy routes (open, seal, tool-results) answer fixed bookkeeping replies so the
-   default capture path runs; they never invent a model answer. Failure injection ONLY: the
+   The frozen-copy routes (open, seal, tool-results) answer fixed bookkeeping replies so a
+   `capture=True` run works; they never invent a model answer. Failure injection ONLY: the
    stand-in never invents an answer and never falls back
    to anything.
 
@@ -63,7 +63,7 @@ from .tape import RecordedExchange, Tape
 _COMPLETIONS_PATH = "/v1/chat/completions"
 _HEALTH_PATH = "/healthz"
 _MODELS_PATH = "/v1/models"
-# The frozen-copy surface the engine uses on a default (capture=True) run — shapes match the
+# The frozen-copy surface the engine uses on a `capture=True` run — shapes match the
 # real gateway's routes (apps/aigateway routes/frozen_copies.py).
 _FROZEN_COPIES_PATH = "/v1/frozen-copies"
 _FAKE_COPY_ID = "00000000-0000-4000-8000-000000000001"

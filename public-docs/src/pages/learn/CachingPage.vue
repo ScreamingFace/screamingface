@@ -71,9 +71,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      <code>sf.evaluate</code> makes a pinned cache of each run by default. Pass
-      <code>capture=False</code> to turn this off. A leaderboard submission keeps the copy id and
-      the capture status. <code>sf.evaluate(pinned_cache="…")</code> reads the published score's
+      <code>sf.evaluate(..., capture=True)</code> makes a pinned cache of the run. Capture is off by
+      default. A leaderboard submission keeps the copy id and the capture status.
+      <code>sf.evaluate(pinned_cache="…")</code> reads the published score's
       <RouterLink to="/learn/url4">url4</RouterLink> and answer seed from the board and replays the
       captured answers. A replay never captures; explicit <code>capture=True</code> is an error. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
@@ -100,7 +100,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h3>Make a pinned cache</h3>
 
     <p>
-      When capture is on (the default), the Engine opens a pinned cache in the
+      When capture is on (<code>capture=True</code>), the Engine opens a pinned cache in the
       <RouterLink to="/learn/ai-gateway">AI gateway</RouterLink> when the run starts. The gateway
       stores each model answer. It stores the answer that the caller got, whether the answer came
       from the cache or from a live call. Model calls of the benchmark's judges are stored too. The
@@ -124,8 +124,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
       account that has the id and sends the exact request can read the stored answer. On a private
       board, only the submitter of a score can read it, so no one else gets its copy id. Capture is
-      on by default. If you do not want to share the answers of a run, pass
-      <code>capture=False</code> to that run.
+      off by default. Pass <code>capture=True</code> only to a run whose answers you want to share.
     </p>
 
     <h3>Local runs</h3>
@@ -226,9 +225,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       A run that is not captured has no <code>capture_status</code> (<code>None</code>), and no
-      pinned cache id. A run is not captured when you pass <code>capture=False</code>, or when the
-      Engine did not capture it. <code>None</code> means unknown, not partial. If capture is on and
-      the Engine did not capture the run (an older Engine), the Client emits an
+      pinned cache id. A run is not captured when you do not pass <code>capture=True</code>, or when
+      the Engine did not capture it. <code>None</code> means unknown, not partial. If capture is on
+      and the Engine did not capture the run (an older Engine), the Client emits an
       <code>EvaluationWarning</code>, and the result keeps <code>None</code>. A score from a
       leaderboard that predates pinned caches has no status too. The Client raises
       <code>ReproductionError</code> with code <code>not_reproducible</code> and
