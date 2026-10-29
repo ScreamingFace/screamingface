@@ -74,9 +74,10 @@ class ProviderAccess(Protocol):
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
         """Op 6 — the caller-scoped listing (D17): provider and status only.
 
-        No secret read, no refresh, no mutation. Operational evidence for an effective migrated
-        Connection may project `needs_reauth` without changing its lifecycle status. Rows are the
-        registered providers the caller may view; no other provider's pair is read.
+        No secret read, no refresh, no mutation. Each status follows the default chat resolve
+        (OME-1138, D17 fold-in): operational evidence for the API-key Connection it would serve
+        may project `needs_reauth` without changing its lifecycle status. Rows are the registered
+        providers the caller may view; no other provider's pair is read for a status.
         """
         ...
 

@@ -10,7 +10,7 @@
 # for a provider that is not registered, and no catalog surface reaches the upstream.
 # INVARIANT: no catalog answer names an origin, a request path or an upstream model.
 # INVARIANT: an availability row is a registered provider the caller may see. A stored pair of any
-# other provider stays stored, is never read for the listing and gets no row.
+# other provider stays stored, is never read for a status and gets no row.
 """
 
 from __future__ import annotations

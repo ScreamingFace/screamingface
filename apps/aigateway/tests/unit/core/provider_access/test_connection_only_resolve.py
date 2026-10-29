@@ -335,7 +335,7 @@ def test_an_unusable_effective_connection_is_refused_beside_an_active_sibling(
         _resolve(h)
 
 
-# --- availability: the registry and the migrated markers only -----------------------------------
+# --- availability: quarantine and the effective reference (label rule: its own module) ----------
 
 
 def test_availability_reports_no_profile_state_and_reads_no_index(
@@ -350,7 +350,7 @@ def test_availability_reports_no_profile_state_and_reads_no_index(
     assert set(statuses.values()) == {"not_connected"}
 
 
-@pytest.mark.parametrize("state", ["none", "quarantined"])
+@pytest.mark.parametrize("state", ["quarantined"])
 def test_availability_reports_a_non_migrated_pair_as_not_connected(
     h: ConnectionBackedHarness, state: MigrationState
 ) -> None:

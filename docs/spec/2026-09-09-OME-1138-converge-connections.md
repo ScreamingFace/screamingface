@@ -159,7 +159,12 @@ URL, authorization, dispatch failure), `profile_defaults.py` (legacy-defaults re
    mutation. The Profile-backed implementation reproduces the Engine aggregation exactly
    (authenticated > pending > error; Connection-only accounts show `not_connected`; `needs_reauth`
    never emitted in the window), proven by golden-equivalence tests at A3; folding Connections in
-   is a later flagged behaviour change.
+   is a later flagged behaviour change. Folded in on 2026-10-29
+   (`docs/spec/2026-10-29-availability-fold-in.md`): a pair its marker's effective reference does
+   not serve lists by the default resolve's label rule, and an ambiguous pair lists `error`. A
+   `quarantined` pair and a provider declaring only the `none` auth mode still list
+   `not_connected`. The change ships without a runtime flag; rolling back the image restores the
+   old listing.
 
 `ProviderCredentialAdmin` (mutations, `app.state.provider_credential_admin`):
 
