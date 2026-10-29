@@ -111,7 +111,9 @@ pending (Acceptance). Hosted readiness is not claimed.
     call).
   - SDK test (new): `packages/screamingface/tests/test_hosted_byom_preflight.py` (each account's
     view settles preflight before dispatch, plain Model and mixed Fusion, seeded run refused).
-- **Commits:** none. Staging, commit and push were not authorized for this slice.
+- **Commits:** `5cafdd906` feat(screamingface-engine): run configured endpoint chat routes privately
+  with one world config, plus this ledger update. PR #1606 (`Refs` OME-1770, OME-1771, OME-1773),
+  opened 2026-10-29 with the owner's approval.
 - **Gates (2026-10-29, this worktree):**
   - `run_gates.py screamingface-engine`: all green (ruff, format, pyright, layering, pytest with
     coverage floor 80). The same suite without coverage: 5919 passed, 153 skipped.
