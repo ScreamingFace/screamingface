@@ -164,3 +164,43 @@ def test_a_malformed_endpoints_source_refuses_to_render(sets: tuple[str, ...], r
     assert result.returncode != 0, "the chart rendered when it should have refused"
     assert "remoteEndpoints" in result.stderr
     assert reason in result.stderr
+
+
+def _readme_upgrade_sets() -> list[str]:
+    """The `remoteEndpoints` values the README's first-upgrade command sets, as `name=value`."""
+    import re
+
+    text = (_CHART / "README.md").read_text(encoding="utf-8")
+    pairs = re.findall(r"--set(?:-string)? (remoteEndpoints\.\w+)=(\S+)", text)
+    # The command passes the file's sha256 through a shell substitution.
+    substitution = '"$('
+    return [
+        f"{name}={_REVISION if value.startswith(substitution) else value}" for name, value in pairs
+    ]
+
+
+def test_the_readme_upgrade_renders_for_a_release_from_before_this_block(tmp_path: Path) -> None:
+    """WHY: `--reuse-values` renders with the previous release's values, which have no
+    `remoteEndpoints` block and so no default `key`. The README's command must set every field
+    the render requires on its own (OME-1771 review)."""
+    chart = tmp_path / "aigateway"
+    shutil.copytree(_CHART, chart)
+    values = yaml.safe_load((chart / "values.yaml").read_text(encoding="utf-8"))
+    del values["remoteEndpoints"]
+    (chart / "values.yaml").write_text(yaml.safe_dump(values), encoding="utf-8")
+    sets = _readme_upgrade_sets()
+    assert {pair.split("=", 1)[0] for pair in sets} >= {
+        "remoteEndpoints.existingSecret",
+        "remoteEndpoints.contentChecksum",
+    }
+
+    args = ["helm", "template", _RELEASE, str(chart)]
+    for value in (*_BASE, *sets):
+        args += ["--set-string", value]
+    result = subprocess.run(args, capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    docs = [doc for doc in yaml.safe_load_all(result.stdout) if doc]
+    gateway = _gateway(docs)
+    assert _env(gateway)[_ENV]["value"].endswith("/endpoints.toml")
+    assert gateway["spec"]["template"]["metadata"]["annotations"][_ANNOTATION] == _REVISION

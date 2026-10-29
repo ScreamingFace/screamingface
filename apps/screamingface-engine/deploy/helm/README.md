@@ -219,6 +219,7 @@ kubectl create secret generic url4-world --from-file=url4.toml=./world.toml
 helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
   --reuse-values \
   --set worldConfig.existingSecret=url4-world \
+  --set-string worldConfig.key=url4.toml \
   --set-string worldConfig.contentChecksum="$(shasum -a 256 world.toml | cut -d' ' -f1)"
 ```
 
@@ -230,7 +231,8 @@ helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
   inherit its environment. Using the file's sha256, as above, makes the App's `/healthz`
   `config_digest` the post-rollout check that the App loaded that exact file.
 - **`key`** names the file inside the source (default `url4.toml`); it is always mounted as
-  `url4.toml`.
+  `url4.toml`. Set it explicitly on the first upgrade that adds `worldConfig`: `--reuse-values`
+  keeps the previous release's values, which have no `worldConfig` block and so no default.
 - The render refuses both sources at once, an empty `key`, a checksum without a source, and a
   missing or malformed checksum.
 

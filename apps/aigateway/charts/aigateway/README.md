@@ -113,13 +113,16 @@ endpoint URLs and grants stay out of values and Git. Prefer a Secret.
 kubectl create secret generic aigw-endpoints --from-file=endpoints.toml=./endpoints.toml
 helm upgrade aigw apps/aigateway/charts/aigateway --reuse-values \
   --set remoteEndpoints.existingSecret=aigw-endpoints \
+  --set-string remoteEndpoints.key=endpoints.toml \
   --set-string remoteEndpoints.contentChecksum="$(shasum -a 256 endpoints.toml | cut -d' ' -f1)"
 ```
 
 `contentChecksum` is required with a source. The chart cannot read the object, so this supplied
 content revision is what rolls the pod when the file changes. `key` names the file inside the
-source (default `endpoints.toml`). The render refuses both sources at once, an empty `key`, a
-checksum without a source, and a missing or malformed checksum.
+source (default `endpoints.toml`). Set it explicitly on the first upgrade that adds
+`remoteEndpoints`: `--reuse-values` keeps the previous release's values, which have no
+`remoteEndpoints` block and so no default. The render refuses both sources at once, an empty
+`key`, a checksum without a source, and a missing or malformed checksum.
 
 ## Production
 

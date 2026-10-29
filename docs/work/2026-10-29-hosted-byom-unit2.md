@@ -1,5 +1,5 @@
 ---
-ticket: OME-1770   # Engine; siblings OME-1771 (Gateway chart) and OME-1773 (SDK tests) land in the same PR
+ticket: OME-1770   # Engine; siblings OME-1771 (Gateway chart), OME-1773 (SDK tests) and OME-1777 (url4) land in the same PR
 stack: screamingface-engine
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-29
@@ -58,6 +58,22 @@ charts on this base.
   holds the private config. Shared, unauthenticated or caller-visible surfaces are the ones
   redacted.
 
+### Review follow-up (2026-10-29, after PR #1606 opened)
+
+An independent review of `5cafdd906` found two problems. Both are fixed in this PR.
+
+- **P1, url4 (OME-1777).** The `packages/url4` change dropped below was reachable after all. A
+  nested peer call can choose its own `processor=`; with an unknown id and a real fan-out reduce,
+  `_route_for_id` listed every declared route, private ones included, and the run's terminal frame
+  carried that text to the caller's WebSocket, cold and warm. Fix: the error names only the id the
+  caller passed, with the same code and `permanent=True`. The spec test that pinned the listing is
+  changed under the owner's approval, pinned in `.claude/test-change-approvals/OME-1777.json`. New
+  Engine regression: nested fan-out with `processor=never`, cold and warm, read through `/ws`.
+- **P2, both chart READMEs.** The first-upgrade commands used `--reuse-values` without the new
+  `key`; Helm then keeps the previous release's values, which have no `key`, and the render fails.
+  Fix: the commands set `key`. New render tests apply each README's own command to the chart's
+  previous defaults.
+
 ## Test plan
 
 - Engine discovery: a granted account with a usable Connection lists the model and passes details
@@ -111,6 +127,14 @@ pending (Acceptance). Hosted readiness is not claimed.
     call).
   - SDK test (new): `packages/screamingface/tests/test_hosted_byom_preflight.py` (each account's
     view settles preflight before dispatch, plain Model and mixed Fusion, seeded run refused).
+  - Review follow-up:
+    - url4 (OME-1777): `packages/url4/src/url4/dag/processor.py`; the spec test
+      `tests/spec/test_processor_delegation.py`, one test changed under
+      `.claude/test-change-approvals/OME-1777.json` and one test added.
+    - Engine test (new): `tests/unit/test_private_route_run_frames.py`, the nested fan-out read
+      through `/ws`, cold and warm.
+    - Charts: both READMEs set `key` in the first-upgrade command. Each render test file gains a
+      test that applies its README's command to the chart's values without the new block.
 - **Commits:** `5cafdd906` feat(screamingface-engine): run configured endpoint chat routes privately
   with one world config, plus this ledger update. PR #1606 (`Refs` OME-1770, OME-1771, OME-1773),
   opened 2026-10-29 with the owner's approval.
@@ -123,20 +147,20 @@ pending (Acceptance). Hosted readiness is not claimed.
     notebooks, build, distribution check), after `uv sync --extra notebook` as CI does.
   - Chart checks: render tests above, `helm lint` on both charts, `verify_chart_wiring.py`.
 - **Deviations:**
-  - The planned `packages/url4` change was dropped. A deployed Engine always sets the run's
-    processor to the route path `/<default_model>`, and a probe of an in-process `/v1` call carrying
-    `processor=<id>` dispatched no reduce, so no caller reaches the route listing in
-    `_route_for_id`. Residual: if a later change lets a caller choose a processor id, that error
-    would list private routes; the fix then drops the enumeration in `_route_for_id`, which one
-    prior url4 spec test pins (`test_unknown_id_raises_and_names_the_declared_routes`). No
-    `url4-engine` landing.
+  - CORRECTED 2026-10-29: the `packages/url4` change was first dropped on a wrong reachability
+    verdict. The probe behind it used a nested expression of literals, which dispatched no reduce.
+    The PR review showed a nested peer call that picks `processor=never` over two public calls and
+    a reduce: `_route_for_id` then listed every declared route, private ones included, and the
+    caller read the list in the `ai.url4.terminated` frame of its own `/ws`, cold and warm. The
+    HTTP answer withheld it. The change is restored under OME-1777, `url4-engine`; see Review
+    follow-up.
   - Engine execution needed no code change: the cold and warm tests passed on first run and stay as
     characterization tests. The SDK and Gateway changes are tests only, so no `client-sf` issue is
     needed unless the owner wants the SDK test filed separately. The owner chose a separate leaf:
     OME-1773 (`client-sf`), filed at PR-open under OME-1306.
   - The catalog builder parses the world config a second time at startup to read the private set.
-  - Both chart READMEs gained a section. They are Markdown outside `docs/` and need owner approval
-    before they are committed.
+  - Both chart READMEs gained a section, committed with the owner's approval. Their first-upgrade
+    commands lacked `key` until the review follow-up.
   - The first Engine gate run hung with idle workers while the Gateway gate ran beside it; the same
     gate run alone was green. Later the Engine venv had gained the `inspect` extra, which CI does
     not install, and pyright failed in untouched `tests/unit/inspect` files; `uv sync --dev`, as CI
