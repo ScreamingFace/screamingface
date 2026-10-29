@@ -1,7 +1,7 @@
 ---
 id: OME-1450
 linear_url: https://linear.app/openmined/issue/OME-1450/remove-the-retired-profile-selector-from-the-url4-jobrunner-port
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [url4-sdk, agentic, autonomous]
@@ -9,7 +9,7 @@ parent: OME-1138
 related: [OME-1449, OME-1381, OME-1394]
 blocked_by: []
 created: 2026-10-01
-closed:
+closed: 2026-10-07
 ---
 
 # Remove the retired Profile selector from the URL4 JobRunner port
@@ -31,4 +31,5 @@ census claim.
 ## Implementation status
 
 Implementation, review and local quality gates are complete on `OME-1449-remove-profile-carrier`.
-The issue remains in progress until the coordinated landing is merged.
+The coordinated landing squash-merged to `main` on 2026-10-05 as `641601f37` (PR #1231), together
+with `OME-1449`. Linear closed the issue Done on 2026-10-07.

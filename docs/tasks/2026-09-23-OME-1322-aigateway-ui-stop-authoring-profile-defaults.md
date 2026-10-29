@@ -1,13 +1,13 @@
 ---
 id: OME-1322
 linear_url: https://linear.app/openmined/issue/OME-1322/aigateway-ui-stop-authoring-saved-profile-defaults
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous, repo]
 parent: OME-1138
 created: 2026-09-23
-closed:
+closed: 2026-09-24
 ---
 
 # AIGateway UI: stop authoring saved Profile defaults
@@ -24,3 +24,4 @@ carry defaults. This unit alone does not finish Stage C.
 - 2026-09-23: started; worktree from `origin/main` at `c6774ea1`.
 - 2026-09-23: implemented; the six UI card gates pass (238 tests). Prior defaults tests were retired with a recorded mapping. Not committed.
 - 2026-09-23: owner approved the retired defaults tests and a narrowly scoped same-branch correction to the repo append-only check. An exact before/after blob manifest for the three changed TS/TSX tests now lets the full gate runner pass while all other test edits remain protected. `run_gates.py aigateway-ui --base origin/main` reports ALL GATES GREEN. Owner subsequently authorised staging, commit, push and a PR for this unit, including this Markdown path and its ledger; publication outcome is reported separately.
+- 2026-09-24: squash-merged to `main` as `21832443f` (PR #1043). Linear closed the issue Done the same day.

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1497
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-06
-finished:
+finished: 2026-10-07
 ---
 
 # OME-1497-g0-writer-floor — fence the ownership-changing credential writers on the pair generation (G0, part 1 of 3)
@@ -114,6 +114,8 @@ Prior assertions that change are listed and approved byte-exactly before they ar
 - **Commits:** one commit, `feat(aigateway): fence ownership writers on the pair generation`,
   rebased onto `a502cb996` (upstream `#1153` and `#1240` landed meanwhile; the only shared file was
   the `core/provider_access/__init__.py` export list).
+- **Merge:** squash-merged to `main` on 2026-10-07 as `c76d39972` (#1271), G0 part 1 of 3. Linear
+  closed OME-1497 Done on 2026-10-14, once G1 had merged.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway --base origin/main` on `a502cb996` — ALL
   GATES GREEN (append-only with the five approved transitions, ruff check, ruff format, pyright 0
   errors, no-enterprise, pytest with coverage ≥ 80%); full suite 5219 passed, 97 skipped. PostgreSQL

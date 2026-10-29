@@ -1,8 +1,8 @@
 ---
 ticket: OME-1138
-status: draft   # adapter-first re-plan; no execution, task or publication approval is inferred
+status: implemented   # Stages 0-E merged, the last (E5c, #1596) on 2026-10-29; the close-out leaves are tracked separately by the OME-1138 close-out plan
 created: 2026-09-09
-updated: 2026-10-06
+updated: 2026-10-29
 spec: ../spec/2026-09-09-OME-1138-converge-connections.md
 ---
 
@@ -26,7 +26,7 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 
 ## 1. Stage status
 
-| Stage | Gate | Status, 2026-10-01 |
+| Stage | Gate | Status, 2026-10-29 |
 | --- | --- | --- |
 | P0 baseline | G0 | done 2026-09-09 at b47853ea (gates, consumer/meta maps); anchors re-verified at 17048f5d in this pass; gates not rerun |
 | P1 design | G1 | **revised to adapter-first**: consumer evidence, adversarial checks and review feedback incorporated; spec §3–§9 written; D11–D18 and the D7 conflict presented (their current status: spec §8); not approved |
@@ -38,8 +38,8 @@ and A1–A3 (spec §9); D7 was re-approved and the matching issues were filed be
 | A4 Hosted Engine on the availability successor | G3 | **merged** in two units (D15 and D17 decided 2026-09-14): U4 (`OME-1244`, PR #1006, `2da45896`, 2026-09-21) publishes the caller-scoped `GET /v1/provider-access` listing; U4e (`OME-1245`, PR #1007, `54fa8673`, 2026-09-22) moves the Hosted Engine listing onto it |
 | B backing transition | G4 | **merged** as `OME-1208` (PR #1029, `7cff8a56`, 2026-09-23) under D11 (a), D14 and D16, decided 2026-09-22 (design PR #23): the `provider_credential_slots` pair marker, the Connection-backed implementations and the backfill tooling (S1/S2'/S4); Profile storage, routes and schemas stay until Stage E (`OME-1209`) |
 | C defaults cutover (D2) | G5a | **UI done** as `OME-1322` (PR #1043, `21832443`): the console sends only `{ "api_key" }`. **Gateway merged** as `OME-1323` (PR #1061, `e8c7d262`, 2026-09-25): chat no longer reads or merges stored defaults, the five writers answer a present `defaults` (even `null`) with 422 `defaults_not_accepted`, cache keys byte-identical (no revision bump, no reset). The running console must use the key-only payload before the gateway refusal reaches dev |
-| D selector sunset and carriers (D4) | G5b | **reject path and guidance merged**: contract/metamodel `OME-1377`/`OME-1380` (design PR #25, `3ba6a3d`); Engine producer-off `OME-1381` (PR #1082, `df6e9b92`); activation census waived with accepted alpha-canary risk and `OME-1401` canceled; Gateway rejection `OME-1394` (PR #1114, `3083640b`); guidance cleanup `OME-1398` (PR #1210, `57e78d71`). Final carrier removal is in progress as coordinated leaves `OME-1449` (Engine) and `OME-1450` (URL4). |
-| E retirement and cleanup | G6 | not started; needs D6 |
+| D selector sunset and carriers (D4) | G5b | **reject path and guidance merged**: contract/metamodel `OME-1377`/`OME-1380` (design PR #25, `3ba6a3d`); Engine producer-off `OME-1381` (PR #1082, `df6e9b92`); activation census waived with accepted alpha-canary risk and `OME-1401` canceled; Gateway rejection `OME-1394` (PR #1114, `3083640b`); guidance cleanup `OME-1398` (PR #1210, `57e78d71`). Final carrier removal **merged** as coordinated leaves `OME-1449` (Engine) and `OME-1450` (URL4) (PR #1231, `641601f3`, 2026-10-05). |
+| E retirement and cleanup | G6 | **merged** per the Stage E spec and plan (`2026-10-14-OME-1209-retire-legacy-profiles.md` for E1-E4, `2026-10-21-OME-1715-e5-history-cleanup.md` for E5): E1 `OME-1618` (PR #1432, `59545b20`), E1b `OME-1640` (PR #1449, `00c1bef1`), E2a `OME-1647` (PR #1458, `4803a77c`), E2b `OME-1645` (PR #1456, `1f873d95`), E3 `OME-1651` (PR #1464, `08f53431`), E3b `OME-1682` (PR #1480, `aac2a1ab`), E4a `OME-1685` (PR #1491, `b66f94f0`), E4b `OME-1695` (PR #1516, `f7e54869`), E4c `OME-1703` (PR #1523, `eb31158d`), E5a `OME-1715` (PR #1541, `8cb1e54e`), E5b `OME-1750` (PR #1573, `1ccf80a8`), E5c `OME-1759` (PR #1596, `7cb09301`, 2026-10-29). The close-out leaves from the 2026-10-29 review are tracked separately by the close-out plan; the epic stays open until they land. |
 | S13 catalog | M0 | additive text possible after M0; Stage D resolved by D13 (version bump, `OME-1380`, merged `3ba6a3d`); successors at E |
 
 ## 2. Unit decomposition (D7 re-approved 2026-09-14 for U0/U0e/U1; epic = OME-1138)

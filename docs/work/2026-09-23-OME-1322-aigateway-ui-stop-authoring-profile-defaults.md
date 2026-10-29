@@ -1,9 +1,9 @@
 ---
 ticket: OME-1322
 stack: aigateway-ui
-status: in_progress
+status: done
 started: 2026-09-23
-finished:
+finished: 2026-09-24
 ---
 
 # OME-1322 — AIGateway UI: stop authoring saved Profile defaults
@@ -167,3 +167,9 @@ it and publishing a follow-up. Added that assertion to the successful `setApiKey
 updated the exact `actions.test.ts` Git blob ID in the approval manifest; its reason now accurately
 counts four retired tests plus three `badInput` rows. The full branch-level gate, not a filtered
 coverage run, is the acceptance check for this test-only follow-up.
+
+### Merge
+
+Squash-merged to `main` on 2026-09-24 as `21832443f` (#1043), from the branch commits `8ef4d9bea`
+(the change) and `f6db7d59a` (the review follow-up above). Linear closed OME-1322 Done the same
+day.
