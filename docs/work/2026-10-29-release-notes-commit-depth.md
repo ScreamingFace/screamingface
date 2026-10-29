@@ -20,15 +20,23 @@ a breaking change) and `641601f37` (#1231). The Engine release would ship a brea
 minor. Raising the depth to 5000, kept permanently (owner, 2026-10-29), lets the next run see the
 whole history since each last release. The aigateway 0.2.1 draft release is left as it is.
 
+The versions manifest previously named AIGateway `0.2.1`, but that GitHub release is an untagged
+draft: release-please 17.6.0 ignores it because it has no `tagCommit`, and the exact-tag fallback
+also finds no `aigateway-v0.2.1`. The manifest therefore names the last published version, `0.2.0`,
+so the widened walk stops at its real tag instead of including AIGateway's entire history.
+
 ## Planned changes
 
 - `release-please-config.json`: top-level `"commit-search-depth": 5000`.
+- `.release-please-manifest.json`: AIGateway's last published version is `0.2.0`; the `0.2.1`
+  draft is not modified.
 - This ledger.
 
 ## Test plan
 
 - Configuration only, no RED (close-out plan L2). Checks: the config parses as JSON and the key is
-  a top-level number; the `repo` gate passes.
+  a top-level number; the manifest points at the existing `aigateway-v0.2.0` tag; the `repo` gate
+  passes.
 - After merge, the next release-please run regenerates #512, #1386 and #1385. They list #1061 and
   #1114 (aigateway), #1082 and #1231 (screamingface-engine, proposing 2.0.0), #1231 (url4).
 
@@ -39,13 +47,15 @@ whole history since each last release. The aigateway 0.2.1 draft release is left
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** `release-please-config.json` (one line), this ledger, the mirror, and the
-  close-out spec and plan (`docs/spec/2026-10-29-ome-1138-closeout.md`,
+- **Actual files:** `release-please-config.json` (one line), `.release-please-manifest.json` (the
+  AIGateway release anchor), this ledger, the mirror, and the close-out spec and plan
+  (`docs/spec/2026-10-29-ome-1138-closeout.md`,
   `docs/plan/2026-10-29-ome-1138-closeout.md`), which land with the first close-out leaf.
 - **Commits:** pending: `ci(release): search the full history since each last release`.
 - **Gates:** `run_gates.py repo --base origin/main`: ALL GATES GREEN (append-only,
   test_run_gates, test_check_mirror_status, test_pre_push, check_loop_parity,
   check_mirror_status). `verify_chart_wiring.py`: 121/121 checks passed. The config parses and
-  `commit-search-depth` is the top-level integer 5000.
+  `commit-search-depth` is the top-level integer 5000; the manifest names `0.2.0`, and
+  `aigateway-v0.2.0` resolves to `0f40ca250`.
 - **Deviations:** none. Still open after merge: confirm the regenerated #512, #1386 and #1385,
   then edit the aigateway 1.0.0 notes so the removed purge command is not listed under Features.
