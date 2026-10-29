@@ -36,6 +36,16 @@
 
 ### Features
 
+* **screamingface:** open a Case's pictures and files from its Case Result (`OME-1271`).
+  `CaseResult.media` lists each one as a `CaseMedia` (kind, media type, size, sha256, filename)
+  with no network call; `sf.fetch_media(item)` and `Client.fetch_media(item)` fetch it from the
+  engine and return a `FetchedMedia` only when its size and sha256 match the placeholder. A
+  picture shows inline in Jupyter; `.save(path)` writes either kind. In the report browser each
+  placeholder line in a Case card gets a **Show picture** button (the picture is fetched on that
+  click only and drawn in place) or, for a file, a **Save file** button. The
+  local engine keeps parked pictures for 48 hours by default (a deployment sets no expiry yet);
+  once one is gone the fetch raises the new `MediaUnavailableError` with code `media_not_kept`. Needs an engine with OME-1271 PR 5.
+
 * **screamingface:** add opt-in local analytics via `sf.analytics.status()`, `enable()`,
   `disable()` and `reset_identifier()`, plus `screamingface analytics` CLI controls.
   Evaluation/submission events use random installation/process identifiers and bounded

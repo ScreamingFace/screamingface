@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -454,6 +455,27 @@ class Client:
         traceback: TracebackType | None,
     ) -> None:
         self.close()
+
+    def fetch_media(self, media: CaseMedia) -> FetchedMedia:
+        """Fetch one picture or file of a Case from this engine, checked against its placeholder.
+
+        FEATURE (OME-1271): ``case.media`` lists a Case's pictures and files without fetching
+        them; this opens one. A local engine drops parked pictures after a while (48 hours by
+        default). e.g. ``client.fetch_media(case.media[0])`` shows the figure inline in
+        Jupyter, and ``.save("figures/")`` writes it.
+
+        Raises:
+            MediaUnavailableError: the engine no longer holds it, or sent other bytes.
+            EngineUnavailableError: the engine could not be reached.
+        """
+
+        from screamingface._engine.media import fetch_media_bytes
+        from screamingface._engine.transport import _mint_sync
+        from screamingface.media import FetchedMedia
+
+        self._require_open()
+        data: bytes = fetch_media_bytes(self._http, media, lambda: _mint_sync(self._http))
+        return FetchedMedia(media=media, data=data)
 
     def _require_open(self) -> None:
         if self._closed:
