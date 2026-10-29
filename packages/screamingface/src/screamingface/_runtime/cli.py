@@ -270,10 +270,10 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # be honored, instead of after a paid run recorded into the wrong database.
     _refuse_foreign_gateway_database()
     _require_benchmark_assets_dir(config)
-    _require_runner_config(config)
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
+    _require_runner_config(config)
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
@@ -360,9 +360,7 @@ def _require_runner_config(config: RuntimeConfig) -> None:
     # WHY the Engine loader and not a bare tomllib parse: startup validates the whole world
     # contract (routes, default_route, model world), so a syntactically valid file with bad
     # world semantics must be refused HERE — before `_restart` calls `_down` on a healthy stack.
-    from screamingface._runtime.server import require_runtime_extra
-
-    require_runtime_extra()
+    # PRECONDITION: callers run `require_runtime_extra()` first, so the Engine import resolves.
     from screamingface_engine import job_env
     from screamingface_engine.world.config import WorldConfigError, load_config
 
@@ -610,6 +608,9 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
     # WHY before `_down`: a missing or replaced folder must leave the running stack untouched,
     # not stop it and then fail to bring it back.
     _require_benchmark_assets_dir(config)
+    from screamingface._runtime.server import require_runtime_extra
+
+    require_runtime_extra()
     _require_runner_config(config)
     _down(config)
     _up(config, foreground=foreground)
