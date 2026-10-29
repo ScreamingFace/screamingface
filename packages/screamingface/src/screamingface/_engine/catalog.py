@@ -52,7 +52,7 @@ class Models:
         return self._load().models
 
     def get(self, model_id: str) -> ModelDetails:
-        """Fetch profile-specific details for one canonical Model id."""
+        """Fetch Connection-specific details for one canonical Model id."""
 
         selected = _model_id(model_id)
         return _decode_model_details(
@@ -117,7 +117,7 @@ class AsyncModels:
         return (await self._load()).models
 
     async def get(self, model_id: str) -> ModelDetails:
-        """Fetch profile-specific details for one canonical Model id."""
+        """Fetch Connection-specific details for one canonical Model id."""
 
         selected = _model_id(model_id)
         return _decode_model_details(
@@ -365,7 +365,7 @@ def _raise_model_details_error(response: httpx.Response) -> None:
     if code == "model_not_found" and isinstance(detail.get("model"), str):
         model = detail["model"]
         raise PlanningError(
-            f"Model {model!r} is not available from the selected provider profile",
+            f"Model {model!r} is not in AI Gateway's catalogue",
             code="model_not_found",
             status=response.status_code,
             permanent=True,

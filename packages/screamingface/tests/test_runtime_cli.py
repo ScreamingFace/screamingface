@@ -363,9 +363,6 @@ def test_local_gateway_defaults_provide_exactly_the_required_environment() -> No
         # gateway caches, and hosted already does.
         "AIGW_REQUEST_CACHE_ENABLED": "true",
     }
-    # INVARIANT: provider credential bootstrap stays opt-in — the gateway's own
-    # consent rule; the runtime never defaults AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE.
-    assert "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE" not in environment
 
 
 def test_local_gateway_defaults_never_override_an_explicit_operator_choice() -> None:

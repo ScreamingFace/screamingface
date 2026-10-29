@@ -29,6 +29,8 @@
 
 ### Fixes
 
+* The SDK's messages describe provider Connections instead of the retired Profiles (`OME-1779`). A `provider_not_connected` refusal now says to connect the provider with `sf.connect()`, or to ask the operator of a hosted Engine to connect it in AI Gateway. A `model_not_found` answer now reads `Model '<id>' is not in AI Gateway's catalogue`. Error codes are unchanged.
+
 * `sf.leaderboards.submit()` can log in to a leaderboard whose Cloudflare Access application covers only `/v1/scores` (`OME-1649`). After a challenge, the browser login now returns to the challenged path instead of the origin root, where Access never handed the token back and the login timed out after 300 s. `Client.login()` is unchanged.
 
 * Show optional Model, Pipeline, and Fusion members in `Fusion` repr so member failure policy is visible (`OME-1557`). Required members retain their compact name-only representation.
