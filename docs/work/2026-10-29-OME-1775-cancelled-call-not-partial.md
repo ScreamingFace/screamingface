@@ -5,7 +5,7 @@ status: spec
 started: 2026-10-29
 ---
 
-# OME-1775 — a call cancelled in a failed Case Attempt does not make a capture partial
+# OME-1775 — a capture is not partial for an outcome that a replay reproduces exactly
 
 ## Intent
 
@@ -33,3 +33,12 @@ plan → code.
 - 2026-10-29: OME-1775 filed under OME-1307 (project ScreamingFace Q4, milestone Reproducibility
   & credit). Worktree `.claude/worktrees/ome-1775-cancelled-call-not-partial` from `origin/main`
   4909d7128. Spec drafted.
+- 2026-10-29: owner decisions D2 (Case level), D3 (no new count), D5 (test changes approved).
+- 2026-10-29: D4 = no SDK verdict change; accept the rare false `failed` verdict.
+- 2026-10-29: owner asked for a check of every outcome for false `partial` labels. Two scouts read
+  the gateway capture path and the url4 failure path. Findings: the gateway stores before it
+  responds and strips `cache` from the key digest; a failed `;optional` member is dropped with no
+  code or text downstream; a replay miss is permanent; `_deadline_exceeded` and 429/5xx are
+  retryable. New rules: R1 widened to all no-answer outcomes in a failed Case, with a retry guard
+  (§4.1, a url4 retry that the replay does not make); R2 `max-age` re-issue; R3 connect-phase
+  failure. Owner accepted D1a–D1e ("yup"). Spec rewritten.
