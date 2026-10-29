@@ -195,7 +195,12 @@ class GuardedTransport(httpx.AsyncBaseTransport):
         """``request`` re-addressed to each vetted IP to try, in order, keeping SNI and ``Host``."""
         url = request.url
         address = check_destination(
-            url.scheme, url.host, self._guard, peer=state.peer, previous_scheme=previous
+            url.scheme,
+            url.host,
+            self._guard,
+            peer=state.peer,
+            previous_scheme=previous,
+            credentials=bool(url.userinfo),
         )
         extensions = dict(request.extensions)
         if address is None:

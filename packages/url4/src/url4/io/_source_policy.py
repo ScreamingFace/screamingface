@@ -89,15 +89,21 @@ def check_destination(
     *,
     peer: bool = False,
     previous_scheme: str | None = None,
+    credentials: bool = False,
 ) -> IPAddress | None:
-    """Refuse a hop by scheme, downgrade, peer allowlist or literal address.
+    """Refuse a hop by scheme, credentials, downgrade, peer allowlist or literal address.
 
-    Returns the vetted address when ``host`` is an IP literal (in any form a resolver
-    would accept), else ``None`` — a DNS name is vetted after resolution by the transport.
+    ``credentials`` says the URL's authority carries userinfo (``user:pass@``, ``user@`` or a
+    bare ``@``). Returns the vetted address when ``host`` is an IP literal (in any form a
+    resolver would accept), else ``None`` — a DNS name is vetted after resolution by the transport.
     """
     allowed = ("https", "http") if guard.allow_http else ("https",)
     if scheme not in allowed:
         raise destination_blocked(f"scheme {scheme!r} is not allowed for a source fetch")
+    if credentials:
+        # WHY: httpx turns userinfo into ``Authorization: Basic`` for the host (OME-1552).
+        # INVARIANT: the message never echoes the credentials.
+        raise destination_blocked("a source URL with embedded credentials (userinfo) is refused")
     if previous_scheme == "https" and scheme == "http":
         raise destination_blocked("a redirect from https to http is refused")
     name = _normal_host(host)
@@ -120,7 +126,9 @@ def check_url(url: str, guard: SourceGuard, *, peer: bool = False) -> None:
         host = parts.hostname or ""
     except ValueError:
         return  # malformed: the transport layer reports it as it always has
-    check_destination(parts.scheme.lower(), host, guard, peer=peer)
+    # WHY the raw netloc: httpx normalizes an empty ``https://@host`` away; the stdlib keeps it.
+    credentials = "@" in parts.netloc
+    check_destination(parts.scheme.lower(), host, guard, peer=peer, credentials=credentials)
 
 
 def vet_address(address: IPAddress, guard: SourceGuard) -> None:

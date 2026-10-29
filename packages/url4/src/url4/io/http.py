@@ -71,8 +71,9 @@ class HttpIOLayer:
     ``guard`` (:class:`SourceGuard`; strict defaults): ``https`` only, no loopback / private /
     link-local / CGNAT / metadata address after DNS and on any redirect hop, connections
     pinned to the vetted IP (SNI and ``Host`` kept), at most ``guard.max_redirects`` hops, no
-    ``https``→``http`` downgrade, environment proxies ignored, and a ``url4://`` peer only
-    when its host is in ``guard.peer_hosts`` (empty by default: no remote-node calls).
+    ``https``→``http`` downgrade, no embedded credentials (``user:pass@`` userinfo) on any hop,
+    environment proxies ignored, and a ``url4://`` peer only when its host is in
+    ``guard.peer_hosts`` (empty by default: no remote-node calls).
     ``resolver`` replaces the system DNS lookup. Only the FIRST hop of a relative fetch against
     the operator-set ``base_url`` origin is trusted; every redirect hop, and an absolute target
     that spells that origin out, is checked. The whole owned fetch, redirects included, runs
