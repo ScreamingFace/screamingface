@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # Linear OME-1540 exists (parent tracker OME-1681, epic OME-1529); backfill at PR-open
+ticket: OME-1540
 stack: screamingface-engine
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-28
