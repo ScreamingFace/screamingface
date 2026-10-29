@@ -1,9 +1,11 @@
-"""A capture run can record every call the gateway accepts (OME-1756).
+"""A capture run can record a picture call as large as the gateway accepts (OME-1756).
 
 FEATURE: OME-1307 frozen copy. One entry holds the request plus the response the caller received,
 as compact JSON. The gateway accepts a request body of up to ``max_request_bytes`` (8 MiB).
-INVARIANT: the default entry cap is that request cap plus a fixed response headroom, so any call
-the gateway lets in fits one entry. Before this, the entry cap was a fixed 2,000,000 B and a picture
+INVARIANT: the default entry cap is that request cap plus a fixed response headroom, so a picture
+call at the request cap fits one entry. Two calls still do not fit, and only their capture fails
+(see ``FROZEN_COPY_RESPONSE_HEADROOM_BYTES``): a response over the headroom, and a request that
+grows when re-serialised. Before this, the entry cap was a fixed 2,000,000 B and a picture
 Case (MMMU, LAB-Bench FigQA and TableQA carry their pictures inline) was answered but never stored,
 so its replay missed with ``frozen_copy_miss``.
 """
@@ -39,9 +41,6 @@ from tests.unit.test_frozen_copy_support import (
 _REQUEST_CAP_ENV = "AIGW_MAX_REQUEST_BYTES"
 _ENTRY_CAP_ENV = "AIGW_FROZEN_COPY_MAX_ENTRY_BYTES"
 _DEFAULT_REQUEST_CAP = 8 * 1024 * 1024
-# WHY 4 KiB short of the cap: the room the JSON around the picture (model, roles, the image part's
-# keys) takes on the wire, so the whole body lands just under the request cap and is accepted.
-_ENVELOPE_SLACK_BYTES = 4 * 1024
 
 
 @pytest.fixture
@@ -120,12 +119,12 @@ def test_an_explicit_entry_cap_still_wins(
 # --- 2. the store records an entry as large as the gateway accepts ----------------------------
 
 
-def test_an_entry_just_under_the_request_cap_is_stored_and_read_back_unchanged(
+def test_an_entry_at_the_request_cap_is_stored_and_read_back_unchanged(
     _default_caps: None, authenticated_client: TestClient
 ) -> None:
     client = authenticated_client
     settings = Settings()
-    request = _picture_chat_body(settings.max_request_bytes - _ENVELOPE_SLACK_BYTES)
+    request = _picture_chat_body(settings.max_request_bytes)
     response = chat_response("picture-answer")
     store = FrozenCopyStore(max_entry_bytes=settings.frozen_copy_max_entry_bytes)
     owner = account_id_of(client)
@@ -163,7 +162,7 @@ def test_an_entry_one_byte_over_the_derived_cap_is_still_refused(
     run_async(client, _capture)
 
 
-# --- 3. the whole path: a picture call just under the request cap captures and replays --------
+# --- 3. the whole path: a picture call at the request cap captures and replays ----------------
 
 
 @pytest.fixture
@@ -176,14 +175,24 @@ def default_cap_capture_client(
     return authenticated_client
 
 
-def test_a_picture_call_just_under_the_request_cap_is_stored_and_replays(
+def test_a_picture_call_at_the_request_cap_is_stored_and_replays(
     default_cap_capture_client: TestClient,
 ) -> None:
+    """The largest body the gateway accepts: exactly ``max_request_bytes`` on the wire."""
     client = default_cap_capture_client
-    body = _picture_chat_body(Settings().max_request_bytes - _ENVELOPE_SLACK_BYTES)
+    request_cap = Settings().max_request_bytes
+    body = _picture_chat_body(request_cap)
+    # WHY send our own bytes: the request cap counts the bytes on the wire, so the test fixes them
+    # itself rather than trusting the HTTP client's JSON spacing.
+    wire = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    assert len(wire) == request_cap
     copy_id = seed_copy(client, account_id_of(client), [], seal=False)
 
-    live = client.post(CHAT_PATH, json=body, headers={COPY_HEADER: copy_id, **call_key()})
+    live = client.post(
+        CHAT_PATH,
+        content=wire,
+        headers={"content-type": "application/json", COPY_HEADER: copy_id, **call_key()},
+    )
 
     assert live.status_code == 200, live.text
     assert live.headers[CAPTURE_HEADER] == "stored"
