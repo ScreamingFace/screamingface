@@ -6758,7 +6758,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="mmmu_multiple_choice",
-        published_revision="98430e6d5f4d79ec",
+        published_revision="5b008891134ef4c1",
         title="MMMU (multiple choice)",
         description=(
             "847 multiple-choice questions from college exams, quizzes and textbooks across "
@@ -6817,6 +6817,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Frontier score: the vendor's own MMMU figure (validation split), the newest a lab
         # has published; newer launches report MMMU-Pro, a different question set. Read
         # from the page itself on 2026-10-28: "84.2% on MMMU", pass@1 with thinking.
+        # NOT like-for-like, for both baselines: they score all 900 validation questions, the
+        # 53 open ones included, while this Benchmark keeps the 847 multiple-choice ones.
         frontier_score=FrontierScore(
             score=0.842,
             model="GPT-5",

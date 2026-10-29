@@ -1909,6 +1909,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # mmmu_multiple_choice — imported by Task replay on 2026-10-28 from
     #   inspect_evals.mmmu.mmmu:mmmu_multiple_choice.
+    # Sealed on linux/amd64 inside the Engine image (2026-10-29), as the image build replays
+    #   it: inspect_evals re-encodes each picture with Pillow, whose PNG bytes differ by
+    #   platform for the same pixels, so a Mac-sealed digest never matched the build.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face MMMU/MMMU/Accounting
     #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
@@ -1973,8 +1976,8 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     "mmmu_multiple_choice": TaskReplayCasesSpec(
         task="inspect_evals.mmmu.mmmu:mmmu_multiple_choice",
         case_count=847,
-        case_digest="08e8974a3be10a26d0e1f32e4d1ae1f8d16fa8535900dc7eb157462fa8474f32",
-        case_set_digest="a0c8fa933dc84d4ee19863522884d85fd46d06b1346a1c2ce958e3d74fbb5769",
+        case_digest="3fe742a9bafc6c2f80acd0593a2772a798cd29d2cad0fb225ebaa2d605c482d8",
+        case_set_digest="493c6668c583bc05754a2265875e08b0eebbe85bce9c7b25b0ecfb8574e076c5",
         source_pins={
             "MMMU/MMMU": "171b0ef74cd1704464e6940860968009d8cdd59a",
         },

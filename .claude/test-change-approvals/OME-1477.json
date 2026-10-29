@@ -12,7 +12,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
       "base_blob": "f4cea20ce982a11314537497c33b1bbdf5ffde93",
-      "approved_blob": "ccd251580c000854b0585de07f11ed36a73ac717"
+      "approved_blob": "829fe399eb91832290574b985389b803ce0ab1cc"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
       "base_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450",
@@ -24,7 +24,7 @@
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
       "base_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac",
-      "approved_blob": "ad46c52dc9617805a935afd7d6fa8479241754e2"
+      "approved_blob": "f1bd17badf8ee3aa177aaf55170689227da485f9"
     }
   }
 }

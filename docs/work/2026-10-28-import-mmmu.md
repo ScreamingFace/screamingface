@@ -3,7 +3,7 @@ ticket: OME-1477
 stack: screamingface-engine
 status: done
 started: 2026-10-28
-finished: 2026-10-28
+finished: 2026-10-29
 ---
 
 # import-mmmu — import MMMU (multiple choice and open) as picture Benchmarks
@@ -61,9 +61,16 @@ only: no paid run and no state-of-the-art run (that is OME-1671).
   peaked 1,611 MiB). The one strain: the gateway's frozen-copy entry cap is 2,000,000 bytes, and
   17 of the 847 Cases are bigger than that on their own, so a captured run cannot freeze those
   calls (the capture says `failed`; the run itself goes on).
-- **Import (real Hub data at `MMMU/MMMU` `171b0ef7`):** 847 Cases, Case Digest `08e8974a…`,
-  27 min and 4.97 GB peak on the laptop; the build path's replay (`prepare_replayed_cases`)
-  agreed, 11 min. Published revision `98430e6d5f4d79ec` from `benchmark_bump.py`.
+- **Import (real Hub data at `MMMU/MMMU` `171b0ef7`):** 847 Cases. First sealed on the laptop
+  (Case Digest `08e8974a…`, revision `98430e6d5f4d79ec`); the laptop's own build-path replay
+  agreed, but that only proved the laptop agrees with itself.
+- **Re-sealed on linux/amd64 (review round, 2026-10-29):** CI's image build got a different
+  digest. inspect_evals re-encodes every picture with Pillow (`thumbnail` + PNG save), and
+  Pillow's macOS wheel compresses with zlib-ng while the Linux wheel uses zlib: same pixels,
+  different PNG bytes. The import re-run inside the linux/amd64 Engine image gives Case Digest
+  `3fe742a9…`, the same value CI's strict image build printed on run 40685859823. Published
+  revision `5b008891134ef4c1` from `benchmark_bump.py`. A prepare on a Mac now sees this
+  bundle as changed and skips it.
 - **Byte check:** inspect's own `eval()` with the free mockllm model on 8 Cases (1 to 5
   pictures, the largest Case included): role, part order, text and every picture's bytes and
   type identical to the Case. `mmmu_open` too, 6 Cases.
