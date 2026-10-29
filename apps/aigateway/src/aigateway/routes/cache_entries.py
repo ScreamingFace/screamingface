@@ -13,6 +13,10 @@ off; the client discards it.
 INVARIANT: any authenticated account, never anonymous. ``CurrentAccount`` answers 401 for a
 caller without an identity in every mode that authenticates (``jwt``, ``cloudflare_headers``).
 Not admin-gated: reading the cache is what an ordinary account does on every hosted call already.
+INVARIANT (hosted BYOM, owner decision of 2026-10-27): no endpoint-grant filter. A configured
+endpoint's eligible rows are listed to every authenticated account like any other row, with their
+provider and model IDs, stored responses and cache metadata. Grants govern the working catalog and
+new upstream calls; they do not make identifiers in published cache entries confidential.
 AIDEV-NOTE: ``AIGW_AUTH_MODE=disabled`` is the exception: ``CurrentAccount`` returns the anonymous
 account, so every caller may read. That mode is loopback-only (``AuthDisabledLocalOnlyMiddleware``),
 the same footing the admin routes give it.

@@ -5,11 +5,14 @@ gateway's SQLite database (`aigateway…sqlite_loader`), and the revisions its c
 computed under. `import screamingface` therefore stays free of `aigateway`, and a pull without the
 `screamingface[runtime]` extra is refused with an install hint before any request is made.
 
-WHY the provider plugins are loaded: adapter revisions are registered when a plugin is imported
-(today `openrouter_adapter`), and every hosted row is an OpenRouter row. Without them the local
-revisions would hold only the core contracts, and a page keyed under another OpenRouter key format
-would load ~600k rows that never hit. Loading imports the plugin modules and registers them in a
-throwaway registry; it makes no request and reads no setting (spec decision 14).
+WHY the provider plugins and the composition module are imported: an adapter registers its
+revision when its module is imported. The bundled loader brings in the provider plugins
+(`openrouter_adapter`); only composition brings in the configured-endpoint adapter
+(`remote_endpoint_adapter`), and the local gateway imports it on every start, so its keys embed
+that revision whether or not an endpoint is configured. Without them the local revisions would
+hold only the core contracts, and a page keyed under another OpenRouter key format would load
+~600k rows that never hit. Loading registers the plugins in a throwaway registry; neither import
+makes a request, reads a setting (spec decision 14) or configures an endpoint.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from collections.abc import Mapping, Sequence
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Final, NoReturn
 
@@ -163,6 +167,9 @@ def _local_revisions() -> dict[str, str]:
     from aigateway.core.request_cache.revisions import active_cache_revisions
 
     load_plugins(ProviderRegistry())
+    # WHY: the configured-endpoint adapter registers its revision when composition imports it;
+    # the bundled loader never does. Reads no config, starts nothing.
+    import_module("aigateway.provider_composition")
     return active_cache_revisions()
 
 
