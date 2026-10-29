@@ -30,6 +30,12 @@ class Metrics:
 # probe for `/wp-login.php`, an asset under a mounted sub-app — collapses onto this one string.
 UNMATCHED_PATH = "<unmatched>"
 
+# FEATURE (OME-1770): `/metrics` is shared and unauthenticated, so a route declared
+# `public_schema = false` is counted under this one label and never under its path. Its routes
+# carry `PRIVATE_ROUTE_NAME`, which is how the middleware recognizes them.
+PRIVATE_PATH = "<private>"
+PRIVATE_ROUTE_NAME = "private-route"
+
 
 def build_metrics() -> Metrics:
     registry = CollectorRegistry()
@@ -100,7 +106,10 @@ def _route_label(scope: Scope) -> str:
     Plain Starlette routes and `Mount`s (the `/diagrams` static assets) do not, so those are
     resolved by asking the router itself; anything still unmatched is a genuine 404.
     """
-    path_format = getattr(scope.get("route"), "path_format", None)
+    route = scope.get("route")
+    if getattr(route, "name", None) == PRIVATE_ROUTE_NAME:
+        return PRIVATE_PATH
+    path_format = getattr(route, "path_format", None)
     if isinstance(path_format, str) and path_format:
         return path_format
     return _match_against_router(scope)

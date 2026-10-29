@@ -91,7 +91,7 @@ _AIGATEWAY_KEYS = frozenset(
         "web_tool_max_iterations",
     }
 )
-_MODEL_KEYS = frozenset({"id", "web_search"})
+_MODEL_KEYS = frozenset({"id", "web_search", "public_schema"})
 # F3 (prd/02): `[commands]` is the ONE section still reserved. `[data]`, `[holdings]` and
 # `[identities]` are now parsed (see `_parse_read_side`), so they are top-level keys, not reserved
 # names — a declaration under one of them reaches url4's resolvers rather than a blanket error.
@@ -165,10 +165,15 @@ class ModelSpec:
     WHY the default is True: a deployment that supplies a Tavily key wants retrieval. The
     previous per-route opt-in meant a route stayed silently non-searching until somebody
     remembered to declare it. A route that must not search says so with `web_search = false`.
+
+    FEATURE (OME-1770): `public_schema = false` keeps an executable route off every surface the
+    Engine shares with all callers (`world.publication`). The default is today's behavior, and
+    privacy is never inferred from the id: a configured-endpoint route says so explicitly.
     """
 
     id: str
     web_search: bool = True
+    public_schema: bool = True
 
     @property
     def uses_native_web_search(self) -> bool:
@@ -710,10 +715,18 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
     raw_id = table.get("id")
     if raw_id is None:
         raise WorldConfigError("[[aigateway.models]] entry is missing its `id`")
-    value = table.get("web_search", True)
+    return ModelSpec(
+        id=_model_id(str(raw_id)),
+        web_search=_model_flag(table, "web_search"),
+        public_schema=_model_flag(table, "public_schema"),
+    )
+
+
+def _model_flag(table: Mapping[str, object], key: str) -> bool:
+    value = table.get(key, True)
     if not isinstance(value, bool):
-        raise WorldConfigError(f"[[aigateway.models]] web_search must be a boolean, got {value!r}")
-    return ModelSpec(id=_model_id(str(raw_id)), web_search=value)
+        raise WorldConfigError(f"[[aigateway.models]] {key} must be a boolean, got {value!r}")
+    return value
 
 
 def _model_id(model: str) -> str:

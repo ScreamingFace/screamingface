@@ -268,6 +268,59 @@ one of the two is set (`artifactSigningConfigured`); the chart never generates a
 {{- end -}}
 
 {{/*
+FEATURE (hosted BYOM, OME-1770): the one private world config both pod templates read.
+`worldConfigEnabled` validates `worldConfig` and answers "true" when a source is set; every other
+helper below renders one piece of the wiring, and BOTH Deployments include the same helpers, so
+the App and the pool cannot drift apart.
+*/}}
+{{- define "screamingface-engine.worldConfigEnabled" -}}
+{{- $world := .Values.worldConfig -}}
+{{- if and $world.existingConfigMap $world.existingSecret -}}
+{{- fail "worldConfig: set only one of existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- if or $world.existingConfigMap $world.existingSecret -}}
+{{- if not $world.key -}}
+{{- fail "worldConfig.key must name the world config file inside the source" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._:+=-]{1,128}$" (toString $world.contentChecksum)) -}}
+{{- fail "worldConfig.contentChecksum is required with a source: the file's content revision, 1-128 characters from A-Z a-z 0-9 . _ : + = -" -}}
+{{- end -}}
+true
+{{- else if $world.contentChecksum -}}
+{{- fail "worldConfig.contentChecksum is set but there is no source: set existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigDir" -}}
+/etc/screamingface-engine/world
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigEnv" -}}
+- name: URL4_RUNNER_CONFIG
+  value: {{ printf "%s/url4.toml" (include "screamingface-engine.worldConfigDir" .) | quote }}
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigMount" -}}
+- name: world-config
+  mountPath: {{ include "screamingface-engine.worldConfigDir" . }}
+  readOnly: true
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigVolume" -}}
+- name: world-config
+  {{- if .Values.worldConfig.existingSecret }}
+  secret:
+    secretName: {{ .Values.worldConfig.existingSecret | quote }}
+  {{- else }}
+  configMap:
+    name: {{ .Values.worldConfig.existingConfigMap | quote }}
+  {{- end }}
+    items:
+      - key: {{ .Values.worldConfig.key | quote }}
+        path: url4.toml
+{{- end -}}
+
+{{/*
 Where the object store lives. Explicit `artifactStorage.s3.endpointUrl` wins; otherwise, with the
 bundled instance enabled, its in-cluster Service. Failing render is deliberate: an empty endpoint
 would leave the App to refuse startup with a less specific message than this one.

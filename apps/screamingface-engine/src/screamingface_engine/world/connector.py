@@ -833,6 +833,11 @@ def _report_usage(
     CONTRADICTION, and this is the seam that keeps them consistent. A hit is served from the
     gateway's store, so the provider consumed nothing this request — see
     `_report_served_from_cache`.
+
+    WHY a reported 0 is not a measured zero (OME-1770): when neither `_aigw` nor `usage` states a
+    count, `_token_count` falls back to 0, because the wire's `TokenUsage` cannot say "unknown". A
+    configured endpoint may omit `usage`, so its 0 tokens mean "not stated", never "nothing spent".
+    A truthful unknown is the later accounting integration's job, not this seam's.
     """
     sink = current_usage_sink()
     if sink is None:

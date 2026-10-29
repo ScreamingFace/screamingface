@@ -24,7 +24,7 @@ between "precedence works" and "precedence silently ate the eval path".
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -43,8 +43,10 @@ from screamingface_engine.world.config import (
     WorldConfig,
     WorldConfigError,
     config_file_digest,
+    load_config,
 )
 from screamingface_engine.world.factory import World, build_world
+from screamingface_engine.world.publication import private_mount_paths
 from screamingface_engine.world.wire import AsgiApp
 from url4.core.errors import ErrorCode
 from url4.peer import describe_routes
@@ -123,6 +125,8 @@ class MountDescriptor:
     path: str
     kind: Literal["endpoint", "data"]
     media_type: str | None
+    # OME-1770: False keeps a served mount out of the shared schema and `/metrics` path labels.
+    public_schema: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,12 +137,25 @@ class MountTable:
     config_digest: str | None
 
 
-def mount_descriptors(node: Any) -> tuple[MountDescriptor, ...]:
-    """Every mount of ``node`` as plain data — through url4's PUBLIC route listing (ans:Q12)."""
+def mount_descriptors(
+    node: Any, *, private_paths: Collection[str] = frozenset()
+) -> tuple[MountDescriptor, ...]:
+    """Every mount of ``node`` as plain data — through url4's PUBLIC route listing (ans:Q12).
+
+    ``private_paths`` comes from the SAME parsed world the node was built from
+    (`world.publication.private_mount_paths`), so a mount and its publication flag cannot
+    describe two different files.
+    """
     if not isinstance(node, Url4Node):
         return ()
     return tuple(
-        MountDescriptor(route.path, route.kind, route.media_type) for route in describe_routes(node)
+        MountDescriptor(
+            route.path,
+            route.kind,
+            route.media_type,
+            public_schema=route.path not in private_paths,
+        )
+        for route in describe_routes(node)
     )
 
 
@@ -158,9 +175,12 @@ async def derive_mount_table(
     The mount SET is the one the removed node tier served (PRD 05): parity first; exposing more
     is an owner decision (PRD 04 §6).
     """
-    io, aclose = await compose_serving_world(env=env, engine_routes=engine_routes, config=config)
+    # WHY resolved here, with the same `include_extra_models` `build_world` uses for `None`: the
+    # world and its private set must come from one parse.
+    resolved = config if config is not None else load_config(env, include_extra_models=True)
+    io, aclose = await compose_serving_world(env=env, engine_routes=engine_routes, config=resolved)
     try:
-        mounts = mount_descriptors(io)
+        mounts = mount_descriptors(io, private_paths=private_mount_paths(resolved))
     finally:
         if aclose is not None:
             await aclose()

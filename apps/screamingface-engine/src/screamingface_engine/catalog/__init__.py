@@ -37,7 +37,8 @@ from screamingface_engine.catalog.port import (
 )
 from screamingface_engine.config import Settings
 from screamingface_engine.network_policy import is_numeric_loopback_url
-from screamingface_engine.world.config import WorldConfigError, declared_model_ids
+from screamingface_engine.world.config import WorldConfigError, declared_model_ids, load_config
+from screamingface_engine.world.publication import private_model_ids
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,7 @@ def build_executable_catalog_service(
         return None
     try:
         model_ids = declared_model_ids(env)
+        private = private_model_ids(load_config(env))
     except WorldConfigError:
         # The cause is logged, not raised: `rest/catalog.py` turns None into the generic 503, so
         # an unauthenticated caller never learns why this deployment's world is unusable.
@@ -141,6 +143,7 @@ def build_executable_catalog_service(
             local=local,
             admission_source=admission_source,
             on_admitted=source.invalidate,
+            private=private,
         )
     )
 

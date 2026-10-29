@@ -205,6 +205,35 @@ adds each warm child's excess over its slot's charge (`runnerPool.warmChildCharg
 - `screamingface_engine_worker_handoff_latency_s` (histogram) — claim to the child's ACK
 - `screamingface_engine_worker_child_boot_s` (histogram) — child spawn to its READY
 
+## A private world config (OME-1770)
+
+By default the App and the pool read the image's public `url4.toml`. A deployment that declares
+private routes, such as configured-endpoint chat models, needs a complete world config that never
+enters the image, the chart values or Git. The chart mounts it from ONE ConfigMap or Secret the
+operator already created, read-only, into the App AND every runner pod, and points
+`URL4_RUNNER_CONFIG` at it. The App's catalog and mount table and the worker's execution parse
+the same file, so the two pod templates always carry the same source, key, path and checksum.
+
+```sh
+kubectl create secret generic url4-world --from-file=url4.toml=./world.toml
+helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
+  --reuse-values \
+  --set worldConfig.existingSecret=url4-world \
+  --set-string worldConfig.contentChecksum="$(shasum -a 256 world.toml | cut -d' ' -f1)"
+```
+
+- **The file is complete.** It replaces the image's `url4.toml`; it is not an overlay. Copy the
+  public file and add the private stanzas to the copy.
+- **`contentChecksum` is required with a source.** The chart never reads an object it did not
+  render, so it cannot hash the file itself. Pass a revision of the file's CONTENT: changing it
+  rolls the App and the pool together, and warm children go with their worker pod, because they
+  inherit its environment. Using the file's sha256, as above, makes the App's `/healthz`
+  `config_digest` the post-rollout check that the App loaded that exact file.
+- **`key`** names the file inside the source (default `url4.toml`); it is always mounted as
+  `url4.toml`.
+- The render refuses both sources at once, an empty `key`, a checksum without a source, and a
+  missing or malformed checksum.
+
 ## Events stream (uniform executor, PRD 01)
 
 Every run's frames now live on ONE JetStream stream, `url4-events` (subject

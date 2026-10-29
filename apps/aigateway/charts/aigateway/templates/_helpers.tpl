@@ -170,3 +170,31 @@ from starting, turning "I needed no credential" into an outage.
 true
 {{- end -}}
 {{- end -}}
+
+{{/*
+Hosted BYOM (OME-1771): the private endpoints file `AIGW_REMOTE_ENDPOINTS_CONFIG` names, mounted
+read-only from ONE ConfigMap or Secret the operator owns. `remoteEndpointsEnabled` validates
+`remoteEndpoints` and answers "true" when a source is set. This chart has no values schema, so
+these `fail`s are the only guard against a pod that starts without the file it was promised.
+*/}}
+{{- define "aigateway.remoteEndpointsEnabled" -}}
+{{- $endpoints := .Values.remoteEndpoints -}}
+{{- if and $endpoints.existingConfigMap $endpoints.existingSecret -}}
+{{- fail "remoteEndpoints: set only one of existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- if or $endpoints.existingConfigMap $endpoints.existingSecret -}}
+{{- if not $endpoints.key -}}
+{{- fail "remoteEndpoints.key must name the endpoints file inside the source" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._:+=-]{1,128}$" (toString $endpoints.contentChecksum)) -}}
+{{- fail "remoteEndpoints.contentChecksum is required with a source: the file's content revision, 1-128 characters from A-Z a-z 0-9 . _ : + = -" -}}
+{{- end -}}
+true
+{{- else if $endpoints.contentChecksum -}}
+{{- fail "remoteEndpoints.contentChecksum is set but there is no source: set existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "aigateway.remoteEndpointsDir" -}}
+/etc/aigateway/remote-endpoints
+{{- end -}}

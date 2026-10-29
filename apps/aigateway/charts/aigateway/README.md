@@ -102,6 +102,25 @@ degrade — it is denied at the CNI, and the symptom is a connect timeout in the
 in this gateway's logs, because the packet never arrives. Drop it only if you do not deploy the
 console.
 
+## Configured endpoints (hosted BYOM)
+
+Off by default. The gateway reads its configured-endpoints TOML once at startup from
+`AIGW_REMOTE_ENDPOINTS_CONFIG`, and refuses to start on an unusable file. The chart mounts that
+file read-only from one ConfigMap or Secret you already created; it never renders the file, so
+endpoint URLs and grants stay out of values and Git. Prefer a Secret.
+
+```bash
+kubectl create secret generic aigw-endpoints --from-file=endpoints.toml=./endpoints.toml
+helm upgrade aigw apps/aigateway/charts/aigateway --reuse-values \
+  --set remoteEndpoints.existingSecret=aigw-endpoints \
+  --set-string remoteEndpoints.contentChecksum="$(shasum -a 256 endpoints.toml | cut -d' ' -f1)"
+```
+
+`contentChecksum` is required with a source. The chart cannot read the object, so this supplied
+content revision is what rolls the pod when the file changes. `key` names the file inside the
+source (default `endpoints.toml`). The render refuses both sources at once, an empty `key`, a
+checksum without a source, and a missing or malformed checksum.
+
 ## Production
 
 `values-prod.yaml` expects externally managed Secrets and production ingress settings:

@@ -31,6 +31,7 @@ from screamingface_engine import job_env
 from screamingface_engine.artifacts.signing import signed_artifact_path
 from screamingface_engine.auth.problem import ProblemException
 from screamingface_engine.auth.token import new_topic
+from screamingface_engine.metrics import PRIVATE_PATH, PRIVATE_ROUTE_NAME
 from screamingface_engine.request_scope import (
     CAPTURE_UNSUPPORTED,
     CAPTURE_UNSUPPORTED_MESSAGE,
@@ -124,6 +125,10 @@ def register_mounts(app: FastAPI, table: MountTable, *, require_identity: bool =
         # would read as a path template: neither can be a route, so it is refused at startup.
         if "?" in mount.path or "{" in mount.path or "}" in mount.path:
             raise ValueError(f"mount path {mount.path!r} cannot be served as an HTTP route")
+        # FEATURE (OME-1770): a private mount is registered and served exactly like a public one,
+        # so an authorized caller runs it without listing it; it is only left out of the shared
+        # schema and named so `/metrics` labels it without its path.
+        private = not mount.public_schema
         app.router.add_api_route(
             mount.path,
             _handler_for(mount, require_identity=require_identity),
@@ -141,7 +146,8 @@ def register_mounts(app: FastAPI, table: MountTable, *, require_identity: bool =
             ),
             responses=_MOUNT_RESPONSES,
             response_class=Response,
-            name=f"mount:{mount.path}",
+            include_in_schema=not private,
+            name=PRIVATE_ROUTE_NAME if private else f"mount:{mount.path}",
         )
         # AC14 parity: a mount speaks GET only, and a wrong method gets the NODE's answer —
         # url4's `method_not_allowed` envelope — not the framework's `{"detail": ...}` 405.
@@ -150,7 +156,7 @@ def register_mounts(app: FastAPI, table: MountTable, *, require_identity: bool =
             _method_not_allowed,
             methods=_OTHER_METHODS,
             include_in_schema=False,
-            name=f"mount-method:{mount.path}",
+            name=PRIVATE_ROUTE_NAME if private else f"mount-method:{mount.path}",
         )
     app.state.mount_table = table
     # `/healthz` reports which config file the mounts came from (erd.md §2, R11).
@@ -217,7 +223,8 @@ async def _call(request: Request, mount: MountDescriptor, **kwargs: Any) -> Resp
         response = _envelope(problem.status, _problem_code(problem.status), problem.detail or "")
     counter = getattr(getattr(request.app.state, "metrics", None), "mount_calls", None)
     if counter is not None:
-        counter.labels(path=mount.path, status=str(response.status_code)).inc()
+        path = mount.path if mount.public_schema else PRIVATE_PATH
+        counter.labels(path=path, status=str(response.status_code)).inc()
     return response
 
 

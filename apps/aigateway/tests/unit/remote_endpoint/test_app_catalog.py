@@ -277,3 +277,35 @@ def test_a_hidden_pair_s_connection_is_never_read_for_the_availability_listing(
         rows = _availability(client, ACCOUNT_A)
 
     assert ENDPOINT_B not in rows
+
+
+# --- the contract the SDK preflight reads (OME-1770) --------------------------------------------
+
+
+def test_the_contract_reads_missing_until_that_account_attaches_a_key(byom: Harness) -> None:
+    """FEATURE: hosted BYOM Unit 2. The SDK stops a `missing` model before dispatch and runs a
+    `configured` one, so a granted account without a key must read `missing`, and only the
+    account whose key is attached reads `configured`."""
+    with byom.start(two_endpoint_document()) as client:
+        before = _get(client, ACCOUNT_A, "/v1/model-parameters", model=_model(ENDPOINT_A))
+        attached = put_key(client, ACCOUNT_A, ENDPOINT_A, "sk-alice-on-a-contract-0001")
+        after = _get(client, ACCOUNT_A, "/v1/model-parameters", model=_model(ENDPOINT_A))
+        other = _get(client, ACCOUNT_B, "/v1/model-parameters", model=_model(ENDPOINT_A))
+
+    assert attached.status_code == 200, attached.text
+    assert [r.status_code for r in (before, after, other)] == [200, 200, 200]
+    assert before.json()["context"]["execution_access"] == "missing"
+    assert after.json()["context"]["execution_access"] == "configured"
+    # INVARIANT: a Connection is per (account, endpoint) pair; A's key configures no one else.
+    assert other.json()["context"]["execution_access"] == "missing"
+    _assert_private([before, after, other])
+
+
+def test_the_contract_publishes_no_seed_row(byom: Harness) -> None:
+    """WHY: with no `seed` row the SDK refuses a seeded evaluation before any spend; the chat
+    route refuses a seed too (`test_request_contract.py`)."""
+    with byom.start(two_endpoint_document()) as client:
+        contract = _get(client, ACCOUNT_A, "/v1/model-parameters", model=_model(ENDPOINT_A))
+
+    assert contract.status_code == 200, contract.text
+    assert set(contract.json()["parameters"]) == {"max_tokens"}
