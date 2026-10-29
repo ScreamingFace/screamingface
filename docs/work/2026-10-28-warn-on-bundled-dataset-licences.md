@@ -3,7 +3,7 @@ ticket: OME-1757
 stack: screamingface-engine
 status: done
 started: 2026-10-28
-finished: 2026-10-28
+finished: 2026-10-29
 ---
 
 # warn-on-bundled-dataset-licences — the importer warns when a dataset bundles other datasets
@@ -54,8 +54,21 @@ existing row.
   column signal (3 fail), the config signal (1), threshold 3 → 2 (1), the review note (2), the
   stderr line (1), the CLI wiring (1), the guard (1). ruff check, ruff format, pyright clean on
   the touched files.
-- **Deviations:** the live Hub card check (that `HfApi().dataset_info` returns MathVista's
-  `dataset_info.features`) could not run: the session had no DNS. The stand-in card copies the
-  YAML header of MathVista's README as saved earlier.
-- **Owner-verify:** on the next real import of a Hugging Face Benchmark, confirm the warning
-  shows for a bundle (MathVista) and not for a plain dataset.
+- **Deviations:** review round (2026-10-29), after the PR opened:
+  - Owner-level call made by the main session: a detected bundle now writes the licence as TODO
+    (the card's value kept in `card_says` for the note), even when the card's licence is
+    cleared. A warning comment alone could be deleted with CI green; a TODO value is refused by
+    `test_task_replay_declarations_carry_an_owner_license_decision` until a human writes the
+    line. The import itself still succeeds. This replaces the plan's "never changes the value".
+  - Two more signals: the card's own `source_datasets` naming more than one dataset, and the
+    column match is now case-insensitive over `source` and `source_dataset` (never a bare
+    `dataset`).
+  - Live check done 2026-10-29: `HfApi().dataset_info("AI4Math/MathVista", revision=2b6ad694…)`
+    returns licence cc-by-sa-4.0, `source_datasets: ['original']` and a `metadata` struct
+    holding `source`; the importer's licence reader returns TODO with card_says cc-by-sa-4.0
+    for it, mit with no signal for commonsense_qa, and TODO with the 30-config signal for MMMU.
+  - Review-round gates: `test_aggregate_dataset_warning.py` + `test_task_replay_rows.py` +
+    `test_importer_command.py` 72 passed; the six importing tests 106 passed; seven more
+    mutation checks each fail at least one test. ruff, ruff format, pyright clean.
+- **Owner-verify:** on the next real import of a Hugging Face Benchmark, confirm a bundle
+  (MathVista) lands as `license="TODO"` with the warning and a plain dataset keeps its licence.

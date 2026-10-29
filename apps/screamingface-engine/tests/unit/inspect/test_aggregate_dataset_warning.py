@@ -3,13 +3,16 @@
 # default (extra-less) install the typecheck gate runs against.
 """The importer warns when a dataset bundles other datasets (OME-1757).
 
-INVARIANT: a dataset that looks like a bundle (a per-row ``source`` column on its card, or
-many configs of one Hub repo) gets a warning to check each source's licence by hand, and the
-licence the importer proposes is decided exactly as before. A plain dataset gets no warning.
+INVARIANT: a dataset that looks like a bundle (many configs of one Hub repo, a card listing
+several source datasets, or a per-row source column) gets a warning to check each source's
+licence by hand, and its licence is written as TODO even when the card's licence is cleared;
+the card's value is kept for the note. The licence gate
+(``test_task_replay_declarations_carry_an_owner_license_decision``) refuses a TODO, so CI stays
+red until a human writes the line. A plain dataset gets no warning and keeps its licence.
 
 WHY it matters: MathVista's card says cc-by-sa-4.0, a cleared licence, but 195 of its 1,000
-testmini Cases come from NonCommercial sources. Without the warning the row would say
-cc-by-sa-4.0 and nobody would be asked to look.
+testmini Cases come from NonCommercial sources. Without the TODO the row would say
+cc-by-sa-4.0, and a warning comment alone can be deleted with CI green.
 
 Every card here is a stand-in for ``HfApi().dataset_info(...)``: no test reaches the Hub.
 """
@@ -33,7 +36,7 @@ from screamingface_engine_inspect.import_replay import (  # noqa: E402
     TaskReplayImport,
 )
 from screamingface_engine_inspect.importer import main  # noqa: E402
-from screamingface_engine_inspect.prepare import TaskReplayCasesSpec  # noqa: E402
+from screamingface_engine_inspect.prepare import LICENSE_TODO, TaskReplayCasesSpec  # noqa: E402
 from screamingface_engine_inspect.task_replay_rows import (  # noqa: E402
     AGGREGATE_DATASET_WARNING,
     CardLicense,
@@ -52,6 +55,8 @@ _TASK: str = "inspect_evals.mathvista.mathvista:mathvista"
 #: features, where ``metadata`` is a struct whose ``source`` names each row's dataset.
 _MATHVISTA_CARD: dict[str, Any] = {
     "license": "cc-by-sa-4.0",
+    # WHY kept: the real card says ["original"] too (read live 2026-10-29), one name, no bundle.
+    "source_datasets": ["original"],
     "dataset_info": {
         "features": [
             {"name": "pid", "dtype": "string"},
@@ -71,6 +76,7 @@ _MATHVISTA_CARD: dict[str, Any] = {
 #: commonsense_qa's card header, trimmed the same way: one source, no per-row source column.
 _PLAIN_CARD: dict[str, Any] = {
     "license": "mit",
+    "source_datasets": ["original"],
     "dataset_info": {
         "features": [
             {"name": "id", "dtype": "string"},
@@ -143,21 +149,68 @@ def _declared_license(rows: TaskReplayRows, key: str) -> str:
     return namespace["declared"][key].license
 
 
-# ── the two signals, read off what the importer already has ──────────────────────
+# ── the signals, read off what the importer already has ──────────────────────────
 
 
-def test_a_per_row_source_column_on_the_card_marks_a_bundle_and_keeps_its_licence() -> None:
+def test_a_per_row_source_column_on_the_card_marks_a_bundle_and_writes_todo() -> None:
     """MathVista: a cleared card licence, but each row names one of 31 source datasets."""
 
     license_read: CardLicense = card_license_of(
         (_mathvista_source(),), dataset_info=_hub(_MATHVISTA_CARD)
     )
 
-    # The licence is decided exactly as without the signal: cleared, so it is the value.
-    assert license_read.value == "cc-by-sa-4.0"
-    assert license_read.card_says is None
+    # TODO, not the cleared cc-by-sa-4.0: the licence gate then keeps CI red until a human
+    # writes the line; the card's value rides along for the review note.
+    assert license_read.value == "TODO"
+    assert license_read.card_says == "cc-by-sa-4.0"
     assert license_read.aggregate_signal == (
         "the card's rows carry a 'source' column naming each row's dataset"
+    )
+
+
+def test_a_source_dataset_column_in_any_case_marks_a_bundle() -> None:
+    """The column name is matched case-insensitively, and source_dataset counts too."""
+
+    card: dict[str, Any] = {
+        "license": "mit",
+        "dataset_info": {"features": [{"name": "Source_Dataset", "dtype": "string"}]},
+    }
+
+    license_read: CardLicense = card_license_of((_mathvista_source(),), dataset_info=_hub(card))
+
+    assert license_read.aggregate_signal == (
+        "the card's rows carry a 'Source_Dataset' column naming each row's dataset"
+    )
+    assert license_read.value == "TODO"
+
+
+def test_a_card_listing_several_source_datasets_marks_a_bundle() -> None:
+    """The card's own source_datasets field, when it names more than one dataset."""
+
+    card: dict[str, Any] = {
+        "license": "cc-by-4.0",
+        "source_datasets": ["extended|tabmwp", "extended|iconqa"],
+    }
+
+    license_read: CardLicense = card_license_of((_mathvista_source(),), dataset_info=_hub(card))
+
+    assert license_read == CardLicense(
+        value="TODO",
+        card_says="cc-by-4.0",
+        aggregate_signal="the card lists 2 source datasets",
+    )
+
+
+def test_a_bare_dataset_column_is_not_a_bundle() -> None:
+    """Too many plain datasets carry a ``dataset`` column for it to mean a bundle."""
+
+    card: dict[str, Any] = {
+        "license": "mit",
+        "dataset_info": {"features": [{"name": "dataset", "dtype": "string"}]},
+    }
+
+    assert card_license_of((_mathvista_source(),), dataset_info=_hub(card)) == CardLicense(
+        value="mit", card_says=None, aggregate_signal=None
     )
 
 
@@ -230,20 +283,27 @@ def test_a_split_named_source_is_not_a_source_column() -> None:
 # ── where the warning lands: the licence's review note, and the command's output ─
 
 
-def test_the_warning_lands_above_the_licence_line_and_leaves_its_value_alone() -> None:
+def test_the_warning_lands_above_a_todo_licence_naming_what_the_card_says() -> None:
     signal: str = "the card's rows carry a 'source' column naming each row's dataset"
 
     rows: TaskReplayRows = render_task_replay_rows(
-        "mathvista", _imported((_mathvista_source(),)), "cc-by-sa-4.0", aggregate_signal=signal
+        "mathvista",
+        _imported((_mathvista_source(),)),
+        "TODO",
+        card_license="cc-by-sa-4.0",
+        aggregate_signal=signal,
     )
 
     assert (
         "        # TODO(review): aggregate dataset — check each source's licence by hand\n"
         "        # before writing the licence line.\n"
         f"        #   Why it looks like one: {signal}.\n"
-        '        license="cc-by-sa-4.0",\n'
+        "        # TODO(review): the card says 'cc-by-sa-4.0' for the bundle as a whole; the "
+        "owner decides.\n"
+        '        license="TODO",\n'
     ) in rows.cases
-    assert _declared_license(rows, "mathvista") == "cc-by-sa-4.0"
+    # The value the licence gate refuses until a human writes the line.
+    assert _declared_license(rows, "mathvista") == LICENSE_TODO
 
 
 def test_a_row_without_a_signal_carries_no_warning() -> None:
@@ -294,8 +354,10 @@ def test_the_command_prints_the_warning_for_a_bundle(
     assert code == 0
     err: str = capsys.readouterr().err
     assert f"WARNING: {AGGREGATE_DATASET_WARNING} (the card's rows carry a 'source'" in err
+    assert "license TODO" in err
     prepare_text: str = (engine_src_copy / "prepare.py").read_text()
     assert "# TODO(review): aggregate dataset" in prepare_text
+    assert "the card says 'cc-by-sa-4.0' for the bundle as a whole" in prepare_text
 
 
 def test_the_command_prints_no_warning_for_a_plain_dataset(
@@ -304,5 +366,7 @@ def test_the_command_prints_no_warning_for_a_plain_dataset(
     code: int = _command(engine_src_copy, _imported((_mathvista_source(),)), _PLAIN_CARD)
 
     assert code == 0
-    assert "WARNING" not in capsys.readouterr().err
+    err: str = capsys.readouterr().err
+    assert "WARNING" not in err
+    assert "license mit" in err
     assert "aggregate dataset" not in (engine_src_copy / "prepare.py").read_text()

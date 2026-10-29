@@ -71,9 +71,10 @@ _TASK_REPLAY_CASES_ANCHOR: str = (
 _CASE_SOURCE_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._:/\-?=&%+#~@ ]*\Z")
 #: What a Hub repo id may hold to land as a source_pins key (OME-1460).
 _HUB_REPO_CHARSET: re.Pattern[str] = re.compile(r"^[A-Za-z0-9._\-/]+\Z")
-#: A card column that names, per row, which source dataset the row came from (OME-1757).
-#: MathVista's ``metadata.source`` names one of 31 datasets, some NonCommercial.
-_SOURCE_COLUMN: str = "source"
+#: Card columns that name, per row, which source dataset the row came from (OME-1757),
+#: matched case-insensitively. MathVista's ``metadata.source`` names one of 31 datasets, some
+#: NonCommercial. WHY not a bare ``dataset``: too many plain datasets use it for other things.
+_SOURCE_COLUMNS: frozenset[str] = frozenset({"source", "source_dataset"})
 #: The importer's warning for a dataset that bundles other datasets (OME-1757): the card's
 #: one license line cannot speak for every source, so a human checks each by hand.
 AGGREGATE_DATASET_WARNING: str = (
@@ -395,9 +396,10 @@ def _license_lines(
 ) -> list[str]:
     """The license value, with a review note whenever the owner still has to decide (D13).
 
-    An aggregate dataset (OME-1757) gets a warning above the value, cleared or not: the
-    card's one license line does not speak for the datasets it bundles. MathVista's card
-    says cc-by-sa-4.0, but 195 of its 1,000 testmini Cases come from NonCommercial sources.
+    An aggregate dataset (OME-1757) gets a warning above the value, which card_license_of
+    has already made TODO: the card's one license line does not speak for the datasets it
+    bundles. MathVista's card says cc-by-sa-4.0, but 195 of its 1,000 testmini Cases come
+    from NonCommercial sources.
     """
 
     lines: list[str] = []
@@ -410,11 +412,13 @@ def _license_lines(
             )
         )
     if license == LICENSE_TODO:
-        reason: str = (
-            f"the card says {card_license!r}, not a cleared license"
-            if card_license is not None
-            else "no dataset card to read"
-        )
+        reason: str = "no dataset card to read"
+        if card_license is not None:
+            reason = (
+                f"the card says {card_license!r} for the bundle as a whole"
+                if aggregate_signal is not None
+                else f"the card says {card_license!r}, not a cleared license"
+            )
         lines.append(f"        # TODO(review): {reason}; the owner decides.")
     lines.append(f'        license="{license}",')
     return lines
@@ -545,7 +549,7 @@ class CardLicense:
     card_says: str | None
     #: Why the dataset looks like a bundle of other datasets, each under its own terms
     #: (OME-1757), e.g. ``the eval reads 30 configs of MMMU/MMMU``; None when it does not.
-    #: It only warns: the value above is decided exactly as without it.
+    #: When set, the value is TODO even for a cleared card licence, which stays in card_says.
     aggregate_signal: str | None = None
 
 
@@ -562,11 +566,15 @@ def card_license_of(
 
         Stage 1 — the configs: an eval reading many configs of one Hub repo looks like a
                   bundle (MMMU: 30 subject configs, so no single card is read either).
-        Stage 2 — the card: with one Hugging Face Case Source, its card gives the license,
-                  and a per-row ``source`` column in its features also marks a bundle
-                  (MathVista: cc-by-sa-4.0 on the card, 31 source datasets in the rows).
-        Stage 3 — decide: a cleared license is the value, any other is TODO (D13). The
-                  bundle signal never changes the value; it only rides along as a warning.
+        Stage 2 — the card: with one Hugging Face Case Source, its card gives the license.
+                  Two more card shapes mark a bundle: a ``source_datasets`` list naming
+                  more than one dataset, or a per-row ``source`` / ``source_dataset`` column
+                  in its features (MathVista: cc-by-sa-4.0 on the card, 31 source datasets
+                  in the rows).
+        Stage 3 — decide: a cleared license is the value, any other is TODO (D13). A bundle
+                  is TODO too, with the card's license kept in ``card_says``: the card's
+                  one line does not speak for the datasets it bundles, and the TODO is
+                  refused by the licence gate until a human writes the line (OME-1757).
 
     Example: ``hugging-face bigbio/med_qa · pin revision ddef…`` reads the card at ``ddef…``;
     ``Apache-2.0`` → ``apache-2.0``; ``UNKNOWN`` → TODO, the card says ``unknown``.
@@ -588,11 +596,13 @@ def card_license_of(
     if len(hugging_face) == 1:
         card: Any = _card_of(hugging_face[0], dataset_info)
         card_value = _card_license_text(card)
-        signal = signal or _source_column_signal(card)
+        signal = signal or _source_datasets_signal(card) or _source_column_signal(card)
     # Stage 3 — decide
     if card_value is None:
         return CardLicense(value=LICENSE_TODO, card_says=None, aggregate_signal=signal)
-    cleared: bool = card_value in CLEARED_DATASET_LICENSES
+    # WHY TODO for a bundle even when the card's license is cleared: a warning comment alone
+    # can be deleted with CI green; a TODO value cannot (the licence gate refuses it).
+    cleared: bool = card_value in CLEARED_DATASET_LICENSES and signal is None
     return CardLicense(
         value=card_value if cleared else LICENSE_TODO,
         card_says=None if cleared else card_value,
@@ -637,8 +647,22 @@ def _many_configs_signal(hugging_face: list[CaseSource]) -> str | None:
     return None
 
 
+def _source_datasets_signal(card: Any) -> str | None:
+    """Say so when the card's own ``source_datasets`` names more than one dataset, else None.
+
+    Example: ``[original]`` (MathVista, commonsense_qa) → None; ``[extended|tabmwp,
+    extended|iconqa]`` → ``the card lists 2 source datasets``.
+    """
+
+    listed: Any = card.get("source_datasets") if hasattr(card, "get") else None
+    names: set[str] = {str(item) for item in listed} if isinstance(listed, list) else set()
+    if len(names) > 1:
+        return f"the card lists {len(names)} source datasets"
+    return None
+
+
 def _source_column_signal(card: Any) -> str | None:
-    """Say so when the card's features hold a per-row ``source`` column, else None.
+    """Say so when the card's features hold a per-row source column, else None.
 
     The card's ``dataset_info`` is one mapping, or a list of them when the repo has several
     configs; a column may sit inside a struct, as MathVista's ``metadata.source`` does.
@@ -652,8 +676,9 @@ def _source_column_signal(card: Any) -> str | None:
     for info in per_config:
         if isinstance(info, dict):
             columns |= _feature_names(info.get("features"))
-    if _SOURCE_COLUMN in columns:
-        return f"the card's rows carry a {_SOURCE_COLUMN!r} column naming each row's dataset"
+    found: list[str] = sorted(name for name in columns if name.lower() in _SOURCE_COLUMNS)
+    if found:
+        return f"the card's rows carry a {found[0]!r} column naming each row's dataset"
     return None
 
 

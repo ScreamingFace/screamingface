@@ -19,8 +19,9 @@ Stages, in execution order (``main``):
               every build will.
     Stage 2 — the card: the one Hugging Face Case Source's dataset card gives a cleared
               licence, else ``TODO`` for the owner (D13). Network, import side only. A
-              dataset that looks like a bundle of other datasets (many configs, or a
-              per-row source column) gets a warning, never a different licence (OME-1757).
+              dataset that looks like a bundle of other datasets (many configs, a card
+              listing several source datasets, or a per-row source column) is ``TODO`` with
+              a warning, even when the card's licence is cleared (OME-1757).
     Stage 3 — write: the declaration and the BenchmarkSpec row are inserted at their
               files' anchor comments (task_replay_rows.py), using this module's renderers.
 
@@ -1426,8 +1427,9 @@ def _import_by_task_replay_cli(
         file=sys.stderr,
     )
     if card.aggregate_signal is not None:
-        # WHY a warning, never a refusal: the shape only hints at a bundle (OME-1757); the
-        # human deciding the licence line is the one who checks each source.
+        # WHY not a refusal: the shape only hints at a bundle (OME-1757). The import still
+        # succeeds; its licence is TODO, which the licence gate refuses until a human who
+        # checked each source writes the line.
         print(f"WARNING: {AGGREGATE_DATASET_WARNING} ({card.aggregate_signal}).", file=sys.stderr)
 
 
