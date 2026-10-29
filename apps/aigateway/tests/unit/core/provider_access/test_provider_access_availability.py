@@ -8,7 +8,7 @@
 # equivalence to the Engine's Profile-listing rule (authenticated > pending > error) retired with
 # it. Since the D17 fold-in (OME-1138) a provider lists by the rule its default chat resolve
 # follows: a migrated pair's effective Connection (`test_connection_only_resolve.py`), any other
-# pair but a quarantined one its Connections by label (`test_availability_follows_resolve.py`).
+# pair its Connections by label (`test_availability_follows_resolve.py`).
 """
 
 from __future__ import annotations
@@ -18,9 +18,11 @@ from functools import partial
 from typing import Any
 
 import pytest
-from provider_access_fake import FakeHarness
+from connection_backed_harness import ConnectionBackedHarness
+from provider_access_fake import PROVIDER, FakeHarness
+from provider_access_harness import Harness
 
-from aigateway.core.provider_access import AvailabilityRow
+from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
 from tests.unit.seed_state import SeedState
 
 
@@ -55,18 +57,50 @@ def test_availability_rows_carry_provider_and_status_only_sorted_by_provider(sea
     assert "needs_reauth" not in {row.status for row in rows}
 
 
-# --- the fake witness agrees on the rule for providers it has rows for ----------------------
+# --- the fake witness agrees with the real backing for the default selector -------------------
 
 
-def test_the_fake_witness_applies_the_same_precedence() -> None:
-    harness = FakeHarness()
-    harness.seed_credential(name="a", state=SeedState.ERROR)
-    harness.seed_credential(name="b", state=SeedState.PENDING)
-    assert harness.call(harness.access.availability, harness.account_id) == (
-        AvailabilityRow("anthropic", "pending"),
-    )
+def _errored_beside_an_active_row(harness: Harness) -> None:
+    harness.seed_credential(state=SeedState.ERROR)
+    harness.seed_connection(label="work")
 
-    harness.seed_credential(name="c", state=SeedState.AUTHENTICATED)
-    assert harness.call(harness.access.availability, harness.account_id) == (
-        AvailabilityRow("anthropic", "connected"),
-    )
+
+def _two_active_rows(harness: Harness) -> None:
+    harness.seed_connection(label="work")
+    harness.seed_connection(label="personal")
+
+
+# WHY these situations: they are the ones both witnesses can seed — a stored credential (the
+# pair's effective Connection) in each state, and plain active Connections with no marker.
+_SITUATIONS: dict[str, tuple[Callable[[Harness], Any], AvailabilityStatus]] = {
+    "authenticated": (lambda harness: harness.seed_credential(), "connected"),
+    "pending": (
+        lambda harness: harness.seed_credential(state=SeedState.PENDING, credential=None),
+        "pending",
+    ),
+    "errored": (lambda harness: harness.seed_credential(state=SeedState.ERROR), "error"),
+    "errored-beside-active": (_errored_beside_an_active_row, "error"),
+    "one-active-row": (lambda harness: harness.seed_connection(label="work"), "connected"),
+    "two-active-rows": (_two_active_rows, "error"),
+}
+
+
+def _status(harness: Harness) -> AvailabilityStatus:
+    rows = harness.call(harness.access.availability, harness.account_id)
+    return next(row.status for row in rows if row.provider == PROVIDER)
+
+
+@pytest.mark.parametrize("situation", list(_SITUATIONS))
+def test_the_fake_witness_agrees_with_the_real_backing(
+    situation: str, authenticated_client: Any, credential_blobs: Any, monkeypatch: Any
+) -> None:
+    # FEATURE: OME-1138 close-out, L4a — the fake lists by the rule the real backing follows for
+    # the default selector, the only one since the Stage D sunset; it seeds no Profile.
+    seed, expected = _SITUATIONS[situation]
+    fake = FakeHarness()
+    real = ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+
+    seed(fake)
+    seed(real)
+
+    assert _status(fake) == _status(real) == expected

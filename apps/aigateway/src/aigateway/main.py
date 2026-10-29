@@ -37,7 +37,7 @@ from .core.parameter_discovery_cache import (
     SystemMonotonicClock,
 )
 from .core.pending_auth import PendingAuthTable
-from .core.provider_access import ConnectionBackedProviderAccess, SelectorPolicy
+from .core.provider_access import ConnectionBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -205,15 +205,6 @@ async def _lifespan(app):
         authenticating = app.state.settings.auth_mode != "disabled"
         if authenticating or app.state.settings.admin_password is not None:
             await ensure_admin_account(app.state.settings.admin_password)
-
-        # WHY a warning, not an import (OME-1209 E4b): the opt-in Claude Code import seeded a
-        # legacy Profile, and no runtime path writes one any more. A provider is connected
-        # through the UI, so a deployment that still sets the flag learns it does nothing.
-        if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
-            logger.warning(
-                "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE is set, but the Claude Code credential "
-                "import is retired; connect the provider through the UI instead"
-            )
 
         # OME-303 U3: ONE app-lifetime observed LiteLLM handler. App-lifetime, not
         # per-request, so connection pooling and the default aiohttp transport are
@@ -419,9 +410,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # in e2e harnesses. Credential storage itself is always DB-backed.
     credential_store = ORMStore()
     app.state.credential_store = credential_store
-    # OME-1394: the selector sunset is configured once; HTTP boundaries consume this policy through
-    # ``selector_from_request`` and provider-access implementations never inspect it.
-    app.state.selector_policy = SelectorPolicy.REJECT_EXPLICIT
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
     # OME-1209 (Stage E, E4a): the Connection-backed authority resolves every pair from its marker
     # and its Connections; no Profile document is read.

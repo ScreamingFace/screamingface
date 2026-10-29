@@ -218,8 +218,7 @@ def test_pair_marker_compare_and_set_is_fenced_on_postgres(pg_client: TestClient
         account_id,
         PROVIDER,
         expected_generation=0,
-        migration_state="quarantined",
-        migration_note="two candidates",
+        migration_state="none",
     )
     assert first.generation == 1
     # INVARIANT: a second creator loses on the unique pair; the aborted transaction rolls back.
@@ -230,7 +229,7 @@ def test_pair_marker_compare_and_set_is_fenced_on_postgres(pg_client: TestClient
             account_id,
             PROVIDER,
             expected_generation=0,
-            migration_state="quarantined",
+            migration_state="none",
         )
     with pytest.raises(PairAuthorityConflict):
         _call(
@@ -251,7 +250,7 @@ def test_pair_marker_compare_and_set_is_fenced_on_postgres(pg_client: TestClient
     )
     assert second.generation == 2
     read = _marker(pg_client, account_id)
-    assert (read.generation, read.migration_state, read.migration_note) == (2, "none", None)
+    assert (read.generation, read.migration_state) == (2, "none")
 
 
 def test_a_migrated_pair_reads_through_its_locator_on_postgres(pg_client: TestClient) -> None:

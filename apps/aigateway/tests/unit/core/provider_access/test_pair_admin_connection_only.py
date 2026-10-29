@@ -5,7 +5,7 @@
 # gone: the empty-pair row (7) and the single-Connection row (9) keep publishing `migrated`.
 # STORY: as an operator, the credential I manage is the Connection the runtime would use; a legacy
 # blob at a name address beside it neither shows up nor changes which row the pair is in.
-# INVARIANT: row 11 is refused exactly like row 4, with no identity proof; a pair holding only a
+# INVARIANT: row 11 is refused as `unresolved`, with no identity proof; a pair holding only a
 # legacy blob at a name address is the empty pair, and that blob stays as it was.
 # WHY no mirror (OME-1209 E4b): the PUT writes the effective Connection's blob and no other name
 # address.
@@ -139,7 +139,7 @@ def test_the_disposition_names_no_document() -> None:
 
 
 def test_classify_pair_decides_on_the_marker_and_the_connections_alone() -> None:
-    marker = PairAuthority("acct", PROVIDER, "none", None, 0, None)
+    marker = PairAuthority("acct", PROVIDER, "none", None, 0)
 
     disposition = classify_pair(marker, [], credential_provider=CREDENTIAL_PROVIDER)
 

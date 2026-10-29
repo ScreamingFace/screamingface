@@ -2,8 +2,8 @@
 
 # FEATURE: OME-1138 D18, G0 (contract §5.3, owner decisions 2026-10-06 and 2026-10-13) — "OAuth
 # failure and error marks only check the observed generation where a lockable row exists and
-# never advance it". A Connection on a `none` or `quarantined` pair is marked `error` only while
-# the pair still sits at the generation the request observed before its provider call.
+# never advance it". A Connection on a `none` or unmarked pair is marked `error` only while the
+# pair still sits at the generation the request observed before its provider call.
 # STORY: as an operator who just replaced a rejected API key, I am not told to reconnect because a
 # request that was still using the old key failed a moment later.
 # INVARIANT: an API-key Connection is re-keyed IN PLACE (same row, still `active`), so `id` and
@@ -62,20 +62,6 @@ async def _claim_current(account_id: str) -> None:
 
 def _claim(harness: RealAppHarness) -> None:
     harness.call(_claim_current, harness.account_id)
-
-
-def _quarantine(harness: RealAppHarness, note: str) -> None:
-    async def quarantine() -> None:
-        current = await PairAuthorityStore().read(harness.account_id, PROVIDER)
-        await PairAuthorityStore().advance(
-            harness.account_id,
-            PROVIDER,
-            expected_generation=current.generation,
-            migration_state="quarantined",
-            migration_note=note,
-        )
-
-    harness.call(quarantine)
 
 
 def _resolve(harness: RealAppHarness) -> CredentialTarget:
@@ -143,23 +129,6 @@ def test_a_dispatch_failure_after_the_first_marker_appeared_marks_nothing(harnes
 
     assert _record(harness, target) is None
     assert harness.connection_status(connection_id) == "active"
-
-
-def test_a_lost_check_on_a_quarantined_pair_keeps_its_state_and_note(harness) -> None:
-    # WHY resolve first: a quarantined pair refuses resolve (spec §9 Q8), so the quarantine lands
-    # while the request is in flight.
-    connection_id = harness.seed_connection(label="work")
-    target = _resolve(harness)
-    _quarantine(harness, "two candidates")
-    _claim(harness)
-    before = marker(harness)
-
-    _record(harness, target)
-
-    assert harness.connection_status(connection_id) == "active"
-    after = marker(harness)
-    assert (after.migration_state, after.migration_note) == ("quarantined", "two candidates")
-    assert after.generation == before.generation
 
 
 def test_a_native_key_replacement_during_dispatch_keeps_the_new_key_usable(harness) -> None:

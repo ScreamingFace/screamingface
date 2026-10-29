@@ -2,9 +2,9 @@
 
 # FEATURE: Stage E plan §3 E4a — the pair marker alone decides how a pair resolves, and the
 # legacy Profile index is never read. A `migrated` pair whose marker names an effective Connection
-# is served from it; any other `migrated`, `none` or unmarked pair resolves through its Connections
-# by label (chatless or ambient when it has none); a `quarantined` pair fails closed. Op 3 is pure;
-# op 1 (the stored-defaults read) was deleted at Stage E, E2b.
+# is served from it; any other `migrated`, `none` or unmarked pair resolves through its one active
+# Connection (chatless or ambient when it has none). Op 3 is pure; op 1 (the stored-defaults read)
+# was deleted at Stage E, E2b.
 # INVARIANT (D14): one authority per pair per call — the marker is read once at the top of
 # `resolve`/`availability`; ops 4–5 follow the target's backing. An unreadable marker store
 # propagates its error: never a silent fall-back.
@@ -50,10 +50,8 @@ from .types import (
     AvailabilityRow,
     AvailabilityStatus,
     CredentialTarget,
-    PairNotManageable,
     ResolvePolicy,
     SelectorAmbiguous,
-    SelectorUnknown,
     TargetMissing,
     TargetPending,
     TargetReauthRequired,
@@ -64,8 +62,6 @@ logger = logging.getLogger(__name__)
 # The refusals that mean "this pair's credential is not usable now" — the ones OME-1389 could not
 # see. Selector and store refusals already say what went wrong in their own response.
 _UNUSABLE = (TargetMissing, TargetPending, TargetReauthRequired)
-# The selector availability answers for: the target chat resolves with no `X-Profile` header.
-_DEFAULT = Selector.from_header(None)
 
 
 def _log_refusal(
@@ -97,46 +93,27 @@ def _log_refusal(
 
 
 def _select_by_label(
-    provider: str, connections: Sequence[OAuthConnection], selector: Selector
+    provider: str, connections: Sequence[OAuthConnection]
 ) -> OAuthConnection | None:
-    """The pair's row for `selector` among its ACTIVE Connections; None when it has none.
+    """The pair's one ACTIVE Connection for the default selector; None when it has none.
 
-    Raises `SelectorAmbiguous` for the default selector over two or more rows, and
-    `SelectorUnknown` for a name no row carries.
+    Raises `SelectorAmbiguous` over two or more rows.
 
     # INVARIANT (OME-1138, D17 fold-in): the one label rule. Resolve serves the row chosen here
     # and availability reports it, so `connected` never names a row chat would not pick.
+    # WHY no label is read (OME-1138 close-out, L4a): the default is the only selector since the
+    # Stage D sunset, and a label never disambiguates two active rows.
     """
     if not connections:
         return None
-    if selector.explicit:
-        for connection in connections:
-            if connection.label == selector.name:
-                return connection
-    if selector.is_default and len(connections) == 1:
+    if len(connections) == 1:
         return connections[0]
-    if selector.is_default:
-        raise SelectorAmbiguous(provider)
-    raise SelectorUnknown(
-        provider, selector.name, tuple(connection.label for connection in connections)
-    )
+    raise SelectorAmbiguous(provider)
 
 
 def _served_by_reference(pair: PairAuthority) -> bool:
     """Whether the default resolve serves this pair from its marker's effective reference."""
     return pair.migration_state == "migrated" and pair.effective_connection_id is not None
-
-
-def _answers(selector: Selector, effective: OAuthConnection | None) -> bool:
-    """Whether a migrated pair's effective reference answers this selector.
-
-    # WHY: the reference answers the pair's default target, and a name only when it is the
-    # effective Connection's own label — the document name the backfill gave it. Any other name
-    # is matched by label or refused, never served by another row (refuse, never retarget).
-    """
-    if selector.is_default:
-        return True
-    return effective is not None and effective.label == selector.name
 
 
 class ConnectionBackedProviderAccess:
@@ -163,21 +140,16 @@ class ConnectionBackedProviderAccess:
         if available_auth_modes(plugin) == ("none",):
             return targetless(account_id, plugin)
         pair = await self._markers.read(account_id, provider)
-        if pair.migration_state == "quarantined":
-            # WHY fail closed (spec §9 Q8): quarantine is the backfill's verdict that the pair's
-            # candidates could not be proven one credential; serving either one would guess, and
-            # only the offline backfill can settle the pair.
-            raise PairNotManageable(provider, "unresolved")
         if pair.migration_state != "migrated":
             target = await self._resolve_by_label(
                 account_id, provider, selector, plugin=plugin, policy=policy
             )
             return replace(target, _observed_pair=pair)
-        connection = await self._effective_connection(account_id, pair)
-        if pair.effective_connection_id is None or not _answers(selector, connection):
+        if not _served_by_reference(pair):
             return await self._resolve_migrated_by_label(
                 account_id, provider, selector, plugin=plugin, policy=policy
             )
+        connection = await self._effective_connection(account_id, pair)
         try:
             target = migrated_target(account_id, provider, selector, connection, plugin=plugin)
             return await require_operational_access_migrated(
@@ -201,9 +173,8 @@ class ConnectionBackedProviderAccess:
         policy: ResolvePolicy,
     ) -> CredentialTarget:
         # WHY the label path (spec §9 Q9): a migrated pair whose marker names no effective
-        # Connection was disconnected, and a row added since is matched by label, never guessed;
-        # a named selector is matched the same way. The row refused here is the one matched,
-        # which need not be the effective one.
+        # Connection was disconnected, and a row added since is served only as the pair's one
+        # active row, never guessed among several. The row refused here is that row.
         matched: OAuthConnection | None = None
         try:
             target = await self._resolve_by_label(
@@ -230,7 +201,7 @@ class ConnectionBackedProviderAccess:
         plugin: Any,
         policy: ResolvePolicy,
     ) -> CredentialTarget:
-        connection = await self._active_connection(account_id, provider, selector)
+        connection = await self._active_connection(account_id, provider)
         if connection is not None:
             connection = await self._repair_api_key_only(plugin, connection)
             return connection_target(account_id, provider, connection, plugin=plugin)
@@ -241,13 +212,11 @@ class ConnectionBackedProviderAccess:
             raise TargetMissing(provider, selector.name)
         return targetless(account_id, plugin)
 
-    async def _active_connection(
-        self, account_id: str, provider: str, selector: Selector
-    ) -> OAuthConnection | None:
+    async def _active_connection(self, account_id: str, provider: str) -> OAuthConnection | None:
         connections = await oauth_connection_store(self._app).list(
             account_id, provider=provider, status="active"
         )
-        return _select_by_label(provider, connections, selector)
+        return _select_by_label(provider, connections)
 
     async def _repair_api_key_only(
         self, plugin: Any, connection: OAuthConnection
@@ -327,10 +296,9 @@ class ConnectionBackedProviderAccess:
         """Op 6: each listed provider's status, by the rule its default chat resolve follows.
 
         # FEATURE: OME-1138 D17 fold-in — a `migrated` pair whose marker names an effective
-        # Connection reports that row (A3, OME-1230); every other pair but a `quarantined` one
-        # reports its Connections by label (`_label_status`), so a provider connected natively
-        # lists what chat serves. A `quarantined` pair reads `not_connected`, as chat refuses it,
-        # and so does a provider declaring only "none", whatever its marker or rows.
+        # Connection reports that row (A3, OME-1230); every other pair reports its Connections by
+        # label (`_label_status`), so a provider connected natively lists what chat serves. A
+        # provider declaring only "none" reads `not_connected`, whatever its marker or rows.
         # INVARIANT (OME-1721): a row is a registered provider this account may VIEW. A pair of
         # any other provider, gone from the registry or hidden from this account, is listed with
         # the account's markers and Connections but never read for a status: neither its
@@ -365,8 +333,6 @@ class ConnectionBackedProviderAccess:
             if available_auth_modes(plugin) == ("none",):
                 continue
             pair = pairs.get(provider)
-            if pair is not None and pair.migration_state == "quarantined":
-                continue
             if pair is not None and _served_by_reference(pair):
                 connection = await self._effective_connection(account_id, pair)
                 statuses[provider] = await operational_availability_status_for(
@@ -391,7 +357,7 @@ class ConnectionBackedProviderAccess:
         """
         active = [connection for connection in connections if connection.status == "active"]
         try:
-            connection = _select_by_label(provider, active, _DEFAULT)
+            connection = _select_by_label(provider, active)
         except SelectorAmbiguous:
             return "error"
         if connection is not None:
