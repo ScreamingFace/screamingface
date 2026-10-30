@@ -190,11 +190,12 @@ present (pinned 2026-10-08, B3 review).
    outcome is `stored` or forgiven, and the run is not on the local runtime. Anything else is
    `partial`. Q27 removes D2: a call that left no entry at its key would be a replay miss. Q32 forgives
    only a no-answer outcome (`error`, or `failed`/`refused`/`missing` whose last response was not 2xx)
-   that meets both of these conditions:
+   that meets all three of these conditions:
    - Its Case's final result (after the Attempt fold) is not scored, and the Case scored for no
      Candidate in the run.
-   - Its Case did not fail on time: no failure code or `source_code` is time-based (a timeout or
-     a deadline). A replay serves stored answers at once, so it may score such a Case.
+   - Its Case did not fail on time: no failure of the Case, or of one of its Attempts, has a
+     time-based code or `source_code` (a timeout or a deadline). A replay serves stored answers at
+     once, so it may score such a Case.
    - No later call with the same lane, request digest and case key, at a higher occurrence, gave
      the model an answer.
 
@@ -212,7 +213,11 @@ present (pinned 2026-10-08, B3 review).
    - A `max-age` re-issue whose last response is 2xx takes that response's `X-AIGW-Capture` status.
    - A transport failure in the connect phase (`ConnectError`, `ConnectTimeout`, `PoolTimeout`) sent
      no request byte, so the gateway stored nothing for that try. It does not make the call
-     `ambiguous`; if every try failed that way, the call is `error`.
+     `ambiguous`; if every try failed that way and the call read no 2xx before, the call is
+     `error`.
+   - A call that read a 2xx response and then did not return stays `ambiguous`. Examples: its
+     `max-age` re-issue failed in the connect phase on every try, had no deadline left, or was
+     cancelled. The copy holds a 200 that the model never used, and a replay serves it.
 8. **`local` (Q23):** a capture on the local runtime (`create_local_app`) counts `capture.partial.local =
    1`. Its copy lives only in the local gateway, so a hosted board can never replay it.
 

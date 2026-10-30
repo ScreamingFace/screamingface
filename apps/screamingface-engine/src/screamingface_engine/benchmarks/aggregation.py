@@ -178,7 +178,8 @@ def finalize_candidate_result(
         for selected in selection
     ]
     # FEATURE: OME-1775 — R1 needs each Case's final result; every final Case result passes here,
-    # once per Candidate. A Case that failed on time is noted as scored: a replay may score it.
+    # once per Candidate. A Case that failed on time (in any Attempt) is noted as one a replay
+    # may score.
     record_case_results(
         (case.case_id, case.status == "scored" or _failed_on_time(case)) for case in typed_cases
     )
@@ -209,10 +210,31 @@ def finalize_candidate_result(
 
 
 def _failed_on_time(case: CaseResult) -> bool:
-    return any(
-        failure.code in TIME_BASED_CODES or failure.metadata.get("source_code") in TIME_BASED_CODES
-        for failure in case.failures
+    """True when wall time caused a failure of the Case or of one of its Attempts (OME-1775 R1).
+
+    WHY each Attempt: when no Attempt scored, the Attempt fold keeps only Attempt 1's failures on
+    the Case, so a later Attempt's timeout is only in ``case.attempts``.
+    """
+    attempt_failures = [failure for attempt in case.attempts or () for failure in attempt.failures]
+    return any(_time_based(failure) for failure in [*case.failures, *attempt_failures])
+
+
+def _time_based(failure: Failure) -> bool:
+    """True when the failure's code, or an upstream code it carries, is in TIME_BASED_CODES.
+
+    WHY the nested shape: the shared marking room keeps the upstream error under
+    ``metadata["source_error"]`` (its ``code``, and ``source_code`` for a folded url4 code); only
+    the grading stage writes ``source_code`` at the top level of the metadata.
+    """
+    source_error = failure.metadata.get("source_error")
+    nested: Mapping[str, Any] = source_error if isinstance(source_error, Mapping) else {}
+    codes = (
+        failure.code,
+        failure.metadata.get("source_code"),
+        nested.get("code"),
+        nested.get("source_code"),
     )
+    return any(isinstance(code, str) and code in TIME_BASED_CODES for code in codes)
 
 
 def public_error(

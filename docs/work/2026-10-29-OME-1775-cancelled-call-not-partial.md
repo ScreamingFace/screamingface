@@ -84,6 +84,15 @@ plan → code.
   a url4 `;t=` guard turns wall time into a failure a replay may not repeat). Test RED first (4 of
   6 rows). Spec R1, Q32 row and design §5.2 item 5 updated. (2) File the MedXpert turn-2 replay
   defect as a separate bug in Triage.
+- 2026-10-29: second review through the `tiered-build` workflow (run wf_552aa619-a9b: Opus
+  planner found no work left; gates green; Opus design-review ACCEPT-WITH-FIXES; one fix round by
+  Haiku implementers; gates green again; Opus fix check). F1 (high): `_failed_on_time` missed the
+  shared-grading shape, where the upstream code sits in `metadata["source_error"]` (`code`,
+  `source_code`), so most time-based Case failures were not seen. F2: a timeout in Attempt 2+ was
+  not seen (the fold keeps Attempt 1's failures). Both fixed with tests. F3/F10: `case_results`
+  docs say "a replay may score"; `current_capture_case` drops `or None`. F4/F5/F8: plan §8,
+  design §5.2 items 5 and 7, spec R1 and test 17 updated. Skipped: F6 (the `status()` default
+  keeps a prior test unchanged), F7 (style only), F9 (OME-1786 mirror is intended).
 
 ## Deviations
 

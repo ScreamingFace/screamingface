@@ -96,7 +96,7 @@ def current_capture_case() -> tuple[str | None, str]:
         case_id = current_grading_case()
     if case_id is None:
         return None, ""
-    return str(case_id) or None, case_key_for(case_id, current_case_attempt() or 1)
+    return str(case_id), case_key_for(case_id, current_case_attempt() or 1)
 
 
 def current_case_key() -> str:
