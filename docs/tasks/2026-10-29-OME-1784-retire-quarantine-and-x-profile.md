@@ -12,8 +12,8 @@ created: 2026-10-29
 # Retire the quarantined marker state and the X-Profile compatibility path (L4a)
 
 The pair marker has two states, `none` and `migrated`; a stored `quarantined` is a data error.
-`SelectorPolicy`, named `X-Profile` selection and `SelectorUnknown` are gone: any present
-`X-Profile` value is refused on every route. D18 row 4 and the
+`SelectorPolicy`, named `X-Profile` selection and `SelectorUnknown` are gone: every nonblank
+`X-Profile` value is refused on every selector-bearing route. D18 row 4 and the
 `AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE` warning are gone, and `migration_note` is neither read nor
 written (L4c drops the column). Stacked on OME-1778; merges after it and after the read-only
 count of `quarantined` and non-null `migration_note` rows is 0 in dev, stage and prod. Spec
