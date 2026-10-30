@@ -17,6 +17,14 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from screamingface_engine import job_env
+from screamingface_engine.artifacts.blobs import (
+    BlobObjects,
+    BlobScope,
+    BlobStore,
+    FilesystemBlobObjects,
+    S3BlobObjects,
+    ScopedBlobReader,
+)
 from screamingface_engine.artifacts.filesystem import FilesystemArtifactStore
 from screamingface_engine.artifacts.ports import ArtifactWriter
 from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3Config
@@ -48,6 +56,40 @@ def result_writer_from_env(env: Mapping[str, str]) -> ArtifactWriter:
         return S3ArtifactStore(s3_config_from_values(env))
     artifacts_dir = env.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR
     return FilesystemArtifactStore(Path(artifacts_dir))
+
+
+def blob_store_from_env(env: Mapping[str, str]) -> BlobStore:
+    """The run blob store (OME-1540) on the Runner: the same backend the App's routes write.
+
+    WHY the artifact selection: blobs live in the artifact directory or bucket (owner decision
+    2026-10-28, Q4a), so ONE setting keeps both halves pointed at the same place.
+    """
+    objects: BlobObjects
+    if (env.get(job_env.ARTIFACT_STORE) or "filesystem").strip() == "s3":
+        objects = S3BlobObjects(S3ArtifactStore(s3_config_from_values(env)))
+    else:
+        objects = FilesystemBlobObjects(
+            Path(env.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR)
+        )
+    return BlobStore(objects)
+
+
+def blob_scope_from_env(env: Mapping[str, str]) -> BlobScope:
+    """This run's blob scope, from the run context only (spec F3 step 1).
+
+    INVARIANT: the topic and the verified identity the run was STARTED with — the same pair the
+    App's upload route scoped the blob to — never anything a ref or an expression says.
+
+    Raises:
+        ValueError: the env carries no usable topic, so there is no run to scope to.
+    """
+    email = job_env.identity_from_env(env).get("X-User-Email")
+    return BlobScope.for_caller(email, env.get(job_env.TOPIC) or "")
+
+
+def blob_reader_from_env(env: Mapping[str, str]) -> ScopedBlobReader:
+    """The `BlobReader` (OME-1545 port) the Runner binds for its model calls."""
+    return ScopedBlobReader(blob_store_from_env(env), blob_scope_from_env(env))
 
 
 def s3_config_from_values(values: Mapping[str, str]) -> S3Config:
@@ -83,4 +125,10 @@ def s3_config_from_values(values: Mapping[str, str]) -> S3Config:
     )
 
 
-__all__ = ["result_writer_from_env", "s3_config_from_values"]
+__all__ = [
+    "blob_reader_from_env",
+    "blob_scope_from_env",
+    "blob_store_from_env",
+    "result_writer_from_env",
+    "s3_config_from_values",
+]
