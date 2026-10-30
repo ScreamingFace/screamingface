@@ -1,7 +1,7 @@
 ---
 id: OME-1775
 linear_url: https://linear.app/openmined/issue/OME-1775/do-not-mark-a-capture-partial-for-an-outcome-its-replay-reproduces
-status: in_progress
+status: in_review
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
@@ -22,5 +22,7 @@ status (R2), and a connect-phase failure is not `ambiguous` (R3). Spec:
 - 2026-10-29: filed; spec written; owner decisions D1–D5.
 - 2026-10-29: plan approved (P1–P3); code, tests and design-doc Q32 done; reviews done and
   fixed; R1 skips a Case that failed on time (owner). Gates green. Local branch
-  `OME-1775-replay-exact-not-partial`; PR not opened.
+  `OME-1775-replay-exact-not-partial`.
 - 2026-10-29: found the MedXpert turn-2 replay defect; filed as OME-1786 (bug, Triage).
+- 2026-10-29: second review (tiered-build workflow) found and fixed the nested `source_error`
+  time codes and later-Attempt timeouts. PR opened; status In Review.
