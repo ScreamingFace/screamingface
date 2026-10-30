@@ -3,11 +3,12 @@
 # FEATURE: the caller-scoped provider availability listing, gateway-side, so the Hosted Engine can
 # stop aggregating raw Profile listings at A4.
 # INVARIANT (spec op 6): no secret read, no refresh, no mutation; rows carry provider and status
-# ONLY; `needs_reauth` is never emitted in the window.
+# ONLY.
 # INVARIANT (OME-1209, Stage E, E4a): availability reads no Profile document, so the golden
 # equivalence to the Engine's Profile-listing rule (authenticated > pending > error) retired with
-# it. A registered provider shows `not_connected` unless its pair is migrated, which reports its
-# effective Connection's status (`test_connection_only_resolve.py`).
+# it. Since the D17 fold-in (OME-1138) a provider lists by the rule its default chat resolve
+# follows: a migrated pair's effective Connection (`test_connection_only_resolve.py`), any other
+# pair but a quarantined one its Connections by label (`test_availability_follows_resolve.py`).
 """
 
 from __future__ import annotations
