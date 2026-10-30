@@ -6830,6 +6830,90 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer="inspect_ai.scorer:choice",
     ),
     BenchmarkSpec(
+        key="mathvista",
+        published_revision="ca4cd0f692d18f0e",
+        title="MathVista (testmini)",
+        description=(
+            "1,000 maths questions about a picture (MathVista's testmini split: function "
+            "plots, charts, tables, geometry figures, puzzles, scientific figures and photos, "
+            "drawn from 28 existing datasets and three new ones), imported from inspect_evals. "
+            "540 are multiple choice and 460 free-form, answered with an integer, a decimal "
+            "to one or two places, or a list. Each question comes with one picture, saved "
+            "inside the Case at import, so nothing is fetched at run time. The Candidate is "
+            "shown the picture, then the eval's own instruction: inspect's single-answer "
+            "template over the lettered choices for a multiple-choice question, or a fixed "
+            "'ANSWER: $ANSWER' template around the dataset's own query, which carries the "
+            "precision and unit hint, for a free-form one. Grading is the eval's own pattern "
+            "scorer: the letter, or the text after 'ANSWER:', must equal the answer exactly "
+            "(case ignored), so no judge tokens are spent; 'ANSWER: 1.50', '1.5 cm' or a "
+            "trailing space score wrong against 1.5, so scores here are stricter than, and "
+            "not directly comparable to, the paper's and the labs' own more lenient grading. "
+            "Serving order is pinned by a policy seed (inspect_evals shuffles per run). "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over few options)."
+        ),
+        focus="Maths reasoning over charts, plots and figures (picture input)",
+        dataset_url="https://huggingface.co/datasets/AI4Math/MathVista",
+        # The catalogue says "saturated" (headroom 1 - 0.903 = 0.097, at or under the 0.10
+        # floor), but that verdict reads only the single best model. The tier reads the field:
+        # the same model cards put GPT-5.2 at 0.83 and Claude Opus 4.5 at 0.80, and this
+        # exam's exact-match grading is stricter than theirs, so still "medium", as MMMU and
+        # FigQA; above the 0.603 human baseline, so not "hard".
+        difficulty="medium",
+        # A per-Case mean over the eval's own pattern scorer (no whole-run metric, not
+        # inverted, a decline is never the right answer): Group A, as for its siblings.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mathvista.mathvista:mathvista.
+        # License: cc-by-sa-4.0 (owner decision on OME-1479, 2026-10-28: the
+        #  AI4Math/MathVista card, accepted for now; it comes out if we go commercial; the
+        #  source datasets' own terms are listed beside the prepare.py row).
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2310.02255",
+        authors="Lu et al., 2023",
+        citation=(
+            "@misc{lu2024mathvistaevaluatingmathematicalreasoning,\n"
+            "      title={MathVista: Evaluating Mathematical Reasoning of Foundation Mode"
+            "ls in Visual Contexts}, \n"
+            "      author={Pan Lu and Hritik Bansal and Tony Xia and Jiacheng Liu and Chu"
+            "nyuan Li and Hannaneh Hajishirzi and Hao Cheng and Kai-Wei Chang and Michel "
+            "Galley and Jianfeng Gao},\n"
+            "      year={2024},\n"
+            "      eprint={2310.02255},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CV},\n"
+            "      url={https://arxiv.org/abs/2310.02255}, \n"
+            "}"
+        ),
+        inspect_contributors=("ShivMunagala",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mathvista",
+        license="CC-BY-SA-4.0",
+        license_note=(
+            "AI4Math/MathVista card; the 31 source datasets keep their own terms: "
+            "NonCommercial ones hold 195 of the 1,000 Cases, GPL-3.0 ChartQA 50, and 134 come "
+            "from sources with unknown terms; comes out if we go commercial (owner decision on "
+            "OME-1479, 2026-10-28)"
+        ),
+        # Human baseline: Amazon Mechanical Turk annotators with a high-school degree or
+        # higher, five questions in 20 minutes each, accuracy on testmini (MathVista paper,
+        # Table 2, "Human performance" 60.3).
+        human_baseline=HumanBaseline(score=0.603, source_url="https://arxiv.org/abs/2310.02255"),
+        # Frontier score: the lab's own model card, its "Mathvista(mini)" row (the testmini
+        # split), thinking mode, the model's default; read from the page on 2026-10-28. The
+        # best lab-published figure found: Kimi K2.5's own card says 0.901; newer launches
+        # (Seed2.1, 2026-09) report MathVision, not MathVista.
+        frontier_score=FrontierScore(
+            score=0.903,
+            model="Qwen3.5-397B-A17B",
+            source_url="https://huggingface.co/Qwen/Qwen3.5-397B-A17B",
+            as_of="2026-02",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=1000,
+        scorer="inspect_evals.mathvista.mathvista:mathvista_scorer",
+    ),
+    BenchmarkSpec(
         key="mmmu_open",
         published_revision="8ce88e420239ae4d",
         title="MMMU (open answer)",

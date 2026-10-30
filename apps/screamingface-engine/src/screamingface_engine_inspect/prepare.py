@@ -2012,6 +2012,33 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #   (owner accepted on OME-1477, 2026-10-28).
         license="apache-2.0",
     ),
+    # mathvista — imported by Task replay on 2026-10-28 from
+    #   inspect_evals.mathvista.mathvista:mathvista.
+    # Sealed on linux/amd64 inside the Engine image (2026-10-29), as the image build replays
+    #   it: inspect_evals re-encodes each picture with Pillow, whose PNG bytes differ by
+    #   platform for the same pixels, so a Mac-sealed digest never matched the build.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face AI4Math/MathVista
+    #     pin revision 2b6ad69445fbb5695c9b165475e8decdbeb97747
+    "mathvista": TaskReplayCasesSpec(
+        task="inspect_evals.mathvista.mathvista:mathvista",
+        case_count=1000,
+        case_digest="5097c2f00db0479d46373bee56690ea26faf359ee8ca1288ea742137f9274050",
+        case_set_digest="a42c628ddc55f925569eadec54abfd624e131e37738d5ed4ed6428d3b2290073",
+        keep_sample_metadata=True,
+        source_pins={
+            "AI4Math/MathVista": "2b6ad69445fbb5695c9b165475e8decdbeb97747",
+        },
+        shuffle_seed=20260917,
+        # License: owner decision on OME-1479, 2026-10-28: CC-BY-SA-4.0, the AI4Math/MathVista
+        #  card, accepted for now; it comes out if we go commercial. The card's licence covers
+        #  MathVista's own work, while its 31 source datasets keep their own terms. Over the
+        #  1,000 testmini Cases: NonCommercial TabMWP 62, IconQA 62, ScienceQA 9 and DVQA 62
+        #  (195 of 1,000); GPL-3.0 ChartQA 50; terms unknown FigureQA 62 (behind Microsoft's
+        #  download page), KVQA 60 (no licence stated) and DocVQA 12 (behind the RRC portal
+        #  login). The importer's warning for such bundles is OME-1757.
+        license="cc-by-sa-4.0",
+    ),
     # mmmu_open — imported by Task replay on 2026-10-30 from
     #   inspect_evals.mmmu.mmmu:mmmu_open.
     # Sealed on linux/amd64 inside the Engine image (2026-10-30), as the image build replays
