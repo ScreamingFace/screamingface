@@ -355,7 +355,8 @@ window.ScorePortal = (function () {
     // Escape closes from anywhere in the control and returns focus to the button.
     function onKeydown(e) { if (e.key === "Escape" && !panel.hidden) { close(); button.focus(); } }
     button.addEventListener("keydown", onKeydown);
-    search.addEventListener("keydown", onKeydown);
+    // WHY: result links bubble to the panel, not to their sibling search input.
+    panel.addEventListener("keydown", onKeydown);
     // Close when focus leaves the control entirely — e.g. tabbing past the last link — so the overlay
     // never lingers over the page.
     function onFocusOut(e) {
