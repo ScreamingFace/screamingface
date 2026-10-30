@@ -339,8 +339,10 @@ def engine_src_copy(tmp_path: Path) -> Path:
 def _command(engine_src: Path, imported: TaskReplayImport, card: Mapping[str, Any]) -> int:
     """Run the importer command with a stand-in import and a stand-in Hub."""
 
+    # WHY a stand-in key: the real mathvista row ships in prepare.py (OME-1479), and the
+    # command refuses a key that is already there.
     return main(
-        [_TASK, "--key", "mathvista", "--engine-src", str(engine_src)],
+        [_TASK, "--key", "mathvista_stand_in", "--engine-src", str(engine_src)],
         import_by_task_replay=lambda task_ref, task_args, **options: imported,
         dataset_info=_hub(card),
     )
