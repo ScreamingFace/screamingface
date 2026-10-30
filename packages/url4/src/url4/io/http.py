@@ -22,16 +22,21 @@ from url4.io._guarded_transport import (
     GuardedTransport,
     Origin,
     Resolver,
+    deadline_in,
     origin_of,
+    past,
     system_resolver,
 )
 from url4.io._source_policy import (
     SourceGuard,
     check_url,
+    has_userinfo,
+    redact_userinfo,
     redirect_limit,
     source_timeout,
     too_large,
 )
+from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
 
@@ -68,8 +73,9 @@ class HttpIOLayer:
     ``guard`` (:class:`SourceGuard`; strict defaults): ``https`` only, no loopback / private /
     link-local / CGNAT / metadata address after DNS and on any redirect hop, connections
     pinned to the vetted IP (SNI and ``Host`` kept), at most ``guard.max_redirects`` hops, no
-    ``https``→``http`` downgrade, environment proxies ignored, and a ``url4://`` peer only
-    when its host is in ``guard.peer_hosts`` (empty by default: no remote-node calls).
+    ``https``→``http`` downgrade, no embedded credentials (``user:pass@`` userinfo) on any hop,
+    environment proxies ignored, and a ``url4://`` peer only when its host is in
+    ``guard.peer_hosts`` (empty by default: no remote-node calls).
     ``resolver`` replaces the system DNS lookup. Only the FIRST hop of a relative fetch against
     the operator-set ``base_url`` origin is trusted; every redirect hop, and an absolute target
     that spells that origin out, is checked. The whole owned fetch, redirects included, runs
@@ -98,6 +104,7 @@ class HttpIOLayer:
         self._trusted = _trusted_origins(self._base_url)
         self._owned: httpx.AsyncClient | None = None  # lazily created when no client is injected
         self._closed = False
+        self._closer = CloseOnce()
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._closed:
@@ -123,38 +130,62 @@ class HttpIOLayer:
         return self._owned
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        response = await self._get(self._transport_url(target, relative), relative=relative)
-        return response.text
+        _response, text = await self._get(self._transport_url(target, relative), relative=relative)
+        return text
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        response = await self._get(
+        response, text = await self._get(
             self._transport_url(request.target, request.relative), relative=request.relative
         )
         content_type = response.headers.get("content-type", "")
         media_type = content_type.split(";", 1)[0].strip().lower() or None
-        return FetchResult(response.text, media_type=media_type)
+        return FetchResult(text, media_type=media_type)
 
     def _transport_url(self, target: str, relative: bool) -> str:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
         return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, target: str, *, relative: bool) -> httpx.Response:
+    async def _get(self, target: str, *, relative: bool) -> tuple[httpx.Response, str]:
+        """The response and its body as text, both produced within the fetch's deadline.
+
+        AIDEV-NOTE: this is the TEXT path (``fetch``/``fetch_ex``). WHY: a raw-bytes path (e.g.
+        open PR #1478's ``fetch_bytes``) must NOT go through ``response.text`` — that decodes
+        binary content. It needs the same deadline-checked GET returning the raw response, with
+        the final ``past(deadline)`` check after its own body handling instead.
+        """
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
         key = idempotency_key(url)
         headers = {"Idempotency-Key": key} if key is not None else None
         # WHY owned only: an injected client keeps the timeouts its owner chose.
-        deadline = self._guard.total_timeout if self._client is None else None
+        total = self._guard.total_timeout if self._client is None else None
+        # INVARIANT (OME-1720): ONE absolute deadline per fetch, carried to every hop's body.
+        deadline = None if total is None else deadline_in(total)
+        late = f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
         try:
-            async with asyncio.timeout(deadline):
-                return await self._send(url, headers, peer=peer, relative=relative)
+            async with asyncio.timeout(total):
+                response = await self._send(
+                    url, headers, peer=peer, relative=relative, deadline=deadline
+                )
         except TimeoutError as exc:
-            raise source_timeout(
-                f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
-            ) from exc
+            raise source_timeout(late) from exc
+        # WHY here: charset decoding is synchronous work no asyncio.timeout can interrupt, so it
+        # runs BEFORE the final check (PR #1555 review: a slow codec succeeded late).
+        text = response.text
+        if past(deadline):
+            # INVARIANT: never a success after the deadline, even one no checkpoint caught —
+            # text conversion included.
+            raise source_timeout(late)
+        return response, text
 
     async def _send(
-        self, url: str, headers: dict[str, str] | None, *, peer: bool, relative: bool
+        self,
+        url: str,
+        headers: dict[str, str] | None,
+        *,
+        peer: bool,
+        relative: bool,
+        deadline: float | None,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -164,7 +195,7 @@ class HttpIOLayer:
         try:
             if guarded and not trusted:
                 check_url(url, self._guard, peer=peer)
-            state = FetchState(peer=peer, trusted_first_hop=trusted)
+            state = FetchState(peer=peer, trusted_first_hop=trusted, deadline=deadline)
             extensions = {FETCH_STATE: state} if guarded else None
             request = client.build_request("GET", url, headers=headers, extensions=extensions)
             response = await client.send(request, stream=True)
@@ -175,24 +206,12 @@ class HttpIOLayer:
                 body = await _read_capped(response, self._guard.max_bytes)
             finally:
                 await response.aclose()
-        except httpx.HTTPStatusError as exc:
-            raise ResolutionError(
-                f"GET {url!r} failed: {exc}",
-                permanent=_permanent_status(exc.response),
-                retry_after=_retry_after(exc.response),
-            ) from exc
-        except httpx.TooManyRedirects as exc:
-            raise redirect_limit(
-                f"GET {url!r} passed the {self._guard.max_redirects}-hop redirect limit"
-            ) from exc
-        except httpx.ConnectTimeout as exc:
-            raise source_timeout(f"GET {url!r} failed: {exc}") from exc
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
-            # WHY: httpx.InvalidURL is not an HTTPError subclass; catch it too so a
-            # malformed target (e.g. control chars in a reducer query) still
-            # surfaces as ResolutionError rather than a raw httpx exception.
-            raise ResolutionError(f"GET {url!r} failed: {exc}") from exc
-        return _buffered(response, body)
+            failure, cause = _failure(url, exc, self._guard.max_redirects)
+        else:
+            return _buffered(response, body)
+        # WHY raised outside the handler: the only chained error is the one _failure names.
+        raise failure from cause
 
     def _is_trusted(self, url: str) -> bool:
         try:
@@ -206,15 +225,52 @@ class HttpIOLayer:
         After ``aclose`` the adapter is closed for good; a later fetch raises.
         """
         self._closed = True
-        owned, self._owned = self._owned, None
-        if owned is not None:
-            await owned.aclose()
+        # INVARIANT (PR #1555 review 4): the owned client is dropped only AFTER its close ends,
+        # inside one shielded close a cancelled caller cannot abandon — so a retry still
+        # reports a pool-close failure (httpx marks the client closed before it awaits).
+        await self._closer.run(self._close_owned)
+
+    async def _close_owned(self) -> None:
+        try:
+            if self._owned is not None:
+                await self._owned.aclose()
+        finally:
+            self._owned = None
 
     async def __aenter__(self) -> HttpIOLayer:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+def _failure(
+    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int
+) -> tuple[ResolutionError, Exception | None]:
+    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains."""
+    if isinstance(exc, httpx.InvalidURL) and has_userinfo(url):
+        # INVARIANT (PR #1605 review 1): a credentialed malformed target is reported redacted,
+        # without httpx's detail and with nothing chained — the credentials reach no message.
+        return ResolutionError(f"GET {redact_userinfo(url)!r} failed: invalid URL"), None
+    return _wrapped(url, exc, max_redirects), exc
+
+
+def _wrapped(
+    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int
+) -> ResolutionError:
+    message = f"GET {url!r} failed: {exc}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return ResolutionError(
+            message,
+            permanent=_permanent_status(exc.response),
+            retry_after=_retry_after(exc.response),
+        )
+    if isinstance(exc, httpx.TooManyRedirects):
+        return redirect_limit(f"GET {url!r} passed the {max_redirects}-hop redirect limit")
+    # WHY InvalidURL too: it is not an HTTPError subclass, so a malformed target (e.g. control
+    # chars in a reducer query) still surfaces as ResolutionError, not a raw httpx exception.
+    timeout = isinstance(exc, httpx.ConnectTimeout)
+    return source_timeout(message) if timeout else ResolutionError(message)
 
 
 def _trusted_origins(base_url: str) -> frozenset[Origin]:

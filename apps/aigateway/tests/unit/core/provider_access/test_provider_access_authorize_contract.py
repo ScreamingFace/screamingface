@@ -80,7 +80,7 @@ def _record(
 
 
 def test_authorize_yields_a_bearer_header_for_a_stored_oauth_profile(harness: Harness) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
 
     authorization = _authorize(harness, target)
@@ -99,7 +99,7 @@ def test_authorize_without_a_stored_credential_is_a_reauth_refusal_that_marks_no
 ) -> None:
     """A MISSING credential (`CredentialNotFoundError`) never flips the profile: the index row
     is fine, only the blob is absent — today's `_inject_credentials` first branch."""
-    harness.seed_profile(credential=None)
+    harness.seed_credential(credential=None)
     target = _resolve(harness)
 
     with pytest.raises(TargetReauthRequired) as info:
@@ -107,11 +107,11 @@ def test_authorize_without_a_stored_credential_is_a_reauth_refusal_that_marks_no
 
     assert info.value.message
     assert info.value.reauth_url == "/v1/oauth/connections"
-    assert harness.profile_state() == "authenticated"
+    assert harness.credential_state() == "authenticated"
 
 
 def test_authorize_with_a_rejected_credential_marks_the_profile_errored(harness: Harness) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
     harness.break_credential(str(target.credential_name))
 
@@ -119,7 +119,7 @@ def test_authorize_with_a_rejected_credential_marks_the_profile_errored(harness:
         _authorize(harness, target)
 
     assert info.value.message
-    assert harness.profile_state() == "error"
+    assert harness.credential_state() == "error"
 
 
 def test_authorize_with_a_rejected_connection_credential_marks_the_connection(
@@ -154,7 +154,7 @@ def test_a_missing_profile_credential_evicts_but_marks_and_invalidates_nothing(
 ) -> None:
     """Today's first `except` branch for a PROFILE: evict, refuse — the index row is fine and
     only the blob is absent, so the Profile stays authenticated and its session stands."""
-    harness.seed_profile(credential=None)
+    harness.seed_credential(credential=None)
     target = _resolve(harness)
 
     with pytest.raises(TargetReauthRequired):
@@ -162,7 +162,7 @@ def test_a_missing_profile_credential_evicts_but_marks_and_invalidates_nothing(
 
     assert harness.evicted() == [target.credential_name]
     assert harness.invalidated() == []
-    assert harness.profile_state() == "authenticated"
+    assert harness.credential_state() == "authenticated"
 
 
 def test_a_missing_connection_credential_evicts_and_marks_the_connection_without_invalidating(
@@ -200,7 +200,7 @@ def test_a_malformed_credential_result_never_touches_last_used(harness: Harness)
 def test_a_rejected_profile_credential_evicts_and_invalidates_its_session(
     harness: Harness,
 ) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
     harness.break_credential(str(target.credential_name))
 
@@ -244,14 +244,14 @@ def test_a_successful_connection_authorize_touches_last_used_and_nothing_else(
 
 
 def test_a_successful_profile_authorize_writes_nothing(harness: Harness) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
 
     _authorize(harness, target)
 
     assert harness.evicted() == []
     assert harness.invalidated() == []
-    assert harness.profile_state() == "authenticated"
+    assert harness.credential_state() == "authenticated"
 
 
 # --- record_dispatch_failure ----------------------------------------------------------------
@@ -260,7 +260,7 @@ def test_a_successful_profile_authorize_writes_nothing(harness: Harness) -> None
 def test_recording_a_dispatch_failure_on_a_profile_marks_it_and_rewrites_the_detail(
     harness: Harness,
 ) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
 
     rewritten = _record(harness, target, {"code": "auth_required", "message": "token expired"})
@@ -270,13 +270,13 @@ def test_recording_a_dispatch_failure_on_a_profile_marks_it_and_rewrites_the_det
         "message": "token expired",
         "reauth_url": "/v1/oauth/connections",
     }
-    assert harness.profile_state() == "error"
+    assert harness.credential_state() == "error"
 
 
 def test_recording_a_dispatch_failure_with_a_bare_message_defaults_the_code(
     harness: Harness,
 ) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
 
     rewritten = _record(harness, target, "upstream said no")
@@ -324,7 +324,7 @@ def test_recording_a_dispatch_failure_on_a_credential_free_target_is_a_no_op(
 def test_recording_a_dispatch_failure_evicts_and_invalidates_a_profile_credential(
     harness: Harness,
 ) -> None:
-    harness.seed_profile(credential="tok")
+    harness.seed_credential(credential="tok")
     target = _resolve(harness)
 
     _record(harness, target, {"message": "token expired"})

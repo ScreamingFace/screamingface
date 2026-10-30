@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1777",
+  "branch": "OME-1770-hosted-byom-unit2",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-29",
+  "scope": "One test transition in packages/url4/tests/spec/test_processor_delegation.py: test_unknown_id_raises_and_names_the_declared_routes becomes test_unknown_id_raises_without_naming_the_declared_routes, and its assertion that the message contains '/claude' becomes an assertion that the message contains neither '/claude' nor '/gpt4'. The 'nope' assertion and the rest of the test are unchanged. The same file gains one new test, test_an_unknown_id_keeps_its_code_and_stays_permanent; it is an addition, listed here only because this approval pins the whole file. No other edits.",
+  "reason": "The review of PR #1606 showed that a nested peer call choosing processor=<unknown id> made _route_for_id list every route the Engine declares, private configured-endpoint routes included, and the run's terminal frame carried that list to the caller's own WebSocket. The owner chose to fix this in url4 on 2026-10-29: the refusal names only the id the caller passed and keeps ErrorCode.UNKNOWN_PROCESSOR and permanent=True. The old test pinned the listing, so it must assert the opposite.",
+  "files": {
+    "packages/url4/tests/spec/test_processor_delegation.py": {
+      "base_blob": "f02f21085da97207d48a53eb8eddecd69c9686c3",
+      "approved_blob": "0e9e596564ef73985daed7543832bf8e146f90e6"
+    }
+  }
+}

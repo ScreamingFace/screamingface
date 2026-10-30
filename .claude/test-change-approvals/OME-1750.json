@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1750",
+  "branch": "OME-1750-e5b-history-purge",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-22",
+  "scope": "One prior test: the offline-reader guard adds `core/provider_access/history_purge.py` to `_OFFLINE_READERS`. Nothing else changes.",
+  "reason": "Stage E history cleanup, E5b: the purge reads the Profile index offline to refuse an account whose unmigrated document names a blob; the guard pins the exact set of modules that may read the index.",
+  "files": {
+    "apps/aigateway/tests/unit/test_profile_index_offline_only.py": {
+      "base_blob": "3763af0cd3108e9b1596ed66d97f92cecdb2d692",
+      "approved_blob": "0ee054a9fe0db33001b2b4c5baf20a22d9ea3f43"
+    }
+  }
+}

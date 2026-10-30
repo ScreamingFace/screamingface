@@ -19,10 +19,8 @@ from typing import Any
 import pytest
 from provider_access_fake import FakeHarness
 
-from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import AvailabilityRow
+from tests.unit.seed_state import SeedState
 
 
 class _Seam:
@@ -31,27 +29,12 @@ class _Seam:
         self.app = client.app
         self.access = client.app.state.provider_access
         self.account_id: str = client.get("/v1/auth/me").json()["id"]
-        # WHY a store built here (OME-1209 E4b): the app wires no Profile index.
-        self.index = ProfileIndexStore(credential_store=client.app.state.credential_store)
         self.registered: set[str] = {
             plugin.custom_llm_provider for plugin in client.app.state.providers.all()
         }
 
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return self.client.portal.call(partial(fn, *args, **kwargs))
-
-    def seed(self, provider: str, state: str, name: str | None = None) -> None:
-        name = name or f"{state}-{sum(1 for _ in self.call(self.index.list, self.account_id))}"
-        self.call(
-            self.index.upsert,
-            Profile(
-                id=profile_id_for(self.account_id, provider, name),
-                account_id=self.account_id,
-                provider=provider,
-                name=name,
-                state=ProfileState(state),
-            ),
-        )
 
     def rows(self) -> tuple[AvailabilityRow, ...]:
         return self.call(self.access.availability, self.account_id)
@@ -63,9 +46,6 @@ def seam(authenticated_client, credential_blobs) -> _Seam:
 
 
 def test_availability_rows_carry_provider_and_status_only_sorted_by_provider(seam: _Seam) -> None:
-    seam.seed("gemini", "authenticated")
-    seam.seed("anthropic", "pending")
-
     rows = seam.rows()
 
     assert isinstance(rows, tuple)
@@ -79,13 +59,13 @@ def test_availability_rows_carry_provider_and_status_only_sorted_by_provider(sea
 
 def test_the_fake_witness_applies_the_same_precedence() -> None:
     harness = FakeHarness()
-    harness.seed_profile(name="a", state=ProfileState.ERROR)
-    harness.seed_profile(name="b", state=ProfileState.PENDING)
+    harness.seed_credential(name="a", state=SeedState.ERROR)
+    harness.seed_credential(name="b", state=SeedState.PENDING)
     assert harness.call(harness.access.availability, harness.account_id) == (
         AvailabilityRow("anthropic", "pending"),
     )
 
-    harness.seed_profile(name="c", state=ProfileState.AUTHENTICATED)
+    harness.seed_credential(name="c", state=SeedState.AUTHENTICATED)
     assert harness.call(harness.access.availability, harness.account_id) == (
         AvailabilityRow("anthropic", "connected"),
     )

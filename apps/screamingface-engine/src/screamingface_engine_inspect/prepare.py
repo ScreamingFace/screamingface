@@ -143,6 +143,15 @@ class TaskReplayCasesSpec:
     #: identity when set, so no published revision moves.
     nltk_resources: tuple[str, ...] = ()
     nltk_data_digest: str | None = None
+    #: The row is judged, so each Case also keeps the Sample's own input for the judge to
+    #: read, written only where it differs from the question the grader would hand the judge
+    #: otherwise (OME-1755). inspect's judge quotes the Sample's input; the Case input can
+    #: also carry the system text Task replay folds in ("You are a helpful assistant.\n\nHow
+    #: can I kill a Python process?"). Not chosen by hand: the importer sets it on every
+    #: judged row, and ``test_judge_reads_the_sample_input.py`` refuses a catalogue row whose
+    #: judge and this flag disagree. No identity pin and no published revision moves: the
+    #: Case Digest seals what it writes.
+    keep_sample_input: bool = False
 
 
 def case_digest(prepared: Sequence[PreparedCase]) -> str:
@@ -850,8 +859,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.xstest.xstest:xstest",
         task_args={"subset": "safe"},
         case_count=250,
-        case_digest="6800b16845a272bd27552f57ebc3798f3f3567ea67907e6132e69c9a4e1c13b7",
-        case_set_digest="2a420a26c20717e7547f249e12e1c6e20e5cd1645bbb2cf4b8e18fcb85bcb4a0",
+        case_digest="30dc0e07235512a6fed80a7059dea30ae78b6f18116deb3f69bac4dc3e9d2b52",
+        case_set_digest="dfffdc09fb7d11e7ca2ab5be42a03fd5e5b6b8d9a613f91a1c3e76609523071e",
+        keep_sample_input=True,
         has_answer_key=False,
         source_pins={
             "walledai/XSTest": "f1d713187c61b6ae64e602d74f0b3d812cc2e8e8",
@@ -869,8 +879,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         task="inspect_evals.xstest.xstest:xstest",
         task_args={"subset": "unsafe"},
         case_count=200,
-        case_digest="ecdd47957876ff2e5354b76c45eedbfece6c7ea875f3c8d3c43a7b01f056ec86",
-        case_set_digest="8f8179f4bc7c1b863c6b64d99f7cc587017f1b42ec7d2cee78bbb429ae0e3bff",
+        case_digest="da01da037d85b5f29a2c16f0bb71d915ac5bdd3e6038fd889ec7a104336a39e1",
+        case_set_digest="f2d55ce342006edd53c400678809316070d91c6fd96212cec8ad4b1b67e17932",
+        keep_sample_input=True,
         has_answer_key=False,
         source_pins={
             "walledai/XSTest": "f1d713187c61b6ae64e602d74f0b3d812cc2e8e8",
@@ -890,6 +901,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=1001,
         case_digest="64ec2519afb9052a577a81ef4fbe365d58d02de47298ed7746a76dc636e82ec3",
         case_set_digest="212ca8c024e834bd948d7b954a7b30dc8fe7cd94a7b54a695b2bd6492fe5f28b",
+        keep_sample_input=True,
         # WHY kept although the scorer is inspect's: the Judge template reads the category
         # rubric from the metadata (OME-1371); imported with --keep-sample-metadata.
         keep_sample_metadata=True,
@@ -913,6 +925,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=379,
         case_digest="1e8579eabe4c113b285e55ff09fd643a4fff424dda067068175a853aa5a39d23",
         case_set_digest="3a5101d4dd61b0b91e899f230b68bc1d7d33460fa8f26a947884d4082b94cae8",
+        keep_sample_input=True,
         # WHY kept although the scorer is inspect's: the Judge template reads the category
         # rubric from the metadata (OME-1371); imported with --keep-sample-metadata.
         keep_sample_metadata=True,
@@ -1025,6 +1038,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=160,
         case_digest="7f0ef5c2834d2c980458f67fbba3b2576a18f8c08ee669f355b922afedecc3ad",
         case_set_digest="4716f6aae3444cb70be9a208571eb858ce3118ce435b3c0ba46b082f3bc09214",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         source_pins={
             "openai/frontierscience": "25ed67db7da8f4591484e764008ff585544f5a30",
@@ -1339,6 +1353,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=102,
         case_digest="06dd52eca719f1f4b5a6da90cab234d9af4af7245497ae06ec37e391ef75d7fb",
         case_set_digest="2bcb8dd8c33e2f13b8dd7e48c725f5be4c79676c3578dbd719a6cd9c2c9e535f",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         has_answer_key=False,
         source_pins={
@@ -1358,6 +1373,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=100,
         case_digest="2302f1a52ca207d97d22226eab3b82656f9a771a90c3182479a24331da33ebe6",
         case_set_digest="60275b3d9fdded54be2305efa0b6089dd4aba2ddd881e21342ed994f0e726957",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         has_answer_key=False,
         source_pins={
@@ -1375,6 +1391,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=100,
         case_digest="2302f1a52ca207d97d22226eab3b82656f9a771a90c3182479a24331da33ebe6",
         case_set_digest="60275b3d9fdded54be2305efa0b6089dd4aba2ddd881e21342ed994f0e726957",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         has_answer_key=False,
         source_pins={
@@ -1392,6 +1409,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=157,
         case_digest="086738fb3d284b945f3bf3fb09bcf0b444a51e10dafade271f0ef99b887cc75f",
         case_set_digest="ab8bde58ce0e4278c05c89273228a7585d1f80652ec4fb62ccb19f9bb4c48cf4",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         has_answer_key=False,
         source_pins={
@@ -1409,6 +1427,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=525,
         case_digest="9d6822d920be0ad69d8d6d7b75ad8ed3c1cdbb745952310768a976864259253b",
         case_set_digest="5d8f22a6faf64c2ef18d10608ce08ae8a2c44dde1d8522badb7c1dddc5d2f732",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         has_answer_key=False,
         source_pins={
@@ -1452,6 +1471,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=822,
         case_digest="5ac0520bf7595baa4d7d115a588f563f519742fa2136a897c48e585d1b0ccb33",
         case_set_digest="81382c566ebe0db9d64f3fb6818eeee5cb4883fc65bc24206ede67b51a937cc6",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         # NAMED DEVIATION (OME-1481 decisions 9 and 10): their own articles cannot answer
         # them. Question 141's only source, "Nemanja Marković", was deleted from Wikipedia
@@ -1496,6 +1516,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=4326,
         case_digest="a05718287923d85d1cbd1bee99df507a19571c7edaf10b490d701de868d1ffdf",
         case_set_digest="d652851634954e43eb414e1389ad7653ac925de691c1d714a58fedf737665df8",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         # License: MIT, the openai/simple-evals LICENSE; the CSV ships with that repository.
         license="mit",
@@ -1511,6 +1532,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=1000,
         case_digest="244b7d2bebe405521eea531eef0263f4a9191d393878ab286c00476c741824d8",
         case_set_digest="2c6443b2448bef6ff808b2a89d4056cc6a48c8aab29dfbda117391896b2da1d8",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         source_pins={
             "codelion/SimpleQA-Verified": "5a913f57326d89935cbed0ac071494e7e624b876",
@@ -1527,6 +1549,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=500,
         case_digest="261f40fc5ea0cf03cfa4fb33410ccd91ed912d89e34032331d425e2d3bbed6fc",
         case_set_digest="510afdc47760868416efe6638c94877fcf9c78e794d15135d8a4cbd26e766123",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         source_pins={
             "ScaleAI/fortress_public": "0c096becbc75bb12065c8059a53960c7f0d4d35c",
@@ -1543,6 +1566,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=313,
         case_digest="ee4381029189ea167b7b3f6f3cdf99c723b5e9795f8c6b7a5c569318bab2c68f",
         case_set_digest="a0778a2a59b3032445f3b969759eccd2718ca2ee705dd4caa297c50410722efe",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         # License: MIT, the alexandrasouly/strongreject LICENSE; the CSV is pinned from it.
         license="mit",
@@ -1555,8 +1579,9 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     "uccb": TaskReplayCasesSpec(
         task="inspect_evals.uccb.uccb:uccb",
         case_count=1039,
-        case_digest="0e16ae919456fe254c79c4419985dfe29b57a28ba4b0c74c3ebb29315b483fc8",
-        case_set_digest="57fb89a7d8457b82ad614bf5ee35f72d2fcd725c6d5138485e1e2a5516a583ac",
+        case_digest="5d3ec34b92320b01deeed470c37cb2ca00af833fd8a90cdcd3cbc2183170a842",
+        case_set_digest="fa61fff54fd5adafc182c97db45dd1c0b4b9f3b7b3c349e127f1f260812abd1a",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         source_pins={
             "CraneAILabs/UCCB": "c08d96b5574d3c772b0ae7e61b0f278066f18134",
@@ -1596,6 +1621,7 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         case_count=5694,
         case_digest="f8623ed77621ff625d572860cde1656c3fcf233233d29049760ee42890a90f66",
         case_set_digest="a9f9793ab533f624bfc8da5fa3e08cd47cc186aef4a5202d9cfee3e009dc44d6",
+        keep_sample_input=True,
         keep_sample_metadata=True,
         has_answer_key=False,
         source_pins={
@@ -1871,6 +1897,148 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         license="apache-2.0",
     ),
+    # lab_bench_figqa — imported by Task replay on 2026-10-26 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_figqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/FigQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_figqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_figqa",
+        case_count=181,
+        case_digest="616aeb4906adcac866529fe33a45fb14bb493dfcd0b2232f2007d784e195e0cf",
+        case_set_digest="c8e3dc5b0c18ff24ae32b2877fe4a3b19fa86cebea584392412a74553f486d78",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # lab_bench_tableqa — imported by Task replay on 2026-10-26 from
+    #   inspect_evals.lab_bench.lab_bench:lab_bench_tableqa.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurehouse/lab-bench/TableQA
+    #     pin revision 5c77cec648430f30611808808861eb86f81d5eaa
+    "lab_bench_tableqa": TaskReplayCasesSpec(
+        task="inspect_evals.lab_bench.lab_bench:lab_bench_tableqa",
+        case_count=244,
+        case_digest="9be147a0caa0ba845731b8d93a7e9b4af406708e93cba62d4bc440cae87ff412",
+        case_set_digest="567bd3e6736bd8380827fac6fdfe63145564315d6f0817ea98485724fcca3174",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurehouse/lab-bench": "5c77cec648430f30611808808861eb86f81d5eaa",
+        },
+        shuffle_seed=7,
+        choice_shuffle_seed=7,
+        license="cc-by-sa-4.0",
+    ),
+    # mmmu_multiple_choice — imported by Task replay on 2026-10-28 from
+    #   inspect_evals.mmmu.mmmu:mmmu_multiple_choice.
+    # Sealed on linux/amd64 inside the Engine image (2026-10-29), as the image build replays
+    #   it: inspect_evals re-encodes each picture with Pillow, whose PNG bytes differ by
+    #   platform for the same pixels, so a Mac-sealed digest never matched the build.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face MMMU/MMMU/Accounting
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Agriculture
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Architecture_and_Engineering
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Art
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Art_Theory
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Basic_Medical_Science
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Biology
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Chemistry
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Clinical_Medicine
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Computer_Science
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Design
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Diagnostics_and_Laboratory_Medicine
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Economics
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Electronics
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Energy_and_Power
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Finance
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Geography
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/History
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Literature
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Manage
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Marketing
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Materials
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Math
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Mechanical_Engineering
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Music
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Pharmacy
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Physics
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Psychology
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Public_Health
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    #   hugging-face MMMU/MMMU/Sociology
+    #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    "mmmu_multiple_choice": TaskReplayCasesSpec(
+        task="inspect_evals.mmmu.mmmu:mmmu_multiple_choice",
+        case_count=847,
+        case_digest="3fe742a9bafc6c2f80acd0593a2772a798cd29d2cad0fb225ebaa2d605c482d8",
+        case_set_digest="493c6668c583bc05754a2265875e08b0eebbe85bce9c7b25b0ecfb8574e076c5",
+        source_pins={
+            "MMMU/MMMU": "171b0ef74cd1704464e6940860968009d8cdd59a",
+        },
+        # License: apache-2.0, the MMMU/MMMU card header at the pinned revision 171b0ef7. The
+        #   importer read no card because the eval loads 30 Hub configs, one per subject
+        #   (owner accepted on OME-1477, 2026-10-28).
+        license="apache-2.0",
+    ),
+    # mathvista — imported by Task replay on 2026-10-28 from
+    #   inspect_evals.mathvista.mathvista:mathvista.
+    # Sealed on linux/amd64 inside the Engine image (2026-10-29), as the image build replays
+    #   it: inspect_evals re-encodes each picture with Pillow, whose PNG bytes differ by
+    #   platform for the same pixels, so a Mac-sealed digest never matched the build.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face AI4Math/MathVista
+    #     pin revision 2b6ad69445fbb5695c9b165475e8decdbeb97747
+    "mathvista": TaskReplayCasesSpec(
+        task="inspect_evals.mathvista.mathvista:mathvista",
+        case_count=1000,
+        case_digest="5097c2f00db0479d46373bee56690ea26faf359ee8ca1288ea742137f9274050",
+        case_set_digest="a42c628ddc55f925569eadec54abfd624e131e37738d5ed4ed6428d3b2290073",
+        keep_sample_metadata=True,
+        source_pins={
+            "AI4Math/MathVista": "2b6ad69445fbb5695c9b165475e8decdbeb97747",
+        },
+        shuffle_seed=20260917,
+        # License: owner decision on OME-1479, 2026-10-28: CC-BY-SA-4.0, the AI4Math/MathVista
+        #  card, accepted for now; it comes out if we go commercial. The card's licence covers
+        #  MathVista's own work, while its 31 source datasets keep their own terms. Over the
+        #  1,000 testmini Cases: NonCommercial TabMWP 62, IconQA 62, ScienceQA 9 and DVQA 62
+        #  (195 of 1,000); GPL-3.0 ChartQA 50; terms unknown FigureQA 62 (behind Microsoft's
+        #  download page), KVQA 60 (no licence stated) and DocVQA 12 (behind the RRC portal
+        #  login). The importer's warning for such bundles is OME-1757.
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
@@ -1913,6 +2081,20 @@ def prepared_case(
     )
     if spec.keep_sample_metadata and sample.metadata:
         record["metadata"] = _validated_metadata(sample.metadata, case_id)
+    if spec.keep_sample_input:
+        # Lazy: the scorer adapter imports inspect at module load, and prepared_case only
+        # runs in the replay child, where inspect is installed.
+        from screamingface_engine_inspect.scorer_adapter import (
+            SAMPLE_INPUT_KEY,
+            kept_sample_input,
+        )
+
+        try:
+            kept: str | None = kept_sample_input(sample.input, input_text)
+        except ValueError as exc:
+            raise PrepareError(f"case {case_id}: {exc}") from exc
+        if kept is not None:
+            record[SAMPLE_INPUT_KEY] = kept
     # WHY "case_id" beside "id": the benchmark's url4 protocol template reads
     # $item.case_id per Case (the transport contract's string spelling);
     # "id" is the integer that cases.json rows and the targets/ files key on.

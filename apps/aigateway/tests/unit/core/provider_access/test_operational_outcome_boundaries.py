@@ -38,7 +38,7 @@ def _resolve(harness: ConnectionBackedHarness, *, plugin: Any = ANTHROPIC) -> An
 def test_operational_register_uses_the_strategy_credential_slot(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     name = credential_name_for(migrated.account_id, "default")
     service = credential_service_for(name)
     raw = migrated.blobs.read_raw(service, "default")
@@ -67,7 +67,7 @@ def test_operational_register_uses_the_strategy_credential_slot(
 def test_operational_state_read_failure_becomes_a_typed_store_refusal(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
 
     async def unavailable(_service: str, _account: str) -> None:
         raise RuntimeError("database secret")
@@ -83,7 +83,7 @@ def test_operational_state_read_failure_becomes_a_typed_store_refusal(
 def test_needs_reauth_evicts_the_strategy_and_invalidates_its_session(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     target = _resolve(migrated)
     observation = migrated.call(
         migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
@@ -108,7 +108,7 @@ def test_needs_reauth_evicts_the_strategy_and_invalidates_its_session(
 def test_dispatch_observation_requires_the_effective_connection(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
     target = migrated.call(
         migrated.access.resolve,
@@ -135,7 +135,7 @@ def test_dispatch_observation_requires_the_effective_connection(
 def test_oauth_listing_never_reads_the_api_key_operational_register(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.seed_profile(auth_type="oauth", credential="tok")
+    migrated.seed_credential(auth_type="oauth", credential="tok")
 
     async def forbidden(_service: str, _account: str) -> None:
         raise AssertionError("OAuth listing read the API-key operational register")

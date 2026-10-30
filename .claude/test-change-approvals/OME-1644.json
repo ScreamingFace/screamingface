@@ -1,0 +1,11 @@
+{
+  "issue": "OME-1644",
+  "branch": "OME-1644-e2e-workbench-core",
+  "approver": "owner (approved all changed tests in session, 2026-10-16)",
+  "date": "2026-10-17",
+  "scope": "test_correlation_chain.py rung 3 now calls harness.trace_evidence.unattributed_gateway_lines, the same check the workbench evidence uses. Same assertions (>=2 identified lines, no anonymous line inside the request window) and the same messages; pure extraction, no test removed, no input changed.",
+  "reason": "E2E workbench unit 2 (spec docs/spec/2026-10-16-e2e-notebook-workbench.md §3.3): one implementation of the gateway call-id rung shared by the correlation ladder and the workbench trace verdict.",
+  "files": {
+    "packages/screamingface/tests/e2e/test_correlation_chain.py": {"base_blob": "7adc0dbeb42847a16d837caa5c4dc220368a120e", "approved_blob": "0e87f16b2e0f46d390d2bb293b217f17e9f40946"}
+  }
+}

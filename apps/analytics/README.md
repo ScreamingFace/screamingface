@@ -66,7 +66,7 @@ and requires explicit hostname/controller/TLS. Configure controller-specific abu
 and log redaction before enabling it. No live hostname or cloud infrastructure is created.
 
 Production gates remaining: dedicated test-project smoke (payload/personless/no enrichment and
-eventual duplicates), verified **90-day raw-event retention** in the selected PostHog project,
+eventual duplicates), accurate disclosure of PostHog-managed retention without a fixed deletion deadline,
 operator ownership, ingress protections, and a historical-deletion procedure. This service
 stores no event payloads/backups and cannot enforce PostHog's retention remotely. Longer-lived
 aggregates must omit browser/installation/session IDs. SDK opt-out arrives in its later slice.
@@ -132,7 +132,7 @@ same configured limits so event delivery being disabled does not prevent opt-out
 All successful/handled-error bridge responses have no-store/no-referrer/nosniff.
 The consent cookie is scoped to `/bridge`; the ID to `/bridge/id`. Both are Secure,
 HttpOnly, SameSite=None, Partitioned and host-only. Cookie retention is independent
-of the 90-day event retention; browser eviction may end continuity earlier.
+of PostHog-managed event retention; browser eviction may end continuity earlier.
 
 The parent waits for iframe load and sends `postMessage` to the exact service origin:
 `{version:1,nonce:<16–128 ASCII letters/digits/_/->,command:<command>}`. Commands are

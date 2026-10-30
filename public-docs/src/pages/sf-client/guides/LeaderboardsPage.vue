@@ -32,7 +32,7 @@ const configure = `sf.configure(
 const publish = `# Use the hosted stack to make a capture others can replay.
 sf.configure(engine_url="https://fusion.screamingface.ai")
 # candidate is the Model, Fusion or Pipeline you want to evaluate.
-report = sf.evaluate(candidate, benchmark="ifeval")
+report = sf.evaluate(candidate, benchmark="ifeval", capture=True)
 
 # publish one candidate
 score = sf.leaderboards.submit(
@@ -78,7 +78,15 @@ const editLog = `for event in sf.leaderboards.metadata_events(score.id):
 const remix = `plan = score.url4.to_python()   # Model / Fusion / Pipeline, free
 sf.evaluate(score.url4)        # a new paid run; omit benchmark= and limit=`
 
-const reproduce = `# Use the pinned cache id from a complete, public leaderboard submission.
+const reproduce = `import screamingface as sf
+
+# Select the hosted services for a public production leaderboard submission.
+sf.configure(
+    engine_url="https://fusion.screamingface.ai",
+    scoreboard_url="https://leaderboard.screamingface.ai",
+)
+
+# Use the pinned cache id from a complete, public leaderboard submission.
 replay = sf.evaluate(pinned_cache="<pinned-cache-id>")
 result = replay.candidates.only
 if result.reproduction is not None:
@@ -386,10 +394,11 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     </div>
 
     <p>
-      Capture is on by default. The hosted Engine makes a pinned cache of each run, so others can
-      reproduce the score. Read <code>capture_status</code> on the result before you publish: a
-      partial or missing copy cannot be reproduced.
-      <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
+      Capture is off by default. Pass <code>capture=True</code> to the run you will submit: the
+      hosted Engine then makes a pinned cache of it, so others can reproduce the score. Read
+      <code>capture_status</code> on the result before you publish: a partial or missing copy cannot
+      be reproduced. <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains
+      why.
     </p>
 
     <p>
@@ -473,11 +482,25 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <h3>7 · Reproduce a published run</h3>
 
     <p>
+      These examples use SDK <strong>0.1.7</strong>. Install it with
+      <code>python -m pip install "screamingface==0.1.7"</code>. Replay requires an Engine and
+      Gateway that support pinned caches and hold the original capture. The example selects the
+      hosted production services explicitly; for another deployment, change both URLs to that
+      deployment's services. A capture in one deployment is not automatically available in another.
+    </p>
+
+    <p>
       Choose <strong>Reproduce</strong> under Copy on a captured public leaderboard row to copy a
       snippet using <code>sf.evaluate(pinned_cache="…")</code>. Replace the placeholder below with
       that row's pinned cache id. The Client reads the original recipe and answer seed from the
       board, then asks the Engine to use only the captured answers. A confirmed replay costs
       <strong>$0</strong>; a missing answer fails its case without a provider or web-search call.
+    </p>
+
+    <p>
+      Captured answers avoid changes in provider responses, including model retirement. Replay still
+      needs the original benchmark revision and compatible execution behavior; a pinned cache does
+      not guarantee replay across Engine upgrades.
     </p>
 
     <div class="not-prose">

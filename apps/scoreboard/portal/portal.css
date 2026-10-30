@@ -304,11 +304,8 @@ table .btn { white-space: nowrap; }
   gap: var(--space-1);
 }
 
-/* ---- responsive ------------------------------------------------------ */
-@media (max-width: 639px) {
-  /* sf:// deep-links are not useful on narrow screens; collapse the column. */
-  .col-run { display: none; }
-}
+/* WHY: Copy and Reproduce remain useful on mobile. Keep the Run column in the existing
+   horizontally scrollable table at every width, including for keyboard navigation. */
 
 /* ---- Weights line in the Backends cell --------------------------------- */
 /* The SFDS .status recipe at full tone WITHOUT its .on state: .on is success green, and green

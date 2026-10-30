@@ -12,14 +12,13 @@ three synthetic requests it pins:
 - its SHA-256, which can be recomputed with nothing but ``hashlib`` and ``json``;
 - the route's cacheability: 200 then 200, ``miss`` then ``hit``, one dispatch, one row.
 
-AIDEV-NOTE: if this goes red, a Stage C change has moved a cache key. Stop and ask the owner.
+INVARIANT: if this goes red, a Stage C change has moved a cache key. Stop and ask the owner.
 Never bump ``KEY_REVISION`` or ``PARAMETER_CONTRACT_REVISION``, and never edit these literals
 to make it pass.
 """
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import time
@@ -29,9 +28,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.request_cache import RequestCacheWrite, global_keys
 from aigateway.core.request_cache.canonical import canonical_digest
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -146,8 +143,6 @@ def cache_client(monkeypatch, client: TestClient) -> TestClient:
 
 
 def _seed_empty_default_profile(credential_blobs, client: TestClient) -> None:
-    # WHY empty defaults: the retained dev Profiles all hold ProfileDefaults(), and parity is
-    # claimed exactly for them. A Profile with non-empty defaults changes on purpose (N1a).
     account_id = client.get("/v1/auth/me").json()["id"]
     credential_blobs.write(
         credential_service_for(credential_name_for(account_id, _PROFILE)),
@@ -161,20 +156,6 @@ def _seed_empty_default_profile(credential_blobs, client: TestClient) -> None:
             }
         ),
     )
-
-    async def _upsert() -> None:
-        await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-            Profile(
-                id=profile_id_for(account_id, "anthropic", _PROFILE),
-                account_id=account_id,
-                provider="anthropic",
-                name=_PROFILE,
-                state=ProfileState.AUTHENTICATED,
-                defaults=ProfileDefaults(),
-            )
-        )
-
-    asyncio.run(_upsert())
     # WHY: since OME-1209 E4a the pair's Connection at this address dispatches; the key names
     # neither it nor the account, so every pinned digest stays.
     seed_migrated_pair(client, account_id, "anthropic", name=_PROFILE)

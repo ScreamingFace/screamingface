@@ -268,6 +268,81 @@ one of the two is set (`artifactSigningConfigured`); the chart never generates a
 {{- end -}}
 
 {{/*
+FEATURE (hosted BYOM, OME-1770): the one private world config both pod templates read.
+`worldConfigEnabled` validates `worldConfig` and answers "true" when a source is set; every other
+helper below renders one piece of the wiring, and BOTH Deployments include the same helpers, so
+the App and the pool cannot drift apart.
+*/}}
+{{- define "screamingface-engine.worldConfigEnabled" -}}
+{{- $world := .Values.worldConfig -}}
+{{- if and $world.existingConfigMap $world.existingSecret -}}
+{{- fail "worldConfig: set only one of existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- if or $world.existingConfigMap $world.existingSecret -}}
+{{- if not $world.key -}}
+{{- fail "worldConfig.key must name the world config file inside the source" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._:+=-]{1,128}$" (toString $world.contentChecksum)) -}}
+{{- fail "worldConfig.contentChecksum is required with a source: the file's content revision, 1-128 characters from A-Z a-z 0-9 . _ : + = -" -}}
+{{- end -}}
+true
+{{- else if $world.contentChecksum -}}
+{{- fail "worldConfig.contentChecksum is set but there is no source: set existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigDir" -}}
+/etc/screamingface-engine/world
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigPath" -}}
+{{ include "screamingface-engine.worldConfigDir" . }}/url4.toml
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigEnv" -}}
+- name: URL4_RUNNER_CONFIG
+  value: {{ include "screamingface-engine.worldConfigPath" . | quote }}
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1770 review): a running pod never sees the file change. The kubelet live-updates a
+projected ConfigMap or Secret directory, so a cold child could read a newer file than its pod's
+warm child and the App; a `subPath` mount is never updated, and a new revision reaches a pod only
+through the rollout `contentChecksum` starts.
+*/}}
+{{- define "screamingface-engine.worldConfigMount" -}}
+- name: world-config
+  mountPath: {{ include "screamingface-engine.worldConfigPath" . | quote }}
+  subPath: url4.toml
+  readOnly: true
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1770 review): `podAnnotations` renders after the chart's own keys on both pod
+templates, so a user key of the same name would silently replace the world-config revision and a
+changed file would roll nothing. Renders nothing; refuses the render instead.
+*/}}
+{{- define "screamingface-engine.guardPodAnnotations" -}}
+{{- if hasKey (.Values.podAnnotations | default dict) "checksum/world-config" -}}
+{{- fail "podAnnotations must not set checksum/world-config: the chart writes it from worldConfig.contentChecksum" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigVolume" -}}
+- name: world-config
+  {{- if .Values.worldConfig.existingSecret }}
+  secret:
+    secretName: {{ .Values.worldConfig.existingSecret | quote }}
+  {{- else }}
+  configMap:
+    name: {{ .Values.worldConfig.existingConfigMap | quote }}
+  {{- end }}
+    items:
+      - key: {{ .Values.worldConfig.key | quote }}
+        path: url4.toml
+{{- end -}}
+
+{{/*
 Where the object store lives. Explicit `artifactStorage.s3.endpointUrl` wins; otherwise, with the
 bundled instance enabled, its in-cluster Service. Failing render is deliberate: an empty endpoint
 would leave the App to refuse startup with a less specific message than this one.

@@ -8,6 +8,6 @@ pair.
 Successors:
 - `tests/unit/test_profile_index_offline_only.py::`
   `test_a_set_bootstrap_flag_only_warns_that_the_import_is_retired` (the marker stays `none` at
-  generation 0 and no document appears);
+  generation 0);
 - the Connection-side fences that remain: `test_writer_floor_native.py`.
 """

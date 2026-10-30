@@ -3,7 +3,7 @@ ticket: OME-1546
 stack: aigateway
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-20
-finished: 2026-10-20
+finished: 2026-10-22
 ---
 
 # image-token-accounting — account image and file input tokens (gateway half)
@@ -52,6 +52,9 @@ follow-up for the engine owner.
   `tests/unit/test_gemini_family_image_file_usage.py`, `tests/unit/codex/test_codex_image_file_usage.py`;
   spec, plan, ledger, `docs/tasks/2026-10-20-OME-1546-image-token-accounting.md`.
 - **Commits:** `a1cf59d3b` feat(aigateway): report image and file input tokens in chat usage.
+- **Merged:** squash-merged as `b76556ca3` (#1481) on 2026-10-23.
+- **Scope (owner, 2026-10-27):** OME-1546 closes this gateway unit only; engine forwarding into
+  `ai.url4.cost.usage` and the live non-zero acceptance moved to OME-1744.
 - **Gates:** `run_gates.py aigateway` ALL GATES GREEN (append-only check, ruff, format, pyright,
   no-enterprise, pytest 6090 passed / 105 skipped, coverage 93%).
 - **Live e2e (port 9132, 2026-10-20):** antigravity/gemini-3-flash text/image/PDF `prompt_tokens`

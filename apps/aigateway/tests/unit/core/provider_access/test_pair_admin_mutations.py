@@ -7,7 +7,7 @@
 # STORY: as an operator, I attach a key to a tenant's provider, or disconnect it, without knowing
 # whether the tenant's credential is still a legacy Profile or already a Connection.
 # INVARIANT: a refused mutation (409/503, a failed key check, a superseded capture) writes
-# nothing — no marker, document, row or blob changes.
+# nothing — no marker, row or blob changes.
 # NOTE: the bridge runs over the real stores; `validate` stands in for the provider key
 # check the route runs, so a test can fail it or race a writer into it.
 """
@@ -20,14 +20,13 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 from tortoise.exceptions import OperationalError
 
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.pending_auth import PendingAuthEntry, PendingAuthTable
 from aigateway.core.plugin_base import credential_service_provider_for
-from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.provider_access import (
     CredentialAuthorityUnavailable,
     CredentialStoreReadUnavailable,
@@ -52,8 +51,8 @@ OLD_KEY = "sk-ant-api03-old-key-0002"
 
 
 @pytest.fixture
-def harness(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def harness(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 async def _valid() -> None:
@@ -61,7 +60,7 @@ async def _valid() -> None:
 
 
 def _put(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     *,
     validate: Callable[[], Awaitable[None]] = _valid,
     provider: str = PROVIDER,
@@ -76,27 +75,27 @@ def _put(
     )
 
 
-def _delete(harness: ProfileBackedHarness, provider: str = PROVIDER) -> PairMutation:
+def _delete(harness: RealAppHarness, provider: str = PROVIDER) -> PairMutation:
     return harness.call(delete_pair, harness.client.app, harness.account_id, provider)
 
 
-def _address(harness: ProfileBackedHarness, name: str) -> dict[str, str]:
+def _address(harness: RealAppHarness, name: str) -> dict[str, str]:
     return credential_locator_for(CREDENTIAL_PROVIDER, harness.account_id, name)
 
 
-def _blob(harness: ProfileBackedHarness, locator: dict[str, Any]) -> str | None:
+def _blob(harness: RealAppHarness, locator: dict[str, Any]) -> str | None:
     raw = harness.blobs.read(locator["service"], locator["account"])
     return None if raw is None else json.loads(raw).get("api_key")
 
 
-def _seed_key(harness: ProfileBackedHarness, locator: dict[str, Any], key: str) -> None:
+def _seed_key(harness: RealAppHarness, locator: dict[str, Any], key: str) -> None:
     harness.blobs.write(
         locator["service"], locator["account"], json.dumps({"auth_type": "api_key", "api_key": key})
     )
 
 
 def _connection(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     *,
     locator: dict[str, str] | None = None,
     pending: bool = False,
@@ -119,14 +118,14 @@ def _connection(
     return connection
 
 
-def _set_status(harness: ProfileBackedHarness, connection: OAuthConnection, status: str) -> None:
+def _set_status(harness: RealAppHarness, connection: OAuthConnection, status: str) -> None:
     async def update() -> None:
         await OAuthConnection.filter(id=connection.id).update(status=status)
 
     harness.call(update)
 
 
-def _rows(harness: ProfileBackedHarness) -> list[dict[str, Any]]:
+def _rows(harness: RealAppHarness) -> list[dict[str, Any]]:
     async def rows() -> list[dict[str, Any]]:
         return await OAuthConnection.filter(account_id=harness.account_id).values(
             "id", "status", "auth_type", "credential_locator"
@@ -135,11 +134,11 @@ def _rows(harness: ProfileBackedHarness) -> list[dict[str, Any]]:
     return harness.call(rows)
 
 
-def _live(harness: ProfileBackedHarness) -> list[dict[str, Any]]:
+def _live(harness: RealAppHarness) -> list[dict[str, Any]]:
     return [row for row in _rows(harness) if row["status"] != "revoked"]
 
 
-def _marker(harness: ProfileBackedHarness) -> dict[str, Any] | None:
+def _marker(harness: RealAppHarness) -> dict[str, Any] | None:
     async def read() -> list[dict[str, Any]]:
         return await ProviderCredentialSlot.filter(
             account_id=harness.account_id, provider=PROVIDER
@@ -149,15 +148,7 @@ def _marker(harness: ProfileBackedHarness) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
-def _documents(harness: ProfileBackedHarness) -> list[tuple[str, str, str]]:
-    index = ProfileIndexStore(credential_store=harness.client.app.state.credential_store)
-    documents = harness.call(index.list, harness.account_id)
-    return sorted((d.name, d.auth_type, d.state.value) for d in documents)
-
-
-def _mark(
-    harness: ProfileBackedHarness, state: MigrationState, *, effective: UUID | None = None
-) -> None:
+def _mark(harness: RealAppHarness, state: MigrationState, *, effective: UUID | None = None) -> None:
     async def advance() -> None:
         current = await PairAuthorityStore().read(harness.account_id, PROVIDER)
         await PairAuthorityStore().advance(
@@ -171,13 +162,13 @@ def _mark(
     harness.call(advance)
 
 
-def _inventory(harness: ProfileBackedHarness) -> PairInventory:
+def _inventory(harness: RealAppHarness) -> PairInventory:
     return harness.call(pair_inventory, harness.client.app, harness.account_id)
 
 
-def _state(harness: ProfileBackedHarness) -> tuple[Any, ...]:
+def _state(harness: RealAppHarness) -> tuple[Any, ...]:
     """Everything a refused mutation must leave untouched."""
-    return (_marker(harness), _rows(harness), _documents(harness))
+    return (_marker(harness), _rows(harness))
 
 
 ACTIVE = PairCredential(PROVIDER, "api_key", "active", None)
@@ -197,8 +188,6 @@ def test_put_on_an_empty_pair_creates_one_connection_at_its_own_address(harness)
     assert marker is not None
     assert marker["migration_state"] == "migrated"
     assert marker["effective_connection_id"] == row["id"]
-    # WHY no document (OME-1209 E4b): the PUT writes no compatibility mirror.
-    assert _documents(harness) == []
     assert mutation.credential is not None
     assert mutation.credential.provider == PROVIDER
     assert mutation.credential.auth_type == "api_key"
@@ -214,21 +203,20 @@ def test_delete_on_an_empty_pair_is_a_no_op_that_mints_no_marker(harness) -> Non
     assert _rows(harness) == []
 
 
-# --- a sole legacy Profile: the empty pair; its document and blob stay (E4b) ----------------
+# --- a sole legacy blob at a name address: the empty pair; the blob stays (E4b) -------------
 
 
 def test_put_beside_a_sole_profile_mints_at_its_own_address_and_leaves_it(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
 
     _put(harness)
 
-    # WHY its own address (E5a, history cleanup): the PUT reads no document to name its row by
-    # (row 7), and a minted row never takes a Profile address.
+    # WHY its own address (E5a, history cleanup): the PUT has nothing to name its row by (row 7),
+    # and a minted row never takes a name address.
     (row,) = _live(harness)
     assert row["credential_locator"] == _address(harness, row["id"])
     assert _blob(harness, _address(harness, row["id"])) == NEW_KEY
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
-    assert _documents(harness) == [("work", "api_key", "authenticated")]
     marker = _marker(harness)
     assert marker is not None
     assert (marker["migration_state"], marker["effective_connection_id"]) == ("migrated", row["id"])
@@ -248,8 +236,7 @@ def test_put_keeps_a_sole_connections_id_and_locator(harness, pending) -> None:
     assert row["credential_locator"] == connection.credential_locator
     assert (row["status"], row["auth_type"]) == ("active", "api_key")
     assert _blob(harness, connection.credential_locator) == NEW_KEY
-    # WHY no document (OME-1209 E4b): the PUT writes no mirror, and no blob lands at `default`.
-    assert _documents(harness) == []
+    # WHY no mirror (OME-1209 E4b): no blob lands at `default`.
     assert _blob(harness, _address(harness, "default")) is None
     marker = _marker(harness)
     assert marker is not None
@@ -270,11 +257,11 @@ def test_delete_revokes_a_sole_connection_and_its_blob(harness) -> None:
     assert mutation.connection_ids == (str(connection.id),)
 
 
-# --- row 9 with a Profile document at the Connection's address ------------------------------
+# --- row 9 with the Connection at a legacy name address -------------------------------------
 
 
 def test_put_on_a_same_locator_pair_keeps_the_row_and_the_name(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     connection = _connection(harness, locator=_address(harness, "work"), key=None)
 
     _put(harness)
@@ -282,18 +269,15 @@ def test_put_on_a_same_locator_pair_keeps_the_row_and_the_name(harness) -> None:
     (row,) = _live(harness)
     assert row["id"] == connection.id
     assert _blob(harness, _address(harness, "work")) == NEW_KEY
-    assert _documents(harness) == [("work", "api_key", "authenticated")]
 
 
 def test_delete_on_a_same_locator_pair_retires_the_row_and_the_blob(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     connection = _connection(harness, locator=_address(harness, "work"), key=None)
 
     mutation = _delete(harness)
 
     assert _live(harness) == []
-    # WHY the document stays (OME-1209 E4b): the DELETE removes no document; E5 does.
-    assert _documents(harness) == [("work", "api_key", "authenticated")]
     assert _blob(harness, _address(harness, "work")) is None
     assert mutation.connection_ids == (str(connection.id),)
 
@@ -348,7 +332,6 @@ def test_delete_then_a_repeated_delete_both_succeed(harness) -> None:
     assert second.credential is None
     assert _live(harness) == []
     assert _blob(harness, _address(harness, "default")) is None
-    assert _documents(harness) == []
     marker = _marker(harness)
     assert marker is not None
     assert marker["effective_connection_id"] is None
@@ -357,23 +340,22 @@ def test_delete_then_a_repeated_delete_both_succeed(harness) -> None:
 def test_put_after_a_delete_mints_at_its_own_address_beside_a_leftover_document(
     harness,
 ) -> None:
-    # Row 6 with one leftover compatibility document. WHY its own address (E5a, history cleanup):
-    # the PUT names no mirror and a minted row never takes a Profile address, so its row takes
-    # `<account_id>:<row id>` and the document stays as it was.
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    # Row 6 with one leftover blob at a name address. WHY its own address (E5a, history cleanup):
+    # the PUT names no mirror and a minted row never takes a name address, so its row takes
+    # `<account_id>:<row id>` and the leftover blob stays as it was.
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _mark(harness, "migrated")
 
     _put(harness)
 
     (row,) = _live(harness)
     assert row["credential_locator"] == _address(harness, row["id"])
-    assert _documents(harness) == [("work", "api_key", "authenticated")]
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
     assert _inventory(harness).conflicts == ()
 
 
 def test_delete_on_a_disconnected_pair_with_a_leftover_document_is_a_no_op(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _mark(harness, "migrated")
     before = _state(harness)
 
@@ -385,17 +367,17 @@ def test_delete_on_a_disconnected_pair_with_a_leftover_document_is_a_no_op(harne
 # --- refusals: nothing is written -----------------------------------------------------------
 
 
-def _two_live(harness: ProfileBackedHarness) -> None:
+def _two_live(harness: RealAppHarness) -> None:
     _connection(harness)
     _connection(harness)
 
 
-def _quarantined(harness: ProfileBackedHarness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+def _quarantined(harness: RealAppHarness) -> None:
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _mark(harness, "quarantined")
 
 
-def _migrated_null_beside_a_live_row(harness: ProfileBackedHarness) -> None:
+def _migrated_null_beside_a_live_row(harness: RealAppHarness) -> None:
     _mark(harness, "migrated")
     _connection(harness)
 
@@ -452,7 +434,7 @@ def test_an_unknown_provider_keeps_the_existing_refusal(harness, operation) -> N
 
 
 def test_a_failed_key_check_leaves_owner_and_data_unchanged(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     before = _state(harness)
 
     class Rejected(Exception):
@@ -469,7 +451,7 @@ def test_a_failed_key_check_leaves_owner_and_data_unchanged(harness) -> None:
 
 
 def test_a_second_candidate_created_during_validation_makes_the_bridge_refuse(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _connection(harness, locator=_address(harness, "work"), key=None)
 
     async def native_create_meanwhile() -> None:
@@ -529,7 +511,7 @@ def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
 ) -> None:
     # The delete's own capture saw one Connection; a native create landing before its transaction
     # (no claim on the pair it adds to) must not be swept away by the delete it never saw.
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _connection(harness, locator=_address(harness, "work"), key=None)
     before = _marker(harness)
     real_list = OAuthConnectionStore.list
@@ -556,7 +538,6 @@ def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
     assert conflict.value.kind == "superseded"
     assert len(calls) >= 1
     assert _marker(harness) == before
-    assert _documents(harness) == [("work", "api_key", "authenticated")]
     assert _blob(harness, _address(harness, "work")) == OLD_KEY
 
 
@@ -564,7 +545,7 @@ def test_a_live_row_added_after_a_delete_captured_the_pair_supersedes_it(
 def test_a_store_outage_inside_the_write_is_the_scoped_write_refusal(
     harness, monkeypatch, operation
 ) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _connection(harness, locator=_address(harness, "work"), key=None)
     before = _state(harness)
 
@@ -585,7 +566,7 @@ def test_a_store_outage_inside_the_write_is_the_scoped_write_refusal(
 
 
 def test_a_store_outage_reading_the_pair_to_delete_is_a_read_refusal(harness, monkeypatch) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _connection(harness, locator=_address(harness, "work"), key=None)
     real_list = OAuthConnectionStore.list
     calls: list[int] = []
@@ -608,7 +589,7 @@ def test_a_store_outage_reading_the_pair_to_delete_is_a_read_refusal(harness, mo
 
 
 def test_the_mutation_evicts_the_cached_credential_it_changed(harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential=OLD_KEY)
+    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
     _connection(harness, locator=_address(harness, "work"), key=None)
 
     _delete(harness)

@@ -6623,6 +6623,296 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
     ),
+    BenchmarkSpec(
+        key="lab_bench_figqa",
+        published_revision="7376109d25378310",
+        title="LAB-Bench FigQA",
+        description=(
+            "181 multiple-choice questions about a figure from a biology research paper (the "
+            "LAB-Bench FigQA subset), imported from inspect_evals. Each question comes with "
+            "its figure as a picture, so the Candidate must read images; the picture is saved "
+            "inside the Case at import and nothing is fetched at run time. Every question "
+            "offers the distractors plus an explicit 'insufficient information' opt-out; "
+            "grading is the eval's own precision-aware choice scorer (opting out counts as no "
+            "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
+            "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
+            "= plain accuracy over the cases run; the eval's precision and coverage are not "
+            "reproduced. No mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Reading biology research figures (multiple choice, picture input)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology figures, but no longer out of reach: the newest frontier model
+        # passes 0.89 without tools, above the 0.77 expert baseline, while most models
+        # still score under 0.6 — real headroom, not expert-only failure.
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_figqa.
+        # License: cc-by-sa-4.0.
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        # Human baseline: PhD-level biology experts with internet access, accuracy over all
+        # questions (LAB-Bench Appendix B, Table 2); the paper's set also holds the private split
+        human_baseline=HumanBaseline(score=0.77, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy over the same 181 public questions, mean of 5 runs, adaptive
+        # thinking at max effort, no tools (90.7% with Python tools); graded by a model grader
+        frontier_score=FrontierScore(
+            score=0.889,
+            model="Claude Mythos 5",
+            source_url="https://www.anthropic.com/claude-mythos-5-system-card",
+            as_of="2026-06",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=181,
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BenchmarkSpec(
+        key="lab_bench_tableqa",
+        published_revision="9990079555f06a35",
+        title="LAB-Bench TableQA",
+        description=(
+            "244 multiple-choice questions about one to three tables from a biology research "
+            "paper (the LAB-Bench TableQA subset), imported from inspect_evals. Each table "
+            "comes as a picture, so the Candidate must read images; the pictures are saved "
+            "inside the Case at import and nothing is fetched at run time. Every question "
+            "offers the distractors plus an explicit 'insufficient information' opt-out; "
+            "grading is the eval's own precision-aware choice scorer (opting out counts as no "
+            "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
+            "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
+            "= plain accuracy over the cases run; the eval's precision and coverage are not "
+            "reproduced. No mid-run check surface (elimination attack over few options)."
+        ),
+        focus="Reading tables from biology research papers (multiple choice, picture input)",
+        dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
+        # Expert biology tables, but the best model in the LAB-Bench paper already scored 0.83
+        # against the 0.84 expert baseline in 2024 — real headroom, not expert-only failure.
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.lab_bench.lab_bench:lab_bench_tableqa.
+        # License: cc-by-sa-4.0.
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2407.10362",
+        authors="Laurent et al., 2024",
+        citation=(
+            "@misc{laurent2024labbenchmeasuringcapabilitieslanguage,\n"
+            "      title={LAB-Bench: Measuring Capabilities of Language Models for Biolog"
+            "y Research}, \n"
+            "      author={Jon M. Laurent and Joseph D. Janizek and Michael Ruzo and Mich"
+            "aela M. Hinks and Michael J. Hammerling and Siddharth Narayanan and Manvitha"
+            " Ponnapati and Andrew D. White and Samuel G. Rodriques},\n"
+            "      year={2024},\n"
+            "      eprint={2407.10362},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2407.10362}, \n"
+            "}"
+        ),
+        inspect_contributors=("matthewreed26",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/lab_bench",
+        license="CC-BY-SA-4.0",
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        # Human baseline: PhD-level biology experts with internet access, accuracy over all
+        # questions (LAB-Bench Appendix B, Table 2); the paper's set also holds the private split
+        human_baseline=HumanBaseline(score=0.84, source_url="https://arxiv.org/abs/2407.10362"),
+        # Frontier score: accuracy, mean of 3 runs, 0-shot, no tools (LAB-Bench Appendix B,
+        # Table 2); later system cards report FigQA only, so no newer TableQA score is published
+        frontier_score=FrontierScore(
+            score=0.83,
+            model="Claude 3.5 Sonnet",
+            source_url="https://arxiv.org/abs/2407.10362",
+            as_of="2024-07",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=244,
+        scorer="inspect_evals.lab_bench.lab_bench:precision_choice",
+        scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
+    ),
+    BenchmarkSpec(
+        key="mmmu_multiple_choice",
+        published_revision="5b008891134ef4c1",
+        title="MMMU (multiple choice)",
+        description=(
+            "847 multiple-choice questions from college exams, quizzes and textbooks across "
+            "30 subjects in six disciplines (art, business, science, health, humanities, "
+            "engineering): the multiple-choice part of MMMU's validation split, since the "
+            "test split's answers are withheld. Imported from inspect_evals. Every question "
+            "comes with one to five pictures (charts, diagrams, maps, photos, sheet music, "
+            "chemical structures), so the Candidate must read images; the pictures are saved "
+            "inside the Case at import and nothing is fetched at run time. The Candidate is "
+            "shown the pictures, then inspect's multiple-choice instruction, the eval's own "
+            "'answer with the option's letter' line and the question with its options "
+            "lettered in the dataset's order, and is graded by inspect's choice scorer "
+            "against the correct letter, so no judge tokens are spent. Benchmark score = "
+            "plain accuracy over the cases run. inspect_evals runs the model at temperature "
+            "0; this benchmark imposes no generation settings. No mid-run check surface "
+            "(elimination attack over few options)."
+        ),
+        focus="College-level questions about pictures across 30 subjects (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
+        # College-exam material, but no longer out of reach: the best lab-reported scores
+        # sit inside the human-expert range (0.76 to 0.89), so real headroom, not
+        # expert-only failure (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mmmu.mmmu:mmmu_multiple_choice.
+        # License: apache-2.0, the MMMU/MMMU card header at the pinned revision (owner
+        #   accepted on OME-1477, 2026-10-28).
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2311.16502",
+        authors="Yue et al., 2023",
+        citation=(
+            "@misc{yue2024mmmumassivemultidisciplinemultimodal,\n"
+            "      title={MMMU: A Massive Multi-discipline Multimodal Understanding and R"
+            "easoning Benchmark for Expert AGI}, \n"
+            "      author={Xiang Yue and Yuansheng Ni and Kai Zhang and Tianyu Zheng and "
+            "Ruoqi Liu and Ge Zhang and Samuel Stevens and Dongfu Jiang and Weiming Ren a"
+            "nd Yuxuan Sun and Cong Wei and Botao Yu and Ruibin Yuan and Renliang Sun and"
+            " Ming Yin and Boyuan Zheng and Zhenzhu Yang and Yibo Liu and Wenhao Huang an"
+            "d Huan Sun and Yu Su and Wenhu Chen},\n"
+            "      year={2024},\n"
+            "      eprint={2311.16502},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2311.16502}, \n"
+            "}"
+        ),
+        inspect_contributors=("shaheenahmedc",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mmmu",
+        license="Apache-2.0",
+        # Human baseline: Human Expert (High), the best of the paper's three expert tiers
+        # (Low 0.762, Medium 0.826), accuracy over the whole validation split, the open
+        # questions included; the figure eval.yaml cites.
+        human_baseline=HumanBaseline(score=0.886, source_url="https://mmmu-benchmark.github.io/"),
+        # Frontier score: the vendor's own MMMU figure (validation split), the newest a lab
+        # has published; newer launches report MMMU-Pro, a different question set. Read
+        # from the page itself on 2026-10-28: "84.2% on MMMU", pass@1 with thinking.
+        # NOT like-for-like, for both baselines: they score all 900 validation questions, the
+        # 53 open ones included, while this Benchmark keeps the 847 multiple-choice ones.
+        frontier_score=FrontierScore(
+            score=0.842,
+            model="GPT-5",
+            source_url="https://openai.com/index/introducing-gpt-5/",
+            as_of="2025-08",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=847,
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
+        key="mathvista",
+        published_revision="ca4cd0f692d18f0e",
+        title="MathVista (testmini)",
+        description=(
+            "1,000 maths questions about a picture (MathVista's testmini split: function "
+            "plots, charts, tables, geometry figures, puzzles, scientific figures and photos, "
+            "drawn from 28 existing datasets and three new ones), imported from inspect_evals. "
+            "540 are multiple choice and 460 free-form, answered with an integer, a decimal "
+            "to one or two places, or a list. Each question comes with one picture, saved "
+            "inside the Case at import, so nothing is fetched at run time. The Candidate is "
+            "shown the picture, then the eval's own instruction: inspect's single-answer "
+            "template over the lettered choices for a multiple-choice question, or a fixed "
+            "'ANSWER: $ANSWER' template around the dataset's own query, which carries the "
+            "precision and unit hint, for a free-form one. Grading is the eval's own pattern "
+            "scorer: the letter, or the text after 'ANSWER:', must equal the answer exactly "
+            "(case ignored), so no judge tokens are spent; 'ANSWER: 1.50', '1.5 cm' or a "
+            "trailing space score wrong against 1.5, so scores here are stricter than, and "
+            "not directly comparable to, the paper's and the labs' own more lenient grading. "
+            "Serving order is pinned by a policy seed (inspect_evals shuffles per run). "
+            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
+            "(elimination attack over few options)."
+        ),
+        focus="Maths reasoning over charts, plots and figures (picture input)",
+        dataset_url="https://huggingface.co/datasets/AI4Math/MathVista",
+        # The catalogue says "saturated" (headroom 1 - 0.903 = 0.097, at or under the 0.10
+        # floor), but that verdict reads only the single best model. The tier reads the field:
+        # the same model cards put GPT-5.2 at 0.83 and Claude Opus 4.5 at 0.80, and this
+        # exam's exact-match grading is stricter than theirs, so still "medium", as MMMU and
+        # FigQA; above the 0.603 human baseline, so not "hard".
+        difficulty="medium",
+        # A per-Case mean over the eval's own pattern scorer (no whole-run metric, not
+        # inverted, a decline is never the right answer): Group A, as for its siblings.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mathvista.mathvista:mathvista.
+        # License: cc-by-sa-4.0 (owner decision on OME-1479, 2026-10-28: the
+        #  AI4Math/MathVista card, accepted for now; it comes out if we go commercial; the
+        #  source datasets' own terms are listed beside the prepare.py row).
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2310.02255",
+        authors="Lu et al., 2023",
+        citation=(
+            "@misc{lu2024mathvistaevaluatingmathematicalreasoning,\n"
+            "      title={MathVista: Evaluating Mathematical Reasoning of Foundation Mode"
+            "ls in Visual Contexts}, \n"
+            "      author={Pan Lu and Hritik Bansal and Tony Xia and Jiacheng Liu and Chu"
+            "nyuan Li and Hannaneh Hajishirzi and Hao Cheng and Kai-Wei Chang and Michel "
+            "Galley and Jianfeng Gao},\n"
+            "      year={2024},\n"
+            "      eprint={2310.02255},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CV},\n"
+            "      url={https://arxiv.org/abs/2310.02255}, \n"
+            "}"
+        ),
+        inspect_contributors=("ShivMunagala",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mathvista",
+        license="CC-BY-SA-4.0",
+        license_note=(
+            "AI4Math/MathVista card; the 31 source datasets keep their own terms: "
+            "NonCommercial ones hold 195 of the 1,000 Cases, GPL-3.0 ChartQA 50, and 134 come "
+            "from sources with unknown terms; comes out if we go commercial (owner decision on "
+            "OME-1479, 2026-10-28)"
+        ),
+        # Human baseline: Amazon Mechanical Turk annotators with a high-school degree or
+        # higher, five questions in 20 minutes each, accuracy on testmini (MathVista paper,
+        # Table 2, "Human performance" 60.3).
+        human_baseline=HumanBaseline(score=0.603, source_url="https://arxiv.org/abs/2310.02255"),
+        # Frontier score: the lab's own model card, its "Mathvista(mini)" row (the testmini
+        # split), thinking mode, the model's default; read from the page on 2026-10-28. The
+        # best lab-published figure found: Kimi K2.5's own card says 0.901; newer launches
+        # (Seed2.1, 2026-09) report MathVision, not MathVista.
+        frontier_score=FrontierScore(
+            score=0.903,
+            model="Qwen3.5-397B-A17B",
+            source_url="https://huggingface.co/Qwen/Qwen3.5-397B-A17B",
+            as_of="2026-02",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=1000,
+        scorer="inspect_evals.mathvista.mathvista:mathvista_scorer",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

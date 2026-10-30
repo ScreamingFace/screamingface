@@ -80,14 +80,20 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "wmdp_cyber": "mcq",
     "hellaswag": "mcq",
     # LAB-Bench text subsets (OME-1264 batch 1): MCQ graded by the eval's OWN
-    # precision_choice scorer — still the MCQ family (draft-feedback offer refused);
-    # FigQA/TableQA are image-based and stay out of the text-only prepare.
+    # precision_choice scorer — still the MCQ family (draft-feedback offer refused).
     "lab_bench_litqa": "mcq",
     "lab_bench_suppqa": "mcq",
     "lab_bench_dbqa": "mcq",
     "lab_bench_protocolqa": "mcq",
     "lab_bench_seqqa": "mcq",
     "lab_bench_cloning_scenarios": "mcq",
+    # OME-1327: the two picture subsets, the same scorer and family.
+    "lab_bench_figqa": "mcq",
+    "lab_bench_tableqa": "mcq",
+    # OME-1477: MMMU's multiple-choice task, graded by inspect's choice scorer.
+    "mmmu_multiple_choice": "mcq",
+    # OME-1479: MathVista mixes multiple choice with numbers, graded by its own pattern scorer.
+    "mathvista": "mcq",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.
@@ -313,6 +319,10 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "lab_bench_protocolqa",
         "lab_bench_seqqa",
         "lab_bench_cloning_scenarios",
+        "lab_bench_figqa",
+        "lab_bench_tableqa",
+        # OME-1479: MathVista shuffles with no seed; the import forces 20260917.
+        "mathvista",
         "frontierscience",
         "onet_m6",
         # OME-1602: UCCB shuffles with no seed; the import forces 20260917.
@@ -327,7 +337,7 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
 def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
     """LAB-Bench builds every case with the correct answer FIRST and shuffles
     choices per run (shuffle_choices=True, unseeded) — without a pinned choice
-    order every prepared answer would be 'A'. The six text benchmarks must carry the
+    order every prepared answer would be 'A'. All eight benchmarks must carry the
     policy choice-shuffle seed, and it must ride benchmark identity."""
 
     # OME-1460: Task-replay declarations; the forced seed's order is sealed by the Case
@@ -340,6 +350,8 @@ def test_lab_bench_benchmarks_pin_a_choice_order() -> None:
         "lab_bench_protocolqa",
         "lab_bench_seqqa",
         "lab_bench_cloning_scenarios",
+        "lab_bench_figqa",
+        "lab_bench_tableqa",
     }
     for key in sorted(lab_bench_keys):
         assert TASK_REPLAY_CASES[key].choice_shuffle_seed is not None, key
@@ -353,7 +365,7 @@ def test_lab_bench_pins_track_inspect_evals_own_revision_constant() -> None:
     from inspect_evals.lab_bench.lab_bench import LAB_BENCH_DATASET_REVISION as INSPECT_EVALS
 
     lab_bench_keys = [k for k in TASK_REPLAY_CASES if k.startswith("lab_bench_")]
-    assert len(lab_bench_keys) == 6
+    assert len(lab_bench_keys) == 8
     for key in lab_bench_keys:
         assert TASK_REPLAY_CASES[key].source_pins == {"futurehouse/lab-bench": INSPECT_EVALS}, key
 

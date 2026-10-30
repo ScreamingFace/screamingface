@@ -16,13 +16,16 @@ Worked example (v2, one question and one picture)::
       {"type":"text","text":"What is the height of the tallest bar?"},
       {"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]}]}
 
-INVARIANT: nothing here decodes or opens a picture. Only the ``data:`` prefix is checked, the same
-envelope check the gateway makes, and the base64 is passed on verbatim. A refusal names the message
-and part by position and never echoes a URL or the bytes.
+INVARIANT: reading an envelope never decodes a picture. Only the ``data:`` prefix is checked, the
+same envelope check the gateway makes, and the base64 is passed on verbatim. ``media_placeholder``
+is the one place that decodes, and only to count and hash the bytes; nothing here opens a picture.
+A refusal names the message and part by position and never echoes a URL or the bytes.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -50,6 +53,16 @@ _MEDIA_PART_TYPES = frozenset({"image_url", "file"})
 # WHY a refusal repeats a value only when it looks like a name: a Case can put a megabyte of
 # base64 or a URL where a role, part type or schema belongs, and the refusal must not carry it.
 _SHOWN_NAME_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+#: Standard base64 (RFC 4648 §4): its 64 letters, then at most two ``=`` at the very end. The
+#: length check beside it (a multiple of 4) makes the padding complete.
+_STANDARD_BASE64_RE = re.compile(r"[A-Za-z0-9+/]*={0,2}")
+#: The letters that may stand last before the padding. WHY: before one ``=`` the last letter's
+#: two low bits are thrown away, before two its four, so ``iVBORw0KGgo=`` and ``iVBORw0KGgp=``
+#: decode to the same bytes. The standard spelling keeps those bits zero: every 4th letter of the
+#: alphabet before one ``=``, every 16th (``AQgw``) before two.
+_BASE64_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+_LAST_BEFORE_ONE_PAD = frozenset(_BASE64_LETTERS[::4])
+_LAST_BEFORE_TWO_PAD = frozenset(_BASE64_LETTERS[::16])
 
 # The shapes, in one place. WHY TypedDicts and not models: they cost nothing at run time and keep
 # every refusal message under this module's control (a model's validation error would quote the
@@ -127,6 +140,20 @@ class CandidateInputV2(TypedDict):
 
     schema: Literal["screamingface.candidate-input.v2"]
     messages: list[CandidateMessage]
+
+
+class MediaPlaceholder(TypedDict):
+    """What stands where a picture's or file's bytes were, in any text that shows a Case.
+
+    e.g. ``{"placeholder": "image", "media_type": "image/png", "size": 307200,
+    "sha256": "9f86d081…"}``; ``filename`` only when the part names one.
+    """
+
+    placeholder: Literal["image", "file"]
+    media_type: str
+    size: int
+    sha256: str
+    filename: NotRequired[str]
 
 
 class CandidateInputError(ValueError):
@@ -283,8 +310,57 @@ def _file(where: str, part: Mapping[str, Any]) -> FileData:
     return file
 
 
+def media_placeholder(part: ImagePart | FilePart, *, where: str) -> MediaPlaceholder:
+    """Name one checked picture or file part by its bytes, without carrying them.
+
+    FEATURE (OME-1679): a Fusion's synthesizer reads the Case as text beside the pictures it is
+    sent, and that text shows each picture as this placeholder. One builder, so every text that
+    shows a Case (the synthesizer's, later the results') writes one shape; the SDK keeps a copy
+    pinned by ``test_media_placeholder_conformance.py``.
+
+    Stage 1 — take the part's ``data:`` URI (an image's ``url`` or a file's ``file_data``) and
+        check it is in the one spelling the envelope reader accepts.
+    Stage 2 — decode it. That spelling is plain base64 with its padding, so it decodes as written.
+    Stage 3 — measure: the size and sha256 of the decoded bytes, never of the base64 text.
+
+    e.g. ``data:image/png;base64,iVBORw0KGgo=`` (8 bytes) → ``{"placeholder": "image",
+    "media_type": "image/png", "size": 8, "sha256": "4c4b6a3b…"}``.
+
+    Raises:
+        CandidateInputError: the part is not an inline ``data:`` URI in the standard spelling;
+            ``where`` names the part.
+    """
+
+    # Stage 1 — the part's data: URI.
+    kind: Literal["image", "file"] = "image" if part["type"] == "image_url" else "file"
+    uri: str = (
+        part["image_url"]["url"] if part["type"] == "image_url" else part["file"]["file_data"]
+    )
+    # WHY the reader's own check again: a part the envelope reader accepted always passes, but
+    # this is public, and a hand-built part must fail by name (an assert vanishes under -O).
+    media_type: str = _data_uri_mime(where, uri)
+
+    # Stage 2 — decode. WHY no error branch: the standard spelling admits only text that decodes
+    # (an exhaustive check over 6,305,250 short spellings found none that fails).
+    data: bytes = base64.b64decode(uri.partition(",")[2], validate=True)
+
+    # Stage 3 — measure.
+    placeholder: MediaPlaceholder = {
+        "placeholder": kind,
+        "media_type": media_type,
+        "size": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    if part["type"] == "file" and "filename" in part["file"]:
+        placeholder["filename"] = part["file"]["filename"]
+    return placeholder
+
+
 def _data_uri_mime(where: str, value: object) -> str:
-    """The lower-cased media type of an inline ``data:`` URI; anything else is refused.
+    """The media type of an inline ``data:`` URI in the standard spelling; anything else is refused.
+
+    e.g. ``data:image/png;base64,iVBORw0KGgo=`` → ``image/png``; the same picture as
+    ``data:IMAGE/PNG;base64,iVBORw0KGgo`` (upper case, padding dropped) is refused.
 
     INVARIANT: an ``https://`` URL or a ``/blob/`` reference is refused here, so a Case can never
     make the gateway, or Codex behind it, fetch something the Case picked.
@@ -293,7 +369,25 @@ def _data_uri_mime(where: str, value: object) -> str:
     match: re.Match[str] | None = _DATA_URI_RE.match(value) if isinstance(value, str) else None
     if match is None:
         _refuse(f"{where}: expected an inline data: URI")
-    return match["mime"].lower()
+    mime: str = match["mime"]
+    data: str = match["data"]
+    # INVARIANT: one picture has one spelling (the file-input spec's canonical encoding, #1450).
+    # WHY: the connector sends a Case's part as written, and the gateway keys its cache and frozen
+    # copies on the raw body, so a picture spelled two ways would be two cache entries. The
+    # importer writes this spelling; refusing any other here makes it hold for a hand-built Case
+    # too, at import and at run time alike. Nothing is decoded: the checks read the text only.
+    if (
+        match.string[: match.start("data")] != f"data:{mime.lower()};base64,"
+        or len(data) % 4
+        or _STANDARD_BASE64_RE.fullmatch(data) is None
+        or (data.endswith("==") and data[-3] not in _LAST_BEFORE_TWO_PAD)
+        or (data.endswith("=") and not data.endswith("==") and data[-2] not in _LAST_BEFORE_ONE_PAD)
+    ):
+        _refuse(
+            f"{where}: the data: URI is not in the standard spelling (a lower-case type, no "
+            "parameters, then padded data with no spaces or line breaks)"
+        )
+    return mime
 
 
 def _json_object(text: str | None) -> dict[str, Any] | None:
@@ -341,8 +435,10 @@ __all__ = [
     "ImageDetail",
     "ImagePart",
     "ImageUrl",
+    "MediaPlaceholder",
     "PartsMessage",
     "TextMessage",
     "TextPart",
+    "media_placeholder",
     "parse_candidate_input",
 ]

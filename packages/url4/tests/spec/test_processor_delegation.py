@@ -50,13 +50,24 @@ def test_bare_id_resolves_to_a_registered_route() -> None:
     assert asyncio.run(run(_FANOUT, io, processor="gpt4")).startswith("gpt4:")
 
 
-def test_unknown_id_raises_and_names_the_declared_routes() -> None:
+def test_unknown_id_raises_without_naming_the_declared_routes() -> None:
     io = _routes_io()
     with pytest.raises(ResolutionError) as exc:
         asyncio.run(run(_FANOUT, io, processor="nope"))
     message = str(exc.value)
     assert "nope" in message
-    assert "/claude" in message, "the error must list what IS available"
+    # WHY (OME-1777): the message reaches the caller's run frames, and a node may declare routes
+    # the caller must not learn about.
+    assert "/claude" not in message and "/gpt4" not in message
+
+
+def test_an_unknown_id_keeps_its_code_and_stays_permanent() -> None:
+    """OME-1777 changed only what the refusal names: a retry still cannot succeed."""
+    from url4.core.errors import ErrorCode
+
+    with pytest.raises(ResolutionError) as exc:
+        asyncio.run(run(_FANOUT, _routes_io(), processor="nope"))
+    assert (exc.value.code, exc.value.permanent) == (ErrorCode.UNKNOWN_PROCESSOR, True)
 
 
 # --- Form 2: processor-uri ----------------------------------------------------------

@@ -5,7 +5,8 @@ rolled the activation back and answered 503 `profile_index_conflict`. E4b remove
 so the callback writes no Profile document and no index conflict can surface on it.
 
 Successors:
-- `test_no_profile_writer.py::test_a_native_callback_leaves_a_same_named_document_as_it_was`;
+- no index write can happen: since OME-1138 Stage E, E5c the index no longer exists
+  (`tests/unit/test_profile_index_offline_only.py`);
 - a failed publication still rolls the callback back: `test_writer_floor_native.py::`
   `test_a_native_callback_publication_failure_leaves_same_named_profile_unchanged`.
 """

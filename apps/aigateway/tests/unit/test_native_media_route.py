@@ -20,9 +20,7 @@ from unittest.mock import patch
 
 import pytest
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
+from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.codex_provider.auth import credential_service_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
@@ -45,16 +43,6 @@ async def _seed_codex(credential_blobs, client) -> None:
                 "token_type": "Bearer",
             }
         ),
-    )
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "codex", "default"),
-            account_id=account_id,
-            provider="codex",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            defaults=ProfileDefaults(),
-        )
     )
     seed_migrated_pair(client, account_id, "codex")
 

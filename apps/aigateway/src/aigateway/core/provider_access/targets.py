@@ -33,7 +33,7 @@ def context_stamp(account_id: str, connection: OAuthConnection | None) -> str:
 def connection_target(
     account_id: str, provider: str, connection: OAuthConnection, *, plugin: Any
 ) -> CredentialTarget:
-    auth_type = auth_type_of(None, connection)
+    auth_type = auth_type_of(connection)
     return CredentialTarget(
         kind="stored",
         auth_type=auth_type,

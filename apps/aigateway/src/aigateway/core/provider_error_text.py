@@ -215,26 +215,33 @@ def credential_values(body: Mapping[str, Any]) -> tuple[str, ...]:
     referer) would otherwise withhold every message that happens to mention it.
     """
     try:
-        found: list[str] = []
-        api_key = body.get("api_key")
-        if isinstance(api_key, str):
-            found.append(api_key)
-        headers = body.get("extra_headers")
-        if isinstance(headers, Mapping):
-            for name, value in headers.items():
-                if (
-                    isinstance(name, str)
-                    and isinstance(value, str)
-                    and _CREDENTIAL_HEADER.search(name)
-                ):
-                    found.append(value)
-                    if value.lower().startswith("bearer "):
-                        found.append(value.split(" ", 1)[1])
         return tuple(
-            value.strip() for value in found if len(value.strip()) >= _MIN_CREDENTIAL_CHARS
+            value.strip()
+            for value in sealed_values(body)
+            if len(value.strip()) >= _MIN_CREDENTIAL_CHARS
         )
     except Exception:
         return ()
+
+
+def sealed_values(body: Mapping[str, Any]) -> list[str]:
+    """Every credential value sealed into ``body``, as sealed and of any length.
+
+    Raises whatever an unreadable body raises: `credential_values` turns that into no values,
+    and the shared cache's guard into a refusal to store.
+    """
+    found: list[str] = []
+    api_key = body.get("api_key")
+    if isinstance(api_key, str):
+        found.append(api_key)
+    headers = body.get("extra_headers")
+    if isinstance(headers, Mapping):
+        for name, value in headers.items():
+            if isinstance(name, str) and isinstance(value, str) and _CREDENTIAL_HEADER.search(name):
+                found.append(value)
+                if value.lower().startswith("bearer "):
+                    found.append(value.split(" ", 1)[1])
+    return found
 
 
 def _contains_credential(text: str, forbidden: Iterable[str]) -> bool:

@@ -2,8 +2,8 @@
 
 # FEATURE: OME-1138 D18 (contract §5.1, §5.3, §8) — the mutation bridge adopts a `none` pair under
 # the same pair-generation fence every G0 writer claims. Two writers that captured one generation
-# commit exactly one ownership change; the loser rolls back whole — no orphan Connection, document
-# or blob — and is reported as superseded, never retried on a fresh read.
+# commit exactly one ownership change; the loser rolls back whole — no orphan Connection or blob —
+# and is reported as superseded, never retried on a fresh read.
 # INVARIANT: PostgreSQL blocks the second writer on the marker row (or the first marker's unique
 # INSERT) until the first commits, then its predicate matches nothing; SQLite's single writer
 # cannot show that ordering, which is why this lane exists.
@@ -23,9 +23,8 @@ import pytest
 import test_provider_access_backing_postgres as backing
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import (
     PairAuthorityStore,
     WriteConflict,
@@ -78,12 +77,12 @@ def _bridge_delete(client: TestClient, account_id: str) -> Any:
 
 
 async def _seed_legacy_profile(app: Any, account_id: str, name: str) -> None:
-    """A single-Connection `none` pair at a legacy Profile's address: claim, document, blob, row.
+    """A single-Connection `none` pair at a legacy name address: claim, blob, row.
 
     # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and the
-    # native create would write a Connection-addressed blob, not the Profile address under test.
-    # WHY the Connection: D18 reads no Profile document since OME-1209 Stage E4a, so a Profile
-    # alone is the empty pair; one active row at its address keeps the pair in row 9.
+    # native create would write a Connection-addressed blob, not the name address under test.
+    # WHY the Connection: D18 decides on the marker and the Connections since OME-1209 Stage E4a,
+    # so a blob alone is the empty pair; one active row at its address keeps the pair in row 9.
     """
     markers = PairAuthorityStore()
     pair = await markers.read(account_id, PROVIDER)
@@ -94,16 +93,6 @@ async def _seed_legacy_profile(app: Any, account_id: str, name: str) -> None:
         credential_service_for(credential_name_for(account_id, name)),
         "default",
         backing._api_key_blob(LEGACY_KEY),
-    )
-    await backing._index(app).upsert(
-        Profile(
-            id=profile_id_for(account_id, PROVIDER, name),
-            account_id=account_id,
-            provider=PROVIDER,
-            name=name,
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
     )
     await OAuthConnectionStore().create_api_key(
         account_id=account_id,
@@ -194,12 +183,9 @@ def test_a_bridge_put_and_delete_on_a_sole_profile_commit_exactly_one_on_postgre
     if put_first:
         (row,) = _live(pg_client, account_id)
         assert pair.effective_connection_id == row.id
-        assert backing._document(pg_client, account_id, name) is not None
         assert _blob(pg_client, account_id, name) == KEY
     else:
         # INVARIANT: the stale PUT never resurrects the credential the DELETE removed.
         assert pair.effective_connection_id is None
         assert _live(pg_client, account_id) == []
-        # WHY the document survives (OME-1209 E4b): the DELETE removes no document; E5 does.
-        assert backing._document(pg_client, account_id, name) is not None
         assert _blob(pg_client, account_id, name) is None

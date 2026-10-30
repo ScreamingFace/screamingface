@@ -1,12 +1,22 @@
 """ScreamingFace — evaluate composable Candidate Recipes on research Benchmarks."""
 
-from screamingface import benchmarks, cache, connections, events, leaderboards, models, reports
+from screamingface import (
+    analytics,
+    benchmarks,
+    cache,
+    connections,
+    events,
+    leaderboards,
+    models,
+    reports,
+)
 from screamingface._default_client import (
     close,
     configure,
     connect,
     disconnect,
     evaluate,
+    fetch_media,
 )
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
@@ -33,6 +43,7 @@ from screamingface.errors import (
     EngineUnavailableError,
     ExecutionError,
     LeaderboardError,
+    MediaUnavailableError,
     PlanningError,
     ProviderConnectionError,
     ReproductionError,
@@ -51,6 +62,7 @@ from screamingface.leaderboard import (
     LeaderboardScore,
     ScoreMetadataEvent,
 )
+from screamingface.media import CaseMedia, FetchedMedia
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
@@ -82,6 +94,7 @@ from screamingface.warnings import (
 __version__ = resolve_version()
 
 __all__ = [
+    "analytics",
     "__version__",
     "reports",
     "Answer",
@@ -90,6 +103,7 @@ __all__ = [
     "Benchmark",
     "BenchmarkInfo",
     "CaseGrade",
+    "CaseMedia",
     "CaseResult",
     "CandidateResult",
     "Check",
@@ -114,8 +128,10 @@ __all__ = [
     "Extract",
     "EvaluationWarning",
     "evaluate",
+    "fetch_media",
     "samples",
     "Failure",
+    "FetchedMedia",
     "FieldRule",
     "Filter",
     "FixedSeedSittingWarning",
@@ -129,6 +145,7 @@ __all__ = [
     "LeaderboardRankingNotice",
     "LeaderboardScore",
     "matches",
+    "MediaUnavailableError",
     "MemberResult",
     "Median",
     "Merge",

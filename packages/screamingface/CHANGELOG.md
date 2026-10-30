@@ -4,6 +4,11 @@
 
 ### Breaking changes
 
+* **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
+  opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to
+  store the run's answers so the score can be reproduced. A run without `capture=True` has no
+  `pinned_cache` and no `capture_status`. A replay still never captures.
+
 * `sf.configure(engine_url=...)` with a non-default Engine now requires `scoreboard_url=`, and
   `SCREAMINGFACE_ENGINE_URL` requires `SCREAMINGFACE_SCOREBOARD_URL`. Previously the pair fell
   back to the hosted leaderboard, so a local or preview run could publish there.
@@ -35,6 +40,22 @@
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** open a Case's pictures and files from its Case Result (`OME-1271`).
+  `CaseResult.media` lists each one as a `CaseMedia` (kind, media type, size, sha256, filename)
+  with no network call; `sf.fetch_media(item)` and `Client.fetch_media(item)` fetch it from the
+  engine and return a `FetchedMedia` only when its size and sha256 match the placeholder. A
+  picture shows inline in Jupyter; `.save(path)` writes either kind. In the report browser each
+  placeholder line in a Case card gets a **Show picture** button (the picture is fetched on that
+  click only and drawn in place) or, for a file, a **Save file** button. The
+  local engine keeps parked pictures for 48 hours by default (a deployment sets no expiry yet);
+  once one is gone the fetch raises the new `MediaUnavailableError` with code `media_not_kept`. Needs an engine with OME-1271 PR 5.
+
+* **screamingface:** add opt-in local analytics via `sf.analytics.status()`, `enable()`,
+  `disable()` and `reset_identifier()`, plus `screamingface analytics` CLI controls.
+  Evaluation/submission events use random installation/process identifiers and bounded
+  background delivery to the dev analytics service. Analytics defaults off, respects
+  `DO_NOT_TRACK`, and excludes Colab and identity linking in this slice.
 
 * **screamingface:** `submit(..., authors_metadata=, paper_metadata=)` and
   `sf.leaderboards.edit(...)` send open metadata about the credited authors (keyed by author email:

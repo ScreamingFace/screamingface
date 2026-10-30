@@ -26,6 +26,7 @@ from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
 
 if TYPE_CHECKING:
+    from screamingface.media import CaseMedia
     from screamingface.operation import OperationInfo
     from screamingface.report_trace import TraceEntry
 
@@ -570,6 +571,17 @@ class CaseResult:
         return _decode_candidate_envelope(self.input)
 
     @property
+    def media(self) -> tuple[CaseMedia, ...]:
+        """Each picture and file of the Case, in its order, by type, size and sha256; none fetched.
+
+        FEATURE (OME-1271): open one with ``sf.fetch_media(item)``. Empty for a text Case.
+        """
+
+        from screamingface.media import case_media
+
+        return case_media(self.input)
+
+    @property
     def display_input(self) -> str:
         """The input as readable text: a role-labeled transcript, or the raw value."""
 
@@ -861,9 +873,10 @@ def _data_uri_bytes(source: object) -> tuple[str, bytes] | None:
     match: re.Match[str] | None = _DATA_URI_RE.match(source) if isinstance(source, str) else None
     if match is None:
         return None
-    # WHY strip and re-pad, as the engine's request key does (`request_identity.py`, OME-1271):
-    # line breaks and dropped `=` padding spell the same bytes, so the sha256 shown here is the
-    # one that keys the model call; strict decoding of what remains refuses anything else.
+    # WHY strip and re-pad: the engine sends only the standard spelling (`candidate_input.py`,
+    # OME-1679), which decodes as written; line breaks and dropped `=` padding spell the same
+    # bytes, so tolerating them here still gives the engine's sha256 for the same picture, and
+    # strict decoding of what remains refuses anything else.
     compact: str = "".join(match["data"].split())
     compact += "=" * (-len(compact) % 4)
     try:

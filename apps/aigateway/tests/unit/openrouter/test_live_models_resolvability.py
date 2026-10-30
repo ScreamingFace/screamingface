@@ -18,13 +18,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.model_catalog import ModelCatalog
 from aigateway.core.parameter_discovery import DiscoveryLimits, RawResponse
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.openrouter_provider import plugin as plugin_module
 from aigateway.plugins.openrouter_provider.discovery import MODELS_URL, OPENAPI_URL
 from aigateway.plugins.openrouter_provider.live_models import LIVE_MODELS_URL
@@ -66,7 +63,7 @@ class _ServingClient:
 
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
         self.dialed.append(url)
-        # AIDEV-NOTE: loud, not KeyError. ``ModelCatalog`` converts a stray
+        # WHY: loud, not KeyError. ``ModelCatalog`` converts a stray
         # exception into DiscoveryError("internal_error") -> seed fallback, so a
         # KeyError here would let an unexpected dial pass as a green test that
         # silently stopped exercising the live listing.
@@ -96,26 +93,11 @@ def _install(client: TestClient) -> _ServingClient:
     return http
 
 
-async def _upsert_profile(client: TestClient, credential_blobs: Any) -> None:
-    account_id = client.get("/v1/auth/me").json()["id"]
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "openrouter", "default"),
-            account_id=account_id,
-            provider="openrouter",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
-
-
 @pytest.mark.asyncio
 async def test_a_discovered_id_resolves_on_its_own_contract_endpoint(
-    openrouter_enabled, authenticated_client: TestClient, credential_blobs: Any
+    openrouter_enabled, authenticated_client: TestClient
 ) -> None:
     _install(authenticated_client)
-    await _upsert_profile(authenticated_client, credential_blobs)
     response = authenticated_client.get("/v1/model-parameters", params={"model": _DISCOVERED})
     # INVARIANT: what /v1/models publishes, /v1/model-parameters resolves — a
     # listed id that 404s on its own detail URL is a broken published contract.
@@ -125,10 +107,9 @@ async def test_a_discovered_id_resolves_on_its_own_contract_endpoint(
 
 @pytest.mark.asyncio
 async def test_an_id_absent_from_snapshot_and_seeds_still_404s(
-    openrouter_enabled, authenticated_client: TestClient, credential_blobs: Any
+    openrouter_enabled, authenticated_client: TestClient
 ) -> None:
     _install(authenticated_client)
-    await _upsert_profile(authenticated_client, credential_blobs)
     response = authenticated_client.get(
         "/v1/model-parameters", params={"model": "openrouter/nope/not-here"}
     )
@@ -138,10 +119,9 @@ async def test_an_id_absent_from_snapshot_and_seeds_still_404s(
 
 @pytest.mark.asyncio
 async def test_a_seeded_id_never_pays_for_a_live_catalog_read(
-    openrouter_enabled, authenticated_client: TestClient, credential_blobs: Any
+    openrouter_enabled, authenticated_client: TestClient
 ) -> None:
     http = _install(authenticated_client)
-    await _upsert_profile(authenticated_client, credential_blobs)
     response = authenticated_client.get("/v1/model-parameters", params={"model": _SEEDED})
     assert response.status_code == 200, response.text
     # INVARIANT (lazy): the known-set hit short-circuits BEFORE the catalog —
