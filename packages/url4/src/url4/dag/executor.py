@@ -29,6 +29,7 @@ import asyncio
 
 from url4.core.context import Context
 from url4.core.errors import CycleError
+from url4.dag._memo import RunMemo
 from url4.observe import (
     NodeFinished,
     NodeStarted,
@@ -77,8 +78,8 @@ class Executor:
 
     def __init__(self, ctx: ExecutionContext) -> None:
         self._ctx = ctx
-        # id -> (task, node); the node reference pins the id for the run's lifetime
-        self._memo: dict[int, tuple[asyncio.Task, DagNode]] = {}
+        # id -> (task, node), each entry dropped once its counted consumers have it (_memo.py)
+        self._memo = RunMemo()
         self._tg: asyncio.TaskGroup | None = None
         # Debug-only guard for the resolve-once invariant documented in ``_run``:
         # id -> how many times that node's evaluation task ran. Not allocated, and
@@ -114,6 +115,9 @@ class Executor:
         # compile it took to get here for large collections.
         if not _prevalidated:
             check_acyclic(root)
+            # WHY only here: counting is another O(V+E) walk, exactly what `_prevalidated`
+            # exists to skip per row; an uncounted run memoises as it always did.
+            self._memo.count(root)
         try:
             async with asyncio.TaskGroup() as tg:
                 self._tg = tg
@@ -131,26 +135,17 @@ class Executor:
         return result
 
     async def _run(self, node: DagNode, parent_span_id: str | None) -> Payload:
-        assert self._tg is not None
-        # INVARIANT: check-then-act on ``_memo`` is safe ONLY because there is no
-        # ``await`` between the ``.get()`` and the store below: ``create_task`` schedules
-        # without yielding, so on this single-threaded loop the whole block is an
-        # atomic critical section. Two parents of a diamond dependency can both
-        # call ``_run(shared_child)`` "concurrently", but never interleave here.
-        # This is what keeps diamond deps resolving exactly once
-        # (test_diamond_binding_resolved_once). Do not insert an ``await`` (a log
-        # call, a metric, anything) between the check and the assignment — doing
-        # so would let a second caller schedule a duplicate task before the first
-        # one lands in ``_memo``, silently resolving a shared node twice.
+        tg = self._tg
+        assert tg is not None
+        # INVARIANT: resolve-once — the ``_memo`` check-then-act has no ``await`` between
+        # its check and its store; see :meth:`RunMemo.resolve` before touching it.
         # `parent_span_id` is a plain value threaded through only for the FIRST
         # caller to reach a given node (the one that creates its task) — a
         # diamond's second caller has no effect on it, which is exactly right:
         # the shared node observes exactly one NodeStarted/NodeFinished pair.
-        memoized = self._memo.get(id(node))
-        if memoized is None:
-            task = self._tg.create_task(self._eval(node, parent_span_id))
-            self._memo[id(node)] = memoized = (task, node)
-        return await memoized[0]
+        return await self._memo.resolve(
+            node, lambda: tg.create_task(self._eval(node, parent_span_id))
+        )
 
     def _check_resolve_counts(self) -> None:
         """Assert the resolve-once invariant documented in ``_run`` (debug only).

@@ -14,13 +14,22 @@ import csv
 import io
 import json
 from collections.abc import Callable, Sequence
+from typing import Any
 
 from url4.core.errors import CollectionError
+
+# An iteration's half-open element range (``;iteration.slice``), Python slice semantics.
+Window = tuple[int, int]
+
+# The characters JSON itself treats as insignificant whitespace (RFC 8259 §2).
+_JSON_WS = frozenset(" \t\n\r")
 
 # --- collection parsing (spec §5.3.7) -----------------------------------------
 
 
-def parse_collection(body: str, media_type: str | None = None) -> list[str]:
+def parse_collection(
+    body: str, media_type: str | None = None, *, window: Window | None = None
+) -> list[str]:
     """Parse ``body`` into a list of string items (spec §5.3.7).
 
     With a declared ``media_type`` the matching strategy is applied strictly
@@ -33,24 +42,73 @@ def parse_collection(body: str, media_type: str | None = None) -> list[str]:
     zero elements (spec §5.3.9). A value that cannot be parsed into elements
     (a scalar, a JSON object, an HTML page) raises :class:`CollectionError`
     with code ``malformed_source``.
+
+    ``window`` is the caller's ``(start, end)`` element range, applied with Python
+    slice semantics — the result equals ``parse_collection(...)[start:end]``, but
+    rows outside the range are never re-serialised. The whole body is still parsed,
+    so a malformed element anywhere fails exactly as it would without a window.
     """
-    body = body.strip()
-    if not body:
+    # FEATURE: memory-lean iteration over large fetched collections (330 MB case files).
+    # WHY: a large body must not be copied — `str.strip()` on a `FetchedText` (a str
+    # subclass) ALWAYS returns a full copy — so the strip bounds are computed, and
+    # the stripped text is materialised only by the parsers that need it.
+    text = _Text(body)
+    if text.lo == text.hi:
         return []
     if media_type is None:
-        return _sniff(body)
-    return _parse_declared(body, media_type)
+        return _sniff(text, window)
+    return _parse_declared(text, media_type, window)
 
 
-def _parse_declared(body: str, media_type: str) -> list[str]:
+class _Text:
+    """A body plus its ``str.strip()`` bounds; the stripped copy is made on demand."""
+
+    def __init__(self, raw: str) -> None:
+        self.raw = raw
+        lo, hi = 0, len(raw)
+        while lo < hi and raw[lo].isspace():
+            lo += 1
+        while hi > lo and raw[hi - 1].isspace():
+            hi -= 1
+        self.lo, self.hi = lo, hi
+        self._stripped: str | None = None
+
+    @property
+    def first(self) -> str:
+        return self.raw[self.lo]
+
+    def head(self, n: int) -> str:
+        return self.raw[self.lo : min(self.lo + n, self.hi)]
+
+    def stripped(self) -> str:
+        if self._stripped is None:
+            self._stripped = self.raw[self.lo : self.hi]
+        return self._stripped
+
+    def for_json(self) -> str:
+        # INVARIANT: same JSON value as `json.loads(body.strip())`. JSON ignores its own
+        # whitespace at the ends, so only padding JSON would reject (NBSP, U+2028, …)
+        # forces the stripped copy.
+        raw = self.raw
+        ends = raw[: self.lo] + raw[self.hi :]
+        return raw if all(ch in _JSON_WS for ch in ends) else self.stripped()
+
+
+def _parse_declared(text: _Text, media_type: str, window: Window | None) -> list[str]:
     mime = media_type.split(";", 1)[0].strip().lower()
+    if mime == "application/json":
+        return _declared_json(text, window)
     parser = _DECLARED.get(mime)
     if parser is None:
         raise CollectionError(f"unsupported content type {mime!r} for collection parsing")
-    return parser(body)
+    return _windowed(parser(text.stripped()), window)
 
 
-def _sniff(body: str) -> list[str]:
+def _windowed(items: list[str], window: Window | None) -> list[str]:
+    return items if window is None else items[window[0] : window[1]]
+
+
+def _sniff(text: _Text, window: Window | None) -> list[str]:
     """Best-effort typing for adapters that report no media type.
 
     Order matters: HTML (a soft-404 signature) and JSON objects fail fast;
@@ -60,29 +118,36 @@ def _sniff(body: str) -> list[str]:
     indistinguishable from a scalar here; declare ``application/x-ndjson`` to
     iterate one.
     """
-    if body[:512].lstrip().lower().startswith(("<!doctype html", "<html")):
+    if text.head(512).lstrip().lower().startswith(("<!doctype html", "<html")):
         raise CollectionError(
             "collection source returned an HTML page, not a data file "
             "(JSON array, JSONL, or CSV expected) — the source is likely missing or misrouted"
         )
-    _reject_json_object(body)
+    _reject_json_object(text)
+    # WHY the JSON array goes first and alone: it needs no line split, and splitting a
+    # one-line 330 MB array into `_lines` only to discard it copied the whole body.
+    array = _try_json_array(text, window)
+    if array is not None:
+        return array
+    body = text.stripped()
     lines = _lines(body)
-    for attempt in (_try_json_array, _try_jsonl, _try_csv):
+    for attempt in (_try_jsonl, _try_csv):
         items = attempt(body, lines)
         if items is not None:
-            return items
+            return _windowed(items, window)
     if len(lines) > 1:
-        return lines
+        return _windowed(lines, window)
+    scalar = text.head(80)
     raise CollectionError(
-        f"collection source resolved to a scalar value, not an iterable collection: {body[:80]!r}"
+        f"collection source resolved to a scalar value, not an iterable collection: {scalar!r}"
     )
 
 
-def _reject_json_object(body: str) -> None:
-    if not body.startswith("{"):
+def _reject_json_object(text: _Text) -> None:
+    if text.first != "{":
         return
     try:
-        data = json.loads(body)
+        data = json.loads(text.for_json())
     except json.JSONDecodeError:
         return
     if isinstance(data, dict):
@@ -92,9 +157,9 @@ def _reject_json_object(body: str) -> None:
         )
 
 
-def _declared_json(body: str) -> list[str]:
+def _declared_json(text: _Text, window: Window | None) -> list[str]:
     try:
-        data = json.loads(body)
+        data = _loads_spelled(text.for_json())
     except json.JSONDecodeError as exc:
         raise CollectionError(f"application/json collection is not valid JSON: {exc}") from exc
     if not isinstance(data, list):
@@ -102,7 +167,7 @@ def _declared_json(body: str) -> list[str]:
             "iteration over non-array application/json is malformed "
             f"(got {type(data).__name__}; spec §5.3.7)"
         )
-    return _array_items(data, body)
+    return _array_items(data, window)
 
 
 def _declared_ndjson(body: str) -> list[str]:
@@ -132,8 +197,8 @@ def _declared_tsv(body: str) -> list[str]:
     return _declared_csv(body, delimiter="\t")
 
 
+# `application/json` is dispatched in `_parse_declared` (it parses the unstripped body).
 _DECLARED: dict[str, Callable[[str], list[str]]] = {
-    "application/json": _declared_json,
     "application/x-ndjson": _declared_ndjson,
     "application/ndjson": _declared_ndjson,
     "application/jsonl": _declared_ndjson,
@@ -147,14 +212,14 @@ def _lines(body: str) -> list[str]:
     return [line.strip() for line in body.split("\n") if line.strip()]
 
 
-def _try_json_array(body: str, _lines_unused: list[str]) -> list[str] | None:
-    if not body.startswith("["):
+def _try_json_array(text: _Text, window: Window | None) -> list[str] | None:
+    if text.first != "[":
         return None
     try:
-        data = json.loads(body)
+        data = _loads_spelled(text.for_json())
     except json.JSONDecodeError:
         return None
-    return _array_items(data, body) if isinstance(data, list) else None
+    return _array_items(data, window) if isinstance(data, list) else None
 
 
 def _try_jsonl(_body: str, lines: list[str]) -> list[str] | None:
@@ -215,10 +280,57 @@ def _unique(fieldnames: Sequence[str]) -> bool:
     return len(set(fieldnames)) == len(fieldnames)
 
 
-def _array_items(data: list, body: str) -> list[str]:
-    """JSON array elements as text; a number keeps its source spelling (``2.50``)."""
-    spelled = json.loads(body, parse_float=str, parse_int=str, parse_constant=str)
-    return [spelled[i] if _is_number(item) else _item_to_str(item) for i, item in enumerate(data)]
+class _SpelledInt(int):
+    """A JSON integer that remembers its source text (``-0``)."""
+
+    spelling: str
+
+
+class _SpelledFloat(float):
+    """A JSON float / NaN / Infinity that remembers its source text (``2.50``)."""
+
+    spelling: str
+
+
+def _spelled_int(source: str) -> _SpelledInt:
+    number = _SpelledInt(source)
+    number.spelling = source
+    return number
+
+
+def _spelled_float(source: str) -> _SpelledFloat:
+    number = _SpelledFloat(source)
+    number.spelling = source
+    return number
+
+
+def _loads_spelled(text: str) -> Any:
+    """``json.loads`` once, numbers carrying their source spelling.
+
+    # WHY: a top-level array element keeps its exact spelling (``2.50`` stays
+    # ``2.50``); this used to need a SECOND full parse of the body. The carriers are
+    # `int`/`float` subclasses, and `json.dumps` renders a subclass through
+    # `int.__repr__`/`float.__repr__`, so nested numbers serialise exactly as plain
+    # parsed ones did.
+    """
+    return json.loads(
+        text, parse_int=_spelled_int, parse_float=_spelled_float, parse_constant=_spelled_float
+    )
+
+
+def _array_items(data: list[Any], window: Window | None) -> list[str]:
+    """JSON array elements as text; a number keeps its source spelling (``2.50``).
+
+    Consumes ``data``: it is cut to ``window`` and converted IN PLACE, so each parsed
+    element is released as soon as its text exists and elements outside the window
+    are never serialised.
+    """
+    # INVARIANT: peak ≈ the parsed array + one serialised row, never parsed + all rows.
+    if window is not None:
+        data[:] = data[window[0] : window[1]]
+    for i, item in enumerate(data):
+        data[i] = item.spelling if _is_number(item) else _item_to_str(item)
+    return data
 
 
 def _line_item(line: str) -> str:

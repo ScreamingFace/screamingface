@@ -115,14 +115,13 @@ class MapNode:
         # a real element list from InlineCollectionNode — used verbatim, one row
         # per element. A fetched/URI collection arrives as body text parsed by
         # declared or sniffed content type (§5.3.7).
-        if isinstance(collection, list):
-            items = collection
-        else:
-            items = parse_collection(_as_text(collection), _media_type_of(collection))
-        if self.directives.slice is not None:
-            start, end = self.directives.slice
-            items = items[start:end]
-        return items
+        # WHY the slice rides into the parser as its window: only the kept rows are
+        # re-serialised, so `cases*(…)` over 2 rows of a 330 MB file stays near one copy.
+        window = self.directives.slice
+        if not isinstance(collection, list):
+            text = _as_text(collection)
+            return parse_collection(text, _media_type_of(collection), window=window)
+        return collection if window is None else collection[window[0] : window[1]]
 
     async def _run_all(
         self,
