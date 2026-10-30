@@ -47,9 +47,8 @@ from screamingface_engine_inspect.importer import (
     _REFERENCE_CHARSET,
     CLEARED_DATASET_LICENSES,
     ImporterError,
-    _is_judged_by,
+    _grades_with_a_judge,
     _is_literal,
-    _leaves_a_judge_parameter_unpassed,
     _python_literal_source,
     _refuse_existing_rows,
     _scorer_lines,
@@ -293,6 +292,9 @@ def _declaration_lines(
     if declaration.keep_sample_metadata:
         # WHY written: the metadata is inside the Case Digest, so the row must say so (D11).
         lines.append("        keep_sample_metadata=True,")
+    if declaration.keep_sample_input:
+        # WHY written: the kept Sample inputs are inside the Case Digest too (OME-1755).
+        lines.append("        keep_sample_input=True,")
     lines.extend(_answer_key_lines(declaration))
     if declaration.excluded_sample_ids:
         lines.extend(_excluded_id_lines(declaration.excluded_sample_ids))
@@ -427,9 +429,7 @@ def _benchmark_row_lines(
             facts.mcq,
             # WHY the role and an unpassed judge parameter too: either way the scorer names
             # no judge in its kwargs, and still grades with one (OME-1602, F2).
-            _is_judged_by(facts.scorer, facts.scorer_kwargs)
-            or facts.judge_role is not None
-            or _leaves_a_judge_parameter_unpassed(facts.scorer, facts.scorer_kwargs),
+            _grades_with_a_judge(facts.scorer, facts.scorer_kwargs, facts.judge_role),
             extra_scorers=facts.extra_scorers,
             named_scores=facts.named_scores,
             dropped_scorers=facts.dropped_scorers,

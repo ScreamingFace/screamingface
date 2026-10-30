@@ -1074,6 +1074,23 @@ def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
 
 
+def _grades_with_a_judge(
+    scorer: str, scorer_kwargs: Mapping[str, Any], judge_role: str | None
+) -> bool:
+    """Whether the imported row is written judged: its scorer takes a judge by name or kwarg,
+    asks for a model role, or leaves a judge parameter at its default (OME-1602, F2).
+
+    The one home for the rule: the row writer emits the TODO judge on it, and the import
+    child keeps each Case's Sample input for that judge on it (OME-1755).
+    """
+
+    return (
+        _is_judged_by(scorer, scorer_kwargs)
+        or judge_role is not None
+        or _leaves_a_judge_parameter_unpassed(scorer, scorer_kwargs)
+    )
+
+
 def _leaves_a_judge_parameter_unpassed(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     """True when the scorer constructor takes a judge parameter the row's kwargs leave at its
     default (niah's ``judge_model``), so the scorer grades with a judge nobody pinned.
