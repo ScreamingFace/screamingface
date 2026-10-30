@@ -198,6 +198,8 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1477: MMMU's multiple-choice task, college exams with pictures; the best
         # lab-reported scores sit inside the human-expert range, so not hard.
         "inspect-mmmu_multiple_choice": ("withhold", "single_shot", "medium"),
+        # OME-1477 PR 2: MMMU's open-answer task, the same exam pool and tier, LLM-judged.
+        "inspect-mmmu_open": ("withhold", "single_shot", "medium"),
         # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("withhold", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).

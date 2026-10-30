@@ -92,6 +92,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_tableqa": "mcq",
     # OME-1477: MMMU's multiple-choice task, graded by inspect's choice scorer.
     "mmmu_multiple_choice": "mcq",
+    # OME-1477 PR 2: MMMU's open-answer task, graded by inspect's model_graded_fact judge.
+    "mmmu_open": "judged",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.

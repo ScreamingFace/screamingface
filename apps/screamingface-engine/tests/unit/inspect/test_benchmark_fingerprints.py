@@ -85,6 +85,8 @@ _FINGERPRINTS: dict[str, str] = {
     "lab_bench_tableqa": "9990079555f06a35",
     # OME-1477: MMMU's multiple-choice task, the first picture Benchmark from a whole exam.
     "mmmu_multiple_choice": "5b008891134ef4c1",
+    # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
+    "mmmu_open": "8ce88e420239ae4d",
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",
