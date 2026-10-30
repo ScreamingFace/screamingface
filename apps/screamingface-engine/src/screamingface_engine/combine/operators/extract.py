@@ -46,6 +46,7 @@ from screamingface_engine.combine.ports import (
     accepted,
     canonical_json,
     decode_json_reply,
+    field_value_text,
     rejected,
     walk_field_path,
 )
@@ -106,10 +107,8 @@ def _check_json_field_args(args: OpArgs) -> None:
 
 
 def _field_text(value: object) -> StageResult:
-    if value is None or isinstance(value, str):
-        return _found(value or "")
     try:
-        return accepted(canonical_json(value))
+        return _found(field_value_text(value))
     except ValueError:
         # a JSON number too big for a float (1e999) decodes to inf, which has no canonical form
         return rejected("not_json")

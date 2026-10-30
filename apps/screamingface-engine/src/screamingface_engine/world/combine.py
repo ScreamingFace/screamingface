@@ -11,8 +11,9 @@ module is the engine-importing half -- it owns the route, the ``ResolutionError`
 one side effect (the task-local record), like ``world/corrective.py``.
 INVARIANT: only a ``CombineError`` becomes a ``ResolutionError`` (permanent: a combine step is
 pure, so a retry gives the same result). A plugin bug stays loud and records nothing.
-INVARIANT: an abstain is a normal output (the empty text, ``finish_reason`` "stop") and is
-recorded like any answer; ``NoVotes`` never reaches this module.
+INVARIANT: an abstain is a normal output (the empty text, or the empty selection envelope of a
+Rank or Filter; ``finish_reason`` "stop") and is recorded like any answer; ``NoVotes`` never
+reaches this module.
 INVARIANT: a failed step records no evidence (EV-E1); the handler is sync pure CPU work.
 """
 

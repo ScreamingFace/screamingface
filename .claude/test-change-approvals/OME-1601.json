@@ -1,0 +1,86 @@
+{
+  "issue": "OME-1601",
+  "branch": "OME-1601-e4b-combine-extensions",
+  "approver": "owner",
+  "date": "2026-10-13",
+  "scope": "E4b part 1, all units on one branch. Unit 6 (Filter by judge score): test_filter changes one expected refusal message, because a judge with returns='scores' is now a valid Filter input; the public-surface snapshot adds the Filter judge argument. Unit 5 (judge order): the public-surface snapshot adds the sf.Judge order argument. No other test changes. Unit 3 (mean): additive mean entries in the combine-spec and combine-evidence v1 schemas, evidence_cases.json and the flow fixtures; new mean scenarios in the evidence contract tests and the coverage check; the public-surface snapshot adds sf.Mean; the frozen-record field list adds mean; test_blocks_reduce uses 'trimmed_mean' as its unknown op because 'mean' is now valid. Unit 7 (Pick output): additive output field in the combine-evidence and answer v1 schemas, the by_field@1 and best_holder@1 golden fixtures and evidence_cases.json (two new scenarios); test_rest_operators expects the output argument in the operator descriptor; test_frozen_record_fields counts 28 scenarios, not 26; the public-surface snapshot adds the Pick output argument. Unit 1 (Q6): the stage after Rank or Filter gets {input, selected}. Only the expected selection envelopes in three engine tests change to add the Case input. No assertion is removed. Unit 4 (weighted median): median now takes weights (Q5), so test_only_the_vote_reducer_takes_weights drops 'median' and one reducer='median' sample becomes 'pick'; test_signal_weighted_vote expects the new median weight message; flow fixtures add weighted_median@1; the public-surface snapshot adds the weights argument.",
+  "reason": "Owner approved these pinned test edits in chat on 2026-10-13 (E4b part 1, plan section 6 plus the errata the build reported), for the single E4b branch filed as OME-1601 under epic OME-1290.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/data/combine_contract/evidence_cases.json": {
+      "base_blob": "d887d258ea6240fd743c521ec7a4537b5374457c",
+      "approved_blob": "ecf2f814a51548ff56df7a12d2f51fd6beab2b44"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-evidence.v1.json": {
+      "base_blob": "1ea397c4ad6ee207cdb294b9d73f4e9210a1ad8a",
+      "approved_blob": "c191827c4e963d59b13a77daa8ba9f8eac4f810c"
+    },
+    "apps/screamingface-engine/tests/unit/data/combine_contract/schemas/screamingface.combine-spec.v1.json": {
+      "base_blob": "8771ccbf726a11adf2b02a95c3326f1484705391",
+      "approved_blob": "c36a0d394e6edcaab5dc205fbfdae4b68eece1c6"
+    },
+    "apps/screamingface-engine/tests/unit/fixtures/combine/flow/best_holder@1.json": {
+      "base_blob": "64df62a5047203ef8a7d77618dd5be8b73658d21",
+      "approved_blob": "8a3b0017e92a896feb52cb0822820e67abfab9ef"
+    },
+    "apps/screamingface-engine/tests/unit/fixtures/combine/flow/by_field@1.json": {
+      "base_blob": "f27721b778add079ff010f59f0fd8504d4139b99",
+      "approved_blob": "fc0d59cbcf02abd0cd31a514ee6e2c8de87e73cf"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_evidence_contract_fixture.py": {
+      "base_blob": "3c1f26b9e6d667847bc89361187d4264b69425fa",
+      "approved_blob": "f55477f5d3686514d18ad1cb0f7183c6cb6385cf"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_rank_world.py": {
+      "base_blob": "eaa52b79c5d02718b607857ca97590592304ee18",
+      "approved_blob": "9938026095960203cb7fbf92dfd0ce23755ed6dd"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_selection.py": {
+      "base_blob": "dfd85a0e4c3f5a1691032fa9e42c92329abca617",
+      "approved_blob": "03fc66d99e528e91d231ff54540eb62959b82286"
+    },
+    "apps/screamingface-engine/tests/unit/test_combine_spec.py": {
+      "base_blob": "58ef58dd9b2195ac124da7e0f4a92c12a8ca146f",
+      "approved_blob": "fef1f5a95a298dd77b54ce650370a328be1aba98"
+    },
+    "apps/screamingface-engine/tests/unit/test_rest_operators.py": {
+      "base_blob": "b4fcab6caca98f5766bf83b7acc3b421cdc4f2b2",
+      "approved_blob": "c1adac4a58a1364a21f4edf0dfe312292caae490"
+    },
+    "apps/screamingface-engine/tests/unit/test_sdk_candidate_contracts.py": {
+      "base_blob": "7768deb562c8ddf04ac6d370c4a6cf8219d281f4",
+      "approved_blob": "c4fbc6cd886564a9b1f5112a199ec9ee63d47627"
+    },
+    "packages/screamingface/tests/_combine_flow_fixtures.py": {
+      "base_blob": "b1e31955174e4aa22012bce7b09cddcd7afca3b1",
+      "approved_blob": "b0e2e536aaadc374c67f7ae441a946c32cd7d64a"
+    },
+    "packages/screamingface/tests/data/schemas/screamingface.answer.v1.json": {
+      "base_blob": "0f1d1777ce02cc1844eefb0b8014a8b54e7bc10a",
+      "approved_blob": "d179ec29bf6aa230a3019cdd2da955be4c18e87a"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "489b1f7e25130afebae2b503136f1cc5dfb453a7",
+      "approved_blob": "56e882a9d4e4858ff336c8f9a54060021356c3ce"
+    },
+    "packages/screamingface/tests/test_blocks_reduce.py": {
+      "base_blob": "34a0015d02809e9e5f786787cee587f29986647d",
+      "approved_blob": "839288828f8c2d82c65846444810584a34778c09"
+    },
+    "packages/screamingface/tests/test_combine_evidence_contract.py": {
+      "base_blob": "f2cc7e0feb6413805786ddad7a16bf9585f52c1f",
+      "approved_blob": "fab1c0db10ea4f66ca5f2d8642937d255e7165c4"
+    },
+    "packages/screamingface/tests/test_filter.py": {
+      "base_blob": "807b1b02170532d748b9c1dfbf400a7ce8aa46f1",
+      "approved_blob": "789fa1f4c9880c4c7659b68b4425279c52fc56a8"
+    },
+    "packages/screamingface/tests/test_frozen_record_fields.py": {
+      "base_blob": "82ed5776236a206e304aa5a416c9f3ea040b3128",
+      "approved_blob": "c6b98604a87c661ede9e7b275fd6fbdd455045e1"
+    },
+    "packages/screamingface/tests/test_signal_weighted_vote.py": {
+      "base_blob": "19b8cc8238f1857ed306b1a66c71b6e961f47d16",
+      "approved_blob": "5632e070c04efb43d14ba2f2f0b300d67ee39fa6"
+    }
+  }
+}
