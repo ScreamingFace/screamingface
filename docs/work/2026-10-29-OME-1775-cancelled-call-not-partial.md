@@ -1,7 +1,7 @@
 ---
 ticket: OME-1775
 stack: screamingface-engine
-status: plan
+status: in_progress
 started: 2026-10-29
 ---
 
@@ -48,3 +48,50 @@ plan → code.
   and the aggregation ends before the summary. So the tally collects the Case results itself (spec
   E5/E6 changed, no executor change). Five prior tests change (R2/R3). Open: P1 (aigateway contract
   test sub-issue), P2, P3.
+- 2026-10-29: owner approved the plan. P1: no sub-issue; keep the aigateway test 13 in this PR. P2: yes. P3: yes. Code starts (sdlc-python).
+- 2026-10-29: T0. On every path the call-time Case id and `CaseResult.case_id` are the same
+  `cases.json` row id (`$item.id`: medxpert `definition.py:145`, Inspect `single_shot.py:780`;
+  `SelectedCase` is read by id). One Candidate per protocol run. If a file's row order did not
+  match its ids, the call ids would fall outside the selection and nothing would be forgiven
+  (the safe direction). Inspect boards aggregate `range(1, N + 1)` over a count-based prefix of
+  `cases.json`, so the join holds when its ids are 1..N in row order.
+- 2026-10-29: T1–T4 and test 13 by the implementer; T5 (executor tests 15–17) and T6 (design doc
+  Q32 row, §5.2 items 5–7) in the main loop. Test 15 was RED before T1–T4 (`capture.partial.error
+  == 2`, cancels of member-b and member-c confirmed). Test 13 (aigateway) passed before any change:
+  it pins gateway behaviour that already exists.
+- 2026-10-29: gates green: `run_gates.py screamingface-engine --skip-append-only` and
+  `run_gates.py aigateway --skip-append-only`. The skip is for the five approved prior-test
+  changes (P2); the append-only check flags only `test_frozen_copy_ambiguous.py` and
+  `test_frozen_copy_calls.py`. One later aigateway run failed
+  `auth/test_login.py::test_unknown_user_timing_close_to_wrong_password` (a timing test, not
+  touched here; green in the gate run).
+- 2026-10-29: reviews. `design-reviewer`: ACCEPT-WITH-FIXES, no structural finding. F1: a call
+  cancelled during a `max-age` re-issue, after it read a stored 2xx, recorded `error` with no
+  answer, so R1 could forgive it while the copy holds a 200. `sf-code-review`: the same root cause
+  from the other side. A re-issue that never reached the gateway (connect-phase failure, now not
+  `lost_reply` under R3) recorded `stored`; before this branch it was `ambiguous`. Fix:
+  `_CaptureProbe.last_ok`; a call that raised after it read a 2xx is `ambiguous` (spec X22, X23).
+  Both new tests were RED without the fix (`stored`, `error`). Also fixed: the `_lost` docstring
+  (Q27 forgives no outcome), plan-local references in comments, the `status()` docstring, an
+  unused counter in the T5 stub. Spec: gateway insert race recorded as a known limit.
+- 2026-10-29: `.claude/test-change-approvals/OME-1775.json` added for the five approved prior-test
+  changes (D5, P2), with an inline `OME-1775 (owner-approved, D5)` note at each changed line. The
+  branch is renamed to `OME-1775-replay-exact-not-partial` now, because the manifest names the
+  branch. Engine gates green WITH the append-only check (`--base origin/main`).
+- 2026-10-29: owner decisions after review. (1) R1 skips a Case that failed on time: a failure
+  whose code or `source_code` is in `TIME_BASED_CODES` (`benchmarks/failure_classes.py`) notes
+  the Case as one a replay may score, so its calls are never forgiven (`sf-code-review` question;
+  a url4 `;t=` guard turns wall time into a failure a replay may not repeat). Test RED first (4 of
+  6 rows). Spec R1, Q32 row and design §5.2 item 5 updated. (2) File the MedXpert turn-2 replay
+  defect as a separate bug in Triage.
+
+## Deviations
+
+- `_CaptureProbe.status(*, answered: bool = False)`: the plan had no default. A prior test
+  (`test_retry_cost_of_intelligence.py:303`) calls `status()`; the default is the strict one, so
+  that test needs no change.
+- Test 16 uses the fusion fixture with member C made `;optional` (the quorum fixture made no model
+  calls in this harness). Its count is `capture.partial.error == 2`: MedXpert has two turns.
+- Test 17 (replay) uses a 1-Case Benchmark. A scored MedXpert Case cannot replay: turn 2 embeds the
+  turn-1 envelope with its accounting (cost, usage, cache hits), which differs on replay, so every
+  turn-2 call misses. Separate defect, reported to the owner; not filed.

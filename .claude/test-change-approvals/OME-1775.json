@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1775",
+  "branch": "OME-1775-replay-exact-not-partial",
+  "approver": "Ionesio Junior (owner)",
+  "date": "2026-10-29",
+  "scope": "test_frozen_copy_ambiguous.py: test_a_call_reissued_under_a_max_age_bound_is_ambiguous is renamed to ..._takes_the_reissue_status and expects `stored` with no `capture.partial.ambiguous` (R2); in three tests the first transport step changes from httpx.ConnectError to httpx.ReadError with their assertions unchanged (R3). test_frozen_copy_calls.py: the ConnectError row of the transport table expects `error` instead of `ambiguous` (R3), and a ReadError row expecting `ambiguous` is added. Each changed line carries an `OME-1775 (owner-approved, D5)` note. All other edits to these files only add tests.",
+  "reason": "OME-1775 (spec docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md §4): a max-age re-issue whose last response is 2xx takes that response's capture status (R2), and a connect-phase transport failure (ConnectError, ConnectTimeout, PoolTimeout) sent no byte, so it no longer makes a call ambiguous (R3). Owner decision D5 (2026-10-29) approved every prior test that asserts `ambiguous` after a connect-phase failure or after a max-age re-issue with a 2xx stored last response; plan P2 approved these five.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_ambiguous.py": {
+      "base_blob": "640c78b669002423f574a7ed9fdb3729b96cc7d4",
+      "approved_blob": "d309c4b9b6d1268b35908a67021b98e037e6c5a6"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_calls.py": {
+      "base_blob": "cebe69b9257c251b17fd9345d0553acc046c4bd2",
+      "approved_blob": "08e86a64b3aacf0964f2a3e5c1049151a7221710"
+    }
+  }
+}

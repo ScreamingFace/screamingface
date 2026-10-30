@@ -96,6 +96,11 @@ earlier failure ended the Attempt. Either way it fails, and url4 does not retry 
     (`benchmarks/shared_grading/attempt_fold.py:48-94`), is not scored. Then every Attempt of the
     Case failed (D2). A run can hold one final result for each Candidate. A Case that scored for
     any Candidate in the run does not count as failed.
+  - Its Case did not fail on time (owner, 2026-10-29, after review). A failure whose code, or whose
+    `source_code`, is time-based (`provider_queue_timeout`, `provider_execution_timeout`,
+    `caller_deadline_exceeded`, `aigateway_deadline_exceeded`, url4 `timeout`,
+    `x.admission_timeout`, `x.source_timeout`) makes the Case count as one a replay may score. A
+    replay serves stored answers at once, so a url4 `;t=` guard may not run out there.
   - No later call with the same lane and request digest, in the same case key, at a higher
     occurrence, gave the model an answer (the retry guard, §4.1).
 - **R2. A `max-age` re-issue whose last response is 2xx is not `ambiguous` because of the re-issue.**
@@ -204,6 +209,15 @@ The owner accepts this rare false `failed` verdict (D4). No SDK change is filed.
 | X19 | `ConnectError` on both tries | `error`, no answer. R1 applies (X10 or X11). |
 | X20 | `ReadError` on the first try, retry 2xx `stored` | `ambiguous` (R4) |
 | X21 | Replay run | No change. A replay records no capture outcome. |
+| X22 | `max-age` re-issue after a stored 2xx hit, and the re-issue never reaches the gateway (connect-phase failure on every try, or no deadline left) | `ambiguous` (R4, review 2026-10-29). The copy holds the stale 200, which a replay serves, but the model never used it. |
+| X23 | Call cancelled during its `max-age` re-issue, after it read a stored 2xx | `ambiguous` (R4, review 2026-10-29). Same reason as X22. It is not a no-answer outcome that R1 forgives. |
+
+**Known limit (gateway insert race).** The gateway stores an entry before it responds. A call
+cancelled after the insert but before the response bytes reach the Engine records `error` with no
+answer, while the copy holds its 200. The Engine cannot see this. In a Case that failed because of a
+sibling failure, the replay fails the Case again in the same way. It can differ only when the cancel
+came from a time limit and not from a failure that a replay repeats. A Case that records a
+time-based failure is never forgiven (R1); a time limit that records no failure code is not seen.
 
 ## 8. Tests
 

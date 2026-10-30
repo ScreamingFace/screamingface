@@ -1,7 +1,7 @@
 ---
 ticket: OME-1775
 spec: docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md
-status: draft 2026-10-29 (waiting for owner approval)
+status: approved 2026-10-29 (P1: test 13 in this PR, no sub-issue; P2, P3: yes)
 stack: screamingface-engine (sdlc-python)
 ---
 
@@ -213,3 +213,5 @@ The `tests/unit/test_capture_outcomes.py` table (`:43-85`) does not change.
 | P1 | Test 13 is in `apps/aigateway`. The repo rule says one sub-issue per app. Add an aigateway test-only sub-issue (with its own small PR), or skip test 13 and cite the two existing gateway tests (`test_frozen_copy_store.py:186`, `test_frozen_copy_replay.py:147`) in the R2 comment? | Add the sub-issue. R2 depends on three gateway facts. Two have no test today: the insert before the response, and `cache` removed from the key. |
 | P2 | Approve the five changed prior tests in §4.1 | Yes |
 | P3 | Approve this plan, so the code can start | — |
+
+**Decided 2026-10-29:** P1: no sub-issue for each app; test 13 stays, in this PR. P2: yes. P3: yes.

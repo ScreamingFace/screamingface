@@ -29,7 +29,12 @@ from frozen_copy_support import (
     tool_call,
 )
 
-from screamingface_engine.capture_outcomes import capture_outcomes
+from screamingface_engine.benchmarks.case_context import case_scope
+from screamingface_engine.capture_outcomes import (
+    CaptureTally,
+    capture_outcomes,
+    current_capture_tally,
+)
 from screamingface_engine.world import connector
 from screamingface_engine.world.connector import AigatewayConfig
 from screamingface_engine.world.web_tools import (
@@ -50,9 +55,10 @@ def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_call_reissued_under_a_max_age_bound_is_ambiguous() -> None:
+async def test_a_call_reissued_under_a_max_age_bound_takes_the_reissue_status() -> None:
     # The first answer is a hit of unknown age: the bound refuses it and the call is re-issued.
     # BOTH answers are stored in the copy, and the model used the second.
+    # OME-1775 R2: the re-issue is the last response and it is 2xx, so `find` serves it.
     gateway = Gateway([chat("stale", _HIT), chat("fresh", stored())])
     scope = capture_scope(cache=CachePolicy(max_age=60))
 
@@ -60,8 +66,8 @@ async def test_a_call_reissued_under_a_max_age_bound_is_ambiguous() -> None:
 
     assert failure is None and answer == "fresh"
     assert len(gateway.calls(CHAT)) == 2
-    assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", "ambiguous")]
-    assert tally.attributes()["capture.partial.ambiguous"] == 1
+    assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", "stored")]
+    assert "capture.partial.ambiguous" not in tally.attributes()
 
 
 @pytest.mark.asyncio
@@ -76,7 +82,8 @@ async def test_a_call_with_no_bound_that_hit_is_not_reissued_and_stays_stored() 
 @pytest.mark.asyncio
 async def test_a_call_whose_transport_attempt_was_retried_is_ambiguous() -> None:
     # The lost attempt may have been processed and stored before its reply was lost.
-    gateway = Gateway([httpx.ConnectError("reset"), chat("answer", stored())])
+    # OME-1775 (owner-approved, D5): a ReadError, as a ConnectError is not ambiguous (R3).
+    gateway = Gateway([httpx.ReadError("reset"), chat("answer", stored())])
 
     tally, answer, failure = await run_call(gateway, capture_scope(), web_search=False)
 
@@ -89,7 +96,8 @@ async def test_a_call_whose_transport_attempt_was_retried_is_ambiguous() -> None
 async def test_an_error_after_a_retried_attempt_is_ambiguous_too() -> None:
     gateway = Gateway(
         [
-            httpx.ConnectError("reset"),
+            # OME-1775 (owner-approved, D5): a ReadError, as a ConnectError is not ambiguous (R3).
+            httpx.ReadError("reset"),
             httpx.Response(400, headers=stored(), json={"detail": {"code": "bad"}}),
         ]
     )
@@ -102,7 +110,8 @@ async def test_an_error_after_a_retried_attempt_is_ambiguous_too() -> None:
 
 @pytest.mark.asyncio
 async def test_a_later_stored_call_of_the_same_request_never_forgives_an_ambiguous_one() -> None:
-    gateway = Gateway([httpx.ConnectError("reset"), chat("a", stored()), chat("b", stored())])
+    # OME-1775 (owner-approved, D5): a ReadError, as a ConnectError is not ambiguous (R3).
+    gateway = Gateway([httpx.ReadError("reset"), chat("a", stored()), chat("b", stored())])
 
     tally, _answer, _failure = await run_call(
         gateway, capture_scope(), web_search=False, expressions=[EXPRESSION] * 2
@@ -110,6 +119,80 @@ async def test_a_later_stored_call_of_the_same_request_never_forgives_an_ambiguo
 
     assert [o.status for o in tally.outcomes] == ["ambiguous", "stored"]
     assert tally.attributes()["capture.partial.ambiguous"] == 1
+
+
+# ── OME-1775: R2 (a max-age re-issue) and R3 (a connect-phase failure) ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_connect_failure_before_the_send_leaves_the_retried_call_stored() -> None:
+    # R3: a ConnectError proves no byte left the Engine, so the gateway stored nothing for that try.
+    gateway = Gateway([httpx.ConnectError("refused"), chat("answer", stored())])
+
+    tally, answer, failure = await run_call(gateway, capture_scope(), web_search=False)
+
+    assert failure is None and answer == "answer"
+    assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", "stored")]
+    assert "capture.partial.ambiguous" not in tally.attributes()
+
+
+@pytest.mark.asyncio
+async def test_a_max_age_reissue_whose_last_response_failed_is_ambiguous() -> None:
+    # R2: the re-issue is the last response and it is not 2xx, so `find` would prefer the unused
+    # first 200 to the stored error. The call stays ambiguous.
+    gateway = Gateway(
+        [
+            chat("stale", _HIT),
+            httpx.Response(400, headers=stored(), json={"detail": {"code": "bad"}}),
+        ]
+    )
+    scope = capture_scope(cache=CachePolicy(max_age=60))
+
+    tally, _answer, failure = await run_call(gateway, scope, web_search=False)
+
+    assert failure is not None
+    assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", "ambiguous")]
+    assert tally.attributes()["capture.partial.ambiguous"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_max_age_reissue_that_never_reached_the_gateway_is_ambiguous() -> None:
+    # R2/R3 review: the stale 2xx stays stored at the key, and the re-issue never left the Engine,
+    # so a replay serves the 200 the model never used. The call stays ambiguous, not `stored`.
+    gateway = Gateway(
+        [chat("stale", _HIT), httpx.ConnectError("refused"), httpx.ConnectError("refused")]
+    )
+    scope = capture_scope(cache=CachePolicy(max_age=60))
+
+    tally, _answer, failure = await run_call(gateway, scope, web_search=False)
+
+    assert failure is not None
+    assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", "ambiguous")]
+    assert tally.attributes()["capture.partial.ambiguous"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_call_cancelled_during_its_max_age_reissue_is_ambiguous() -> None:
+    # R1 review: the cancel comes after a stored 2xx was read, so the copy holds a 200 the model
+    # never used. The call is not a no-answer outcome that R1 could forgive.
+    tallies: list[CaptureTally | None] = []
+    sent: list[str] = []
+
+    async def cancel_the_reissue(request: httpx.Request) -> None:
+        sent.append(request.url.path)
+        if len(sent) == 2:
+            tallies.append(current_capture_tally())
+            raise asyncio.CancelledError()
+
+    gateway = Gateway([chat("stale", _HIT)])
+    gateway.gate = cancel_the_reissue
+    scope = capture_scope(cache=CachePolicy(max_age=60))
+    with case_scope(7), pytest.raises(asyncio.CancelledError):
+        await run_call(gateway, scope, web_search=False)
+
+    (tally,) = tallies
+    assert tally is not None
+    assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", "ambiguous")]
 
 
 # ── a cancelled or crashed tool execution is an error outcome (D1) ─────────────────────────
@@ -151,6 +234,26 @@ async def test_a_cancelled_or_crashed_tool_execution_records_error_then_reraises
             await append_tool_results([], [call], runtime, _CFG)
 
     assert [(o.lane, o.status) for o in tally.outcomes] == [("tool", "error")]
+    for client in clients:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_tool_call_records_its_case_and_that_it_gave_no_answer() -> None:
+    # OME-1775 R1: a cancelled tool call gave the model no result, and it names its Case.
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise asyncio.CancelledError()
+
+    runtime, clients = _runtime(handler)
+    call = {"id": "c", "function": {"name": "web_search", "arguments": '{"query": "q"}'}}
+
+    with case_scope(7), capture_outcomes() as tally:
+        with pytest.raises(asyncio.CancelledError):
+            await append_tool_results([], [call], runtime, _CFG)
+
+    assert [(o.lane, o.status, o.case_id, o.answered) for o in tally.outcomes] == [
+        ("tool", "error", "7", False)
+    ]
     for client in clients:
         await client.aclose()
 

@@ -84,15 +84,26 @@ def current_case_attempt() -> int | None:
     return value[1]
 
 
+def current_capture_case() -> tuple[str | None, str]:
+    """The Case id (``str()``) and the case key of the work in progress, for a frozen-copy call.
+
+    OME-1775: the id is what a recorded outcome names, so a Case result can be joined to it. A
+    candidate call names its Case. A grading call names the graded Case when the engine can
+    resolve it. Any other call names no Case: ``(None, "")``.
+    """
+    case_id = current_case_id()
+    if case_id is None:
+        case_id = current_grading_case()
+    if case_id is None:
+        return None, ""
+    return str(case_id) or None, case_key_for(case_id, current_case_attempt() or 1)
+
+
 def current_case_key() -> str:
     """The key that names the Case of the work in progress, for a frozen-copy call (design §5.4).
 
     A candidate call names its Case. A grading call names the graded Case when the engine can
     resolve it. Any other call names no Case, and its key is ``""``.
     """
-    case_id = current_case_id()
-    if case_id is None:
-        case_id = current_grading_case()
-    if case_id is None:
-        return ""
-    return case_key_for(case_id, current_case_attempt() or 1)
+    # INVARIANT: the case id and the case key come from one lookup, so the two can never disagree.
+    return current_capture_case()[1]

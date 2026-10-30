@@ -27,8 +27,12 @@ from screamingface_engine.benchmarks.contract import (
 )
 from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.echoed_input import echoed_input
-from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
+from screamingface_engine.benchmarks.failure_classes import (
+    TIME_BASED_CODES,
+    UPSTREAM_FALLBACK_CODE,
+)
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
+from screamingface_engine.capture_outcomes import record_case_results
 from screamingface_engine.error_text import public_identifier, public_message
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
@@ -173,6 +177,11 @@ def finalize_candidate_result(
         )
         for selected in selection
     ]
+    # FEATURE: OME-1775 — R1 needs each Case's final result; every final Case result passes here,
+    # once per Candidate. A Case that failed on time is noted as scored: a replay may score it.
+    record_case_results(
+        (case.case_id, case.status == "scored" or _failed_on_time(case)) for case in typed_cases
+    )
 
     scoring_cases = policy_cases(typed_cases, failure_policy)
     scored = scorer(scoring_cases) if scoring_cases is not None else None
@@ -197,6 +206,13 @@ def finalize_candidate_result(
     )
     reconcile_candidate_grading_accounting(result)
     return result
+
+
+def _failed_on_time(case: CaseResult) -> bool:
+    return any(
+        failure.code in TIME_BASED_CODES or failure.metadata.get("source_code") in TIME_BASED_CODES
+        for failure in case.failures
+    )
 
 
 def public_error(
