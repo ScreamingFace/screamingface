@@ -247,11 +247,23 @@ helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
   is at that moment, so a Secret edited in place reaches restarted and scaled-up pods before
   the review and the rollout. Create each revision as a new Secret and point `existingSecret`
   at it in the same upgrade.
-- **The rollout window fails fast.** The App and the pool roll as two Deployments. The App
-  stamps its file's sha256 on every run it queues, and a worker serving another file refuses
-  that run with the retryable `world_config_mismatch` and starts no child. A run in the window
-  fails instead of running under a world the App that accepted it never served; the caller
-  retries it.
+- **The rollout window fails fast once every worker checks the stamp.** The App and the pool
+  roll as two Deployments. The App stamps its file's sha256 on every run it queues, and a worker
+  serving another file refuses that run with the retryable `world_config_mismatch` and starts no
+  child. A run in the window fails instead of running under a world the App that accepted it
+  never served; the caller retries it.
+- **Upgrade to the stamp check readers first.** A worker of an earlier version ignores the stamp
+  and runs the job under its own file, so a changed file is unprotected while one such worker is
+  left. Upgrade a release whose pool predates the check in three steps, and keep the world file
+  it runs now through the first two; the App's `/healthz` `config_digest` must not change:
+  1. The pool alone: `--set-string image.tag=<running tag> --set-string runner.image.tag=<new tag>`.
+     The App keeps its image.
+  2. Once `kubectl rollout status deployment/<fullname>-runner` reports done, the App:
+     `--set-string image.tag=<new tag> --set-string runner.image.tag=`. The empty value pairs
+     the two images again, and the pool, already on that tag, does not roll.
+  3. Only then a changed file, the first `worldConfig` source included, in an upgrade of its own.
+
+  A rollback below this version also keeps the file unchanged.
 - **`podAnnotations` cannot set `checksum/world-config`.** The render refuses it: the key would
   replace the chart's revision on both pod templates, and a changed file would roll neither.
 - **`key`** names the file inside the source (default `url4.toml`); it is always mounted as

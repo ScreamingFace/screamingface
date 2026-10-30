@@ -421,3 +421,104 @@ async def test_any_other_gateway_refusal_of_a_private_call_is_kept(denial: dict[
         _, frames = await _run(app, _PRIVATE)
 
     assert _error(frames)["code"] != "endpoint_not_found"
+
+
+# --- what the router answers before any handler runs (OME-1770 second review) -----------------
+#
+# WHY: Starlette answers some requests on a known path without calling its handler. A method the
+# path's routes do not list gets a 405, and a path with a slash added or removed gets a 307 to
+# the declared one. On a private mount either answer names the route, whatever the caller holds.
+
+_ROUTER_METHODS = ["TRACE", "CONNECT", "PROPFIND", "BREW"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", _ROUTER_METHODS)
+@pytest.mark.parametrize("headers", [{}, _EMAIL], ids=["anonymous", "identified"])
+async def test_a_method_no_mount_route_lists_answers_as_an_undeclared_route(
+    method: str, headers: dict[str, str]
+) -> None:
+    grants = _Grants(granted=False)
+    app, runner = _mounted(grants=grants)
+
+    private, undeclared = await _both(app, method, "", headers)
+
+    assert _answer(private) == _answer(undeclared)
+    assert private.status_code == 404
+    assert runner.targets == []
+    assert grants.seen == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["GET", "HEAD", "POST", "TRACE"])
+@pytest.mark.parametrize("suffix", ["/", "//", "/?q=('')!'go'"], ids=["slash", "slashes", "query"])
+@pytest.mark.parametrize(
+    ("headers", "granted"),
+    [({}, False), (_EMAIL, False), (_EMAIL, True)],
+    ids=["anonymous", "ungranted", "granted"],
+)
+async def test_a_slash_variant_of_a_private_mount_answers_as_an_undeclared_route(
+    method: str, suffix: str, headers: dict[str, str], granted: bool
+) -> None:
+    """A slash variant is not the declared path, so even a granted caller gets the 404: the grant
+    is asked only for a call of the mount itself."""
+    grants = _Grants(granted=granted)
+    app, runner = _mounted(grants=grants)
+
+    private, undeclared = await _both(app, method, suffix, headers)
+
+    assert _answer(private) == _answer(undeclared)
+    assert "location" not in private.headers
+    assert runner.targets == []
+    assert grants.seen == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("request_path", ["/rows", "/rows//"], ids=["bare", "slashes"])
+async def test_a_private_mount_declared_with_a_slash_hides_its_other_spellings(
+    request_path: str,
+) -> None:
+    app = create_app(Settings(jwt_secret="private-route-denial-secret-0000000"))
+    table = MountTable(
+        mounts=(MountDescriptor("/rows/", "data", "text/csv", public_schema=False),),
+        config_digest=None,
+    )
+    register_mounts(app, table)
+
+    async with _client(app) as client:
+        private = await client.get(request_path)
+        undeclared = await client.get("/undeclared-rows")
+
+    assert _answer(private) == _answer(undeclared)
+
+
+@pytest.mark.asyncio
+async def test_the_router_answers_a_public_mount_as_before() -> None:
+    app, _ = _mounted(grants=_Grants(granted=False))
+
+    async with _client(app) as client:
+        slash = await client.get(f"/{_PUBLIC}/?q=x")
+        trace = await client.request("TRACE", f"/{_PUBLIC}")
+        post = await client.post(f"/{_PUBLIC}")
+
+    assert slash.status_code == 307
+    assert slash.headers["location"] == f"http://engine.test/{_PUBLIC}?q=x"
+    assert trace.status_code == 405
+    assert trace.json() == {"detail": "Method Not Allowed"}
+    assert post.status_code == 405
+    assert post.json()["error"]["code"] == "method_not_allowed"
+
+
+@pytest.mark.asyncio
+async def test_metrics_count_a_router_answer_on_a_private_mount_as_unmatched() -> None:
+    app, _ = _mounted(grants=_Grants(granted=False))
+
+    async with _client(app) as client:
+        await client.request("TRACE", f"/{_PRIVATE}")
+        await client.get(f"/{_PRIVATE}/")
+        metrics = (await client.get("/metrics")).text
+
+    assert _ENDPOINT not in metrics
+    assert "<private>" not in metrics
+    assert 'method="TRACE",path="<unmatched>",status="404"} 1.0' in metrics
+    assert 'method="GET",path="<unmatched>",status="404"} 1.0' in metrics

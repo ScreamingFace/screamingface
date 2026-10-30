@@ -11,7 +11,8 @@ The answers match the removed node tier's (MNT-C2, MNT-9): url4's error envelope
 
 - identity: the verified `X-User-Email`, from the same source as `GET /?q=` — none → 403
 - a private mount (OME-1770): every answer to a caller without a proven grant is the 404 of a
-  route this Engine never declared (`rest.mount_denial`)
+  route this Engine never declared (`rest.mount_denial`); so is every other method and every
+  slash variant of its path, to every caller
 - a stated `X-Profile` → 400 `x_profile_unsupported`, after identity and before every other
   answer below (OME-1381); a blank one is absence
 - endpoint without `q` → 400 `missing_intent`; a bad `X-Answer-Seed` → 400 `malformed_header`
@@ -22,12 +23,14 @@ The answers match the removed node tier's (MNT-C2, MNT-9): url4's error envelope
 """
 
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.responses import Response
+from starlette.routing import Route
 
 from screamingface_engine import job_env
 from screamingface_engine.artifacts.signing import signed_artifact_path
@@ -152,16 +155,22 @@ def register_mounts(app: FastAPI, table: MountTable, *, require_identity: bool =
             include_in_schema=not private,
             name=PRIVATE_ROUTE_NAME if private else f"mount:{mount.path}",
         )
+        if private:
+            continue
         # AC14 parity: a mount speaks GET only, and a wrong method gets the NODE's answer —
-        # url4's `method_not_allowed` envelope — not the framework's `{"detail": ...}` 405. A
-        # private mount answers it as an undeclared path instead (OME-1770 review).
+        # url4's `method_not_allowed` envelope — not the framework's `{"detail": ...}` 405.
         app.router.add_api_route(
             mount.path,
-            _not_declared if private else _method_not_allowed,
+            _method_not_allowed,
             methods=_OTHER_METHODS,
             include_in_schema=False,
-            name=PRIVATE_ROUTE_NAME if private else f"mount-method:{mount.path}",
+            name=f"mount-method:{mount.path}",
         )
+    # WHY after every mount: a fallback also matches slash variants, so a path the world declares
+    # must reach its own route first.
+    app.router.routes.extend(
+        _PrivateFallback(mount.path) for mount in table.mounts if not mount.public_schema
+    )
     app.state.mount_table = table
     # `/healthz` reports which config file the mounts came from (erd.md §2, R11).
     app.state.config_digest = table.config_digest
@@ -178,6 +187,22 @@ async def _method_not_allowed() -> Response:
 
 async def _not_declared(request: Request) -> Response:
     deny(request)
+
+
+class _PrivateFallback(Route):
+    """Every request on a private mount's path that its GET route does not take.
+
+    INVARIANT (OME-1770 review): the router never answers for a private mount. Starlette answers
+    a method no route on the path lists with a 405 and a slash variant of the path with a 307 to
+    it, before any handler runs. This route matches the path under ANY method and with any number
+    of trailing slashes, so those requests reach `deny` instead, whatever grant the caller holds.
+    """
+
+    def __init__(self, path: str) -> None:
+        super().__init__(path, _not_declared, include_in_schema=False, name=PRIVATE_ROUTE_NAME)
+        # WHY set after: `Route` gives a function endpoint GET alone and matches the exact path.
+        self.methods = None
+        self.path_regex = re.compile(f"^{re.escape(path.rstrip('/'))}/*$")
 
 
 def _handler_for(

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from typing import Any
 
 import httpx
 import pytest
+from test_chart_render_world_config import _container, _deployments, _render
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.factory import build_job_runner
@@ -285,3 +287,25 @@ async def test_a_run_the_worker_cannot_prove_stale_still_runs(
     assert [f.data.error.code for f in publisher.published if f.data.error] != [
         WORLD_CONFIG_MISMATCH
     ]
+
+
+# --- the first upgrade to the stamp check goes readers first ----------------------------------
+#
+# WHY: a worker of an earlier version ignores the stamp and starts the run under its own file
+# (OME-1770 second review). The chart README therefore upgrades the pool alone first, with the
+# world file the release already runs, and the App only once no older worker is left. Each step
+# must move one Deployment and leave the other exactly as it was.
+
+_JWT = "auth.jwtSecret=" + "s" * 32
+
+
+@pytest.mark.skipif(shutil.which("helm") is None, reason="needs the helm CLI")
+def test_the_readers_first_upgrade_moves_one_deployment_per_step() -> None:
+    before = _deployments(_render(_JWT, "image.tag=running"))
+    pool_first = _deployments(_render(_JWT, "image.tag=running", "runner.image.tag=new"))
+    app_next = _deployments(_render(_JWT, "image.tag=new", "runner.image.tag="))
+
+    assert pool_first["control-plane"] == before["control-plane"]
+    assert _container(pool_first["runner"])["image"].endswith("-benchmark:new")
+    assert app_next["runner"] == pool_first["runner"]
+    assert _container(app_next["control-plane"])["image"].endswith(":new")

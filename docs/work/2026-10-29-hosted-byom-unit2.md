@@ -112,6 +112,27 @@ Residual, documented: response timing still differs between a private and an und
 and the Gateway's shared response cache serves a hit to every account (Unit 0's documented
 trade-off).
 
+### Review follow-up 3 (2026-10-30)
+
+A third review at `aadfa9ea3` found two more gaps.
+
+- **The router still named a private mount (P2).** Starlette answers some requests before any
+  handler runs: a method no route on the path lists gets a 405, and a slash variant of the path
+  gets a 307 to it. `TRACE`, `CONNECT` and `GET /<private>/` therefore differed from an undeclared
+  route, with no grant lookup and no run. Fix: one fallback route per private mount, registered
+  after every mount, matches its path under any method and with any number of trailing slashes,
+  and answers the undeclared route's 404. It replaces the six-method twin. A granted caller gets
+  the same 404 there: the grant is asked only for a call of the mount itself. Public mounts keep
+  their answers.
+- **An older worker ignores the stamp (P2).** The stamp kept spec version 2, so a worker of an
+  earlier version starts a stamped run under its own file. The README promised fail-fast for the
+  whole rollout window. Fix, as the reviewer proposed: the README now limits fail-fast to a pool
+  where every worker checks the stamp, and sets a readers-first upgrade. Step one moves the pool
+  alone through `runner.image.tag`. Step two moves the App once the pool rollout is done, and
+  clears `runner.image.tag` so the images are paired again. A changed world file comes only after
+  that. A render test checks that each step moves one Deployment and leaves the other unchanged.
+  The digest check in the new worker is unchanged.
+
 ## Test plan
 
 - Engine discovery: a granted account with a usable Connection lists the model and passes details
@@ -188,12 +209,18 @@ pending (Acceptance). Hosted readiness is not claimed.
       `templates/deployment-runner.yaml`, `README.md`.
     - Gateway chart (OME-1771): `templates/_helpers.tpl`, `templates/deployment.yaml`,
       `README.md`; appended tests in `tests/unit/test_chart_render_remote_endpoints.py`.
+  - Review follow-up 3:
+    - Engine source: `rest/mounts.py` (`_PrivateFallback`), 435 lines.
+    - Engine tests: appended in `test_private_route_denial.py` (five tests, 48 cases) and in
+      `test_world_config_revision.py` (the readers-first render test). No existing test changed.
+    - Engine chart: `README.md`.
 - **Commits:** `5cafdd906` feat(screamingface-engine): run configured endpoint chat routes privately
   with one world config, plus this ledger update. PR #1606 (`Refs` OME-1770, OME-1771, OME-1773),
   opened 2026-10-29 with the owner's approval. Review follow-up: `d03d7f933` (ledger), `66121feac`
-  fix(url4): name no declared route in the unknown processor refusal. Review follow-up 2: the
-  commit that carries this ledger line, fix(screamingface-engine): keep one world config revision
-  per run and hide private routes from ungranted callers.
+  fix(url4): name no declared route in the unknown processor refusal. Review follow-up 2:
+  `aadfa9ea3` fix(screamingface-engine): keep one world config revision per run and hide private
+  routes from ungranted callers. Review follow-up 3: the commit that carries this ledger line,
+  fix(screamingface-engine): close router answers on private mounts and upgrade readers first.
 - **Gates (2026-10-29, this worktree):**
   - `run_gates.py screamingface-engine`: all green (ruff, format, pyright, layering, pytest with
     coverage floor 80). The same suite without coverage: 5919 passed, 153 skipped.
@@ -211,6 +238,11 @@ pending (Acceptance). Hosted readiness is not claimed.
       machine was all green. This branch touches no Gateway source.
     - `run_gates.py repo`: all green. `verify_chart_wiring.py`: 121 of 121 checks. `helm lint`:
       both charts pass.
+  - Review follow-up 3 (2026-10-30), each gate run alone: `run_gates.py screamingface-engine` and
+    `run_gates.py repo` all green. The new tests failed first on the router's 405 and 307. The
+    reviewer's three router probes pass against the fix; its older-worker probe still fails, as
+    expected, because that gap is closed by the upgrade order, not by code. No chart template
+    changed, so `helm lint` and `verify_chart_wiring.py` were not rerun.
 - **Deviations:**
   - CORRECTED 2026-10-29: the `packages/url4` change was first dropped on a wrong reachability
     verdict. The probe behind it used a nested expression of literals, which dispatched no reduce.
@@ -244,3 +276,9 @@ pending (Acceptance). Hosted readiness is not claimed.
     runs it, restored the lock and the gate was green again. No code change.
   - The SDK `provider_not_connected` hint names `sf.connect()` or a hosted provider profile. For a
     configured endpoint the key is attached through the Gateway admin route. Left unchanged here.
+  - `_PrivateFallback` sets two attributes of Starlette's `Route` after its constructor, `methods`
+    and `path_regex`, as installed Starlette 1.3.1 defines them. The new tests fail if an upgrade
+    changes how `Route` matches.
+  - The readers-first upgrade is a documented operator step, not a code mechanism. A version bump
+    on the wire would make older workers refuse every stamped run instead; the reviewer proposed
+    the documented order as the minimal closure. The live mixed-version rollout is not verified.
