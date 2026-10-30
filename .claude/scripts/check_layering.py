@@ -17,6 +17,7 @@ One image ships two modes, and the whole point of that shape is a rule about wha
 
   Control plane: app · rest · ws · auth · catalog · connections · config · metrics · ops · reaper
                  unclaimed · schemas · adapters.factory  (FastAPI, uvicorn)
+                 · runs · adapters.run_registry_tortoise  (the Run registry, OME-1785)
   Run mode:      runner.executor (the url4 engine) · runner.main
   Worker:        worker (the claim loop, the supervisor, the exec wrapper)
 
@@ -32,6 +33,10 @@ One image ships two modes, and the whole point of that shape is a rule about wha
                   ports and the pure standard library (no I/O, clock, randomness, environment or
                   logging module).
                   Nothing under `combine/` imports url4; the route adapter is `world/combine.py`.
+  Run registry:   runs · adapters.run_registry_tortoise (OME-1785, E5 P1 spec §9). A design
+                  constraint: every database write goes through the App, so the runners stay free
+                  to run anywhere. The registry is control plane, the worker may not import it
+                  either, and only the registry imports the database stack.
 
 WHY this rule outlived the package split it was born in: it used to be proved structurally — the
 two halves were separate distributions with separate images, so a cross-import could not even be
@@ -95,7 +100,16 @@ CONTROL_PLANE = {
     "schemas",
     "ws",
     "adapters.factory",
+    # WHY named (OME-1785): the Run registry is the App's; see RUN_REGISTRY below.
+    "runs",
+    "adapters.run_registry_tortoise",
 }
+# The Run registry (OME-1785, E5 P1 spec §9). INVARIANT: every database write goes through the
+# App, so nothing the runners execute holds a database connection. As control plane it is closed
+# to the run mode and every shared leaf; the worker, which may import the serving half, is barred
+# by its own rule below; and only these modules import the database stack (DATABASE_STACK).
+RUN_REGISTRY = {"runs", "adapters.run_registry_tortoise"}
+DATABASE_STACK = {"tortoise", "asyncpg", "aiosqlite"}
 RUN_MODE = {"runner"}
 WORKER_MODE = {"worker"}
 # The shared world builder (prd/01 F1): importable by the control plane AND the run mode, importing
@@ -177,6 +191,12 @@ RULES: list[tuple[str, set[str], str]] = [
         "the worker spawns the run as a child process; it never imports it — the run half stays "
         "a separate crash domain, and the worker's import graph stays the serving half's plus "
         "the queue",
+    ),
+    (
+        "worker",
+        RUN_REGISTRY,
+        "every database write goes through the App (OME-1785, E5 P1 spec §9): a worker reports a "
+        "Candidate's outcome on the outcome stream and never imports the Run registry",
     ),
 ]
 
@@ -406,6 +426,32 @@ def check_combine() -> list[str]:
     return offenders
 
 
+def _owns_the_database(path: pathlib.Path) -> bool:
+    """Whether ``path`` is part of the Run registry (`runs/`, or the Tortoise adapter, as a module
+    or a package)."""
+    parts = path.relative_to(SRC).with_suffix("").parts
+    return parts[0] == "runs" or parts[:2] == ("adapters", "run_registry_tortoise")
+
+
+def check_database_stack() -> list[str]:
+    """Only the Run registry imports the database stack — exempt modules included.
+
+    WHY every file, `local.py` and `cli.py` too: an exemption lifts the half-disjointness rules,
+    not this one; `local.py` reaches the registry through its port like the rest of the App.
+    """
+    why = (
+        "the database stack belongs to the Run registry alone (runs/ and "
+        "adapters/run_registry_tortoise): every database write goes through the App "
+        "(OME-1785, E5 P1 spec §9), and the rest of it uses the RunRegistry port"
+    )
+    return [
+        f"  {path.relative_to(ROOT)}: imports {module}\n      {why}"
+        for path in python_files(SRC)
+        if not _owns_the_database(path)
+        for module in sorted(imported_top_level_modules(path) & DATABASE_STACK)
+    ]
+
+
 def check_layers() -> list[str]:
     if not SRC.is_dir():
         print(f"ERROR: source tree missing: {SRC}", file=sys.stderr)
@@ -448,6 +494,7 @@ def check_layers() -> list[str]:
                 f"      {REMOVED[module]}; mount calls run as direct runs (rest.mounts)"
             )
     offenders.extend(check_combine())
+    offenders.extend(check_database_stack())
     return offenders
 
 
