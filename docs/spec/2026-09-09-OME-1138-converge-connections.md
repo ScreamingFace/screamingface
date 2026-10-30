@@ -1,8 +1,8 @@
 ---
 ticket: OME-1138
-status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
+status: implemented   # Stages A-E merged, the last (E5c, #1596) on 2026-10-29; the close-out leaves of the 2026-10-29 review are tracked separately, so OME-1138 stays open
 created: 2026-09-09
-updated: 2026-10-05
+updated: 2026-10-29
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)

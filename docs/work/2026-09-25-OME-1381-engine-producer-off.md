@@ -1,9 +1,9 @@
 ---
 ticket: OME-1381
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-25
-finished:
+finished: 2026-09-28
 ---
 
 # OME-1381-engine-producer-off — refuse X-Profile at Engine ingress and stop producing selector-bearing runs
@@ -269,6 +269,8 @@ The resolution ports each change to the new architecture instead of picking a si
 - **Commits:** one commit, `feat(screamingface-engine)!: refuse X-Profile at ingress and stop
   producing selector-bearing runs`, with a `BREAKING CHANGE:` footer and
   `Refs: OME-1381, OME-1377`. Its sha is recorded in the close comment.
+- **Merge:** squash-merged to `main` on 2026-09-28 as `df6e9b92d` (#1082). Linear closed OME-1381
+  Done the same day.
 - **Gates:** baseline at `edf77790` was `3827 passed, 23 skipped`.
   - First round (2026-09-25), `run_gates.py screamingface-engine --skip-append-only`:
     - ruff check, ruff format, pyright and layering green;

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1618
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-14
-finished:
+finished: 2026-10-15
 ---
 
 # e1-successor-reauth-url — every re-auth pointer names a live Connection route
@@ -56,6 +56,8 @@ Under `apps/aigateway/src/aigateway/`:
   Docs: the accepted Stage E spec and plan (`docs/spec/` and `docs/plan/`
   `2026-10-14-OME-1209-retire-legacy-profiles.md`), the aigateway-ui README sentence, the task mirror.
 - **Commits:** see the PR.
+- **Merge:** squash-merged to `main` on 2026-10-15 as `59545b20b` (#1432). Linear closed OME-1618
+  Done the same day.
 - **Gates:** ruff and pyright clean; full aigateway suite 5794 passed, 1 failed: the timing test
   `test_login.py::test_unknown_user_timing_close_to_wrong_password`, unrelated and green on rerun.
 - **Deviations:** the api-key contract test is not re-run over the Connection-backed harness; its

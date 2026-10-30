@@ -1,9 +1,9 @@
 ---
 ticket: OME-1450
 stack: url4
-status: in_progress
+status: done
 started: 2026-10-01
-finished:
+finished: 2026-10-05
 ---
 
 # remove-jobrunner-profile-port — make the shared scheduling port selector-less
@@ -39,6 +39,8 @@ implementation change is tracked by `OME-1449`.
   absence assertion to `packages/url4/tests/unit/test_jobs_port.py`; Engine adapters were updated in
   the coordinated `OME-1449` leaf.
 - **Commits:** this commit — `refactor(engine): remove retired profile carrier`.
+- **Merge:** squash-merged to `main` on 2026-10-05 as `641601f37` (#1231), together with the
+  OME-1449 leaf. Linear closed OME-1450 Done on 2026-10-07.
 - **Gates:** focused signature test passed; direct full suite 1360 passed; configured URL4 gate
   passed append-only, Ruff, Ruff format, Pyright and the 95%-minimum coverage suite.
 - **Deviations:** none in the URL4 leaf.

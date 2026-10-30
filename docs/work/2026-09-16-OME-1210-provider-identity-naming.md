@@ -51,3 +51,14 @@ compatibility language.
 
 - Confirm if product copy wants a friendlier phrase such as "provider connection" in UI text. The
   underlying API/domain noun remains `Connection` unless this decision is reopened.
+
+## Outcome
+
+- **Actual files:** this ledger and the mirror
+  `docs/tasks/2026-09-16-OME-1210-provider-identity-naming.md` (new); the D20 rows and the A2
+  precondition in the OME-1138 spec, plan and epic mirror. No runtime source.
+- **Commits:** squash-merged to `main` on 2026-09-16 as `0c0abfcf3` (#969),
+  `AIGateway: decide provider identity naming`. Linear closed OME-1210 Done on 2026-09-18, with a
+  close comment naming the PR and the merge commit.
+- **Gates:** documentation only, so no stack gate applies; the checks above.
+- **Deviations:** none recorded. The owner-verify question above has no recorded answer.

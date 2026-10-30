@@ -1,9 +1,9 @@
 ---
 ticket: OME-1449
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-01
-finished:
+finished: 2026-10-05
 ---
 
 # remove-profile-carrier — remove the retired selector carrier
@@ -62,6 +62,8 @@ The approved specification and plan are
   the affected tests and current Engine/OME-1138 docs; added
   `tests/unit/test_profile_carrier_retirement.py`; removed the obsolete carrier compatibility suite.
 - **Commits:** this commit — `refactor(engine): remove retired profile carrier`.
+- **Merge:** squash-merged to `main` on 2026-10-05 as `641601f37` (#1231), together with the
+  OME-1450 leaf. Linear closed OME-1449 Done on 2026-10-07.
 - **Gates:** focused migration regressions 10 passed; direct full suite 4357 passed / 67 skipped /
   13 deselected; configured Engine gate passed Ruff, Ruff format, Pyright, layering and parallel
   coverage tests; `git diff --check` passed. The final pre-commit review found an ambient
