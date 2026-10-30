@@ -92,6 +92,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "lab_bench_tableqa": "mcq",
     # OME-1477: MMMU's multiple-choice task, graded by inspect's choice scorer.
     "mmmu_multiple_choice": "mcq",
+    # OME-1479: MathVista mixes multiple choice with numbers, graded by its own pattern scorer.
+    "mathvista": "mcq",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.
@@ -319,6 +321,8 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "lab_bench_cloning_scenarios",
         "lab_bench_figqa",
         "lab_bench_tableqa",
+        # OME-1479: MathVista shuffles with no seed; the import forces 20260917.
+        "mathvista",
         "frontierscience",
         "onet_m6",
         # OME-1602: UCCB shuffles with no seed; the import forces 20260917.
