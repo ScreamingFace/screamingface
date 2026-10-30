@@ -190,9 +190,16 @@ def test_litellm_raises_max_tokens_only_when_the_caller_omits_it() -> None:
         reasoning_effort="high",
     )
 
+    # litellm leaves get_optional_params unannotated, so its inferred value type is
+    # `object`; narrow the nested `thinking` block before indexing into it.
+    thinking_with_max = with_max["thinking"]
+    thinking_without_max = without_max["thinking"]
+    assert isinstance(thinking_with_max, dict)
+    assert isinstance(thinking_without_max, dict)
+
     assert with_max["max_tokens"] == 128
-    assert with_max["thinking"]["budget_tokens"] == 4096
-    assert without_max["max_tokens"] > without_max["thinking"]["budget_tokens"]
+    assert thinking_with_max["budget_tokens"] == 4096
+    assert without_max["max_tokens"] > thinking_without_max["budget_tokens"]
 
 
 def test_every_constrained_model_is_registered() -> None:

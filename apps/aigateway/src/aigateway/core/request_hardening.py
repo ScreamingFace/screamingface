@@ -76,6 +76,16 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         "newrelic_api_key",
         "newrelic_region",
         "turn_off_message_logging",
+        # WHY: litellm 1.105 added a SigNoz OTel preset whose dynamic params pick the trace
+        # destination (`signoz_ingestion_endpoint`) and its credential (`signoz_ingestion_key`)
+        # — the same exfiltration category as the host+key fields above — plus Arize
+        # per-request sampling rates, which let a caller switch prompt/response export on or
+        # off for its own requests. test_litellm_dynamic_callback_parameter_set_is_covered
+        # caught these on the 1.102 -> 1.105 upgrade.
+        "signoz_ingestion_endpoint",
+        "signoz_ingestion_key",
+        "arize_success_sampling_rate",
+        "arize_error_sampling_rate",
         # WHY here and not only in DISPATCH_CONTROL_FIELDS: this filter strips dynamic
         # callback controls from BOTH the top-level body and `metadata` symmetrically —
         # every other name in this set gets that treatment. `litellm_trusted_callback_vars`

@@ -118,6 +118,10 @@ _D6_CONTROL_FIELDS = {
     "langfuse_environment",
     "newrelic_api_key",
     "newrelic_region",
+    "signoz_ingestion_endpoint",
+    "signoz_ingestion_key",
+    "arize_success_sampling_rate",
+    "arize_error_sampling_rate",
     "litellm_trusted_callback_vars",
     "user_api_key_auth_metadata",
 }
@@ -228,6 +232,33 @@ def test_strip_removes_litellm_1_100_dynamic_callback_fields() -> None:
             "langfuse_environment": "attacker-env",
             "newrelic_api_key": "attacker-key",
             "newrelic_region": "attacker-region",
+        },
+    }
+
+    stripped = strip_dispatch_controls(body)
+
+    assert set(stripped) == {"model", "messages", "metadata"}
+    assert stripped["metadata"] == {"trace_id": "safe-provider-metadata"}
+
+
+def test_strip_removes_litellm_1_105_dynamic_callback_fields() -> None:
+    # litellm 1.105 added a SigNoz OTel preset whose `signoz_ingestion_endpoint`/
+    # `signoz_ingestion_key` pick where prompt/response traces ship and with which
+    # credential, plus Arize per-request sampling rates that switch export on or off —
+    # same exfiltration category as the 1.100 fields above.
+    body = {
+        "model": "openrouter/a/b",
+        "messages": [],
+        "signoz_ingestion_endpoint": "https://attacker.invalid",
+        "signoz_ingestion_key": "attacker-key",
+        "arize_success_sampling_rate": 1.0,
+        "arize_error_sampling_rate": 1.0,
+        "metadata": {
+            "trace_id": "safe-provider-metadata",
+            "signoz_ingestion_endpoint": "https://attacker.invalid",
+            "signoz_ingestion_key": "attacker-key",
+            "arize_success_sampling_rate": 1.0,
+            "arize_error_sampling_rate": 1.0,
         },
     }
 

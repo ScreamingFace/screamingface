@@ -63,6 +63,11 @@ _LITELLM_GLOBAL_TRUTHY_FIELDS = (
     "pre_call_rules",
     "post_call_rules",
     "drop_params",
+    # WHY (litellm 1.105): when truthy, the OpenAI/Azure transformation moves every system
+    # message to the front before dispatch — an ambient rewrite of the wire request for
+    # every call, the same category as `drop_params`, so the cached answer would be for a
+    # request this plugin never sent.
+    "openai_system_messages_first",
 )
 # LiteLLM's ambient request MUTATOR — read on its own, not through the tuple above; see
 # ``_ambient_modifier_is_enabled`` for why its blast radius is narrower.

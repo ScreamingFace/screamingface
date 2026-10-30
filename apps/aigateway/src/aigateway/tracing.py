@@ -33,6 +33,7 @@ import logging
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
+from fastapi.telemetry import TelemetryConfig
 from opentelemetry import trace
 from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -60,6 +61,17 @@ PROVIDER_ATTRIBUTE = "gen_ai.provider.name"
 ERROR_TYPE_ATTRIBUTE = "error.type"
 """OTel's conventional name for a failure's CLASS. Conventional precisely because it is the
 half that is safe to record — `error.message` is the half this gateway must never fill."""
+
+NATIVE_FASTAPI_TELEMETRY_OFF: TelemetryConfig = {
+    "tracing": False,
+    "operation_spans": False,
+    "metrics": False,
+    "logs": False,
+}
+"""FastAPI >= 0.143 ships native OpenTelemetry, on by default. This gateway's spans come from
+`middleware/call_id.py` and its logs from the redacting `logs` pipeline, so the native layer
+would add a second, unfiltered server span per request (escaping `span_exclusion`) and a
+second log path that skips redaction. Every app this gateway builds passes this config."""
 
 _TRACER_NAME = "aigateway.tracing"
 
