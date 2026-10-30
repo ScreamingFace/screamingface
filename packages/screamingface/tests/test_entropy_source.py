@@ -19,7 +19,7 @@ from _combine_contract import engine_operators
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._signals import Signal
-from screamingface.reducer import Reducer
+from screamingface._surface.chain import Step
 
 _ALPHA = "openrouter/acme/alpha"
 _BETA = "openrouter/acme/beta"
@@ -32,8 +32,8 @@ _WEIGHTED: list[Any] = [
 ]
 
 
-def _pick(name: str, order: Literal["max", "min"] = "max") -> sf.Pick:
-    return sf.Pick(by_signal=sf.signal(name), order=order)
+def _pick(name: str, order: Literal["max", "min"] = "max") -> sf.ArgMax | sf.ArgMin:
+    return sf.ArgMin(name) if order == "min" else sf.ArgMax(name)
 
 
 def _compiled(recipe: sf.Recipe) -> str:
@@ -53,13 +53,13 @@ def _recovered(url4: str) -> sf.Recipe:
 
 @pytest.mark.parametrize("reducer", _WEIGHTED)
 def test_vote_weight_refuses_entropy_with_an_order_min_hint(
-    reducer: Callable[[Signal], Reducer],
+    reducer: Callable[[Signal], Step],
 ) -> None:
     with pytest.raises(ValueError, match="order='min'"):
-        sf.Fusion(_MEMBERS, signals={"ent": sf.Entropy()}, synthesizer=reducer(sf.signal("ent")))
-    # Control: Pick with order='min' builds.
-    fusion = sf.Fusion(_MEMBERS, signals={"ent": sf.Entropy()}, synthesizer=_pick("ent", "min"))
-    assert isinstance(fusion, sf.Fusion)
+        _ = sf.Fanout(_MEMBERS, signals={"ent": sf.Entropy()}) >> reducer(sf.signal("ent"))
+    # Control: ArgMin builds.
+    fusion = sf.Fanout(_MEMBERS, signals={"ent": sf.Entropy()}) >> _pick("ent", "min")
+    assert isinstance(fusion, sf.Pipeline)
 
 
 # --- EN#8: top_logprobs=k on each member call; OpenRouter sf.Model members only ---------------
@@ -67,7 +67,7 @@ def test_vote_weight_refuses_entropy_with_an_order_min_hint(
 
 def test_entropy_compiles_top_logprobs_on_each_member_call() -> None:
     compiled = compile_candidate(
-        sf.Fusion(_MEMBERS, signals={"ent": sf.Entropy()}, synthesizer=_pick("ent", "min")),
+        sf.Fanout(_MEMBERS, signals={"ent": sf.Entropy()}) >> _pick("ent", "min"),
         operators=engine_operators(),
     )
     url4 = compiled.url4
@@ -82,27 +82,21 @@ def test_entropy_compiles_top_logprobs_on_each_member_call() -> None:
     ]
     assert '"signals":{"ent":{"source":"entropy","top_logprobs":5}}' in url4
     three = _compiled(
-        sf.Fusion(
-            _MEMBERS, signals={"ent": sf.Entropy(top_logprobs=3)}, synthesizer=_pick("ent", "min")
-        )
+        sf.Fanout(_MEMBERS, signals={"ent": sf.Entropy(top_logprobs=3)}) >> _pick("ent", "min")
     )
     assert "top_logprobs=3&q=(" in three
 
 
 def test_entropy_refuses_non_openrouter_and_recipe_members() -> None:
     with pytest.raises(ValueError, match=re.escape("sf.Entropy supports OpenRouter models in v1")):
-        sf.Fusion(
-            [_ALPHA, "prov/beta"], signals={"ent": sf.Entropy()}, synthesizer=_pick("ent", "min")
-        )
+        _ = sf.Fanout([_ALPHA, "prov/beta"], signals={"ent": sf.Entropy()}) >> _pick("ent", "min")
     nested: list[sf.Recipe] = [
-        sf.Fusion([_ALPHA, _BETA], synthesizer=sf.Vote()),
+        sf.Fanout([_ALPHA, _BETA]) >> sf.Vote(),
         sf.Pipeline([_ALPHA, _BETA]),
     ]
     for member in nested:
         with pytest.raises(ValueError, match="one sf.Model call"):
-            sf.Fusion(
-                [member, _GAMMA], signals={"ent": sf.Entropy()}, synthesizer=_pick("ent", "min")
-            )
+            _ = sf.Fanout([member, _GAMMA], signals={"ent": sf.Entropy()}) >> _pick("ent", "min")
 
 
 # --- EN#6: k is an int from 1 to 20, default 5 ------------------------------------------------
@@ -125,12 +119,9 @@ def test_entropy_refuses_bad_k() -> None:
 def test_entropy_fusion_rebuilds_from_url4_without_injected_params(
     quorum: int | Literal["all"],
 ) -> None:
-    fusion = sf.Fusion(
-        [_ALPHA, _BETA],
-        signals={"ent": sf.Entropy(top_logprobs=3)},
-        synthesizer=_pick("ent", "min"),
-        quorum=quorum,
-    )
+    fusion = sf.Fanout(
+        [_ALPHA, _BETA], signals={"ent": sf.Entropy(top_logprobs=3)}, quorum=quorum
+    ) >> _pick("ent", "min")
     url4 = _compiled(fusion)
     code = sf.Url4(url4).to_python()
 
@@ -138,6 +129,7 @@ def test_entropy_fusion_rebuilds_from_url4_without_injected_params(
     assert code.count("top_logprobs") == 1
     assert "params=" not in code
     recovered = _recovered(url4)
+    assert recovered == fusion
     assert repr(recovered) == repr(fusion)
     assert _compiled(recovered) == url4
 
@@ -147,8 +139,6 @@ def test_entropy_fusion_rebuilds_from_url4_without_injected_params(
 
 def test_fusion_refuses_two_entropy_sources() -> None:
     with pytest.raises(ValueError, match="at most one sf.Entropy"):
-        sf.Fusion(
-            _MEMBERS,
-            signals={"ea": sf.Entropy(), "eb": sf.Entropy(top_logprobs=3)},
-            synthesizer=_pick("ea", "min"),
-        )
+        _ = sf.Fanout(
+            _MEMBERS, signals={"ea": sf.Entropy(), "eb": sf.Entropy(top_logprobs=3)}
+        ) >> _pick("ea", "min")

@@ -783,7 +783,7 @@ def _submission(
     paper_metadata: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
-        raise TypeError("candidate_result must be an sf.CandidateResult")
+        raise TypeError("candidate_result must be a sf.CandidateResult")
     selected_authors = _submission_authors(authors)
     selected_paper_url = None if paper_url is None else _paper_url(paper_url)
     selected_credit = _credit_fields(authors_metadata, paper_metadata)

@@ -1,16 +1,14 @@
 """The GSM8K Fusion regression lane, from recorded responses (OME-1289 E4a, FR#13).
 
-The claim: the rewritten ``sf.Fusion`` (a Fan-out, a context Reduce, then a Model) sends the same
-requests and gives the same answers as the recording. Two Fusion shapes are replayed
-(``model_synthesizer`` and ``recipe_synthesizer``, see ``harness.fusion_golden``), each as the named
-``sf.Fusion`` and as its block form ``sf.Pipeline([sf.Fusion(members, synthesizer=sf.Reduce(
-"context")), S])`` (FR-2). Every run goes through the real engine and the real gateway whose only
-answers come from the lane's cache snapshot, with a capture proxy between them so that every
-``/chat/completions`` request body is pinned too. Free and keyless.
+The claim: ``sf.Fanout(members) >> sf.Synthesize(S)`` sends the same requests and gives the same
+answers as the recording. Two shapes are replayed (``model_synthesizer`` and
+``recipe_synthesizer``, see ``harness.fusion_golden``). Every run goes through the real engine and
+the real gateway whose only answers come from the lane's cache snapshot, with a capture proxy
+between them so that every ``/chat/completions`` request body is pinned too. Free and keyless.
 
 Each run is held to the golden of its shape: the five locks of ``test_boards`` (expression sha,
 case statuses, failure codes, coverage, score), the Case outputs, and the sorted canonical JSON
-digests of every request body. A block form must also render the url4 of its named form.
+digests of every request body.
 
 SKIP DISCIPLINE (like ``test_boards``): a lane with no fixtures SKIPS LOUDLY, naming exactly what is
 missing. It never fake-passes. Three prerequisites:
@@ -27,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 from harness._gating import GOLDENS_DIR, SNAPSHOTS_DIR, require_e2e_stack
@@ -48,7 +46,6 @@ pytestmark = pytest.mark.e2e
 
 LANE = "inspect-gsm8k-fusion"
 BOARD = "inspect-gsm8k"
-FORMS: tuple[Literal["named", "block"], ...] = ("named", "block")
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +59,7 @@ class _Run:
 @dataclass(frozen=True, slots=True)
 class _Lane:
     golden: FusionGolden
-    runs: dict[tuple[str, str], _Run]
+    runs: dict[str, _Run]
 
 
 def _require_lane_fixtures() -> tuple[Path, Path | None, FusionGolden]:
@@ -91,7 +88,7 @@ def _require_lane_fixtures() -> tuple[Path, Path | None, FusionGolden]:
 
 @pytest.fixture(scope="module")
 def _lane(tmp_path_factory: pytest.TempPathFactory) -> _Lane:
-    """One capture stack; every shape in both forms, each with its own request bodies."""
+    """One capture stack; every shape, each with its own request bodies."""
     # Fixture presence is checked FIRST so "no fixtures yet" is visible even on a machine that
     # could not run the stack anyway; then the stack gate.
     snapshot, manifest, golden = _require_lane_fixtures()
@@ -101,33 +98,25 @@ def _lane(tmp_path_factory: pytest.TempPathFactory) -> _Lane:
 
     work_dir = tmp_path_factory.mktemp("fusion-replay")
     backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=work_dir)
-    runs: dict[tuple[str, str], _Run] = {}
+    runs: dict[str, _Run] = {}
     with inspect_capture_stack(backend, work_dir=work_dir, assets_dir=assets_root()) as (
         stack,
         proxy,
     ):
         with sf.Client(engine_url=stack.engine_url) as client:
             for recipe in RECIPES:
-                for form in FORMS:
-                    candidate = (
-                        golden.candidate.build(recipe)
-                        if form == "named"
-                        else golden.candidate.build_block(recipe)
-                    )
-                    start = len(proxy.records)
-                    report = client.evaluate(
-                        candidate, benchmark=BOARD, limit=golden.limit, progress=False
-                    )
-                    runs[(recipe, form)] = _Run(report, body_digests(proxy.records[start:]))
+                candidate = golden.candidate.build(recipe)
+                start = len(proxy.records)
+                report = client.evaluate(
+                    candidate, benchmark=BOARD, limit=golden.limit, progress=False
+                )
+                runs[recipe] = _Run(report, body_digests(proxy.records[start:]))
     return _Lane(golden, runs)
 
 
-@pytest.mark.parametrize("form", FORMS)
 @pytest.mark.parametrize("recipe", RECIPES)
-def test_fusion_regression_replay_is_byte_identical(
-    _lane: _Lane, recipe: FusionRecipe, form: Literal["named", "block"]
-) -> None:
-    golden, run = _lane.golden, _lane.runs[(recipe, form)]
+def test_fusion_regression_replay_is_byte_identical(_lane: _Lane, recipe: FusionRecipe) -> None:
+    golden, run = _lane.golden, _lane.runs[recipe]
 
     assert run.report.benchmark.id == BOARD
     assert run.report.benchmark.revision == golden.revision, (
@@ -148,6 +137,3 @@ def test_fusion_regression_replay_is_byte_identical(
     )
     # The lane's own locks: every Case output, and the canonical JSON digest of every request body.
     assert_fusion_replay(golden.recipes[recipe], candidate.cases, run.digests)
-    # FR-2: the block form is the named form, down to the url4.
-    named = _lane.runs[(recipe, "named")].report.candidates.only
-    assert str(candidate.url4) == str(named.url4)

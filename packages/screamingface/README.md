@@ -2,8 +2,8 @@
 
 Evaluate composable Candidate Recipes against URL4-native research Benchmarks.
 
-> **Development status:** immutable Model/Fusion/Pipeline authoring, Engine-backed discovery, the direct
-> evaluation API, and the confirmed `url4-cloud` lifecycle are implemented. The current MVP
+> **Development status:** immutable Model, Fanout and Pipeline authoring, Engine-backed discovery,
+> the direct evaluation API, and the confirmed `url4-cloud` lifecycle are implemented. The current MVP
 > Engine publishes canonical `draco`, canonical `ifeval`, and the separately named
 > `healthbench-worst30` challenge as complete URL4 Benchmark resources. There is no fixture,
 > embedded benchmark runtime, or Client-side execution fallback.
@@ -116,10 +116,8 @@ sf.connect()  # notebook panel; connect any providers enabled by this Engine
 opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
-frontier_pair = sf.Fusion(
-    [opus, gpt],
-    name="frontier-pair",
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
+frontier_pair = sf.Fanout([opus, gpt], name="frontier-pair") >> sf.Synthesize(
+    "openrouter/anthropic/claude-opus-4.8"
 )
 
 report = sf.evaluate(
@@ -147,9 +145,10 @@ replayed_report = sf.evaluate(score.url4)
 ```
 
 `Url4.to_python()` is local and no-spend: it returns a `str` of Python source, not live objects —
-the `sf.Model`, `sf.Fusion`, `sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` written
-back out as editable code, plus the recovered Benchmark call. Raw URL4 evaluation does not accept
-`benchmark=` or `limit=` because either would imply recompiling an already-complete expression.
+the `sf.Model`, the `sf.Fanout(...) >> ...` chain, the `sf.Pipeline`, the `sf.CorrectiveLoop`, or
+the `sf.SelfCorrective` written back out as editable code, plus the recovered Benchmark call. Raw
+URL4 evaluation does not accept `benchmark=` or `limit=` because either would imply recompiling an
+already-complete expression.
 Replay starts a new, potentially paid Run; identical URL4 does not guarantee identical model
 output.
 
@@ -169,19 +168,107 @@ the named protocol: `benchmark="draco", limit=1` still uses canonical DRACO's fu
 Judge passes. The non-canonical HealthBench challenge is therefore named independently as
 `healthbench-worst30`, rather than presented as a canonical HealthBench variant.
 
+### How a recipe reads
+
+A recipe reads from left to right, and `>>` joins its steps. A block starts with `sf.Fanout` and
+has four parts:
+
+```text
+sf.Fanout(members) >> [sf.Judge] >> [sf.Rank | sf.Filter | sf.Concat]* >> reducer or sf.Synthesize
+       map               score                  narrow                        reduce / write
+```
+
+- **Map.** `sf.Fanout(members, signals=None, quorum="all", name=None, prompt=None)` sends the input
+  to every member at the same time. `signals=` declares the numbers that the run measures from
+  each answer (see "Signal sources").
+- **Score.** `sf.Judge(model, rubric=...)` is optional. One judge call scores every member, and
+  the later steps of the block read the score as `"score:judge"`. The judge does not choose a
+  member.
+- **Narrow.** `sf.Rank`, `sf.Filter` and `sf.Concat` are optional. `sf.Rank` and `sf.Filter` keep
+  some members, and `sf.Concat` joins all the member texts. A narrow step does not give the answer.
+- **Reduce or write.** One reducer gives the answer from the member answers: `sf.Vote`,
+  `sf.Median`, `sf.Mean`, `sf.ArgMax`, `sf.ArgMin`, `sf.First`, `sf.Merge`, `sf.JudgePick` or
+  `sf.Gate`. Or one `sf.Synthesize(model)` writer writes a new answer.
+
+The chain rules:
+
+- A `sf.Fanout` block ends in one reducer or in one `sf.Synthesize`. Nothing else ends it.
+- A block has at most one `sf.Judge`, directly after the `sf.Fanout`. A `sf.Judge` needs a later
+  step in its block that reads `"score:judge"`, and a step that reads `"score:judge"` needs a
+  `sf.Judge` in its block. `sf.Judge` and `sf.JudgePick` use the same judge signal, so a block
+  with a `sf.Judge` cannot end in `sf.JudgePick`.
+- A narrow step never ends a recipe. After `sf.Rank` or `sf.Filter`, put another narrow step, a
+  reducer or `sf.Synthesize`. After `sf.Concat`, put `sf.Synthesize`. A block has at most 4 narrow
+  steps.
+- `sf.Merge`, `sf.JudgePick` and a `sf.Gate` with a judge or writer fallback read every member
+  (`sf.JudgePick` and the fallback in their own model call), so they cannot follow a narrow step.
+- More stages can follow a closed block: `>> sf.Model(...)`, a new `sf.Fanout(...)` block, or a
+  `sf.Pipeline`. A closed block is a recipe, so it can also be a `sf.Fanout` member or the model of
+  a `sf.Synthesize`.
+- A step in the wrong place raises `ValueError` at the `>>` that adds it, or at the `>>` that
+  closes its block. A chain that ends inside a block is a value that you can extend, but the
+  compile, `sf.evaluate(...)` and `Url4` rendering refuse it before any call.
+- A named `sf.Pipeline` keeps its stages as one group, so a later `>>` cannot reach into it. It
+  cannot end in an open block: close the `sf.Fanout` block inside the named Pipeline.
+
+`sf.Synthesize` reads one of three inputs. The input depends on the step before it:
+
+1. Directly after `sf.Fanout`: JSON with the block input (`input`) and the member answers
+   (`outputs`; see "Quorum and failed members").
+2. After `sf.Rank` or `sf.Filter`: JSON with the block input and the kept member texts,
+   `{"input":"...","selected":[{"id":"member_2","text":"..."}]}` (see "Rank and Concat
+   selections").
+3. After `sf.Concat`: the joined text only. Put the task in the prompt of the writer.
+
+A narrow step can also come before a reducer. Then the narrow steps and the reducer run in one
+combine call, and the reducer reads only the members that the narrow steps kept:
+
+```python
+import screamingface as sf
+
+routes = ["provider/alpha", "provider/beta", "provider/gamma"]
+reply_json = (
+    "Answer the request. Reply with only one JSON object: "
+    '{"answer": <a number>, "confidence": <a number from 0 to 1>}.'
+)
+json_members = [sf.Model(route, prompt=reply_json) for route in routes]
+judge = sf.Judge("provider/judge", rubric="Give a higher number to a more correct answer.")
+
+# The mean of the answers of the members with a confidence above 0.7.
+confident_mean = (
+    sf.Fanout(json_members)
+    >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+    >> sf.Mean(over="field:answer")
+)
+# A majority vote over the 2 members that the judge scores highest.
+best_two_vote = sf.Fanout(routes) >> judge >> sf.Rank(2, by="score:judge") >> sf.Vote()
+```
+
+A member that a narrow step leaves out has the status `"excluded"` and the reason `not_selected`
+(or `no_signal`, when it has no value for the signal that the step reads). The evidence has one
+record per narrow step in `CombineEvidence.narrow` (a `sf.report.CombineNarrow`: the select
+operator, the signal, the kept members and, for a Rank, the cut, the scores and the ranks). When a
+narrow step keeps no member, the Case abstains with `no_votes`. When a Rank finds fewer than `k`
+members with a value, the Case abstains with `cut_not_met`. This needs an Engine and an SDK from
+the same E4b release.
+
+`sf.Fusion(members, synthesizer=...)` is a shortcut for one block. A route, an `sf.Model` or a
+recipe as `synthesizer=` becomes `sf.Synthesize(...)`, and a reducer comes after the `sf.Fanout`
+as it is (see "Fusion as a named recipe"). `optional=True` wraps the block as
+`sf.Pipeline([...], optional=True)`; it needs a closed block, so `sf.Fusion` refuses
+`optional=True` with a narrow step as `synthesizer=`, and it refuses a bare `sf.Judge`, which only
+scores. The examples in this README use the `sf.Fanout(...) >> ...` form.
+
 ### Candidate policy
 
-Models work without prompt configuration. For a Fusion that produces a final answer, name its
-synthesizer explicitly; neither the Engine catalogue nor a Benchmark silently chooses one. The SDK
-supplies general answer and constraint-aware synthesis prompts, then embeds the explicit Model
-routes and resolved prompt defaults in the final URL4:
+Models work without prompt configuration. When a `sf.Fanout` block ends in a writer, name the
+writer model explicitly with `sf.Synthesize(model)`; neither the Engine catalogue nor a Benchmark
+silently chooses one. The SDK supplies general answer and constraint-aware synthesis prompts, then
+embeds the explicit Model routes and resolved prompt defaults in the final URL4:
 
 ```python
 plain = sf.Model("openrouter/openai/gpt-5.5")
-pair = sf.Fusion(
-    [opus, gpt],
-    synthesizer="openrouter/anthropic/claude-opus-4.8",
-)
+pair = sf.Fanout([opus, gpt]) >> sf.Synthesize("openrouter/anthropic/claude-opus-4.8")
 ```
 
 Researchers can override only Candidate-owned policy when an experiment needs it:
@@ -193,68 +280,69 @@ careful = sf.Model(
     params={"reasoning_effort": "high"},
 )
 
-constraint_aware = sf.Fusion(
-    [opus, gpt],
-    synthesizer=sf.Model(
+constraint_aware = sf.Fanout([opus, gpt]) >> sf.Synthesize(
+    sf.Model(
         "openrouter/openai/gpt-5.5",
         prompt="Produce one final answer that preserves every constraint in the original request.",
         params={"reasoning_effort": "high"},
-    ),
+    )
 )
 ```
 
 These overrides never alter Benchmark-owned Cases, fixed Judge models or prompts, Grading, or
-Aggregation. Prompt defaults and explicit overrides are embedded in each final URL4. Every Fusion
-requires an explicit `synthesizer=` and always produces one answer. Model-call parameters are never
+Aggregation. Prompt defaults and explicit overrides are embedded in each final URL4. Every
+`sf.Fanout` block ends in one reducer or one `sf.Synthesize` writer, and it always produces one
+answer. Model-call parameters are never
 invented by the SDK: a parameter-free Model emits no sampling or retrieval parameters and therefore
 uses the Engine's configured defaults. Benchmarks may still impose explicit execution policy in
 their own URL4 protocol. Transport, routing, tool, and Benchmark-policy fields remain unavailable
 through Candidate `params`.
 
-### Fusion quorum and failed members
+### Quorum and failed members
 
-A Fusion requires every member by default (`quorum="all"`). Mark individual members
+A `sf.Fanout` requires every member by default (`quorum="all"`). Mark individual members
 with `optional=True` to tolerate their failures:
 
 ```python
-resilient = sf.Fusion(
+resilient = sf.Fanout(
     [
         sf.Model("provider/a", optional=True),
         sf.Model("provider/b", optional=True),
         "provider/c",  # required
     ],
-    synthesizer="provider/synth",
     quorum=2,
-)
+) >> sf.Synthesize("provider/synth")
 ```
 
 The compiler wraps optional members with URL4's `;optional` and gates the member-only
-expression with `;quorum=2`, before running the synthesizer. Required members always
+expression with `;quorum=2`, before the writer runs. Required members always
 have to succeed, even if other successes already meet the quorum. Strings and Recipes
-without `optional=True` remain required. `Pipeline(..., optional=True)` and
-`Fusion(..., optional=True)` guard a complete composite when used as a member of another
-Fusion; their intermediate answers do not count toward the containing Fusion's quorum.
-Optional Recipes are only valid as Fusion members, not standalone Candidates, pipeline
-stages, or synthesizers.
+without `optional=True` remain required. `sf.Pipeline([...], optional=True)` guards a complete
+composite (a chain or a closed block) when it is a member of another `sf.Fanout`; its
+intermediate answers do not count toward the quorum of that `sf.Fanout`. `sf.Fanout` has no
+`optional=`, so wrap the block: `sf.Pipeline([sf.Fanout(members) >> sf.Vote()], optional=True)`.
+Optional Recipes are only valid as `sf.Fanout` members, not standalone Candidates, pipeline
+stages, or writers.
 
-The synthesizer receives JSON containing the original `input` and an `outputs` string
-with ordered `member_N: answer` sections for successful members only. Fusions using the
-default quorum and only required members retain their existing outputs object.
+The `sf.Synthesize` writer directly after the `sf.Fanout` receives JSON containing the original
+`input` and an `outputs` string with ordered `member_N: answer` sections for successful members
+only. Blocks with the default quorum and only required members retain their existing outputs
+object.
 
 Quorum is a success floor checked after members finish, not an early response race.
 `quorum="all"` still requires every member to succeed, including optional members;
 `quorum=0` permits synthesis with no successful members when every member is optional.
 `None`, booleans, negative numbers, and numbers above the member count are rejected.
 Quorum and per-member optional settings survive `Url4.to_python()` and replay.
-A reducer synthesizer (`sf.Vote`, `sf.Reduce`, `sf.Judge` and the other combine blocks) takes
+A block that ends in a reducer (`sf.Vote`, `sf.JudgePick` and the other reduce steps) takes
 quorum and optional members too. It reads only the members that answered, and the evidence lists
-each failed optional member with the reason `missing`; a judge scores only the members that
-answered. `sf.Concat` joins only the members that answered, so set `label=True` when the next
-stage must know which member wrote each part. With `quorum=0` and no member answering, the
-reducer abstains and the Case scores 0.0.
+each failed optional member with the reason `missing`; a judge (`sf.Judge` or `sf.JudgePick`)
+sees only the members that answered. `sf.Concat` joins only the members that answered, so set
+`label=True` when the writer must know which member wrote each part. With `quorum=0` and no member
+answering, the reducer abstains and the Case scores 0.0.
 
 **Deployment requirement:** before using composed quorum Recipes (such as a Pipeline
-feeding a quorum Fusion or a quorum Fusion used as a synthesizer), deploy an Engine
+feeding a quorum block or a quorum block used as a writer), deploy an Engine
 containing the URL4 nested-expression scope fix shipped with this change. Older runtimes
 can pass literal binding references instead of resolved upstream answers. Deploy the
 Engine operation-reporting update as well to retain member outputs and accounting.
@@ -267,23 +355,19 @@ propagation for these compositions.
 vote over them counts `n` real answers and not one cached answer `n` times:
 
 ```python
-candidate = sf.Fusion(
-    sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7),
-    synthesizer=sf.Vote(extract="last_number", normalize="numeric"),
+candidate = sf.Fanout(sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7)) >> sf.Vote(
+    over="last_number", normalize="numeric"
 )
 ```
-
-The block form is the same Candidate, byte for byte:
-`synthesizer=sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric"))`.
 
 Seeds default to `0` through `n - 1`; pass `seeds=[...]` (unique ints) to choose them. `prompts=[...]`
 gives member `i` its own prompt (for example one per language), `temperature=` and `params=` apply
 to every member, and a `sf.Model` as the first argument is the base whose prompt and params the
 samples inherit. A model whose provider does not accept `seed` fails with `sf.PlanningError` (code
 `unsupported_model_parameter`) before the run starts and before any model is called. The SDK emits
-`sf.DuplicateMembersWarning` when a reducer Fusion has two members that send the same request,
-because the gateway may serve them from one cached answer. `sf.DuplicateMembersWarning` fires for
-any reducer synthesizer, a named reducer or an `sf.Reduce` block.
+`sf.DuplicateMembersWarning` when a block that ends in a reducer has two members that send the
+same request, because the gateway may serve them from one cached answer. The warning fires for
+every reducer step.
 
 A call that sets its own `seed` keeps it, and a run seed (`answer_seed=`, one "sitting" of an
 evaluation) only applies to calls without one. So `sf.samples()` members, and any
@@ -305,8 +389,8 @@ Otherwise drop the explicit seed. The check covers Recipes and raw URL4 replays
 ### Serial and recursive composition
 
 Every complete `Recipe` accepts one input and returns one final answer. `Model` is atomic,
-`Fusion` runs members in parallel and passes their answers to a synthesizer, and `Pipeline` passes
-one answer through ordered serial stages:
+a `sf.Fanout` block runs members in parallel and passes their answers to a reducer or a writer,
+and `Pipeline` passes one answer through ordered serial stages:
 
 ```python
 draft = sf.Model("openrouter/openai/gpt-5.5")
@@ -320,32 +404,32 @@ final = sf.Model(
 )
 
 review_chain = sf.Pipeline([draft, review, final], name="review-chain")
-same_chain = draft.then(review).then(final)
+same_stages = draft >> review >> final  # unnamed: gpt-5.5->claude-opus-4.8->gpt-5.5
 ```
 
 The first Pipeline stage receives the Candidate input; each later stage receives only the previous
 stage's answer. No original input or accumulated history is injected implicitly. The one exception
-is the stage after a `sf.Rank` or a `sf.Filter`: its selection JSON also holds the input of that
-Fusion (see "Rank and Concat selections"). Pipelines and complete Fusions compose recursively,
-including in the synthesis role:
+is a `sf.Synthesize` writer after a `sf.Rank` or a `sf.Filter`: its selection JSON also holds the
+input of that block (see "Rank and Concat selections"). Pipelines and closed blocks compose
+recursively, also as the model of a writer:
 
 ```python
 judge = sf.Model("openrouter/anthropic/claude-opus-4.8")
 writer = sf.Model("openrouter/openai/gpt-5.5")
 
-candidate = sf.Fusion(
+candidate = sf.Fanout(
     [
         review_chain,
         sf.Model("openrouter/google/gemini-3.1-pro-preview"),
-    ],
-    synthesizer=sf.Pipeline([judge, writer]),
-)
+    ]
+) >> sf.Synthesize(sf.Pipeline([judge, writer]))
 ```
 
-`Pipeline([...])` is the canonical serial representation; `.then(...)` is immutable shorthand and
-never executes work. Every Recipe-valued position also accepts a model-route string as shorthand
-for `sf.Model(...)`. Shape mismatches, cycles, invalid models, and invalid parameters fail before
-spend.
+`Pipeline([...])` is the canonical serial representation; `a >> b` is immutable shorthand for
+`sf.Pipeline([a, b])` and never executes work. An unnamed nested Pipeline is flattened, and a
+named one keeps its grouping. Every Recipe-valued position also accepts a model-route string as
+shorthand for `sf.Model(...)`. Shape mismatches, cycles, invalid models, and invalid parameters
+fail before spend.
 
 Each flat Benchmark resource uses `screamingface.benchmark.v1` and carries one canonical `url4`
 plus an opaque immutable `revision`. The SDK fetches the requested id, compiles a Recipe
@@ -362,7 +446,7 @@ stateful protocols without a Client-interpreted workflow language.
 
 ### Deterministic synthesizers
 
-A Fusion can combine its members with a rule instead of a model:
+A block can end in a rule (a reducer) instead of a model:
 
 ```python
 routes = [
@@ -371,9 +455,13 @@ routes = [
     "openrouter/google/gemini-3.1-pro-preview",
 ]
 
-by_vote = sf.Fusion(routes, synthesizer=sf.Vote(extract="last_number", normalize="numeric"))
-by_median = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
+by_vote = sf.Fanout(routes) >> sf.Vote(over="last_number", normalize="numeric")
+by_median = sf.Fanout(routes) >> sf.Median(over="last_number", select="value")
 ```
+
+`over=` names the rule that reads each answer, for example `"last_line"`, `"last_number"`,
+`"boxed"`, `"whole"`, `"json"`, `"benchmark"`, `"field:<path>"` (a field of a JSON reply), or
+`sf.Extract(rule, ...)` for a rule with arguments.
 
 The combine step makes no model call. The answer is one member's text byte for byte, or the median
 number itself for `select="value"`. A tie goes to the first member in author order and sets `tie`.
@@ -381,7 +469,7 @@ A member with no usable value does not vote. When no member votes, the Case abst
 `""`, its score is 0.0 and `case.abstained` is true. It does not fail.
 On HealthBench a harmful answer can score below 0, so an abstain can rank above a bad answer; this
 is intended. Only the final step of a Candidate can mark a Case as abstained: a combine step that
-feeds another stage (a Rank or a Filter) never does.
+feeds another stage (a Rank or a Filter before `sf.Synthesize`) never does.
 
 **Weighted median.** `sf.Median(weights=(1, 1, 3))` takes one positive number per member, or
 `sf.signal(key)`, as `sf.Vote` does. The members with a usable weight are sorted by value. The
@@ -389,25 +477,24 @@ answer is the first value where the running weight reaches half the total weight
 half, the answer is the mean of that value and the next one, so equal weights give the plain
 median. A member with a missing or non-positive weight is dropped. It is never the nearest pick.
 The evidence shows that member with the status `"excluded"` and the reason `no_weight`.
-When no member is left, the Case abstains. For a number in a JSON reply, use the block form
-`sf.Reduce("median", extract=sf.Extract("field", path="answer"),
-weights=sf.signal("field:confidence"), select="value")`. The block form takes `select=` as
-`sf.Median` does: `select="value"` returns the median number, and the default
+When no member is left, the Case abstains. For a number in a JSON reply, read the field with
+`over=`: `sf.Median(over="field:answer", weights="field:confidence", select="value")` (see
+"Combine recipes"). `select="value"` returns the median number, and the default
 `select="nearest"` returns the text of the nearest member. A `sf.signal("score:judge")` weight
-raises `ValueError`: a Median has no judge.
+raises `ValueError`: a Median does not read a judge's scores as weights; use
+`sf.Vote(weights="score:judge")` or `sf.ArgMax("score:judge")`.
 
 `sf.Mean` returns the mean of the members' numbers (`select="value"`, the default) or the text of
 the member nearest the mean (`select="nearest"`). Give it weights to make some members count more:
 
 ```python
-by_mean = sf.Fusion(routes, synthesizer=sf.Mean(weights=[1, 1, 2]))
+by_mean = sf.Fanout(routes) >> sf.Mean(weights=[1, 1, 2])
 ```
 
 The sums are exact, and the division is rounded to 34 significant digits. A member with no usable
 weight is dropped: it is not in the mean and it is never the nearest member. For a number in a
-JSON reply, use the block form `sf.Reduce("mean", extract=sf.Extract("field", path="answer"),
-weights=sf.signal("field:confidence"))` (see "Combine recipes"). The block form also takes
-`select="nearest"`.
+JSON reply, use `sf.Mean(over="field:answer", weights="field:confidence")` (see "Combine
+recipes"). `select="nearest"` returns the text of the member nearest the mean.
 The evidence shows a member with no usable weight with the status `"excluded"` and the reason
 `no_weight`.
 
@@ -415,12 +502,12 @@ To group answers the way the benchmark grades them, let the benchmark choose the
 SDK reads the rule from the benchmark before any spend:
 
 ```python
-by_grader = sf.Fusion(routes, synthesizer=sf.Vote(extract="benchmark"))
+by_grader = sf.Fanout(routes) >> sf.Vote(over="benchmark")
 report = client.evaluate(by_grader, benchmark="inspect-gsm8k")
 ```
 
 A benchmark with no answer rule raises `ValueError` before any spend. For a rule with arguments, use
-`sf.Reduce("plurality", extract=sf.Extract("regex", pattern=...))`.
+`sf.Vote(over=sf.Extract("regex", pattern=...))`.
 
 **Regex patterns.** `sf.Extract("regex", pattern=...)` and `sf.matches(pattern)` run on RE2 in the
 Engine. RE2 has no lookarounds and no backreferences. `\d` and `\w` match ASCII only: use `\p{L}` and
@@ -433,38 +520,27 @@ that the SDK accepts and RE2 refuses fails the Case with `combine_spec_invalid`.
 The evidence (the Answer row per member, the tally, the result, the agreement and the chosen member)
 is in the `combine` field of each case's `operations` entry (`op_synthesis_1` for a single reducer).
 `case.answers()` joins each member's text to its Answer. `case.trace()` and `report.trace_dict()`
-show what each block did, in order. `report.trace_dict()` is `screamingface.report-trace.v1`, and
-`report.to_dict()` and `report.export()` stay `report.v1`. This needs an Engine that serves
-`GET /v1/operators`.
+show what each block did, in order. `report.trace_dict()` is `screamingface.report-trace.v1`.
+`report.to_dict()` and `report.export()` stay `report.v1`, and each Case with a combine step also
+has a `trace` key with the same entries (see "Combine steps in the report"). This needs an Engine
+that serves `GET /v1/operators`.
 
 Give a vote weights to make some members count more. A list gives each member a fixed weight, one
 positive number per member in author order. A `sf.signal` weighs each member by a number on its own
 Answer:
 
 ```python
-fixed = sf.Fusion(routes, synthesizer=sf.Vote(weights=[2, 1, 1]))
+fixed = sf.Fanout(routes) >> sf.Vote(weights=[2, 1, 1])
 
 # Each member replies with JSON such as {"answer": "B", "confidence": 0.4}.
-by_confidence = sf.Fusion(
-    routes,
-    synthesizer=sf.Reduce(
-        "weighted",
-        extract=sf.Extract("field", path="answer", normalize="text"),
-        weights=sf.signal("field:confidence"),
-    ),
-)
+by_confidence = sf.Fanout(routes) >> sf.Vote(over="field:answer", weights="field:confidence")
 
-# The same rule in the named form, with the cost of each member's own model calls as the weight.
-by_cost = sf.Fusion(routes, synthesizer=sf.Vote(weights=sf.signal("cost_usd")))
-by_cost_block = sf.Fusion(
-    routes,
-    synthesizer=sf.Reduce(
-        "weighted",
-        extract=sf.Extract("last_line", normalize="text"),
-        weights=sf.signal("cost_usd"),
-    ),
-)
+# The cost of each member's own model calls as the weight.
+by_cost = sf.Fanout(routes) >> sf.Vote(weights="cost_usd")
 ```
+
+A weight key is a string, or the same key as `sf.signal(key)`: `weights="cost_usd"` and
+`weights=sf.signal("cost_usd")` are one rule.
 
 Each answer scores the sum of the weights of the members who gave it. The answer is the text of the
 heaviest member who gave the winning answer (the first in author order on equal weights). A member
@@ -475,14 +551,15 @@ in the evidence.
 
 A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
 at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
-raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to
-`sf.Vote`, `sf.Mean` and `sf.Median` (see "Weighted median" above). `sf.signal("score:judge")`
-needs a judge on the same vote (see "Judge synthesizer" below).
+raises `ValueError` at the `>>` that closes the block. All of these raise before any call. Weights
+apply to `sf.Vote`, `sf.Mean` and `sf.Median` (see "Weighted median" above).
+`weights="score:judge"` needs a `sf.Judge` step in the same block (see "Judge synthesizer"
+below).
 
 The accounting keys are `cost_usd`, `latency_ms`, `tokens_in` and `tokens_out`. For a member they
 are the sum over the model calls that member made, which the Engine finds by each call's route and
 params. When two members send the same route and params (for example a repeated model, or a model
-that a later stage or another Fusion also calls), the Engine cannot tell the calls apart, so those
+that a later stage or another block also calls), the Engine cannot tell the calls apart, so those
 members have no accounting value and do not vote. This also holds in a corrective loop with
 `max_rounds` of 2 or more, where every round sends the member's calls again. To give each member
 its own calls, use `sf.samples()` (a different `seed` for each member).
@@ -494,10 +571,10 @@ prices changed). Only `cost_usd` is proven end to end by the paid replay lane. `
 
 **Members left out.** A step that reads a signal or a signal weight leaves out a member that has
 no value for it. The evidence row of that member has `status: "excluded"` and the reason
-`no_signal` (no value for the signal that the step reads: `sf.Rank(by_signal=...)`,
-`sf.Pick(by_signal=...)` or `sf.Filter(where=sf.signal(...) ...)`) or `no_weight` (no usable
-signal weight in a weighted `sf.Vote`, `sf.Median` or `sf.Mean`: missing, zero, negative or too
-large). `case.answers()` gives that member `sf.Answer(status="excluded", reason="no_signal")` (or
+`no_signal` (no value for the signal that the step reads: `sf.Rank(k, by=...)`,
+`sf.ArgMax(...)`, `sf.ArgMin(...)` or `sf.Filter(where=sf.signal(...) ...)`) or `no_weight` (no
+usable signal weight in a weighted `sf.Vote`, `sf.Median` or `sf.Mean`: missing, zero, negative or
+too large). `case.answers()` gives that member `sf.Answer(status="excluded", reason="no_signal")` (or
 `reason="no_weight"`), with the value it read, and the trace `extract` entry shows the same status
 and reason. The row is written also when the step abstains because no member is left. A member
 that failed keeps `status: "fail"` and its own reason, also when its signal is missing. Fixed
@@ -508,120 +585,106 @@ same release: an older SDK cannot read evidence with an excluded member.
 
 ### Judge synthesizer
 
-A judge is a model that reads the members and picks one. The answer of the Fusion is the text of the
-member that the judge picked. The judge does not write the answer.
+A judge is a model that reads the members. There are two judge steps, and neither one writes the
+answer:
+
+- `sf.Judge(model, rubric=..., params=None)` scores the members. It is the step after `sf.Fanout`,
+  and a later step of the block reads the scores as `"score:judge"`: `sf.ArgMax`, `sf.ArgMin`,
+  `sf.Rank`, `sf.Filter` or a weighted `sf.Vote`.
+- `sf.JudgePick(model, rubric=..., params=None)` is a reducer. The judge names one member, and the
+  answer is the text of that member.
 
 ```python
-by_label = sf.Fusion(
-    routes,
-    synthesizer=sf.Judge(
-        "anthropic/claude-opus-5", returns="label", rubric="Pick the most correct answer."
-    ),
+by_label = sf.Fanout(routes) >> sf.JudgePick(
+    "anthropic/claude-opus-5", rubric="Pick the most correct answer."
 )
-by_scores = sf.Fusion(
-    routes,
-    synthesizer=sf.Judge(
+by_scores = (
+    sf.Fanout(routes)
+    >> sf.Judge(
         "anthropic/claude-opus-5",
-        returns="scores",
         rubric="Give a higher number to a more correct answer.",
         params={"temperature": 0},
-    ),
+    )
+    >> sf.ArgMax("score:judge")
 )
 ```
 
-With `returns="label"`, the judge must reply with exactly one member id (for example `member_2`) and
-nothing else. With `returns="scores"`, the judge must reply with one JSON object that gives each
-member id one finite number. The highest score wins, and a tie goes to the first member in author
-order. The check is strict: quotes, a full stop, a code fence around a label, a missing member, an
-extra key, a string, `NaN` or `Infinity` all fail the Case with `judge_reply_invalid`. The prose of the
-judge is never used as the answer, and a reply that does not parse is not retried. (A transient
-transport error still gets the normal retry of the connector.)
+`sf.JudgePick` tells the judge to reply with exactly one member id (for example `member_2`) and
+nothing else. `sf.Judge` tells the judge to reply with one JSON object that gives each member id
+one finite number. `sf.ArgMax("score:judge")` returns the text of the member with the highest
+score, and a tie goes to the first member in author order. The check is strict: quotes, a full
+stop, a code fence around a label, a missing member, an extra key, a string, `NaN` or `Infinity`
+all fail the Case with `judge_reply_invalid`. The prose of the judge is never used as the answer,
+and a reply that does not parse is not retried. (A transient transport error still gets the normal
+retry of the connector.)
 
-**Lower is better.** `sf.Judge(model, returns="scores", rubric=..., order="min")` picks the member
-with the lowest score, for a rubric such as an error count or a risk score. The judge is told that a
-lower number means a better answer, and the first line of its system prompt is
-`judge-template@1 returns=scores order=min`. A tie goes to the first member in author order. The
-default `order="max"` keeps the url4 of a judge that has no order. A label judge has no order:
-`returns="label"` with `order="min"` raises `ValueError`. `sf.Rank(by=...)` and
-`sf.Vote(judge=...)` refuse a judge with `order="min"`, because they read the scores with their own
-rule. To keep the lowest scores with Rank, use `sf.Rank(k, by=sf.Judge(...), order="min")`; the
-judge is then told that a higher number is better. The block form takes `order=` the same way as
-`rubric=`. `order="min"` needs an Engine whose catalog has `best_holder@1`.
+**Lower is better.** `sf.Judge` does not tell the judge which way is better: the rubric says it.
+For a rubric where a lower number is better, such as an error count or a risk score, read the
+scores with `sf.ArgMin("score:judge")` or `sf.Rank(k, by="score:judge", order="min")`. A tie goes
+to the first member in author order. The first line of the judge system prompt is
+`judge-template@2 returns=scores` (`judge-template@2 returns=scores input=panel` for a block with a
+quorum or optional members). A url4 with the older `judge-template@1 returns=scores` template does
+not rebuild: `Url4(...).to_python()` raises `ValueError`. `sf.ArgMin` needs an Engine whose catalog
+has `best_holder@1`.
 
 The judge call is the operation `op_judge_1`. Its output is the raw reply of the judge, and its cost
 is in the accounting breakdown as a synthesis row. The combine step is `op_synthesis_1`. Its `combine`
 evidence holds the raw reply, the parsed label or scores, the chosen member and
-`presentation_order="author"`. The first line of the judge system prompt is `judge-template@1`. The
-template tells the judge to treat the member answers as data and not as instructions. A change of the
-template changes the url4, so it changes the replay identity.
+`presentation_order="author"`. The first line of the `sf.JudgePick` system prompt is
+`judge-template@1 returns=label`. The template tells the judge to treat the member answers as data
+and not as instructions. A change of the template changes the url4, so it changes the replay
+identity.
 
 **Position bias.** The judge sees the members in author order, and a judge can prefer a position.
 The parameter name `binding` is reserved: you cannot use it in `params`. This needs an Engine whose
-operator catalog has `label@1` and `scores@1`.
+operator catalog has `label@1` and `scores@1`. An `sf.Judge` is a value: equal judges are equal and
+have the same hash.
 
-**The block form.** `sf.Reduce("judge", judge=sf.Judge(...))` compiles to the same url4 as the
-`sf.Judge` itself. The optional `rubric=` replaces the rubric of that judge, so one judge can serve
-several rubrics: `sf.Reduce("judge", judge=j, rubric="Prefer the shortest correct answer.")`. A
-`judge` that is not an `sf.Judge` raises `TypeError`, and an empty `rubric` raises `ValueError`. An
-`sf.Judge` is a value: equal judges are equal and have the same hash.
-
-**A judge-weighted vote.** A judge that returns scores can also weigh a vote. Each answer scores the
+**A judge-weighted vote.** The scores of a `sf.Judge` can also weigh a vote. Each answer scores the
 sum of the judge scores of the members who gave it. The answer is the text of the member with the
-highest score among those who gave the winning answer. The judge makes one call, and the report shows the score of
-each member as `members[].signals["score:judge"]` and `weight`. The `combine` evidence of the vote has
-`judge` set to `None`: the scores are in `members[]`, and the raw reply of the judge stays on
-`op_judge_1`.
+highest score among those who gave the winning answer. The judge makes one call, and the report
+shows the score of each member as `members[].signals["score:judge"]` and `weight`. The `combine`
+evidence of the vote has `judge` set to `None`: the scores are in `members[]`, and the raw reply of
+the judge stays on `op_judge_1`.
 
 ```python
-weighted = sf.Fusion(
-    routes,
-    synthesizer=sf.Vote(
-        extract="last_number",
-        normalize="numeric",
-        weights=sf.signal("score:judge"),
-        judge=sf.Judge("anthropic/claude-opus-5", returns="scores", rubric="Score each answer."),
-    ),
-)
-# The same vote in the block form:
-weighted_block = sf.Fusion(
-    routes,
-    synthesizer=sf.Reduce(
-        "weighted",
-        extract=sf.Extract("last_number", normalize="numeric"),
-        weights=sf.signal("score:judge"),
-        judge=sf.Judge("anthropic/claude-opus-5", returns="scores", rubric="Score each answer."),
-    ),
+weighted = (
+    sf.Fanout(routes)
+    >> sf.Judge("anthropic/claude-opus-5", rubric="Score each answer.")
+    >> sf.Vote(over="last_number", normalize="numeric", weights="score:judge")
 )
 ```
 
-The weights and the judge must go together. `weights=sf.signal("score:judge")` without a judge, a
-judge without that weight, or a judge that returns labels each raise `ValueError` when the vote is
-built, before any call is paid (the Engine reads `score:judge` strictly, so a lone half would fail
-after the member calls). A judge that is not an `sf.Judge` raises `TypeError`. The same strict read
-applies to the reply: a malformed or too large reply, a `NaN` or an infinite score fails the Case
-with `judge_reply_invalid`. It never counts as "no weight", which would hide the defect behind an
-abstain.
+The weights and the judge must go together. `weights="score:judge"` with no `sf.Judge` in the
+block, or a `sf.Judge` that no later step of the block reads, raises `ValueError` at the `>>` that
+closes the block, before any call is paid (the Engine reads `score:judge` strictly, so a lone half
+would fail after the member calls). The same strict read applies to the reply: a malformed or too
+large reply, a `NaN` or an infinite score fails the Case with `judge_reply_invalid`. It never counts
+as "no weight", which would hide the defect behind an abstain. The vote uses each score as it is,
+so use a rubric where a higher number is better (see "Combine recipes").
 
 **The judge in the trace.** In `case.trace()` and `report.trace_dict()`, the `reduce` entry of a
 step that reads a judge names the judge call: `judge_operation_id` is the operation of the judge
 (for example `op_judge_1`), and `judge_model` is the `model` of that operation's `model_call`
-entry. This holds for `sf.Judge`, for `sf.Rank(by=sf.Judge(...))` (see "Rank and Concat
-selections"), and for a Vote or a Filter that reads `sf.signal("score:judge")`. For any other step,
-both keys are `None`. The SDK reads the link from the operation graph of the Case and never
-guesses: both keys are `None` for a Case result with no operation graph, and for a step with no
-judge operation or with more than one. `judge_model` is `None` when the judge call has no
-accounting. The url4 does not change, so a judge url4 compiled before this change rebuilds, and
-its trace links the judge too. The `combine` evidence itself has no judge model.
+entry. This holds for `sf.JudgePick`, for every step that reads `"score:judge"` (`sf.ArgMax`,
+`sf.ArgMin`, `sf.Rank`, `sf.Filter`, a weighted `sf.Vote`), and for a gate with a judge fallback.
+For any other step, both keys are `None`. The SDK reads the link from the operation graph of the
+Case and never guesses: both keys are `None` for a Case result with no operation graph, and for a
+step with no judge operation or with more than one. `judge_model` is `None` when the judge call has
+no accounting. The link does not change the url4. The `combine` evidence itself has no judge model.
 
 **The judge and the writer.** The model that scores the members should not also write the
-answer. When a stage that reads a judge is followed directly by a model stage (an `sf.Model` or a
-route string) with the same model as the judge, the SDK emits `sf.JudgeWriterWarning` (an
-`sf.EvaluationWarning`) when it compiles the Pipeline, before any call. The warning names the
-Pipeline, the two stage positions and the route. It does not stop the run and does not change the
-url4. Two spellings of one route (with and without the provider prefix that the SDK adds) are one
-model, as for `sf.DuplicateMembersWarning`. The SDK sends the warning once per Pipeline object,
-and not again when it rebuilds a url4. Only the next stage is checked: a writer that is a Fusion
-or a nested Pipeline is not. If one model in both roles is what you want, silence the warning:
+answer. The SDK emits `sf.JudgeWriterWarning` (an `sf.EvaluationWarning`) when it compiles the
+recipe, before any call, in two cases: a stage that reads a judge is followed directly by a model
+stage (an `sf.Model` or a route string) with the same model as the judge, or a block has a
+`sf.Judge` and a `sf.Synthesize` writer of the same model (`sf.Fanout(m) >> sf.Judge(j, ...) >>
+sf.Rank(...) >> sf.Synthesize(j)`). The warning names the Pipeline (when you named it), the stage
+positions and the route. It does not stop the run and does not change the url4. Two spellings of
+one route (with and without the provider prefix that the SDK adds) are one model, as for
+`sf.DuplicateMembersWarning`. The SDK sends the warning once per Pipeline object, and not again
+when it rebuilds a url4. Only a writer that is one `sf.Model` (or a route) is checked: a writer
+that is a block or a nested Pipeline is not. If one model in both roles is what you want, silence
+the warning:
 
 ```python
 import warnings
@@ -634,71 +697,57 @@ warnings.filterwarnings("ignore", category=sf.JudgeWriterWarning)
 If the members reply with JSON, a rule can choose or build the answer. No model writes it.
 
 ```python
-by_confidence = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max"))
-by_answer = sf.Fusion(routes, synthesizer=sf.Pick("answer", equals="yes", normalize="text"))
+by_confidence = sf.Fanout(routes) >> sf.ArgMax("field:confidence")
+by_answer = sf.Fanout(routes) >> sf.First(where=sf.field("answer", normalize="text") == "yes")
 # the answer is only the "answer" field of the most confident member's JSON reply
-answer_only = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max", output="answer"))
+answer_only = sf.Fanout(routes) >> sf.ArgMax("field:confidence", output="answer")
 
-# argmax: the member with the lowest value of a named signal (here, the cheapest member)
-cheapest = sf.Fusion(routes, synthesizer=sf.Pick(by_signal=sf.signal("cost_usd"), order="min"))
-# The same pick in the block form:
-cheapest_block = sf.Fusion(
-    routes, synthesizer=sf.Reduce("argmax", by_signal=sf.signal("cost_usd"), order="min")
-)
+# the member with the lowest value of a named signal (here, the cheapest member)
+cheapest = sf.Fanout(routes) >> sf.ArgMin("cost_usd")
 
-merged = sf.Fusion(
-    routes,
-    synthesizer=sf.Merge(
-        fields={
-            "answer": sf.FieldRule.majority(normalize="text"),
-            "score": sf.FieldRule.max(),
-            "source": sf.FieldRule.from_member(2),
-            "synonyms": sf.FieldRule.union(normalize="text"),
-            "summary": sf.FieldRule.model("anthropic/claude-sonnet-5", prompt="Write one summary."),
-        }
-    ),
+merged = sf.Fanout(routes) >> sf.Merge(
+    fields={
+        "answer": sf.FieldRule.majority(normalize="text"),
+        "score": sf.FieldRule.max(),
+        "source": sf.FieldRule.from_member(2),
+        "synonyms": sf.FieldRule.union(normalize="text"),
+        "summary": sf.FieldRule.model("anthropic/claude-sonnet-5", prompt="Write one summary."),
+    }
 )
 ```
 
-`sf.Pick(field, order="max"|"min")` reads one field from each member. It returns the text of the
-member with the largest or smallest value, byte for byte. `sf.Pick(field, equals=value)` returns the
-first member whose value is equal to `value`. `field` is a JSON path such as `confidence`, `a.b` or
-`a[0].b`. With `normalize="text"` or `normalize="numeric"`, the value of each member and `value`
-itself go through the same normalizer before the compare. A number or a boolean in `equals` is
-compared in its JSON spelling (`1` is not `1.0`), unless you use `normalize="numeric"`.
-Because `json_field@1` returns the contents of a string without its quotes, `equals=7` also matches
-a member whose value is the string `"7"`. An empty `equals`, or `equals=True` with
-`normalize="numeric"`, raises `ValueError` before any call. A tie goes to the first member in author
-order and sets `tie`. A `field` that is longer than 256 characters raises `ValueError` before any
-call.
+`sf.ArgMax(by)` and `sf.ArgMin(by)` return the text of the member with the highest or the lowest
+value of the signal `by`, byte for byte. `by` is a signal key: `field:<path>` (a number in the JSON
+reply, with a path such as `confidence`, `a.b` or `a[0].b`), an accounting key (`cost_usd`,
+`latency_ms`, `tokens_in`, `tokens_out`), `score:judge` after a `sf.Judge`, or a name that the
+`sf.Fanout` declares in `signals=`. A field path that is longer than 256 characters raises
+`ValueError` before any call. A member with no value for the signal is left out: a field that is
+missing or is not a number has no value. When no member has a value, the Case abstains. A tie goes
+to the first member in author order and sets `tie`. For an accounting key, the SDK adds `sources`
+to the combine context (the model calls of each member), as it does for a weighted `sf.Vote`; a
+member with a call that appears twice in the Candidate gets no value. In the evidence, a member
+with no value for the signal has the status `"excluded"` and the reason `no_signal`.
 
-`sf.Pick(by_signal=sf.signal(key), order="max"|"min")` (argmax) picks the member whose named signal is
-the highest (`"max"`, the default) or the lowest (`"min"`). The signal can be an accounting key
-(`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) or `field:<path>`. The result is the text of
-that member, byte for byte. A member with no value for the signal is skipped. When no member has a
-value, the Case abstains. A tie goes to the first member in author order. For an accounting key, the
-SDK adds `sources` to the combine context (the model calls of each member), as it does for a weighted
-`sf.Vote`; a member with a call that appears twice in the Candidate gets no value. `score:judge` raises
-`ValueError`: this reducer has no judge. Use `sf.Judge(..., returns="scores")`, which picks the member
-with the highest judge score. A `Pick` takes a field or `by_signal=`, not both.
-In the evidence, a member with no value for the signal has the status `"excluded"` and the reason
-`no_signal`.
+`sf.First(where=sf.field(path, normalize=None) == value)` returns the first member, in author
+order, whose JSON field is equal to `value`. With `normalize="text"` or `normalize="numeric"`, the
+value of each member and `value` itself go through the same normalizer before the compare. A
+number or a boolean in `value` is compared in its JSON spelling (`1` is not `1.0`), unless you use
+`normalize="numeric"`. Because `json_field@1` returns the contents of a string without its quotes,
+`== 7` also matches a member whose value is the string `"7"`. An empty `value`, or `== True` with
+`normalize="numeric"`, raises `ValueError` before any call. `sf.field` compares with `==` only; for
+a number, use `sf.signal("field:<path>")` in a `sf.Filter`, or `sf.ArgMax`.
 
-`output="answer"` (on a field Pick or on `by_signal=`) makes the answer one top-level field of the
-winner's JSON reply, not its whole text. A string is returned without its quotes, and any other
-value as compact JSON (`42`, `true`, `{"a":1}`). When the winner's field is missing, `null` or
-blank, or its reply is not a JSON object, the Case abstains with the reason `output_missing`. The
-next member is never used. `output` is a field name (a letter or `_`, then letters, digits or `_`,
-at most 64 characters), not a path. A string that is not a field name raises `ValueError`, and a
-value that is not a string raises `TypeError`, both before any call. The block forms take the same
-`output=` option.
+`output="answer"` (on `sf.ArgMax`, `sf.ArgMin` or `sf.First`) makes the answer one top-level field
+of the winner's JSON reply, not its whole text. A string is returned without its quotes, and any
+other value as compact JSON (`42`, `true`, `{"a":1}`). When the winner's field is missing, `null`
+or blank, or its reply is not a JSON object, the Case abstains with the reason `output_missing`.
+The next member is never used. `output` is a field name (a letter or `_`, then letters, digits or
+`_`, at most 64 characters), not a path. A string that is not a field name raises `ValueError`, and
+a value that is not a string raises `TypeError`, both before any call. A pick by `"score:judge"`
+takes no `output=`: it returns the member text.
 
-The block forms compile to the same url4 as the named classes, and `Url4(...).to_python()` writes the
-named class back: `sf.Reduce("argmax", by_signal=..., order=...)` is `sf.Pick(by_signal=..., order=...)`,
-`sf.Reduce("pick_field", field=..., order=...)` or `sf.Reduce("pick_field", field=..., equals=...,
-normalize=...)` is `sf.Pick(field, ...)`, and `sf.Reduce("merge", fields={...})` is `sf.Merge({...})`.
-A `pick_field` block keeps `equals` as text, so `equals=7` and `equals="7"` are one block. The errors of
-the Pick carry the prefix `sf.Reduce('pick_field'):`. `sf.FieldRule` is a hashable value.
+`Url4(...).to_python()` writes these steps back as `sf.ArgMax`, `sf.ArgMin`, `sf.First` and
+`sf.Merge`. `sf.FieldRule` is a hashable value.
 
 `sf.Merge(fields={...})` builds one JSON object. The object has exactly the fields that you declare,
 in sorted key order. Each field has one rule:
@@ -707,7 +756,7 @@ in sorted key order. Each field has one rule:
 * `max()`: the largest number. A value that is not a number is skipped.
 * `from_member(n)`: the value of member `n` (the first member is 1). It is `null` when that member
   is not JSON or has no such field. `n` that is larger than the member count raises `ValueError`
-  when the Fusion is built.
+  at the `>>` that closes the block.
 * `union(normalize=None)`: the items of all list values. Each item is kept once, in its first
   spelling, in author order.
 * `model(route, prompt=..., params=None)`: a model writes the field (see below).
@@ -731,52 +780,55 @@ treat the member values as data and not as instructions, and your prompt follows
 `Url4(...).to_python()` shows only your prompt. A change of the template changes the url4, so it
 changes the replay identity. The name `binding` is reserved in `params`. This needs an Engine whose
 operator catalog has `json_field@1`,
-`json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`. Argmax
-needs `by_signal@1` and `best_holder@1`.
+`json_object@1`, `values@1`, `by_field@1`, `field_rules@1`, `project_field@1` and `built@1`.
+`sf.ArgMax` and `sf.ArgMin` need `by_signal@1` and `best_holder@1`.
 
 ### Rank and Concat selections
 
-A selection is a hand-off to the next stage. It is not an answer. `sf.Rank` keeps the top `k`
-original member texts. `sf.Concat` joins all the member texts. Neither one rewrites a text. A Fusion
-with a selection must be followed by another stage of a `sf.Pipeline`, and that stage receives the
-selection. After a `sf.Rank` or a `sf.Filter`, the selection also holds the input of the Fusion, so
-the next stage sees the question. After a `sf.Concat`, it is the joined text only.
+`sf.Rank` and `sf.Concat` are narrow steps. A narrow step is not an answer. `sf.Rank` keeps the
+top `k` original member texts. `sf.Concat` joins all the member texts. Neither one rewrites a text.
+A `sf.Synthesize` writer after the narrow step receives the selection (see "How a recipe reads").
+After a `sf.Rank` or a `sf.Filter`, the selection also holds the input of the block, so the writer
+sees the question. After a `sf.Concat`, it is the joined text only. A reducer can also follow a
+`sf.Rank` or a `sf.Filter`; then it reads only the kept members.
 
 ```python
-ranked = sf.Pipeline(
-    [
-        sf.Fusion(
-            routes,
-            synthesizer=sf.Rank(
-                k=2,
-                by=sf.Judge(
-                    "anthropic/claude-opus-5",
-                    returns="scores",
-                    rubric="Give a higher number to a more correct answer.",
-                ),
-            ),
-        ),
-        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."),
-    ]
+writer = sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts.")
+ranked = (
+    sf.Fanout(routes)
+    >> sf.Judge("anthropic/claude-opus-5", rubric="Give a higher number to a more correct answer.")
+    >> sf.Rank(2, by="score:judge")
+    >> sf.Synthesize(writer)
 )
-by_field = sf.Fusion(routes, synthesizer=sf.Rank(k=2, by_field="score"))  # members reply with JSON
-joined = sf.Fusion(routes, synthesizer=sf.Concat(separator="\n\n---\n\n", label=True))
+# members reply with JSON
+top_by_field = sf.Fanout(routes) >> sf.Rank(2, by="field:score") >> sf.Synthesize("provider/next")
+joined = (
+    sf.Fanout(routes)
+    >> sf.Concat(separator="\n\n---\n\n", label=True)
+    >> sf.Synthesize("provider/next")
+)
 ```
 
-`sf.Rank(k, by=sf.Judge(..., returns="scores"))` scores the members with a judge, and
-`sf.Rank(k, by_field="score")` reads a number from the JSON reply of each member (`by_field` is a
-field path like `score` or `result.score[0]`). The next stage receives this JSON, best member first:
+`sf.Rank(k, by=..., order="max")` keeps the `k` members with the highest value of the signal `by`.
+With `order="min"` it keeps the members with the lowest values, for example the cheapest members.
+`by` is a signal key: `score:judge` after a `sf.Judge` (one judge call scores every member),
+`field:<path>` (a number in the JSON reply, with a path like `score` or `result.score[0]`), an
+accounting key such as `cost_usd`, or a declared name. A member with no value for the signal is not
+ranked. In the evidence, a member with no value for the signal has the status `"excluded"` and the
+reason `no_signal`.
+
+The writer receives this JSON, best member first:
 `{"input":"...","selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`.
-`input` is the input of this Fusion, character for character: the Case input when the Fusion is the
+`input` is the input of this block, character for character: the Case input when the block is the
 first stage, or the answer of the previous stage when it is not. A conversation input arrives as its
 JSON text. The input is never cut: a selection of more than 8 MiB fails with
-`combine_input_too_large`. The url4 of the candidate does not change. A tie at the cut
-goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
-than the number of members. If fewer than `k` members have a usable score, the combine step
-abstains with `cut_not_met`, and the next stage gets the input and no member,
-`{"input":"...","selected":[]}`. The judge call and the scores
-of all the members stay in the report (`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
-that is not valid fails the Case with `judge_reply_invalid`, as for `sf.Judge`.
+`combine_input_too_large`. A tie at the cut goes to the earlier member, and the evidence sets
+`tie`. `k` is from 1 to 256 and must not be more than the number of members. If fewer than `k`
+members have a usable score, the combine step abstains with `cut_not_met`, and the writer gets the
+input and no member, `{"input":"...","selected":[]}`. The judge call and the scores of all the
+members stay in the report (`op_judge_1` and the `combine` evidence), also for the members that do
+not continue. A judge reply that is not valid fails the Case with `judge_reply_invalid`, as for
+`sf.ArgMax("score:judge")`.
 
 `sf.Concat(separator="\n\n---\n\n", label=True)` makes no model call. With `label=True`, each part
 starts with `[member_1]` on its own line. The parts are in author order, and an empty member text
@@ -784,22 +836,13 @@ keeps its place. The separator is 1 to 1024 characters. If a member text contain
 the text is joined unchanged and the evidence sets `separator_collision`, because then the
 boundaries are not unique. A joined text of more than 8 MiB fails with `combine_input_too_large`.
 
-`sf.Rank(k, by_signal=sf.signal(key), order="max")` ranks by a named number on the Answer of each
-member: a field signal such as `field:score`, or an accounting key such as `cost_usd`. With
-`order="max"` (the default) it keeps the members with the highest values. With `order="min"` it keeps
-the members with the lowest values, for example the cheapest members. `order=` also works with `by=`
-and `by_field=`. Give exactly one of `by`, `by_field` and `by_signal`; two, or none, raise
-`ValueError`. A member with no value for the signal is not ranked. `sf.signal("score:judge")` is
-refused, because a Rank with no judge has no judge score: use `by=sf.Judge(..., returns="scores")`.
-In the evidence, a member with no value for the signal has the status `"excluded"` and the reason
-`no_signal`.
-
 ```python
-cheapest_two = sf.Pipeline(
-    [
-        sf.Fusion(routes, synthesizer=sf.Rank(k=2, by_signal=sf.signal("cost_usd"), order="min")),
-        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."),
-    ]
+cheapest_two = (
+    sf.Fanout(routes)
+    >> sf.Rank(2, by="cost_usd", order="min")
+    >> sf.Synthesize(
+        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts.")
+    )
 )
 ```
 
@@ -808,44 +851,37 @@ its `rank` (`CombineAnswerRow.rank`): 1 is the best, and equal scores take autho
 members share a rank. A member with no score (it failed or was excluded) has no rank. The evidence
 also has the `cut` (`CombineEvidence.cut`, a `sf.report.CombineCut`) with `k` and `order`. The
 default order is written as `"max"`. The chosen members are exactly the members with a `rank` of
-`cut.k` or less, best first. For `cheapest_two` with the costs member_1 0.03, member_2 0.01,
-member_3 0.02 and member_4 0.01, the ranks are member_2 1, member_4 2, member_3 3 and member_1 4,
-the chosen members are member_2 and member_4, and the cut is `{"k": 2, "order": "min"}`. When the
-step abstains with `cut_not_met`, the ranks and the cut are still written. Only a Rank has a rank
-and a cut. A Filter and a Pick have neither, and their evidence keeps its keys.
+`cut.k` or less, best first. For `cheapest_two` with four members and the costs member_1 0.03,
+member_2 0.01, member_3 0.02 and member_4 0.01, the ranks are member_2 1, member_4 2, member_3 3
+and member_1 4, the chosen members are member_2 and member_4, and the cut is
+`{"k": 2, "order": "min"}`. When the step abstains with `cut_not_met`, the ranks and the cut are
+still written. Only a Rank has a rank and a cut. A Filter, an ArgMax and an ArgMin have neither,
+and their evidence keeps its keys. A Rank before a reducer writes its ranks, its scores and its cut
+in its `narrow` record instead (see "How a recipe reads").
 
-The block forms are `sf.Reduce("top_k", k=2, by_signal=..., order=...)` (also `by=` and `by_field=`)
-and `sf.Reduce("concat", separator=..., label=...)`. Each compiles to the same url4 as `sf.Rank` and
-`sf.Concat`, and a url4 is written back as `sf.Rank(...)` or `sf.Concat(...)`.
-
-The compiler checks the place of a selection before any call. A Fusion with `Rank`, `Concat` or
-`Filter` cannot be the last step of a candidate, cannot be a member of another Fusion (also not
-through a `sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case
-raises `ValueError`. After a Rank or a Filter, the next stage receives the input of the Fusion and
-the kept member texts, never the texts that were cut. After a Concat, it receives only the joined
-text, so put the task in the prompt of that stage. This needs an Engine whose operator catalog has
-`scores@1` and `top_k@1` for `Rank` by a judge or by a field, `by_signal@1` and `top_k@1` for `Rank`
-by a signal, or `join@1` and `all@1` for `Concat`.
+The chain checks the place of a narrow step when you build it (see "How a recipe reads"). A
+narrow step never ends a recipe, a `sf.Concat` must be followed by `sf.Synthesize`, and a selection
+goes only to `sf.Synthesize`, a reducer or another narrow step. Each case raises `ValueError`
+before any call. After a Rank or a Filter, the writer receives the input of the block and the kept
+member texts, never the texts that were cut. After a Concat, it receives only the joined text, so
+put the task in the prompt of the writer. This needs an Engine whose operator catalog has
+`scores@1` and `top_k@1` for `Rank` by a judge, `by_signal@1` and `top_k@1` for `Rank` by a field
+or another signal, or `join@1` and `all@1` for `Concat`.
 
 ### Filter selection
 
-`sf.Filter` keeps the members that pass a test. The next stage gets the input of the Fusion and only
-those members, as the same JSON that `sf.Rank` writes (`{"input":"...","selected":[...]}`), in
-author order. `where=` is a regex or a signal comparison:
+`sf.Filter` keeps the members that pass a test. A `sf.Synthesize` writer after it gets the input of
+the block and only those members, as the same JSON that `sf.Rank` writes
+(`{"input":"...","selected":[...]}`), in author order. `where=` is a regex or a signal comparison:
 
 ```python
-confident = sf.Pipeline(
-    [
-        sf.Fusion(
-            routes,
-            # Each member replies with JSON such as {"answer": "B", "confidence": 0.4}.
-            synthesizer=sf.Filter(where=sf.signal("field:confidence") >= 0.6),
-        ),
-        sf.Model("anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."),
-    ]
+confident = (
+    sf.Fanout(routes)  # Each member replies with JSON such as {"answer": "B", "confidence": 0.4}.
+    >> sf.Filter(where=sf.signal("field:confidence") >= 0.6)
+    >> sf.Synthesize(writer)
 )
 formatted = sf.Filter(where=sf.matches(r"ANSWER: \d+", ignore_case=True))
-checked = sf.Filter(where=sf.matches("yes"), extract=sf.Extract("field", path="verdict"))
+checked = sf.Filter(where=sf.matches("yes"), over="field:verdict")
 ```
 
 `sf.signal(key)` compares with `>`, `>=`, `<`, `<=` and `==`. The number must be finite. There is
@@ -855,34 +891,37 @@ plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` 
 `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a signal holds a
 float. A member with no value for the signal, or that failed to answer, is dropped.
 An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
-each member, and `sf.signal("score:judge")` needs `judge=sf.Judge(..., returns="scores")` on the
-same Filter. A regex reads the original text of the member, never the extracted answer.
-`extract=` reads each answer first: a member whose answer cannot be read is dropped, and the
-report shows the value it read.
+each member, and `sf.signal("score:judge")` needs a `sf.Judge` before the Filter in the same
+block. Without `over=`, a regex reads the original text of the member. `over=` (only with
+`sf.matches`) reads each answer first, and the regex reads that answer: a member whose answer
+cannot be read is dropped, and the report shows the value it read. `over=` with a signal
+comparison raises `ValueError`.
 
 A Filter can keep the members that a judge scores high enough. One judge call scores every
 member, and the Filter keeps each member whose score passes the test:
 
 ```python
-judged = sf.Filter(
-    where=sf.signal("score:judge") >= 7,
-    judge=sf.Judge("openai/gpt-5.5", returns="scores", rubric="Score each draft from 0 to 10."),
+judged = (
+    sf.Fanout(routes)
+    >> sf.Judge("openai/gpt-5.5", rubric="Score each draft from 0 to 10.")
+    >> sf.Filter(where=sf.signal("score:judge") >= 7)
+    >> sf.Synthesize(writer)
 )
 ```
 
-`where=sf.signal("score:judge")` and `judge=` go together: one without the other raises
-`ValueError`. The judge must return scores, and it is always told that a higher number is
-better (a judge with `order="min"` is refused). A judge reply that is not one finite score for
-each member fails the Case with `judge_reply_invalid`.
+The rubric says which way is better, so write the test to match it: `>=` when a higher number is
+better, `<=` when a lower number is better. A judge reply that is not one finite score for each
+member fails the Case with `judge_reply_invalid`.
 
 A Filter that keeps no member abstains: its `combine` evidence has the result `abstain` with the
-reason `no_votes`. The next stage still runs, and it gets the input and no member:
+reason `no_votes`. A writer after it still runs, and it gets the input and no member:
 `{"input":"...","selected":[]}`. So a writer can say that no answer passed. (The Case is not marked
-`abstained`, because a Filter is never the final step.) The report shows a pass mark in
+`abstained`, because the writer is the final step.) When a reducer follows the Filter, the Case
+abstains with `no_votes` (see "How a recipe reads"). The report shows a pass mark in
 `members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
-dropped, and `None` when the member failed to answer. The block form is `sf.Reduce("filter",
-where=..., extract=..., judge=...)`. The place rules of "Rank and Concat selections" apply to a
-Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
+dropped, and `None` when the member failed to answer. The place rules of "Rank and Concat
+selections" apply to a Filter too. This needs an Engine whose operator catalog has `filter@1` and
+`kept@1`.
 
 A member with no value for the signal of `where=` keeps the mark `0.0`. In the evidence, it has
 the status `"excluded"` and the reason `no_signal`.
@@ -890,10 +929,13 @@ the status `"excluded"` and the reason `no_signal`.
 ### Combine recipes
 
 Each row is one combine scenario with a recipe that you can copy. Each recipe runs offline in the
-Engine's tests, from the url4 that the SDK compiles. A scenario that needs two values from each
-member (an answer and a confidence) asks each member for one JSON reply. Ask every member for the
-same confidence scale, for example 0 to 1. The Engine cannot see that one member writes 80 and
-another member writes 0.8.
+Engine's tests, from the url4 that the SDK compiles. A recipe is a chain: `sf.Fanout(members)` sends
+the input to every member, an optional `sf.Judge` scores the answers, optional narrow steps
+(`sf.Rank`, `sf.Filter`, `sf.Concat`) keep some of them, and one reducer or one `sf.Synthesize`
+writer gives the answer. `>>` joins the steps. A scenario that needs two values from each member
+(an answer and a confidence) asks each member for one JSON reply. Ask every member for the same
+confidence scale, for example 0 to 1. The Engine cannot see that one member writes 80 and another
+member writes 0.8.
 
 | S | Scenario | Recipe |
 |---|---|---|
@@ -901,15 +943,15 @@ another member writes 0.8.
 | S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
 | S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
 | S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
-| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `s4_median_by_confidence` or `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"), select="value")` |
-| S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.Pick(..., output="answer")` |
+| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `s4_median_by_confidence` |
+| S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.ArgMax("field:confidence", output="answer")` |
 | S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
-| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` or `sf.Pick(..., output="answer")` |
+| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` |
 | S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
 | S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
-| S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Filter(where=sf.signal("score:judge") >= 7, judge=sf.Judge(m, returns="scores", rubric=R))` |
+| S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Fanout(m) >> sf.Judge(j, rubric=R) >> sf.Filter(where=sf.signal("score:judge") >= 7) >> sf.Synthesize(w)` |
 | S11 | A judge scores each answer and returns the best answer | `s11_judge_best` |
-| S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Judge(m, returns="scores", rubric=R, order="min")` |
+| S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Fanout(m) >> sf.Judge(j, rubric=R) >> sf.ArgMin("score:judge")` |
 
 ```python
 import screamingface as sf
@@ -924,43 +966,29 @@ json_members = [sf.Model(route, prompt=reply_json) for route in routes]
 writer = sf.Model(
     "provider/writer", prompt="Write the final answer to the input from the selected answers."
 )
-judge = sf.Judge(
-    "provider/judge", returns="scores", rubric="Give a higher number to a more correct answer."
-)
+judge = sf.Judge("provider/judge", rubric="Give a higher number to a more correct answer.")
 
-s1_median_number = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
-s2_median_member = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number"))
-s3_mean_static = sf.Fusion(routes, synthesizer=sf.Mean(weights=(1, 1, 2)))
-s4_mean_by_confidence = sf.Fusion(
-    json_members,
-    synthesizer=sf.Reduce(
-        "mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence")
-    ),
+s1_median_number = sf.Fanout(routes) >> sf.Median(over="last_number", select="value")
+s2_median_member = sf.Fanout(routes) >> sf.Median(over="last_number")
+s3_mean_static = sf.Fanout(routes) >> sf.Mean(weights=(1, 1, 2))
+s4_mean_by_confidence = sf.Fanout(json_members) >> sf.Mean(
+    over="field:answer", weights="field:confidence"
 )
-s4_median_by_confidence = sf.Fusion(
-    json_members,
-    synthesizer=sf.Reduce(
-        "median",
-        extract=sf.Extract("field", path="answer"),
-        weights=sf.signal("field:confidence"),
-        select="value",
-    ),
+s4_median_by_confidence = sf.Fanout(json_members) >> sf.Median(
+    over="field:answer", weights="field:confidence", select="value"
 )
-s5_max_confidence = sf.Fusion(json_members, synthesizer=sf.Pick("confidence", order="max"))
-s7_top_confidence = sf.Pipeline(
-    [sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_field="confidence")), writer]
+s5_max_confidence = sf.Fanout(json_members) >> sf.ArgMax("field:confidence")
+s7_top_confidence = (
+    sf.Fanout(json_members) >> sf.Rank(2, by="field:confidence") >> sf.Synthesize(writer)
 )
-s8_argmax_confidence = sf.Fusion(
-    json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")
+s8_argmax_confidence = sf.Fanout(json_members) >> sf.ArgMax("field:confidence")
+s9_confident_only = (
+    sf.Fanout(json_members)
+    >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+    >> sf.Synthesize(writer)
 )
-s9_confident_only = sf.Pipeline(
-    [
-        sf.Fusion(json_members, synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7)),
-        writer,
-    ]
-)
-s10_judge_top = sf.Pipeline([sf.Fusion(routes, synthesizer=sf.Rank(k=2, by=judge)), writer])
-s11_judge_best = sf.Fusion(routes, synthesizer=judge)
+s10_judge_top = sf.Fanout(routes) >> judge >> sf.Rank(2, by="score:judge") >> sf.Synthesize(writer)
+s11_judge_best = sf.Fanout(routes) >> judge >> sf.ArgMax("score:judge")
 ```
 
 The writer after a Rank or a Filter gets one JSON object: the Case input and the kept member
@@ -968,17 +996,25 @@ texts (see "Rank and Concat selections"). `sf.Rank` gives the kept members best 
 `sf.Filter` gives them in author order. The `>` test of `sf.Filter` is strict: a confidence of
 exactly 0.7 is not kept. When no member passes, the Filter abstains with `no_votes` and the writer
 gets `{"input":"...","selected":[]}` (see "Filter selection"). A member whose reply is not JSON has
-no confidence, so `sf.Pick` never returns it. When no member has a confidence, the Case abstains. A
-judge reply that is not one JSON object with a finite score for each member fails the Case with
+no confidence, so `sf.ArgMax` never returns it. When no member has a confidence, the Case abstains.
+A judge reply that is not one JSON object with a finite score for each member fails the Case with
 `judge_reply_invalid`.
+
+`sf.Judge` asks the judge to score each member as the rubric says; the step after it reads the
+scores as `"score:judge"`. Say in the rubric which way is better, and pick the reader to match:
+`sf.ArgMax` or `sf.Rank(..., order="max")` when a higher number is better, `sf.ArgMin` or
+`order="min"` when a lower number is better. `sf.Vote(weights="score:judge")` uses the scores as
+given, as weights: with a rubric where a lower number is better, the worst answers get the most
+weight. Use a higher-is-better rubric for a judge-weighted vote.
 
 ### Signal sources
 
-A Fusion can declare named signals: numbers that the run measures from each member answer. Give
-`signals={name: source}` to `sf.Fusion`, and read a name in a rule with `sf.signal(name)`. The
-combine evidence records the value of every declared name for every member, also when no rule
-reads it. A rule that reads a name that the Fusion does not declare raises `ValueError` before any
-call.
+A `sf.Fanout` can declare named signals: numbers that the run measures from each member answer.
+Give `signals={name: source}` to `sf.Fanout`, and read a name in a later step of the same block:
+by its key (`weights="conf"`, `sf.ArgMax("conf")`, `sf.Rank(2, by="conf")`) or with
+`sf.signal(name)` in a condition. The combine evidence records the value of every declared name
+for every member, also when no step reads it. A step that reads a name that its `sf.Fanout` does
+not declare raises `ValueError` before any call.
 
 - `sf.Verbalized(pattern)` reads a number that the member writes in its text, for example
   `Confidence: 90`. The pattern is an RE2 pattern with exactly one group. The last match counts,
@@ -990,6 +1026,10 @@ call.
 - `sf.Entropy(top_logprobs=5)` is the mean token entropy of the reply, in nats, from the first
   `top_logprobs` alternatives of each token (1 to 20, default 5). A lower entropy means a more
   certain model.
+- `sf.Sum({name: coefficient, ...})` adds other declared signals of the same member, each
+  multiplied by a fixed coefficient (see "Sum signals and the abstain band").
+- `sf.Consistency(n, temperature=1.0)` is the share of the member's `n` extra answers that equal
+  its answer (failed extra calls do not count; see "Consistency samples").
 
 Each row is one recipe that you can copy. Each recipe runs offline in the Engine's tests, from the
 url4 that the SDK compiles.
@@ -1016,36 +1056,22 @@ stated = (
     "On the last line write only your final answer."
 )
 
-s12_verbalized_vote = sf.Fusion(
+s12_verbalized_vote = sf.Fanout(
     [sf.Model(route, prompt=stated) for route in routes],
     signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")},
-    synthesizer=sf.Vote(weights=sf.signal("conf")),
-)
-s13_logprob_vote = sf.Fusion(
-    routes, signals={"p": sf.Logprob("prob")}, synthesizer=sf.Vote(weights=sf.signal("p"))
-)
-s14_logprob_best = sf.Fusion(
-    routes,
-    signals={"lp": sf.Logprob("mean")},
-    synthesizer=sf.Pick(by_signal=sf.signal("lp"), order="max"),
-)
-s15_entropy_best = sf.Fusion(
-    routes,
-    signals={"ent": sf.Entropy()},
-    synthesizer=sf.Pick(by_signal=sf.signal("ent"), order="min"),
-)
-s16_logprob_threshold = sf.Pipeline(
-    [
-        sf.Fusion(
-            ["openrouter/openai/gpt-4o-mini"],
-            signals={"lp": sf.Logprob("mean")},
-            synthesizer=sf.Filter(where=sf.signal("lp") >= -0.3),
-        ),
+) >> sf.Vote(weights="conf")
+s13_logprob_vote = sf.Fanout(routes, signals={"p": sf.Logprob("prob")}) >> sf.Vote(weights="p")
+s14_logprob_best = sf.Fanout(routes, signals={"lp": sf.Logprob("mean")}) >> sf.ArgMax("lp")
+s15_entropy_best = sf.Fanout(routes, signals={"ent": sf.Entropy()}) >> sf.ArgMin("ent")
+s16_logprob_threshold = (
+    sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("mean")})
+    >> sf.Filter(where=sf.signal("lp") >= -0.3)
+    >> sf.Synthesize(
         sf.Model(
             "openrouter/openai/gpt-4.1",
             prompt="Write the final answer to the input from the selected answers.",
-        ),
-    ]
+        )
+    )
 )
 ```
 
@@ -1058,25 +1084,21 @@ before a longer text is not found, and that member has no value.
 sum. `mean` and `prob` do not depend on the reply length, so use them to compare members.
 
 A vote weight must be above 0. A `mean` or a `sum` is 0 or less, so `sf.Vote`, `sf.Median` and
-`sf.Mean` refuse `sf.Logprob("mean")` and `sf.Logprob("sum")` as weights when you build the Fusion.
-They also refuse `sf.Entropy`, because a higher entropy means less confidence: use `sf.Pick` or
-`sf.Rank` with `order="min"` for entropy. Use `sf.Logprob("prob")` as a vote weight. The error
+`sf.Mean` refuse `sf.Logprob("mean")` and `sf.Logprob("sum")` as weights when `>>` closes the
+block. They also refuse `sf.Entropy`, because a higher entropy means less confidence: use
+`sf.ArgMin` or `sf.Rank(..., order="min")` for entropy. Use `sf.Logprob("prob")` as a vote weight. The error
 says so:
 
 ```python
 try:
-    sf.Fusion(
-        routes,
-        signals={"lp": sf.Logprob("mean")},
-        synthesizer=sf.Vote(weights=sf.signal("lp")),
-    )
+    sf.Fanout(routes, signals={"lp": sf.Logprob("mean")}) >> sf.Vote(weights="lp")
 except ValueError as error:
     print(error)  # names the fix: sf.Logprob("prob")
 ```
 
 `sf.Logprob` and `sf.Entropy` work with OpenRouter models only, and each member must be one model
-call (not a nested Fusion or Pipeline). The SDK asks each member call for `logprobs`, and also for
-`top_logprobs` when the Fusion declares `sf.Entropy`. A model that the gateway parameter catalog
+call (not a nested block or Pipeline). The SDK asks each member call for `logprobs`, and also for
+`top_logprobs` when the `sf.Fanout` declares `sf.Entropy`. A model that the gateway parameter catalog
 marks without logprobs is refused before any call. A model that cannot return logprobs at run time
 fails with `logprobs_unsupported` and the Case fails; under a quorum, that member is left out and
 shows as `missing`. A live test verifies one model: `openrouter/openai/gpt-4o-mini`.
@@ -1090,42 +1112,220 @@ S16 records the small model's value and whether it passed the Filter. The larger
 on every Case: a cascade that skips it comes with E4c. When the small model does not pass, the
 writer gets `{"input":"...","selected":[]}`.
 
-### Fusion as a named recipe
+### Gate the majority
 
-`sf.Fusion(members, synthesizer=sf.Model(p))` is the named recipe Fan-out, then
-`Reduce.compute(context)`, then Model. The block form says the same in blocks:
+A gate decides when a majority vote is strong enough to keep. It compares one named number with
+one threshold. The gate is data, not code, so a reader can replay it from the recipe:
+`sf.Fanout(members) >> sf.Gate(when=<number> <cmp> <threshold>, then=sf.Vote(...), otherwise=...)`.
+The number is `sf.agreement()`, `sf.signal(name).chosen()` (a declared signal of the chosen
+member) or `sf.signal(name).mean()` (the mean of a declared signal over the members). `name` must
+be a name that the `sf.Fanout` declares in `signals=` (see "Signal sources"); any other name raises
+`ValueError` before any call. `<cmp>` is `>=`, `>`, `<=` or `<`, and it is the condition that keeps
+the majority: when `observed cmp threshold` is true, the answer is the majority answer. `>=` keeps
+the majority at equality. An agreement gate takes only `>=` or `>`, and a threshold from 0 to 1.
+The agreement is the winner's share of the votes; for a weighted vote, it is the winner's share of
+the weight. When the comparison is false, the fallback gives the answer:
+
+- `otherwise="abstain"` (the default): the Case abstains with the reason `gate_not_met`. This is a
+  scored decline, not a wrong answer and not a failure, and coverage counts it with the other
+  abstains.
+- `otherwise=sf.JudgePick(...)`: the judge names one member, and the answer is that member's text.
+- `otherwise=sf.Synthesize(...)`: the model writes the answer.
+
+In this version the fallback call runs on every Case, also when the gate keeps the majority, and
+you pay for it. The gate chooses and records; a cascade that skips the call comes with E4c. If the
+fallback call fails, the Case fails, also when the gate keeps the majority.
+
+When there is no number to compare (the chosen member has no value for the name, or no member has
+a value for a mean), the gate takes the fallback. A vote with no answer does not run the gate: the
+Case abstains with `no_votes`, as it does without a gate.
+
+Each recipe below runs offline in the Engine's tests, from the url4 that the SDK compiles. The
+routes are placeholders: put your own model routes in their place.
 
 ```python
-block = sf.Pipeline(
-    [
-        sf.Fusion(routes, synthesizer=sf.Reduce("context")),
-        sf.Model("openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts."),
-    ]
+import screamingface as sf
+
+panel = ["prov/alpha", "prov/beta", "prov/gamma"]
+
+# Keep the majority when at least 70% of the votes agree; else the Case abstains.
+g1_agreement_abstain = sf.Fanout(panel, name="vote") >> sf.Gate(
+    when=sf.agreement() >= 0.7, then=sf.Vote()
 )
-same = sf.Fusion(
-    routes,
-    synthesizer=sf.Model(
-        "openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts."
-    ),
+# Below 70%, a judge names one member, and the answer is that member's text.
+g2_agreement_judge = sf.Fanout(panel, name="vote") >> sf.Gate(
+    when=sf.agreement() >= 0.7,
+    then=sf.Vote(),
+    otherwise=sf.JudgePick("prov/judge", rubric="Pick the best answer."),
+)
+# Below 70%, a model writes the answer.
+g3_agreement_writer = sf.Fanout(panel, name="vote") >> sf.Gate(
+    when=sf.agreement() >= 0.7,
+    then=sf.Vote(),
+    otherwise=sf.Synthesize("prov/writer", prompt="Write one answer."),
+)
+# Keep the majority when the chosen member states a confidence of 80 or more.
+# Each member must write a line such as "Confidence: 90" (see "Signal sources").
+g4_confidence_gate = sf.Fanout(
+    panel, name="vote", signals={"conf": sf.Verbalized(r"Confidence: ([0-9]+)")}
+) >> sf.Gate(when=sf.signal("conf").chosen() >= 80, then=sf.Vote())
+```
+
+For a logprob cascade, declare `signals={"lp": sf.Logprob("prob")}` and gate on
+`sf.signal("lp").chosen()`: the majority stays when the token probability of the chosen member's
+answer is high enough.
+
+`sf.Vote(verify=None)` is a reserved place for a later verifier; any other value raises
+`ValueError`.
+
+This gate is not the per-round gate of a corrective loop.
+
+The Case pane, the run summary and the export show the gate (see "Combine steps in the report").
+
+### Fusion as a named recipe
+
+`sf.Fanout(members) >> sf.Synthesize(model)` is the named recipe: Fan-out, then one model writes
+the answer from the member answers. The shortcut `sf.Fusion(members, synthesizer=...)` builds the
+same chain: a route, an `sf.Model` or a recipe as `synthesizer=` becomes `sf.Synthesize(...)`, and
+a step (a reducer, `sf.Synthesize`, or a narrow step that you then close with `>> sf.Synthesize(...)`)
+comes after the `sf.Fanout` as it is. The two give the same value and the same url4, byte for byte,
+and the value shows in the `sf.Fanout(...) >> ...` form. `sf.Fusion` also takes `signals=`,
+`quorum=`, `name=` and `prompt=` (it gives them to the `sf.Fanout`) and `optional=True` (it gives
+`sf.Pipeline([chain], optional=True)`). `optional=True` with a narrow step as `synthesizer=` raises
+`ValueError`, because an optional chain must be a closed block, and a bare `sf.Judge` as
+`synthesizer=` raises `ValueError`, because a judge only scores.
+
+```python
+writer = sf.Model("openrouter/openai/gpt-5.5", prompt="Write the final answer from the drafts.")
+chain = sf.Fanout(routes) >> sf.Synthesize(writer)
+same = sf.Fusion(routes, synthesizer=writer)
+```
+
+`sf.Synthesize(model, prompt=...)` sets the writer's prompt, and `sf.Fanout(members, prompt=...)`
+sets the prompt of each member. The writer can be any recipe: `sf.Synthesize(sf.Pipeline([j, w]))`
+runs `j`, then `w`. A chain goes on after the writer: `sf.Fanout(m) >> sf.Synthesize(w) >>
+sf.Model(p)` gives the written answer to `p`. The candidate is named from the block: `a+b`, or the
+`name=` of the `sf.Fanout`.
+
+### Sum signals and the abstain band
+
+A sum is a declared signal that adds other declared signals of the same member, each multiplied
+by a fixed coefficient: `signals={"risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}), ...}` gives each
+member `risk = 0.5 × sev_a + 0.3 × sev_b`. Each component is another name that the same
+`sf.Fanout` declares in `signals=`, never an E4a key (such as `cost_usd` or `score:judge`) and never another
+`sf.Sum`; any other component raises `ValueError` before any call. A sum has 1 to 7 components.
+Each coefficient is a finite number that is not zero; a negative coefficient is allowed, and the
+Engine does not normalize the coefficients. The sum counts toward the 8 names that a `sf.Fanout`
+can declare.
+
+When a component is missing, the sum is missing, not zero. A rule leaves the member out, as for
+any declared signal. The Engine adds the exact products and rounds once, so the order of the
+components does not change the value. A sum that is too large for a float is missing too.
+
+A step or a gate reads the sum by its name: `sf.ArgMax`, `sf.ArgMin`, `sf.Rank`, `sf.Filter`, a
+vote weight, and a gate on `sf.signal("risk").chosen()` or `sf.signal("risk").mean()`. The evidence
+records the sum of each member like any declared signal. A sum that adds `sf.Logprob("mean")`,
+`sf.Logprob("sum")` or `sf.Entropy(...)` cannot be a vote weight: the `>>` that closes the block
+raises `ValueError` before any call. A member whose sum is
+zero or less, or larger than `7.022238808055921e+305` (the largest float divided by 256), gets
+no weight, and the vote leaves it out with `no_weight`.
+
+The abstain band is a range of the gate's number where the Case abstains and gives no verdict:
+`sf.Gate(..., abstain_if=<number>.between(lo, hi))`, on the same number as `when=`. `lo` and `hi`
+are finite numbers, and `lo <= hi`; a band of
+one point is valid. For an agreement gate, `lo` and `hi` must be from 0 to 1. The band is closed
+(both ends are in it). The Engine checks the band before the comparison. When the observed number
+is in the band, the Case abstains with the reason `in_band` for every `otherwise`, also a judge
+or a writer. When the number is outside the band, the gate compares as before. A missing number
+skips the band, and the gate takes the fallback as before. The gate record shows
+`"branch": "band"` and `"passed": null`. Coverage counts the Case with the other abstains.
+
+A judge or writer fallback still runs on every Case, also when the number is in the band; its
+reply is not read.
+
+A sum adds the signals of one member. To compare the panel, gate on `sf.signal(name).mean()`.
+
+Each recipe below runs offline in the Engine's tests, from the url4 that the SDK compiles. The
+routes are placeholders: put your own model routes in their place.
+
+```python
+import screamingface as sf
+
+panel = ["prov/alpha", "prov/beta", "prov/gamma"]
+# Each member writes two severity lines, such as "A: 2" and "B: 5" (see "Signal sources").
+severity = {
+    "risk": sf.Sum({"sev_a": 0.5, "sev_b": 0.3}),
+    "sev_a": sf.Verbalized(r"A: ([0-9]+)"),
+    "sev_b": sf.Verbalized(r"B: ([0-9]+)"),
+}
+
+# The member with the lowest risk gives the answer.
+s1_sum_pick = sf.Fanout(panel, name="pick", signals=severity) >> sf.ArgMin("risk")
+# The Case abstains with in_band when the mean risk is from 2.5 to 3.5. Else the vote keeps
+# its majority when the mean risk is 3.0 or less, and abstains with gate_not_met when not.
+risk = sf.signal("risk").mean()
+s2_band_gate = sf.Fanout(panel, name="vote", signals=severity) >> sf.Gate(
+    when=risk <= 3.0, then=sf.Vote(), abstain_if=risk.between(2.5, 3.5)
 )
 ```
 
-Before the compile, the SDK rewrites the block form to the Fusion. The two give the same url4, byte
-for byte, and the same operation ids (`op_synthesis_N`). The rewrite keeps the stages after the
-synthesizer (`Pipeline([Fusion(m, Reduce("context")), S, *rest])` is `Pipeline([Fusion(m, S), *rest])`),
-and a named Pipeline keeps its name. A Fusion that was made with `sf.Fusion(...)` is not changed by
-the rewrite. The candidate is named from the rewritten value, so both forms report `a+b`, and
-`report.candidates[...]` uses that name (the block form's own `name` is `a+b->s`). Two block forms that
-get the same name raise `ValueError`: give each one `name=`. The
-`context` block makes no combine call: it needs no operator catalog (no `GET /v1/operators`) and it
-has no member limit.
+The Case pane, the run summary and the export show the sum and the band (see "Combine steps in the
+report").
 
-Use `sf.Reduce("context")` only as the synthesizer of a Fusion that is followed by the real
-synthesizer in the same Pipeline. In every other place (the last stage, a Fusion member, a loop
-member, or before another `context` Fusion) it raises `ValueError` before any call. To write a
-multi-stage synthesizer in the block form, give it a name: `sf.Pipeline` makes an unnamed nested
-Pipeline flat, so `sf.Pipeline([sf.Fusion(m, sf.Reduce("context")), sf.Pipeline([j, w])])` is read as
-`[Fusion, j, w]`. Use `sf.Pipeline([j, w], name="judge-write")`, or a Fusion, as the synthesizer.
+### Consistency samples
+
+`sf.Consistency(n, temperature=1.0)` is a declared signal that measures how often a member gives
+its answer again: `signals={"cons": sf.Consistency(n=5)}`. Each member makes `n` more calls with
+distinct seeds at the stated `temperature`; its other params do not change. The value of a member
+is the share of the extra answers that equal the member's answer after the step's own extract and
+normalize, a number from 0 to 1. A step that has no extract, such as `sf.ArgMax("cons")`,
+compares the last line with the `text` normalizer. The extra answers never vote: they feed only
+this number, and the step reads the members' answers as before.
+
+An extra answer with nothing to extract is a successful extra call that does not match. The value
+is also missing when the member has no answer to compare (it failed, or nothing was extracted). A
+rule that reads a missing value leaves the member out, as for any declared signal.
+
+Each member makes n more calls on every Case: a `sf.Fanout` of M members makes M × n extra calls,
+and you pay for them. The extra calls run also when the member call fails. A failed extra call does
+not fail the Case: the value is the share of matches over the extra calls that answered, and when
+every extra call fails, the value is missing. The extra answers go into the combine context
+with the member answers, so many long extra answers can pass the 64 MiB context limit; the step
+then fails with `combine_input_too_large`. The extra calls use fixed seeds that the recipe
+sets, so a replay returns the same samples; they do not change with the run seed. The free
+preflight checks that each member's model takes `seed` and `temperature` before any call.
+
+The rules: one `sf.Consistency` per `sf.Fanout`; each member is one `sf.Model` or a route, not a
+Pipeline or a block; `n` from 1 to 32, with no default; `temperature` a finite number of 0 or
+more; at most 1024 extra calls per `sf.Fanout` (members × n); the block ends in a reducer, not in
+`sf.Synthesize`. A block that breaks a rule raises `ValueError` before any call. `sf.Consistency` is not
+allowed inside a corrective loop in this version.
+
+The SDK tests compile each recipe below to a fixed url4, and the Engine's tests run the first one
+offline. The routes are placeholders: put your own model routes in their place.
+
+```python
+import screamingface as sf
+
+panel = ["prov/alpha", "prov/beta", "prov/gamma"]
+# Each member answers 3 more times at temperature 1.0. The answer comes from the member whose
+# extra answers agree most often with its own answer.
+c1_pick_most_consistent = sf.Fanout(
+    panel, name="pick", signals={"cons": sf.Consistency(n=3)}
+) >> sf.ArgMax("cons")
+# Each member answers 2 more times at temperature 0.7. The median compares the last number of
+# each answer, and the evidence records each member's value.
+c2_median_consistency = (
+    sf.Fanout(panel, name="median", signals={"cons": sf.Consistency(n=2, temperature=0.7)})
+    >> sf.Median()
+)
+```
+
+`sf.Vote(weights="cons")` weights each member by its value; a member with the value 0
+has no weight and does not vote.
+
+The Case pane, the run summary and the export show the value and the failed extra calls (see
+"Combine steps in the report").
 
 ## Install
 
@@ -1408,6 +1608,66 @@ results and shortens oversized Case panes. Small JSON downloads remain inline; l
 ones use explicit export. The complete retained data remains available through the Report
 and JSON export.
 
+### Combine steps in the report
+
+The HTML report and the JSON export show what each combine step did. They show the same evidence
+as `case.answers()` and `case.trace()`, and you do not have to write Python code to see it.
+
+**The Case pane.** Every reducer step of a Case has a Combine section in the **Answer & grading**
+view. The section shows the step facts: the reducer, the rule, the result, the cut, the signal that
+the step reads, the judge model, the agreement, the tie and the dropped count. It has one row per
+member: the status and the reason, the value, the weight, the score, the rank, each signal, and a
+mark for a chosen member. A plain vote has its section too, with its tally. A declared signal
+column names its source on hover. A member value longer than 80 characters ends with `…`. The full
+value is in the export and in `case.answers()`. A step with no evidence record shows only
+`evidence` and an em dash.
+
+**The run summary.** Each Candidate card has one table per reducer step. The table shows how often
+each member was chosen and how often it was excluded, for example `2 of 3`. It also shows the mean
+of each declared signal with `n`, the number of Cases that gave a value. The card has no table when
+no Case of the Candidate has combine evidence.
+
+**The export.** `report.export()` and `report.to_dict()` add a `trace` key to each Case with a
+combine step. It holds the same entries as `report.trace_dict()` for that Case. The trace holds no
+member output text except each member's extracted `raw` and `value`. For `whole@1` and
+`json_object@1` these are the whole reply, so the export holds that text two times. The other keys
+do not change, and the schema stays `report.v1`. A Case with no combine evidence has no `trace`
+key.
+
+**The gate.** A gated vote has one more chip in its Combine section, right after the agreement
+chip, for example `gate · agreement >= 0.7 · observed 0.6667 · fallback · judge`. The chip shows
+the number that the gate read, the comparison, the threshold, the observed value and the branch:
+`majority`, `fallback` with its fallback (`abstain`, `judge` or `writer`), or `not run` when the
+vote found no answer. The run summary of a gated step has one line before its table, for example
+`gate · majority 2 of 3 · fallback 1 of 3`, with `not run` added when a Case did not run the gate.
+The export holds the gate record in `operations[].combine.gate`, with the keys `observe`,
+`observed`, `cmp`, `threshold`, `passed`, `branch` and `otherwise`. When the step read a judge
+fallback, the judge chip and the trace `judge_model` name that judge.
+
+**Sums and the band.** A sum is one more signal column in the Combine section. Hover its header
+to see the formula, for example `source: sum of 0.5 × sev_a + 0.3 × sev_b`. The run summary
+shows the mean of a sum as it shows the mean of any declared signal. A gate with a band shows the
+band in its chip, for example
+`gate · agreement >= 0.7 · band [0.6, 0.7] · observed 0.6667 · in band · abstain`.
+The result chip of that Case is `abstain · in_band`. The run summary line counts the Cases in the
+band, for example `gate · majority 1 of 3 · fallback 1 of 3 · in band 1 of 3`; the count shows
+only when a Case is in the band. The export holds the band in
+`operations[].combine.gate.abstain_band` as `[lo, hi]`, and the record of a Case in the band has
+`"branch": "band"` and `"passed": null`.
+
+**Consistency.** A step that declares `sf.Consistency` has one more chip in its Combine section,
+for example `samples · cons · 4 per member · failed 6 of 12`: the declared name, `n`, and how
+many extra calls of the step failed, out of all of them. The `cons` cell of a member shows its
+value, and a note such as `2 failed` when some of its extra calls failed. A missing value names
+why on hover, for example `every sample failed` or `no answer to compare`. The run summary of the
+step has one line before its table, for example `samples · cons · failed 12 of 24`. The export
+holds the counts in `operations[].combine.consistency`: for each member, `member_id`, `matched`,
+`succeeded` and `failed`.
+
+Numbers show 4 significant digits; hover a number to see the exact stored value. A missing value
+is an em dash; hover it to see why. The combine steps of an Attempt (`case.attempts`) are not in
+the pane, the summary or the export.
+
 ### Completed accounting breakdown
 
 Each Candidate exposes derived views of the Engine's retained operation and grading records:
@@ -1456,9 +1716,10 @@ model providers, Tavily, or Benchmark datasets directly. Local and hosted Engine
 Client-visible contract; in-memory channels, NATS, workers, and deployment topology are Engine
 details.
 
-Models, Fusions, and Pipelines are immutable, structurally comparable, Client-independent, and
-network-free. Models select routes and optional answer policy; Fusions declare parallel topology
-and an explicit synthesizer; Pipelines declare serial topology. Every placement compiles to a
+Models, `sf.Fanout` blocks, and Pipelines are immutable, structurally comparable,
+Client-independent, and network-free. Models select routes and optional answer policy; a
+`sf.Fanout` block declares parallel topology and ends in an explicit reducer or writer; Pipelines
+declare serial topology. Every placement compiles to a
 distinct logical invocation, even when two Recipe values are equal or reused. The SDK compiles the
 complete Recipe into one Candidate expression. Benchmarks are immutable Engine protocols
 that own Cases, Candidate Invocation order, fixed Judge configuration, Grading, Aggregation,
@@ -1589,15 +1850,18 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
   lifecycle, hosted authentication, discovery, connections, authoring, events, errors, Reports,
   and the asynchronous API.
 - [`examples/06_draco_full_e2e.ipynb`](examples/06_draco_full_e2e.ipynb): the complete seven-solo,
-  nine-Fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
+  nine-fusion canonical DRACO experiment and audit workflow, with execution disabled by default.
 - [`examples/07_ifeval_e2e.ipynb`](examples/07_ifeval_e2e.ipynb): canonical deterministic
   IFEval across the solo/panel × plain/corrective Recipe grid.
 - [`examples/08_healthbench.ipynb`](examples/08_healthbench.ipynb): both HealthBench
-  boards — the worst-30% open-Fusion challenge and the full 525-case exam with the
+  boards — the worst-30% open-fusion challenge and the full 525-case exam with the
   official score — rehearsed cheaply with `limit=1` first.
 - [`examples/12_inspect_evals_benchmarks.ipynb`](examples/12_inspect_evals_benchmarks.ipynb): the
   catalogue as two origin groups — ours and the imported inspect_evals boards — then a
-  Fusion against one of the imported boards.
+  fusion against one of the imported boards.
+- [`examples/18_map_select_reduce.ipynb`](examples/18_map_select_reduce.ipynb): the combine
+  recipes in the map → score → narrow → reduce form, built and compiled offline (no model
+  call).
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 

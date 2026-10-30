@@ -73,9 +73,9 @@ class OperationAccounting:
                     self, name, _nonblank_text(value, f"Operation accounting {name}")
                 )
         if not isinstance(self.usage, Usage):
-            raise TypeError("Operation accounting usage must be an sf.Usage")
+            raise TypeError("Operation accounting usage must be a sf.Usage")
         if not isinstance(self.cache, OperationCache):
-            raise TypeError("Operation accounting cache must be an sf.OperationCache")
+            raise TypeError("Operation accounting cache must be a sf.OperationCache")
         for name in ("provider_latency_ms", "provider_attempts"):
             value = getattr(self, name)
             if value is not None and (

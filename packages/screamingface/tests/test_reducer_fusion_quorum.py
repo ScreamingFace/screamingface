@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from _answer_fixtures import bound, evidence_wires, fixture_graph
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, evidence_wire, fixture_operators
 from url4 import expr, render, src, text
 
@@ -66,7 +67,7 @@ def _combine_context(url4: str) -> str:
 
 
 def test_a_quorum_reducer_reads_a_broadcast_panel() -> None:
-    url4 = _url4(sf.Fusion(_MEMBERS, synthesizer=FixtureVote(), quorum=2))
+    url4 = _url4(fusion_node(_MEMBERS, FixtureVote(), quorum=2))
 
     assert "!*'';quorum=2" in url4
     assert ";optional" in url4
@@ -74,7 +75,7 @@ def test_a_quorum_reducer_reads_a_broadcast_panel() -> None:
 
 
 def test_a_model_synthesizer_keeps_the_text_panel() -> None:
-    url4 = _url4(sf.Fusion(_MEMBERS, synthesizer="provider/s", quorum=2))
+    url4 = _url4(sf.Fanout(_MEMBERS, quorum=2) >> sf.Synthesize("provider/s"))
 
     assert "!'';quorum=2" in url4
     assert "!*" not in url4
@@ -82,7 +83,7 @@ def test_a_model_synthesizer_keeps_the_text_panel() -> None:
 
 
 def test_a_reducer_with_every_member_required_has_no_panel() -> None:
-    url4 = _url4(sf.Fusion(["provider/a", "provider/b", "provider/c"], synthesizer=FixtureVote()))
+    url4 = _url4(fusion_node(["provider/a", "provider/b", "provider/c"], FixtureVote()))
 
     assert "panel_" not in url4
     assert _combine_context(url4).startswith("{input: '$input', outputs: {member_1: '$model_1'")
@@ -91,7 +92,7 @@ def test_a_reducer_with_every_member_required_has_no_panel() -> None:
 def test_an_all_optional_fusion_without_a_quorum_still_needs_every_member() -> None:
     members = [sf.Model("provider/a", optional=True), sf.Model("provider/b", optional=True)]
 
-    url4 = _url4(sf.Fusion(members, synthesizer=FixtureVote()))
+    url4 = _url4(fusion_node(members, FixtureVote()))
 
     assert "!*'';quorum=2" in url4
 
@@ -100,7 +101,7 @@ def test_an_all_optional_fusion_without_a_quorum_still_needs_every_member() -> N
 
 
 def test_a_quorum_reducer_round_trips_through_url4() -> None:
-    fusion = sf.Fusion(_MEMBERS, synthesizer=FixtureVote(), quorum=2)
+    fusion = fusion_node(_MEMBERS, FixtureVote(), quorum=2)
     compiled = compile_candidate(fusion, operators=fixture_operators())
 
     assert _url4(_recovered(compiled.url4)) == compiled.url4

@@ -14,6 +14,7 @@ from typing import Any
 
 import httpx
 import pytest
+from _nodes import fusion_node
 from _reducer_fixtures import (
     FixtureVote,
     evidence_wire,
@@ -239,7 +240,7 @@ def test_the_report_carries_combine_evidence_beside_the_combined_output() -> Non
 
 def test_two_reducers_keep_separate_evidence() -> None:
     pipeline = sf.Pipeline(
-        [reducer_fusion(), sf.Fusion(["provider/d", "provider/e"], synthesizer=FixtureVote())]
+        [reducer_fusion(), fusion_node(["provider/d", "provider/e"], FixtureVote())]
     )
     compiled = compile_candidate(pipeline, operators=fixture_operators())
     sources = [op.id for op in compiled.operations if op.kind == "combine"]

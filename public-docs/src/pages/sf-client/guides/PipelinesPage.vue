@@ -16,42 +16,42 @@ review = sf.Model("openrouter/anthropic/claude-opus-4.8")
 
 chain = sf.Pipeline([draft, review], name="review-chain")
 chain`
-const basicOut = `Pipeline(['gpt-5.5', 'claude-opus-4.8'], name='review-chain')`
+const basicOut = `Pipeline([Model('openrouter/openai/gpt-5.5'), Model('openrouter/anthropic/claude-opus-4.8')], name='review-chain')`
 
-const then = `final = sf.Model("openrouter/openai/gpt-5.5", name="polish")
+const chained = `final = sf.Model("openrouter/openai/gpt-5.5", name="polish")
 
-draft.then(review).then(final)`
-const thenOut = `Pipeline(['gpt-5.5', 'claude-opus-4.8', 'polish'])`
+draft >> review >> final`
+const chainedOut = `Pipeline([Model('openrouter/openai/gpt-5.5'), Model('openrouter/anthropic/claude-opus-4.8'), Model('openrouter/openai/gpt-5.5', name='polish')])`
 
 const flatten = `constructed = sf.Pipeline([draft, sf.Pipeline([review, final])])
 
-[stage.name for stage in constructed.stages]`
+[step.name for step in constructed.steps]`
 const flattenOut = `['gpt-5.5', 'claude-opus-4.8', 'polish']`
 
 const nestNamed = `named = sf.Pipeline([review, final], name="polish-pass")
 
-[stage.name for stage in draft.then(named).stages]`
+[step.name for step in (draft >> named).steps]`
 const nestNamedOut = `['gpt-5.5', 'polish-pass']`
 
 const recursive = `judge = sf.Model("openrouter/anthropic/claude-opus-4.8", name="judge")
 writer = sf.Model("openrouter/openai/gpt-5.5", name="writer")
 
-sf.Fusion(
-    [draft.then(review), sf.Model("openrouter/google/gemini-3.1-pro-preview")],
-    synthesizer=sf.Pipeline([judge, writer]),
-)`
-const recursiveOut = `Fusion(['gpt-5.5->claude-opus-4.8', 'gemini-3.1-pro-preview'], synthesizer=Pipeline(['judge', 'writer']))`
+sf.Fanout(
+    [draft >> review, sf.Model("openrouter/google/gemini-3.1-pro-preview")],
+) >> sf.Synthesize(sf.Pipeline([judge, writer]))`
+const recursiveOut = `Fanout([Pipeline([Model('openrouter/openai/gpt-5.5'), Model('openrouter/anthropic/claude-opus-4.8')]), 'openrouter/google/gemini-3.1-pro-preview']) >> Synthesize(Pipeline([Model('openrouter/anthropic/claude-opus-4.8', name='judge'), Model('openrouter/openai/gpt-5.5', name='writer')]))`
 
-const mixed = `panel = sf.Fusion([draft, review], synthesizer=final)
+const mixed = `panel = sf.Fanout([draft, review]) >> sf.Synthesize(final)
 refine = sf.Pipeline([review, final], name="refine")
 
 sf.Pipeline([draft, panel, refine], name="mixed")`
-const mixedOut = `Pipeline(['gpt-5.5', 'gpt-5.5+claude-opus-4.8', 'refine'], name='mixed')`
+const mixedOut = `Pipeline([Model('openrouter/openai/gpt-5.5'), Fanout(['openrouter/openai/gpt-5.5', 'openrouter/anthropic/claude-opus-4.8']), Synthesize(Model('openrouter/openai/gpt-5.5', name='polish')), Pipeline([Model('openrouter/anthropic/claude-opus-4.8'), Model('openrouter/openai/gpt-5.5', name='polish')], name='refine')], name='mixed')`
 
 const pipelineSig = `sf.Pipeline(
-    stages: Sequence[str | Recipe],
+    steps: Sequence[str | Recipe | Step],
     *,
     name: str | None = None,
+    optional: bool = False,
 )`
 </script>
 
@@ -75,9 +75,10 @@ const pipelineSig = `sf.Pipeline(
     </p>
 
     <p>
-      A stage can be any recipe: a <code>Model</code>, a <code>Fusion</code>, or another
-      <code>Pipeline</code>. Refine, review, or re-rank as many times as your experiment needs. Like
-      all recipes, a Pipeline is immutable. Building one makes no requests.
+      A stage can be any recipe: a <code>Model</code>, a fusion
+      (<code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>), or another <code>Pipeline</code>.
+      Refine, review, or re-rank as many times as your experiment needs. Like all recipes, a
+      Pipeline is immutable. Building one makes no requests.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -139,9 +140,9 @@ const pipelineSig = `sf.Pipeline(
 
     <ul>
       <li>Chain two or more recipes so each stage refines the previous answer.</li>
-      <li>Build the same chain with <code>.then()</code> for a fluent API.</li>
-      <li>Nest a Pipeline inside a Fusion, or vice versa.</li>
-      <li>Read back the ordered stages and see the resolved name.</li>
+      <li>Build the same chain with <code>&gt;&gt;</code>, which reads left to right.</li>
+      <li>Nest a Pipeline inside a fusion, or a fusion inside a Pipeline.</li>
+      <li>Read back the ordered steps and see the resolved name.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -155,22 +156,23 @@ const pipelineSig = `sf.Pipeline(
       </thead>
       <tbody>
         <tr>
-          <td><code>sf.Pipeline(stages, *, name=None)</code></td>
+          <td><code>sf.Pipeline(steps, *, name=None, optional=False)</code></td>
           <td>
             Runs stages one after another. Each stage gets the previous stage's answer, and the last
             stage's answer is what the benchmark grades.
           </td>
         </tr>
         <tr>
-          <td><code>recipe.then(next)</code></td>
+          <td><code>a &gt;&gt; b</code></td>
           <td>
-            Builder method on every recipe: appends a stage and returns a new Pipeline.
-            <code>a.then(b).then(c)</code> reads left to right.
+            Joins two stages and returns a new <code>sf.Pipeline</code>.
+            <code>a &gt;&gt; b &gt;&gt; c</code> reads left to right and returns a new
+            <code>sf.Pipeline</code>.
           </td>
         </tr>
         <tr>
-          <td><code>.name</code> · <code>.stages</code></td>
-          <td>Read back the resolved name and the ordered stages (as a tuple).</td>
+          <td><code>.name</code> · <code>.optional</code> · <code>.steps</code></td>
+          <td>Read back the resolved name, the optional flag and the ordered steps (as a tuple).</td>
         </tr>
         <tr>
           <td><code>sf.Recipe</code></td>
@@ -236,15 +238,16 @@ const pipelineSig = `sf.Pipeline(
       </figcaption>
     </figure>
 
-    <h3>2 · Build the same chain with <code>.then()</code></h3>
+    <h3>2 · Build the same chain with <code>&gt;&gt;</code></h3>
 
     <p>
-      <code>.then()</code> is on every recipe. It appends a stage so chains read left to right.
-      Builds the same canonical Pipeline as passing stages to the constructor.
+      <code>&gt;&gt;</code> joins two stages, so a chain reads left to right. It builds the same
+      Pipeline as the constructor: <code>draft &gt;&gt; review &gt;&gt; final</code> is equal to
+      <code>sf.Pipeline([draft, review, final])</code>. A route string on the left also works.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="2" :code="then"><NbTextOut :text="thenOut" /></NbCell>
+      <NbCell :count="2" :code="chained"><NbTextOut :text="chainedOut" /></NbCell>
     </div>
 
     <figure class="not-prose" style="margin: var(--space-6) 0">
@@ -289,7 +292,7 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        <code>.then()</code> builds one Pipeline of three stages; only the last stage's answer is
+        <code>&gt;&gt;</code> builds one Pipeline of three stages; only the last stage's answer is
         graded.
       </figcaption>
     </figure>
@@ -413,10 +416,9 @@ const pipelineSig = `sf.Pipeline(
     <h3>4 · Compose recursively</h3>
 
     <p>
-      Because a stage is any recipe and a
-      <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>'s members and synthesizer are
-      any recipe, the two compose freely: a Fusion of Pipelines, a Pipeline of Fusions, or a Fusion
-      whose synthesizer is itself a Pipeline.
+      A stage is any recipe. A <RouterLink to="/sf-client/guides/fusions">fusion</RouterLink>'s
+      members and synthesizer are any recipe too. So the two compose freely: a fusion of Pipelines,
+      a Pipeline of fusions, or a fusion whose synthesizer is itself a Pipeline.
     </p>
 
     <div class="not-prose">
@@ -428,7 +430,7 @@ const pipelineSig = `sf.Pipeline(
         class="dg"
         viewBox="0 0 994 210"
         role="img"
-        aria-label="A Fusion whose members are a draft-to-review Pipeline and gemini, combined by a synthesizer that is itself a judge-to-writer Pipeline; grading the writer's answer produces the graded answer."
+        aria-label="A fanout block whose members are a draft-to-review Pipeline and gemini, combined by a synthesizer that is itself a judge-to-writer Pipeline; grading the writer's answer produces the graded answer."
       >
         <defs>
           <marker
@@ -443,7 +445,7 @@ const pipelineSig = `sf.Pipeline(
             <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
           </marker>
         </defs>
-        <text x="16" y="18" class="sub">Fusion · members</text>
+        <text x="16" y="18" class="sub">Fanout · members</text>
         <g class="edge" marker-end="url(#pl-a5)">
           <path d="M152 70 H230" />
           <path d="M572 114 H600" />
@@ -472,17 +474,20 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        A Fusion of two members, the draft → review Pipeline and gemini, combined by a synthesizer
-        that is itself a judge → writer Pipeline; grading the writer's answer is the graded answer.
+        A fanout block of two members, the draft → review Pipeline and gemini, combined by a
+        synthesizer that is itself a judge → writer Pipeline; grading the writer's answer is the
+        graded answer.
       </figcaption>
     </figure>
 
     <h3>5 · Mix recipe types as stages</h3>
 
     <p>
-      Because a stage is just a recipe, one Pipeline can mix a <code>Model</code>, a
-      <code>Fusion</code>, and a nested <code>Pipeline</code> as its stages. Each one counts as a
-      single stage, and the last stage's answer is still what the benchmark grades.
+      Because a stage is just a recipe, one Pipeline can mix a <code>Model</code>, a fusion, and a
+      nested <code>Pipeline</code> as its stages. The unnamed <code>panel</code> chain flattens, so
+      the output lists its two steps, <code>Fanout</code> and <code>Synthesize</code>. They still
+      run as one stage. The named <code>refine</code> stays grouped. The last stage's answer is
+      still what the benchmark grades.
     </p>
 
     <div class="not-prose">
@@ -494,7 +499,7 @@ const pipelineSig = `sf.Pipeline(
         class="dg"
         viewBox="0 0 860 152"
         role="img"
-        aria-label="One Pipeline whose stages are a Model, a Fusion and a nested Pipeline; grading the last stage's answer produces the graded answer."
+        aria-label="One Pipeline whose stages are a Model, a fanout block and a nested Pipeline; grading the last stage's answer produces the graded answer."
       >
         <defs>
           <marker
@@ -529,13 +534,13 @@ const pipelineSig = `sf.Pipeline(
         </g>
         <g class="sub" text-anchor="middle">
           <text x="105" y="124">Model</text>
-          <text x="311" y="124">Fusion</text>
+          <text x="311" y="124">Fanout</text>
           <text x="517" y="124">Pipeline</text>
         </g>
       </svg>
       <figcaption class="dgcap">
-        A stage is any recipe: here a Model, a Fusion and a nested Pipeline chained in one Pipeline;
-        only the last stage's answer is graded.
+        A stage is any recipe: here a Model, a fanout block and a nested Pipeline chained in one
+        Pipeline; only the last stage's answer is graded.
       </figcaption>
     </figure>
 
@@ -555,12 +560,13 @@ const pipelineSig = `sf.Pipeline(
       </thead>
       <tbody>
         <tr>
-          <td><code>stages</code></td>
-          <td><code>Sequence[str&nbsp;|&nbsp;Recipe]</code></td>
+          <td><code>steps</code></td>
+          <td><code>Sequence[str&nbsp;|&nbsp;Recipe&nbsp;|&nbsp;Step]</code></td>
           <td>
-            One or more stages, in order. Each can be a route string or any recipe. An
-            <em>unnamed</em> nested <code>Pipeline</code> flattens into the surrounding sequence; a
-            <em>named</em> one stays as a single stage.
+            One or more steps, in order. Each can be a route string, any recipe, or a block step
+            such as <code>sf.Fanout</code> or <code>sf.Synthesize</code>. An <em>unnamed</em> nested
+            <code>Pipeline</code> flattens into the surrounding sequence; a <em>named</em> one stays
+            as a single stage.
           </td>
         </tr>
         <tr>
@@ -571,15 +577,23 @@ const pipelineSig = `sf.Pipeline(
             <code>gpt-5.5-&gt;claude-opus-4.8</code>.
           </td>
         </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Defaults to <code>False</code>. Set it to <code>True</code> for a chain that is an
+            optional member of a <code>sf.Fanout</code>.
+          </td>
+        </tr>
       </tbody>
     </table>
 
     <h3>Attributes</h3>
 
     <p>
-      <code>stages</code> is a <code>tuple</code> in canonical order. <code>name</code> is the
-      resolved label. <code>recipe.then(next)</code>, available on every recipe, appends a stage and
-      returns a new <code>Pipeline</code>.
+      <code>steps</code> is a <code>tuple</code> in canonical order. <code>name</code> is the
+      resolved label. <code>optional</code> is the flag you gave. <code>a &gt;&gt; b</code> joins
+      two stages and returns a new <code>Pipeline</code>.
     </p>
 
     <h3>Raises</h3>
@@ -597,7 +611,7 @@ const pipelineSig = `sf.Pipeline(
           <td><code>ValueError: a Pipeline requires at least one stage</code></td>
         </tr>
         <tr>
-          <td><code>stages</code> is not an ordered sequence (for example a bare route string)</td>
+          <td><code>steps</code> is not an ordered sequence (for example a bare route string)</td>
           <td>
             <code
               >TypeError: Pipeline stages must be an ordered sequence of model routes or
@@ -606,8 +620,13 @@ const pipelineSig = `sf.Pipeline(
           </td>
         </tr>
         <tr>
-          <td><code>.then()</code> is given something other than a route string or recipe</td>
-          <td><code>TypeError: Pipeline stage must be …</code></td>
+          <td>
+            A stage (in <code>steps</code> or after <code>&gt;&gt;</code>) is not a route string, a
+            recipe or a step
+          </td>
+          <td>
+            <code>TypeError: Pipeline stage must be a model route, a sf.Model or a sf.Pipeline</code>
+          </td>
         </tr>
       </tbody>
     </table>

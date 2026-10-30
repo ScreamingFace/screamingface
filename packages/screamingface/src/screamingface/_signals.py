@@ -11,7 +11,10 @@ import math
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from screamingface._surface.refs import GateRef
 
 _FIELD_KEY = r"[A-Za-z_][A-Za-z0-9_]*"  # verbatim E/combine/ports.py
 _FIELD_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
@@ -114,6 +117,31 @@ class Signal:
     def __le__(self, other: object) -> Any:
         return _ordered(self, "le", other)
 
+    def chosen(self) -> GateRef:
+        """The declared signal of the member that the vote chose: a gate reference."""
+
+        return _gate_ref("chosen", self._declared("chosen"))
+
+    def mean(self) -> GateRef:
+        """The mean of the declared signal over the members: a gate reference."""
+
+        return _gate_ref("mean", self._declared("mean"))
+
+    def _declared(self, method: str) -> str:
+        if is_signal_key(self.key):
+            raise ValueError(  # SI-1
+                f"sf.signal({self.key!r}).{method}() reads a declared signal; an E4a key such as "
+                "cost_usd is not a gate input"
+            )
+        return self.key
+
+
+def _gate_ref(method: str, name: str) -> GateRef:
+    # WHY lazy: the gate references live with the gate step (S/_surface/refs.py imports this module)
+    from screamingface._surface.refs import GateRef
+
+    return GateRef(f"{method}:{name}")
+
 
 def _ordered(signal: Signal, cmp: _Cmp, other: object) -> Any:
     """``signal < 3`` and friends: a predicate for a number, NotImplemented (a TypeError) else."""
@@ -149,7 +177,7 @@ class _Comparison:
         return hash(self._key())
 
     def __bool__(self) -> bool:
-        raise TypeError("a signal comparison is an sf.Filter predicate, not a bool")
+        raise TypeError("a signal comparison is a sf.Filter predicate, not a bool")
 
     def __repr__(self) -> str:
         return f"signal({self.signal.key!r}) {_SYMBOLS[self.cmp]} {self.value!r}"
@@ -190,6 +218,26 @@ def _finite(value: float) -> float:
     return number + 0.0
 
 
+def _finite_number(value: object, type_message: str, finite_message: str) -> float:
+    """A number that is not a bool, as a finite float (an int becomes a float).
+
+    TypeError(type_message) for any other value; ValueError(finite_message) for NaN, an infinity
+    or an int beyond the float range. The caller gives both messages.
+
+    WHY ``_finite`` (``_comparison``) stays separate: there a bool is a valid ``==`` threshold,
+    ``+ 0.0`` turns -0.0 into 0.0, and its message differs (one fixed sf.signal text).
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(type_message)
+    try:
+        number = float(value)
+    except OverflowError:  # an int beyond the float range
+        raise ValueError(finite_message) from None
+    if not math.isfinite(number):
+        raise ValueError(finite_message)
+    return number
+
+
 def _rejection(key: str) -> str:
     if key.startswith(FIELD_SIGNAL_PREFIX):
         return "field signal path must be a JSON path like 'a', 'a.b' or 'a[0].b'"
@@ -208,8 +256,8 @@ def _rejection(key: str) -> str:
 
 def signal(key: str) -> Signal:
     """A named number on a member Answer, read by a reducer: cost_usd, latency_ms, tokens_in,
-    tokens_out, score:judge, field:<path>, or a name that the Fusion declares in ``signals=``.
-    A missing value is None, never an error."""
+    tokens_out, score:judge, field:<path>, or a name that the ``sf.Fanout`` declares in
+    ``signals=``. A missing value is None, never an error."""
 
     return Signal(key)
 

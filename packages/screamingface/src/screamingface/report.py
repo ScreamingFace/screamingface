@@ -43,7 +43,13 @@ from screamingface.case_result import (
     _bind_operation_graph,
     named_scores,
 )
-from screamingface.combine_evidence import CombineCut, CombineEvidence
+from screamingface.combine_evidence import (
+    CombineCut,
+    CombineEvidence,
+    CombineGate,
+    CombineNarrow,
+    CombineSampleCount,
+)
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.operation_accounting import OperationAccounting, OperationCache
@@ -64,7 +70,7 @@ type RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 @dataclass(frozen=True, slots=True, init=False)
 class MemberResult:
-    """Compact outcome for one direct Fusion member.
+    """Compact outcome for one direct member of a fanout block.
 
     Usage is derived only from retained accounting uniquely attributed to this member's
     operation ID in every Case; unsupported ownership remains ``None``.
@@ -270,7 +276,7 @@ def _require_reproduction(value: object) -> None:
     from screamingface._reproduction import Reproduction
 
     if value is not None and not isinstance(value, Reproduction):
-        raise TypeError("Candidate reproduction must be an sf.Reproduction or None")
+        raise TypeError("Candidate reproduction must be a sf.Reproduction or None")
 
 
 def _is_canonical_uuid(value: str) -> bool:
@@ -377,7 +383,7 @@ class CandidateResult:
         reproduction: Reproduction | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Candidate benchmark must be a sf.BenchmarkInfo")
         _require_reproduction(reproduction)
         _check_cache_counts(cache_hits, cache_unpriced_hits)
         selected_copy, selected_capture = _capture(pinned_cache, capture_status)
@@ -498,8 +504,31 @@ class CandidateResult:
     def duration_ms(self) -> int:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
+    def _operation_graph(self) -> dict[str, OperationInfo]:
+        """This Candidate's operations by id: the graph its traces and Combine views read."""
+        return {operation.id: operation for operation in self.operations}
+
     def to_dict(self) -> dict[str, object]:
-        return self._export_fields(cases=[case.to_dict() for case in self.cases])
+        return self._export_fields(cases=list(self._export_cases()))
+
+    def _export_cases(self) -> Iterator[dict[str, object]]:
+        """Each Case as report.v1 exports it: ``case.to_dict()``, then ``trace`` (E4b part 4).
+
+        WHY not in ``CaseResult.to_dict``: that dict mirrors the Engine wire, and the strict
+        decoder refuses an unknown key (P2). WHY the Candidate graph: the same rule as
+        ``trace_dict``. WHY ``case.operations`` only: Attempt operations are not traced (P15).
+        """
+
+        graph = self._operation_graph()
+        for case in self.cases:
+            selected = case.to_dict()
+            # INVARIANT (P1): the key appears only with combine evidence, so every other Case
+            # exports byte-identically, and it is the last key (after ``abstained``).
+            if case.operations is not None and any(
+                operation.combine is not None for operation in case.operations
+            ):
+                selected["trace"] = _case_entries(case, graph)
+            yield selected
 
     def _export_fields(self, *, cases: object) -> dict[str, object]:
         return {
@@ -590,7 +619,7 @@ class Report:
         candidates: Sequence[CandidateResult],
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Report benchmark must be a sf.BenchmarkInfo")
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
         for candidate in selected_candidates:
@@ -660,7 +689,10 @@ class Report:
         return "".join(iter_report_json(self))
 
     def trace_dict(self) -> dict[str, object]:
-        """The per-Case traces as ``screamingface.report-trace.v1`` (derived; not report.v1)."""
+        """The per-Case traces as ``screamingface.report-trace.v1``.
+
+        Derived; the export also holds each Case's entries as its ``trace`` key (E4b part 4).
+        """
 
         return {
             "schema": TRACE_SCHEMA,
@@ -861,12 +893,12 @@ def _validate_model_candidate(models: Sequence[str], members: Sequence[MemberRes
 
 def _validate_fusion_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
     if not members:
-        raise ValueError("a Fusion Candidate requires at least one direct member")
+        raise ValueError("a fanout block Candidate requires at least one direct member")
 
 
 def _validate_pipeline_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
     if members:
-        raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
+        raise ValueError("a Pipeline Candidate cannot contain direct fanout members")
 
 
 def _validate_corrective_loop_candidate(
@@ -982,16 +1014,22 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
+def _case_entries(case: CaseResult, graph: Mapping[str, OperationInfo]) -> list[dict[str, object]]:
+    """One Case's report-trace.v1 entries: the one builder of trace_dict and the export (P20)."""
+
+    return [entry.to_dict() for entry in case_trace(case, graph)]
+
+
 def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
     # WHY the graph is passed explicitly: it is always the Candidate's own, whatever a shared
     # Case happens to be bound to.
-    graph = {operation.id: operation for operation in candidate.operations}
+    graph = candidate._operation_graph()
     return {
         "candidate": candidate.name,
         "cases": [
             {
                 "case_id": case.case_id,
-                "entries": [entry.to_dict() for entry in case_trace(case, graph)],
+                "entries": _case_entries(case, graph),
             }
             for case in candidate.cases
         ],
@@ -1097,6 +1135,9 @@ __all__ = [
     "Check",
     "CombineCut",
     "CombineEvidence",
+    "CombineGate",
+    "CombineNarrow",
+    "CombineSampleCount",
     "Evidence",
     "EvidenceProducer",
     "Failure",

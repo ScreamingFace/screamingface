@@ -52,6 +52,15 @@ _EXPECTED_NAMES = {
 _EXPECTED_NAMES |= {"pick_output", "pick_output_missing"}  # E4b pick-output
 _EXPECTED_NAMES |= {"vote_weight_excluded", "filter_signal_excluded"}  # E4b part 2 X1, X2
 _EXPECTED_NAMES |= {"rank_min_cost", "rank_reduce_abstain"}  # E4b part 2 unit 3 rank and cut
+_EXPECTED_NAMES |= {  # E4b part 5 unit 2: the five gate cases
+    "vote_gate_abstain",
+    "vote_gate_judge",
+    "vote_gate_majority",
+    "vote_gate_not_run",
+    "vote_gate_writer",
+}
+_EXPECTED_NAMES |= {"pick_sum_min"}  # E4b part 6 unit 1: a pick reads a declared sum
+_EXPECTED_NAMES |= {"vote_gate_band"}  # E4b part 6 unit 4: the abstain band case
 
 
 def _cases() -> dict[str, Any]:

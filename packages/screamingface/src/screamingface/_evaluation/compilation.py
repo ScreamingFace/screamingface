@@ -9,8 +9,8 @@ from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import (
     _CompiledCandidate,
     compile_candidate,
+    entry_recipe,
 )
-from screamingface._evaluation.fusion_recipe import rewrite_fusion_recipe
 from screamingface._evaluation.linking import _prepare_benchmark
 from screamingface._evaluation.model import (
     _compiled_candidate,
@@ -27,25 +27,28 @@ def compile_evaluation(
     limit: int | None,
     *,
     operators: _OperatorCatalog | None = None,
+    warn_judge_writers: bool = True,
 ) -> _Evaluation:
-    """Compile all Candidates locally against one selected Benchmark."""
+    """Compile all Candidates locally against one selected Benchmark.
+
+    The run passes the values of ``_candidate_values``, which already warned and lowered them
+    (``warn_judge_writers=False``). The default branch, which warns here, exists for the callers
+    and tests that pass the user's own Recipes (E4b surface lowering §2.4).
+    """
 
     # FEATURE (GP-1): extract="benchmark" resolves here, at the plan seam, from the resource
     # already fetched; the compiled url4 then pins the rule's concrete operator ids.
     benchmark_rule = _BenchmarkAnswerRule(resource.info.id, resource.answer_rule)
-    # WHY rewritten first: the Fusion recipe rewrite changes the name of a block form (the Fusion it
-    # becomes is "a+b", not "a+b->s"), so a candidate is named from the rewritten value.
-    rewritten = tuple(rewrite_fusion_recipe(recipe) for recipe in recipes)
-    _check_rewritten_names(recipes, rewritten)
-    # WHY the user's own Recipe and not the rewritten one: compile_candidate rewrites it the same
-    # way (the rewrite is pure and idempotent), and its judge-writer warning must see the stages
-    # as the user wrote them (review P2 #3).
+    recipes = tuple(
+        entry_recipe(recipe, warn_judge_writers=warn_judge_writers) for recipe in recipes
+    )
     compiled = tuple(
         compile_candidate(
             recipe,
             check_surface=resource.check_surface,
             operators=operators,
             benchmark_rule=benchmark_rule,
+            warn_judge_writers=False,
         )
         for recipe in recipes
     )
@@ -54,7 +57,7 @@ def compile_evaluation(
     prepared = _prepare_benchmark(resource.url4)
     linked = tuple(prepared.bind(value.url4) for value in compiled)
     candidates = []
-    for recipe, value, result in zip(rewritten, compiled, linked, strict=True):
+    for recipe, value, result in zip(recipes, compiled, linked, strict=True):
         candidates.append(
             _compiled_candidate(
                 name=recipe.name,
@@ -78,22 +81,6 @@ def compile_evaluation(
             tuple(model for candidate in selected_candidates for model in candidate.models)
         ),
     )
-
-
-def _check_rewritten_names(recipes: Sequence[Recipe], rewritten: Sequence[Recipe]) -> None:
-    """Refuse two Candidates that the rewrite names alike, and say the name is not the user's."""
-
-    seen: dict[str, str] = {}
-    for original, lowered in zip(recipes, rewritten, strict=True):
-        name = lowered.name
-        if name in seen and (original.name != name or seen[name] != name):
-            raise ValueError(
-                f"duplicate Candidate name {name!r}: the Fusion recipe rewrite named "
-                f"{original.name!r} {name!r} (a block form is named from the Fusion it becomes). "
-                "Give each candidate its own name= (sf.Fusion(..., name=...) or "
-                "sf.Pipeline(..., name=...))"
-            )
-        seen.setdefault(name, original.name)
 
 
 def _known_operation_ids(candidate: _CompiledCandidate) -> tuple[str, ...]:

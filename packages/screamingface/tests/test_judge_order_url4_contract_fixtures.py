@@ -24,11 +24,10 @@ from screamingface._evaluation.candidate import compile_candidate
 def judge_order_min_url4() -> str:
     """S11 min: three members; the judge scores the factual errors, and the lowest score wins."""
 
-    recipe = sf.Fusion(
-        ["prov/alpha", "prov/beta", "prov/gamma"],
-        synthesizer=sf.Judge(
-            "prov/judge", returns="scores", rubric="Count the factual errors.", order="min"
-        ),
+    recipe = (
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
+        >> sf.Judge("prov/judge", rubric="Count the factual errors.")
+        >> sf.ArgMin("score:judge")
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 

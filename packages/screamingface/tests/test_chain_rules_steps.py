@@ -1,0 +1,232 @@
+"""The chain rules that need a judge or a narrow step (E4b surface unit 3, surface §2.2).
+
+FEATURE: a block is ``Fanout``, then at most one ``Judge``, then 0–4 narrow steps, then one
+reduce or write step. A ``Judge`` needs a step that reads ``score:judge`` (CH-10). Since the narrow
+compile (unit 5), a block that needs the spec ``narrow`` key builds: ``CH-12`` is gone.
+STORY: as a researcher, a wrong order of judge, narrow and terminal steps fails at the ``>>``, with
+a message that says what to do.
+"""
+
+from __future__ import annotations
+
+import pytest
+from _nodes import ConcatNode, FusionNode, JudgeNode, RankNode, fusion_node
+
+import screamingface as sf
+from screamingface._surface.chain import _Block
+from screamingface._surface.lowering import lower
+
+_PAIR = ["provider/a", "provider/b"]
+_JUDGE = "provider/judge"
+_RUBRIC = "Give a higher number to a more correct answer."
+
+
+def _judge() -> sf.Judge:
+    return sf.Judge(_JUDGE, rubric=_RUBRIC)
+
+
+def _today_judge(**options: object) -> JudgeNode:
+    return JudgeNode(_JUDGE, returns="scores", rubric=_RUBRIC, **options)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------- CH-3
+
+
+def test_ch3_a_second_judge_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a block takes one judge: sf\.Judge and sf\.JudgePick use the same judge signal$",
+    ):
+        _ = sf.Fanout(_PAIR) >> _judge() >> _judge()
+
+
+def test_ch3_a_judge_pick_after_a_judge_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a block takes one judge: sf\.Judge and sf\.JudgePick use the same judge signal$",
+    ):
+        _ = sf.Fanout(_PAIR) >> _judge() >> sf.JudgePick(_JUDGE, rubric="Pick one.")
+
+
+def test_ch3_a_judge_pick_after_a_judge_and_a_narrow_step_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a block takes one judge: sf\.Judge and sf\.JudgePick use the same judge signal$",
+    ):
+        _ = (
+            sf.Fanout(_PAIR)
+            >> _judge()
+            >> sf.Rank(1, by="score:judge")
+            >> sf.JudgePick(_JUDGE, rubric="Pick one.")
+        )
+
+
+def test_ch2_a_recipe_after_a_judge_is_refused() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a sf\.Fanout block needs a reducer or sf\.Synthesize before the next stage$",
+    ):
+        _ = sf.Fanout(_PAIR) >> _judge() >> sf.Model("provider/x")
+
+
+# ---------------------------------------------------------------- CH-4
+
+
+def test_ch4_a_fifth_narrow_step_is_refused() -> None:
+    chain = sf.Fanout(_PAIR) >> sf.Rank(2, by="cost_usd")
+    for _ in range(3):
+        chain = chain >> sf.Rank(2, by="cost_usd")
+
+    with pytest.raises(ValueError, match=r"^a block takes at most 4 narrow steps$"):
+        _ = chain >> sf.Rank(2, by="cost_usd")
+
+
+# ---------------------------------------------------------------- CH-5
+
+
+@pytest.mark.parametrize(
+    "following",
+    [sf.Model("provider/x"), "provider/x", sf.Fanout(_PAIR), sf.Fanout(_PAIR) >> sf.Vote()],
+    ids=["model", "route", "fanout", "closed-block"],
+)
+def test_ch5_a_selection_goes_to_a_writer_a_reducer_or_a_narrow_step(
+    following: str | sf.Recipe | sf.Fanout,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"^a selection goes to sf\.Synthesize, a reducer, or another narrow step$",
+    ):
+        _ = sf.Fanout(_PAIR) >> sf.Rank(1, by="cost_usd") >> following
+
+
+# ---------------------------------------------------------------- CH-6
+
+
+def test_ch6_a_judge_after_a_narrow_step_is_refused() -> None:
+    with pytest.raises(ValueError, match=r"^sf\.Judge comes right after sf\.Fanout$"):
+        _ = sf.Fanout(_PAIR) >> sf.Rank(1, by="cost_usd") >> _judge()
+
+
+# ---------------------------------------------------------------- CH-7
+
+
+@pytest.mark.parametrize(
+    "following",
+    [sf.Vote(), sf.Rank(1, by="cost_usd"), sf.Model("provider/x"), sf.Concat(), _judge()],
+    ids=["reducer", "narrow", "model", "concat", "judge"],
+)
+def test_ch7_concat_must_be_followed_by_synthesize(following: object) -> None:
+    with pytest.raises(ValueError, match=r"^sf\.Concat must be followed by sf\.Synthesize$"):
+        _ = sf.Fanout(_PAIR) >> sf.Concat() >> following  # type: ignore[operator]
+
+
+def test_concat_then_synthesize_is_a_block() -> None:
+    chain = sf.Fanout(_PAIR) >> sf.Concat() >> sf.Synthesize("provider/w")
+
+    assert lower(chain) == sf.Pipeline([fusion_node(_PAIR, ConcatNode()), "provider/w"])
+
+
+# ---------------------------------------------------------------- CH-10
+
+
+@pytest.mark.parametrize(
+    "terminal",
+    [sf.Vote(), sf.Median(), sf.ArgMax("cost_usd"), sf.Synthesize("provider/w")],
+    ids=["vote", "median", "argmax-cost", "synthesize"],
+)
+def test_ch10_a_judge_that_no_step_reads_is_refused(terminal: sf.Vote) -> None:
+    with pytest.raises(
+        ValueError, match=r"^sf\.Judge scores the members, but no step reads score:judge$"
+    ):
+        _ = sf.Fanout(_PAIR) >> _judge() >> terminal
+
+
+def test_ch10_a_judge_read_only_by_a_narrow_step_is_read() -> None:
+    chain = sf.Fanout(_PAIR) >> _judge() >> sf.Rank(1, by="score:judge") >> sf.Synthesize("p/w")
+
+    assert lower(chain) == sf.Pipeline(
+        [fusion_node(_PAIR, RankNode(k=1, by=_today_judge())), "p/w"]
+    )
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [sf.ArgMax("score:judge")],
+        [sf.ArgMin("score:judge")],
+        [sf.Vote(weights="score:judge")],
+        [sf.Rank(1, by="score:judge"), sf.Synthesize("provider/w")],
+        [sf.Filter(where=sf.signal("score:judge") >= 7), sf.Synthesize("provider/w")],
+    ],
+    ids=["argmax", "argmin", "vote", "rank", "filter"],
+)
+def test_ch10_a_score_judge_read_with_no_judge_is_refused(steps: list[sf.Vote]) -> None:
+    with pytest.raises(
+        ValueError, match=r"^score:judge needs sf\.Judge\(\.\.\.\) after sf\.Fanout$"
+    ):
+        sf.Pipeline([sf.Fanout(_PAIR), *steps])
+
+
+# ---------------------------------------------------------------- CH-12 is gone (unit 5)
+
+
+@pytest.mark.parametrize(
+    ("steps", "carried"),
+    [
+        ([sf.Filter(where=sf.signal("cost_usd") < 1), sf.Mean()], 1),
+        ([sf.Rank(1, by="cost_usd"), sf.Vote()], 1),
+        ([sf.Filter(where=sf.signal("cost_usd") < 1), sf.Rank(1, by="cost_usd"), sf.Vote()], 2),
+        ([sf.Rank(2, by="cost_usd"), sf.Filter(where=sf.matches("x")), sf.Synthesize("p/w")], 1),
+        ([sf.Rank(2, by="cost_usd"), sf.Concat(), sf.Synthesize("p/w")], 1),
+    ],
+    ids=["filter-mean", "rank-vote", "two-before-vote", "two-before-synthesize", "rank-concat"],
+)
+def test_a_block_that_needs_the_narrow_key_builds(steps: list[sf.Vote], carried: int) -> None:
+    lowered = lower(sf.Pipeline([sf.Fanout(_PAIR), *steps]))
+
+    # lowering §2.2: before a writer the last narrow step is the main selection, so the reducer
+    # carries every narrow step before it; before a reducer it carries them all
+    fusion = lowered._stage_values()[0] if isinstance(lowered, sf.Pipeline) else lowered
+    assert isinstance(fusion, FusionNode)
+    assert len(fusion.synthesizer._narrow) == carried  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------- the block record
+
+
+def test_a_block_records_its_judge_and_its_narrow_steps() -> None:
+    chain = sf.Fanout(_PAIR) >> _judge() >> sf.Rank(1, by="score:judge") >> sf.Synthesize("p/w")
+
+    (block,) = chain._stages
+    assert isinstance(block, _Block)
+    assert block.judge == _judge()
+    assert block.narrow == (sf.Rank(1, by="score:judge"),)
+    assert block.terminal == sf.Synthesize("p/w")
+    assert block.name == "a+b->w"
+    assert chain.name == "a+b->w"
+
+
+def test_a_block_with_a_writer_after_a_narrow_step_is_one_stage() -> None:
+    narrowed = sf.Fanout(_PAIR) >> sf.Rank(1, by="cost_usd") >> sf.Synthesize("provider/w")
+    chain = "provider/x" >> narrowed >> sf.Model("provider/y")
+
+    assert len(chain._stages) == 3
+    assert lower(chain) == sf.Pipeline(
+        [
+            "provider/x",
+            fusion_node(_PAIR, RankNode(k=1, by_signal=sf.signal("cost_usd"))),
+            "provider/w",
+            "provider/y",
+        ]
+    )
+
+
+def test_an_optional_narrowed_block_moves_the_flag_to_its_pipeline() -> None:
+    chain = sf.Pipeline(
+        [sf.Fanout(_PAIR), sf.Rank(1, by="cost_usd"), sf.Synthesize("provider/w")], optional=True
+    )
+
+    assert lower(chain) == sf.Pipeline(
+        [fusion_node(_PAIR, RankNode(k=1, by_signal=sf.signal("cost_usd"))), "provider/w"],
+        optional=True,
+    )

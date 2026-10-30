@@ -33,14 +33,12 @@ _BENCHMARK: Final = "inspect-gsm8k"  # short answers: the cheapest board with on
 _PARAMS: Final[dict[str, int | float]] = {"max_tokens": 1024, "temperature": 0.0}
 
 
-def _logprob_fusion(model: str) -> _sf.Fusion:
+def _logprob_fusion(model: str) -> _sf.Recipe:
     import screamingface as sf
 
-    return sf.Fusion(
-        [sf.Model(model=model, params=_PARAMS)],
-        signals={"lp": sf.Logprob("mean")},
-        synthesizer=sf.Pick(by_signal=sf.signal("lp"), order="max"),
-    )
+    return sf.Fanout(
+        [sf.Model(model=model, params=_PARAMS)], signals={"lp": sf.Logprob("mean")}
+    ) >> sf.ArgMax("lp")
 
 
 def _evaluate_one_case(paid_stack: PaidStack, model: str, report_name: str) -> _sf.CaseResult:

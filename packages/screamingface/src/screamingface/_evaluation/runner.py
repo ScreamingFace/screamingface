@@ -103,7 +103,11 @@ def evaluate_sync(
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
     evaluation = compile_evaluation(
-        values, resource, limit, operators=_operators_sync(values, load_operators)
+        values,
+        resource,
+        limit,
+        operators=_operators_sync(values, load_operators),
+        warn_judge_writers=False,
     )
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
@@ -174,7 +178,11 @@ async def evaluate_async(
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
     evaluation = compile_evaluation(
-        values, resource, limit, operators=await _operators_async(values, load_operators)
+        values,
+        resource,
+        limit,
+        operators=await _operators_async(values, load_operators),
+        warn_judge_writers=False,
     )
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
@@ -662,12 +670,16 @@ def _warn_fixed_seed(name: str, calls: tuple[str, ...]) -> None:
 
 
 def _own_seed_calls(candidate: Candidate) -> tuple[str, ...]:
-    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``."""
-    labels = {operation.id: operation.label for operation in candidate.operations}
+    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``.
+
+    A consistency sample call (kind ``sample``, E4b part 7 P18) is left out: its seed is part of
+    the method, so the author cannot drop it.
+    """
+    operations = {operation.id: operation for operation in candidate.operations}
     return tuple(
-        f"{assignment.operation_id} ({labels[assignment.operation_id]})"
+        f"{assignment.operation_id} ({operations[assignment.operation_id].label})"
         for assignment in candidate.parameter_assignments
-        if _SEED_PARAM in assignment.params
+        if _SEED_PARAM in assignment.params and operations[assignment.operation_id].kind != "sample"
     )
 
 

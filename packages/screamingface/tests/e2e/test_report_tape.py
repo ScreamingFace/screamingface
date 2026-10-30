@@ -505,13 +505,15 @@ def test_build_candidate_builds_the_fusion_recipe() -> None:
 
     golden = GoldenReport.model_validate(_fusion_golden_document())
     candidate = build_candidate(golden)
-    assert isinstance(candidate, sf.Fusion)
-    assert candidate.name == "best_open_source"
-    assert [member.name for member in candidate.members] == ["alpha", "beta"]
-    members = [member for member in candidate.members if isinstance(member, sf.Model)]
+    assert isinstance(candidate, sf.Pipeline)
+    fanout, writer = candidate.steps
+    assert isinstance(fanout, sf.Fanout) and isinstance(writer, sf.Synthesize)
+    assert fanout.name == "best_open_source"
+    assert [member.name for member in fanout.members] == ["alpha", "beta"]
+    members = [member for member in fanout.members if isinstance(member, sf.Model)]
     assert tuple(member.model for member in members) == (_MEMBER_1, _MEMBER_2)
-    assert isinstance(candidate.synthesizer, sf.Model)
-    assert candidate.synthesizer.model == _SYNTH
+    assert isinstance(writer.model, sf.Model)
+    assert writer.model.model == _SYNTH
 
 
 def test_build_candidate_keeps_the_single_model_path() -> None:

@@ -35,28 +35,27 @@ import screamingface as sf
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.model import Candidate
-from screamingface.reducer import Reducer
 
 _MEMBERS = ["provider/a", "provider/b", "provider/c"]
 _GSM8K = "inspect-gsm8k"
 
 
-def _fusion(synthesizer: Reducer) -> sf.Fusion:
-    return sf.Fusion(_MEMBERS, synthesizer=synthesizer)
+def _fusion(synthesizer: sf.Vote) -> sf.Recipe:
+    return sf.Fanout(_MEMBERS) >> synthesizer
 
 
 def _bound(benchmark_id: str, wire: dict[str, Any]) -> _BenchmarkAnswerRule:
     return _BenchmarkAnswerRule(benchmark_id, rule(wire))
 
 
-def _url4(synthesizer: Reducer, benchmark_rule: _BenchmarkAnswerRule | None = None) -> str:
+def _url4(synthesizer: sf.Vote, benchmark_rule: _BenchmarkAnswerRule | None = None) -> str:
     return compile_candidate(
         _fusion(synthesizer), operators=engine_operators(), benchmark_rule=benchmark_rule
     ).url4
 
 
 def test_benchmark_extract_compiles_a_different_url4_per_benchmark() -> None:
-    vote = sf.Vote(extract="benchmark")
+    vote = sf.Vote(over="benchmark")
     gsm8k = _url4(vote, _bound(_GSM8K, GSM8K_RULE_WIRE))
     aime24 = _url4(vote, _bound("inspect-aime24", AIME24_RULE_WIRE))
     aime25 = _url4(vote, _bound("inspect-aime25", AIME25_RULE_WIRE))
@@ -74,7 +73,7 @@ def test_benchmark_extract_compiles_a_different_url4_per_benchmark() -> None:
     # F10: the url4 depends on the rule's operators, not the benchmark id.
     assert aime24 == aime25
     # Control: a named rule never looks at the benchmark's rule.
-    control = sf.Vote(extract="last_number")
+    control = sf.Vote(over="last_number")
     assert (
         _url4(control)
         == _url4(control, _bound(_GSM8K, GSM8K_RULE_WIRE))
@@ -95,7 +94,7 @@ def _one_case(candidate: Candidate) -> list[dict[str, Any]]:
 
 
 def test_benchmark_extract_resolves_before_spend() -> None:
-    synthesizer = sf.Vote(extract="benchmark")
+    synthesizer = sf.Vote(over="benchmark")
     events: list[str] = []
     transport = ScriptedTransport(_GSM8K, "fixture-revision", _one_case, events)
 
@@ -117,7 +116,7 @@ def test_benchmark_extract_resolves_before_spend() -> None:
     benchmark_paths = [path for path in events if path.startswith("/v1/benchmarks")]
     assert benchmark_paths == [f"/v1/benchmarks/{_GSM8K}"]
     python = sf.Url4(report.candidates[0].url4).to_python()
-    assert "sf.Vote(extract='inspect_number@1', normalize='inspect_numeric@1')" in python
+    assert "sf.Vote(over='inspect_number@1', normalize='inspect_numeric@1')" in python
     reported = spec_of(report.candidates[0].url4)
     assert all("benchmark" not in str(reported[stage]) for stage in ("extract", "normalize"))
 
@@ -159,7 +158,7 @@ def test_benchmark_without_rule_raises_before_spend() -> None:
         ) as client,
         pytest.raises(ValueError, match="declares no answer rule") as caught,
     ):
-        client.evaluate(_fusion(sf.Vote(extract="benchmark")), benchmark="draco", progress=False)
+        client.evaluate(_fusion(sf.Vote(over="benchmark")), benchmark="draco", progress=False)
 
     _check_no_rule_message(str(caught.value))
     assert transport.called is False
@@ -177,7 +176,7 @@ async def test_async_benchmark_without_rule_raises_before_spend() -> None:
     async with client:
         with pytest.raises(ValueError, match="declares no answer rule") as caught:
             await client.evaluate(
-                _fusion(sf.Vote(extract="benchmark")), benchmark="draco", progress=False
+                _fusion(sf.Vote(over="benchmark")), benchmark="draco", progress=False
             )
 
     _check_no_rule_message(str(caught.value))
@@ -215,7 +214,7 @@ def test_engine_without_inspect_operators_raises_capability_error(
         ) as client,
         pytest.raises(sf.EngineCapabilityError) as caught,
     ):
-        client.evaluate(_fusion(sf.Vote(extract="benchmark")), benchmark=_GSM8K, progress=False)
+        client.evaluate(_fusion(sf.Vote(over="benchmark")), benchmark=_GSM8K, progress=False)
 
     error = caught.value
     assert error.code == "engine_capability_missing"

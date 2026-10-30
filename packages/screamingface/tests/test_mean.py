@@ -1,16 +1,18 @@
-"""sf.Mean and sf.Reduce("mean"): compile, refusals, url4 recovery and evidence (E4b unit 3)."""
+"""sf.Mean and its block form: compile, refusals, url4 recovery and evidence (E4b unit 3)."""
 
 from __future__ import annotations
 
 import copy
 import dataclasses
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
 from _combine_flow_fixtures import members3
+from _nodes import FusionNode, MeanNode, ReduceNode, lowered
 from _reducer_fixtures import fixture_operators
 from url4 import Expression, build
 
@@ -18,24 +20,24 @@ import screamingface as sf
 from screamingface._case_views import _reduce_mode
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
-from screamingface.blocks import Reduce
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.combine_evidence import CombineEvidence
-from screamingface.reducer import Mean, Reducer
 from screamingface.url4 import _calls
 
 _CHANGELOG = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
 
 
-def _fusion(synthesizer: Reducer) -> sf.Fusion:
-    return sf.Fusion(members3(), synthesizer=synthesizer)
+def _fusion(step: Step) -> sf.Pipeline:
+    return sf.Fanout(members3()) >> step
 
 
-def _url4(synthesizer: Reducer) -> str:
-    return compile_candidate(_fusion(synthesizer), operators=engine_operators()).url4
+def _url4(step: Step) -> str:
+    return compile_candidate(_fusion(step), operators=engine_operators()).url4
 
 
-def _raw_intent(synthesizer: Reducer) -> str:
-    root = build(_url4(synthesizer))
+def _raw_intent(step: Step) -> str:
+    root = build(_url4(step))
     assert isinstance(root, Expression)
     return _calls(root)["synthesis_1"].raw_intent
 
@@ -61,68 +63,69 @@ def test_sdk_mean_compiles_mean_or_weighted_mean_by_weights() -> None:
 
 
 def test_sdk_mean_refuses_a_wrong_weight_count() -> None:
-    with pytest.raises(ValueError, match="mean has 2 weights for 3 members"):
+    with pytest.raises(ValueError, match="sf.Mean has 2 weights for 3 members"):
         _fusion(sf.Mean(weights=(1, 2)))
-    with pytest.raises(ValueError, match=r"sf.Reduce\('mean'\) has 2 weights for 3 members"):
-        _fusion(sf.Reduce("mean", extract=sf.Extract("last_number"), weights=(1, 2)))
+    with pytest.raises(ValueError, match=r"sf.Mean has 2 weights for 3 members"):
+        _fusion(sf.Mean(over=sf.Extract("last_number"), weights=(1, 2)))
 
 
 def test_sdk_mean_refuses_score_judge_weights() -> None:
-    with pytest.raises(
-        ValueError, match=r"Mean cannot read sf.signal\('score:judge'\): it has no judge"
-    ):
+    with pytest.raises(ValueError, match=r"^sf\.Mean does not read a judge's scores as weights"):
         sf.Mean(weights=sf.signal("score:judge"))
-    with pytest.raises(
-        ValueError, match=r"sf.Reduce\('mean'\) cannot read sf.signal\('score:judge'\)"
-    ):
-        sf.Reduce("mean", extract=sf.Extract("last_number"), weights=sf.signal("score:judge"))
+    with pytest.raises(ValueError, match=r"^sf\.Mean does not read a judge's scores as weights"):
+        sf.Mean(over=sf.Extract("last_number"), weights=sf.signal("score:judge"))
 
 
 def test_sdk_reduce_block_mean_compiles_to_the_same_bytes_as_sf_mean() -> None:
-    assert _url4(sf.Reduce("mean", extract=sf.Extract("last_number"))) == _url4(sf.Mean())
+    assert _url4(sf.Mean(over=sf.Extract("last_number"))) == _url4(sf.Mean())
     assert _url4(
-        sf.Reduce("mean", mode="select", extract=sf.Extract("last_number"), weights=(1, 1, 2))
+        sf.Mean(over=sf.Extract("last_number"), weights=(1, 1, 2), select="nearest")
     ) == _url4(sf.Mean(select="nearest", weights=(1, 1, 2)))
-    assert sf.Reduce("mean", extract=sf.Extract("last_number")).mode == "compute"
-    assert sf.Reduce("mean", extract=sf.Extract("last_number", normalize="numeric")) == sf.Reduce(
-        "mean", extract=sf.Extract("last_number")
+    assert sf.Mean(over=sf.Extract("last_number")).select == "value"
+    assert sf.Mean(over=sf.Extract("last_number", normalize="numeric")) == sf.Mean(
+        over=sf.Extract("last_number")
     )
-    with pytest.raises(ValueError, match=r"sf.Reduce\('mean'\) needs a numeric Extract"):
-        sf.Reduce("mean", extract=sf.Extract("last_number", normalize="text"))
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "sf.Mean reads numbers, so its sf.Extract takes normalize='numeric' or none"
+        ),
+    ):
+        sf.Mean(over=sf.Extract("last_number", normalize="text"))
 
 
-# WHY factories: sf.Reduce("mean") raises at import time in RED, so a module-level value would
+# WHY factories: the mean block raised at import time in RED, so a module-level value would
 # fail the whole module at collection instead of each row at run time.
 @pytest.mark.parametrize(
     ("make", "expected"),
     [
-        (lambda: sf.Mean(), Mean),
-        (lambda: sf.Mean(select="nearest", weights=(1, 1, 2)), Mean),
-        (lambda: sf.Mean(weights=sf.signal("field:confidence")), Mean),
-        (lambda: sf.Reduce("mean", extract=sf.Extract("last_number")), Mean),
+        (lambda: sf.Mean(), MeanNode),
+        (lambda: sf.Mean(select="nearest", weights=(1, 1, 2)), MeanNode),
+        (lambda: sf.Mean(weights=sf.signal("field:confidence")), MeanNode),
+        (lambda: sf.Mean(over=sf.Extract("last_number")), MeanNode),
         (
-            lambda: sf.Reduce(
-                "mean",
-                extract=sf.Extract("field", path="answer"),
-                weights=sf.signal("field:confidence"),
-            ),
-            Reduce,
+            lambda: sf.Mean(over="field:answer", weights=sf.signal("field:confidence")),
+            ReduceNode,
         ),
         (
-            lambda: sf.Reduce("mean", mode="select", extract=sf.Extract("field", path="answer")),
-            Reduce,
+            lambda: sf.Mean(over="field:answer", select="nearest"),
+            ReduceNode,
         ),
     ],
 )
 def test_url4_round_trip_rebuilds_sf_mean_and_the_mean_block(make: Any, expected: type) -> None:
-    synthesizer: Reducer = make()
-    url4 = _url4(synthesizer)
+    step: Step = make()
+    url4 = _url4(step)
     namespace: dict[str, Any] = {}
     exec(sf.Url4(url4).to_python(), namespace)
     recovered = namespace["candidate"]
-    assert type(recovered.synthesizer) is expected
-    if expected is Reduce:
-        assert recovered.synthesizer == synthesizer
+    assert isinstance(recovered, sf.Pipeline)
+    node = lowered(recovered)
+    assert type(node.synthesizer) is expected
+    if expected is ReduceNode:
+        authored = lower(_fusion(step))
+        assert isinstance(authored, FusionNode)
+        assert node.synthesizer == authored.synthesizer
     assert compile_candidate(recovered, operators=engine_operators()).url4 == url4
 
 
@@ -133,11 +136,11 @@ def test_url4_round_trip_refuses_a_mean_spec_the_sdk_does_not_write() -> None:
     with pytest.raises(
         ValueError, match="URL4 Candidate has a mean spec this SDK version cannot rebuild"
     ):
-        Mean._rebuild(spec, ())
+        MeanNode._rebuild(spec, ())
     with pytest.raises(
         ValueError, match="URL4 Candidate has a mean spec this SDK version cannot rebuild"
     ):
-        Reduce._rebuild(spec, ())
+        ReduceNode._rebuild(spec, ())
 
 
 def test_sdk_refuses_an_engine_without_the_mean_operators() -> None:

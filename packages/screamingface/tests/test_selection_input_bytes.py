@@ -16,7 +16,8 @@ from _fusion_doc_examples import EXAMPLES, compile_example
 from test_engine_url4_contract_fixtures import filter_pipeline_url4
 from test_fusion_doc_goldens import golden_path
 
-_RANKED_SHA256 = "4f289c7e95eca78454c6ea43cc69b67962443d6869abdc8fe6be0002b79ff726"
+# the ranked golden: the judge-template@2 bytes of unit 7b (overview §4.3)
+_RANKED_SHA256 = "e2d45d3dd64a83974a8e87e23eb0c142fff74f701065c8440abc8edaf536a520"
 _FILTER_SHA256 = "3d18d28af07dbe0286471f2b64ffbb3f9d6299bff85692eec0beef7c33ec1b7f"
 
 

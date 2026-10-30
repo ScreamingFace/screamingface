@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
+from _nodes import VoteNode
 from url4 import Expression, build
 
 import screamingface as sf
@@ -18,12 +19,12 @@ from screamingface.url4 import _calls
 
 _CAP = sys.float_info.max / 256
 
-_NUMBER: dict[str, Any] = {"extract": "last_number", "normalize": "numeric"}
+_NUMBER: dict[str, Any] = {"over": "last_number", "normalize": "numeric"}
 
 
-def _fusion(synthesizer: sf.Vote, members: int = 3) -> sf.Fusion:
+def _fusion(synthesizer: sf.Vote, members: int = 3) -> sf.Recipe:
     routes = [f"provider/m{index}" for index in range(1, members + 1)]
-    return sf.Fusion(routes, synthesizer=synthesizer)
+    return sf.Fanout(routes) >> synthesizer
 
 
 def _url4(recipe: sf.Recipe) -> str:
@@ -37,11 +38,11 @@ def _raw_intent(url4: str) -> str:
 
 
 def test_missing_weight_raises_before_any_call() -> None:
-    with pytest.raises(ValueError, match=r"^vote has 2 weights for 3 members$"):
-        sf.Fusion(["p/a", "p/b", "p/c"], synthesizer=sf.Vote(weights=[1, 2]))
-    with pytest.raises(ValueError, match=r"^vote has 3 weights for 2 members$"):
-        sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote(weights=[1, 2, 3]))
-    assert sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote(weights=[1, 2])) is not None
+    with pytest.raises(ValueError, match=r"^sf.Vote has 2 weights for 3 members$"):
+        _ = sf.Fanout(["p/a", "p/b", "p/c"]) >> sf.Vote(weights=[1, 2])
+    with pytest.raises(ValueError, match=r"^sf.Vote has 3 weights for 2 members$"):
+        _ = sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=[1, 2, 3])
+    assert sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=[1, 2]) is not None
 
 
 @pytest.mark.parametrize("bad", [0, math.nan, math.inf, 10**400])
@@ -63,9 +64,12 @@ def test_empty_weights_raise_value_error(bad: Any) -> None:
         sf.Vote(weights=bad)
 
 
-@pytest.mark.parametrize("bad", [[True], "12", 5, [None]])
-def test_non_numeric_weights_raise_type_error(bad: Any) -> None:
-    with pytest.raises(TypeError):
+@pytest.mark.parametrize(
+    ("bad", "error"), [([True], TypeError), ("12", ValueError), (5, TypeError), ([None], TypeError)]
+)
+def test_non_numeric_weights_raise_type_error(bad: Any, error: type[Exception]) -> None:
+    # WHY "12" is a ValueError: on the surface a string is a signal key, and "12" is not one.
+    with pytest.raises(error):
         sf.Vote(weights=bad)
 
 
@@ -103,8 +107,8 @@ def test_weighted_vote_round_trips_through_url4_with_ten_or_more_members() -> No
     raw = _raw_intent(url4)
     # WHY this pin: canonical JSON sorts keys, so member_10 comes before member_2 in the text.
     assert raw.index('"member_10":') < raw.index('"member_2":')
-    expected = sf.Vote(extract="last_number@1", normalize="numeric@1", weights=weights)
-    assert sf.Vote._from_spec(decode_combine_spec(raw)) == expected
+    expected = VoteNode(extract="last_number@1", normalize="numeric@1", weights=weights)
+    assert VoteNode._from_spec(decode_combine_spec(raw)) == expected
     code = sf.Url4(url4).to_python()
     assert f"weights={weights!r}" in code
     assert "weights=(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0)" in code
@@ -116,7 +120,9 @@ def test_weighted_vote_round_trips_through_url4_with_ten_or_more_members() -> No
 def _spec(**overrides: Any) -> dict[str, Any]:
     spec = json.loads(
         combine_spec_text(
-            sf.Vote(**_NUMBER, weights=[2, 1, 1]), member_count=3, operators=engine_operators()
+            VoteNode(extract="last_number", normalize="numeric", weights=[2, 1, 1]),
+            member_count=3,
+            operators=engine_operators(),
         )
     )
     spec.update(overrides)
@@ -140,14 +146,14 @@ def _op(name: str) -> dict[str, Any]:
 )
 def test_from_spec_refuses_inconsistent_weighted_specs(spec: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._from_spec(spec)
+        VoteNode._from_spec(spec)
 
 
 def test_from_spec_refuses_a_weight_map_that_misses_a_member() -> None:
     spec = _spec()
     del spec["weights"]["member_3"]
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._from_spec(spec)
+        VoteNode._from_spec(spec)
 
 
 @pytest.mark.parametrize("bad", ["2", True])
@@ -155,7 +161,7 @@ def test_from_spec_refuses_a_weight_value_that_is_not_a_number(bad: Any) -> None
     spec = _spec()
     spec["weights"]["member_2"] = bad
     with pytest.raises(ValueError, match="cannot rebuild"):
-        sf.Vote._from_spec(spec)
+        VoteNode._from_spec(spec)
 
 
 def test_from_spec_applies_the_weight_cap() -> None:
@@ -163,5 +169,5 @@ def test_from_spec_applies_the_weight_cap() -> None:
     spec["weights"]["member_2"] = 1e308
     # a decode refusal is "cannot rebuild" (8S review); the cap error is its cause
     with pytest.raises(ValueError, match="cannot rebuild") as caught:
-        sf.Vote._from_spec(spec)
+        VoteNode._from_spec(spec)
     assert "at most" in str(caught.value.__cause__)

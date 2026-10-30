@@ -88,7 +88,7 @@ def test_pipeline_result_cannot_claim_direct_fusion_members() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Pipeline Candidate cannot contain direct Fusion members",
+        match="Pipeline Candidate cannot contain direct fanout members",
     ):
         sf.CandidateResult(
             benchmark=benchmark,

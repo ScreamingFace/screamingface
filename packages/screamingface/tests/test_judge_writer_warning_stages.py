@@ -1,9 +1,7 @@
 """The judge-writer warning names the stages of the user's own Pipeline (E4b part 2, P2 #3).
 
-FEATURE: ``Pipeline([Fusion(m, Reduce("context")), S, ...])`` is rewritten before compile: the
-context Fusion and the stage after it become one Fusion. The ``sf.JudgeWriterWarning`` reads the
-Pipeline as the user wrote it, so its stage numbers are the user's, and a judge stage that the
-rewrite moves inside a Fusion still warns.
+FEATURE: the ``sf.JudgeWriterWarning`` reads the Pipeline as the user wrote it, so its stage
+numbers are the user's: a ``sf.Fanout(m) >> sf.Synthesize(w)`` block is one stage.
 STORY: as a researcher, the warning points at the stages I can see in my own code.
 """
 
@@ -34,33 +32,22 @@ def _message(first: int) -> str:
     )
 
 
-def _context() -> sf.Fusion:
-    return sf.Fusion(["provider/a", "provider/b"], synthesizer=sf.Reduce("context"))
+def _after_chain_writer() -> sf.Pipeline:
+    """The review repro on the surface: the user's stages 2 (judge) and 3 (writer).
 
-
-def _judged_vote() -> sf.Fusion:
-    vote = sf.Vote(
-        extract="last_number",
-        normalize="numeric",
-        weights=sf.signal("score:judge"),
-        judge=sf.Judge(_JUDGE_ROUTE, returns="scores", rubric=RUBRIC),
-    )
-    return sf.Fusion(_MEMBERS, synthesizer=vote)
-
-
-def _after_context_writer() -> sf.Pipeline:
-    """The review repro: the user's stages 3 (judge) and 4 (writer)."""
+    WHY 2: ``sf.Fanout(m) >> sf.Synthesize(w)`` is one stage of the chain.
+    """
 
     return sf.Pipeline(
-        [_context(), sf.Model("provider/w"), _judged_vote(), sf.Model(_JUDGE_ROUTE)],
+        [
+            sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize(sf.Model("provider/w")),
+            sf.Fanout(_MEMBERS)
+            >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+            >> sf.Vote(over="last_number", normalize="numeric", weights="score:judge"),
+            sf.Model(_JUDGE_ROUTE),
+        ],
         name="judged",
     )
-
-
-def _after_context() -> sf.Pipeline:
-    """The judge Fusion follows the context Fusion, so the rewrite makes it its synthesizer."""
-
-    return sf.Pipeline([_context(), _judged_vote(), sf.Model(_JUDGE_ROUTE)], name="judged")
 
 
 def _judge_writer_messages(recorded: pytest.WarningsRecorder) -> list[str]:
@@ -69,12 +56,10 @@ def _judge_writer_messages(recorded: pytest.WarningsRecorder) -> list[str]:
 
 @pytest.mark.parametrize(
     ("build", "first"),
-    [(_after_context_writer, 3), (_after_context, 2)],
-    ids=["context-then-writer", "context-then-judge"],
+    [(_after_chain_writer, 2)],
+    ids=["chain-then-judge"],
 )
-def test_compile_names_the_users_stage_numbers(
-    build: Callable[[], sf.Pipeline], first: int
-) -> None:
+def test_compile_names_the_users_stage_numbers(build: Callable[[], sf.Recipe], first: int) -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         compile_candidate(build(), operators=flow_operators())
 
@@ -86,10 +71,10 @@ def test_compile_names_the_users_stage_numbers(
 def test_evaluation_compile_names_the_users_stage_numbers() -> None:
     with pytest.warns(JudgeWriterWarning) as recorded:
         compile_evaluation(
-            (_after_context_writer(),),
+            (_after_chain_writer(),),
             _whole_candidate_benchmark(),
             1,
             operators=flow_operators(),
         )
 
-    assert _judge_writer_messages(recorded) == [_message(3)]
+    assert _judge_writer_messages(recorded) == [_message(2)]

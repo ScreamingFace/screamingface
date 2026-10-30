@@ -44,14 +44,17 @@
                 "missing",
                 "no_votes",
                 "cut_not_met",
-                "output_missing"
+                "output_missing",
+                "gate_not_met",
+                "in_band"
               ],
               "type": "string"
             },
             {
               "enum": [
                 "no_signal",
-                "no_weight"
+                "no_weight",
+                "not_selected"
               ],
               "type": "string"
             },
@@ -189,6 +192,105 @@
       "title": "FieldReadingRecord",
       "type": "object"
     },
+    "GateRecord": {
+      "additionalProperties": false,
+      "description": "What the gate compared and which branch the step took (E4b part 5, ans:Q1).\n\n``passed`` and ``branch`` are null when the gate did not run (the vote found no answer); then\n``observed`` is null too (GR-I1). ``observed`` is also null when the gate ran and had no number.\nE4b part 6 (ans:Q2): ``branch`` \"band\" = the number was inside the closed ``abstain_band``, so\nthe step abstained with ``in_band`` and made no comparison (``passed`` null, P10).",
+      "properties": {
+        "abstain_band": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstain Band"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "enum": [
+                "majority",
+                "fallback",
+                "band"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Branch"
+        },
+        "cmp": {
+          "enum": [
+            ">=",
+            ">",
+            "<=",
+            "<"
+          ],
+          "title": "Cmp",
+          "type": "string"
+        },
+        "observe": {
+          "title": "Observe",
+          "type": "string"
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed"
+        },
+        "otherwise": {
+          "enum": [
+            "abstain",
+            "judge",
+            "writer"
+          ],
+          "title": "Otherwise",
+          "type": "string"
+        },
+        "passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Passed"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        }
+      },
+      "required": [
+        "observe",
+        "observed",
+        "cmp",
+        "threshold",
+        "passed",
+        "branch",
+        "otherwise"
+      ],
+      "title": "GateRecord",
+      "type": "object"
+    },
     "JsonValue": {},
     "JudgeReadingRecord": {
       "additionalProperties": false,
@@ -229,6 +331,94 @@
       "title": "JudgeReadingRecord",
       "type": "object"
     },
+    "NarrowRecord": {
+      "additionalProperties": false,
+      "description": "What one narrow step did (E4b map-reduce surface, narrow.md \u00a74.2).\n\n``reduce`` and ``select`` are the pinned op ids of the step (a later ``filter@2`` is visible);\n``signal`` the key the step read (absent for a pattern filter); ``kept`` the members it chose,\nin author order (empty: the step abstained, and it is the last record); ``scores`` the step's\nscore of each live member that had one; ``cut`` and ``ranks`` only for a ``top_k@1`` step (the\npart 2 rules of ``top_k_ranks`` and ``CutRecord``). A key that is not set is absent.",
+      "properties": {
+        "cut": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CutRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kept": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Kept",
+          "type": "array"
+        },
+        "ranks": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ranks"
+        },
+        "reduce": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reduce"
+        },
+        "scores": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scores"
+        },
+        "select": {
+          "title": "Select",
+          "type": "string"
+        },
+        "signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal"
+        }
+      },
+      "required": [
+        "select",
+        "kept"
+      ],
+      "title": "NarrowRecord",
+      "type": "object"
+    },
     "ResultRecord": {
       "additionalProperties": false,
       "description": "The computed answer of the step: a member's text, a built text, or an abstain.",
@@ -250,7 +440,9 @@
               "enum": [
                 "no_votes",
                 "cut_not_met",
-                "output_missing"
+                "output_missing",
+                "gate_not_met",
+                "in_band"
               ],
               "type": "string"
             },
@@ -287,6 +479,46 @@
         "reason"
       ],
       "title": "ResultRecord",
+      "type": "object"
+    },
+    "SampleCountRecord": {
+      "additionalProperties": false,
+      "description": "One member's samples of the declared consistency source (E4b part 7, ans:Q4).\n\n``succeeded`` samples answered and ``failed`` did not; ``matched`` of the succeeded samples\ngave the member's answer. ``matched`` is null when the member has no value (CS-I4, CS-I5).",
+      "properties": {
+        "failed": {
+          "minimum": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "matched": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Matched"
+        },
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "succeeded": {
+          "minimum": 0,
+          "title": "Succeeded",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "member_id",
+        "matched",
+        "succeeded",
+        "failed"
+      ],
+      "title": "SampleCountRecord",
       "type": "object"
     },
     "SignalRecord": {
@@ -374,6 +606,24 @@
       "title": "Chosen",
       "type": "array"
     },
+    "consistency": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/SampleCountRecord"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Consistency"
+    },
     "cut": {
       "anyOf": [
         {
@@ -426,6 +676,17 @@
       "title": "Finish Reason",
       "type": "string"
     },
+    "gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GateRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "judge": {
       "anyOf": [
         {
@@ -474,6 +735,23 @@
       },
       "title": "Members",
       "type": "array"
+    },
+    "narrow": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/NarrowRecord"
+          },
+          "maxItems": 4,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrow"
     },
     "operators": {
       "items": {
@@ -557,6 +835,11 @@
     "tie": {
       "title": "Tie",
       "type": "boolean"
+    },
+    "verifier": {
+      "default": null,
+      "title": "Verifier",
+      "type": "null"
     }
   },
   "required": [
