@@ -16,12 +16,10 @@ from uuid import UUID
 
 import pytest
 from connection_backed_harness import ConnectionBackedHarness
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     ConnectionBackedProviderAccess,
     PairAuthorityStore,
@@ -32,6 +30,7 @@ from aigateway.core.provider_access import (
     TargetReauthRequired,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.seed_state import SeedState
 
 DEFAULT = Selector.from_header(None)
 LEGACY_URL = "/v1/oauth/connections"
@@ -54,16 +53,9 @@ def _availability(harness: Any) -> dict[str, str]:
     return {row.provider: row.status for row in rows}
 
 
-def _document(harness: Any, name: str = "default") -> Any:
-    index = ProfileIndexStore(credential_store=harness.blobs.store)
-    return harness.call(index.get, harness.account_id, PROVIDER, name)
-
-
 @pytest.fixture
-def legacy(
-    authenticated_client: Any, credential_blobs: Any, monkeypatch: Any
-) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def legacy(authenticated_client: Any, credential_blobs: Any, monkeypatch: Any) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 @pytest.fixture
@@ -87,9 +79,9 @@ def test_the_app_wires_the_connection_backed_port(authenticated_client: Any) -> 
 
 
 def test_an_unreadable_marker_store_never_falls_back_to_the_legacy_credential(
-    legacy: ProfileBackedHarness, monkeypatch: pytest.MonkeyPatch
+    legacy: RealAppHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    legacy.seed_profile(credential="tok")
+    legacy.seed_blob(credential="tok")
 
     async def unavailable(self: PairAuthorityStore, account_id: str, provider: str) -> Any:
         raise RuntimeError("marker table unavailable")
@@ -106,7 +98,7 @@ def test_an_unreadable_marker_store_never_falls_back_to_the_legacy_credential(
 def test_a_migrated_pair_serves_the_profile_credential_through_its_connection_without_re_entry(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(credential="profile-token")
+    migrated.seed_credential(credential="profile-token")
     connection_id = migrated.migrated["default"]
 
     target = _resolve(migrated)
@@ -129,14 +121,14 @@ def test_a_migrated_pair_serves_the_profile_credential_through_its_connection_wi
 
 @pytest.mark.parametrize(
     ("state", "refusal"),
-    [(ProfileState.PENDING, TargetPending), (ProfileState.ERROR, TargetReauthRequired)],
+    [(SeedState.PENDING, TargetPending), (SeedState.ERROR, TargetReauthRequired)],
     ids=["pending", "error"],
 )
 def test_the_effective_connection_status_decides_the_refusal_not_the_document(
-    migrated: ConnectionBackedHarness, state: ProfileState, refusal: type[Exception]
+    migrated: ConnectionBackedHarness, state: SeedState, refusal: type[Exception]
 ) -> None:
-    # A stale, still-AUTHENTICATED document beside an authority that is not usable.
-    migrated.seed_document(state=ProfileState.AUTHENTICATED, credential="tok")
+    # A readable blob at the name address beside an authority that is not usable.
+    migrated.seed_blob(credential="tok")
     migrated.seed_authority(state=state)
 
     with pytest.raises(refusal) as info:
@@ -147,14 +139,14 @@ def test_the_effective_connection_status_decides_the_refusal_not_the_document(
     if refusal is TargetReauthRequired:
         assert raised.reauth_url == LEGACY_URL
         assert raised.message is None
-    assert _document(migrated).state is ProfileState.AUTHENTICATED
 
 
 def test_a_migrated_pair_with_no_effective_connection_is_missing_whatever_the_document_says(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_document(credential="tok")
-    # The legitimate post-delete state: Connection-owned and empty (S1) — never the document.
+    migrated.seed_blob(credential="tok")
+    # The legitimate post-delete state: Connection-owned and empty (S1) — never the blob at the
+    # name address.
     migrated.call(
         PairAuthorityStore().advance,
         migrated.account_id,
@@ -170,7 +162,7 @@ def test_a_migrated_pair_with_no_effective_connection_is_missing_whatever_the_do
 
 
 def test_a_revoked_effective_connection_is_never_served(migrated: ConnectionBackedHarness) -> None:
-    migrated.seed_profile(credential="tok")
+    migrated.seed_credential(credential="tok")
     connection_id = migrated.migrated["default"]
     store = OAuthConnectionStore()
     connection = migrated.call(store.get, migrated.account_id, connection_id)
@@ -183,7 +175,7 @@ def test_a_revoked_effective_connection_is_never_served(migrated: ConnectionBack
 def test_a_selector_naming_the_effective_label_reads_through_the_locator(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_document(credential="profile-token")
+    migrated.seed_blob(credential="profile-token")
     connection_id = migrated.seed_authority(label="work")
 
     # WHY: `work` is the effective Connection's own label, so its reference answers the selector,
@@ -200,7 +192,7 @@ def test_a_selector_naming_the_effective_label_reads_through_the_locator(
 def test_a_rejected_credential_marks_the_connection_and_leaves_the_document_untouched(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(credential="tok")
+    migrated.seed_credential(credential="tok")
     connection_id = migrated.migrated["default"]
     target = _resolve(migrated)
     migrated.break_credential(str(target.credential_name))
@@ -211,8 +203,6 @@ def test_a_rejected_credential_marks_the_connection_and_leaves_the_document_unto
     assert info.value.reauth_url == LEGACY_URL
     assert info.value.message
     assert migrated.connection_status(connection_id) == "error"
-    # INVARIANT (D14): one write owner — the Connection took the mark, the document did not.
-    assert _document(migrated).state is ProfileState.AUTHENTICATED
     assert migrated.evicted() == [target.credential_name]
     assert migrated.invalidated() == [target.credential_name]
 
@@ -220,7 +210,7 @@ def test_a_rejected_credential_marks_the_connection_and_leaves_the_document_unto
 def test_a_dispatch_failure_marks_the_connection_and_rewrites_with_the_legacy_url(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(credential="tok")
+    migrated.seed_credential(credential="tok")
     connection_id = migrated.migrated["default"]
     target = _resolve(migrated)
 
@@ -238,7 +228,6 @@ def test_a_dispatch_failure_marks_the_connection_and_rewrites_with_the_legacy_ur
         "reauth_url": LEGACY_URL,
     }
     assert migrated.connection_status(connection_id) == "error"
-    assert _document(migrated).state is ProfileState.AUTHENTICATED
     assert migrated.evicted() == [target.credential_name]
     assert migrated.invalidated() == [target.credential_name]
 
@@ -249,17 +238,17 @@ def test_a_dispatch_failure_marks_the_connection_and_rewrites_with_the_legacy_ur
 @pytest.mark.parametrize(
     ("state", "status"),
     [
-        (ProfileState.AUTHENTICATED, "connected"),
-        (ProfileState.PENDING, "pending"),
-        (ProfileState.ERROR, "error"),
+        (SeedState.AUTHENTICATED, "connected"),
+        (SeedState.PENDING, "pending"),
+        (SeedState.ERROR, "error"),
     ],
     ids=["active", "pending", "error"],
 )
 def test_availability_reports_a_migrated_pair_from_its_connection_not_its_document(
-    migrated: ConnectionBackedHarness, state: ProfileState, status: str
+    migrated: ConnectionBackedHarness, state: SeedState, status: str
 ) -> None:
-    # The stale document would report `connected` in every case.
-    migrated.seed_document(state=ProfileState.AUTHENTICATED, credential="tok")
+    # The same readable blob in every case; only the Connection's status differs.
+    migrated.seed_blob(credential="tok")
     migrated.seed_authority(state=state)
 
     assert _availability(migrated)[PROVIDER] == status
@@ -268,7 +257,7 @@ def test_availability_reports_a_migrated_pair_from_its_connection_not_its_docume
 def test_availability_of_a_migrated_pair_without_an_effective_connection_is_not_connected(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_document(credential="tok")
+    migrated.seed_blob(credential="tok")
     migrated.call(
         PairAuthorityStore().advance,
         migrated.account_id,
@@ -283,7 +272,7 @@ def test_availability_of_a_migrated_pair_without_an_effective_connection_is_not_
 def test_availability_leaves_every_other_provider_not_connected(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(state=ProfileState.PENDING, credential=None)
+    migrated.seed_credential(state=SeedState.PENDING, credential=None)
     before = _availability(migrated)
     others = {provider: status for provider, status in before.items() if provider != PROVIDER}
 
@@ -295,7 +284,7 @@ def test_availability_leaves_every_other_provider_not_connected(
 def test_api_key_operational_outcomes_project_without_changing_lifecycle(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     connection_id = migrated.migrated["default"]
     target = _resolve(migrated)
 
@@ -355,7 +344,7 @@ def test_api_key_operational_outcomes_project_without_changing_lifecycle(
 def test_api_key_availability_requires_the_effective_credential_blob(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     target = _resolve(migrated)
     migrated.blobs.delete(credential_service_for(str(target.credential_name)), "default")
 

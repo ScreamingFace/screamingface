@@ -1,13 +1,13 @@
 ---
 id: OME-1535
 linear_url: https://linear.app/openmined/issue/OME-1535/write-the-file-input-execution-spec-for-the-engine-and-gateway
-status: in_review
+status: done
 type: docs
 priority: high
 labels: [repo-dev-processes, human, autonomous]
 parent: OME-1529
 created: 2026-10-09
-closed:
+closed: 2026-10-27
 ---
 
 # OME-1535 — Write the file-input execution spec for the engine and gateway
@@ -35,3 +35,9 @@ from a reachability-aware manifest (attachment URLs literal only, round 9; anyth
 `x.source_not_static`; row-derived URLs deferred to OME-1748), one flight and one attachment per (URL, accept, guard policy) in
 manifest preorder, frozen before the first model call. An attachment
 whose enclosing iteration depends on a model call is also `x.source_not_static` (round 10).
+
+Merged in PR #1450 as `638be5024` on 2026-10-27. Open post-merge acceptance item (owner decision):
+Kevin's url4 wire sign-off of the exact merged revision (review rounds 7–10), including the `x.*`
+codes, is still pending; the spec merged without it. The companion url4 Part B change (`OME-1597`,
+OpenMined/screamingface-design PR 31) merged as `784fc909f` on 2026-10-27; its percent-encoding
+item was split to bug `OME-1749`.

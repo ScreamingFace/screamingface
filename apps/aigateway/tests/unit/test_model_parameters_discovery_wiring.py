@@ -18,11 +18,7 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import State
 
 from aigateway.config import Settings
-from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.main import create_app
 from aigateway.routes import chat, chat_dispatch
 
@@ -33,20 +29,6 @@ def _state(client: TestClient) -> State:
     # ``TestClient.app`` is typed as a bare ASGI callable; the app under test is
     # always the FastAPI instance the fixture built.
     return cast(FastAPI, client.app).state
-
-
-async def _seed_profile(credential_blobs, account_id: str, *, auth_type: AuthType) -> None:
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type=auth_type,
-        )
-    )
 
 
 # --- construction ------------------------------------------------------------
@@ -72,8 +54,6 @@ async def test_the_runtime_and_its_cache_survive_between_requests(
 ) -> None:
     # A per-request runtime would rebuild an empty cache every time, turning the
     # TTL into a no-op and re-dialling the public source on every contract read.
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
     before = _state(authenticated_client).discovery_runtime
 
     for _ in range(2):
@@ -100,9 +80,6 @@ def test_disabling_discovery_leaves_no_runtime_rather_than_an_unbounded_one(
 async def test_detail_contract_publishes_the_locked_v1_freshness_window(
     credential_blobs, authenticated_client
 ) -> None:
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
-
     body = authenticated_client.get("/v1/model-parameters", params={"model": _MODEL}).json()
 
     # anthropic declares no dynamic source yet, so the contract is static-only:
@@ -121,8 +98,6 @@ async def test_detail_contract_still_serves_when_discovery_is_switched_off(
 ) -> None:
     # Turning discovery off must degrade the EVIDENCE, never the endpoint: the
     # contract is still composed from the provider's static observations.
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, account_id, auth_type="api_key")
     _state(authenticated_client).discovery_runtime = None
 
     resp = authenticated_client.get("/v1/model-parameters", params={"model": _MODEL})

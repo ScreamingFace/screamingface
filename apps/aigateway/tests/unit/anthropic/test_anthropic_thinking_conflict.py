@@ -21,7 +21,7 @@ INVARIANT: the exemption needs BOTH the beta header AND tools. Interleaved
 thinking is defined as extended thinking WITH TOOL USE, so a tool-less OAuth
 request is still bound by the ordinary rule.
 
-AIDEV-NOTE: these tests drive the real route. The provider-local decision procedure
+WHY: these tests drive the real route. The provider-local decision procedure
 and the derived budget tables are exercised directly in
 ``test_anthropic_thinking_decision`` — a route test can reach only a handful of the
 combinations that predicate has to get right.
@@ -40,10 +40,8 @@ from uuid import uuid4
 import pytest
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
@@ -76,29 +74,11 @@ def _service(account_id: str) -> str:
     return credential_service_for(credential_name_for(account_id, "default"))
 
 
-async def _seed_profile(
-    client,
-    credential_blobs,
-    account_id: str,
-    *,
-    auth_type: AuthType,
-    defaults: ProfileDefaults | None = None,
-) -> None:
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type=auth_type,
-            defaults=defaults or ProfileDefaults(),
-        )
-    )
+async def _seed_profile(client, account_id: str, *, auth_type: AuthType) -> None:
     seed_migrated_pair(client, account_id, "anthropic", auth_type=auth_type)
 
 
-async def _seed_oauth(client, credential_blobs, account_id: str, **kwargs) -> None:
+async def _seed_oauth(client, credential_blobs, account_id: str) -> None:
     credential_blobs.write(
         _service(account_id),
         "default",
@@ -112,16 +92,16 @@ async def _seed_oauth(client, credential_blobs, account_id: str, **kwargs) -> No
             }
         ),
     )
-    await _seed_profile(client, credential_blobs, account_id, auth_type="oauth", **kwargs)
+    await _seed_profile(client, account_id, auth_type="oauth")
 
 
-async def _seed_api_key(client, credential_blobs, account_id: str, **kwargs) -> None:
+async def _seed_api_key(client, credential_blobs, account_id: str) -> None:
     credential_blobs.write(
         _service(account_id),
         "default",
         json.dumps({"auth_type": "api_key", "api_key": "sk-ant-api03-raw"}),
     )
-    await _seed_profile(client, credential_blobs, account_id, auth_type="api_key", **kwargs)
+    await _seed_profile(client, account_id, auth_type="api_key")
 
 
 def _capture(store: dict[str, Any]):
@@ -251,7 +231,7 @@ async def test_the_exemption_is_oauth_only(credential_blobs, authenticated_clien
 async def test_the_exemption_does_not_extend_to_haiku(
     credential_blobs, authenticated_client
 ) -> None:
-    # AIDEV-NOTE: Haiku 4.5 is manual-thinking but is NOT in the interleaved set.
+    # WHY: Haiku 4.5 is manual-thinking but is NOT in the interleaved set.
     # The published documentation groups it with Opus 4.5 as having "different
     # interleaved thinking behaviors" without saying what they are, so this takes
     # the fail-closed reading: an honest 400 on a pair that is invalid on the
@@ -296,7 +276,7 @@ async def test_max_tokens_equal_to_the_budget_is_refused(
 ) -> None:
     # INVARIANT: the boundary is EXCLUSIVE — Anthropic requires the budget to be
     # strictly smaller, so an exact tie is a refusal, not a pass.
-    # AIDEV-NOTE: this is the dedicated home for the equal-values case. A profile
+    # WHY: this is the dedicated home for the equal-values case. A profile
     # default in tests/unit/test_chat_x_profile.py used to land on it by accident
     # while testing something else entirely; that fixture moved off the boundary
     # and the boundary itself is asserted here.

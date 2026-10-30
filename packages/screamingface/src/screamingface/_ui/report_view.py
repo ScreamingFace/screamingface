@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from decimal import Decimal
 from html import escape
 from itertools import islice
@@ -744,8 +744,13 @@ def cases_page_html(
     selected: int = 0,
     navigation_mode: str | None = None,
     click_handler: str = "",
+    media: Callable[[str, CaseResult], str] | None = None,
 ) -> str:
-    """Use the original rail and detail panes for one bounded page of cases."""
+    """Use the original rail and detail panes for one bounded page of cases.
+
+    ``media`` rewrites a pane's question with its pictures' controls; only the live browser
+    passes it, so a static report shows each picture as its placeholder line alone.
+    """
     if not entries:
         return ""
     # Group name must be unique per rendered Report, or two reports in one notebook would
@@ -774,7 +779,8 @@ def cases_page_html(
             )
         )
         renderer = bounded_pane if preview else _pane_html
-        panes.append(renderer(candidate, case, costs[id(candidate)][case.case_id]))
+        pane = renderer(candidate, case, costs[id(candidate)][case.case_id])
+        panes.append(pane if media is None else media(pane, case))
     total = len(entries)
     count = sum(len(candidate.cases) for candidate in report.candidates)
     label = f"{count} case result" + ("" if count == 1 else "s")

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -222,7 +223,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -236,7 +237,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -294,10 +295,10 @@ class Client:
         `CandidateResult.reproduction`. An exact replay is recorded on the Scoreboard unless
         `record_reproduction=False`. A replay that cannot start raises `sf.ReproductionError`.
 
-        `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
-        `capture=False` turns it off. An Engine that did not capture a run is reported with an
-        `EvaluationWarning`.
+        `capture` is off by default. `capture=True` makes the Engine store every model and
+        web-tool result of each run in a pinned cache (`CandidateResult.pinned_cache`), so the
+        score can be reproduced later. An Engine that did not capture a run it was asked to
+        capture is reported with an `EvaluationWarning`.
 
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
@@ -323,7 +324,7 @@ class Client:
                 progress=progress,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-        capture = True if capture is None else capture
+        capture = bool(capture)
         # FEATURE (OME-1193): validate the declared sitting at the door — a bad seed must
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
@@ -454,6 +455,27 @@ class Client:
         traceback: TracebackType | None,
     ) -> None:
         self.close()
+
+    def fetch_media(self, media: CaseMedia) -> FetchedMedia:
+        """Fetch one picture or file of a Case from this engine, checked against its placeholder.
+
+        FEATURE (OME-1271): ``case.media`` lists a Case's pictures and files without fetching
+        them; this opens one. A local engine drops parked pictures after a while (48 hours by
+        default). e.g. ``client.fetch_media(case.media[0])`` shows the figure inline in
+        Jupyter, and ``.save("figures/")`` writes it.
+
+        Raises:
+            MediaUnavailableError: the engine no longer holds it, or sent other bytes.
+            EngineUnavailableError: the engine could not be reached.
+        """
+
+        from screamingface._engine.media import fetch_media_bytes
+        from screamingface._engine.transport import _mint_sync
+        from screamingface.media import FetchedMedia
+
+        self._require_open()
+        data: bytes = fetch_media_bytes(self._http, media, lambda: _mint_sync(self._http))
+        return FetchedMedia(media=media, data=data)
 
     def _require_open(self) -> None:
         if self._closed:
@@ -680,7 +702,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -694,7 +716,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -747,10 +769,10 @@ class AsyncClient:
     ) -> Report:
         """Asynchronously evaluate Recipes, replay a complete URL4, or replay a pinned cache.
 
-        `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
-        `capture=False` turns it off. An Engine that did not capture a run is reported with an
-        `EvaluationWarning`.
+        `capture` is off by default. `capture=True` makes the Engine store every model and
+        web-tool result of each run in a pinned cache (`CandidateResult.pinned_cache`), so the
+        score can be reproduced later. An Engine that did not capture a run it was asked to
+        capture is reported with an `EvaluationWarning`.
 
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
@@ -776,7 +798,7 @@ class AsyncClient:
                 progress=progress,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-        capture = True if capture is None else capture
+        capture = bool(capture)
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
         _use_cache_value(use_cache)
