@@ -1,11 +1,12 @@
 ---
 id: OME-860
 linear_url: https://linear.app/openmined/issue/OME-860/skip-the-screamingface-coverage-comment-on-fork-pull-requests
-status: in_review
+status: done
 type: bug
 priority: medium
 labels: [repo-dev-processes, agentic, autonomous, bug]
 created: 2026-08-17
+closed: 2026-10-30
 ---
 
 # Skip the ScreamingFace coverage comment on fork pull requests

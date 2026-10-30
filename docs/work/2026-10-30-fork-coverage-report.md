@@ -1,9 +1,9 @@
 ---
 ticket: OME-860
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-10-30
 ---
 
 # fork-coverage-report - keep fork tests green after coverage passes
@@ -39,11 +39,12 @@ fork code.
 - **Actual files:** `.github/workflows/screamingface-tests.yml`,
   `.claude/scripts/tests/test_fork_workflow_guards.py`, `.claude/sdlc.local.md`, this ledger and
   the OME-860 task mirror.
-- **Commits:** the branch follow-up `fix(ci): skip coverage comment for fork pull requests`.
+- **Commits:** `9172276bf` `fix(ci): skip coverage comment for fork pull requests`.
 - **Gates:** the new regression was RED before the workflow condition and GREEN after it;
   `run_gates.py repo --base origin/main` ALL GATES GREEN. The check also pins that
   `--cov-fail-under=95` remains unconditional.
 - **Deviations:** OME-860 originally added `pull-requests: write`; it was restored because fork
   tokens remain read-only by GitHub policy, which that permission cannot override. The defect was
   reproduced twice after Python 3.12 tests and coverage passed; both failures were solely the
-  coverage action's `Resource not accessible by integration` write-back error.
+  coverage action's `Resource not accessible by integration` write-back error. On the corrected
+  head both Python lanes passed and the coverage report was skipped only for the fork.

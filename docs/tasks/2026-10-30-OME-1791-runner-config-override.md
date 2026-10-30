@@ -1,12 +1,13 @@
 ---
 id: OME-1791
 linear_url: https://linear.app/openmined/issue/OME-1791/honor-a-custom-runner-world-config-across-local-runtime-up-and-restart
-status: in_review
+status: done
 type: feature
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1308
 created: 2026-10-30
+closed: 2026-10-30
 ---
 
 # Honor a custom runner world config across local runtime up and restart

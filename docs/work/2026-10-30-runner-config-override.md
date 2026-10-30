@@ -1,9 +1,9 @@
 ---
 ticket: OME-1791
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-10-30
 ---
 
 # runner-config-override - honor a custom runner world in the local runtime
@@ -43,12 +43,15 @@ No product source is changed beyond the contribution already under review.
 - **Actual files:** `.claude/test-change-approvals/OME-1791.json`,
   `docs/tasks/2026-10-30-OME-1791-runner-config-override.md` and this ledger. Product source and
   tests remain the external contribution's exact diff.
-- **Commits:** `7e2262627` merges current `main` into the contributor branch; the process-record
-  follow-up is the commit carrying this ledger, mirror and manifest.
+- **Commits:** `7e2262627` merges current `main` into the contributor branch; `e8db2462e` adds
+  the OME-1791 ledger, mirror and exact test-transition manifest; `9172276bf` fixes the fork-only
+  coverage reporter failure under OME-860.
 - **Gates:** focused runtime suites `97 passed`; `run_gates.py screamingface --base origin/main`
   ALL GATES GREEN (approved append-only transition, Ruff, format, Pyright, full pytest coverage,
   notebook check, build and distribution); `run_gates.py repo --base origin/main` ALL GATES GREEN.
 - **Deviations:** GitHub's update-branch mutation was blocked because the OAuth token lacks workflow
   scope; the equivalent non-force merge was prepared locally for SSH push. The first local gate
   attempt lacked the notebook extra; `uv sync --extra notebook`, as CI uses, restored the expected
-  environment and the complete rerun was green.
+  environment and the complete rerun was green. Fork CI needed explicit workflow approval; after
+  the OME-860 guard landed, both Python lanes, mirror, repo checks, analytics and golden replay were
+  green on exact head `9172276bf`.
