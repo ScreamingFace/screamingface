@@ -49,6 +49,7 @@ from screamingface_engine.worker.supervisor import (
     derived_heartbeat_interval_s,
 )
 from screamingface_engine.worker.warm_pool import WarmChildPool, process_spawner
+from screamingface_engine.world.config import config_file_digest
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,7 @@ class Worker:
         kill_grace_s: float = KILL_GRACE_S,
         ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
+        world_digest: str | None = None,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -235,6 +237,7 @@ class Worker:
             kill_grace_s=kill_grace_s,
             ownership_probe_timeout_s=ownership_probe_timeout_s,
             metrics=self._metrics,
+            world_digest=world_digest,
         )
 
     async def run(self) -> None:
@@ -654,6 +657,10 @@ def run_worker(settings: Settings | None = None) -> None:
                 # keeps `heartbeat <= ack_wait / 3` for every legal configuration.
                 heartbeat_interval_s=derived_heartbeat_interval_s(settings.run_queue_ack_wait_s),
                 metrics=metrics,
+                # INVARIANT (OME-1770 review): the chart mounts the world file by `subPath`, so
+                # it never changes under a running pod and this one read is what every child of
+                # the pod loads.
+                world_digest=config_file_digest(os.environ),
             )
             await worker.run()
         finally:

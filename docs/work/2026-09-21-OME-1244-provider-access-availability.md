@@ -1,9 +1,9 @@
 ---
 ticket: OME-1244
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-21
-finished:
+finished: 2026-09-21
 ---
 
 # OME-1244 — Publish the backing-neutral availability listing
@@ -154,8 +154,9 @@ the base OpenAPI export.
     body); OpenAPI publishes exactly one new operation plus the two schemas only it references,
     and the factory with that router emptied publishes the identical remainder.
   - This ledger and the mirror `docs/tasks/2026-09-21-OME-1244-provider-access-availability.md`.
-- **Commits:** none yet — staging, commit, push and PR await the owner's authorization for the
-  exact paths above (including these two Markdown files).
+- **Commits:** squash-merged to `main` on 2026-09-21 as `2da458968` (#1006),
+  `feat(aigateway): publish the caller-scoped provider-access availability listing`. Linear
+  closed OME-1244 Done the same day.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway --base 39cea39f` → all six green:
   append-only test check vs `39cea39f` ✓ (no prior test touched), `ruff check` ✓,
   `ruff format --check` ✓, `pyright` ✓ (0 errors, tests included), `check_no_enterprise.py` ✓,

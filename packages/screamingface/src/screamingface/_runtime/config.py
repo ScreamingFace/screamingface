@@ -42,7 +42,9 @@ class RuntimeConfig:
         if self.benchmark_assets_dir is not None:
             resolved = self.benchmark_assets_dir.expanduser().resolve()
             object.__setattr__(self, "benchmark_assets_dir", resolved)
-        selected = self.runner_config or bundled_runner_config()
+        selected = self.runner_config or Path(
+            os.getenv("URL4_RUNNER_CONFIG") or bundled_runner_config()
+        )
         object.__setattr__(self, "runner_config", selected.expanduser().resolve())
         ports = (self.gateway_port, self.scoreboard_port, self.engine_port)
         if any(isinstance(port, bool) or not 1 <= port <= 65535 for port in ports):

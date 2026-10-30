@@ -73,12 +73,15 @@ async def evaluate_candidate_recipe(
                         )
 
     operations = attribute_operation_outputs(expression, calls)
+    abstained = final_operation_abstained(expression, operations)
     return _encode(
-        result.text,
+        # WHY "" (E4b fix, 2026-10-14): an abstained Rank or Filter hands on the empty selection
+        # envelope; as the last step, the Case still abstains with the empty answer.
+        "" if abstained else result.text,
         terminal_model_outcome(outcomes),
         terminal_loop_outcome(executions),
         operations=operations,
-        abstained=final_operation_abstained(expression, operations),
+        abstained=abstained,
     )
 
 

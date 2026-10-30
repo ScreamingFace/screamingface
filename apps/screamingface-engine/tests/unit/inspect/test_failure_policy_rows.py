@@ -46,6 +46,10 @@ _WITHHOLD: frozenset[str] = frozenset(
         # OME-1327: the LAB-Bench picture subsets, the same choice scorer — Group A.
         "lab_bench_figqa",
         "lab_bench_tableqa",
+        # OME-1477: MMMU multiple choice, a per-Case mean over inspect's choice scorer — Group A.
+        "mmmu_multiple_choice",
+        # OME-1479: MathVista, a per-Case mean over inspect_evals' own pattern scorer — Group A.
+        "mathvista",
         "frontierscience",
         "onet_m6",
         "pubmedqa",
@@ -141,10 +145,10 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 87 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 89 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
-    assert len(BENCHMARKS) == 87
-    assert len(_WITHHOLD) == 70
+    assert len(BENCHMARKS) == 89
+    assert len(_WITHHOLD) == 72
     assert len(_COVERAGE_DECLARE) == 17
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED

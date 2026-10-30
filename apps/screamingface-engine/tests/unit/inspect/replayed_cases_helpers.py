@@ -128,4 +128,7 @@ STAND_IN_METADATA: dict[str, dict[str, object]] = {
     # OME-1696: bbh's solver and scorer pick their rule by dataset_type, its metric groups by
     # dataset_name.
     "bbh": {"dataset_type": "MULTIPLE_CHOICE", "dataset_name": "date_understanding"},
+    # OME-1479: mathvista's solver and scorer pick the letter or the free-form rule by
+    # question_type; the stand-in Cases are multiple choice.
+    "mathvista": {"question_type": "multi_choice", "answer_type": "text"},
 }

@@ -35,20 +35,22 @@ import json
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from types import MappingProxyType
 from typing import ClassVar, Literal, Protocol, cast
 
 Stage = Literal["extract", "normalize", "reduce", "select"]
-Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"]
+Reducer = Literal[
+    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter", "mean"
+]
 EvidenceKind = Literal["answer", "selection", "projection"]
 ReadingStatus = Literal[
     "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large", "no_match"
 ]
 AnswerStatus = Literal["answered", "abstain", "fail"]
 MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
-AbstainReason = Literal["no_votes", "cut_not_met"]
+AbstainReason = Literal["no_votes", "cut_not_met", "output_missing"]
 AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -60,13 +62,16 @@ AnswerReason = Literal[
     "missing",
     "no_votes",
     "cut_not_met",
+    "output_missing",
 ]
-ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met")
+ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met", "output_missing")
 SignalOrder = Literal["max", "min"]
 OpArgs = Mapping[str, object]
 
 STAGES: tuple[Stage, ...] = ("extract", "normalize", "reduce", "select")
 MAX_JSON_DEPTH = 64
+# The most text the core reads from one member output (extract, field signals, a select output).
+MAX_OUTPUT_READ_BYTES = 1024 * 1024
 # WHY an explicit context: the decimal module's default context is thread-global and any caller
 # may change it. Every operator that does Decimal arithmetic runs inside
 # ``localcontext(DECIMAL_CONTEXT)`` (which works on a copy), so a sum or a mean never depends on
@@ -215,11 +220,16 @@ class Answer:
 @dataclass(frozen=True, slots=True)
 class CombineInput:
     """Everything a reduce or select step may read. ``outputs`` holds every member's original
-    text (also members marked too_large); never iterate it for order -- use ``answers``."""
+    text (also members marked too_large); never iterate it for order -- use ``answers``.
+
+    ``input`` is the combine context ``input``, verbatim (E4b CI-I1). The endpoint always sets it;
+    ``None`` means a test built the value without a context.
+    """
 
     answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
+    input: str | None = None
 
     @property
     def members(self) -> tuple[str, ...]:
@@ -273,10 +283,12 @@ class Reduction:
     """What a reduce step found. Each reducer family fills its own part; the rest stay None.
 
     tally: vote families, rows sorted by score (high first) then first-holder position.
-    statistic: median. scores: member -> score (judge scores, rank, numeric field, signal values,
-    filter pass marks).
+    statistic: median or mean (the reducer names which).
+    scores: member -> score (judge scores, rank, numeric field, signal values, filter pass marks).
     judge: judge reducers. fields: pick and merge. text: a text this step built for select to
     emit (merge JSON, projection JSON, joined text). separator_collision: concat only.
+    participants: the members a weighted reduce step used, in author order (None: every voter).
+    nearest@1 picks only among them (E4b P9, ans:Q2).
     """
 
     tally: tuple[TallyRow, ...] | None = None
@@ -286,6 +298,7 @@ class Reduction:
     fields: tuple[FieldReading, ...] | None = None
     text: str | None = None
     separator_collision: bool | None = None
+    participants: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +358,8 @@ class OperatorDescriptor:
     ``args_schema`` is published as-is: ``{}`` for an operator without args, a JSON Schema object
     otherwise. ``check_args`` is what enforces the args, once per call, before any output is read.
     ``signal_read`` (reduce only) tells the core which signal these args read; it is not published.
+    ``envelope`` (select only) says the output is the selection envelope, so an abstain of the
+    call hands on the empty envelope (E4b fix 2026-10-14); it is not published.
     """
 
     name: str
@@ -355,6 +370,7 @@ class OperatorDescriptor:
     args_schema: Mapping[str, object] = field(default_factory=_empty_schema)
     check_args: ArgsCheck = no_args
     signal_read: Callable[[OpArgs], SignalRead | None] | None = None
+    envelope: bool = False
 
     def __post_init__(self) -> None:
         version_ok = not isinstance(self.version, bool) and 1 <= self.version <= 999_999
@@ -364,6 +380,8 @@ class OperatorDescriptor:
             raise ValueError(f"invalid combine operator stage {self.stage!r}")
         if self.signal_read is not None and self.stage != "reduce":
             raise ValueError("only a reduce operator may declare a signal_read")
+        if self.envelope and self.stage != "select":
+            raise ValueError("only a select operator may hand on the envelope")
 
     @property
     def id(self) -> str:
@@ -417,6 +435,17 @@ def walk_field_path(node: object, path: str) -> tuple[bool, object]:
     return True, node
 
 
+def field_value_text(value: object) -> str:
+    """A JSON field value as answer text: a string as it is, ``null`` as ``""``, any other value
+    as canonical JSON. ValueError: a number with no canonical form (``1e999`` decodes to inf).
+
+    The one field-text rule of ``json_field@1`` and of a select step's ``output`` field.
+    """
+    if value is None or isinstance(value, str):
+        return value or ""
+    return canonical_json(value)
+
+
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
 JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
@@ -454,6 +483,73 @@ def field_signal_value(text: str, path: str) -> float | None:
     if not found:
         return None
     return float(value) if isinstance(value, bool) else finite_float(value)
+
+
+# --- the selection envelope (E4b selection-input) -------------------------------------------
+
+
+def selection_envelope(chosen: Sequence[str], combine_input: CombineInput) -> str:
+    """The selection JSON: the Fusion's input and the chosen members' original texts, in order.
+
+    ``chosen`` empty gives the empty envelope ``{"input":"...","selected":[]}`` that an abstained
+    Rank or Filter hands to the next stage (E4b fix, 2026-10-14).
+    WHY ``None`` is left out: a ``CombineInput`` built without a context (a test helper) has no
+    input. The endpoint always sets it, so every combine call writes the ``input`` key.
+    """
+    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
+    envelope: dict[str, object] = {"selected": selected}
+    if combine_input.input is not None:
+        envelope["input"] = combine_input.input
+    return canonical_json(envelope)
+
+
+# --- select output (E4b pick-output) ---------------------------------------------------------
+OUTPUT_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")  # the SDK's S/fields.py _FIELD_NAME
+
+
+def check_output_arg(args: OpArgs, op_id: str) -> None:
+    """The optional ``output`` arg of a select step: absent, or a top-level field name (CS-I3)."""
+    if "output" not in args:
+        return
+    output = args["output"]
+    if not isinstance(output, str) or OUTPUT_FIELD.fullmatch(output) is None:
+        raise SpecInvalid(f"{op_id} output must be a top-level field name of 1 to 64 characters")
+
+
+def output_field_text(text: str, name: str) -> str | None:
+    """The top-level field ``name`` of one member reply, as answer text; None when it is missing.
+
+    Read with the json_field@1 reader (``decode_json_reply``) after the 1 MiB read cap, and turned
+    into text by ``field_value_text``. Over the cap, not JSON, no key, ``null``, a blank text, or a
+    value ``field_value_text`` refuses is None.
+    """
+    value = ""
+    if not utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+        # ValueError: not JSON, or a number with no canonical form (1e999).
+        with contextlib.suppress(ValueError):
+            _, found = walk_field_path(decode_json_reply(text), name)
+            value = field_value_text(found)
+    return value if value.strip() else None
+
+
+def with_output(
+    selection: Selection, combine_input: CombineInput, args: OpArgs, op_id: str
+) -> Selection:
+    """``selection`` with ``output`` set to the chosen member's ``output`` field (E4b, P5).
+
+    No ``output`` arg: ``selection`` unchanged, so the answer stays the member's own text.
+    INVARIANT (ans:Q12): only the ONE chosen member is read. A missing field abstains with
+    ``output_missing``; the runner-up is never used.
+    """
+    name = args.get("output")
+    if name is None:
+        return selection
+    value = output_field_text(combine_input.outputs[selection.chosen[0]], str(name))
+    if value is None:
+        raise NoVotes(
+            f"{op_id}: the chosen member has no usable output field", reason="output_missing"
+        )
+    return replace(selection, output=value)
 
 
 # --- judge replies ----------------------------------------------------------------------------
@@ -621,6 +717,8 @@ __all__ = [
     "JUDGE_SIGNAL",
     "MAX_JSON_DEPTH",
     "MAX_JUDGE_REPLY_BYTES",
+    "MAX_OUTPUT_READ_BYTES",
+    "OUTPUT_FIELD",
     "READING_TO_ANSWER",
     "STAGES",
     "AbstainReason",
@@ -662,16 +760,21 @@ __all__ = [
     "answer_status",
     "canonical_decimal",
     "canonical_json",
+    "check_output_arg",
     "decode_json_reply",
     "field_signal_value",
+    "field_value_text",
     "finite_float",
     "is_signal_key",
     "json_depth",
     "judge_reply",
     "loads_bounded",
     "no_args",
+    "output_field_text",
     "parse_scores",
     "rejected",
+    "selection_envelope",
     "utf8_exceeds",
     "walk_field_path",
+    "with_output",
 ]
