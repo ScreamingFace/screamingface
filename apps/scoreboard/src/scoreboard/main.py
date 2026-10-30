@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings
@@ -15,6 +16,7 @@ from .portal import register_portal
 from .routes import health, leaderboard, scores
 from .scores.baseline_store import BaselineStore
 from .scores.store import ScoreStore
+from .validation import safe_request_validation_handler
 
 # WHY read directly from os.environ, not a Settings field: this is uvicorn's own env var
 # (FORWARDED_ALLOW_IPS, no SCOREBOARD_ prefix — see charts/scoreboard/values.yaml's
@@ -182,6 +184,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
     app = FastAPI(title="scoreboard", version="0.1.1", lifespan=_lifespan)
+    app.exception_handler(RequestValidationError)(safe_request_validation_handler)
     app.state.settings = settings
     app.state.score_store = ScoreStore()
     app.state.baseline_store = BaselineStore()
