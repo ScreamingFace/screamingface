@@ -789,6 +789,12 @@ class ScoreSubmission(BaseModel):
             )
         return self
 
+    @field_validator("metadata")
+    @classmethod
+    def validate_bounded_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        # INVARIANT: public writes share the existing baseline size/depth budget (OME-969).
+        return _validate_bounded_metadata(value)
+
     @field_validator("authors")
     @classmethod
     def validate_distinct_authors(cls, value: list[str] | None) -> list[str] | None:

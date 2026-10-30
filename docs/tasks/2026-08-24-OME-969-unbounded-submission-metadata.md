@@ -1,10 +1,10 @@
 ---
 id: OME-969
 linear_url: https://linear.app/openmined/issue/OME-969/score-submission-metadata-is-unbounded-on-the-public-write-path
-status: backlog
-type: improvement
+status: in_progress
+type: bug
 priority: 2
-labels: [scoreboard, agentic, autonomous]
+labels: [scoreboard, agentic, autonomous, bug]
 created: 2026-08-24
 closed:
 ---
@@ -20,3 +20,5 @@ Prerequisite for putting trace context in `metadata` (the only seam, since the s
 Canonical artifacts:
 
 - Spec: `docs/spec/2026-08-22-observability-traceability-review.md` (§4)
+
+Implementation ledger: `docs/work/2026-10-30-submission-metadata-limits.md`.
