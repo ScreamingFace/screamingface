@@ -48,28 +48,28 @@ Gateway paths under `apps/aigateway/src/aigateway/`:
 Tests under `apps/aigateway/tests/`: new RED tests, plus the prior tests spec §6 lists for L4a
 (manifest at PR-open).
 
-Docs, at merge time only (owner decision, 2026-10-30; no code change): the Stage E section of
-`apps/aigateway/DEPLOYMENT.md` that #1612 (OME-1780, L10) adds. It is not edited now, because
-the base does not have the section yet.
+**Merge-time steps** (owner decision, 2026-10-30; close-out spec §4.2 "Data precondition",
+§4.10 item 5, §9 Q1; plan §1 and L4a):
 
-**Merge-time step.** If #1612 has merged by the time this branch is rebased onto `origin/main`,
-this leaf adds a precondition to that section. The precondition applies before running an image
-that includes OME-1784:
+1. After #1610 (OME-1778) merges, retarget #1614 to `main` and rebase it onto `origin/main`
+   without `cba890929`.
+2. The census, in each environment (dev, stage, prod), each step on the owner's word:
+   - Count (SELECT only): `migration_state = 'quarantined'` rows and `migration_note IS NOT NULL`
+     rows.
+   - If either count is nonzero, remediate:
+     `UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL WHERE migration_state = 'quarantined';`
+     then
+     `UPDATE provider_credential_slots SET migration_note = NULL WHERE migration_note IS NOT NULL;`
+   - Recount; both counts must be 0.
 
-- Run `SELECT count(*) FROM provider_credential_slots WHERE migration_state = 'quarantined';`
-- If the count is not zero (pairs the E5b backfill could not prove), run
-  `UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL WHERE migration_state = 'quarantined';`
-- The pair is then served by its single active Connection, or the user reconnects. Profile rows
-  left behind when the purge skips an account are inert.
+   The counts before and after are recorded as rec-7 evidence.
+3. Sync this ledger, the mirror and the PR body with the census result, then re-run
+   `run_gates.py aigateway` and the `needs_postgres` suite.
+4. Merge.
 
-The same edit replaces #1612's sentence "a quarantined pair is refused with 409
-credential_pair_unresolved, and a new Connection does not clear it", which this leaf makes false.
-Why: on main nothing settles a quarantined pair, and after this leaf the store refuses the whole
-account. If #1614 merges first, L10 carries the step instead.
-
-Raised with the owner on 2026-10-30 and not yet decided: #1612 also adds, in
-`docs/diagrams/gateway-identity.md`, "A pair the Stage B backfill quarantined is refused with
-`409 credential_pair_unresolved`", which this leaf also makes false.
+No `DEPLOYMENT.md` edit in this leaf. L10 (#1612, OME-1780) merges after #1614, adds the operator
+precondition, and drops the pre-L4a sentence that a `quarantined` pair answers
+`409 credential_pair_unresolved` (in `DEPLOYMENT.md` and `docs/diagrams/gateway-identity.md`).
 
 ## Test plan
 
@@ -149,9 +149,8 @@ owner approved all four; they join the manifest at PR-open.
   - Owner approval (2026-10-29) for the four out-of-list files A, B, C1 and D above.
   - Behaviour: a stored `quarantined` row now gets chat 500 (`PairAuthorityDataError`) instead of
     409 `unresolved`. The inventory refuses it with `CredentialAuthorityUnavailable`, and
-    availability refuses the account. Accepted under spec §4.2; guarded by the owner-approved
-    read-only count of `quarantined` and non-null `migration_note` rows (0 in dev, stage, prod)
-    before merge. Stated in the PR body.
+    availability refuses the account. Accepted under spec §4.2; guarded before merge by the
+    per-environment count, remediation and recount (merge-time step 2). Stated in the PR body.
   - The in-list changes go beyond the plan's line hints. Deleted with the retired paths:
     `test_a_named_selector_on_a_migrated_pair_*` (2),
     `test_a_quarantined_pair_refuses_with_the_pair_code_and_reads_no_index`,
