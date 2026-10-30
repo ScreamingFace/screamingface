@@ -48,6 +48,29 @@ Gateway paths under `apps/aigateway/src/aigateway/`:
 Tests under `apps/aigateway/tests/`: new RED tests, plus the prior tests spec §6 lists for L4a
 (manifest at PR-open).
 
+Docs, at merge time only (owner decision, 2026-10-30; no code change): the Stage E section of
+`apps/aigateway/DEPLOYMENT.md` that #1612 (OME-1780, L10) adds. It is not edited now, because
+the base does not have the section yet.
+
+**Merge-time step.** If #1612 has merged by the time this branch is rebased onto `origin/main`,
+this leaf adds a precondition to that section. The precondition applies before running an image
+that includes OME-1784:
+
+- Run `SELECT count(*) FROM provider_credential_slots WHERE migration_state = 'quarantined';`
+- If the count is not zero (pairs the E5b backfill could not prove), run
+  `UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL WHERE migration_state = 'quarantined';`
+- The pair is then served by its single active Connection, or the user reconnects. Profile rows
+  left behind when the purge skips an account are inert.
+
+The same edit replaces #1612's sentence "a quarantined pair is refused with 409
+credential_pair_unresolved, and a new Connection does not clear it", which this leaf makes false.
+Why: on main nothing settles a quarantined pair, and after this leaf the store refuses the whole
+account. If #1614 merges first, L10 carries the step instead.
+
+Raised with the owner on 2026-10-30 and not yet decided: #1612 also adds, in
+`docs/diagrams/gateway-identity.md`, "A pair the Stage B backfill quarantined is refused with
+`409 credential_pair_unresolved`", which this leaf also makes false.
+
 ## Test plan
 
 RED first (plan §3 L4a):
