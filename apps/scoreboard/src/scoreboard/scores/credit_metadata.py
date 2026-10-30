@@ -124,6 +124,7 @@ def validate_paper_url(value: str) -> str:
     # link with one would validate, be stored as sent, and then not be the URL it looks like.
     if any(char.isspace() for char in value):
         raise ValueError("paper_url must not contain whitespace")
+    validate_storable_json(value)
     parts = urlsplit(value)
     if parts.scheme.lower() not in _PAPER_URL_SCHEMES:
         raise ValueError("paper_url must use the http or https scheme")
@@ -153,6 +154,24 @@ def _unstorable(text: str) -> str | None:
     except UnicodeEncodeError:
         return "must be valid Unicode (no lone surrogates)"
     return None
+
+
+def validate_storable_json(value: object) -> None:
+    """Reject text that cannot round-trip through every supported database and UTF-8."""
+    # FEATURE: OME-1658 — share the credit checks with authors and arbitrary metadata.
+    # WHY iterative: nested JSON has no new depth or size policy in this fix.
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, str):
+            reason = _unstorable(item)
+            if reason is not None:
+                raise ValueError(reason)
+        elif isinstance(item, dict):
+            pending.extend(item.keys())
+            pending.extend(item.values())
+        elif isinstance(item, (list, tuple)):
+            pending.extend(item)
 
 
 def shown_key(key: str) -> str:
