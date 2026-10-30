@@ -63,7 +63,7 @@ runtime = [
     "google-re2>=1.1.20240702,<2",
     "immutabledict>=4.2.0",
     "langdetect>=1.0.9",
-    "litellm==1.104.2",
+    "litellm==1.106.3",
     "nats-py>=2.9.0",
     "nltk>=3.9.1",
     # WHY: pip resolves this extra, not the bundled Engine/Gateway tracing requirements.
@@ -82,7 +82,7 @@ runtime = [
     # WHY: the bundled gateway's FastAPI form endpoints need it at startup, but pip only
     # resolves THIS extra, never the bundled apps' own pyprojects (GitHub #735).
     "python-multipart>=0.0.20",
-    "tortoise-orm[asyncpg]==1.1.8",
+    "tortoise-orm[asyncpg]==1.1.9",
     "uvicorn[standard]>=0.52.3",
 ]
 
