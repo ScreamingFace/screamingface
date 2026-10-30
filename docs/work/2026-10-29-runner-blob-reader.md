@@ -3,7 +3,7 @@ ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at P
 stack: screamingface-engine
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished: 2026-10-29
+finished: 2026-10-29   # round 1; round 2 (local mode) 2026-10-30
 ---
 
 # runner-blob-reader — bind the run blob store's reader into every Runner run
@@ -28,6 +28,15 @@ Base: `origin/OME-1545-engine-attachment-parts` with `origin/OME-1540-blob-store
   names no run to scope blobs to.
 - `runner/main.py` — `_run_process` enters it alongside `run_scope`.
 - `world/attachment_parts.py` — expose the digest-mismatch error builder (one message, DRY).
+- Round 2 (2026-10-30) — local in-process mode binds the same reader:
+  - `adapters/inprocess.py` — `InProcessJobRunner(run_binding=...)`: an injected
+    `env -> context manager`, built eagerly in `schedule` from THIS run's env (topic + verified
+    identity) and entered inside the run's own task, around `lifecycle.run`. Injected, so the
+    adapter stays engine-free (layering).
+  - `runner/blob_reader.py` — `bound_run_blob_reader` resolves eagerly (returns the binding
+    rather than a generator context), so a half-configured S3 store refuses at `schedule`, the
+    same moment `build_executor`'s own artifact wiring refuses it.
+  - `local.py` — `create_local_app` passes `bound_run_blob_reader` as the runner's binding.
 
 ## Test plan
 
@@ -37,6 +46,12 @@ Base: `origin/OME-1545-engine-attachment-parts` with `origin/OME-1540-blob-store
   - a digest stored for another tenant → `source_not_found`;
   - no run scope in the env → nothing bound, ref-only → `source_not_found` (today's behaviour);
   - `_run_process` binds the reader for the run (scripted run reads a stored blob).
+- `tests/unit/test_local_blob_reader.py` (new, round 2):
+  - an in-process run reads a ref-only file the App stored for its topic + caller;
+  - another tenant's stored digest stays `source_not_found` in an in-process run;
+  - the binding is the run task's only — the scheduling caller's context binds nothing;
+  - a half-configured S3 store refuses at `schedule` and admits no run;
+  - `create_local_app` wires the binding into its in-process runner.
 
 ## Acceptance
 
@@ -63,5 +78,24 @@ Base: `origin/OME-1545-engine-attachment-parts` with `origin/OME-1540-blob-store
     still raises.
   - The binding is built from `blob_scope_from_env` + `blob_store_from_env` rather than
     `blob_reader_from_env`, so only the scope's `ValueError` means "no run".
-  - Residual: local mode's in-process runner (`adapters/inprocess.py`) binds no reader, so a
-    ref-only attachment is still `source_not_found` there.
+  - Round 1 residual (local mode's in-process runner bound no reader) — closed in round 2.
+- **Round 2 (2026-10-30) — local in-process mode:**
+  - **Actual files:** `adapters/inprocess.py` (`run_binding` param + `RunBinding` alias +
+    `_run_within`), `runner/blob_reader.py` (`bound_run_blob_reader` resolves eagerly, returns
+    the binding), `local.py` (`_run_blob_binding`, passed as the runner's `run_binding`), new
+    test `tests/unit/test_local_blob_reader.py` (5 tests). No prior test changed.
+  - **Gates:** `run_gates.py screamingface-engine --base cfb178b30` (merge-base with
+    `origin/main`) — ALL GATES GREEN.
+  - **Deviations:**
+    - The tenant and run id come from the in-process run's own env (`_env`: `TOPIC` + the
+      request's verified identity) — the same keys a Runner process reads, so no new plumbing.
+    - The store is resolved from the run env (`URL4_CLOUD_ARTIFACT*`), not by sharing
+      `app.state.blob_store`: one code path with the Runner; local `run_env` and `Settings`
+      read the same variables, as the result spill path already assumes. An explicit
+      `create_local_app(settings=...)` whose `artifacts_dir` differs from the env would split
+      them — same pre-existing caveat as the spill store.
+    - `bound_run_blob_reader` is now eager (resolve at call, bind at enter) so a half-configured
+      S3 store refuses at `schedule` rather than killing a task before `lifecycle.run` can
+      publish a terminal frame. Runner behaviour unchanged (call and enter are one `with`).
+    - `run_binding` is injected (not imported) so `adapters/inprocess.py` stays an engine-free
+      shared leaf; the import crossing sits in `local.py` beside `build_executor`'s.

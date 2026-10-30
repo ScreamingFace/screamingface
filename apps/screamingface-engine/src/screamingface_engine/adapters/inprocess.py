@@ -15,6 +15,7 @@ queue and a worker pool.
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from functools import partial
 
 from screamingface_engine import job_env
@@ -54,6 +55,14 @@ verbatim — the same entry point a real Job's process calls, given the same var
 ExtraModelRefresh = Callable[[Mapping[str, str]], Awaitable[None]]
 """Refresh dynamic model state for one verified caller before its run env is rendered."""
 
+RunBinding = Callable[[Mapping[str, str]], AbstractContextManager[None]]
+"""Per-run ambient state, built from that run's env and entered inside the run's own task.
+
+FEATURE (OME-1529): local mode passes `runner.blob_reader.bound_run_blob_reader`, the same
+binding a Runner process enters around its run. Injected rather than imported for the same
+reason as `ExecutorFactory`: this module stays engine-free.
+"""
+
 
 class _PreparedExecutor(Executor):
     """Build the real executor lazily, inside the already-registered run lifecycle."""
@@ -76,6 +85,24 @@ class _PreparedExecutor(Executor):
             close = getattr(steps, "aclose", None)
             if close is not None:
                 await close()
+
+
+async def _run_within(
+    binding: AbstractContextManager[None] | None, body: Callable[[], Awaitable[None]]
+) -> None:
+    """Run ``body`` inside ``binding``, both in the run's own task.
+
+    INVARIANT: entered INSIDE the run's task, whose context is a copy — every caller shares this
+    process, so a binding (a tenant-scoped reader) must never be set in the scheduling request's
+    context. Spawned url4 fragments inherit it from here.
+    WHY ``body`` is a callable: the coroutine is created only once the task runs, so a run
+    cancelled before its first step leaves no never-awaited coroutine behind.
+    """
+    if binding is None:
+        await body()
+        return
+    with binding:
+        await body()
 
 
 # INVARIANT: strictly above the Client's per-Evaluation fan-out, which is 8 (
@@ -125,8 +152,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         max_history: int = DEFAULT_MAX_HISTORY,
         extra_models: Callable[[], Sequence[str]] | None = None,
         refresh_extra_models: ExtraModelRefresh | None = None,
+        run_binding: RunBinding | None = None,
     ) -> None:
         self._stream = stream
+        self._run_binding = run_binding
         self._factory = executor_factory
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
         # the app runs, and a model admitted a second ago must reach the very next run.
@@ -297,8 +326,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # this adapter — and the runner's log context — would never learn it.
         run_traceparent = adopt_or_mint_traceparent(traceparent)
 
-        def build() -> Executor:
-            env = self._env(
+        def env() -> dict[str, str]:
+            return self._env(
                 topic,
                 url4,
                 deadline_s,
@@ -310,7 +339,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 capture=capture,
                 replay_frozen_copy=replay_frozen_copy,
             )
-            return self._factory(env)
+
+        def build() -> Executor:
+            return self._factory(env())
 
         async def prepare() -> Executor:
             # FEATURE (OME-1499): refresh runs INSIDE the registered lifecycle, but before
@@ -321,18 +352,23 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             return build()
 
         executor = build() if self._refresh_extra_models is None else _PreparedExecutor(prepare)
+        # WHY built here, before the task exists: a binding that cannot be built (a
+        # half-configured store) refuses the schedule, like `build()` above — a task failing
+        # before `lifecycle.run` starts would publish no terminal frame at all.
+        binding = None if self._run_binding is None else self._run_binding(env())
         watch = TerminalWatch(self._stream)
+        body = partial(
+            lifecycle_run,
+            watch,
+            ProvenanceExecutor(executor, client_version),
+            topic,
+            url4,
+            node=RUN_ROOT_NODE,
+            traceparent=run_traceparent,
+            deadline_s=deadline_s,
+        )
         task = asyncio.get_running_loop().create_task(
-            lifecycle_run(
-                watch,
-                ProvenanceExecutor(executor, client_version),
-                topic,
-                url4,
-                node=RUN_ROOT_NODE,
-                traceparent=run_traceparent,
-                deadline_s=deadline_s,
-            ),
-            name=f"url4-run:{name}",
+            _run_within(binding, body), name=f"url4-run:{name}"
         )
         task.add_done_callback(
             partial(self._on_done, topic=topic, traceparent=run_traceparent, watch=watch)
@@ -379,4 +415,5 @@ __all__ = [
     "DEFAULT_MAX_HISTORY",
     "ExecutorFactory",
     "InProcessJobRunner",
+    "RunBinding",
 ]

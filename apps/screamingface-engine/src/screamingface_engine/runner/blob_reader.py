@@ -15,8 +15,8 @@ ref-only attachment stays ``source_not_found`` — the behaviour before this bin
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
+from contextlib import AbstractContextManager, nullcontext
 
 from screamingface_engine.artifacts.blobs import BlobDigestMismatch, ScopedBlobReader
 from screamingface_engine.artifacts.wiring import blob_scope_from_env, blob_store_from_env
@@ -38,22 +38,24 @@ class _RunBlobReader:
             raise digest_mismatch(digest) from exc
 
 
-@contextmanager
-def bound_run_blob_reader(env: Mapping[str, str]) -> Iterator[None]:
-    """Bind this run's blob reader for the enclosed run; bind nothing when no run is named."""
+def bound_run_blob_reader(env: Mapping[str, str]) -> AbstractContextManager[None]:
+    """This run's blob-reader binding; binds nothing when the env names no run.
+
+    WHY resolved eagerly (here) and bound lazily (on enter): local mode builds the binding in
+    ``InProcessJobRunner.schedule`` and enters it inside the run's own task — a misconfigured
+    store must refuse at schedule, before a run is admitted, not kill a task that has no stream.
+    """
     try:
         scope = blob_scope_from_env(env)
     except ValueError:
         # WHY not raise: the run itself is refused elsewhere when its topic is missing; a reader
         # is only needed for ref-only files, and without a run scope none of them is readable.
         logger.warning("no run blob scope in the run env; ref-only attachments are unreadable")
-        yield
-        return
+        return nullcontext()
     # WHY the store is built after the scope: its half-configured-S3 refusal is a real
     # misconfiguration and must still raise, not read as "no run".
     reader = _RunBlobReader(ScopedBlobReader(blob_store_from_env(env), scope))
-    with bound_blob_reader(reader):
-        yield
+    return bound_blob_reader(reader)
 
 
 __all__ = ["bound_run_blob_reader"]

@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Mapping
-from contextlib import ExitStack
+from contextlib import AbstractContextManager, ExitStack
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -429,6 +429,16 @@ def _install_local_node(
     app.router.on_shutdown.append(_close_shared_node)
 
 
+def _run_blob_binding(env: Mapping[str, str]) -> AbstractContextManager[None]:
+    """The Runner's run blob-reader binding, for one in-process run (OME-1529).
+
+    WHY function-local: the same layering crossing as `build_executor` in `create_local_app`.
+    """
+    from screamingface_engine.runner.blob_reader import bound_run_blob_reader
+
+    return bound_run_blob_reader(env)
+
+
 def create_local_app(
     settings: Settings | None = None,
     *,
@@ -506,6 +516,9 @@ def create_local_app(
             shared_world_provider=lambda: holder.get("shared_world"),
         ),
         base_env=run_env,
+        # FEATURE (OME-1529): each in-process run reads its ref-only files through the run blob
+        # store, exactly as a Runner process does.
+        run_binding=_run_blob_binding,
         max_concurrent_runs=settings.local_max_concurrent_runs,
         max_history=settings.local_max_run_history,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
