@@ -146,8 +146,9 @@ class CaptureTally:
     occurrences: dict[tuple[str, Lane, str], int] = field(default_factory=dict)
     """Per (case key, lane, request digest), the occurrence the next logical call takes."""
     case_results: dict[str, bool] = field(default_factory=dict)
-    """Per str(Case id), True when ANY final Case result of the run scored it. A run holds one
-    final result per Candidate (OME-1775 R1)."""
+    """Per str(Case id), True when a replay may score the Case: ANY final Case result of the run
+    scored it, or failed on time (OME-1775 R1, `benchmarks/aggregation.py` `_failed_on_time`).
+    A run holds one final result per Candidate."""
 
     def status(self) -> Literal["complete", "partial"]:
         """``complete`` only for a capture run whose copy opened and sealed and whose every call
@@ -217,7 +218,7 @@ class CaptureTally:
     ) -> bool:
         """True when a replay reproduces this outcome exactly, so the run is not partial (R1)."""
         # INVARIANT: a Case missing from ``case_results`` is never forgiven, and neither is a Case
-        # that scored for any Candidate.
+        # that a replay may score (it scored for any Candidate, or it failed on time).
         # WHY: the retry guard exists because url4 ``retry=`` can retry a retryable no-answer
         # failure into an answer at the next occurrence in the capture (spec §4.1). A replay miss
         # is permanent and url4 never retries it, so the replay drops that member, and the Case
@@ -277,18 +278,19 @@ def record_capture_outcome(outcome: CaptureOutcome) -> None:
 
 
 def record_case_results(results: Iterable[tuple[object, bool]]) -> None:
-    """Note each final Case result (Case id, scored) in the bound tally. A no-op when none is bound.
-    A Case that scored in any result stays scored. The caller notes a Case that a replay may score
-    (one that failed on time) as scored too, so R1 never forgives its calls."""
+    """Note each final Case result (Case id, a replay may score it) in the bound tally. A no-op
+    when none is bound. A Case that a replay may score in any result stays so. The caller
+    (`finalize_candidate_result`) sets the flag for a Case that scored or that failed on time, so
+    R1 never forgives the calls of such a Case."""
 
     tally = _tally.get()
     if tally is None:
         return
-    for case_id, scored in results:
+    for case_id, may_score in results:
         # WHY: str() — the activity side records `str()` of the Case id (`current_capture_case`).
         # The int 1 and the str "1" share a key, which only makes the rule stricter.
         key = str(case_id)
-        tally.case_results[key] = tally.case_results.get(key, False) or scored
+        tally.case_results[key] = tally.case_results.get(key, False) or may_score
 
 
 __all__ = [

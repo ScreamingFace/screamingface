@@ -96,8 +96,9 @@ earlier failure ended the Attempt. Either way it fails, and url4 does not retry 
     (`benchmarks/shared_grading/attempt_fold.py:48-94`), is not scored. Then every Attempt of the
     Case failed (D2). A run can hold one final result for each Candidate. A Case that scored for
     any Candidate in the run does not count as failed.
-  - Its Case did not fail on time (owner, 2026-10-29, after review). A failure whose code, or whose
-    `source_code`, is time-based (`provider_queue_timeout`, `provider_execution_timeout`,
+  - Its Case did not fail on time (owner, 2026-10-29, after review). A failure of the Case, or of
+    one of its Attempts, whose code or `source_code` (at the top level of its metadata or in its
+    `source_error`) is time-based (`provider_queue_timeout`, `provider_execution_timeout`,
     `caller_deadline_exceeded`, `aigateway_deadline_exceeded`, url4 `timeout`,
     `x.admission_timeout`, `x.source_timeout`) makes the Case count as one a replay may score. A
     replay serves stored answers at once, so a url4 `;t=` guard may not run out there.
@@ -261,6 +262,9 @@ time-based failure is never forgiven (R1); a time limit that records no failure 
 16. Executor: the same, but the Case scores through `;optional` → `partial` (X3).
 17. Replay with the same stub copy: the Case fails again, and the score and `case_digest` equal the
     capture's.
+    The test compares the score and, for each Case, the id, status, score and failure codes.
+    `case_digest` holds only `[case_id, status, score]`, so equal Case tuples give an equal digest.
+    The test uses a one-Case Benchmark, because a scored MedXpert Case cannot replay (OME-1786).
 
 ## 9. Owner decisions
 

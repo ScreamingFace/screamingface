@@ -215,3 +215,24 @@ The `tests/unit/test_capture_outcomes.py` table (`:43-85`) does not change.
 | P3 | Approve this plan, so the code can start | — |
 
 **Decided 2026-10-29:** P1: no sub-issue for each app; test 13 stays, in this PR. P2: yes. P3: yes.
+
+## 8. After review (owner decisions, 2026-10-29)
+
+These changes came after the design review and the code review. The owner approved them. Where they
+differ from §2, this section applies.
+
+- **R1, the time rule.** `finalize_candidate_result` notes a Case as one a replay may score when the
+  Case scored, or when the Case failed on time. A Case failed on time when a failure of the Case, or
+  of one of its Attempts, has a time-based code. The check reads `code`, the top-level
+  `metadata["source_code"]`, and `metadata["source_error"]` (`code` and `source_code`). The codes
+  are in `TIME_BASED_CODES` (`benchmarks/failure_classes.py`). R1 never forgives a call in such a
+  Case. Reason: a replay serves stored answers at once, so a url4 `;t=` guard may not run out there,
+  and the Case may score.
+- **A 2xx that the call did not use (spec X22, X23).** `_CaptureProbe` keeps `last_ok`: the last
+  response that the call read was 2xx. `status(*, answered)` returns `ambiguous` when `retried`, or
+  when the call did not return and (`responses > 1` or `last_ok`). The `said` rule in
+  `_recorded_completion` includes `last_ok`. So a call that raised after it read a 2xx is
+  `ambiguous`, not `error`, and R1 does not forgive it.
+- **The `status()` default.** `answered` has the default `False`, the strict value, because a prior
+  test (`test_retry_cost_of_intelligence.py:303`) calls `status()` with no argument. That test does
+  not change.
