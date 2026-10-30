@@ -16,7 +16,7 @@ closed: 2026-10-30
 with one `TARGET` variable, lists which of the five picture Benchmarks (LAB-Bench FigQA and
 TableQA, MMMU multiple choice and open, MathVista) that Engine serves, names each missing one
 with its likely reason (no inspect extra, Case Digest sealed on Linux on a Mac, or not merged
-yet), and runs 2 Cases of each served one behind `RUN_PAID = False`.
+yet), and runs 2 Cases of each served one behind `RUN_EVALUATION = False`.
 
 - Results: per Case status, score and failure codes; one picture fetched with
   `sf.fetch_media(...)` from `case.media`; the judge's evidence on MMMU open.
@@ -25,6 +25,6 @@ yet), and runs 2 Cases of each served one behind `RUN_PAID = False`.
   `runnerPool.perRunCharge.memoryLimitMi`.
 - Run All is free; nothing starts or stops a stack.
 
-Owner verify: Run All on both targets with `RUN_PAID = False`, then one paid run on dev.
+Owner verify: Run All on both targets with `RUN_EVALUATION = False`, then one paid run on dev.
 
 Ledger: `docs/work/2026-10-30-picture-benchmarks-notebook.md`.

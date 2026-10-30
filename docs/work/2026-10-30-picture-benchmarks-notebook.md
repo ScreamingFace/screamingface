@@ -14,7 +14,7 @@ A 2-Case LAB-Bench FigQA run on dev was stopped at 2,862 MiB resident memory aga
 2,560 MiB per-run budget, a failure the local stack cannot show (it watches no memory). This
 unit adds one example notebook that points at the local stack or dev with one `TARGET`
 variable, lists which of the five picture Benchmarks that Engine serves (naming each missing
-one with its likely reason), and runs 2 Cases of each served one behind `RUN_PAID = False`, so
+one with its likely reason), and runs 2 Cases of each served one behind `RUN_EVALUATION = False`, so
 the owner can catch picture-path bugs on the target where they happen.
 
 ## Planned changes
@@ -40,7 +40,7 @@ the owner can catch picture-path bugs on the target where they happen.
 ## Acceptance
 
 - `18_picture_benchmarks.ipynb` regenerates byte-identically, is output-free, reads only real
-  `CaseResult` attributes, and makes no paid call while `RUN_PAID` is False.
+  `CaseResult` attributes, and makes no paid call while `RUN_EVALUATION` is False.
 
 ## Outcome (fill at the end — required before COMMIT)
 
@@ -64,7 +64,7 @@ the owner can catch picture-path bugs on the target where they happen.
   `sf.evaluate(MODEL, benchmark=id, limit=2)` in a `sf.ScreamingFaceError` catch so a failing
   Benchmark is recorded and the rest still run. Grading per Benchmark is written in the
   notebook (the Benchmark card carries no grading field), taken from each row's description.
-- **Owner-verify:** (1) Run All on the local stack and on dev with `RUN_PAID = False`: no paid
-  call, the served/missing list matches the Engine. (2) With `RUN_PAID = True` on dev: 2 Cases
+- **Owner-verify:** (1) Run All on the local stack and on dev with `RUN_EVALUATION = False`: no paid
+  call, the served/missing list matches the Engine. (2) With `RUN_EVALUATION = True` on dev: 2 Cases
   of each served Benchmark; a memory failure shows as `memory_budget_exceeded` in section 6.
   (3) Once the MMMU open PR lands, confirm its id is `inspect-mmmu_open`.

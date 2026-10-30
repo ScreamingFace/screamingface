@@ -2221,7 +2221,7 @@ local stack **or** dev with one variable, lists which of the five that Engine se
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
-**Run All is free.** Every paid run is behind `RUN_PAID = False` (section 5), and nothing here
+**Run All is free.** Every paid run is behind `RUN_EVALUATION = False` (section 5), and nothing here
 starts or stops a stack."""),
         nbformat.v4.new_markdown_cell("""\
 ## 0. Before running
@@ -2352,12 +2352,12 @@ MODEL"""),
         nbformat.v4.new_markdown_cell("""\
 ## 5. Run two Cases of each — paid, off by default
 
-`RUN_PAID = False` keeps every cell below free: each one prints what it would run and stops.
+`RUN_EVALUATION = False` keeps every cell below free: each one prints what it would run and stops.
 Set it to `True` to spend. Each run is `sf.evaluate(MODEL, benchmark=..., limit=2)`; a run that
 fails is recorded with its error code, so one failing Benchmark never stops the others. The
 pinned cache stays at its default (off), so every run makes fresh model calls."""),
         nbformat.v4.new_code_cell("""\
-RUN_PAID = False
+RUN_EVALUATION = False
 
 reports = {}
 run_errors = {}
@@ -2368,8 +2368,8 @@ def run_two_cases(benchmark_id):
 
     if benchmark_id not in served:
         return f"{benchmark_id}: not served by this Engine, skipped"
-    if not RUN_PAID:
-        return f"{benchmark_id}: set RUN_PAID = True to run 2 Cases (paid model calls)"
+    if not RUN_EVALUATION:
+        return f"{benchmark_id}: set RUN_EVALUATION = True to run 2 Cases (paid model calls)"
     try:
         outcome = sf.evaluate(MODEL, benchmark=benchmark_id, limit=2)
     except sf.ScreamingFaceError as exc:
@@ -2403,7 +2403,7 @@ for benchmark_id, report in reports.items():
 for benchmark_id, exc in run_errors.items():
     print(benchmark_id, "run failed:", exc.code)
 if not reports and not run_errors:
-    print("No runs yet: set RUN_PAID = True in section 5 and run its cells.")"""),
+    print("No runs yet: set RUN_EVALUATION = True in section 5 and run its cells.")"""),
         nbformat.v4.new_markdown_cell("""\
 ### One picture, fetched from the result
 
@@ -2439,7 +2439,7 @@ surprising score can be read, not just counted."""),
         nbformat.v4.new_code_cell("""\
 open_report = reports.get("inspect-mmmu_open")
 if open_report is None:
-    print("No inspect-mmmu_open run yet (not served, or RUN_PAID is False).")
+    print("No inspect-mmmu_open run yet (not served, or RUN_EVALUATION is False).")
 else:
     for case in open_report.candidates.only.cases:
         grade = case.grade
