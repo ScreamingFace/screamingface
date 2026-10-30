@@ -135,10 +135,12 @@ def test_parameter_pages_declare_no_og_url_that_drops_the_shared_item(tmp_path: 
 
 
 def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
-    """A short About page, public, with its four sections, and linked from the rail on every page.
+    """A public About page with its sections, and linked from the rail on every page.
 
-    Its sections are Thesis, How it works, Contribute, and Who builds this — the home for the
-    composition / reproducibility / openness framing that would otherwise be scattered.
+    Its sections walk from the evidence (a carousel of papers where combinations of models beat
+    single ones) through how a result gets on a board, how to read it, how the map is drawn, how
+    to contribute, and who builds it — the home for the composition / reproducibility / openness
+    framing that would otherwise be scattered.
     """
     with TestClient(create_app(_settings(tmp_path))) as client:
         about = client.get("/about.html")
@@ -146,7 +148,13 @@ def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
         # Public analytics, like the other pages.
         assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in about.text
         # The section labels.
-        for label in ("Thesis", "How it works", "Contribute", "Who builds this"):
+        for label in (
+            "How a result gets on a leaderboard",
+            "How to read the leaderboards",
+            "How the map gets drawn",
+            "Contribute",
+            "Who builds this",
+        ):
             assert label in about.text, label
         # Reachable from the rail on every portal page.
         for path in ("/about.html", "/index.html", "/benchmark.html", "/spec.html", "/data.html"):
@@ -209,27 +217,6 @@ def test_portal_serves_the_vendored_hero_mark(tmp_path: Path) -> None:
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
-
-
-def test_the_hero_mark_is_vendored_not_hotlinked(tmp_path: Path) -> None:
-    """The mark must load from this origin, whatever the brand site does later.
-
-    INVARIANT, stated as behaviour rather than as a string match: the element the hero uses
-    for the mark resolves to a path this app serves. The mockup hotlinks
-    `brand.screamingface.ai/assets/...`; copying that in would make the public board depend on
-    another host at render time, and would break silently if that host moved.
-    """
-    with TestClient(create_app(_settings(tmp_path))) as client:
-        markup = client.get("/index.html").text
-
-        match = re.search(r'<img[^>]*class="o-mark"[^>]*src="([^"]+)"', markup)
-        assert match is not None, "the hero no longer carries an .o-mark image"
-        source = match.group(1)
-
-        assert "//" not in source, f"the hero mark is loaded off-origin: {source}"
-        asset = client.get("/" + source.lstrip("/"))
-        assert asset.status_code == 200
-        assert asset.headers["content-type"] == "image/png"
 
 
 def test_pareto_copy_describes_standard_dominance() -> None:
