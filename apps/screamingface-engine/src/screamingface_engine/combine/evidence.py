@@ -5,8 +5,9 @@ STORY: as a reader of a Case result, I see which operators ran, what each member
 how the tally came out, and which member's text won -- without the answer text copies.
 
 INVARIANT: the field order below IS the pinned wire order, every key is always present except
-``mean`` (written only for the ``mean`` reducer), and a null is written explicitly. The encoder
-keeps no ``sort_keys`` (the envelope never did).
+``mean`` (written only for the ``mean`` reducer), ``cut`` and the member ``rank`` (written only for
+a ``top_k@1`` step), and ``declared`` (written only when the spec declares signals), and a null is
+written explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
 INVARIANT: this module imports pydantic and ``combine.ports`` and nothing else. ``benchmarks/
 contract.py`` imports it (unit 3), so it must never import ``benchmarks.*`` or
 ``operation_calls``.
@@ -21,10 +22,12 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from screamingface_engine.combine.ports import (
+    EXCLUDE_REASONS,
     AbstainReason,
     AnswerReason,
     EvidenceKind,
-    MemberStatus,
+    ExcludeReason,
+    RecordStatus,
     Reducer,
     SignalOrder,
 )
@@ -44,18 +47,29 @@ class AnswerRecord(_EvidenceModel):
     member_id: str
     raw: str | None
     value: str | None
-    status: MemberStatus
-    reason: AnswerReason | None
+    # E4b part 2 (ans:Q3): "excluded" = the member answered and a rule of the step left it out.
+    # The record keeps its raw, value, signals, weight and score (AR-I3).
+    status: RecordStatus
+    reason: AnswerReason | ExcludeReason | None
     signals: dict[str, float | None]
     weight: float | None
     score: float | None
+    # E4b part 2: the place of the member in a top_k@1 order (1 = first). Optional on the wire,
+    # like CombineEvidence.mean: the key is written only when it is set.
+    rank: int | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def _check(self) -> AnswerRecord:
         if (self.reason is None) != (self.status == "answered"):
-            raise ValueError("an answer has a reason exactly when it failed")
+            raise ValueError("an answer record has a reason exactly when it did not answer")
         if self.status == "fail" and self.value is not None:
             raise ValueError("a failed answer has no value")
+        # AR-I2 / AR-I3: an exclude reason goes with "excluded", and only with it.
+        if (self.status == "excluded") != (self.reason in EXCLUDE_REASONS):
+            raise ValueError("an excluded answer has an exclude reason, and only it has one")
+        # AR-I4, row part. CombineEvidence._check makes the ranks of one evidence 1..n.
+        if self.rank is not None and (self.rank < 1 or self.score is None):
+            raise ValueError("a rank is a positive integer on a member with a score")
         return self
 
 
@@ -81,6 +95,14 @@ class SignalRecord(_EvidenceModel):
 
     key: str
     order: SignalOrder | None
+
+
+class CutRecord(_EvidenceModel):
+    """The cut of a ``top_k@1`` step: keep the first ``k`` scored members in ``order``."""
+
+    # The bound of top_k@1 (operators/selection.py _MAX_K). This module cannot import a plugin.
+    k: int = Field(ge=1, le=256)
+    order: SignalOrder
 
 
 class TallyRowRecord(_EvidenceModel):
@@ -132,6 +154,13 @@ class CombineEvidence(_EvidenceModel):
     presentation_order: Literal["author"] | None
     separator_collision: bool | None
     signal: SignalRecord | None
+    # E4b part 2: the k and the order of a top_k@1 step. Optional on the wire, like ``mean``.
+    cut: CutRecord | None = Field(default=None, exclude_if=lambda value: value is None)
+    # E4b part 3 (P11): the spec's `signals` map as the spec wrote it. Optional on the wire: the key
+    # is written only when the spec declares a source, so every other evidence keeps its v1 bytes.
+    declared: dict[str, dict[str, JsonValue]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     result: ResultRecord
     dropped: int
     finish_reason: Literal["stop"]
@@ -145,6 +174,15 @@ class CombineEvidence(_EvidenceModel):
             raise ValueError("combine evidence chosen must be unique members")
         if self.dropped != sum(row.status == "fail" for row in self.members):
             raise ValueError("combine evidence dropped must count the failed members")
+        # AR-I4: when one member has a rank, the ranks are 1..n over the members with a score.
+        ranks = sorted(row.rank for row in self.members if row.rank is not None)
+        scored = sum(row.score is not None for row in self.members)
+        if ranks and ranks != list(range(1, scored + 1)):
+            raise ValueError("combine evidence ranks must be 1..n over the members with a score")
+        # CE-I3 (E4b part 2): a member that a rule left out is never chosen, so never the result.
+        excluded = {row.member_id for row in self.members if row.status == "excluded"}
+        if not excluded.isdisjoint(self.chosen):
+            raise ValueError("combine evidence never chooses an excluded member")
         if self.result.status == "abstain" and (self.chosen or self.built):
             raise ValueError("an abstained combine evidence chooses and builds nothing")
         if self.result.member_id is not None and (
@@ -158,6 +196,7 @@ __all__ = [
     "COMBINE_EVIDENCE_SCHEMA",
     "AnswerRecord",
     "CombineEvidence",
+    "CutRecord",
     "FieldReadingRecord",
     "JudgeReadingRecord",
     "ResultRecord",

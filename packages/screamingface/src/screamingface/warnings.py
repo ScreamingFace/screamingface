@@ -13,4 +13,14 @@ class FixedSeedSittingWarning(EvaluationWarning):
     """A run seed is set, but calls with their own seed send the same request in every sitting."""
 
 
-__all__ = ["DuplicateMembersWarning", "EvaluationWarning", "FixedSeedSittingWarning"]
+class JudgeWriterWarning(EvaluationWarning):
+    """A Pipeline stage writes with the model that judged the stage before it (the writer
+    scores)."""
+
+
+__all__ = [
+    "DuplicateMembersWarning",
+    "EvaluationWarning",
+    "FixedSeedSittingWarning",
+    "JudgeWriterWarning",
+]

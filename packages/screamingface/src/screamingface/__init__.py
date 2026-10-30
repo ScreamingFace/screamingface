@@ -83,11 +83,13 @@ from screamingface.report import (
     Usage,
 )
 from screamingface.selection import Concat, Filter, Rank
+from screamingface.signal_sources import Entropy, Logprob, Verbalized
 from screamingface.url4 import Url4
 from screamingface.warnings import (
     DuplicateMembersWarning,
     EvaluationWarning,
     FixedSeedSittingWarning,
+    JudgeWriterWarning,
 )
 
 # The installed distribution's version, resolved once at import — see `_version.py`.
@@ -124,6 +126,7 @@ __all__ = [
     "Event",
     "EngineCapabilityError",
     "EngineUnavailableError",
+    "Entropy",
     "ExecutionError",
     "Extract",
     "EvaluationWarning",
@@ -137,6 +140,7 @@ __all__ = [
     "FixedSeedSittingWarning",
     "Fusion",
     "Judge",
+    "JudgeWriterWarning",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardEntry",
@@ -144,6 +148,7 @@ __all__ = [
     "LeaderboardInfo",
     "LeaderboardRankingNotice",
     "LeaderboardScore",
+    "Logprob",
     "matches",
     "MediaUnavailableError",
     "MemberResult",
@@ -178,6 +183,7 @@ __all__ = [
     "Usage",
     "Url4",
     "Vote",
+    "Verbalized",
     "benchmarks",
     "cache",
     "events",

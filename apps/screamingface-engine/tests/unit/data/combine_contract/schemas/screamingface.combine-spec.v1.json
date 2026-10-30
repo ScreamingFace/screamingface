@@ -1,5 +1,54 @@
 {
   "$defs": {
+    "EntropySource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"entropy\", \"top_logprobs\": 1..20}`` (E4b part 3).\n\nThe value is the mean token entropy of each member's reply, in nats (the member reader).",
+      "properties": {
+        "source": {
+          "const": "entropy",
+          "title": "Source",
+          "type": "string"
+        },
+        "top_logprobs": {
+          "maximum": 20,
+          "minimum": 1,
+          "title": "Top Logprobs",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source",
+        "top_logprobs"
+      ],
+      "title": "EntropySource",
+      "type": "object"
+    },
+    "LogprobSource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"logprob\", \"form\": \"mean\" | \"sum\" | \"prob\"}`` (E4b part 3).\n\nThe value comes from each member's reply log-probabilities (the member reader), not from its\ntext.",
+      "properties": {
+        "form": {
+          "enum": [
+            "mean",
+            "sum",
+            "prob"
+          ],
+          "title": "Form",
+          "type": "string"
+        },
+        "source": {
+          "const": "logprob",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "form"
+      ],
+      "title": "LogprobSource",
+      "type": "object"
+    },
     "SignalWeights": {
       "additionalProperties": false,
       "description": "``weights: {\"signal\": key}``: each member's vote weight comes from the named signal.",
@@ -35,6 +84,32 @@
         "args"
       ],
       "title": "StepSpec",
+      "type": "object"
+    },
+    "VerbalizedSource": {
+      "additionalProperties": false,
+      "description": "``{\"source\": \"verbalized\", \"pattern\": str, \"ignore_case\"?: bool}`` (E4b part 3).\n\nThe pattern rules (length, RE2 compile, one group) are the source plugin's; the endpoint checks\nthem at plan time through ``registry.source``.",
+      "properties": {
+        "ignore_case": {
+          "default": false,
+          "title": "Ignore Case",
+          "type": "boolean"
+        },
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "source": {
+          "const": "verbalized",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "pattern"
+      ],
+      "title": "VerbalizedSource",
       "type": "object"
     }
   },
@@ -95,6 +170,39 @@
     },
     "select": {
       "$ref": "#/$defs/StepSpec"
+    },
+    "signals": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "discriminator": {
+              "mapping": {
+                "entropy": "#/$defs/EntropySource",
+                "logprob": "#/$defs/LogprobSource",
+                "verbalized": "#/$defs/VerbalizedSource"
+              },
+              "propertyName": "source"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/VerbalizedSource"
+              },
+              {
+                "$ref": "#/$defs/LogprobSource"
+              },
+              {
+                "$ref": "#/$defs/EntropySource"
+              }
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signals"
     },
     "weights": {
       "anyOf": [

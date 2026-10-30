@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 import warnings
 from collections import Counter
@@ -46,7 +47,8 @@ from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
-from screamingface.warnings import DuplicateMembersWarning
+from screamingface.signal_sources import injected_member_params
+from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 
 if TYPE_CHECKING:
     from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
@@ -100,6 +102,9 @@ def compile_candidate(
     ``benchmark_rule`` is the benchmark's answer rule, read only by ``extract='benchmark'``.
     """
 
+    # WHY before the rewrite (review P2 #3): the rewrite merges a context Fusion into the stage
+    # after it, so only the user's own Pipelines carry the stage numbers the user wrote.
+    _warn_judge_writers(recipe)
     recipe = rewrite_fusion_recipe(recipe)
     try:
         first = _CandidateCompiler(
@@ -253,6 +258,7 @@ class _CandidateCompiler:
         input_context: str,
         input_dependencies: tuple[str, ...] = (),
         synthesis: bool,
+        member_params: Mapping[str, bool | int] | None = None,
     ) -> tuple[_ResolvedRecipe, tuple[Node, ...]]:
         """Compile a nested Recipe and detach its sources for isolated placement."""
 
@@ -262,6 +268,7 @@ class _CandidateCompiler:
             input_context=input_context,
             input_dependencies=input_dependencies,
             synthesis=synthesis,
+            member_params=member_params,
         )
         if resolved.selection is not None:
             raise ValueError(
@@ -279,6 +286,7 @@ class _CandidateCompiler:
         input_context: str = "$input",
         input_dependencies: tuple[str, ...] = (),
         synthesis: bool = False,
+        member_params: Mapping[str, bool | int] | None = None,
     ) -> _ResolvedRecipe:
         identity = id(recipe)
         if identity in self._active:
@@ -291,6 +299,7 @@ class _CandidateCompiler:
                     input_context=input_context,
                     input_dependencies=input_dependencies,
                     synthesis=synthesis,
+                    member_params=member_params,
                 )
             if isinstance(recipe, Fusion):
                 return self._compile_fusion(recipe, input_context, input_dependencies)
@@ -308,10 +317,14 @@ class _CandidateCompiler:
     def _compile_fusion(
         self, fusion: Fusion, input_context: str, input_dependencies: tuple[str, ...]
     ) -> _ResolvedRecipe:
+        member_params = injected_member_params(fusion.signals)
         if fusion.quorum == "all" and not any(member.optional for member in fusion.members):
             members = tuple(
                 self._recipe(
-                    member, input_context=input_context, input_dependencies=input_dependencies
+                    member,
+                    input_context=input_context,
+                    input_dependencies=input_dependencies,
+                    member_params=member_params,
                 )
                 for member in fusion.members
             )
@@ -323,6 +336,7 @@ class _CandidateCompiler:
                 input_context=input_context,
                 input_dependencies=input_dependencies,
                 synthesis=False,
+                member_params=member_params,
             )
             for member in fusion.members
         )
@@ -365,10 +379,17 @@ class _CandidateCompiler:
         input_context: str,
         input_dependencies: tuple[str, ...],
         synthesis: bool,
+        member_params: Mapping[str, bool | int] | None = None,
     ) -> _ResolvedRecipe:
         default_prompt = DEFAULT_SYNTHESIS_PROMPT if synthesis else DEFAULT_ANSWER_PROMPT
         prompt = model.prompt or default_prompt
-        params = resolved_params(model.params)
+        # WHY after the author params (U4-D5, P12): a Fusion that declares sf.Logprob or
+        # sf.Entropy adds `logprobs` (and `top_logprobs`) to each member call, and the preflight
+        # reads them from the parameter assignment like any author param.
+        selected: Mapping[str, str | int | float | bool] = (
+            {**model.params, **member_params} if member_params else model.params
+        )
+        params = resolved_params(selected)
         route = _canonical_model(model.model)
         self._model_count += 1
         binding = f"model_{self._model_count}"
@@ -394,7 +415,7 @@ class _CandidateCompiler:
                 depends_on=input_dependencies,
             )
         )
-        self._record_parameter_assignment(operation_id, route, model.params)
+        self._record_parameter_assignment(operation_id, route, selected)
         return _ResolvedRecipe(
             reference=f"${binding}",
             operation_id=operation_id,
@@ -593,8 +614,9 @@ class _CandidateCompiler:
             member_count=len(members),
             operators=self._operators,
             benchmark_rule=self._benchmark_rule,
+            signals=fusion.signals,
         )
-        sources = self._claim_accounting_sources(reducer, members)
+        sources = self._claim_accounting_sources(fusion, reducer, members)
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
@@ -648,11 +670,13 @@ class _CandidateCompiler:
         )
 
     def _claim_accounting_sources(
-        self, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
+        self, fusion: Fusion, reducer: Reducer, members: tuple[_ResolvedRecipe, ...]
     ) -> dict[str, dict[str, dict[str, str]]] | None:
-        """The context `sources`, only when the reducer reads an accounting signal (SG#5, SG#6)."""
+        """The context `sources`: only when the reducer reads an accounting signal (SG#5, SG#6),
+        or when the Fusion declares sf.Logprob or sf.Entropy (erd §4: the Engine finds each
+        member's reply logprobs by the same call fingerprints)."""
 
-        if accounting_signal(reducer) is None:
+        if accounting_signal(reducer) is None and not injected_member_params(fusion.signals):
             return None
         self._reads_accounting = True
         return member_sources([member.calls for member in members], self._claims or {})
@@ -796,6 +820,11 @@ def _fusion_context(
     return render(struct(value))
 
 
+# The key of the reducer model call that scores the members (P9): E4a pairs it with exactly the
+# three ways the Engine reads a judge (the judge reducer, scores@1 by judge, score:judge).
+_JUDGE_CALL_KEY = "judge"
+
+
 def _warn_duplicate_members(fusion: Fusion) -> None:
     """Warn for each group of direct Model members that send one identical request.
 
@@ -832,6 +861,65 @@ def _warn_duplicate_members(fusion: Fusion) -> None:
 def _positions(positions: list[int]) -> str:
     head = ", ".join(str(position) for position in positions[:-1])
     return f"{head} and {positions[-1]}"
+
+
+def _warn_judge_writers(recipe: Recipe) -> None:
+    """Run the judge-writer check (JW-1) once on each Pipeline of the user's own Recipe.
+
+    WHY once per Pipeline object, walked before the compile: a corrective loop compiles its member
+    every round, the accounting pass compiles the whole Recipe a second time (JW-D2), and one
+    Pipeline object may sit in two places. The seen set also stops a cyclic value, which only the
+    compiler names.
+    """
+
+    seen: set[int] = set()
+    pending: list[Recipe | Reducer] = [recipe]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, Reducer) or id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, Pipeline):
+            _warn_judge_writer(value)
+        pending.extend(reversed(_children(value)))
+
+
+def _warn_judge_writer(pipeline: Pipeline) -> None:
+    """Warn when a stage writes with the model that judged the stage just before it (JW-1).
+
+    WHY a warning and not an error (ans:Q1): one strong model in two roles is a legal recipe,
+    but the epic rule is "the writer is not the scorer", so the researcher must hear it before
+    the run is paid. Only adjacent stages count, and only a direct Model writer (P10). Both
+    sides go through _canonical_model, so "/a/b" and "a/b" are one model (review M2). The
+    message names the Pipeline, the two stage positions and the route, never a prompt, a
+    rubric or a member.
+    """
+
+    for position, (stage, following) in enumerate(itertools.pairwise(pipeline.stages), start=1):
+        route = _judge_route(stage)
+        if route is None or not isinstance(following, Model):
+            continue
+        if _canonical_model(following.model) != route:
+            continue
+        warnings.warn(
+            f"Pipeline {pipeline.name!r}: stages {position} and {position + 1} use the same "
+            f"model {route!r}: stage {position} scores the members as the judge, and stage "
+            f"{position + 1} writes the answer, so the writer is also the scorer. Give one of "
+            "the two stages another model, or keep both and ignore this warning.",
+            JudgeWriterWarning,
+            skip_file_prefixes=(SDK_PACKAGE_ROOT,),
+        )
+
+
+def _judge_route(stage: Recipe) -> str | None:
+    """The canonical route of the judge that a reducer Fusion stage reads, else None (P9)."""
+
+    reducer = stage.synthesizer if isinstance(stage, Fusion) else None
+    # sf.Reduce("context") has no combine call and no plan to read (the Fusion rewrite owns it).
+    if not isinstance(reducer, Reducer) or not reducer._compiles_to_combine():
+        return None
+    judges = [call for call in reducer._plan().signal_calls if call.key == _JUDGE_CALL_KEY]
+    return _canonical_model(judges[0].model) if judges else None
 
 
 def _member_calls(members: tuple[_ResolvedRecipe, ...]) -> tuple[_SourceCall, ...]:

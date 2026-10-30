@@ -323,6 +323,59 @@ SCENARIOS["pick_output"] = _pick_output
 SCENARIOS["pick_output_missing"] = _pick_output_missing
 
 
+def _vote_weight_excluded() -> CombineEvidence:
+    # E4b part 2 X1: member_3 has no confidence, so it has no weight and is excluded (no_weight).
+    spec = vote_spec(
+        3,
+        extract=step("json_field@1", path="answer"),
+        normalize=step("text@1"),
+        reduce=step("weighted_mode@1"),
+        select=step("max_weight_holder@1"),
+        weights={"signal": "field:confidence"},
+    )
+    texts = [
+        '{"answer":"A","confidence":0.9}',
+        '{"answer":"A","confidence":0.4}',
+        '{"answer":"B"}',
+    ]
+    return _evidence(spec, texts)
+
+
+def _filter_signal_excluded() -> CombineEvidence:
+    # E4b part 2 X2 with P5: member_3 has no confidence, so it is excluded (no_signal), mark 0.
+    spec = filter_spec(3, {"key": "field:confidence", "cmp": "ge", "value": 0.5})
+    texts = [
+        canonical_json({"confidence": 0.8}),
+        canonical_json({"confidence": 0.2}),
+        canonical_json({}),
+    ]
+    return _evidence(spec, texts)
+
+
+SCENARIOS["vote_weight_excluded"] = _vote_weight_excluded
+SCENARIOS["filter_signal_excluded"] = _filter_signal_excluded
+
+
+def _rank_min_cost() -> CombineEvidence:
+    # RK-1: costs 0.03, 0.01, 0.02, 0.01, cheapest first -> ranks 4, 1, 3, 2.
+    # The cut keeps member_2 and member_4.
+    return _evidence(
+        rank_signal_spec(4, 2, "cost_usd", "min"),
+        ["alpha", "beta", "gamma", "delta"],
+        sources=sources(4),
+        accounting=costs(0.03, 0.01, 0.02, 0.01),
+    )
+
+
+def _rank_reduce_abstain() -> CombineEvidence:
+    # RK-D5: no member has the signal, so the reduce step abstains; the cut is written, no rank.
+    return _evidence(rank_signal_spec(3, 2, "field:score", "max"), _score_texts(None, None, None))
+
+
+SCENARIOS["rank_min_cost"] = _rank_min_cost  # E4b part 2 unit 3
+SCENARIOS["rank_reduce_abstain"] = _rank_reduce_abstain  # E4b part 2 unit 3
+
+
 def canonical_evidence(evidence: CombineEvidence) -> str:
     """The bytes the Candidate envelope writes for one evidence (same encoder, same options)."""
     return json.dumps(evidence.model_dump(by_alias=True), ensure_ascii=False, separators=(",", ":"))

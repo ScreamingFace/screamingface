@@ -11,6 +11,7 @@ from screamingface._evaluation.operators import STAGES, Stage, _OperatorCatalog
 from screamingface._immutable_json import thaw_mapping
 from screamingface._signals import ACCOUNTING_SIGNALS, Signal
 from screamingface.reducer import REDUCER_NAMES, Reducer, _read_signal, _Step
+from screamingface.signal_sources import SignalSource
 
 COMBINE_ROUTE = "/ensemble/combine/v1"
 COMBINE_MODEL = COMBINE_ROUTE.removeprefix("/")  # how url4._calls sees the route
@@ -19,6 +20,7 @@ _MAX_SPEC_BYTES = 64 * 1024
 _SPEC_KEYS = frozenset(
     {"schema", "reducer", "members", "extract", "normalize", "reduce", "select", "weights"}
 )
+_OPTIONAL_SPEC_KEYS = frozenset({"signals"})  # E4b part 3: written only when a Fusion declares
 _INVALID_SPEC = "URL4 Candidate has an invalid combine spec"
 
 
@@ -46,6 +48,7 @@ def combine_spec_text(
     member_count: int,
     operators: _OperatorCatalog,
     benchmark_rule: _BenchmarkAnswerRule | None = None,
+    signals: Mapping[str, SignalSource] | None = None,
 ) -> str:
     """Build the canonical combine spec for ``reducer`` with every operator pinned.
 
@@ -60,7 +63,7 @@ def combine_spec_text(
     if isinstance(weights, tuple) and len(weights) != member_count:
         raise ValueError(f"{reducer.name} has {len(weights)} weights for {member_count} members")
     members = [f"member_{index}" for index in range(1, member_count + 1)]
-    spec = {
+    spec: dict[str, object] = {
         "schema": COMBINE_SPEC_SCHEMA,
         "reducer": plan.reducer,
         "members": members,
@@ -70,6 +73,8 @@ def combine_spec_text(
         "select": _pinned_step("select", steps.select, operators),
         "weights": _spec_weights(weights, members),
     }
+    if signals:
+        spec["signals"] = {name: source._spec() for name, source in signals.items()}
     text = canonical_json(spec)
     size = len(text.encode("utf-8"))
     if size > _MAX_SPEC_BYTES:
@@ -140,11 +145,15 @@ def _reject_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _is_spec(spec: object) -> bool:
-    if not isinstance(spec, dict) or set(spec) != _SPEC_KEYS:
+    if (
+        not isinstance(spec, dict)
+        or not _SPEC_KEYS <= set(spec) <= _SPEC_KEYS | _OPTIONAL_SPEC_KEYS
+    ):
         return False
     members = spec["members"]
     return (
         spec["schema"] == COMBINE_SPEC_SCHEMA
+        and ("signals" not in spec or _is_signals(spec["signals"]))
         and isinstance(spec["reducer"], str)
         and isinstance(members, list)
         and bool(members)
@@ -162,6 +171,14 @@ def _is_step(step: object) -> bool:
         and set(step) == {"op", "args"}
         and isinstance(step["op"], str)
         and isinstance(step["args"], dict)
+    )
+
+
+def _is_signals(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and all(isinstance(name, str) and isinstance(entry, dict) for name, entry in value.items())
     )
 
 
