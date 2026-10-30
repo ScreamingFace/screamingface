@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1779",
+  "branch": "OME-1779-sdk-connection-copy",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-29",
+  "scope": "OME-1138 close-out leaf L8 test transitions, per spec docs/spec/2026-10-29-ome-1138-closeout.md sections 4.8 and 6: the e2e capture proxy in tests/e2e/fixtures/slice_snapshot.py stops forwarding the retired X-Profile header; test_local_gateway_defaults_provide_exactly_the_required_environment in tests/test_runtime_cli.py drops its AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE rationale and absence assertion, keeping the exact-environment equality that already excludes the variable.",
+  "reason": "Stage D retired X-Profile (D12): every nonblank value is refused with 400 x_profile_unsupported and the Engine no longer sends it, so forwarding it is dead test plumbing. The gateway's Claude Code credential import is retired (OME-1209 E4b) and the variable only triggers a retirement warning, so the test's opt-in consent rationale is stale and the assertion guards a variable nothing in the SDK reads.",
+  "files": {
+    "packages/screamingface/tests/e2e/fixtures/slice_snapshot.py": {
+      "base_blob": "b1cfcfddfef6e7b334b76b281d28d53b16a9fcfd",
+      "approved_blob": "c47af064ee20f3f7b945c0f152e40063f7fa18a8"
+    },
+    "packages/screamingface/tests/test_runtime_cli.py": {
+      "base_blob": "0177a480968428ae801b4864faa5ae2fb68190db",
+      "approved_blob": "997277d9b4a8f277e530c98744676072eeafd706"
+    }
+  }
+}

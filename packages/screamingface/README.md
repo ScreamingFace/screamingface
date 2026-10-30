@@ -1338,7 +1338,7 @@ replayed_report = sf.evaluate(same_submission.url4)
 Explicit Clients provide the same interface through `client.models.list()` and
 `client.models.get(model_id)` alongside `client.benchmarks.list()`; asynchronous Clients use the
 same names with `await`. `ModelInfo` rows are lightweight summaries containing the supported
-parameter and tool names. `ModelDetails` is the profile-specific contract for one Model, including
+parameter and tool names. `ModelDetails` is the Connection-specific contract for one Model, including
 typed parameter schemas, gateway policy, provider evidence, tools, transport, and freshness.
 
 `sf.leaderboards` uses the separate public Scoreboard: `list()` returns its registered benchmark
@@ -1374,7 +1374,8 @@ Provider access and explicit Candidate parameters are preflighted before executi
 fetches one detail document per distinct required Candidate Model, including parameter-free
 Models, and reuses any document fetched during model admission. Authoritative missing provider
 access raises `ProviderConnectionError` before any Candidate dispatch or progress events, with a
-hint to configure BYOK via `sf.connect()` or enable the selected hosted provider profile.
+hint to connect the provider with `sf.connect()` or to ask the operator of a hosted Engine to
+connect it in AI Gateway.
 `ModelDetails.execution_access` is `"configured"`, `"missing"`, or `None` when an older Gateway
 omits the field. Unknown access preserves existing behavior; the early missing-access guarantee
 requires a Gateway that publishes the field. Configured access is not credential validation.
