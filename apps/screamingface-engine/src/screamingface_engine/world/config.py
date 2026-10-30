@@ -91,7 +91,7 @@ _AIGATEWAY_KEYS = frozenset(
         "web_tool_max_iterations",
     }
 )
-_MODEL_KEYS = frozenset({"id", "web_search"})
+_MODEL_KEYS = frozenset({"id", "web_search", "public_schema"})
 # F3 (prd/02): `[commands]` is the ONE section still reserved. `[data]`, `[holdings]` and
 # `[identities]` are now parsed (see `_parse_read_side`), so they are top-level keys, not reserved
 # names — a declaration under one of them reaches url4's resolvers rather than a blanket error.
@@ -165,10 +165,15 @@ class ModelSpec:
     WHY the default is True: a deployment that supplies a Tavily key wants retrieval. The
     previous per-route opt-in meant a route stayed silently non-searching until somebody
     remembered to declare it. A route that must not search says so with `web_search = false`.
+
+    FEATURE (OME-1770): `public_schema = false` keeps an executable route off every surface the
+    Engine shares with all callers (`world.publication`). The default is today's behavior, and
+    privacy is never inferred from the id: a configured-endpoint route says so explicitly.
     """
 
     id: str
     web_search: bool = True
+    public_schema: bool = True
 
     @property
     def uses_native_web_search(self) -> bool:
@@ -235,7 +240,13 @@ def declared_model_ids(
     is the url4-ROUTE form (OME-873), and the two would never match for the 29 otherwise.
     """
 
-    section = load_config(env, registry=registry).aigateway
+    return real_model_ids(load_config(env, registry=registry))
+
+
+def real_model_ids(world: WorldConfig) -> frozenset[str]:
+    """:func:`declared_model_ids` for a world already read, so a caller holding one read of the
+    file never needs a second (OME-1770 review)."""
+    section = world.aigateway
     if section is None:
         return frozenset()
     return frozenset(decode_route_id(model.id) for model in section.models)
@@ -266,6 +277,38 @@ def config_file_digest(env: Mapping[str, str]) -> str | None:
         return None
 
 
+@dataclass(frozen=True)
+class WorldFile:
+    """One read of the declared-world file: the validated world and the sha256 of those bytes."""
+
+    config: WorldConfig
+    digest: str
+
+
+def read_world_file(
+    env: Mapping[str, str],
+    *,
+    registry: ModelRegistry = BUILTIN_MODEL_WORLD,
+    include_extra_models: bool = False,
+) -> WorldFile:
+    """Read and validate the declared world ONCE, and digest the same bytes.
+
+    WHY one read (OME-1770 review): a mounted file can change between two reads, since the
+    kubelet live-updates a projected ConfigMap or Secret, so a world and a digest taken from two
+    reads can describe two different files. The App reads the file through here once, and its
+    catalog, private set, mounts and `/healthz` digest all come from that one read.
+    """
+    path = config_path(env)
+    try:
+        data = path.read_bytes()
+        # `tomllib.load` decodes the same way, so a non-UTF-8 file fails exactly as it did.
+        raw = tomllib.loads(data.decode())
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise WorldConfigError(f"cannot read world config {str(path)!r}: {exc}") from exc
+    config = parse_config(raw, env, registry=registry, include_extra_models=include_extra_models)
+    return WorldFile(config=config, digest=hashlib.sha256(data).hexdigest())
+
+
 def load_config(
     env: Mapping[str, str],
     *,
@@ -273,13 +316,7 @@ def load_config(
     include_extra_models: bool = False,
 ) -> WorldConfig:
     """Read and validate the declared world from ``env``'s config path."""
-    path = config_path(env)
-    try:
-        with path.open("rb") as handle:
-            raw = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise WorldConfigError(f"cannot read world config {str(path)!r}: {exc}") from exc
-    return parse_config(raw, env, registry=registry, include_extra_models=include_extra_models)
+    return read_world_file(env, registry=registry, include_extra_models=include_extra_models).config
 
 
 def parse_config(
@@ -710,10 +747,18 @@ def _model_table(table: Mapping[str, object]) -> ModelSpec:
     raw_id = table.get("id")
     if raw_id is None:
         raise WorldConfigError("[[aigateway.models]] entry is missing its `id`")
-    value = table.get("web_search", True)
+    return ModelSpec(
+        id=_model_id(str(raw_id)),
+        web_search=_model_flag(table, "web_search"),
+        public_schema=_model_flag(table, "public_schema"),
+    )
+
+
+def _model_flag(table: Mapping[str, object], key: str) -> bool:
+    value = table.get(key, True)
     if not isinstance(value, bool):
-        raise WorldConfigError(f"[[aigateway.models]] web_search must be a boolean, got {value!r}")
-    return ModelSpec(id=_model_id(str(raw_id)), web_search=value)
+        raise WorldConfigError(f"[[aigateway.models]] {key} must be a boolean, got {value!r}")
+    return value
 
 
 def _model_id(model: str) -> str:
@@ -781,12 +826,15 @@ __all__ = [
     "AigatewaySection",
     "WorldConfig",
     "WorldConfigError",
+    "WorldFile",
     "config_file_digest",
     "config_path",
     "declared_model_ids",
     "extra_model_ids",
     "load_config",
     "parse_config",
+    "read_world_file",
+    "real_model_ids",
     "routes_for",
     "shelf_label",
 ]

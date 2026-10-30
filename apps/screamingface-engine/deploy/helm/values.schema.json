@@ -300,6 +300,25 @@
       },
       "additionalProperties": false
     },
+    "worldConfig": {
+      "type": "object",
+      "description": "A complete private world config (OME-1770) mounted read-only into the App and the runner pool from ONE operator-owned ConfigMap or Secret, exposed as URL4_RUNNER_CONFIG. contentChecksum is the file's supplied content revision; it rolls both pod templates together.",
+      "properties": {
+        "existingConfigMap": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "contentChecksum": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "tavily": {
       "type": "object",
       "properties": {

@@ -175,3 +175,20 @@ def test_a_text_conversation_is_forwarded_unchanged(
     assert byom.upstream.bodies[-1] == {"model": UPSTREAM_MODEL, "messages": CONVERSATION}
     # WHY: proves the spy sees the key read that every refused request above never made.
     assert reads
+
+
+def test_a_seed_is_refused_before_any_key_read_and_any_upstream_call(
+    byom: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # FEATURE: hosted BYOM Unit 2 (OME-1770). The contract has no seed row, so the SDK refuses a
+    # seeded evaluation first; this is the Gateway's own refusal for a caller that skips the SDK.
+    with byom.start(two_endpoint_document()) as client:
+        assert put_key(client, ACCOUNT_A, ENDPOINT_A, KEY).status_code == 200
+        byom.upstream.calls.clear()
+        reads = _key_reads(monkeypatch)
+        response = _chat(client, {**chat_body(ENDPOINT_A), "seed": 7})
+
+    assert response.status_code == 400, response.text
+    detail = response.json()["detail"]
+    assert (detail["code"], detail["rejected"]) == ("unsupported_parameters", {"seed": "unknown"})
+    assert (reads, byom.upstream.calls) == ([], [])

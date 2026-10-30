@@ -111,9 +111,10 @@ def _route_for_id(processor_id: str, io: IOLayer) -> str:
     for candidate in (processor_id, f"/{processor_id}"):
         if candidate in routes:
             return candidate
+    # WHY no route list (OME-1777): this message reaches the caller's run frames, and a node may
+    # declare routes a caller must not learn about, such as private configured endpoints.
     raise ResolutionError(
-        f"unknown processor {processor_id!r} — this node declares "
-        f"{sorted(routes) if routes else 'no routes'}",
+        f"unknown processor {processor_id!r}: this node declares no such route",
         code=ErrorCode.UNKNOWN_PROCESSOR,
         permanent=True,
     )

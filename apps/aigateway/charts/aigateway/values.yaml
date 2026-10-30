@@ -322,6 +322,22 @@ snapshot:
     # AIGW_CACHE_SNAPSHOT_S3_ACCESS_KEY / AIGW_CACHE_SNAPSHOT_S3_SECRET_KEY.
     existingSecret: ""
 
+# Hosted BYOM configured endpoints (OME-1771). Off by default. With a source, the chart mounts the
+# private endpoints TOML read-only from ONE ConfigMap or Secret the operator already created and
+# sets `AIGW_REMOTE_ENDPOINTS_CONFIG` to it. The gateway reads the file once at startup and refuses
+# to start on an unusable one. The chart never renders the file itself, so endpoint URLs and
+# grants stay out of values, rendered objects and Git; prefer a Secret.
+remoteEndpoints:
+  # The existing ConfigMap OR Secret holding the endpoints file. Set at most one.
+  existingConfigMap: ""
+  existingSecret: ""
+  # The file's key inside that ConfigMap or Secret.
+  key: endpoints.toml
+  # REQUIRED with a source: the file's content revision, for example its sha256. The chart cannot
+  # read an object it did not render, so this value is what rolls the pod when the file changes;
+  # 1-128 characters from `A-Z a-z 0-9 . _ : + = -`.
+  contentChecksum: ""
+
 # Distributed tracing — aigateway emits spans over OTLP (OME-1184, Phase 2).
 # Phase 1 made one `trace_id` greppable across the engine and this gateway; this is what makes
 # a tracing backend show aigateway as its own SERVICE in the engine's trace, with a latency

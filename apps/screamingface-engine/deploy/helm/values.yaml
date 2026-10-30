@@ -652,6 +652,25 @@ artifactSigning:
   # pass it with `--set` / `--set-file`, or use `existingSecret`.
   signingKey: ""
 
+# FEATURE (hosted BYOM, OME-1770): a privately supplied COMPLETE world config for the App AND the
+# runner pool, replacing the image's public `url4.toml` for both. Needed when the world declares a
+# configured-endpoint route (`[[aigateway.models]]` with `public_schema = false`), which must not
+# go into the repository's `url4.toml` or an image. Empty: both pods read the image's file, as
+# before.
+# INVARIANT: both pod templates get the same source, key, read-only mount, `URL4_RUNNER_CONFIG`
+# path and `checksum/world-config` annotation, so the catalog the App serves and the routes a
+# worker executes come from one file. The chart never renders the file itself.
+worldConfig:
+  # The existing ConfigMap OR Secret holding the complete world config. Set at most one.
+  existingConfigMap: ""
+  existingSecret: ""
+  # The file's key inside that ConfigMap or Secret.
+  key: url4.toml
+  # REQUIRED with a source: the file's content revision, for example its sha256. The chart cannot
+  # read an object it did not render, so this value is what rolls both pod templates when the
+  # file changes; 1-128 characters from `A-Z a-z 0-9 . _ : + = -`.
+  contentChecksum: ""
+
 # Runner image (spec §9). The pool Deployment runs this image in `worker` mode; the worker
 # forks each run as a child from its own image, so this is the image that must carry the
 # benchmark datasets and private grading assets the control plane must not.

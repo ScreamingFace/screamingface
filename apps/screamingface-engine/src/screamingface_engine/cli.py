@@ -4,6 +4,7 @@
     screamingface-engine run      # one url4 evaluation, streamed to NATS, then exit
     screamingface-engine worker   # claim runs from the durable queue, supervise each as a child
     screamingface-engine admin purge-legacy-streams [--dry-run]   # one-shot rollout step
+    screamingface-engine admin check-publication --endpoints FILE [--print-checksum]
 
 WHY one artifact with a mode argument rather than two images: the two halves already shared
 their whole wire vocabulary (`job_env`, `subjects`, the JetStream binding), and keeping them in
@@ -129,6 +130,56 @@ def _purge_legacy_streams(*, dry_run: bool) -> None:
     print(f"{verb} {len(names)} legacy stream(s)")
 
 
+def _check_publication(endpoints: str, *, print_checksum: bool = False) -> None:
+    """Refuse a Gateway configured target this world would publish (OME-1770).
+
+    Run where an operator holds both files, before a rollout: the world config this process reads
+    (`URL4_RUNNER_CONFIG`) and the Gateway's endpoints file. Exit 1 names each unsafe declaration;
+    exit 2 means a file could not be read. Nothing printed quotes the endpoints file.
+
+    ``print_checksum`` (OME-1770 review) makes the review the deployment step: stdout carries
+    only the sha256 of the world file it reviewed, and only on success, so the chart's required
+    `contentChecksum` comes out empty, and the render refuses, whenever the review fails. The
+    findings and the summary then go to stderr.
+    """
+    import os
+    import sys
+    from pathlib import Path
+
+    from screamingface_engine.world.config import WorldConfigError, read_world_file
+    from screamingface_engine.world.publication import (
+        PublicationReviewError,
+        declared_targets,
+        gateway_target_ids,
+        review_endpoint_routes,
+    )
+
+    try:
+        targets = gateway_target_ids(Path(endpoints).read_text(encoding="utf-8"))
+        # One read: the checksum printed below is of the very bytes this review parsed.
+        world_file = read_world_file(os.environ)
+    except UnicodeDecodeError:
+        print("check-publication: the endpoints file is not UTF-8", file=sys.stderr)
+        sys.exit(2)
+    except (OSError, PublicationReviewError, WorldConfigError) as exc:
+        print(f"check-publication: {exc}", file=sys.stderr)
+        sys.exit(2)
+    world = world_file.config
+    report = sys.stderr if print_checksum else sys.stdout
+    problems = review_endpoint_routes(world, targets)
+    for problem in problems:
+        print(problem, file=report)
+    print(
+        f"{len(declared_targets(world, targets))} of {len(targets)} configured target(s) "
+        f"declared in this world; {len(problems)} problem(s)",
+        file=report,
+    )
+    if problems:
+        sys.exit(1)
+    if print_checksum:
+        print(world_file.digest)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
@@ -180,6 +231,24 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     purge.add_argument("--dry-run", action="store_true", help="list the streams, delete none")
+    review = admin_sub.add_parser(
+        "check-publication",
+        help=(
+            "refuse a Gateway configured-endpoint target this world declares without "
+            "public_schema = false and web_search = false"
+        ),
+    )
+    review.add_argument(
+        "--endpoints", required=True, help="the Gateway's configured-endpoints TOML file"
+    )
+    review.add_argument(
+        "--print-checksum",
+        action="store_true",
+        help=(
+            "on success print only the reviewed world file's sha256, the chart's "
+            "worldConfig.contentChecksum; findings go to stderr"
+        ),
+    )
     return parser
 
 
@@ -191,7 +260,9 @@ def main(argv: list[str] | None = None) -> None:
     # plane's, and neither `uvicorn.run` nor `run_main` configures anything for this package.
     configure_logging()
 
-    if args.mode == "admin":
+    if args.mode == "admin" and args.admin_command == "check-publication":
+        _check_publication(args.endpoints, print_checksum=args.print_checksum)
+    elif args.mode == "admin":
         _purge_legacy_streams(dry_run=args.dry_run)
     elif args.mode == "worker":
         _worker()
