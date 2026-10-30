@@ -118,6 +118,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "mmmu_multiple_choice": "5b008891134ef4c1",
     # OME-1479: MathVista, maths over pictures, the last of the four picture Benchmarks.
     "mathvista": "ca4cd0f692d18f0e",
+    # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
+    "mmmu_open": "8ce88e420239ae4d",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

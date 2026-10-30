@@ -1,30 +1,30 @@
 {
   "issue": "OME-1477",
-  "branch": "OME-1477-pr1-import-mmmu",
+  "branch": "OME-1477-pr2-import-mmmu-open",
   "approver": "owner, to confirm on the PR (requested in the OME-1477 session)",
-  "date": "2026-10-28",
-  "scope": "Prior-test edits for the one new Benchmark mmmu_multiple_choice, and nothing else: one table row in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87\u219288 and 70\u219271 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (its revision literal), and test_inspect_imported_benchmarks.py (family mcq). No existing row or assertion changes. Re-pinned 2026-10-30 after merging main: OME-1755 changed test_benchmark_fingerprints.py's base, the edit itself is the same one row.",
+  "date": "2026-10-30",
+  "scope": "Prior-test edits for the two new Benchmarks, mmmu_multiple_choice (PR 1) and mmmu_open (PR 2), and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87\u219289 and 70\u219272 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (their revision literals), and test_inspect_imported_benchmarks.py (family mcq for the multiple-choice task, judged for the open task). No existing row or assertion changes. Re-pinned 2026-10-30 after merging main: OME-1755 changed test_benchmark_fingerprints.py's base, the edit itself is the same one row. PR 2 is stacked on PR 1's branch, so this manifest names PR 2's branch and covers both PRs' rows, as OME-1696 did for its two PRs. Re-pinned 2026-10-30 after PR 1 (#1589) merged: the base is main with mmmu_multiple_choice, and what is left to approve is only mmmu_open's rows. Re-pinned again 2026-10-30 after MathVista (OME-1479) merged: each table carries mmmu_open after mathvista, and the row counts move 89\u219290 and 72\u219273.",
   "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as lab_bench_figqa and lab_bench_tableqa did); the rows are the review act for its declaration, family, policy and revision.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "b8d0329bc612d90c04878922bdfff0cafa6aed4d",
-      "approved_blob": "b75ad60df8e3bc94c6a2b330f258ed37f8bea0e4"
+      "base_blob": "1a6e010e76791df4bb95405ce1c5933d2023faaf",
+      "approved_blob": "5495ef899ae3683ee3928b970da749cec861beea"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
-      "base_blob": "750d043112f8590a9588b8fcfc7aa2cf9d4271bb",
-      "approved_blob": "fa4523fde9bf8c8cc4882f7182baed8e606c33f3"
+      "base_blob": "162a6b8f5ad516ebc06b6f660e85c589d919b023",
+      "approved_blob": "d1a70ea72d7efe80c8b301d091dbcd2bdfb8b14a"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
-      "base_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450",
-      "approved_blob": "15988f661f6d6ccc2d99a2a32e2b1e3f456938ac"
+      "base_blob": "15b87b072cda78f4784a1833592f93ce954afc16",
+      "approved_blob": "7a3e803fde3c047c728cb5cb5a652e40db7ebacb"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "7d373bb6e49e2a9903814df614bf47c54af70632",
-      "approved_blob": "7fec32bb5740a169ad07e93ec9763a74a05cb668"
+      "base_blob": "de75dd37eaf225f0a0d89e0c0d3e9ba1d8a55474",
+      "approved_blob": "7f86d790132d1a8babb16d93379cce1df40d5cb3"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac",
-      "approved_blob": "f1bd17badf8ee3aa177aaf55170689227da485f9"
+      "base_blob": "a8900fcb76669f7d3da9485bcb3e4957c629d54a",
+      "approved_blob": "2bbbd6c4251936ea5add74c8b405106fdc421a39"
     }
   }
 }

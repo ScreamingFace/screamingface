@@ -94,6 +94,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "mmmu_multiple_choice": "mcq",
     # OME-1479: MathVista mixes multiple choice with numbers, graded by its own pattern scorer.
     "mathvista": "mcq",
+    # OME-1477 PR 2: MMMU's open-answer task, graded by inspect's model_graded_fact judge.
+    "mmmu_open": "judged",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.

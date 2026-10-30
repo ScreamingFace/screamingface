@@ -6913,6 +6913,94 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         inspect_evals_case_count=1000,
         scorer="inspect_evals.mathvista.mathvista:mathvista_scorer",
     ),
+    BenchmarkSpec(
+        key="mmmu_open",
+        published_revision="8ce88e420239ae4d",
+        title="MMMU (open answer)",
+        description=(
+            "53 open-answer questions from college exams, quizzes and textbooks across "
+            "MMMU's 30 subjects: the open-answer part of MMMU's validation split, since the "
+            "test split's answers are withheld. Imported from inspect_evals. Every question "
+            "comes with a picture (one with two), so the Candidate must read images; the "
+            "pictures are saved inside the Case at import and nothing is fetched at run "
+            "time. The Candidate is shown the pictures, then the eval's own line 'Answer the "
+            "question using a single word or phrase.' above the question, and answers in "
+            "free text; most reference answers are a number, and a few list the accepted "
+            "forms as written in the dataset (['24/7', '3.429']). An LLM judge compares the "
+            "reply with the reference answer using inspect's model_graded_fact prompt, which "
+            "quotes the question as the dataset writes it, without that line, with every "
+            "judge call routed and metered through our gateway. Benchmark score = plain "
+            "accuracy over the cases run. The eval lets the model under test grade itself; "
+            "this Benchmark pins our house judge. inspect_evals runs the model at "
+            "temperature 0; this benchmark imposes no generation settings. No mid-run check "
+            "surface."
+        ),
+        focus="College-level questions about pictures across 30 subjects (open answer, LLM-judged)",
+        dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
+        # The same college-exam pool as mmmu_multiple_choice, so its tier: the best
+        # lab-reported MMMU scores sit inside the human-expert range (0.76 to 0.89). No source
+        # scores the open questions alone, so nothing says they are harder (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mmmu.mmmu:mmmu_open.
+        # License: apache-2.0, the MMMU/MMMU card header at the pinned revision (owner
+        #   accepted on OME-1477, 2026-10-28, for MMMU as a whole).
+        scorer="inspect_ai.scorer:model_graded_fact",
+        scorer_kwargs={"model": "screamingface/openrouter/openai/gpt-5.4"},
+        judge=JudgeSpec(
+            # NAMED DEVIATION: the eval calls model_graded_fact() with no model, so inspect
+            # grades with the model under test (or its grader role, when one is bound). This
+            # Benchmark pins the house judge XSTest, CoCoNot and UCCB also call (owner decision
+            # on OME-1477, 2026-10-28), so its scores are NOT directly comparable to an
+            # inspect run that lets the Candidate grade itself.
+            model="openrouter/openai/gpt-5.4",
+            # HealthBench's judge-params precedent: grading is retrieval-free and the token
+            # cap is an engine-side safety bound.
+            params=(("web_search", "false"), ("max_tokens", "4096")),
+        ),
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
+        with_check_surface=False,
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2311.16502",
+        authors="Yue et al., 2023",
+        citation=(
+            "@misc{yue2024mmmumassivemultidisciplinemultimodal,\n"
+            "      title={MMMU: A Massive Multi-discipline Multimodal Understanding and R"
+            "easoning Benchmark for Expert AGI}, \n"
+            "      author={Xiang Yue and Yuansheng Ni and Kai Zhang and Tianyu Zheng and "
+            "Ruoqi Liu and Ge Zhang and Samuel Stevens and Dongfu Jiang and Weiming Ren a"
+            "nd Yuxuan Sun and Cong Wei and Botao Yu and Ruibin Yuan and Renliang Sun and"
+            " Ming Yin and Boyuan Zheng and Zhenzhu Yang and Yibo Liu and Wenhao Huang an"
+            "d Huan Sun and Yu Su and Wenhu Chen},\n"
+            "      year={2024},\n"
+            "      eprint={2311.16502},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2311.16502}, \n"
+            "}"
+        ),
+        inspect_contributors=("shaheenahmedc",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mmmu",
+        license="Apache-2.0",
+        # Human baseline: Human Expert (High), the best of the paper's three expert tiers
+        # (Low 0.762, Medium 0.826), the figure eval.yaml cites for this task. NOT
+        # like-for-like: it scores all 900 validation questions, while this Benchmark keeps
+        # the 53 open ones.
+        human_baseline=HumanBaseline(score=0.886, source_url="https://mmmu-benchmark.github.io/"),
+        # Frontier score: none for these questions. Every lab figure found (GPT-5's 0.842 on
+        # mmmu_multiple_choice among them) scores the whole validation split, and none
+        # reports the open questions alone; the paper (arXiv 2311.16502v4) splits results
+        # by discipline, subject, difficulty and image type, never by question type (read
+        # 2026-10-30).
+        frontier_score=NotPublished(
+            reason="published MMMU scores cover the whole validation split; none reports "
+            "the 53 open-answer questions alone",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=53,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

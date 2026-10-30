@@ -3,7 +3,7 @@ ticket: OME-1477
 stack: screamingface-engine
 status: done
 started: 2026-10-28
-finished: 2026-10-29
+finished: 2026-10-30
 ---
 
 # import-mmmu — import MMMU (multiple choice and open) as picture Benchmarks
@@ -86,4 +86,40 @@ only: no paid run and no state-of-the-art run (that is OME-1671).
   until the judge fix (OME-1755) lands; it then ships on this ticket with gpt-5.4 as judge.
   Frontier score GPT-5 0.842 (OpenAI, 2025-08) read from the vendor page itself on 2026-10-28
   ("84.2% on MMMU", pass@1 with thinking). Licence apache-2.0 accepted by the owner.
-- **Owner-verify:** none for this PR; the paid and state-of-the-art runs are OME-1671.
+- **Owner-verify (PR 1):** none for this PR; the paid and state-of-the-art runs are OME-1671.
+
+### PR 2 — `mmmu_open` (2026-10-30)
+
+- **Actual files:** the `mmmu_open` rows in `prepare.py` and `benchmarks.py`, one row each in
+  the five test tables (row counts 88→89 and 71→72), new
+  `tests/unit/inspect/test_mmmu_open_cases.py`, the OME-1477 approval re-pointed at the PR 2
+  branch (it now covers both PRs' rows, as OME-1696 did), this ledger and the mirror, closed.
+  No engine code change: OME-1755 already keeps the Sample's question for the judge.
+- **Import (real Hub data at `MMMU/MMMU` `171b0ef7`, inside the linux/amd64 Engine image built
+  from this branch, 18 min under emulation):** 53 Cases, Case Digest `3078a742…`,
+  `case_set_digest` `d4387286…`, `keep_sample_input=True` written by the importer. No Case was
+  refused: none is picture-only, none would drop earlier turns. 52 Cases carry one picture, one
+  carries two; largest Case 657,527 bytes (`validation_Pharmacy_26`), `cases.json` 4.2 MB. The
+  Mac-built copy of the same Case was 558,635 bytes, the same Pillow split PR 1 hit.
+- **Build path:** a second run in the same image, the image build's own
+  `prepare_replayed_cases`, reproduced count and Case Digest.
+- **Byte check, all 53 Cases:** inspect's own `eval()` of inspect_evals' `mmmu_open` Task, free
+  `mockllm/model` as Candidate and `mockllm/judge` as judge (only the scorer's model swapped).
+  For every Sample the Candidate's prompt (role, part order, text, each picture's bytes and type)
+  matched exactly one Case, the target matched, and our adapter's judge prompt was byte-equal to
+  inspect's, without the "Answer the question using a single word or phrase." line. Both arms
+  made one judge call per Case. Our grade was `invalid_score_value` on all 53 because the mock
+  judge writes no GRADE line; that is the stand-in, not the row.
+- **Decisions:** judge gpt-5.4 through the gateway, the uccb/xstest pin (owner, 2026-10-28);
+  licence apache-2.0 as accepted for PR 1, replacing the importer's `TODO`; tier `medium`, as
+  for PR 1, since no source scores the open questions alone; policy `withhold` (a per-Case mean
+  over the judge's grade, like uccb); human baseline 0.886 kept from eval.yaml with a
+  not-like-for-like note; frontier score `NotPublished`, because the paper and the lab figures
+  score the whole validation split and never split by question type. Published revision
+  `8ce88e420239ae4d` from `benchmark_bump.py`.
+- **Tests:** the eight files the brief names plus the new one, 766 passed with the inspect
+  extra. The new file fails on both mutants tried: the two pictures swapped in the Case, and the
+  adapter ignoring the kept question. ruff, ruff format and pyright (with and without the extra)
+  clean on the 8 touched Python files.
+- **Owner-verify (PR 2):** confirm the tier, the empty frontier score and the kept human
+  baseline; CI's "Build the deployable images" is the only check that proves the Linux seal.
