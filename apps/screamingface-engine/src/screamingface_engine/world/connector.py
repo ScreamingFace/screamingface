@@ -25,7 +25,11 @@ from screamingface_engine.benchmarks.candidate_input import (
     CandidateMessage,
     parse_candidate_input,
 )
-from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
+from screamingface_engine.benchmarks.case_context import (
+    current_capture_case,
+    current_case_attempt,
+    current_case_key,
+)
 from screamingface_engine.benchmarks.picture_admission import register_model_sight
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
@@ -886,8 +890,10 @@ async def _post_completion(
     may have been billed. A known queue refusal never dispatched and does not set it; neither
     does a connect-phase failure (`_NEVER_SENT`). AIDEV-NOTE (OME-1687): it is a recorded fact
     only — no price reads it, because the price is the successful request's.
-    Independently, a capture ``probe`` learns every lost reply as it happens, including a
-    connect-phase failure: capture ordering is ambiguous after any retry even when billing is not.
+    Independently, a capture ``probe`` learns every lost reply as it happens: capture ordering is
+    ambiguous after a retry that followed a request which may have been sent. A connect-phase
+    failure (`_NEVER_SENT`) is not a lost reply: no request byte left the Engine, so the gateway
+    stored nothing for that try (OME-1775 R3).
     """
     deadline = _current_deadline()
     configured = _transport_budget(http_client, headers)
@@ -901,8 +907,9 @@ async def _post_completion(
             )
         except httpx.TransportError as exc:
             last = exc
-            if probe is not None:
+            if probe is not None and not isinstance(exc, _NEVER_SENT):
                 # Told now, not at the answer: a call whose every attempt fails never gets one.
+                # WHY: a connect-phase failure sent nothing, so it is no lost reply (OME-1775 R3).
                 probe.lost_reply()
             possibly_billed = possibly_billed or not isinstance(exc, _NEVER_SENT)
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
@@ -1164,33 +1171,46 @@ class _CaptureProbe:
     """What the last gateway response of one logical chat call said about its capture.
 
     Filled BEFORE `_raise_for_status`, so an error response still says what the gateway stored.
-    `lost_reply` is called by `_post_completion` at each lost transport reply, even when no
-    response follows. One per call: the run's tally is shared by concurrent calls, a field on it
-    would race.
+    `lost_reply` is called by `_post_completion` at each lost transport reply that may have reached
+    the gateway (not a connect-phase failure, OME-1775 R3), even when no response follows. One per
+    call: the run's tally is shared by concurrent calls, a field on it would race.
     """
 
     responded: bool = False
     header: str | None = None
     responses: int = 0
     retried: bool = False
+    last_ok: bool = False
+    """The last response read was 2xx, so the gateway holds a 200 at this key."""
 
     def read(self, resp: httpx.Response) -> None:
         self.responded = True
         self.header = resp.headers.get(CAPTURE_FIELD)
         self.responses += 1
+        self.last_ok = resp.is_success
 
     def lost_reply(self) -> None:
         self.retried = True
 
-    def status(self) -> Status:
-        """What the gateway said, or `ambiguous` when more than one answer may have been stored.
+    def status(self, *, answered: bool = False) -> Status:
+        """What the gateway said, or `ambiguous` when the copy may serve an answer the model never
+        used.
 
-        FEATURE: OME-1307 (design §5.2 item 7). A call re-issued under a `max-age` bound has two
-        responses, and a call whose transport attempt was retried may have been processed — and
-        stored — before its reply was lost. Either can leave an answer the model never used AHEAD
-        of the one it used, in capture order, which a replay would then serve.
+        FEATURE: OME-1307 (design §5.2 item 7). A call whose transport attempt was retried may have
+        been processed — and stored — before its reply was lost, AHEAD of the answer the model used
+        in capture order, which a replay would serve.
+
+        FEATURE: OME-1775 (R2). A `max-age` re-issue that RETURNED has a 2xx last response, and that
+        is the entry a replay serves: the gateway stores before it responds (a higher `seq`) and
+        strips `cache` from the key digest, so `find` serves the highest-`seq` 200. A re-issue that
+        did not return stays `ambiguous`, because `find` would prefer the unused first 200.
+
+        ``answered`` says whether the call returned, so the model used its last response.
+        INVARIANT: a call that did NOT return after it read a 2xx is `ambiguous`: the copy holds a
+        200 the model never used (a re-issue that failed before it was sent, or a call cancelled
+        during its re-issue). The default is the strict one.
         """
-        if self.responses > 1 or self.retried:
+        if self.retried or (not answered and (self.responses > 1 or self.last_ok)):
             return "ambiguous"
         return _CAPTURE_STATUSES.get((self.header or "").strip().lower(), "missing")
 
@@ -1232,7 +1252,7 @@ async def _recorded_completion(
     # Q27 (design §5.4): the call takes its occurrence ONCE, when it is first sent. Every transport
     # attempt of the call sends the same key, and the value is never given back, so a call that
     # stores nothing keeps its place and replay never reads an entry twice.
-    case_key = current_case_key()
+    case_id, case_key = current_capture_case()
     occurrence = tally.next_occurrence(case_key, "chat", digest)
     key_headers = {FROZEN_COPY_HEADER: copy_id, **call_key_headers(case_key, occurrence)}
     probe = _CaptureProbe()
@@ -1246,13 +1266,33 @@ async def _recorded_completion(
         )
     except BaseException as exc:
         # A cancelled call left no answer the copy can serve (D1); an error response says itself.
-        # A lost transport reply may have been stored all the same, so it stays `ambiguous`, which
-        # no later call forgives (D2), cancelled or not.
+        # A lost transport reply, or a 2xx the call never used, may be served all the same, so it
+        # stays `ambiguous`, which no later call forgives (D2), cancelled or not.
         cancelled = isinstance(exc, asyncio.CancelledError)
-        said = probe.retried or (probe.responded and not cancelled)
-        record_capture_outcome(CaptureOutcome("chat", probe.status() if said else "error", digest))
+        said = probe.retried or probe.last_ok or (probe.responded and not cancelled)
+        record_capture_outcome(
+            CaptureOutcome(
+                "chat",
+                probe.status(answered=False) if said else "error",
+                digest,
+                case_id=case_id,
+                case_key=case_key,
+                occurrence=occurrence,
+                answered=False,
+            )
+        )
         raise
-    record_capture_outcome(CaptureOutcome("chat", probe.status(), digest))
+    record_capture_outcome(
+        CaptureOutcome(
+            "chat",
+            probe.status(answered=True),
+            digest,
+            case_id=case_id,
+            case_key=case_key,
+            occurrence=occurrence,
+            answered=True,
+        )
+    )
     return resp, outcome
 
 

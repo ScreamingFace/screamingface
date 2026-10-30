@@ -25,12 +25,26 @@ retryable false — the researcher fixes the recipe instead of paying to re-run.
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.contract import DECLARED_FAILURE_CODES
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 
 # WHY (owner decision, OME-1234): unknown upstream codes map to this class with the
 # original spelling preserved in metadata — routine gateway churn must never crash a
 # paid run with a ValidationError mid-flight.
 UPSTREAM_FALLBACK_CODE = "upstream_error"
+# FEATURE: OME-1775 (spec §4 R1). The failures that wall time caused: the engine's own and url4's
+# (an undeclared url4 code reaches a Case as `upstream_error` with its spelling in `source_code`).
+# WHY: a replay serves stored answers at once, so a Case that failed on time may score there.
+TIME_BASED_CODES: frozenset[str] = frozenset(
+    {
+        "provider_queue_timeout",
+        "provider_execution_timeout",
+        "caller_deadline_exceeded",
+        "aigateway_deadline_exceeded",
+        ErrorCode.TIMEOUT,
+        ErrorCode.ADMISSION_TIMEOUT,
+        ErrorCode.SOURCE_TIMEOUT,
+    }
+)
 # The code a verdict route raises when the Judge answered but the reply is not a usable verdict.
 # Named once because the connector keys its fresh-reply retry on it (world/fresh_judge_retry.py).
 JUDGE_REPLY_INVALID_CODE = "judge_reply_invalid"
@@ -76,6 +90,7 @@ del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [
     "JUDGE_REPLY_INVALID_CODE",
+    "TIME_BASED_CODES",
     "UPSTREAM_FALLBACK_CODE",
     "benchmark_contract_error",
     "benchmark_definition_error",
