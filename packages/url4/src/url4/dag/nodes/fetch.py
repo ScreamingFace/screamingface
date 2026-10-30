@@ -158,6 +158,7 @@ class RemoteFetchNode:
     context: str | None = None
     params: Params = ()
     verbatim_intent: bool = False  # a code pointer or named job: never quoted (C9)
+    accept: str | None = None  # the source's ;accept= annotation, sent as the Accept header
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
@@ -173,7 +174,8 @@ class RemoteFetchNode:
         quote = not self.verbatim_intent
         params = _wire_params(self.params)
         rel = encode_subrequest(self.path, context, intent, params=params, quote=quote)
-        request = FetchRequest(f"url4://{self.authority}{rel}", relative=False, kind="url4")
+        target = f"url4://{self.authority}{rel}"
+        request = FetchRequest(target, relative=False, kind="url4", accept=self.accept)
         return await _fetch(ctx, request)
 
 
