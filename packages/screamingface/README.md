@@ -1257,6 +1257,9 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
 - [`examples/12_inspect_evals_benchmarks.ipynb`](examples/12_inspect_evals_benchmarks.ipynb): the
   catalogue as two origin groups — ours and the imported inspect_evals boards — then a
   Fusion against one of the imported boards.
+- [`examples/18_picture_benchmarks.ipynb`](examples/18_picture_benchmarks.ipynb): two Cases of
+  each picture Benchmark (LAB-Bench FigQA and TableQA, MMMU, MathVista) on the local stack or
+  dev, chosen by one variable, with paid runs off by default.
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
