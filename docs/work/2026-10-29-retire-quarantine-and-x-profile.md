@@ -51,20 +51,27 @@ Tests under `apps/aigateway/tests/`: new RED tests, plus the prior tests spec §
 **Merge-time steps** (owner decision, 2026-10-30; close-out spec §4.2 "Data precondition",
 §4.10 item 5, §9 Q1; plan §1 and L4a):
 
-1. After #1610 (OME-1778) merges, retarget #1614 to `main` and rebase it onto `origin/main`
-   without `cba890929`.
-2. The census, in each environment (dev, stage, prod), each step on the owner's word:
-   - Count (SELECT only): `migration_state = 'quarantined'` rows and `migration_note IS NOT NULL`
-     rows.
-   - If either count is nonzero, remediate:
-     `UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL WHERE migration_state = 'quarantined';`
-     then
-     `UPDATE provider_credential_slots SET migration_note = NULL WHERE migration_note IS NOT NULL;`
-   - Recount; both counts must be 0.
+1. Done 2026-10-30: rebased onto `origin/main` at `fed613da2` (#1610's merge) without
+   `cba890929`. The one conflict, in `availability()`, keeps L1's no-auth guard (review fix
+   `dfabc7fcb`) and drops the `quarantined` skip.
+2. Done 2026-10-30 (owner), in dev, stage and prod. Count (SELECT only), then remediation, then a
+   separate read-only recount:
 
-   The counts before and after are recorded as rec-7 evidence.
-3. Sync this ledger, the mirror and the PR body with the census result, then re-run
-   `run_gates.py aigateway` and the `needs_postgres` suite.
+   | Environment | Slots | `quarantined` | `migration_note` before | cleared | after |
+   |---|---|---|---|---|---|
+   | dev | 26 | 0 | 26 | 26 | 0 |
+   | stage | 1 | 0 | 0 | 0 | 0 |
+   | prod | 7 | 0 | 6 | 6 | 0 |
+
+   No `quarantined` row existed, so only the note statement ran:
+   `UPDATE provider_credential_slots SET migration_note = NULL WHERE migration_note IS NOT NULL;`.
+   Each run was one transaction that checked the exact expected count, required zero
+   `quarantined` rows and a note only on `migrated` rows, and set `lock_timeout = 5s` and
+   `statement_timeout = 15s`; any mismatch would have rolled back. Only `migration_note` changed:
+   no marker state, effective reference, generation, Connection, credential, configuration or
+   Deployment. These counts are the L4a part of rec-7.
+3. Done 2026-10-30: this ledger, the mirror and the PR body record the census; the gates were
+   re-run on the rebased branch (Outcome).
 4. Merge.
 5. Then #1612 (L10, OME-1780) rebases and adds the operator precondition.
 
@@ -148,12 +155,18 @@ owner approved all four; they join the manifest at PR-open.
   `needs_postgres`: 67 passed. `check_mirror_status.py`: green. The src acceptance grep is
   clean: `migration_note` remains only as the model field (`provider_credential_slot.py:46`).
   RED before GREEN: 31 failed, 3 passed.
+  After the rebase onto `origin/main` (2026-10-30): `run_gates.py aigateway --base origin/main`:
+  ALL GATES GREEN (append-only with the OME-1784 manifest, unchanged). The first run had one
+  failure in the full pytest, unnamed in its output; the full suite and the gate both passed on
+  the immediate rerun (7343 passed). `needs_postgres` was not re-run locally; CI runs it. The src
+  acceptance grep is still clean.
 - **Deviations:**
   - Owner approval (2026-10-29) for the four out-of-list files A, B, C1 and D above.
   - Behaviour: a stored `quarantined` row now gets chat 500 (`PairAuthorityDataError`) instead of
     409 `unresolved`. The inventory refuses it with `CredentialAuthorityUnavailable`, and
     availability refuses the account. Accepted under spec §4.2; guarded before merge by the
-    per-environment count, remediation and recount (merge-time step 2). Stated in the PR body.
+    per-environment count, remediation and recount (merge-time step 2): 0 `quarantined` rows in
+    every environment. Stated in the PR body.
   - The in-list changes go beyond the plan's line hints. Deleted with the retired paths:
     `test_a_named_selector_on_a_migrated_pair_*` (2),
     `test_a_quarantined_pair_refuses_with_the_pair_code_and_reads_no_index`,
