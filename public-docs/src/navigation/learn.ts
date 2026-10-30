@@ -11,6 +11,7 @@ export const learnNavigation: NavEntry[] = [
     children: [
       { title: 'url4', path: '/learn/url4' },
       { title: 'url4 SDK', path: '/learn/url4-sdk' },
+      { title: 'Files in url4', path: '/learn/url4-files' },
       { title: 'ScreamingFace Engine', path: '/learn/engine' },
       { title: 'Caching and compute', path: '/learn/caching' },
       { title: 'AI gateway', path: '/learn/ai-gateway' },
