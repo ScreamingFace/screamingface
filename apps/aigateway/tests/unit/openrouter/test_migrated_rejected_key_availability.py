@@ -97,7 +97,6 @@ def _migrated_profile_slot(
             expected_generation=current.generation,
             migration_state="migrated",
             effective_connection_id=connection.id if effective else None,
-            migration_note="profile_only",
         )
         return str(connection.id) if effective else None
 

@@ -75,11 +75,22 @@ def _unknown_connection(
 
 
 def test_an_unknown_quarantined_pair_is_never_hidden_as_empty(harness) -> None:
-    _mark(harness, UNKNOWN, "quarantined")
+    # WHY a raw row: no writer publishes the retired `quarantined` state since the OME-1138
+    # close-out (L4a); an install may still hold one, and it is refused, never listed as empty.
+    async def plant() -> None:
+        await ProviderCredentialSlot.create(
+            account_id=UUID(harness.account_id),
+            provider=UNKNOWN,
+            generation=1,
+            migration_state="quarantined",
+        )
 
-    assert _inventory(harness) == PairInventory(
-        credentials=(), conflicts=(PairConflict(UNKNOWN, "unresolved"),)
-    )
+    harness.call(plant)
+
+    with pytest.raises(CredentialAuthorityUnavailable) as refused:
+        _inventory(harness)
+
+    assert refused.value.provider == UNKNOWN
 
 
 def test_an_unknown_migrated_pair_with_a_dangling_reference_is_unavailable(harness) -> None:

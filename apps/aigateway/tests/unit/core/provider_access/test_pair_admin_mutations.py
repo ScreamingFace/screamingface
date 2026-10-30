@@ -372,11 +372,6 @@ def _two_live(harness: RealAppHarness) -> None:
     _connection(harness)
 
 
-def _quarantined(harness: RealAppHarness) -> None:
-    harness.seed_blob(name="work", auth_type="api_key", credential=OLD_KEY)
-    _mark(harness, "quarantined")
-
-
 def _migrated_null_beside_a_live_row(harness: RealAppHarness) -> None:
     _mark(harness, "migrated")
     _connection(harness)
@@ -386,10 +381,9 @@ def _migrated_null_beside_a_live_row(harness: RealAppHarness) -> None:
     ("seed", "kind"),
     [
         (_two_live, "ambiguous"),
-        (_quarantined, "unresolved"),
         (_migrated_null_beside_a_live_row, "unresolved"),
     ],
-    ids=["row-3", "row-4", "migrated-null-live"],
+    ids=["row-3", "migrated-null-live"],
 )
 @pytest.mark.parametrize("operation", ["put", "delete"])
 def test_an_unmanageable_pair_refuses_and_writes_nothing(harness, seed, kind, operation) -> None:

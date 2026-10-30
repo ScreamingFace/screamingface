@@ -1,7 +1,7 @@
 """G0 error-mark inventory — every direct `mark_error` call in the app is classified (OME-1497).
 
 # FEATURE: OME-1138 D18, G0 part 3 (contract §5.3: "a missed persistence path fails acceptance").
-# A Connection error mark on a `none` or `quarantined` pair must go through `mark_error_checked`;
+# A Connection error mark on a `none` or unmarked pair must go through `mark_error_checked`;
 # only the `migrated` paths, which keep their own fences, call the store directly. A NEW direct
 # call fails here until its author routes it through the check or proves its pair is migrated.
 """

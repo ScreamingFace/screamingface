@@ -10,6 +10,7 @@ from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
+    PairAuthorityStore,
     Selector,
     TargetReauthRequired,
 )
@@ -108,15 +109,44 @@ def test_needs_reauth_evicts_the_strategy_and_invalidates_its_session(
 def test_dispatch_observation_requires_the_effective_connection(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_credential(auth_type="api_key", credential="tok")
-    other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
-    target = migrated.call(
-        migrated.access.resolve,
+    # WHY a migrated pair whose marker names no effective Connection: the default resolve serves
+    # its one active row by label (spec §9 Q9), a row that is not the pair's effective credential
+    # (OME-1138 close-out, L4a: the default is the only selector).
+    migrated.call(
+        PairAuthorityStore().advance,
         migrated.account_id,
         PROVIDER,
-        Selector.from_header("other"),
-        plugin=ANTHROPIC,
+        expected_generation=0,
+        migration_state="migrated",
     )
+    other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
+    target = _resolve(migrated)
+    assert target.credential_name == credential_key_for(migrated.account_id, other_id)
+
+    observation = migrated.call(
+        migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
+    )
+    other_state = migrated.call(
+        migrated.client.app.state.credential_store.operational_state,
+        credential_service_for(credential_key_for(migrated.account_id, other_id)),
+        "default",
+    )
+
+    assert observation is None
+    assert other_state is not None
+    assert other_state.next_dispatch_sequence == 0
+
+
+def test_dispatch_observation_refuses_a_row_the_marker_moved_away_from(
+    migrated: ConnectionBackedHarness,
+) -> None:
+    # WHY resolve before the marker moves: the target names the pair's one active row, then another
+    # writer publishes a different effective Connection while the request is in flight. The
+    # observation must compare against the marker's reference, not merely require one.
+    other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
+    target = _resolve(migrated)
+    assert target.credential_name == credential_key_for(migrated.account_id, other_id)
+    migrated.seed_authority(auth_type="api_key")
 
     observation = migrated.call(
         migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER

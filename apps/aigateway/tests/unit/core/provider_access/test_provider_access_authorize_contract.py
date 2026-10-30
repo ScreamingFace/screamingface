@@ -343,3 +343,18 @@ def test_recording_a_dispatch_failure_evicts_and_invalidates_a_connection_creden
 
     assert harness.evicted() == [target.credential_name]
     assert harness.invalidated() == [target.credential_name]
+
+
+def test_a_successful_stored_credential_authorize_touches_its_connection_last_used(
+    harness: Any,
+) -> None:
+    # FEATURE: OME-1138 close-out, L4a — a stored credential is the pair's effective Connection,
+    # and a successful authorize touches it as it touches any Connection.
+    # WHY `Any`: both harnesses name the seeded credential's effective Connection in `migrated`;
+    # the `Harness` protocol does not declare it.
+    harness.seed_credential(credential="tok")
+    target = _resolve(harness)
+
+    _authorize(harness, target)
+
+    assert harness.last_used(harness.migrated["default"])

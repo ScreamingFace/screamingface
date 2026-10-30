@@ -2,8 +2,8 @@
 
 # FEATURE: Stage B Target — the port reads the pair marker on every resolve; a `migrated` pair is
 # served from its effective Connection. Reads go through the stored `credential_locator`, so a
-# migrated Connection serves the Profile's blob with no secret re-entry. An unmarked, `none` or
-# `quarantined` pair is pinned in `test_connection_only_resolve.py` (OME-1209, Stage E, E4a).
+# migrated Connection serves the Profile's blob with no secret re-entry. An unmarked or `none` pair
+# is pinned in `test_connection_only_resolve.py` (OME-1209, Stage E, E4a).
 # INVARIANT: the legacy document's own state is never authority for a migrated pair; the effective
 # Connection's status decides. An unreadable marker store is an error, never a silent fall-back to
 # the legacy credential.
@@ -172,16 +172,16 @@ def test_a_revoked_effective_connection_is_never_served(migrated: ConnectionBack
         _resolve(migrated)
 
 
-def test_a_selector_naming_the_effective_label_reads_through_the_locator(
+def test_an_effective_connection_labelled_apart_from_its_address_reads_through_the_locator(
     migrated: ConnectionBackedHarness,
 ) -> None:
     migrated.seed_blob(credential="profile-token")
     connection_id = migrated.seed_authority(label="work")
 
-    # WHY: `work` is the effective Connection's own label, so its reference answers the selector,
+    # WHY: the reference answers the default selector whatever the effective Connection's label,
     # locator-authoritative: the Connection's own UUID address holds nothing, and it must NOT be
-    # marked errored because a caller sent a header the pair never had a document for.
-    target = _resolve(migrated, Selector.from_header("work"))
+    # marked errored because its label differs from the name its locator addresses.
+    target = _resolve(migrated)
     authorization = _authorize(migrated, target)
 
     assert target.credential_name == credential_name_for(migrated.account_id, "default")

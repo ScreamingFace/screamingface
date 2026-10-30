@@ -121,8 +121,8 @@ async def start_connection_oauth(
             request, body.provider, cfg, state, body.redirect_uri
         )
     store = _store(request)
-    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
-    # callback claims the pair this start published.
+    # FEATURE (OME-1497, G0): the start is an ownership change on a `none` or unmarked pair, which
+    # its Connections own; its callback claims the pair this start published.
     observed = await PairAuthorityStore().read(account_id, body.provider)
     # FEATURE (OME-1209, E1b, R6): on a migrated pair this flow may replace the effective row.
     replaces_effective = await effective_to_replace(observed, requested_label=body.label)
@@ -399,7 +399,7 @@ async def _replace_api_key(
                 "message": "Connection changed during API-key validation",
             },
         )
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed here, after the validation.
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed here, after the validation.
     await claim_for_connection(latest_connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair FIRST (marker),
     # then the row, then the blob — a no-op otherwise.
@@ -468,7 +468,7 @@ async def _delete_connection(
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed FIRST (marker → row → blob).
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed FIRST (marker → row → blob).
     await claim_for_connection(connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
     # (effective → None) — before the row and the blob; no-op otherwise.

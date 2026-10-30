@@ -4,14 +4,18 @@
 # (`connection_backed_harness.py`), so any backing must pass the same suite. The fake models
 # every side effect the contract names — eviction, marking, session invalidation, the last-used
 # touch — so a test asserting one of them is meaningful on both witnesses.
-# AIDEV-NOTE: keep this a SECOND implementation, not a mirror of the real one: it stores dicts,
-# never rows, and records its writes in plain lists the fake harness reads back.
+# FEATURE: OME-1138 close-out, L4a — the fake speaks Connections only, for the default selector
+# only. "A stored credential" is a pair's effective Connection, the row a `migrated` marker names,
+# addressed at the credential NAME, exactly as the real harness seeds a migrated pair; any other
+# row is a plain Connection the default selector serves only as the pair's one active row.
+# WHY keep this a SECOND implementation, not a mirror of the real one: it stores dicts, never rows,
+# and records its writes in plain lists the fake harness reads back.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -23,11 +27,11 @@ from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access import (
     Authorization,
     AvailabilityRow,
+    AvailabilityStatus,
     CredentialTarget,
     ResolvePolicy,
     Selector,
     SelectorAmbiguous,
-    SelectorUnknown,
     TargetMissing,
     TargetPending,
     TargetReauthRequired,
@@ -39,14 +43,17 @@ from tests.unit.seed_state import SeedState
 
 PROVIDER = "anthropic"
 
-
-@dataclass
-class _FakeProfile:
-    state: SeedState
-    auth_type: str
-    credential: str | None
-    broken: bool = False
-    malformed: bool = False
+_STATUS_FOR_STATE = {
+    SeedState.AUTHENTICATED: "active",
+    SeedState.PENDING: "pending",
+    SeedState.ERROR: "error",
+}
+_STATE_FOR_STATUS = {status: state.value for state, status in _STATUS_FOR_STATE.items()}
+_LISTED: dict[str, AvailabilityStatus] = {
+    "active": "connected",
+    "pending": "pending",
+    "error": "error",
+}
 
 
 @dataclass
@@ -56,6 +63,9 @@ class _FakeConnection:
     status: str
     auth_type: str
     credential: str | None
+    # WHY: a stored credential's row reads the blob at the credential NAME (the migrated locator);
+    # a plain row reads its own UUID address.
+    address: str | None = None
     broken: bool = False
     malformed: bool = False
     used: bool = False
@@ -65,13 +75,19 @@ class _FakeConnection:
 class FakeProviderAccess:
     """A second implementation of the port, over dicts — the contract's other witness."""
 
-    profiles: dict[tuple[str, str, str], _FakeProfile] = field(default_factory=dict)
     connections: list[tuple[str, str, _FakeConnection]] = field(default_factory=list)
+    # WHY a reference per pair: it is the `migrated` marker, (account, provider) → the effective
+    # Connection's id, which resolve serves before any other row of the pair.
+    references: dict[tuple[str, str], str] = field(default_factory=dict)
     evicted: list[str] = field(default_factory=list)
     invalidated: list[str] = field(default_factory=list)
 
-    def _read(self, account_id: str, provider: str, name: str) -> _FakeProfile | None:
-        return self.profiles.get((account_id, provider, name))
+    def _rows(self, account_id: str, provider: str) -> list[_FakeConnection]:
+        return [c for acct, prov, c in self.connections if acct == account_id and prov == provider]
+
+    def _effective(self, account_id: str, provider: str) -> _FakeConnection | None:
+        reference = self.references.get((account_id, provider))
+        return next((c for c in self._rows(account_id, provider) if c.id == reference), None)
 
     async def resolve(
         self,
@@ -82,55 +98,26 @@ class FakeProviderAccess:
         plugin: Any,
         policy: ResolvePolicy = ResolvePolicy.DISPATCH,
     ) -> CredentialTarget:
-        profile = self._read(account_id, provider, selector.name)
-        if profile is None:
-            return self._resolve_connection(account_id, provider, selector, plugin, policy)
-        if profile.state is SeedState.PENDING:
+        effective = self._effective(account_id, provider)
+        if effective is None:
+            return self._resolve_active(account_id, provider, selector, plugin, policy)
+        # INVARIANT: an unusable effective credential refuses; it never falls back to another row.
+        if effective.status == "pending":
             raise TargetPending(provider, selector.name)
-        if profile.state is SeedState.ERROR:
+        if effective.status != "active":
             raise TargetReauthRequired(provider, reauth_url_for(None), requested=selector.name)
-        name = credential_name_for(account_id, selector.name)
-        return CredentialTarget(
-            kind="stored",
-            auth_type=cast(AuthType, profile.auth_type),
-            credential_name=name,
-            context_stamp=f"acct:{account_id}|prof:{account_id}:{provider}:{selector.name}:"
-            f"{profile.state.value}:-",
-            reauth_url=reauth_url_for(cast(AuthType, profile.auth_type)),
-            _backing=("profile", (account_id, provider, selector.name)),
-        )
+        return self._target(account_id, effective, str(effective.address), kind="effective")
 
-    def _resolve_connection(
+    def _resolve_active(
         self, account_id: str, provider: str, selector: Selector, plugin: Any, policy: Any
     ) -> CredentialTarget:
-        active = [
-            c
-            for acct, prov, c in self.connections
-            if acct == account_id and prov == provider and c.status == "active"
-        ]
-        chosen = (
-            next((c for c in active if c.label == selector.name), None)
-            if selector.explicit
-            else None
-        )
-        if chosen is None and active and selector.is_default and len(active) == 1:
-            chosen = active[0]
-        if chosen is not None:
-            key = credential_key_for(account_id, UUID(chosen.id))
-            return CredentialTarget(
-                kind="stored",
-                auth_type=cast(AuthType, chosen.auth_type),
-                credential_name=key,
-                context_stamp=f"acct:{account_id}|conn:{chosen.id}:{chosen.status}:-",
-                reauth_url=reauth_url_for(
-                    cast(AuthType, chosen.auth_type), connection_id=chosen.id
-                ),
-                _backing=("connection", chosen.id),
-            )
-        if active and selector.is_default:
+        active = [c for c in self._rows(account_id, provider) if c.status == "active"]
+        if len(active) > 1:
             raise SelectorAmbiguous(provider)
         if active:
-            raise SelectorUnknown(provider, selector.name, tuple(c.label for c in active))
+            chosen = active[0]
+            key = credential_key_for(account_id, UUID(chosen.id))
+            return self._target(account_id, chosen, key, kind="connection")
         chatless = getattr(plugin, "allows_chatless_credential", lambda: False)()
         if not chatless and not (policy is ResolvePolicy.DATASHEET and selector.is_default):
             raise TargetMissing(provider, selector.name)
@@ -144,6 +131,18 @@ class FakeProviderAccess:
             _backing=None,
         )
 
+    def _target(
+        self, account_id: str, chosen: _FakeConnection, credential_name: str, *, kind: str
+    ) -> CredentialTarget:
+        return CredentialTarget(
+            kind="stored",
+            auth_type=cast(AuthType, chosen.auth_type),
+            credential_name=credential_name,
+            context_stamp=f"acct:{account_id}|conn:{chosen.id}:{chosen.status}:-",
+            reauth_url=reauth_url_for(cast(AuthType, chosen.auth_type), connection_id=chosen.id),
+            _backing=(kind, chosen.id),
+        )
+
     def auth_mode(self, target: CredentialTarget, plugin: Any) -> AuthMode:
         return auth_mode(target, plugin=plugin)
 
@@ -153,13 +152,14 @@ class FakeProviderAccess:
     async def authorize(self, target: CredentialTarget, *, plugin: Any, provider: str) -> Any:
         if target.kind != "stored":
             return Authorization(headers={}, credential_name=None, auth_type="oauth")
+        backing_kind, _ = target._backing
         row = self._row(target)
         name = str(target.credential_name)
         if row.credential is None:
-            # A MISSING credential evicts and never invalidates; it marks a CONNECTION errored
-            # but leaves a PROFILE authenticated (contract, mirroring today's two branches).
+            # A MISSING credential evicts and never invalidates; it marks a plain Connection errored
+            # but leaves an effective one as it is (contract, mirroring the real two branches).
             self.evicted.append(name)
-            if isinstance(row, _FakeConnection):
+            if backing_kind == "connection":
                 self._mark_error(target)
             raise TargetReauthRequired(
                 provider, str(target.reauth_url), message="No credential stored"
@@ -172,8 +172,8 @@ class FakeProviderAccess:
         if row.malformed:
             # The result is checked to be a header mapping BEFORE any touch (contract, F5).
             raise TypeError("credential result is not a header mapping")
-        if isinstance(row, _FakeConnection):
-            row.used = True
+        # WHY every backing: the effective Connection is a Connection, touched like any other.
+        row.used = True
         return Authorization(
             headers={"Authorization": f"Bearer {row.credential}"},
             credential_name=target.credential_name,
@@ -218,35 +218,34 @@ class FakeProviderAccess:
         return None
 
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
-        states: dict[str, set[str]] = {}
-        for (acct, provider, _), profile in self.profiles.items():
-            if acct == account_id:
-                states.setdefault(provider, set()).add(profile.state.value)
-        rows = []
-        for provider in sorted(states):
-            seen = states[provider]
-            status = (
-                "connected"
-                if "authenticated" in seen
-                else "pending"
-                if "pending" in seen
-                else "error"
-            )
-            rows.append(AvailabilityRow(provider, status))
-        return tuple(rows)
+        providers = sorted({prov for acct, prov, _ in self.connections if acct == account_id})
+        return tuple(
+            AvailabilityRow(provider, self._status(account_id, provider)) for provider in providers
+        )
 
-    def _row(self, target: CredentialTarget) -> Any:
-        backing_kind, key = target._backing
-        if backing_kind == "profile":
-            return self.profiles[key]
+    def _status(self, account_id: str, provider: str) -> AvailabilityStatus:
+        """What the default resolve finds for the pair, in the listing's vocabulary."""
+        effective = self._effective(account_id, provider)
+        if effective is not None:
+            return _LISTED.get(effective.status, "not_connected")
+        return _active_status(self._rows(account_id, provider))
+
+    def _row(self, target: CredentialTarget) -> _FakeConnection:
+        _, key = target._backing
         return next(c for _, _, c in self.connections if c.id == key)
 
     def _mark_error(self, target: CredentialTarget) -> None:
-        backing_kind, key = target._backing
-        if backing_kind == "profile":
-            self.profiles[key].state = SeedState.ERROR
-        else:
-            self._row(target).status = "error"
+        self._row(target).status = "error"
+
+
+def _active_status(rows: Sequence[_FakeConnection]) -> AvailabilityStatus:
+    active = [c for c in rows if c.status == "active"]
+    if active:
+        return "connected" if len(active) == 1 else "error"
+    statuses = {c.status for c in rows}
+    if "pending" in statuses:
+        return "pending"
+    return "error" if "error" in statuses else "not_connected"
 
 
 class FakeHarness:
@@ -254,6 +253,7 @@ class FakeHarness:
 
     def __init__(self) -> None:
         self.access = FakeProviderAccess()
+        self.migrated: dict[str, str] = {}
 
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return asyncio.run(fn(*args, **kwargs))
@@ -266,9 +266,18 @@ class FakeHarness:
         auth_type: str = "oauth",
         credential: str | None = "tok",
     ) -> None:
-        self.access.profiles[(self.account_id, PROVIDER, name)] = _FakeProfile(
-            state, auth_type, credential
+        """The situation "a stored credential in `state`" — as the pair's effective Connection."""
+        connection = _FakeConnection(
+            str(uuid4()),
+            name,
+            _STATUS_FOR_STATE[state],
+            auth_type,
+            credential,
+            address=credential_name_for(self.account_id, name),
         )
+        self.access.connections.append((self.account_id, PROVIDER, connection))
+        self.access.references[(self.account_id, PROVIDER)] = connection.id
+        self.migrated[name] = connection.id
 
     def seed_connection(
         self, *, label: str, auth_type: str = "oauth", credential: str | None = "ctok"
@@ -277,25 +286,27 @@ class FakeHarness:
         self.access.connections.append((self.account_id, PROVIDER, connection))
         return connection.id
 
+    def _named(self, credential_name: str) -> list[_FakeConnection]:
+        return [
+            connection
+            for acct, _, connection in self.access.connections
+            if credential_name
+            in (connection.address, credential_key_for(acct, UUID(connection.id)))
+        ]
+
     def break_credential(self, credential_name: str) -> None:
-        for (acct, _, name), profile in self.access.profiles.items():
-            if credential_name_for(acct, name) == credential_name:
-                profile.broken = True
-        for acct, _, connection in self.access.connections:
-            if credential_key_for(acct, UUID(connection.id)) == credential_name:
-                connection.broken = True
+        for connection in self._named(credential_name):
+            connection.broken = True
 
     def malform_credential(self, credential_name: str) -> None:
-        for (acct, _, name), profile in self.access.profiles.items():
-            if credential_name_for(acct, name) == credential_name:
-                profile.malformed = True
-        for acct, _, connection in self.access.connections:
-            if credential_key_for(acct, UUID(connection.id)) == credential_name:
-                connection.malformed = True
+        for connection in self._named(credential_name):
+            connection.malformed = True
 
     def credential_state(self, name: str = "default") -> str | None:
-        profile = self.access.profiles.get((self.account_id, PROVIDER, name))
-        return None if profile is None else profile.state.value
+        """The stored credential's state in the seed vocabulary: its Connection's status."""
+        connection_id = self.migrated.get(name)
+        status = None if connection_id is None else self.connection_status(connection_id)
+        return None if status is None else _STATE_FOR_STATUS.get(status, status)
 
     def connection_status(self, connection_id: str) -> str | None:
         return next(
