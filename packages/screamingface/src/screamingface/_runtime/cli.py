@@ -294,6 +294,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
+    _require_runner_config(config)
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
@@ -374,6 +375,20 @@ def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
     folder = config.benchmark_assets_dir
     if folder is not None and not folder.is_dir():
         raise RuntimeError(f"benchmark assets folder not found: {folder}")
+
+
+def _require_runner_config(config: RuntimeConfig) -> None:
+    # WHY the Engine loader and not a bare tomllib parse: startup validates the whole world
+    # contract (routes, default_route, model world), so a syntactically valid file with bad
+    # world semantics must be refused HERE — before `_restart` calls `_down` on a healthy stack.
+    # PRECONDITION: callers run `require_runtime_extra()` first, so the Engine import resolves.
+    from screamingface_engine import job_env
+    from screamingface_engine.world.config import WorldConfigError, load_config
+
+    try:
+        load_config({**os.environ, job_env.RUNNER_CONFIG: str(config.runner_config)})
+    except WorldConfigError as exc:
+        raise RuntimeError(f"runner config is invalid ({config.runner_config}): {exc}") from exc
 
 
 def _refuse_other_assets(config: RuntimeConfig, state: dict[str, object] | None) -> None:
@@ -609,10 +624,15 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
             scoreboard_port=values["scoreboard"],
             engine_port=values["engine"],
             benchmark_assets_dir=assets,
+            runner_config=config.runner_config,
         )
     # WHY before `_down`: a missing or replaced folder must leave the running stack untouched,
     # not stop it and then fail to bring it back.
     _require_benchmark_assets_dir(config)
+    from screamingface._runtime.server import require_runtime_extra
+
+    require_runtime_extra()
+    _require_runner_config(config)
     _down(config)
     _up(config, foreground=foreground)
 

@@ -85,6 +85,38 @@ def test_runtime_data_is_user_scoped(tmp_path: Path) -> None:
     assert config.assets_dir == tmp_path / "benchmark-assets"
 
 
+@pytest.mark.parametrize(
+    ("explicit", "environment", "expected"),
+    [
+        (None, None, "bundled.toml"),
+        (None, "", "bundled.toml"),
+        (None, "custom.toml", "custom.toml"),
+        (None, "~/custom.toml", "custom.toml"),
+        ("explicit.toml", "custom.toml", "explicit.toml"),
+    ],
+)
+def test_runner_config_precedence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    explicit: str | None,
+    environment: str | None,
+    expected: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "screamingface._runtime.config.bundled_runner_config", lambda: tmp_path / "bundled.toml"
+    )
+    if environment is None:
+        monkeypatch.delenv("URL4_RUNNER_CONFIG", raising=False)
+    else:
+        monkeypatch.setenv("URL4_RUNNER_CONFIG", environment)
+
+    config = RuntimeConfig(data_dir=tmp_path, runner_config=Path(explicit) if explicit else None)
+
+    assert config.runner_config == tmp_path / expected
+
+
 def test_runtime_ports_are_configurable_and_unique(tmp_path: Path) -> None:
     config = RuntimeConfig(
         data_dir=tmp_path, gateway_port=19105, scoreboard_port=19106, engine_port=19108
@@ -996,6 +1028,38 @@ def test_restart_refuses_a_foreign_gateway_database_url_before_stopping_anything
         cli._restart(config, args, foreground=False)
 
     # Refusal means the running stack was left untouched.
+    assert config.state_path.exists()
+
+
+@pytest.mark.parametrize("name", ["missing.toml", "malformed.toml", "world.toml"])
+def test_restart_refuses_invalid_runner_config_before_stopping_anything(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    config = RuntimeConfig(data_dir=tmp_path)
+    _running_state(config, {"mode": "bundled", "root": None})
+    _healthy_owned_runtime(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_RUNTIME_SOURCE", "bundled")
+
+    bad_config = tmp_path / name
+    if name == "malformed.toml":
+        bad_config.write_text("invalid [ [ toml")
+    elif name == "world.toml":
+        # Syntactically valid TOML, but the WORLD contract is broken: `default_route` names
+        # no declared route, so only the Engine loader (not a bare tomllib parse) can catch
+        # it. This is the case that must never reach `_down` in `restart`.
+        bad_config.write_text("[aigateway]\ndefault_route = 7\n")
+
+    monkeypatch.setenv("URL4_RUNNER_CONFIG", str(bad_config))
+    monkeypatch.setattr(
+        cli,
+        "_down",
+        lambda _config: pytest.fail("restart reached _down while runner config was refused"),
+    )
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path), "restart"])
+
+    with pytest.raises(RuntimeError, match=r"runner config is invalid"):
+        cli._restart(cli._config(args), args, foreground=False)
+
     assert config.state_path.exists()
 
 
