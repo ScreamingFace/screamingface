@@ -51,11 +51,19 @@ so the widened walk stops at its real tag instead of including AIGateway's entir
   AIGateway release anchor), this ledger, the mirror, and the close-out spec and plan
   (`docs/spec/2026-10-29-ome-1138-closeout.md`,
   `docs/plan/2026-10-29-ome-1138-closeout.md`), which land with the first close-out leaf.
-- **Commits:** pending: `ci(release): search the full history since each last release`.
+- **Commits before the final review follow-up:** `3c93ac408` `ci(release): search the full history
+  since each last release`; `81255a177` `fix(release): anchor aigateway history at v0.2.0`;
+  `82765a6cf` `docs(spec): add the quarantined-row remediation to the close-out precondition`;
+  `aca136b6c` `docs(plan): name the server error a stored quarantined row causes after L4a`.
+  The final follow-up corrects the cross-leaf L10 ordering and this ledger's Outcome.
 - **Gates:** `run_gates.py repo --base origin/main`: ALL GATES GREEN (append-only,
   test_run_gates, test_check_mirror_status, test_pre_push, check_loop_parity,
   check_mirror_status). `verify_chart_wiring.py`: 121/121 checks passed. The config parses and
   `commit-search-depth` is the top-level integer 5000; the manifest names `0.2.0`, and
   `aigateway-v0.2.0` resolves to `0f40ca250`.
-- **Deviations:** none. Still open after merge: confirm the regenerated #512, #1386 and #1385,
-  then edit the aigateway 1.0.0 notes so the removed purge command is not listed under Features.
+- **Deviations:** review found that the untagged AIGateway 0.2.1 draft gives release-please no
+  release SHA, so the manifest was corrected to the published 0.2.0 boundary. The owner then
+  amended the close-out contract on 2026-10-30 with remediation for nonzero quarantined/noted
+  rows and the resulting merge order. Still open after merge: confirm the regenerated #512,
+  #1386 and #1385, then edit the aigateway 1.0.0 notes so the removed purge command is not listed
+  under Features.
