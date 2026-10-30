@@ -64,6 +64,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "15_musique.ipynb": _musique_e2e(),
         "16_arc_agi_2.ipynb": _arc_agi_2_e2e(),
         "17_frames.ipynb": _frames_oracle_e2e(),
+        "18_picture_benchmarks.ipynb": _picture_benchmarks_e2e(),
     }
 
 
@@ -2199,6 +2200,259 @@ is the only brake. Raise it in steps and read the cost in `report.usage` as you 
 The questions and their Wikipedia articles have been public since 2024 and may be in a model's
 training data; a high score says the model answers these questions, not that it would answer new
 ones."""),
+    )
+
+
+def _picture_benchmarks_e2e() -> NotebookNode:
+    """Run 2 Cases of every picture Benchmark against the local stack or dev, paid runs off."""
+
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# Picture Benchmarks — two Cases each, on the local stack or dev
+
+Five imported Benchmarks show the Candidate a picture with every question: LAB-Bench FigQA
+(biology figures), LAB-Bench TableQA (biology tables), MMMU multiple choice and MMMU open
+(college exam questions about charts, diagrams and photos) and MathVista (maths over plots and
+figures). Each picture is saved inside its Case when the Benchmark is imported, so nothing is
+fetched at run time.
+
+This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
+local stack **or** dev with one variable, lists which of the five that Engine serves, and runs
+two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
+that breaks on pictures, for example one that goes over its memory budget.
+
+**Run All is free.** Every paid run is behind `RUN_PAID = False` (section 5), and nothing here
+starts or stops a stack."""),
+        nbformat.v4.new_markdown_cell("""\
+## 0. Before running
+
+**Local.** From a checkout, run `just local-stack-notebooks` in `packages/screamingface/`. It
+serves an inspect-capable Engine on `:9111` (the imported Benchmarks need the Engine's `inspect`
+extra) beside the Scoreboard on `:9106`, prepares every Benchmark's Cases the first time (slow,
+once) and opens Jupyter on `examples/`. If you moved the Engine with
+`SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=…`, the next cell reads the same variable.
+
+**Dev.** fusion.dev, behind a Cloudflare Access login. `sf.connect()` opens that login in your
+browser.
+
+Two things differ between the two targets:
+
+- **On a Mac, the local stack serves only FigQA and TableQA.** MMMU and MathVista have their
+  Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
+  Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them.
+- **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
+  no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
+        nbformat.v4.new_markdown_cell("""\
+## 1. One switch: local or dev
+
+Set `TARGET`, then run the cell. It points the Client at that Engine and its Scoreboard, then
+opens the connection panel. A deployment uses exactly one credential mode (see
+`02_connection`):
+
+- **local** is bring your own key: the panel takes a provider key, which goes to the Engine
+  for validation and encrypted storage; the notebook never keeps it.
+- **dev** is hosted credits: the panel shows a **Log in** step (Cloudflare Access opens in
+  your browser), then the providers your hosted account can use."""),
+        nbformat.v4.new_code_cell("""\
+import os
+import platform
+
+import screamingface as sf
+
+TARGET = "local"  # or "dev"
+
+if TARGET == "local":
+    ENGINE_PORT = os.environ.get("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
+    sf.configure(
+        engine_url=f"http://127.0.0.1:{ENGINE_PORT}",
+        scoreboard_url="http://127.0.0.1:9106",
+    )
+elif TARGET == "dev":
+    sf.configure(
+        engine_url="https://fusion.dev.screamingface.ai",
+        scoreboard_url="https://leaderboard.dev.screamingface.ai",
+    )
+else:
+    raise ValueError(f'TARGET must be "local" or "dev", not {TARGET!r}')
+
+sf.connect()"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Which picture Benchmarks this Engine serves
+
+The five ids below are the catalogue ids of the five picture Benchmarks. The cell lists the
+ones this Engine serves and names each missing one with its likely reason:
+
+- the Engine has no `inspect` extra, so it serves no imported Benchmark at all;
+- the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux;
+- the Benchmark is not merged into this Engine yet.
+
+Everything after this cell runs only for the Benchmarks served, so a missing one is skipped,
+never a failure."""),
+        nbformat.v4.new_code_cell("""\
+PICTURE_BENCHMARKS = {
+    "inspect-lab_bench_figqa": "letter match (the eval's choice scorer, no judge)",
+    "inspect-lab_bench_tableqa": "letter match (the eval's choice scorer, no judge)",
+    "inspect-mmmu_multiple_choice": "letter match (inspect's choice scorer, no judge)",
+    "inspect-mmmu_open": "judge (a judge model reads the reply against the answer)",
+    "inspect-mathvista": "exact match of the letter or the text after 'ANSWER:', no judge",
+}
+# Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
+SEALED_ON_LINUX = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
+
+catalogue = sf.benchmarks.list()
+served_ids = {benchmark.id for benchmark in catalogue}
+has_inspect_extra = any(benchmark.origin == "inspect_evals" for benchmark in catalogue)
+local_mac = TARGET == "local" and platform.system() == "Darwin"
+
+served = [benchmark_id for benchmark_id in PICTURE_BENCHMARKS if benchmark_id in served_ids]
+for benchmark_id in PICTURE_BENCHMARKS:
+    if benchmark_id in served_ids:
+        print(f"served   {benchmark_id}")
+    elif not has_inspect_extra:
+        print(f"missing  {benchmark_id}: this Engine has no inspect extra")
+    elif local_mac and benchmark_id in SEALED_ON_LINUX:
+        print(f"missing  {benchmark_id}: its Case Digest is sealed on Linux, so a Mac skips it")
+    else:
+        print(f"missing  {benchmark_id}: not merged into this Engine yet")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Each served Benchmark's card
+
+The Case count, the revision (the pin on the imported Cases: two Engines showing the same
+revision ask the same questions) and how the Benchmark is graded. Only `inspect-mmmu_open`
+spends judge tokens; the other four grade by matching the answer, for free."""),
+        nbformat.v4.new_code_cell("""\
+for benchmark_id in served:
+    card = sf.benchmarks.get(benchmark_id)
+    print(
+        {
+            "id": card.id,
+            "title": card.title,
+            "case_count": card.case_count,
+            "revision": card.revision,
+            "grading": PICTURE_BENCHMARKS[benchmark_id],
+        }
+    )"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. The model
+
+One cheap model that reads pictures, the same one `00_quickstart` uses. Before it spends
+anything, the Engine checks that every model in the Candidate can take pictures, reading the
+Gateway's model list. A model that can't, or one the Gateway doesn't list, is refused by name
+and the run stops before its first paid call. Swap in another model the same way; keep it one
+the Gateway lists as reading images."""),
+        nbformat.v4.new_code_cell("""\
+MODEL = sf.Model(model="openrouter/google/gemini-3-flash-preview", params={"max_tokens": 4096})
+MODEL"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Run two Cases of each — paid, off by default
+
+`RUN_PAID = False` keeps every cell below free: each one prints what it would run and stops.
+Set it to `True` to spend. Each run is `sf.evaluate(MODEL, benchmark=..., limit=2)`; a run that
+fails is recorded with its error code, so one failing Benchmark never stops the others. The
+pinned cache stays at its default (off), so every run makes fresh model calls."""),
+        nbformat.v4.new_code_cell("""\
+RUN_PAID = False
+
+reports = {}
+run_errors = {}
+
+
+def run_two_cases(benchmark_id):
+    \"\"\"Run two Cases of one served picture Benchmark; keep its Report or its error.\"\"\"
+
+    if benchmark_id not in served:
+        return f"{benchmark_id}: not served by this Engine, skipped"
+    if not RUN_PAID:
+        return f"{benchmark_id}: set RUN_PAID = True to run 2 Cases (paid model calls)"
+    try:
+        outcome = sf.evaluate(MODEL, benchmark=benchmark_id, limit=2)
+    except sf.ScreamingFaceError as exc:
+        run_errors[benchmark_id] = exc
+        outcome = f"{benchmark_id}: run failed with {exc.code}: {exc.message}"
+    else:
+        reports[benchmark_id] = outcome
+    return outcome"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-lab_bench_figqa")"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-lab_bench_tableqa")"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-mmmu_multiple_choice")"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-mmmu_open")"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-mathvista")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 6. Inspect the results
+
+Per Case: its status, its score, and any failure codes. A Case with no grade shows its failure
+codes instead of a score."""),
+        nbformat.v4.new_code_cell("""\
+for benchmark_id, report in reports.items():
+    print(benchmark_id)
+    for case in report.candidates.only.cases:
+        grade = case.grade
+        score = grade.score if grade else None
+        print("  ", case.case_id, case.status, score, [failure.code for failure in case.failures])
+for benchmark_id, exc in run_errors.items():
+    print(benchmark_id, "run failed:", exc.code)
+if not reports and not run_errors:
+    print("No runs yet: set RUN_PAID = True in section 5 and run its cells.")"""),
+        nbformat.v4.new_markdown_cell("""\
+### One picture, fetched from the result
+
+A Case Result shows each picture as a placeholder (type, size, sha256), never its bytes.
+`case.media` lists those placeholders without a network call; `sf.fetch_media(...)` fetches one
+from the Engine and shows it only when its size and sha256 match the placeholder, so the picture
+shown is the one the model saw. A local Engine keeps a run's pictures for 48 hours."""),
+        nbformat.v4.new_code_cell("""\
+first_picture = next(
+    (
+        media
+        for report in reports.values()
+        for case in report.candidates.only.cases
+        for media in case.media
+        if media.kind == "image"
+    ),
+    None,
+)
+if first_picture is None:
+    picture = "No picture yet: no run has finished."
+else:
+    try:
+        picture = sf.fetch_media(first_picture)
+    except sf.ScreamingFaceError as exc:
+        picture = f"Could not fetch the picture: {exc.code}: {exc.message}"
+picture"""),
+        nbformat.v4.new_markdown_cell("""\
+### The judge's evidence on MMMU open
+
+`inspect-mmmu_open` is the one judged Benchmark here. Each Case's check evidence carries the
+judge's own explanation verbatim, the way `12_inspect_evals_benchmarks` section 7 shows it, so a
+surprising score can be read, not just counted."""),
+        nbformat.v4.new_code_cell("""\
+open_report = reports.get("inspect-mmmu_open")
+if open_report is None:
+    print("No inspect-mmmu_open run yet (not served, or RUN_PAID is False).")
+else:
+    for case in open_report.candidates.only.cases:
+        grade = case.grade
+        print(case.case_id, case.status, grade.score if grade else None)
+
+first = open_report.candidates.only.cases[0].grade if open_report is not None else None
+() if first is None or not first.checks else first.checks[0].evidence"""),
+        nbformat.v4.new_markdown_cell("""\
+## 7. When a run fails on memory
+
+On dev, each run has a resident-memory budget. A run that goes over it stops with the code
+`memory_budget_exceeded`, and its error message names the setting that sets the budget,
+`runnerPool.perRunCharge.memoryLimitMi`; section 6 prints the code. A local Engine watches no
+memory, so the same run passes locally.
+
+A 2-Case run is not a small run for memory: it still loads the Benchmark's whole Cases file,
+pictures included, before it picks its two Cases. A Benchmark whose Cases file is large can go
+over the budget at any `limit`."""),
     )
 
 
