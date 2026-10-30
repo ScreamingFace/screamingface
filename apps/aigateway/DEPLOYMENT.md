@@ -187,14 +187,16 @@ commands, `migrate_profiles` (the Stage B backfill) and `purge_profile_history`.
 Such an install therefore upgrades in two steps:
 
 1. Upgrade the gateway itself, every replica, to an E5b-era image: one built from `1ccf80a89` or a
-   later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`,
-   which is unchanged from `1ccf80a89` to `a7e5d8577`, with `--set image.tag=main-1ccf80a` (the dev
-   build of `1ccf80a89`; dev builds are tagged `main-<first 7 characters of the commit SHA>` and are
-   built for amd64 only). Its pre-upgrade Job applies the migrations. The purge's `--apply` needs
-   E5a (`8cb1e54e0`) or later on every replica, which an E5b-era image includes: an older replica's
-   PUT on a deleted account could adopt a leftover blob, and a deleted account has no row for the
-   purge to lock. Then run both commands in one of the upgraded gateway pods, dry run first, with a
-   database backup before each `--apply`:
+   later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`.
+   Its only change from `1ccf80a89` to `e915d8037` is the opt-in `remoteEndpoints` block
+   (`143d4bcf8`, #1606), which renders nothing while unset; leave it unset for this step. Install
+   it with `--set image.tag=main-1ccf80a` (the dev build of `1ccf80a89`; dev builds are tagged
+   `main-<first 7 characters of the commit SHA>` and are built for amd64 only). Its pre-upgrade Job
+   applies the migrations. The purge's `--apply` needs E5a (`8cb1e54e0`) or later on every
+   replica, which an E5b-era image includes: an older replica's PUT on a deleted account could
+   adopt a leftover blob, and a deleted account has no row for the purge to lock. Then run both
+   commands in one of the upgraded gateway pods, dry run first, with a database backup before each
+   `--apply`:
 
    ```bash
    python -m aigateway.migrate_profiles --dry-run --all
@@ -209,8 +211,8 @@ Such an install therefore upgrades in two steps:
    The backfill migrates each pair it can prove onto a Connection and reports every other pair as
    `quarantined` or `none`, with a category. A pair left `none` is served from its single active
    Connection, like any pair the backfill never touched; a user without one connects the provider
-   again through the Connection API. A `quarantined` pair is refused with
-   `409 credential_pair_unresolved`, and a new Connection does not clear it.
+   again through the Connection API. A `quarantined` pair must be settled before the gateway runs
+   an image that includes L4a; see "Before an image that includes L4a" below.
 
    The backfill goes first because the purge skips, whole, any account that still has a Profile
    document naming a blob no Connection addresses on a pair that is not migrated; it also skips an
@@ -220,11 +222,36 @@ Such an install therefore upgrades in two steps:
    of `kept_*`, or `kept_unproven_rows` above 0. Both commands exit 2 when they refuse to run
    without the master key.
 2. Upgrade to an image built from `7cb093014` or later. Profile rows the purge did not delete are
-   inert there.
+   inert there. If that image includes L4a (`e915d8037`), run the precondition below first.
 
 This procedure covers Helm installs only; local SQLite installs are not covered. It does not apply
 to 0.2.0 either, which kept Profiles in the operating system's credential store, not in the
 database.
+
+**Before an image that includes L4a (`e915d8037`, #1614).** From L4a on, a pair marker has two
+states, `none` and `migrated`, and a stored `quarantined` row is a data error: chat answers 500 for
+that account, the `GET /v1/provider-access` listing fails for it, and the admin inventory refuses
+it. Before any replica runs such an image, take a database backup and count both kinds of
+leftover rows:
+
+```sql
+SELECT count(*) FROM provider_credential_slots WHERE migration_state = 'quarantined';
+SELECT count(*) FROM provider_credential_slots WHERE migration_note IS NOT NULL;
+```
+
+If either count is above 0, settle the rows, then repeat both counts; both must be 0:
+
+```sql
+UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL
+  WHERE migration_state = 'quarantined';
+UPDATE provider_credential_slots SET migration_note = NULL
+  WHERE migration_note IS NOT NULL;
+```
+
+A pair set to `none` is owned by its Connections: one active Connection serves it, two or more are
+refused as ambiguous (`409 connection_ambiguous`; the availability listing shows `error`), and with
+none the user connects the provider again. Profile rows the purge kept for such an account stay
+inert. Source: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.2 and §4.10 item 5.
 
 **The retired Profile routes answer 410.** Since E3 (`08f534317`, #1464) the 13 Profile routes
 under `/v1/auth/profiles`, `/v1/auth/{provider}/profiles` and

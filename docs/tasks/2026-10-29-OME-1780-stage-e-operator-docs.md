@@ -21,6 +21,11 @@ is corrected in the chart README, the gateway README and `docs/diagrams/gateway-
 now also lists the credential-resolution refusals. Docs only. The L4c `0016` downgrade floor lands
 with L4c.
 
+After L4a merged (`e915d8037`, #1614) the branch was rebased onto it. `DEPLOYMENT.md` now states the
+precondition for an image that includes L4a: count the `quarantined` and non-null `migration_note`
+rows, settle them, and recount to 0. The pre-L4a `409 credential_pair_unresolved` sentence is gone
+from `DEPLOYMENT.md` and `docs/diagrams/gateway-identity.md`.
+
 Spec: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.10. Plan:
 `docs/plan/2026-10-29-ome-1138-closeout.md` §3 "L10". Ledger:
 `docs/work/2026-10-29-stage-e-operator-docs.md`.

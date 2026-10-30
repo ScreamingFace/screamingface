@@ -3,7 +3,7 @@ ticket: OME-1780
 stack: aigateway
 status: done
 started: 2026-10-29
-finished: 2026-10-29
+finished: 2026-10-30
 ---
 
 # stage-e-operator-docs — document the Stage E rollback floor and upgrade path for operators
@@ -24,8 +24,10 @@ Governing artifacts (landing via another PR):
 - plan `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L10".
 
 Owner decision: L10 runs in parallel now, with everything that is true today. Spec §4.10 item 4
-(the L4c `0016` downgrade floor) lands with L4c. Nothing here describes L4a/L4c behaviour, since
-the `quarantined` state and the `X-Profile` compatibility path still exist on main.
+(the L4c `0016` downgrade floor) lands with L4c. The first three rounds describe no L4a/L4c
+behaviour, since the `quarantined` state and the `X-Profile` compatibility path still existed on
+main. After L4a merged (`e915d8037`, #1614) the branch was rebased onto it and spec §4.10 item 5
+(the `quarantined` precondition) was added.
 
 ## Planned changes
 
@@ -42,6 +44,10 @@ the `quarantined` state and the `X-Profile` compatibility path still exist on ma
 - `apps/aigateway/README.md`: "OAuth profiles created in this mode" (auth-disabled mode).
 - `docs/diagrams/gateway-identity.md`: the `profile_not_found` "retained until Stage E" prose;
   R3 keeps the code, so the promised rename goes.
+- After L4a merges: spec §4.10 item 5 in `DEPLOYMENT.md` (the count, remediation and recount
+  before an image that includes L4a, naming its merge commit), and the pre-L4a
+  `409 credential_pair_unresolved` sentence leaves `DEPLOYMENT.md` and
+  `docs/diagrams/gateway-identity.md`.
 
 ## Test plan
 
@@ -62,7 +68,8 @@ Docs only, no RED. Verification instead:
 
 ## Acceptance
 
-- DEPLOYMENT.md carries the Stage E section with items 1–3 of spec §4.10, each with its source.
+- DEPLOYMENT.md carries the Stage E section with items 1–3 and 5 of spec §4.10, each with its
+  source.
 - The three wording fixes are in, and each new statement matches `origin/main`.
 - Gates green; review findings fixed or reported.
 
@@ -71,9 +78,14 @@ Docs only, no RED. Verification instead:
 - **Actual files:** the four planned docs, this ledger and the mirror
   `docs/tasks/2026-10-29-OME-1780-stage-e-operator-docs.md`. No code, no test.
 - **Commits:**
-  - `8788c1be6` `docs(aigateway): document the Stage E rollback floor and upgrade path`;
-  - `f9cb59432` `docs(aigateway): apply the review decisions to the Stage E operator docs`;
-  - `docs(aigateway): name the E5c boundary by commit and fix the Google OAuth note` (see the PR).
+  - `86b30182f` `docs(aigateway): document the Stage E rollback floor and upgrade path`;
+  - `16e29927d` `docs(aigateway): apply the review decisions to the Stage E operator docs`;
+  - `8a3e43e0f` `docs(aigateway): name the E5c boundary by commit and fix the Google OAuth note`;
+  - `docs(aigateway): state the L4a quarantined precondition and drop the pre-L4a 409 wording`
+    (see the PR).
+
+  The first three were `8788c1be6`, `f9cb59432` and `ea5a19532` before the rebase onto
+  `e915d8037`; the rebase applied cleanly.
 - **Evidence for each statement** (all at `origin/main` `a7e5d8577`):
   - SHAs: `f7e54869b` E4b (#1516), `b66f94f08` E4a (#1491, "Profile-only credentials no longer
     resolve"), `1ccf80a89` E5b (#1573), `7cb093014` E5c (#1596, deletes `migrate_profiles.py` and
@@ -136,6 +148,8 @@ Docs only, no RED. Verification instead:
     touches no Python. Attempt 2: ALL GATES GREEN. The pre-push run of the first commit: ALL GATES
     GREEN. PR #1612 CI on the first commit: every check passed. The pre-push runs of the second
     and third commits: ALL GATES GREEN.
+  - Fourth round, after the rebase onto `e915d8037`: `uv run .claude/scripts/run_gates.py repo
+    --base origin/main`: ALL GATES GREEN. The diff touches no Python and no chart.
   - No Cyrillic in the diff; every cited path exists.
 - **Review:** an independent read-only review verified every claim and raised one major and
   several minor points, all fixed before commit: 1.0.0 is not released yet (the first commit said
@@ -156,6 +170,24 @@ Docs only, no RED. Verification instead:
   "No image built from `7cb093014` onward, including any release cut after it, …", and
   `apps/aigateway/README.md:144` now says a Google OAuth 401/403 marks the Connection `error` for
   re-authentication.
+- **Fourth round, after L4a merged (2026-10-30):** rebased onto `origin/main` `e915d8037`.
+  - `DEPLOYMENT.md` gains "Before an image that includes L4a (`e915d8037`, #1614)": a backup, the
+    two counts, the two `UPDATE` statements and the recount, as in spec
+    `docs/spec/2026-10-29-ome-1138-closeout.md` §4.2 and §4.10 item 5, and what a pair set to
+    `none` means (one active Connection serves it, two or more are `409 connection_ambiguous` and
+    list `error`, none means the user connects again). The upgrade path's second step points to it.
+    The step-1 paragraph on the backfill no longer says a `quarantined` pair answers `409`.
+  - `docs/diagrams/gateway-identity.md`: the `409 credential_pair_unresolved` sentence is replaced
+    by the two marker states and a pointer to `DEPLOYMENT.md`.
+  - Evidence: table `provider_credential_slots` and columns `migration_state`, `migration_note`
+    (`core/provider_access/models/provider_credential_slot.py`); a stored `quarantined` raises
+    `PairAuthorityDataError`, so chat answers 500, the listing fails and the inventory raises
+    `CredentialAuthorityUnavailable` (L4a, `pair_authority.py`).
+  - The chart sentence was stale: `git log 1ccf80a89..e915d8037 -- apps/aigateway/charts/aigateway`
+    lists one commit, `143d4bcf8` (#1606), which adds the opt-in `remoteEndpoints` block.
+    `helm template` with default values renders the same at both commits except the randomly
+    generated JWT secret and admin password. The text now says so and keeps the block unset for
+    the E5b-era step.
 - **Deviations:**
   - Spec §4.10 item 4 (the L4c `0016` floor) is not written; it lands with L4c, per the owner.
   - The spec's "`apps/aigateway/README.md:92` and its '`profile_not_found` … retained until
@@ -174,5 +206,8 @@ Docs only, no RED. Verification instead:
     (`connection_native.claim_native_write`, "no auto-promotion"), so a new Connection does not
     clear it; the code comment says only the offline backfill can settle such a pair, and E5c
     deleted it. The docs state exactly that and name no remedy. Open question for the owner.
+    Settled 2026-10-30: the owner's remediation (spec §4.2) sets such a row to `none`, and the
+    census found 0 `quarantined` rows in dev, stage and prod; the fourth round documents it per
+    §4.10 item 5.
   - `docs/spec/2026-10-29-ome-1138-closeout.md` is cited for "permanent" at the lead's request; it
     reaches main with PR #1607.
