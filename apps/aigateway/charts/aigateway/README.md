@@ -69,8 +69,8 @@ replay across accounts before any credential is resolved — see consequence 6 o
 `config.requestCache` in `values.yaml`.
 
 `true` makes the cache available immediately. Reading and writing the response row has no
-secret-provider, encryption-key or canary dependency. Effective-key construction may still read the
-caller's encrypted profile-default index; it never resolves the selected provider credential on a hit.
+secret-provider, encryption-key or canary dependency. Effective-key construction reads no stored
+state: the key covers only the caller's request, and a hit resolves no provider credential.
 
 Three more things to know before enabling it anywhere else:
 
