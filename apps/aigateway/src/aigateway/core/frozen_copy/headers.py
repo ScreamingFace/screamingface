@@ -1,8 +1,8 @@
 """The capture and call-key headers, and how an exception handler learns the capture (OME-1307).
 
-An HTTPException can carry the header itself. A ``CredentialBlobMutationConflict`` or an unexpected
-exception is re-raised unchanged and rendered by an app-level handler, so the route leaves the
-header on ``request.state`` and those handlers add it.
+An HTTPException can carry the header itself. An unexpected exception is re-raised unchanged and
+rendered by the app-level handler, so the route leaves the header on ``request.state`` and that
+handler adds it.
 
 It also names the one response header an error entry keeps for its replay: ``Retry-After``.
 """

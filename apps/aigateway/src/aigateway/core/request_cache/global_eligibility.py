@@ -381,7 +381,8 @@ def collect_request_facts(
     """Every fact a global key may depend on, or the reason there is no key.
 
     ``body`` is the request after JSON shape validation, gateway and provider
-    dispatch-control stripping, cache-control removal and the body-wins profile-default merge.
+    dispatch-control stripping and cache-control removal. No stored default is merged into it
+    (OME-1323, D2), so every field in it is one the caller sent.
 
     ``provider_auth_modes`` is every mode the PROVIDER offers
     (``plugin.available_auth_modes()``) — provider metadata, never the caller's

@@ -31,9 +31,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import disconnect_migrated_pair, seed_migrated_pair
 from tests.unit.seed_state import SeedState
 

@@ -27,10 +27,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from tortoise import connections
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.routes import oauth_connections as oauth_routes
+from tests.credential_names import credential_name_for
 
 pytestmark = pytest.mark.needs_postgres
 

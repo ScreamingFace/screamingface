@@ -1,7 +1,8 @@
 """Live Gemini gateway smoke test pinned to gemini-2.5-flash.
 
-Skipped unless AIGW_LIVE=1. Uses a gateway-owned gemini-cli:default OAuth
-profile when present, otherwise falls back to GEMINI_API_KEY / GOOGLE_API_KEY.
+Skipped unless AIGW_LIVE=1. Runs as is when GEMINI_API_KEY or GOOGLE_API_KEY is set; otherwise
+requires the logged-in admin account's gemini-cli access to read `connected` in
+`GET /v1/provider-access` (a gemini-cli Connection).
 """
 
 from __future__ import annotations

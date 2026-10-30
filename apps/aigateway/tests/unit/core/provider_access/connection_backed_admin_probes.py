@@ -10,7 +10,6 @@ from typing import Any
 
 from provider_access_harness import PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
@@ -22,9 +21,9 @@ from aigateway.core.provider_access import (
     set_pair_api_key,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 
 KEY = "sk-ant-api03-migrated-key-2468"
-MASKED = f"API key ····{KEY[-4:]}"
 DEFAULT = Selector.from_header(None)
 
 
@@ -74,7 +73,6 @@ def blob_at_connection_address(harness: Any, connection_id: str) -> str | None:
 __all__ = [
     "DEFAULT",
     "KEY",
-    "MASKED",
     "blob_at_connection_address",
     "blob_at_name_address",
     "connection",

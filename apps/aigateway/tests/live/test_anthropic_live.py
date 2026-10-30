@@ -1,8 +1,7 @@
-"""End-to-end live test against api.anthropic.com via the profile-based path.
+"""End-to-end live test against api.anthropic.com through the caller's Anthropic Connection.
 
-Skipped unless AIGW_LIVE=1. Requires the logged-in admin account to have an
-authenticated `anthropic:default` profile — typically achieved on this machine
-by the Claude Code bootstrap importing existing CC credentials.
+Skipped unless AIGW_LIVE=1. Requires the logged-in admin account's anthropic access to read
+`connected` in `GET /v1/provider-access` (connect Anthropic via /v1/oauth/connections first).
 """
 
 from __future__ import annotations

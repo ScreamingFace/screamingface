@@ -12,6 +12,10 @@
 # INVARIANT: no module under `src/aigateway` names the retired bootstrap flag.
 # WHY a fresh interpreter: the test session has long since imported both, so `sys.modules` here
 # proves nothing about what the app pulls in.
+
+Retired at OME-1138 close-out, L4b: `test_only_the_neutral_credential_name_remains` —
+`credential_name_for` moved to the test helper `tests/credential_names.py`, so no src module may
+define it; successor: `test_no_src_module_defines_a_credential_name`.
 """
 
 from __future__ import annotations
@@ -26,9 +30,10 @@ from pathlib import Path
 import pytest
 
 import aigateway
-from aigateway.core import credential_names, errors, provider_access
+from aigateway.core import errors, provider_access
 from aigateway.core.plugin_base import ProviderPluginBase
 from aigateway.core.provider_access import (
+    PairAuthorityStore,
     connection_admin,
     writer_floor,
 )
@@ -40,6 +45,9 @@ _RETIRED_MODULES = (
     "aigateway.core.profile_models",
     "aigateway.core.provider_access.backfill_apply",
     "aigateway.core.provider_access.backfill_classify",
+    "aigateway.core.provider_access.connection_facade",
+    "aigateway.core.provider_access.connection_oauth",
+    "aigateway.core.credential_names",
     "aigateway.core.provider_access.history_purge",
     "aigateway.core.provider_access.history_references",
     "aigateway.migrate_profiles",
@@ -78,10 +86,19 @@ def test_the_profile_vocabulary_and_its_offline_tools_are_gone(module: str) -> N
     assert importlib.util.find_spec(module) is None
 
 
-def test_only_the_neutral_credential_name_remains() -> None:
+def test_no_src_module_defines_a_credential_name() -> None:
     # WHY: `profile_id_for` spelled the Profile document's id; with no document it names nothing.
-    assert not hasattr(credential_names, "profile_id_for")
-    assert credential_names.credential_name_for("acct", "default") == "acct:default"
+    # `credential_name_for` moved to `tests/credential_names.py` in the OME-1138 close-out (L4b):
+    # production reads each Connection's stored locator and never computes a name.
+    definers = {
+        str(path.relative_to(_SRC))
+        for path in _SRC.rglob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name in {"profile_id_for", "credential_name_for"}
+    }
+
+    assert definers == set()
 
 
 def test_importing_the_app_loads_no_profile_index_and_no_backfill_module() -> None:
@@ -119,6 +136,20 @@ def test_the_profile_writers_and_the_startup_import_are_gone() -> None:
     assert {"claude_code_keychain_service", "bootstrap_user"}.isdisjoint(
         AnthropicPluginSettings.model_fields
     )
+
+
+@pytest.mark.parametrize(
+    ("owner", "name"),
+    [
+        (errors, "ProfileNotFoundError"),
+        (errors, "ProfilePendingAuthError"),
+        (PairAuthorityStore, "providers"),
+    ],
+)
+def test_the_dead_profile_era_symbols_are_gone(owner: object, name: str) -> None:
+    # WHY (OME-1138 close-out, L4b): nothing raised the two errors since the Profile resolver
+    # retired — chat renders `TargetMissing` / `TargetPending` — and nothing called `providers`.
+    assert not hasattr(owner, name)
 
 
 @pytest.mark.parametrize(

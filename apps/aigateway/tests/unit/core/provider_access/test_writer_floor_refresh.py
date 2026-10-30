@@ -32,7 +32,6 @@ from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of, callback, use_tokens
 from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.errors import AuthError, RefreshSuperseded
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import credential_key_for
@@ -50,6 +49,7 @@ from aigateway.core.provider_access.refresh_guard import (
 )
 from aigateway.core.provider_access.writer_floor import claim_pair
 from aigateway.plugins.anthropic_provider.auth import AnthropicOAuth, credential_service_for
+from tests.credential_names import credential_name_for
 
 Intrusion = Callable[[], Awaitable[Any]]
 

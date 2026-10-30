@@ -1,0 +1,86 @@
+{
+  "issue": "OME-1798",
+  "branch": "OME-1798-dead-code-and-test-debt",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-30",
+  "scope": "The prior tests spec section 6 lists for L4b (approved by the owner on 2026-10-29): the importers of credential_name_for (import line only; 30 files import tests.credential_names, 26 change only that line), test_neutral_credential_vocabulary.py, test_profile_conflict_arms_retired.py (the mutate call scan re-expressed as test_the_blob_store_has_no_mutation_path, the two conflict-class tests retired with a tombstone), test_provider_access_import_boundary.py, and every section 4.4 test-debt file: T-F1, T-F2 (tests/conftest.py: only the probe's dead mutate is removed, the probe stays), T-F3 (openai route_harness and the three openrouter _post_chat helpers), T-F5 (test_pair_admin_disposition.py: a class-level read spy with a positive control), T-F8/K6 (tests/unit/conftest.py), T-F9, T-F10, T-F11, T-F12 (including the openai suite comment in test_openai_keyed_max_tokens.py::test_equal_effective_ceilings_share_one_entry), T-F13 (test_profile_index_offline_only.py, with a tombstone for test_only_the_neutral_credential_name_remains), K4 and critic-3. Plus three files outside the section 6 list, approved by the owner on 2026-10-30: test_credential_blob_store.py (the two mutate tests deleted, tombstone), test_credential_blob_operational_outcomes.py (test_credential_mutation_resets_the_operational_register deleted, tombstone) and test_availability_follows_resolve.py (mutate dropped from the forbidden-method tuple). No other assertion, input or expected value changes.",
+  "reason": "OME-1138 close-out L4b (spec section 4.4): ProfileNotFoundError, ProfilePendingAuthError, PairAuthorityStore.providers, ORMStore.mutate with CredentialBlobMutationConflict, and core/credential_names.py are removed, credential_name_for moves to a test helper, the guards that passed vacuously are made non-vacuous, and the section 4.4 test debt is cleared. The owner approved the three files outside the section 6 list on 2026-10-30 as direct consequences of spec section 4.4 k1/K1 (removing ORMStore.mutate) that section 6 did not list.",
+  "files": {
+    "apps/aigateway/tests/conftest.py": {
+      "base_blob": "d78b1636f390cef587ace56eac36e889e44ffa4a",
+      "approved_blob": "334b771ba1067344a2ee081109e538406207753e"
+    },
+    "apps/aigateway/tests/integration/test_pair_admin_mutations_postgres.py": {
+      "base_blob": "70baf37a9a216868fb26110b7e4bedd7b0844953",
+      "approved_blob": "981ff2496f7e0bf29019c2b7c43823ddf964022c"
+    },
+    "apps/aigateway/tests/unit/conftest.py": {
+      "base_blob": "d1c2b993b93971cc9db94e873a2ca8b778159b7f",
+      "approved_blob": "0c4d9bc4543a92e415f13099fe49c85ff19e6058"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/connection_backed_admin_probes.py": {
+      "base_blob": "1b6f8b987e4b26505becf73b999078ac46739f74",
+      "approved_blob": "17a7a405cb03cce1fa8e11db928fc2364485e3ea"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_availability_follows_resolve.py": {
+      "base_blob": "b9b1e68b34537db7975da721ddf446dc820d619c",
+      "approved_blob": "6fbec484394c4d4b4b291f182e55d7adcaa59923"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_disposition.py": {
+      "base_blob": "5164303180795cd89fa96d782f5959435c4a3df7",
+      "approved_blob": "67463f73b31f012f4c49029e6d6d75f407574319"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_import_boundary.py": {
+      "base_blob": "8f9b3db3230256fc492671cfa2bfa5cdd779b38a",
+      "approved_blob": "e5098980e3a3aa103acca84e3f06be095aee07b7"
+    },
+    "apps/aigateway/tests/unit/core/test_neutral_credential_vocabulary.py": {
+      "base_blob": "66804bcf383c44aa690c8fd355e567c8b29d6832",
+      "approved_blob": "cb474bf17f3d91f47caa1eac4b2139b7656b5322"
+    },
+    "apps/aigateway/tests/unit/openai/route_harness.py": {
+      "base_blob": "c558650ed86650d3a717707e6fb3c88e9eb324ea",
+      "approved_blob": "0c37e51160a6497bd9e5bd0ed52591095932293d"
+    },
+    "apps/aigateway/tests/unit/openai/test_openai_keyed_max_tokens.py": {
+      "base_blob": "a943857863c4932fd752cb7c870c0034aa821e73",
+      "approved_blob": "2d00a2f8a583bc7f76d7ed1ce9b6b023bd5e2171"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_embedded_retry.py": {
+      "base_blob": "3ce49155453b36a1d43ae254b365cc03812f893b",
+      "approved_blob": "1ad108d29fcee54c87dc1bb17ef3555e856c2e7f"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_embedded_retry_conversion.py": {
+      "base_blob": "7d828a10007542411b852cd5d462e8f8a2759272",
+      "approved_blob": "6ee5e1f64daffcf965dd45839c40a7cdc22699cd"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_toplevel_conversion_retry.py": {
+      "base_blob": "bd444d6743fad6a608a284cc99be534d2cea1339",
+      "approved_blob": "99fce22529da70888c7640387d8b52f10cf31692"
+    },
+    "apps/aigateway/tests/unit/test_admin_profile_routes.py": {
+      "base_blob": "05f0323c1e7f093f84eae4b91dc02721e7f25831",
+      "approved_blob": "70c6fe9b6b39dc4eda718938a2ad558f42d66d1d"
+    },
+    "apps/aigateway/tests/unit/test_credential_blob_operational_outcomes.py": {
+      "base_blob": "cf66c74c0d5bb6a79946e006732b08a440768ce0",
+      "approved_blob": "5f954913702d443bc274110ae5a595ea9b17ab64"
+    },
+    "apps/aigateway/tests/unit/test_credential_blob_store.py": {
+      "base_blob": "c9acf260445d147762eb98b5bcfc51342724604f",
+      "approved_blob": "06eef52c2b6977aa97a840dabfcf36fcde6d9558"
+    },
+    "apps/aigateway/tests/unit/test_profile_conflict_arms_retired.py": {
+      "base_blob": "6e12d76697042a597227ef9fe125623e4a038aa0",
+      "approved_blob": "1880dd8d79b8958eadfd05ce0a6b77b7a7076d1c"
+    },
+    "apps/aigateway/tests/unit/test_profile_index_offline_only.py": {
+      "base_blob": "afa196ef653ebf4a70c6f96f0af5d126dc274015",
+      "approved_blob": "31c382d9bd580e598fe48604f4ad8712ef85e727"
+    },
+    "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
+      "base_blob": "6d1ef49bb1e5f6387afafccfb3636a5baccdcd1b",
+      "approved_blob": "57c80fd9f69bbe8d710722cbcff86682c63633a2"
+    }
+  }
+}

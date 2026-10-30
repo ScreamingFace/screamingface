@@ -69,9 +69,9 @@ class OAuthConnectionStore:
     ) -> OAuthConnection:
         """Create a pending Connection; `credential_locator` defaults to today's UUID address.
 
-        WHY the keyword (OME-1208, S2'b2): the backfill creates a Profile's Connection on that
-        Profile's blob address, so an R1 rollback reads the credential exactly where the legacy
-        path expects it.
+        WHY the keyword (OME-1208, S2'b2): a caller that already owns a blob address passes it,
+        so the Connection reads the credential where it is stored. No request path passes one
+        today; the OAuth start route takes the default.
         """
         await ensure_anonymous_account(account_id)
         return await OAuthConnection.create(
@@ -103,8 +103,8 @@ class OAuthConnectionStore:
         explicitly here; auth_type is set to "api_key" (the column defaults to
         "oauth"). By default the credential_locator points at the same blob slot
         the chat path reads via credential_key_for(account_id, connection_id); a
-        caller that owns another blob address (OME-1208: the Connection-backed
-        authority re-keying a migrated pair at its Profile address) passes it."""
+        caller that already holds the locator it writes the key under (the D18
+        admin API-key write) passes it, so the row and the write cannot disagree."""
         await ensure_anonymous_account(account_id)
         connection = await OAuthConnection.create(
             id=connection_id,
