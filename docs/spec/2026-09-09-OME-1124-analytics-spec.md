@@ -1,5 +1,11 @@
 # Phase-one session analytics — OME-1124
 
+OME-1768 local implementation amendment:
+[disclosure-gated default](2026-10-30-analytics-default.md) supersedes opt-in-only
+enrollment and notice placement below. Existing decline, DNT, identity and event
+boundaries remain. Irina/Kevin sign-off is still outstanding; Filip authorized
+local implementation before that review.
+
 Status: draft for review, 9 September 2026. Updated for service-first delivery; OME-1152 is the first implementation unit. Measurement decisions and consent-only bridge exception confirmed by owner; docs review does not authorize implementation. Parent: https://linear.app/openmined/issue/OME-1060 . Child: https://linear.app/openmined/issue/OME-1124 . Code inspected at `0dc1b845`.
 
 ## Delivery sequence update

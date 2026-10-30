@@ -1499,14 +1499,16 @@ disclosures reuse the cache without decoding Cases; missing, stale or malformed 
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
 materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.
 
-## Optional analytics (dev preview)
+## Usage analytics
 
-Analytics is off until you explicitly opt in. In local Python or Jupyter:
+Analytics is enabled by default after the SDK shows its disclosure in a terminal
+or notebook. New headless installations stay off until disclosure is possible.
+Existing opt-outs remain off. In local Python or Jupyter:
 
 ```python
 import screamingface as sf
 
-sf.analytics.enable()  # Remember consent for this OS user
+sf.analytics.enable()  # Explicitly enable again after opting out
 sf.analytics.status()  # Inspect consent and effective state
 sf.analytics.disable()  # Stop sending and remove the local identifier
 sf.analytics.reset_identifier()  # Start a new identifier without linking it
@@ -1518,15 +1520,20 @@ accepts for this process only when you do not want persistent preferences.
 `sf.analytics.disable(process_only=True)` stops this process without changing the saved choice.
 A truthy `DO_NOT_TRACK` overrides acceptance. Noninteractive use never prompts.
 
-Explicit interactive `sf.connect()` setup shows a nonblocking notice if no choice
-is saved. Continue without choosing to leave analytics off; the notice does not
-wait for input or run during evaluation. Saved choices have no scheduled re-prompt.
+Import, connection setup, and the first evaluation can show the notice, whichever
+can display it first. Terminal scripts qualify when stderr is a terminal; notices
+go to stderr so stdout remains usable for data. Local notebooks show inline text.
+The notice never asks for input and is shown at most once per process. Enrollment
+occurs only after display succeeds. Saved choices have no scheduled re-prompt.
+
+> ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your local-or-hosted engine preference) to help us build a better API. It does not store any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime with `sf.analytics.disable()` (or set `DO_NOT_TRACK=1`).
 
 Preferences live in `~/.screamingface/analytics.json`, or the explicit
 `SCREAMINGFACE_ANALYTICS_CONFIG` path. This is independent of runtime `--data-dir`,
 virtual environments and project directories. Writes are atomic and owner-only;
-unreadable or malformed preferences disable collection. Failed preference writes
-raise an error rather than claiming consent was saved.
+unreadable or malformed preferences disable collection and are never automatically
+replaced. Failed automatic enrollment leaves analytics off without interrupting
+product work. An explicit `enable()` still raises if preferences cannot be saved.
 
 The four events are `evaluation_started`, `evaluation_finished`,
 `submission_started` and `submission_finished`. They contain random installation,
@@ -1560,16 +1567,21 @@ in evaluation, never waits for delivery at shutdown, and may lose events. Consen
 is rechecked before dispatch and retry; already dispatched requests can complete
 after opt-out. There is no durable event spool.
 
-In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in a
-background worker. Unknown consent shows the same nonblocking disclosure. Use
-`sf.analytics.enable()` to accept: it waits up to three seconds for confirmed browser
+In Colab, import or first interactive use starts a consent-only browser bridge in
+a background worker. Unknown consent shows the same inline disclosure, then
+conditionally enables analytics without overriding a saved decline. The first
+evaluation waits up to two seconds for pending setup; asynchronous evaluations keep
+the event loop free during that wait. A timeout lets evaluation proceed untracked
+and invalidates late setup replies. There is no automatic retry or replay of the
+missed operation. Use
+`sf.analytics.enable()` to explicitly enable: it waits up to three seconds for confirmed browser
 consent and a usable ID, then prints `Analytics enabled.` or
 `Couldn't enable analytics; tracking remains off.` It returns `None`, so notebooks show only the confirmation message. Use
 `sf.analytics.status()` for programmatic checks and detailed state. After successful return, the next evaluation
 can be tracked without a separate polling cell. A timed-out acceptance is cancelled
 locally so a late response cannot silently enable tracking.
 
-Automatic setup and event delivery remain nonblocking. `sf.analytics.disable()`
+Import/setup initiation and event delivery remain nonblocking. `sf.analytics.disable()`
 stops local tracking immediately and returns `None`. It prints `Analytics disabled.`
 and, while browser persistence is pending, `Saving your choice in the browser.`
 Use `sf.analytics.status()` to inspect `pending` until acknowledged. Operations begun before consent is
@@ -1594,6 +1606,11 @@ may complete; successful persisted decline prevents subsequent bridge delivery.
 Cookie continuity is per browser profile/Colab partition, not cross-browser identity.
 Safari may show a first-run Colab JavaScript-output warning, also reproduced without
 this bridge. Real Colab background-worker verification remains a release gate.
+
+The service must support `POST /bridge/consent/enroll` before this SDK's default
+Colab enrollment can work. Older services leave new users off; explicit controls
+remain compatible. Enabled preferences alone do not prove events reached reporting.
+Failure diagnostics and automatic recovery are not part of this default change.
 
 There is no identity linking. Events follow PostHog-managed retention under the
 selected plan; ScreamingFace does not promise a fixed raw-event deletion deadline.

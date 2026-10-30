@@ -153,6 +153,8 @@ class Bridge:
     def control(self, request: Request, data: object) -> Response:
         if request.url.path == "/bridge/consent":
             return self.set_consent(data, choice(request))
+        if request.url.path == "/bridge/consent/enroll":
+            return self.enroll(request, data)
         if data != {}:
             raise InvalidPayload("invalid_payload")
         if request.url.path == "/bridge/id/revoke":
@@ -182,6 +184,15 @@ class Bridge:
         if data["choice"] == "declined" or previous != "accepted":
             cookie(response, IDENTITY, "", 0)
         return response
+
+    def enroll(self, request: Request, data: object) -> Response:
+        if data != {"consent_version": "1"}:
+            raise InvalidPayload("invalid_choice")
+        # INVARIANT: a disclosed default never overrides an existing browser choice,
+        # including an unrecognized/stale cookie. Only explicit accept may do that.
+        if CONSENT in request.cookies:
+            return JSONResponse(state(request))
+        return self.set_consent({"choice": "accepted", "consent_version": "1"}, "unknown")
 
 
 def install_bridge(app: FastAPI, settings: Settings, ingestion: Ingestion, events: Handler) -> None:
@@ -243,5 +254,11 @@ def install_bridge(app: FastAPI, settings: Settings, ingestion: Ingestion, event
     async def consent_state(request: Request):
         return secure(JSONResponse(state(request)))
 
-    for path in ("/bridge/consent", "/bridge/id", "/bridge/id/revoke", "/bridge/id/events"):
+    for path in (
+        "/bridge/consent",
+        "/bridge/consent/enroll",
+        "/bridge/id",
+        "/bridge/id/revoke",
+        "/bridge/id/events",
+    ):
         app.add_api_route(path, bridge.handle, methods=["POST"], response_model=None)

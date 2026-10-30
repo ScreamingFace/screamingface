@@ -1,45 +1,95 @@
-"""Nonblocking setup disclosure; never invoked by import, constructors or evaluate."""
+"""Disclose the default before enrollment; headless and explicit opt-outs stay off."""
 
+import asyncio
+import os
 import sys
+import threading
 
+from screamingface._analytics.local import LocalConsentStore, config_path
 from screamingface._analytics.wiring import origin
 
 NOTICE = (
-    "Optional ScreamingFace analytics is off. Share evaluation/submission starts and outcomes, "
-    "coarse timing, SDK version and local/hosted mode using random installation/session IDs. "
-    "No prompts, responses, scores, credentials or email. "
-    "Events follow PostHog-managed retention; no fixed deletion deadline is promised. "
-    "Allow: sf.analytics.enable() · Decline: sf.analytics.disable(). "
-    "Your choice is remembered; continuing without choosing leaves analytics off. "
-    "Opting out or resetting your ID does not delete past events."
+    "ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your "
+    "local-or-hosted engine preference) to help us build a better API. It does not store "
+    "any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime "
+    "with `sf.analytics.disable()` (or set `DO_NOT_TRACK=1`)."
 )
 _shown = False
+_pid = os.getpid()
+_lock = threading.RLock()
 
 
-def _interactive_stdin() -> bool:
-    # WHY: GUI hosts may have no stdin; detached or closed streams cannot be queried.
+def _visible_terminal() -> bool:
     try:
-        return sys.stdin is not None and sys.stdin.isatty()
+        return sys.stderr is not None and sys.stderr.isatty()
     except (AttributeError, OSError, ValueError):
         return False
 
 
-def offer() -> None:
+def show_notice(environment: str) -> None:
+    stream = sys.stderr if environment == "python" else sys.stdout
+    if stream is None:
+        raise OSError("Disclosure output unavailable")
+    print(NOTICE, file=stream, flush=True)
+
+
+def _offer() -> None:
     global _shown
     from screamingface import analytics
 
     if _shown or analytics._disabled():
         return
-    if origin() == "colab":
+    environment = origin()
+    if environment == "colab":
         from screamingface._analytics.colab import bridge
 
+        bridge().control("setup")
         _shown = True
-        bridge().control("state")
+    elif environment == "local_jupyter" or _visible_terminal():
+        store = LocalConsentStore(config_path())
+        if not analytics._session_only and store.missing():
+            show_notice(environment)
+            _shown = True
+            store.enroll(lambda: not analytics._disabled())
+
+
+def offer() -> None:
+    global _pid, _lock
+    if _pid != os.getpid():
+        _pid, _lock = os.getpid(), threading.RLock()
+    try:
+        with _lock:
+            _offer()
+    except (OSError, ValueError, RuntimeError):
+        # WHY: missing output or preferences must never prevent import/product work.
         return
-    if origin() != "local_jupyter" and not _interactive_stdin():
+
+
+def wait_for_setup() -> None:
+    from screamingface import analytics
+
+    if origin() == "colab" and not analytics._disabled():
+        from screamingface._analytics.colab import bridge
+
+        bridge().wait_for_setup()
+
+
+def before_evaluation() -> None:
+    offer()
+    wait_for_setup()
+
+
+async def before_evaluation_async() -> None:
+    from screamingface import analytics
+
+    offer()
+    if origin() != "colab" or analytics._disabled():
         return
-    if analytics.status()["choice"] == "unknown":
-        _shown = True
-        # WHY: no input() or kernel wait. An explicit subsequent choice applies only
-        # to future operations, and a dismissed notice remains off for this process.
-        print(NOTICE)
+    from screamingface._analytics.colab import bridge
+
+    if bridge().setup_pending():
+        # WHY: include executor queue delay without blocking Colab's event loop.
+        try:
+            await asyncio.wait_for(asyncio.to_thread(wait_for_setup), timeout=2)
+        except TimeoutError:
+            bridge().expire_setup()

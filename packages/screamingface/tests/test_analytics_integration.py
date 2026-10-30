@@ -107,7 +107,8 @@ def test_module_wrapper_counts_validation_and_does_not_double_emit(events, monke
 def test_setup_notice_is_nonblocking_and_once_per_process(config=None):
     from screamingface._analytics import prompt
 
-    assert "sf.analytics.enable()" in prompt.NOTICE
+    assert "sf.analytics.disable()" in prompt.NOTICE
+    assert "DO_NOT_TRACK=1" in prompt.NOTICE
 
 
 @pytest.mark.asyncio

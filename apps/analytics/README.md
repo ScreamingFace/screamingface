@@ -202,3 +202,21 @@ redacted. The actual SDK integration and deployed browser tests remain separate.
 Live origin probe on 25 September verified a changing output host across a page
 reload and the Colab top-level ancestor. See the origin-policy spec/work ledger
 for evidence and remaining Chrome/Safari end-to-end acceptance.
+
+## Disclosure-gated SDK enrollment (OME-1768)
+
+The SDK may enable analytics after showing its disclosure. The additive
+`enroll` browser command posts `{"consent_version":"1"}` to
+`/bridge/consent/enroll`. It accepts only when the consent cookie is absent.
+Existing accepted/declined or unrecognized cookies are preserved; no identity
+is minted by enrollment. The SDK requests an ID separately after confirmed acceptance.
+Explicit `accept` remains the only command that can reverse a stored decline.
+
+Deploy this route before the new SDK. Older SDKs retain their explicit opt-in flow;
+new SDKs against older services stay off if enrollment is unavailable. The version-1
+wire shape is unchanged: accepted/consent_granted now permits explicit enable or a
+disclosed default. Existing opt-outs are not migrated to acceptance.
+This amends the opt-in-only policy described in the original implementation notes.
+The existing limitation for browser requests already in flight still applies.
+Source changes are not rollout approval; see
+`docs/spec/2026-10-30-analytics-default.md`.

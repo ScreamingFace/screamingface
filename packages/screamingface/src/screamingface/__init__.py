@@ -93,6 +93,12 @@ from screamingface.warnings import (
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
 
+# FEATURE: enrollment happens only after the disclosure can be displayed.
+from screamingface._analytics.prompt import offer as _offer_analytics
+
+_offer_analytics()
+del _offer_analytics
+
 __all__ = [
     "analytics",
     "__version__",

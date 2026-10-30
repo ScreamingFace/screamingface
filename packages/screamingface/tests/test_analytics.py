@@ -136,9 +136,9 @@ def test_setup_notice_once_without_waiting(config, monkeypatch, capsys):
     monkeypatch.setattr(prompt, "origin", lambda: "local_jupyter")
     prompt.offer()
     prompt.offer()
-    assert capsys.readouterr().out.count("Optional ScreamingFace analytics") == 1
-    assert not config.exists()
-    assert analytics.status()["enabled"] is False
+    assert capsys.readouterr().out.count(prompt.NOTICE) == 1
+    assert config.exists()
+    assert analytics.status()["enabled"] is True
 
 
 def test_colab_is_deferred(config, monkeypatch):
@@ -235,6 +235,6 @@ def test_connect_with_unavailable_stdin(
         assert isinstance(panel, sf.ConnectionPanel)
         assert panel.engine == client.engine_url
         assert panel.connections == ()
-    assert analytics.status()["enabled"] is False
-    assert not config.exists()
+    assert analytics.status()["enabled"] is (environment == "local_jupyter")
+    assert config.exists() is (environment == "local_jupyter")
     assert (prompt.NOTICE in capsys.readouterr().out) == (environment == "local_jupyter")
