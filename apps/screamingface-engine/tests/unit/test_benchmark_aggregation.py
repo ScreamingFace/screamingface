@@ -17,6 +17,8 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult, Failure
 from screamingface_engine.benchmarks.definition import FailurePolicy
+from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
+from screamingface_engine.capture_outcomes import capture_outcomes
 
 # OME-1642: the policy is the finalizer's own axis, so a test of an invariant that holds
 # whatever the policy runs under both; a test of one policy's reduction names that policy.
@@ -186,6 +188,22 @@ def test_a_missing_selected_case_is_retained_and_lowers_coverage(
     assert missing.input == "input 2"
     assert missing.metadata == {"split": "test"}
     assert [failure.code for failure in missing.failures] == ["case_result_missing"]
+
+
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_finalize_notes_each_final_case_in_the_bound_capture_tally(policy: FailurePolicy) -> None:
+    # OME-1775 R1: every final Case result is noted, and a selected Case with no result is failed.
+    with capture_outcomes() as tally:
+        finalize_candidate_result(
+            failure_policy=policy,
+            benchmark_id="benchmark",
+            benchmark_revision="revision",
+            selected_cases=_selected(1, 2, 3),
+            cases=[_scored(1), _failed(2)],
+            scorer=lambda cases: CandidateScore(score=0.5, metrics={}),
+        )
+
+    assert tally.case_results == {"1": True, "2": False, "3": False}
 
 
 @pytest.mark.parametrize("policy", _POLICIES)
@@ -423,3 +441,115 @@ def test_a_text_case_result_payload_is_unchanged_by_the_picture_echo(
     )
 
     assert [case["input"] for case in result.as_payload()["cases"]] == ["input 1", "input 2"]
+
+
+def _failed_with(case_id: int, code: str, metadata: dict[str, str]) -> CaseResult:
+    failure = Failure(
+        stage="candidate",
+        code=code,
+        message="m",
+        retryable=True,
+        case_id=case_id,
+        metadata=metadata,
+    )
+    return _failed(case_id).model_copy(update={"failures": [failure]})
+
+
+@pytest.mark.parametrize(
+    ("code", "metadata", "may_score"),
+    [
+        ("model_token_cap", {}, False),
+        ("aigateway_deadline_exceeded", {}, True),
+        ("provider_execution_timeout", {}, True),
+        ("upstream_error", {"source_code": "timeout"}, True),
+        ("upstream_error", {"source_code": "x.admission_timeout"}, True),
+        ("upstream_error", {"source_code": "quorum_not_met"}, False),
+    ],
+)
+def test_a_case_that_failed_on_time_is_noted_as_one_a_replay_may_score(
+    code: str, metadata: dict[str, str], may_score: bool
+) -> None:
+    # OME-1775 R1 (owner, 2026-10-29): a replay serves stored answers at once, so a Case that
+    # failed because time ran out may score there. R1 must not forgive its unanswered calls.
+    with capture_outcomes() as tally:
+        finalize_candidate_result(
+            failure_policy="withhold",
+            benchmark_id="benchmark",
+            benchmark_revision="revision",
+            selected_cases=_selected(1),
+            cases=[_failed_with(1, code, metadata)],
+            scorer=lambda cases: CandidateScore(score=0.0, metrics={}),
+        )
+
+    assert tally.case_results == {"1": may_score}
+
+
+def _failed_with_source_error(
+    case_id: int, code: str, source_error: dict[str, object]
+) -> CaseResult:
+    failure = Failure(
+        stage="candidate",
+        code=code,
+        message="m",
+        retryable=True,
+        case_id=case_id,
+        metadata={"source_error": source_error},
+    )
+    return _failed(case_id).model_copy(update={"failures": [failure]})
+
+
+@pytest.mark.parametrize(
+    ("code", "source_error", "may_score"),
+    [
+        ("case_error", {"code": "provider_execution_timeout"}, True),
+        ("case_error", {"code": "aigateway_deadline_exceeded"}, True),
+        ("upstream_error", {"code": "upstream_error", "source_code": "timeout"}, True),
+        ("upstream_error", {"code": "upstream_error", "source_code": "x.source_timeout"}, True),
+        ("case_error", {"code": "model_token_cap"}, False),
+        ("upstream_error", {"code": "upstream_error", "source_code": "quorum_not_met"}, False),
+    ],
+)
+def test_a_case_whose_source_error_is_time_based_is_noted_as_one_a_replay_may_score(
+    code: str, source_error: dict[str, object], may_score: bool
+) -> None:
+    # OME-1775 R1 (F1): the shared marking room nests the upstream code under source_error.
+    with capture_outcomes() as tally:
+        finalize_candidate_result(
+            failure_policy="withhold",
+            benchmark_id="benchmark",
+            benchmark_revision="revision",
+            selected_cases=_selected(1),
+            cases=[_failed_with_source_error(1, code, source_error)],
+            scorer=lambda cases: CandidateScore(score=0.0, metrics={}),
+        )
+
+    assert tally.case_results == {"1": may_score}
+
+
+@pytest.mark.parametrize(
+    ("second_code", "second_metadata", "may_score"),
+    [
+        ("upstream_error", {"source_code": "timeout"}, True),
+        ("model_token_cap", {}, False),
+    ],
+)
+def test_a_later_attempt_that_failed_on_time_is_noted_as_one_a_replay_may_score(
+    second_code: str, second_metadata: dict[str, str], may_score: bool
+) -> None:
+    # OME-1775 R1 (F2): the fold keeps only Attempt 1's failures when no Attempt scored.
+    case = fold_case_attempts(
+        [_failed_with(1, "model_token_cap", {}), _failed_with(1, second_code, second_metadata)]
+    )
+    assert [failure.code for failure in case.failures] == ["model_token_cap"]
+
+    with capture_outcomes() as tally:
+        finalize_candidate_result(
+            failure_policy="withhold",
+            benchmark_id="benchmark",
+            benchmark_revision="revision",
+            selected_cases=_selected(1),
+            cases=[case],
+            scorer=lambda cases: CandidateScore(score=0.0, metrics={}),
+        )
+
+    assert tally.case_results == {"1": may_score}

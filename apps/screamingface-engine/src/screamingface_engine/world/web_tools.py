@@ -14,7 +14,7 @@ from typing import Protocol
 
 import httpx
 
-from screamingface_engine.benchmarks.case_context import current_case_key
+from screamingface_engine.benchmarks.case_context import current_capture_case
 from screamingface_engine.capture_outcomes import (
     REPLAY_MISS,
     REPLAY_UNAVAILABLE,
@@ -312,7 +312,7 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
     # the run path binds. Without one, every call would send occurrence 0: it fails loudly instead.
     if tally is None:
         raise RuntimeError("a frozen-copy tool call needs the run's capture tally bound")
-    case_key = current_case_key()
+    case_id, case_key = current_capture_case()
     occurrence = tally.next_occurrence(case_key, "tool", digest)
     if runtime.frozen.replay:
         return await runtime.frozen.lookup(description, case_key, occurrence)
@@ -320,10 +320,22 @@ async def _executed(tool_call: dict, runtime: WebToolRuntime | None) -> str:
         result = await _execute_tool(tool_call, runtime)
     except BaseException:
         # A cancelled or crashed execution gave the model no result and the copy none to store
-        # (D1): partial, and no later call forgives it (Q27).
-        record_capture_outcome(CaptureOutcome("tool", "error", digest))
+        # (D1): it is forgiven only in a failed Case (OME-1775 R1).
+        record_capture_outcome(
+            CaptureOutcome(
+                "tool",
+                "error",
+                digest,
+                case_id=case_id,
+                case_key=case_key,
+                occurrence=occurrence,
+                answered=False,
+            )
+        )
         raise
-    await _capture_result(runtime.frozen, description, digest, result, case_key, occurrence)
+    await _capture_result(
+        runtime.frozen, description, digest, result, case_key, occurrence, case_id
+    )
     return result
 
 
@@ -334,16 +346,36 @@ async def _capture_result(
     result: str,
     case_key: str,
     occurrence: int,
+    case_id: str | None,
 ) -> None:
     """Post one result to the copy and record the outcome. Only a cancellation escapes (D1)."""
     try:
         status = await frozen.store(description, result, case_key, occurrence)
     except BaseException:
         # A cancelled store left no entry the replay could read (D1).
-        record_capture_outcome(CaptureOutcome("tool", "error", digest))
+        record_capture_outcome(
+            CaptureOutcome(
+                "tool",
+                "error",
+                digest,
+                case_id=case_id,
+                case_key=case_key,
+                occurrence=occurrence,
+                answered=False,
+            )
+        )
         raise
+    # The model gets the result, failure strings included, so the call answered (OME-1775 R1).
     record_capture_outcome(
-        CaptureOutcome("tool", "stored" if status == "stored" else "failed", digest)
+        CaptureOutcome(
+            "tool",
+            "stored" if status == "stored" else "failed",
+            digest,
+            case_id=case_id,
+            case_key=case_key,
+            occurrence=occurrence,
+            answered=True,
+        )
     )
 
 

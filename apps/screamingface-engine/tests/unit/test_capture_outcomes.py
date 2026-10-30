@@ -20,6 +20,7 @@ from screamingface_engine.capture_outcomes import (
     capture_outcomes,
     current_capture_tally,
     record_capture_outcome,
+    record_case_results,
 )
 
 _COPY = "6f1c2b0e-4c0a-4d7e-9a53-2f4f0f3a9b11"
@@ -145,4 +146,149 @@ def test_the_tally_is_bound_for_a_scope_and_restored_after_it() -> None:
         assert current_capture_tally() is tally
 
     assert tally.outcomes == [CaptureOutcome("chat", "stored", "a")]
+    assert current_capture_tally() is None
+
+
+# ── OME-1775 (R1, R4): a no-answer outcome in a failed Case does not make the run partial ─────
+
+
+def _outcome(
+    status: Status,
+    *,
+    answered: bool,
+    lane: Lane = "chat",
+    digest: str | None = "a",
+    case_id: str | None = "1",
+    case_key: str = "k",
+    occurrence: int | None = 0,
+) -> CaptureOutcome:
+    return CaptureOutcome(
+        lane=lane,
+        status=status,
+        digest=digest,
+        case_id=case_id,
+        case_key=case_key,
+        occurrence=occurrence,
+        answered=answered,
+    )
+
+
+def _case_tally(*outcomes: CaptureOutcome, case_results: dict[str, bool]) -> CaptureTally:
+    tally = CaptureTally(mode="capture", frozen_copy_id=_COPY, sealed=True)
+    tally.outcomes.extend(outcomes)
+    tally.case_results.update(case_results)
+    return tally
+
+
+def test_an_error_with_no_answer_in_a_failed_case_is_not_partial() -> None:
+    # R1: a cancelled call gave the model no answer, and its Case failed, so a replay fails it too.
+    tally = _case_tally(_outcome("error", answered=False), case_results={"1": False})
+
+    assert tally.status() == "complete"
+    assert "capture.partial.error" not in tally.attributes()
+
+
+@pytest.mark.parametrize("status", ["failed", "refused", "missing"])
+def test_a_non_2xx_outcome_with_no_answer_in_a_failed_case_is_not_partial(status: Status) -> None:
+    tally = _case_tally(_outcome(status, answered=False), case_results={"1": False})
+
+    assert tally.status() == "complete"
+    assert not [key for key in tally.attributes() if key.startswith("capture.partial.")]
+
+
+@pytest.mark.parametrize("status", ["failed", "refused", "missing"])
+def test_a_non_2xx_answer_in_a_failed_case_stays_partial(status: Status) -> None:
+    # R4: a 2xx answer the copy did not store is a replay miss where the capture used an answer.
+    tally = _case_tally(_outcome(status, answered=True), case_results={"1": False})
+
+    assert tally.status() == "partial"
+    assert tally.attributes()[f"capture.partial.{status}"] == 1
+
+
+def test_a_no_answer_outcome_in_a_scored_case_stays_partial() -> None:
+    # R4: the Case scored, so a replay that misses where the capture went on would change it.
+    tally = _case_tally(_outcome("error", answered=False), case_results={"1": True})
+
+    assert tally.status() == "partial"
+    assert tally.attributes()["capture.partial.error"] == 1
+
+
+@pytest.mark.parametrize(
+    ("outcome", "case_results"),
+    [
+        (_outcome("error", answered=False, case_id=None), {"1": False}),
+        (_outcome("error", answered=False), {}),
+    ],
+    ids=["call-names-no-case", "case-not-in-results"],
+)
+def test_a_no_answer_outcome_is_forgiven_only_for_a_case_known_to_have_failed(
+    outcome: CaptureOutcome, case_results: dict[str, bool]
+) -> None:
+    tally = _case_tally(outcome, case_results=case_results)
+
+    assert tally.status() == "partial"
+    assert tally.attributes()["capture.partial.error"] == 1
+
+
+def test_an_ambiguous_outcome_in_a_failed_case_stays_partial() -> None:
+    tally = _case_tally(_outcome("ambiguous", answered=False), case_results={"1": False})
+
+    assert tally.status() == "partial"
+    assert tally.attributes()["capture.partial.ambiguous"] == 1
+
+
+@pytest.mark.parametrize(
+    ("later_digest", "later_case_key", "status"),
+    [
+        ("a", "k", "partial"),
+        ("b", "k", "complete"),
+        ("a", "k2", "complete"),
+    ],
+    ids=["same-request-same-case-key", "other-request", "other-case-key"],
+)
+def test_a_no_answer_outcome_is_not_forgiven_when_a_later_occurrence_of_its_request_answered(
+    later_digest: str, later_case_key: str, status: str
+) -> None:
+    # The retry guard (OME-1775 §4.1): url4 retried the failed call at the next occurrence and
+    # got an answer, which a replay would not reproduce. Another request or key is not the retry.
+    tally = _case_tally(
+        _outcome("error", answered=False, occurrence=0),
+        _outcome(
+            "stored",
+            answered=True,
+            digest=later_digest,
+            case_key=later_case_key,
+            occurrence=1,
+        ),
+        case_results={"1": False},
+    )
+
+    assert tally.status() == status
+
+
+@pytest.mark.parametrize(
+    "results",
+    [[("1", False), ("1", True)], [("1", True), ("1", False)]],
+    ids=["failed-then-scored", "scored-then-failed"],
+)
+def test_a_case_that_scored_for_one_candidate_is_not_failed_for_the_run(
+    results: list[tuple[str, bool]],
+) -> None:
+    # R1 (many Candidates): a run holds one final result per Candidate; a scored Case stays scored.
+    with capture_outcomes() as tally:
+        record_capture_outcome(_outcome("error", answered=False))
+        for case_id, scored in results:
+            record_case_results([(case_id, scored)])
+    tally.mode = "capture"
+    tally.frozen_copy_id = _COPY
+    tally.sealed = True
+
+    assert tally.case_results == {"1": True}
+    assert tally.status() == "partial"
+    assert tally.attributes()["capture.partial.error"] == 1
+
+
+def test_recording_case_results_with_no_tally_bound_is_a_no_op() -> None:
+    record_case_results([("1", True)])
+
     assert current_capture_tally() is None

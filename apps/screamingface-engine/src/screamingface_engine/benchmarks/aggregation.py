@@ -27,8 +27,12 @@ from screamingface_engine.benchmarks.contract import (
 )
 from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.echoed_input import echoed_input
-from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
+from screamingface_engine.benchmarks.failure_classes import (
+    TIME_BASED_CODES,
+    UPSTREAM_FALLBACK_CODE,
+)
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
+from screamingface_engine.capture_outcomes import record_case_results
 from screamingface_engine.error_text import public_identifier, public_message
 from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
@@ -173,6 +177,12 @@ def finalize_candidate_result(
         )
         for selected in selection
     ]
+    # FEATURE: OME-1775 — R1 needs each Case's final result; every final Case result passes here,
+    # once per Candidate. A Case that failed on time (in any Attempt) is noted as one a replay
+    # may score.
+    record_case_results(
+        (case.case_id, case.status == "scored" or _failed_on_time(case)) for case in typed_cases
+    )
 
     scoring_cases = policy_cases(typed_cases, failure_policy)
     scored = scorer(scoring_cases) if scoring_cases is not None else None
@@ -197,6 +207,34 @@ def finalize_candidate_result(
     )
     reconcile_candidate_grading_accounting(result)
     return result
+
+
+def _failed_on_time(case: CaseResult) -> bool:
+    """True when wall time caused a failure of the Case or of one of its Attempts (OME-1775 R1).
+
+    WHY each Attempt: when no Attempt scored, the Attempt fold keeps only Attempt 1's failures on
+    the Case, so a later Attempt's timeout is only in ``case.attempts``.
+    """
+    attempt_failures = [failure for attempt in case.attempts or () for failure in attempt.failures]
+    return any(_time_based(failure) for failure in [*case.failures, *attempt_failures])
+
+
+def _time_based(failure: Failure) -> bool:
+    """True when the failure's code, or an upstream code it carries, is in TIME_BASED_CODES.
+
+    WHY the nested shape: the shared marking room keeps the upstream error under
+    ``metadata["source_error"]`` (its ``code``, and ``source_code`` for a folded url4 code); only
+    the grading stage writes ``source_code`` at the top level of the metadata.
+    """
+    source_error = failure.metadata.get("source_error")
+    nested: Mapping[str, Any] = source_error if isinstance(source_error, Mapping) else {}
+    codes = (
+        failure.code,
+        failure.metadata.get("source_code"),
+        nested.get("code"),
+        nested.get("source_code"),
+    )
+    return any(isinstance(code, str) and code in TIME_BASED_CODES for code in codes)
 
 
 def public_error(

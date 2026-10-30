@@ -12,6 +12,8 @@ A separate module (append-only gate).
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 from frozen_copy_support import (
@@ -31,7 +33,13 @@ from frozen_copy_support import (
     tool_call,
 )
 
-from screamingface_engine.capture_outcomes import CALL_OCCURRENCE_HEADER
+from screamingface_engine.benchmarks.case_context import case_scope
+from screamingface_engine.capture_outcomes import (
+    CALL_OCCURRENCE_HEADER,
+    CaptureTally,
+    case_key_for,
+    current_capture_tally,
+)
 from screamingface_engine.world import connector
 
 
@@ -111,7 +119,9 @@ async def test_capture_mode_sends_the_copy_header_on_every_chat_call_and_records
             "failed",
         ),
         (httpx.Response(400, json={"detail": {"code": "bad"}}), "missing"),
-        (httpx.ConnectError("down"), "ambiguous"),
+        # OME-1775 (owner-approved, D5): a connect failure sent nothing, so it is `error` (R3).
+        (httpx.ConnectError("down"), "error"),
+        (httpx.ReadError("lost"), "ambiguous"),
     ],
     ids=[
         "stored",
@@ -123,6 +133,7 @@ async def test_capture_mode_sends_the_copy_header_on_every_chat_call_and_records
         "error-response-failed",
         "error-response-no-header",
         "transport-failure",
+        "read-failure",
     ],
 )
 async def test_the_capture_header_is_read_from_every_response_including_errors(
@@ -131,6 +142,56 @@ async def test_the_capture_header_is_read_from_every_response_including_errors(
     tally, _answer, _failure = await run_call(Gateway([step]), capture_scope(), web_search=False)
 
     assert [(o.lane, o.status) for o in tally.outcomes] == [("chat", expected)]
+
+
+# ── OME-1775: the answered flag and the Case of a call ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_chat_call_cancelled_before_any_response_records_error_with_its_case() -> None:
+    # R1: the cancelled call gave the model no answer and names its Case. The cancel is raised at
+    # the request, so run_call does not return: the tally is read from the gate, where it is bound.
+    tallies: list[CaptureTally | None] = []
+
+    async def cancel(_request: httpx.Request) -> None:
+        tallies.append(current_capture_tally())
+        raise asyncio.CancelledError()
+
+    gateway = Gateway()
+    gateway.gate = cancel
+    with case_scope(7), pytest.raises(asyncio.CancelledError):
+        await run_call(gateway, capture_scope(), web_search=False)
+
+    (tally,) = tallies
+    assert tally is not None
+    assert [
+        (o.lane, o.status, o.case_id, o.case_key, o.occurrence, o.answered) for o in tally.outcomes
+    ] == [("chat", "error", "7", case_key_for(7, 1), 0, False)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("step", "answered"),
+    [
+        (
+            httpx.Response(
+                500, headers={"X-AIGW-Capture": "failed"}, json={"detail": {"code": "boom"}}
+            ),
+            False,
+        ),
+        (chat(headers={"X-AIGW-Capture": "failed"}), True),
+    ],
+    ids=["error-response", "answered-response"],
+)
+async def test_a_failed_capture_says_whether_the_model_got_an_answer(
+    step: httpx.Response, answered: bool
+) -> None:
+    # R4: a 2xx answer that the copy did not store is a replay miss where the capture used one.
+    tally, _answer, _failure = await run_call(Gateway([step]), capture_scope(), web_search=False)
+
+    assert [(o.lane, o.status, o.answered) for o in tally.outcomes] == [
+        ("chat", "failed", answered)
+    ]
 
 
 # ── Q27: capture states the call's occurrence ──────────────────────────────────────────────
