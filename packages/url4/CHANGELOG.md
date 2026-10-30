@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.0.0](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.1...url4-v2.0.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085))
+
+### Features
+
+* **client:** support fusion quorum and per-member optional policy ([#1340](https://github.com/ScreamingFace/screamingface/issues/1340)) ([5e1d30c](https://github.com/ScreamingFace/screamingface/commit/5e1d30ccbc12e0645c6682777d27f129615c60ac))
+* **engine:** admit runs on queue depth and fair-schedule them per caller ([#821](https://github.com/ScreamingFace/screamingface/issues/821)) ([5263388](https://github.com/ScreamingFace/screamingface/commit/526338880a7eee573685134ba123c34d788b82e2))
+* **engine:** forward image and file input tokens into the run cost ([#1572](https://github.com/ScreamingFace/screamingface/issues/1572)) ([8de39b8](https://github.com/ScreamingFace/screamingface/commit/8de39b882e2631574e294f2639730474bd76c456))
+* **screamingface-engine:** run configured endpoint chat routes privately with one world config ([#1606](https://github.com/ScreamingFace/screamingface/issues/1606)) ([143d4bc](https://github.com/ScreamingFace/screamingface/commit/143d4bcf8ea973fa30b6bda73fc270439f7bb168))
+* standard metadata (cost, latency, tokens) on every cached response ([#930](https://github.com/ScreamingFace/screamingface/issues/930)) ([0d2c00f](https://github.com/ScreamingFace/screamingface/commit/0d2c00f829287b3d8fa1adc8dd380ff3e10b6b06))
+* **url4:** add safe node-scoped structured Log emission ([#877](https://github.com/ScreamingFace/screamingface/issues/877)) ([cfd3eb3](https://github.com/ScreamingFace/screamingface/commit/cfd3eb38de92c7dc9efc3222a5cbd34937a6f988))
+* **url4:** expose a native iteration index ([#1039](https://github.com/ScreamingFace/screamingface/issues/1039)) ([375b680](https://github.com/ScreamingFace/screamingface/commit/375b6803499a6f5d7473f4caeed82684fcbc0715))
+* **url4:** guard source fetches by destination (SSRF), https sources and url4:// peers ([#1521](https://github.com/ScreamingFace/screamingface/issues/1521)) ([506c091](https://github.com/ScreamingFace/screamingface/commit/506c09178da3e222f3615ddf65d16cb6b56cdbe6))
+* **url4:** tell a guarded subtree which retry it runs and why ([571c58a](https://github.com/ScreamingFace/screamingface/commit/571c58a0523b2048460a940593f1f29a894123ca))
+
+
+### Bug Fixes
+
+* **url4, screamingface-engine:** give a hand-built judge retry a fresh reply instead of the cached garbled one (OME-1533) ([8acf81a](https://github.com/ScreamingFace/screamingface/commit/8acf81a023974ff42dc42c0d00d237e9bc7fca2b))
+* **url4:** correct the JobRunner capacity contract ([#815](https://github.com/ScreamingFace/screamingface/issues/815)) ([ead1c84](https://github.com/ScreamingFace/screamingface/commit/ead1c849397930b9345504435411d5366ca07e93))
+* **url4:** refuse source URLs with embedded credentials ([#1605](https://github.com/ScreamingFace/screamingface/issues/1605)) ([a7e5d85](https://github.com/ScreamingFace/screamingface/commit/a7e5d85770d775ab05c5fef4b43d61bd2d5a2d1d))
+* **url4:** source guard follow-ups: DNS fallback, bounded pools, deadline through decoding ([#1555](https://github.com/ScreamingFace/screamingface/issues/1555)) ([ca7738b](https://github.com/ScreamingFace/screamingface/commit/ca7738b160eca80e65b8e5e701cd3dc9cda03e46))
+
+
+### Refactors
+
+* **engine:** one executor for every engine request; remove the node tier ([#1085](https://github.com/ScreamingFace/screamingface/issues/1085)) ([d64d5e9](https://github.com/ScreamingFace/screamingface/commit/d64d5e942b37fab45ce14f95a015ee9a2e44a775))
+* **engine:** remove retired profile carrier ([#1231](https://github.com/ScreamingFace/screamingface/issues/1231)) ([641601f](https://github.com/ScreamingFace/screamingface/commit/641601f37a7c40ea6cf96abda187a565a2108df8))
+
 ## [1.5.1](https://github.com/ScreamingFace/screamingface/compare/url4-v1.5.0...url4-v1.5.1) (2026-08-27)
 
 
