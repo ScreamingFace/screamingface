@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1791",
+  "branch": "tk/runner-config",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-30",
+  "scope": "One test transition in packages/screamingface/tests/test_runtime_benchmark_assets_dir.py: test_restart_keeps_the_recorded_folder_unless_given_a_new_one gains one call to _stub_runtime_extra(monkeypatch) before its existing restart assertions. No assertion, parameter, or expected value changes.",
+  "reason": "PR #1553 makes runtime-extra availability a precondition of restart before runner-world validation and teardown. This benchmark-assets test stubs _up and _down because it verifies only preservation of the selected assets directory; the SDK test environment intentionally has no runtime extra. The added stub supplies the new unrelated precondition so the existing test reaches and preserves its original assertions.",
+  "files": {
+    "packages/screamingface/tests/test_runtime_benchmark_assets_dir.py": {
+      "base_blob": "3306369b3b1e9d28c9fbc578ca40883dafd6efdf",
+      "approved_blob": "9ec6e1ecf2e2b61ed6064e7223728c1cd57a1561"
+    }
+  }
+}
