@@ -11,8 +11,8 @@
       "approved_blob": "c47af064ee20f3f7b945c0f152e40063f7fa18a8"
     },
     "packages/screamingface/tests/test_runtime_cli.py": {
-      "base_blob": "fc13b9681a589ad20de21e18460d44c42385a08d",
-      "approved_blob": "f63d3ed6a1d0ad2a277795649481b61a93b5e10e"
+      "base_blob": "0177a480968428ae801b4864faa5ae2fb68190db",
+      "approved_blob": "997277d9b4a8f277e530c98744676072eeafd706"
     }
   }
 }
