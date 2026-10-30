@@ -16,3 +16,8 @@ valid stored data, change authentication, or add metadata size/depth limits.
 
 No database model or migration changes. Test actual HTTP responses and persistence
 on SQLite and PostgreSQL, including failed edits and same-owner resubmission.
+
+Review follow-up: verify rejected input structurally after strict UTF-8 decoding.
+An invalid Unicode field name is reported by Pydantic at the body root with the
+name itself as input; invalid values in score/unknown fields echo the supplied
+object. A matching escape elsewhere in the response is insufficient evidence.

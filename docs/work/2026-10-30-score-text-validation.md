@@ -68,3 +68,21 @@ its keys omit the backend; otherwise switching SQLite to PostgreSQL reuses SQLit
 placeholders. This is test-only. Free-form metadata remains unsupported by PATCH,
 as on main; its validation runs during submission. Existing bad rows are not
 rewritten. Local database checks used PostgreSQL 15; CI uses PostgreSQL 17.
+
+## Review follow-up — structural error-input assertion
+
+Authorized by Filip on 2026-10-30: improve the existing test in PR #1620.
+
+Plan: replace the serialized substring check with strict UTF-8 decoding and JSON
+parsing, select the error at its expected location, and compare its input to the
+expected object (or the invalid field-name string for Pydantic's body-root error).
+Record the exact authorized test edit for the append-only gate. Verify normal
+SQLite/PostgreSQL cases and demonstrate that losing the echoed input fails the
+new assertion even if the serialized response still contains the surrogate escape.
+Run scoreboard gates before committing. No production behavior changes.
+
+Follow-up outcome: all 75 validation tests passed across SQLite and PostgreSQL.
+A temporary mutation replaced the error input while preserving an unrelated
+surrogate escape: the old substring assertion still passed, and all six targeted
+cases failed on the new input comparison as expected. All scoreboard gates passed
+(lint, formatting, type checks, Python tests/coverage, and portal tests).

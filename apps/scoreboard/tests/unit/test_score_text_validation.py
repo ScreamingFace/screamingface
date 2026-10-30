@@ -143,8 +143,12 @@ def test_validation_error_can_echo_surrogates_outside_the_checked_fields(
     assert response.status_code == 422, response.text
     # WHY: Pydantic reports an invalid Unicode field name at the body root.
     expected_location = ["body"] if field == "\ud800" else ["body", field]
-    assert any(e["loc"] == expected_location for e in response.json()["detail"])
-    assert b"\\ud800" in response.content
+    expected_input = "\ud800" if field == "\ud800" else {"\udfff": "\ud800"}
+    # WHY: strict decoding proves the response is UTF-8; matching parsed input
+    # proves the rejected value survived, rather than an escape appearing elsewhere.
+    detail = json.loads(response.content.decode("utf-8"))["detail"]
+    [error] = [item for item in detail if item["loc"] == expected_location]
+    assert error["input"] == expected_input
 
 
 def test_valid_unicode_and_allowed_metadata_controls_round_trip(text_client: TestClient) -> None:

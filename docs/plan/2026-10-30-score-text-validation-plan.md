@@ -9,3 +9,6 @@ Spec: `docs/spec/2026-10-30-score-text-validation-spec.md`.
    invalid Unicode on the fallback path.
 4. Run targeted tests on both database backends, then full scoreboard gates.
 5. Review the diff, record results, commit and open a linked review PR.
+
+Review follow-up: strengthen the existing error-echo assertion, prove it detects
+lost input with an isolated mutation, run both backends and gates, and update PR #1620.
