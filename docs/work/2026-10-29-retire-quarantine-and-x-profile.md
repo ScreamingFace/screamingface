@@ -66,10 +66,13 @@ Tests under `apps/aigateway/tests/`: new RED tests, plus the prior tests spec §
 3. Sync this ledger, the mirror and the PR body with the census result, then re-run
    `run_gates.py aigateway` and the `needs_postgres` suite.
 4. Merge.
+5. Then #1612 (L10, OME-1780) rebases and adds the operator precondition.
 
-No `DEPLOYMENT.md` edit in this leaf. L10 (#1612, OME-1780) merges after #1614, adds the operator
-precondition, and drops the pre-L4a sentence that a `quarantined` pair answers
-`409 credential_pair_unresolved` (in `DEPLOYMENT.md` and `docs/diagrams/gateway-identity.md`).
+No `DEPLOYMENT.md` or diagram edit in this leaf. Decided (owner, 2026-10-30; spec §4.10 item 5):
+L10 merges after #1614 and removes both pre-L4a sentences that a `quarantined` pair answers
+`409 credential_pair_unresolved`, at `apps/aigateway/DEPLOYMENT.md:210-213` and
+`docs/diagrams/gateway-identity.md:235` (line numbers on #1612's branch). This settles the
+diagram question raised on 2026-10-30.
 
 ## Test plan
 
