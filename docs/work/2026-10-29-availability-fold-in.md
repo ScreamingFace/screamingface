@@ -68,7 +68,7 @@ an ambiguous pair lists `error`, and there is no runtime flag.
   format, pyright, check_no_enterprise, pytest with coverage ≥80; 7416 tests collected). The
   append-only check against `origin/main` flags only
   `test_connection_only_resolve.py:353`, the planned prior-test change; the owner manifest covers
-  it at PR-open. `needs_postgres`: 65 passed. Engine adapter suites
+  it at PR-open. `needs_postgres`: 67 passed. Engine adapter suites
   (`test_connections_aigateway.py`, `test_connections_provider_access_availability.py`): 68
   passed. RED before GREEN: 29 failures, each a `not_connected` where the table expects another
   status or a resolve that did not raise.
@@ -78,3 +78,10 @@ an ambiguous pair lists `error`, and there is no runtime flag.
   row is removed (the Hosted SDK shows `pending` as unavailable). The §5 invariant now says an
   unreadable credential record fails the request with 503. With `AIGW_LIVE=1`, live tests gated on
   `connected` now also run for providers connected natively after the census.
+- **Review fix (2026-10-30):** `availability` read a `migrated` pair's reference before the
+  no-auth guard, which sat only in `_label_status`, so a provider declaring only `none` with a
+  legacy reference to an active row listed `connected` while resolve returned targetless. The
+  guard now runs first in the listing, as in resolve. New test
+  `test_a_no_auth_provider_lists_not_connected_beside_a_migrated_effective_row` (RED:
+  `'connected' == 'not_connected'`). `run_gates.py aigateway --base a7e5d8577`: ALL GATES GREEN;
+  `needs_postgres`: 67 passed.

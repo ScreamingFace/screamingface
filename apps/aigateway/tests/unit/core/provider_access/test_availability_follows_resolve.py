@@ -322,3 +322,28 @@ def test_a_no_auth_provider_lists_not_connected_beside_a_stray_connection(
     _row(h, "ollama")
 
     assert _statuses(h)["ollama"] == "not_connected"
+
+
+def test_a_no_auth_provider_lists_not_connected_beside_a_migrated_effective_row(
+    h: ConnectionBackedHarness,
+) -> None:
+    # INVARIANT (spec §7): the no-auth guard precedes the marker in the listing as in resolve, so a
+    # legacy `migrated` pair whose reference names an active row still lists `not_connected`.
+    connection_id = _row(h, "ollama")
+
+    async def migrate() -> None:
+        current = await PairAuthorityStore().read(h.account_id, "ollama")
+        await PairAuthorityStore().advance(
+            h.account_id,
+            "ollama",
+            expected_generation=current.generation,
+            migration_state="migrated",
+            effective_connection_id=UUID(connection_id),
+        )
+
+    h.call(migrate)
+    plugin = h.client.app.state.providers.get("ollama")
+
+    assert _statuses(h)["ollama"] == "not_connected"
+    target = h.call(h.access.resolve, h.account_id, "ollama", DEFAULT, plugin=plugin)
+    assert target.kind != "stored"

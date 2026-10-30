@@ -329,7 +329,8 @@ class ConnectionBackedProviderAccess:
         # FEATURE: OME-1138 D17 fold-in — a `migrated` pair whose marker names an effective
         # Connection reports that row (A3, OME-1230); every other pair but a `quarantined` one
         # reports its Connections by label (`_label_status`), so a provider connected natively
-        # lists what chat serves. A `quarantined` pair reads `not_connected`, as chat refuses it.
+        # lists what chat serves. A `quarantined` pair reads `not_connected`, as chat refuses it,
+        # and so does a provider declaring only "none", whatever its marker or rows.
         # INVARIANT (OME-1721): a row is a registered provider this account may VIEW. A pair of
         # any other provider, gone from the registry or hidden from this account, is listed with
         # the account's markers and Connections but never read for a status: neither its
@@ -357,10 +358,15 @@ class ConnectionBackedProviderAccess:
         for connection in await oauth_connection_store(self._app).list(account_id):
             rows.setdefault(connection.provider, []).append(connection)
         for provider in statuses:
+            plugin = registry.get(provider)
+            # INVARIANT (spec §7): a provider declaring only "none" resolves targetless before its
+            # marker is read, so neither a legacy reference nor a row of its provider string
+            # stands for it here.
+            if available_auth_modes(plugin) == ("none",):
+                continue
             pair = pairs.get(provider)
             if pair is not None and pair.migration_state == "quarantined":
                 continue
-            plugin = registry.get(provider)
             if pair is not None and _served_by_reference(pair):
                 connection = await self._effective_connection(account_id, pair)
                 statuses[provider] = await operational_availability_status_for(
@@ -381,12 +387,8 @@ class ConnectionBackedProviderAccess:
         # operational status; two or more are refused as ambiguous (409), and `not_connected`
         # would invite connecting yet another (owner Q1, 2026-10-29). With no active row chat is
         # refused, and the status says why: a row still `pending`, else one in `error`.
-        # INVARIANT (spec §7): a provider declaring only "none" resolves targetless before its
-        # marker is read, so a legacy row of its provider string never stands for it here.
         # INVARIANT: no API-key retag — `_repair_api_key_only` writes and stays on resolve.
         """
-        if available_auth_modes(plugin) == ("none",):
-            return "not_connected"
         active = [connection for connection in connections if connection.status == "active"]
         try:
             connection = _select_by_label(provider, active, _DEFAULT)
