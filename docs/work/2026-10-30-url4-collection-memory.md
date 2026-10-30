@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # parent epic will be OME-1314; set to OME-N when the issue is filed at PR-open
+ticket: OME-1792
 stack: url4
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-30
