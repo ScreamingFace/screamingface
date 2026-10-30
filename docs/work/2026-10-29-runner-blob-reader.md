@@ -99,3 +99,12 @@ Base: `origin/OME-1545-engine-attachment-parts` with `origin/OME-1540-blob-store
       publish a terminal frame. Runner behaviour unchanged (call and enter are one `with`).
     - `run_binding` is injected (not imported) so `adapters/inprocess.py` stays an engine-free
       shared leaf; the import crossing sits in `local.py` beside `build_executor`'s.
+
+### Owner decisions (2026-10-30)
+
+- Local mode builds its blob store from the run env, the same way the Runner does. It does not use
+  `app.state.blob_store`. Known caveat, shared with the result spill store: `create_local_app(settings=...)`
+  with an `artifacts_dir` different from the env points the two at different directories.
+- Known gap, deferred: the C8 local node route (`_install_local_node`, the shared-world eval path) does not
+  go through `InProcessJobRunner`, so it binds no blob reader and attachments fail there. Fix it when an
+  eval needs attachments on that path; name the gap in the PR body.
