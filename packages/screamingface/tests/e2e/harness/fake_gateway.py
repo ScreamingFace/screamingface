@@ -277,7 +277,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "upstream_id": exchange.normalized.model.split("/", 1)[-1],
             },
             "context": {
-                "scope": "account_profile",
+                "scope": "account_connection",
                 "auth_mode": "none",
                 "revision": "authored-replay",
                 "execution_access": "configured",

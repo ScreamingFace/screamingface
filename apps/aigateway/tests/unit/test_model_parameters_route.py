@@ -62,7 +62,7 @@ async def test_returns_locked_headers_and_v1_envelope(credential_blobs, authenti
     assert body["model"]["id"] == _MODEL
     assert body["model"]["gateway_provider"] == "anthropic"
     assert body["model"]["upstream_id"] == "claude-opus-4-8"
-    assert body["context"]["scope"] == "account_profile"
+    assert body["context"]["scope"] == "account_connection"
     assert body["context"]["auth_mode"] == "api_key"
     assert body["context"]["revision"].startswith("ctx_")
     for section in ("parameters", "tools", "transport"):

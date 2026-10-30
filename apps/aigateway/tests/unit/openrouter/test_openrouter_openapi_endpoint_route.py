@@ -148,7 +148,7 @@ def test_the_source_revision_and_lifecycle_both_reach_contract_identity() -> Non
             canonical_id=_MODEL,
             gateway_provider="openrouter",
             auth_mode="api_key",
-            scope="account_profile",
+            scope="account_connection",
             context_identity="acct:test|prof:1",
             rules=(),
             observations=(

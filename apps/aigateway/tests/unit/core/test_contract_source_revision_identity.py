@@ -78,7 +78,7 @@ def _document(*, source_revision: str | None) -> dict[str, Any]:
         canonical_id="probe/model-a",
         gateway_provider="probe",
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:a1|prof:p1:authenticated:-",
         rules=(_rule(),),
         observations=(_observation(),),

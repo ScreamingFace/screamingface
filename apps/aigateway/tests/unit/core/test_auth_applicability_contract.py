@@ -267,7 +267,7 @@ def _anthropic_document(auth_mode: AuthType, *, extra_observations: tuple = ()) 
         canonical_id=_ANTHROPIC_MODEL,
         gateway_provider="anthropic",
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:test|prof:1",
         rules=plugin.chat_parameter_rules(model=_ANTHROPIC_MODEL, auth_type=auth_mode),
         observations=(

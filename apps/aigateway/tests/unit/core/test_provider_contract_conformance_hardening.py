@@ -38,7 +38,7 @@ def _served_document(
         canonical_id=canonical,
         gateway_provider=plugin.custom_llm_provider,
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:conformance|prof:1",
         rules=plugin.chat_parameter_rules(model=canonical, auth_type=auth_mode),
         observations=observations,
