@@ -195,6 +195,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1327: the two LAB-Bench picture subsets; the best models now pass 0.83 to 0.89.
         "inspect-lab_bench_figqa": ("withhold", "single_shot", "medium"),
         "inspect-lab_bench_tableqa": ("withhold", "single_shot", "medium"),
+        # OME-1477: MMMU's multiple-choice task, college exams with pictures; the best
+        # lab-reported scores sit inside the human-expert range, so not hard.
+        "inspect-mmmu_multiple_choice": ("withhold", "single_shot", "medium"),
         # OME-1479: MathVista, maths over pictures; the best lab-reported score, 0.903, makes
         # the catalogue say "saturated", but the field (0.80 to 0.90) and the strict exact-match
         # grading keep the tier "medium".

@@ -6757,6 +6757,79 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         scorer_kwargs={"no_answer": "Insufficient information to answer the question."},
     ),
     BenchmarkSpec(
+        key="mmmu_multiple_choice",
+        published_revision="5b008891134ef4c1",
+        title="MMMU (multiple choice)",
+        description=(
+            "847 multiple-choice questions from college exams, quizzes and textbooks across "
+            "30 subjects in six disciplines (art, business, science, health, humanities, "
+            "engineering): the multiple-choice part of MMMU's validation split, since the "
+            "test split's answers are withheld. Imported from inspect_evals. Every question "
+            "comes with one to five pictures (charts, diagrams, maps, photos, sheet music, "
+            "chemical structures), so the Candidate must read images; the pictures are saved "
+            "inside the Case at import and nothing is fetched at run time. The Candidate is "
+            "shown the pictures, then inspect's multiple-choice instruction, the eval's own "
+            "'answer with the option's letter' line and the question with its options "
+            "lettered in the dataset's order, and is graded by inspect's choice scorer "
+            "against the correct letter, so no judge tokens are spent. Benchmark score = "
+            "plain accuracy over the cases run. inspect_evals runs the model at temperature "
+            "0; this benchmark imposes no generation settings. No mid-run check surface "
+            "(elimination attack over few options)."
+        ),
+        focus="College-level questions about pictures across 30 subjects (multiple choice)",
+        dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
+        # College-exam material, but no longer out of reach: the best lab-reported scores
+        # sit inside the human-expert range (0.76 to 0.89), so real headroom, not
+        # expert-only failure (OME-1257).
+        difficulty="medium",
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.mmmu.mmmu:mmmu_multiple_choice.
+        # License: apache-2.0, the MMMU/MMMU card header at the pinned revision (owner
+        #   accepted on OME-1477, 2026-10-28).
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2311.16502",
+        authors="Yue et al., 2023",
+        citation=(
+            "@misc{yue2024mmmumassivemultidisciplinemultimodal,\n"
+            "      title={MMMU: A Massive Multi-discipline Multimodal Understanding and R"
+            "easoning Benchmark for Expert AGI}, \n"
+            "      author={Xiang Yue and Yuansheng Ni and Kai Zhang and Tianyu Zheng and "
+            "Ruoqi Liu and Ge Zhang and Samuel Stevens and Dongfu Jiang and Weiming Ren a"
+            "nd Yuxuan Sun and Cong Wei and Botao Yu and Ruibin Yuan and Renliang Sun and"
+            " Ming Yin and Boyuan Zheng and Zhenzhu Yang and Yibo Liu and Wenhao Huang an"
+            "d Huan Sun and Yu Su and Wenhu Chen},\n"
+            "      year={2024},\n"
+            "      eprint={2311.16502},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CL},\n"
+            "      url={https://arxiv.org/abs/2311.16502}, \n"
+            "}"
+        ),
+        inspect_contributors=("shaheenahmedc",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/mmmu",
+        license="Apache-2.0",
+        # Human baseline: Human Expert (High), the best of the paper's three expert tiers
+        # (Low 0.762, Medium 0.826), accuracy over the whole validation split, the open
+        # questions included; the figure eval.yaml cites.
+        human_baseline=HumanBaseline(score=0.886, source_url="https://mmmu-benchmark.github.io/"),
+        # Frontier score: the vendor's own MMMU figure (validation split), the newest a lab
+        # has published; newer launches report MMMU-Pro, a different question set. Read
+        # from the page itself on 2026-10-28: "84.2% on MMMU", pass@1 with thinking.
+        # NOT like-for-like, for both baselines: they score all 900 validation questions, the
+        # 53 open ones included, while this Benchmark keeps the 847 multiple-choice ones.
+        frontier_score=FrontierScore(
+            score=0.842,
+            model="GPT-5",
+            source_url="https://openai.com/index/introducing-gpt-5/",
+            as_of="2025-08",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=847,
+        scorer="inspect_ai.scorer:choice",
+    ),
+    BenchmarkSpec(
         key="mathvista",
         published_revision="ca4cd0f692d18f0e",
         title="MathVista (testmini)",

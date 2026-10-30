@@ -3,28 +3,28 @@
   "branch": "OME-1479-import-mathvista",
   "approver": "owner, to confirm on the PR (requested in the OME-1479 session)",
   "date": "2026-10-28",
-  "scope": "Prior-test edits for the one new Benchmark mathvista, and nothing else: one table row in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87\u219288 and 70\u219271 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (its revision literal), and test_inspect_imported_benchmarks.py (family mcq, and the seeded set, since the eval shuffles with no seed); one stand-in metadata entry in replayed_cases_helpers.py, because mathvista's solver and scorer read question_type. No existing row or assertion changes. Re-pinned 2026-10-30 after merging main: OME-1755 changed test_benchmark_fingerprints.py's base, the edit itself is the same one row. Also test_aggregate_dataset_warning.py (OME-1757): its command test used the key mathvista as a stand-in, which this PR's real row now owns, so it uses mathvista_stand_in; no assertion changes.",
+  "scope": "Prior-test edits for the one new Benchmark mathvista, and nothing else: one table row in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 87\u219288 and 70\u219271 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (its revision literal), and test_inspect_imported_benchmarks.py (family mcq, and the seeded set, since the eval shuffles with no seed); one stand-in metadata entry in replayed_cases_helpers.py, because mathvista's solver and scorer read question_type. No existing row or assertion changes. Re-pinned 2026-10-30 after merging main: OME-1755 changed test_benchmark_fingerprints.py's base, the edit itself is the same one row. Also test_aggregate_dataset_warning.py (OME-1757): its command test used the key mathvista as a stand-in, which this PR's real row now owns, so it uses mathvista_stand_in; no assertion changes. Re-pinned again 2026-10-30 after merging main with MMMU multiple choice (OME-1477) in: each table now carries both rows, and the row counts in test_failure_policy_rows.py move 88\u219289 and 71\u219272; mathvista's own edits are unchanged.",
   "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as lab_bench_figqa, lab_bench_tableqa and bbh did); the rows are the review act for its declaration, family, policy and revision.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "b8d0329bc612d90c04878922bdfff0cafa6aed4d",
-      "approved_blob": "f32204597337ccdcd42babd121d25ac172247fb3"
+      "base_blob": "b75ad60df8e3bc94c6a2b330f258ed37f8bea0e4",
+      "approved_blob": "1a6e010e76791df4bb95405ce1c5933d2023faaf"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
-      "base_blob": "750d043112f8590a9588b8fcfc7aa2cf9d4271bb",
-      "approved_blob": "a4af612f359b7d53fcb11f669bce61d6c88592cf"
+      "base_blob": "fa4523fde9bf8c8cc4882f7182baed8e606c33f3",
+      "approved_blob": "162a6b8f5ad516ebc06b6f660e85c589d919b023"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
-      "base_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450",
-      "approved_blob": "b335f59b255939d81812c2fd6e65eae892b8d750"
+      "base_blob": "15988f661f6d6ccc2d99a2a32e2b1e3f456938ac",
+      "approved_blob": "15b87b072cda78f4784a1833592f93ce954afc16"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "7d373bb6e49e2a9903814df614bf47c54af70632",
-      "approved_blob": "5c94ead894145fd2f30ed3fff515dabbee3cdde3"
+      "base_blob": "7fec32bb5740a169ad07e93ec9763a74a05cb668",
+      "approved_blob": "de75dd37eaf225f0a0d89e0c0d3e9ba1d8a55474"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac",
-      "approved_blob": "01bed71c6ff6bf24c4c764391f3a69fc0bd18161"
+      "base_blob": "f1bd17badf8ee3aa177aaf55170689227da485f9",
+      "approved_blob": "a8900fcb76669f7d3da9485bcb3e4957c629d54a"
     },
     "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
       "base_blob": "febb1e9f36356a0618d9e62ab4e551a9872605f2",

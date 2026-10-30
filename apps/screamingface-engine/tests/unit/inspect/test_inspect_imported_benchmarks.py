@@ -90,6 +90,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1327: the two picture subsets, the same scorer and family.
     "lab_bench_figqa": "mcq",
     "lab_bench_tableqa": "mcq",
+    # OME-1477: MMMU's multiple-choice task, graded by inspect's choice scorer.
+    "mmmu_multiple_choice": "mcq",
     # OME-1479: MathVista mixes multiple choice with numbers, graded by its own pattern scorer.
     "mathvista": "mcq",
     "frontierscience": "judged",
