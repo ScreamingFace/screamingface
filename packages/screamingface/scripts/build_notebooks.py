@@ -2281,10 +2281,12 @@ sf.connect()"""),
 ## 2. Which picture Benchmarks this Engine serves
 
 The five ids below are the catalogue ids of the five picture Benchmarks. The cell lists the
-ones this Engine serves and names each missing one with its likely reason:
+ones this Engine serves and names each one it can't run with its likely reason:
 
+- the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
+  Engine lists every Benchmark it knows, prepared or not, so these three show in the catalogue
+  on a Mac although it has no Cases for them; the cell skips them before it reads the catalogue;
 - the Engine has no `inspect` extra, so it serves no imported Benchmark at all;
-- the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux;
 - the Benchmark is not merged into this Engine yet.
 
 Everything after this cell runs only for the Benchmarks served, so a missing one is skipped,
@@ -2305,14 +2307,17 @@ served_ids = {benchmark.id for benchmark in catalogue}
 has_inspect_extra = any(benchmark.origin == "inspect_evals" for benchmark in catalogue)
 local_mac = TARGET == "local" and platform.system() == "Darwin"
 
-served = [benchmark_id for benchmark_id in PICTURE_BENCHMARKS if benchmark_id in served_ids]
+served = []
 for benchmark_id in PICTURE_BENCHMARKS:
-    if benchmark_id in served_ids:
+    # The Mac check comes first: a local Engine lists every Benchmark it knows, prepared or
+    # not, so on a Mac these three are in the catalogue with no Cases behind them.
+    if local_mac and benchmark_id in SEALED_ON_LINUX:
+        print(f"skipped  {benchmark_id}: its Case Digest is sealed on Linux, so a Mac has no Cases")
+    elif benchmark_id in served_ids:
+        served.append(benchmark_id)
         print(f"served   {benchmark_id}")
     elif not has_inspect_extra:
         print(f"missing  {benchmark_id}: this Engine has no inspect extra")
-    elif local_mac and benchmark_id in SEALED_ON_LINUX:
-        print(f"missing  {benchmark_id}: its Case Digest is sealed on Linux, so a Mac skips it")
     else:
         print(f"missing  {benchmark_id}: not merged into this Engine yet")"""),
         nbformat.v4.new_markdown_cell("""\
