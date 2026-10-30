@@ -17,7 +17,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
@@ -32,41 +32,41 @@ OLD_KEY = "sk-ant-api03-e5a-old-key-0002"
 
 
 @pytest.fixture
-def h(authenticated_client: Any, credential_blobs: Any, monkeypatch: Any) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def h(authenticated_client: Any, credential_blobs: Any, monkeypatch: Any) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 async def _valid() -> None:
     return None
 
 
-def _put(h: ProfileBackedHarness) -> PairMutation:
+def _put(h: RealAppHarness) -> PairMutation:
     return h.call(set_pair_api_key, h.client.app, h.account_id, PROVIDER, NEW_KEY, validate=_valid)
 
 
-def _address(h: ProfileBackedHarness, name: str | UUID) -> dict[str, str]:
+def _address(h: RealAppHarness, name: str | UUID) -> dict[str, str]:
     return credential_locator_for(CREDENTIAL_PROVIDER, h.account_id, name)
 
 
-def _raw(h: ProfileBackedHarness, locator: dict[str, str]) -> str | None:
+def _raw(h: RealAppHarness, locator: dict[str, str]) -> str | None:
     return h.blobs.read(locator["service"], locator["account"])
 
 
-def _key(h: ProfileBackedHarness, locator: dict[str, str]) -> str | None:
+def _key(h: RealAppHarness, locator: dict[str, str]) -> str | None:
     raw = _raw(h, locator)
     return None if raw is None else json.loads(raw).get("api_key")
 
 
-def _rows(h: ProfileBackedHarness) -> list[OAuthConnection]:
+def _rows(h: RealAppHarness) -> list[OAuthConnection]:
     return h.call(OAuthConnectionStore().list, h.account_id, provider=PROVIDER)
 
 
-def _live(h: ProfileBackedHarness) -> list[OAuthConnection]:
+def _live(h: RealAppHarness) -> list[OAuthConnection]:
     return [row for row in _rows(h) if row.status != "revoked"]
 
 
 def test_a_put_on_an_empty_pair_stores_the_key_at_its_rows_own_address(
-    h: ProfileBackedHarness,
+    h: RealAppHarness,
 ) -> None:
     _put(h)
 
@@ -77,7 +77,7 @@ def test_a_put_on_an_empty_pair_stores_the_key_at_its_rows_own_address(
 
 
 def test_a_put_beside_a_leftover_default_blob_neither_adopts_nor_changes_it(
-    h: ProfileBackedHarness,
+    h: RealAppHarness,
 ) -> None:
     # The shape a `none` pair's DELETE leaves (E4a ledger): a blob at the `default` address that
     # no Connection and no document names — exactly what the purge deletes.
@@ -99,7 +99,7 @@ def test_a_put_beside_a_leftover_default_blob_neither_adopts_nor_changes_it(
 
 
 def test_a_put_on_a_migrated_pair_still_writes_the_blob_its_row_reads(
-    h: ProfileBackedHarness,
+    h: RealAppHarness,
 ) -> None:
     effective = seed_migrated_pair(
         h.client, h.account_id, PROVIDER, name="work", auth_type="api_key", credential=OLD_KEY
@@ -115,7 +115,7 @@ def test_a_put_on_a_migrated_pair_still_writes_the_blob_its_row_reads(
 
 
 def test_the_pending_flow_drop_follows_the_captured_connection_not_a_name(
-    h: ProfileBackedHarness,
+    h: RealAppHarness,
 ) -> None:
     pending_id = uuid4()
     h.call(

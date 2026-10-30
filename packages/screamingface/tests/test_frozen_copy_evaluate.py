@@ -100,18 +100,19 @@ def test_the_client_threads_capture_to_the_transport() -> None:
     assert (result.pinned_cache, result.capture_status) == (COPY, "complete")
 
 
-def test_the_client_captures_by_default() -> None:
+def test_the_client_does_not_capture_by_default() -> None:
     transport = _ReplayTransport()
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
         run_transport=transport,
     ) as client:
-        with pytest.warns(sf.EvaluationWarning, match="did not capture"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", sf.EvaluationWarning)
             client.evaluate(REPLAY_URL4, progress=False)
 
     assert transport.candidate is not None
-    assert transport.candidate.capture is True
+    assert transport.candidate.capture is False
     assert transport.candidate.replay_frozen_copy is None
 
 
@@ -243,7 +244,7 @@ def test_module_level_evaluate_forwards_capture_on_both_branches(
     assert [kwargs["capture"] for _, kwargs in fake.calls] == [capture, capture]
 
 
-def test_module_level_evaluate_captures_by_default(
+def test_module_level_evaluate_does_not_capture_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _RecordingDefaultClient()
@@ -252,7 +253,7 @@ def test_module_level_evaluate_captures_by_default(
     sf.evaluate(REPLAY_URL4)
     sf.evaluate(sf.Model("provider/opus"), benchmark="draco")
 
-    assert [kwargs["capture"] for _, kwargs in fake.calls] == [True, True]
+    assert [kwargs["capture"] for _, kwargs in fake.calls] == [False, False]
 
 
 # --- a capture the Engine did not make ------------------------------------------------------------

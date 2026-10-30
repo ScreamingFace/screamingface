@@ -46,7 +46,7 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.55" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.30.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.30.0" },
-    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic", specifier = ">=2.10" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pyjwt", specifier = "==2.13.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },

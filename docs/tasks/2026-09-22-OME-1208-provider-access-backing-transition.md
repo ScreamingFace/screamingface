@@ -1,17 +1,22 @@
 ---
 id: OME-1208
 linear_url: https://linear.app/openmined/issue/OME-1208/aigateway-migrate-provider-access-backing-from-profiles-toward
-status: in_progress   # design PR #23 merged 2026-09-22; app implementation S1 in the unit worktree
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 blocked_by: [OME-1207, OME-1210]
 created: 2026-09-15
-closed:
+closed: 2026-09-23
 ---
 
 # AIGateway: migrate provider-access backing from Profiles toward Connections
+
+> **Closed 2026-09-23 — historical record.** Merged as PR #1029 (`7cff8a569`). The Stage B
+> backfill this unit added has been applied, and `OME-1759` (OME-1138 Stage E, E5c) deleted
+> `python -m aigateway.migrate_profiles` together with `backfill_classify.py` and
+> `backfill_apply.py`. The commands below no longer exist; do not run them.
 
 Stage B of `OME-1138` (plan units S1, S2', S4). Behind the existing provider-access boundary the
 backing moves from the legacy Profile to canonical Connections for every safely migrated

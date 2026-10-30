@@ -12,7 +12,7 @@ INVARIANT under test: target identity, the target name, the account, and any his
 are absent from the key. Transport-only fields such as
 ``timeout`` are dispatched but do not key.
 
-AIDEV-NOTE: the trap this file guards is pinned by
+INVARIANT: the trap this file guards is pinned by
 ``test_a_default_target_that_cannot_authenticate_still_gets_a_hit``: the credential target is never
 resolved before the cache, because that helper raises 404/409/401 and those raises would
 preempt a cache hit — destroying the inversion OME-305 exists for. Stage C (OME-1323) removed
@@ -31,12 +31,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.request_cache import RequestCacheWrite
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from tests.unit.migrated_pair_seed import disconnect_migrated_pair, seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 _CHAT_PATH = "/v1/chat/completions"
 _MODEL = "anthropic/claude-haiku-4-5"
@@ -62,11 +61,10 @@ def _token_blob() -> str:
 
 
 def _seed_credential(credential_blobs, account_id: str, *, name: str) -> None:
-    """Give a profile NAME a dispatchable credential.
+    """Give a target NAME a dispatchable credential.
 
-    WHY keyed on ``credential_name_for(account_id, name)``: once the profile exists in
-    the index, ``_credential_target_for_chat`` resolves the PROFILE (not a connection),
-    and injection reads the per-profile credential under that name. A miss has to
+    WHY keyed on ``credential_name_for(account_id, name)``: the pair's effective Connection
+    sits at that name address, and injection reads the credential stored there. A miss has to
     reach a real dispatch for these tests to observe the body that was sent.
     """
     credential_blobs.write(
@@ -78,29 +76,11 @@ def _seed_credential(credential_blobs, account_id: str, *, name: str) -> None:
 
 def _seed_profile(
     client: TestClient,
-    credential_blobs,
     account_id: str,
     *,
     name: str,
-    defaults: ProfileDefaults,
-    state: ProfileState = ProfileState.AUTHENTICATED,
+    state: SeedState = SeedState.AUTHENTICATED,
 ) -> None:
-    async def _upsert() -> None:
-        idx = ProfileIndexStore(credential_store=credential_blobs.store)
-        await idx.upsert(
-            Profile(
-                id=profile_id_for(account_id, "anthropic", name),
-                account_id=account_id,
-                provider="anthropic",
-                name=name,
-                state=state,
-                defaults=defaults,
-            )
-        )
-
-    import asyncio
-
-    asyncio.run(_upsert())
     # WHY: since OME-1209 E4a the pair's Connection is the target; re-seeding moves its status.
     seed_migrated_pair(client, account_id, "anthropic", name=name, state=state)
 
@@ -195,13 +175,13 @@ def _system_contents(body: dict[str, Any]) -> list[str]:
     "state",
     [
         None,
-        ProfileState.PENDING,
-        ProfileState.ERROR,
+        SeedState.PENDING,
+        SeedState.ERROR,
     ],
     ids=["absent", "pending", "errored"],
 )
 def test_a_default_target_that_cannot_authenticate_still_gets_a_hit(
-    credential_blobs, cache_client, state: ProfileState | None
+    credential_blobs, cache_client, state: SeedState | None
 ) -> None:
     """REGRESSION GUARD: the credential target is never resolved before the cache.
 
@@ -216,34 +196,16 @@ def test_a_default_target_that_cannot_authenticate_still_gets_a_hit(
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed_credential(credential_blobs, account_id, name="default")
-    _seed_profile(
-        cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults()
-    )
+    _seed_profile(cache_client, account_id, name="default")
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
     with patch(_PATCH_TARGET, new=dispatch):
         filled = _post(cache_client, _bare_body())
         if state is None:
-
-            async def _remove_default() -> None:
-                await ProfileIndexStore(credential_store=credential_blobs.store).remove(
-                    profile_id_for(account_id, "anthropic", "default")
-                )
-
-            portal = cache_client.portal
-            assert portal is not None
-            portal.call(_remove_default)
             disconnect_migrated_pair(cache_client, account_id, "anthropic")
         else:
-            _seed_profile(
-                cache_client,
-                credential_blobs,
-                account_id,
-                name="default",
-                defaults=ProfileDefaults(),
-                state=state,
-            )
+            _seed_profile(cache_client, account_id, name="default", state=state)
         served = _post(cache_client, _bare_body())
 
     assert filled.headers["X-AIGW-Cache"] == "miss"
@@ -271,9 +233,7 @@ def test_a_caller_timeout_changes_no_key_and_causes_no_bypass(
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed_credential(credential_blobs, account_id, name="default")
-    _seed_profile(
-        cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults()
-    )
+    _seed_profile(cache_client, account_id, name="default")
     store = _install(cache_client, _Store())
     dispatch = _Dispatch()
 
@@ -298,9 +258,7 @@ def test_a_caller_timeout_still_reaches_the_provider_on_a_miss(
     """
     account_id = cache_client.get("/v1/auth/me").json()["id"]
     _seed_credential(credential_blobs, account_id, name="default")
-    _seed_profile(
-        cache_client, credential_blobs, account_id, name="default", defaults=ProfileDefaults()
-    )
+    _seed_profile(cache_client, account_id, name="default")
     _install(cache_client, _Store())
     dispatch = _Dispatch()
 

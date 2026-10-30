@@ -6,8 +6,6 @@
 # Stage E, E4a deleted the Profile-backed one without touching a route.
 # INVARIANT (hexagonal): core defines the port; nothing in this package imports a route or a
 # plugin. THIS module is the public surface — import from here, never from a half.
-# WHY the backfill is not re-exported (OME-1209 E4b): it reads the legacy Profile index, which is
-# offline-only until E5, so importing the app must not load it; the CLI imports its modules.
 """
 
 from __future__ import annotations

@@ -20,6 +20,7 @@ from typing import Any
 
 from ..auth_types import AuthMode
 from ..credential_blob import DispatchObservation, OperationalOutcome
+from ..endpoint_access import EndpointOperation, permits
 from ..oauth.models import OAuthConnection
 from .auth_mode import (
     allows_chatless,
@@ -31,7 +32,6 @@ from .auth_mode import (
 from .connection_authority import (
     MigratedBacking,
     authorize_migrated,
-    availability_status_for,
     begin_dispatch_migrated,
     migrated_target,
     operational_availability_status_for,
@@ -230,7 +230,7 @@ class ConnectionBackedProviderAccess:
     async def _repair_api_key_only(
         self, plugin: Any, connection: OAuthConnection
     ) -> OAuthConnection:
-        auth_type = auth_type_of(None, connection)
+        auth_type = auth_type_of(connection)
         modes = available_auth_modes(plugin)
         if auth_type != "oauth" or "oauth" in modes or "api_key" not in modes:
             return connection
@@ -307,22 +307,32 @@ class ConnectionBackedProviderAccess:
         # WHY every other pair is `not_connected`: D17 keeps Connections out of the listing until
         # its flagged change, so an unmarked, `none` or `quarantined` pair reads as a
         # Connection-only account always has. A registered provider with no pair is listed too.
+        # INVARIANT (OME-1721): a row is a registered provider this account may VIEW. A pair of
+        # any other provider, gone from the registry or hidden from this account, is skipped
+        # before its Connection or credential state is read, so it can neither show up nor fail
+        # the listing. The pair itself stays stored.
         # INVARIANT: no secret read, no refresh, no mutation; rows carry provider and status
         # ONLY, sorted by provider for a stable listing.
         """
         registry = getattr(self._app.state, "providers", None)
-        statuses: dict[str, AvailabilityStatus] = {}
-        if registry is not None:
-            statuses = {plugin.custom_llm_provider: "not_connected" for plugin in registry.all()}
+        if registry is None:
+            return ()
+        statuses: dict[str, AvailabilityStatus] = {
+            plugin.custom_llm_provider: "not_connected"
+            for plugin in registry.all()
+            if permits(
+                self._app,
+                plugin.custom_llm_provider,
+                account_id=account_id,
+                operation=EndpointOperation.VIEW,
+            )
+        }
         for pair in await self._markers.list(account_id):
-            if pair.migration_state != "migrated":
+            if pair.migration_state != "migrated" or pair.provider not in statuses:
                 continue
             connection = await self._effective_connection(account_id, pair)
-            plugin = None if registry is None else registry.get(pair.provider)
-            statuses[pair.provider] = (
-                availability_status_for(connection)
-                if plugin is None
-                else await operational_availability_status_for(self._app, connection, plugin=plugin)
+            statuses[pair.provider] = await operational_availability_status_for(
+                self._app, connection, plugin=registry.get(pair.provider)
             )
         return tuple(AvailabilityRow(provider, statuses[provider]) for provider in sorted(statuses))
 

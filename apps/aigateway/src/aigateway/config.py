@@ -10,6 +10,22 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 AuthMode = Literal["jwt", "cloudflare_headers", "disabled"]
 
+# FEATURE (OME-1756): the room one frozen-copy entry keeps for the recorded response, on top of the
+# request cap. An entry is the request (the body after the `cache` control is popped) plus the
+# response the caller received, both re-serialised as compact JSON, where a base64 picture counts
+# once, byte for byte.
+# WHY 2 MiB: twice the 1,000,000 B response bound of the local and remote-endpoint transports and
+# the request cache; a chat answer is text, so even a very long one is well under it.
+# LIMITATION: this fits every picture Case we run (MMMU's largest is 3.78 MB), not every call the
+# gateway accepts. Two kinds of call are answered but their capture reports `failed`:
+#   1. a cloud-provider response over 2 MiB: only the local and remote-endpoint transports bound a
+#      response; cloud providers have no byte bound (a 3 MiB answer to an 8 MiB - 4 KiB picture
+#      request was not stored);
+#   2. a request that grows when re-serialised: the request cap counts wire bytes, the entry counts
+#      the re-serialised JSON, and Python writes the exponent float `1e9` as `1000000000.0`, so a
+#      body packed with such numbers went from 3,400,175 B on the wire to 11,050,175 B stored.
+FROZEN_COPY_RESPONSE_HEADROOM_BYTES = 2 * 1024 * 1024
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -161,17 +177,27 @@ class Settings(BaseSettings):
         default=None, validation_alias="AIGW_REMOTE_ENDPOINTS_CONFIG"
     )
 
-    # FEATURE: OME-1307 — one frozen-copy entry (request plus response JSON) is at most this many
-    # bytes. A larger one is not stored; the capture is reported as `failed` (design F3).
-    frozen_copy_max_entry_bytes: int = Field(
-        default=2_000_000, gt=0, validation_alias="AIGW_FROZEN_COPY_MAX_ENTRY_BYTES"
-    )
-
     # FEATURE (OME-1542): the request body cap, app-wide, on the bytes actually delivered. 8 MiB
     # because MMMU's largest Case is 3.78 MB with its pictures inline (Khoa, OME-1542); HLE and
     # MathVista are not measured yet, so the headroom is a guess. Over it: 413 naming the limit.
     max_request_bytes: int = Field(
         default=8 * 1024 * 1024, gt=0, validation_alias="AIGW_MAX_REQUEST_BYTES"
+    )
+
+    # FEATURE: OME-1307 — one frozen-copy entry (request plus response JSON) is at most this many
+    # bytes. A larger one is not stored; the capture is reported as `failed` (design F3).
+    # INVARIANT (OME-1756): by default the cap is the request cap plus the response headroom (10 MiB
+    # with the 8 MiB request cap), so a call fits unless its response is over 2 MiB or its request
+    # grows when re-serialised (the two exceptions listed at `FROZEN_COPY_RESPONSE_HEADROOM_BYTES`;
+    # both still answer the caller). It is computed from the validated request cap, so raising
+    # `AIGW_MAX_REQUEST_BYTES` raises it too; declared after `max_request_bytes` because the
+    # factory reads that field. An explicit `AIGW_FROZEN_COPY_MAX_ENTRY_BYTES` still wins.
+    frozen_copy_max_entry_bytes: int = Field(
+        default_factory=lambda fields: (
+            fields["max_request_bytes"] + FROZEN_COPY_RESPONSE_HEADROOM_BYTES
+        ),
+        gt=0,
+        validation_alias="AIGW_FROZEN_COPY_MAX_ENTRY_BYTES",
     )
 
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by

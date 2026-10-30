@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.candidate_input import (
     parse_candidate_input,
 )
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
+from screamingface_engine.benchmarks.picture_admission import register_model_sight
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -107,7 +108,7 @@ from screamingface_engine.world.web_tools import (
     tavily_key,
     truncate_tool_result,
 )
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink
@@ -563,6 +564,12 @@ async def build_aigateway_world(
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
+    register_model_sight(
+        node,
+        _GatewayModelSight(
+            http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
+        ),
+    )
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -628,6 +635,61 @@ def _gateway_client(node: object) -> httpx.AsyncClient | None:
     return _GATEWAY_CLIENTS.get(node) if isinstance(node, Url4Node) else None
 
 
+_MODEL_LIST_PATH = "/v1/models"
+_MODEL_LIST_UNREADABLE = (
+    "the gateway's model list could not be read, so this picture run cannot check that its "
+    "models take images; nothing was sent to a model"
+)
+
+
+class _GatewayModelSight:
+    """Read each declared model's input types from aigateway's ``/v1/models``, as the caller.
+
+    FEATURE (OME-1548): the `ModelSightReader` a picture Benchmark's Cases route asks before any
+    paid call (`benchmarks/picture_admission.py`). Read once per picture run, never cached: the
+    list is per caller, and one local node serves many callers' runs.
+
+    INVARIANT (trust): sent with the run's own identity headers, as its chat calls are, so a caller
+    is checked against the models the gateway lists for THEM.
+    """
+
+    __slots__ = ("_client", "_routes")
+
+    def __init__(self, client: httpx.AsyncClient, routes: Mapping[str, str]) -> None:
+        self._client = client
+        self._routes = routes
+
+    def model_routes(self) -> Mapping[str, str]:
+        """The world's declared model routes (``"/" + route id``), each to its gateway id."""
+        return self._routes
+
+    async def input_modalities(self) -> Mapping[str, Sequence[str]]:
+        """Each listed model's input types, keyed by gateway id; retryable when unreadable."""
+        try:
+            response = await self._client.get(_MODEL_LIST_PATH, headers=_headers(current_scope()))
+            response.raise_for_status()
+            body: object = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            # WHY retryable (owner, 2026-10-28): nothing was spent, and a later run may find the
+            # gateway answering. The error type only, never a body (the open_frozen_copy rule).
+            logger.warning("model list read failed error=%s", type(exc).__name__)
+            raise ResolutionError(
+                _MODEL_LIST_UNREADABLE, code=ErrorCode.RESOLUTION_FAILED, permanent=False
+            ) from exc
+        rows: object = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(rows, list):
+            raise ResolutionError(
+                _MODEL_LIST_UNREADABLE, code=ErrorCode.RESOLUTION_FAILED, permanent=False
+            )
+        modalities: dict[str, tuple[str, ...]] = {}
+        for row in rows:
+            model_id: object = row.get("id") if isinstance(row, dict) else None
+            listed: object = row.get("input_modalities") if isinstance(row, dict) else None
+            if isinstance(model_id, str) and isinstance(listed, list):
+                modalities[model_id] = tuple(value for value in listed if isinstance(value, str))
+        return modalities
+
+
 def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
     """Report how one model round trip ended — whether the gateway served it from its response
     cache, and what that hit avoided — onto the currently-resolving node's span.
@@ -676,6 +738,29 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
+_MAX_TOKEN_COUNT = 2**53 - 1
+"""The gateway's own bound on a token count (`aigateway.core.usage_modalities`)."""
+
+
+def _image_and_file_tokens(usage: object) -> int | None:
+    """The image/file subset of the prompt, as aigateway states it, or `None` for unknown.
+
+    FEATURE: image/file token accounting (OME-1744). aigateway writes it at
+    `usage.prompt_tokens_details.image_and_file_tokens` — under `usage`, NOT under `_aigw` — so this
+    reads `usage` even when `_aigw` is authoritative for every other class.
+
+    INVARIANT: anything that is not a bounded non-negative int is unknown (`None`), never 0 — unlike
+    `_token_count`, whose zero fallback predates any wire spelling of "unknown". A known 0 passes
+    through: the provider broke the input down and it held no media.
+    """
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    value = details.get("image_and_file_tokens") if isinstance(details, dict) else None
+    # WHY `type(...) is int`: bool is an int subclass, and `True` is not a token count.
+    if type(value) is not int or not 0 <= value <= _MAX_TOKEN_COUNT:
+        return None
+    return value
+
+
 def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
     """Report a cache hit: zero tokens consumed, and priced at zero.
 
@@ -718,6 +803,9 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
         cache_creation_tokens=0,
         reasoning_tokens=0,
         cost_usd=_hit_cost(call),
+        # WHY unknown and not the zero its siblings get (owner decision, OME-1744): the stored
+        # body's breakdown is the ORIGINAL call's, so a hit makes no claim about this class.
+        image_and_file_tokens=None,
     )
 
 
@@ -778,6 +866,7 @@ def _report_usage(
         # the successful request's own cost is unknown (R3), and for an older gateway's non-complete
         # status (`usd_from_aigw`).
         cost_usd=None if call is None else call.cost_usd,
+        image_and_file_tokens=_image_and_file_tokens(reported),
     )
 
 

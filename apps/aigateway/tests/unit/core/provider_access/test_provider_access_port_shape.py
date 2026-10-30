@@ -172,7 +172,7 @@ class _ApiKeyOnlyPlugin:
 
 
 def test_the_mode_operations_answer_through_the_port(harness: Harness) -> None:
-    harness.seed_profile()
+    harness.seed_credential()
     target = harness.call(
         harness.access.resolve,
         harness.account_id,

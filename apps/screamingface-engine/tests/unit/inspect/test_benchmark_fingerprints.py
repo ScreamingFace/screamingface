@@ -53,6 +53,12 @@ _FINGERPRINTS: dict[str, str] = {
     "healthbench-worst30": "f12c3e30661ea9d3",
     "healthbench-professional": "44ddda05be338699",
     "ifeval": "ada07458a23c55ab",
+    # OME-1755: the judge reads the Sample's own question; each Case's Grading Material keeps
+    # it, so the Case Digest moved while every Case input and the published id stayed (owner
+    # decision 2026-10-28, no leaderboard scores on them yet).
+    "xstest_safe": "141b1d86dc202e60",
+    "xstest_unsafe": "306cf7e61c72c919",
+    "uccb": "2dbcedb55406dc6e",
     # OME-1610: every other Benchmark, at the fingerprint main computes (2026-10-22), which is
     # also the id it publishes: no change since its id was last set.
     "gsm8k": "075954bfd63059e0",
@@ -82,8 +88,6 @@ _FINGERPRINTS: dict[str, str] = {
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",
-    "xstest_safe": "1044036b2049e623",
-    "xstest_unsafe": "fad9dd3ebabd84a5",
     "agieval_lsat_ar": "13fe1a6267102769",
     "agieval_lsat_lr": "dbaf28cfdc818528",
     "agieval_lsat_rc": "7e36f14f4aec1e60",
@@ -125,7 +129,6 @@ _FINGERPRINTS: dict[str, str] = {
     "simpleqa_verified": "f2b42ba095cade8e",
     "fortress_benign": "b04be10a93356ccd",
     "strong_reject": "6794ed308fafe0a6",
-    "uccb": "022fa23a5e823aa7",
     "air_bench": "b5d90afe0f368dab",
     "truthfulqa_mc1": "a4ea7f621bf1640c",
     "stereoset": "c2bf158bee6d5f8b",

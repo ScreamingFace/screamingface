@@ -61,6 +61,7 @@ from screamingface_engine_inspect.importer import (
     ScorerFacts,
     WholeRunMetricChoice,
     _custom_metrics,
+    _grades_with_a_judge,
     _hub_dataset_info,
     _scorer_facts,
     _solver_list,
@@ -124,6 +125,9 @@ class TaskReplayFacts:
     #: Headline-scorer arguments that are module-level functions, as dotted references
     #: (OME-1602, PR 6); empty on every other import.
     scorer_function_kwargs: dict[str, str] = field(default_factory=dict)
+    #: The row is written judged, so each Case keeps its Sample input for the judge
+    #: (OME-1755); decided here from the scorer, never by a flag.
+    keep_sample_input: bool = False
 
 
 @dataclass(frozen=True)
@@ -329,6 +333,11 @@ def _facts_of(
         epoch_reducer=epoch_reducer,
         judge_role=scorers.judge_role,
         scorer_function_kwargs=scorers.scorer_function_kwargs,
+        # WHY (OME-1755): the judge quotes the Sample's input, and the kept copy sits inside
+        # the Case Digest, so it is decided here with the rule that writes the row judged.
+        keep_sample_input=_grades_with_a_judge(
+            scorers.scorer, scorers.scorer_kwargs, scorers.judge_role
+        ),
         multiple_correct=any(
             registry_params(solver).get("multiple_correct") is True
             for solver in _multiple_choice_solvers(task)
@@ -425,6 +434,7 @@ def _replay_in_this_process(request_path: Path, result_path: Path) -> None:
         case_digest=UNSEALED_DIGEST,
         task_args=task_args,
         keep_sample_metadata=facts.keep_sample_metadata,
+        keep_sample_input=facts.keep_sample_input,
         has_answer_key=request["has_answer_key"],
         empty_answer_key_allowed=request["empty_answer_key_allowed"],
         letter_list_key=request.get("letter_list_key", False),
@@ -568,6 +578,7 @@ def import_by_task_replay(
         case_set_digest=case_set_digest(first.prepared),
         task_args=dict(task_args) if task_args else None,
         keep_sample_metadata=first.facts.keep_sample_metadata,
+        keep_sample_input=first.facts.keep_sample_input,
         has_answer_key=has_answer_key,
         empty_answer_key_allowed=empty_answer_key_allowed,
         letter_list_key=letter_list_key,

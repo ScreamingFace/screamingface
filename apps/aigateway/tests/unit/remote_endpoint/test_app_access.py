@@ -3,8 +3,9 @@
 # FEATURE: hosted BYOM Unit 0 — every entry point that can reach an endpoint (admin attach, self
 # attach/replace, standalone validate, chat) asks the access policy first, for the account the
 # operation is FOR; disconnects never ask, so a revoked or disabled pair can still be removed.
-# INVARIANT: a denied endpoint answers exactly like a provider that does not exist, so a tenant
-# cannot learn which private endpoints are configured.
+# INVARIANT: a denied endpoint answers these entry points exactly like a provider that does not
+# exist, so they add no signal of their own. It hides the endpoint from the working catalog, not
+# its existence: the community cache shares endpoint IDs and answers on purpose.
 """
 
 from __future__ import annotations

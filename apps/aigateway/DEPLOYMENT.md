@@ -266,13 +266,12 @@ decide who may ask. Review those before enabling the cache — there is no gatew
 narrows who a hit may be served to.
 
 **A caller needs no provider credential, and a hit reads no credential data at all.** A hit reads
-no provider API key and no OAuth token, makes no provider request, and does not read the caller's
-profile index: the key is built from the request body alone.
+no provider API key and no OAuth token and makes no provider request: the key is built from the
+request body alone.
 
-So a caller with no profile configured for this provider is served from cache normally, and so is
-a caller whose profile is still pending authorization or already errored, because the lookup runs
-before any credential is resolved. An unreadable profile index no longer stands the cache down;
-on a miss the same fault can still fail credential resolution, exactly as before.
+So a caller with no Connection for this provider is served from cache normally, and so is a caller
+whose Connection is still pending authorization or already errored, because the lookup runs before
+any credential is resolved.
 
 What survives is the part that matters for access control: **a principal who has never configured a
 usable provider credential is still served responses another account paid for.** Treat this as a
@@ -285,9 +284,8 @@ nothing at all. It matters most in `cloudflare_headers` mode, where an unrecogni
 The cached response is plaintext compact JSON in `response_json`. Reading it does not resolve a
 secret provider, validate an encryption canary or decrypt the response body.
 
-The caller's profile index is still a credential blob (`aigateway:index`) and remains encrypted under
-the credential master key. A hit does not read it, never reads the selected provider API key or OAuth
-token, and never dispatches to the provider.
+A hit never reads the selected provider API key or OAuth token, and never dispatches to the
+provider.
 
 ### A hit replays the first caller's credential *type*, not only their answer
 

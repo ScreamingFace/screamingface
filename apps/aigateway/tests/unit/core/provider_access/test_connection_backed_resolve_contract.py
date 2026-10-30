@@ -51,7 +51,7 @@ def test_every_contract_test_is_re_run_or_named_here() -> None:
 
 
 def test_an_authenticated_default_resolves_to_the_effective_connection(harness: Harness) -> None:
-    harness.seed_profile()
+    harness.seed_credential()
 
     target = harness.call(
         harness.access.resolve, harness.account_id, PROVIDER, contract.DEFAULT, plugin=ANTHROPIC
@@ -69,7 +69,7 @@ def test_an_authenticated_default_resolves_to_the_effective_connection(harness: 
 def test_a_migrated_api_key_target_names_its_effective_connection(
     harness: ConnectionBackedHarness,
 ) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential="sk-1")
+    harness.seed_credential(name="work", auth_type="api_key", credential="sk-1")
 
     target = harness.call(
         harness.access.resolve, harness.account_id, PROVIDER, contract.WORK, plugin=ANTHROPIC

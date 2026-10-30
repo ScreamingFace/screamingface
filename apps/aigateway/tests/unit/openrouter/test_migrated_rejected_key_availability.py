@@ -21,15 +21,13 @@ import pytest
 from litellm.exceptions import AuthenticationError
 
 from aigateway.core.credential_blob.model import CredentialBlob
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
     credential_locator_for,
 )
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
@@ -57,7 +55,7 @@ def _account(client: Any) -> str:
 def _migrated_profile_slot(
     client: Any, *, status: str = "active", effective: bool = True
 ) -> str | None:
-    """A legacy api-key Profile, then the backfill's `profile_only` migration onto its blob."""
+    """A legacy Profile's api-key blob, then the backfill's `profile_only` migration onto it."""
     account_id = _account(client)
 
     async def migrate() -> str | None:
@@ -68,17 +66,6 @@ def _migrated_profile_slot(
             f"aigateway:{PROVIDER}:{credential_name_for(account_id, 'default')}",
             "default",
             json.dumps({"auth_type": "api_key", "api_key": KEY}),
-        )
-        index = ProfileIndexStore(credential_store=client.app.state.credential_store)
-        await index.upsert(
-            Profile(
-                id=profile_id_for(account_id, PROVIDER, "default"),
-                account_id=account_id,
-                provider=PROVIDER,
-                name="default",
-                state=ProfileState.AUTHENTICATED,
-                auth_type="api_key",
-            )
         )
         store = OAuthConnectionStore()
         connection: OAuthConnection = await store.create_pending(

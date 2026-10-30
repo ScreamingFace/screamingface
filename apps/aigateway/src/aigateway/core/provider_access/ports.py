@@ -75,7 +75,8 @@ class ProviderAccess(Protocol):
         """Op 6 — the caller-scoped listing (D17): provider and status only.
 
         No secret read, no refresh, no mutation. Operational evidence for an effective migrated
-        Connection may project `needs_reauth` without changing its lifecycle status.
+        Connection may project `needs_reauth` without changing its lifecycle status. Rows are the
+        registered providers the caller may view; no other provider's pair is read.
         """
         ...
 

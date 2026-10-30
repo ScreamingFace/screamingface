@@ -22,7 +22,6 @@ from provider_access_harness import (
 
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     CredentialTarget,
     ResolvePolicy,
@@ -33,6 +32,7 @@ from aigateway.core.provider_access import (
     TargetPending,
     TargetReauthRequired,
 )
+from tests.unit.seed_state import SeedState
 
 DEFAULT = Selector.from_header(None)
 WORK = Selector.from_header("work")
@@ -145,7 +145,7 @@ def test_a_provider_with_an_ambient_credential_yields_the_ambient_kind(harness: 
 
 
 def test_an_authenticated_default_resolves_to_a_stored_target(harness: Harness) -> None:
-    harness.seed_profile()
+    harness.seed_credential()
 
     target = _resolve(harness, DEFAULT)
 
@@ -159,7 +159,7 @@ def test_an_authenticated_default_resolves_to_a_stored_target(harness: Harness) 
 
 
 def test_an_api_key_profile_carries_the_api_key_reauth_url(harness: Harness) -> None:
-    harness.seed_profile(name="work", auth_type="api_key", credential="sk-1")
+    harness.seed_credential(name="work", auth_type="api_key", credential="sk-1")
 
     target = _resolve(harness, WORK)
 
@@ -168,7 +168,7 @@ def test_an_api_key_profile_carries_the_api_key_reauth_url(harness: Harness) -> 
 
 
 def test_a_pending_profile_is_refused_as_pending(harness: Harness) -> None:
-    harness.seed_profile(state=ProfileState.PENDING, credential=None)
+    harness.seed_credential(state=SeedState.PENDING, credential=None)
 
     with pytest.raises(TargetPending) as info:
         _resolve(harness, DEFAULT)
@@ -179,7 +179,7 @@ def test_a_pending_profile_is_refused_as_pending(harness: Harness) -> None:
 def test_an_errored_profile_is_refused_with_the_legacy_reauth_url(harness: Harness) -> None:
     """The resolve-time 401 names the Connection list even for an api-key profile: the target is
     unknown before resolve succeeds."""
-    harness.seed_profile(name="work", state=ProfileState.ERROR, auth_type="api_key")
+    harness.seed_credential(name="work", state=SeedState.ERROR, auth_type="api_key")
 
     with pytest.raises(TargetReauthRequired) as info:
         _resolve(harness, WORK)
@@ -190,7 +190,7 @@ def test_an_errored_profile_is_refused_with_the_legacy_reauth_url(harness: Harne
 
 
 def test_a_profile_wins_over_an_active_connection(harness: Harness) -> None:
-    harness.seed_profile()
+    harness.seed_credential()
     harness.seed_connection(label="work")
 
     target = _resolve(harness, DEFAULT)
@@ -267,7 +267,7 @@ def test_an_api_key_connection_reauths_through_its_own_replace_route(harness: Ha
 
 
 def _assert_never_retargets(harness: Harness) -> None:
-    harness.seed_profile()
+    harness.seed_credential()
     with pytest.raises((TargetMissing, SelectorUnknown)):
         _resolve(harness, Selector.from_header("nope"))
 

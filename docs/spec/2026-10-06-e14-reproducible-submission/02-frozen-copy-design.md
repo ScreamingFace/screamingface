@@ -11,8 +11,8 @@ disagree, this file wins.
 
 ## 1. Summary
 
-A run **captures** by default: `sf.evaluate(...)` has `capture=True` unless the caller passes
-`capture=False` (Q22). The engine then opens a
+A run **captures** only when the caller asks: `sf.evaluate(..., capture=True)` (Q22, reversed by
+Q31: capture is off by default). The engine then opens a
 **frozen copy** in the AI Gateway, and the gateway stores every chat request and its response in that
 copy, whether the answer came from the cache or from a live call. The engine also stores every
 web-tool result it feeds to the model. At the end of the run the engine **seals** the copy.
@@ -50,6 +50,7 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q28 | Provenance (review item 6) | At seal the engine sends its version. The gateway stores it on the copy. Upgrade-safe replay is a follow-up. |
 | Q29 | Per-case exact (review item 3) | The SDK computes a case digest from the graded cases. The board stores it at submit and compares it on reproduction. |
 | Q30 | Tavily retrieval cache (found in the review) | The cache key includes the caller's account. Cross-account sharing stops until the engine has a service identity. |
+| Q31 | Capture default (2026-10-29) | Reverses Q22. Capture is off by default; it is on only when the caller passes `capture=True`. |
 
 ## 3. Data model (AI Gateway, new)
 
@@ -86,8 +87,14 @@ Core module `aigateway.core.frozen_copy` (registered in the Tortoise model list)
 Invariants:
 - **F1.** Rows are insert-only. A sealed copy accepts no insert.
 - **F2.** Copies and rows are kept forever (Q15). No list endpoint returns stored requests.
-- **F3.** One entry is at most `frozen_copy_max_entry_bytes` (new setting, default 2,000,000 bytes, request
-  plus response JSON). A larger one is not stored and is reported as `failed`.
+- **F3.** One entry is at most `frozen_copy_max_entry_bytes` (request plus response JSON). Its default is
+  `max_request_bytes` plus a 2 MiB response headroom, 10 MiB with the 8 MiB request cap (OME-1756; it was
+  2,000,000 bytes, which refused picture Cases). That fits every picture Case we run (MMMU's largest is
+  3.78 MB), with two exceptions: a provider response over the 2 MiB headroom (the local and remote-endpoint
+  transports cap a response at 1,000,000 bytes; cloud providers have no byte bound), and a request that grows
+  when re-serialised (the request cap counts wire bytes, the entry counts re-serialised JSON, and Python
+  writes `1e9` as `1000000000.0`: a body of such numbers measured 3,400,175 bytes on the wire and 11,050,175
+  bytes stored). A larger entry is not stored and is reported as `failed`; the call still answers the caller.
 
 ## 4. AI Gateway behaviour
 
@@ -255,8 +262,8 @@ The engine sends the same key in capture and in replay, so both runs name each c
 
 ## 7. SDK behaviour
 
-- `evaluate(..., capture: bool = True)` (sync, async, module level). Capture is on by default (Q22).
-  `True` sends `X-Capture: true`. `capture=False` sends no header. `sf.reproduce` never sends
+- `evaluate(..., capture: bool = False)` (sync, async, module level). Capture is off by default
+  (Q31). `True` sends `X-Capture: true`. `False` (the default) sends no header. `sf.reproduce` never sends
   `X-Capture`.
 - `CandidateResult.frozen_copy_id` and `capture_status` (from the run summary; absent → `None`).
 - `CandidateResult.capture_partial_reasons: tuple[str, ...]`: the `capture.partial.<reason>` names with a

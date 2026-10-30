@@ -41,7 +41,7 @@ from screamingface.warnings import EvaluationWarning
 
 
 def _warn_if_not_captured(report: Report) -> None:
-    """Tell the caller of a capturing run (the default) about each uncaptured Candidate.
+    """Tell the caller of a capturing run (`capture=True`) about each uncaptured Candidate.
 
     FEATURE (OME-1307): an Engine that ignores `X-Capture` runs the Candidate normally, and its
     summary has no `capture.status`. The result keeps `frozen_copy_id` and `capture_status` as

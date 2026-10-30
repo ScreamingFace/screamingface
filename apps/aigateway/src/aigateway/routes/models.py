@@ -1,16 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.endpoint_access import EndpointOperation, permits
 from ..core.model_capabilities import model_row
 from ..core.parameter_discovery import DiscoveryError
 
 router = APIRouter()
 
+# WHY private: a configured endpoint is listed only to the accounts granted it, so the rows
+# differ per caller and no shared cache may keep them.
+_PRIVATE_CACHE_HEADERS: dict[str, str] = {
+    "Cache-Control": "private, no-store",
+    "Vary": "Authorization",
+}
+
 
 @router.get("/v1/models")
-async def list_models(request: Request, _current: CurrentAccount) -> dict:
+async def list_models(request: Request, response: Response, current: CurrentAccount) -> dict:
     """OpenAI-compatible model listing, aggregated from all loaded provider plugins.
 
     Each row carries the OME-479 locked hybrid summary (canonical dispatchable
@@ -27,9 +35,19 @@ async def list_models(request: Request, _current: CurrentAccount) -> dict:
     registry = request.app.state.providers
     catalog = request.app.state.model_catalog
     runtime = request.app.state.discovery_runtime
+    account_id = str(current.id)
+
+    def visible(provider: str) -> bool:
+        return permits(
+            request.app, provider, account_id=account_id, operation=EndpointOperation.VIEW
+        )
+
+    response.headers.update(_PRIVATE_CACHE_HEADERS)
     data: list[dict] = []
     seen: set[str] = set()
     for plugin in registry.all():
+        if not visible(plugin.custom_llm_provider):
+            continue
         entries = None
         if catalog is not None and runtime is not None:
             try:
@@ -55,8 +73,9 @@ async def list_models(request: Request, _current: CurrentAccount) -> dict:
     # arrive from a live snapshot (OME-972), so the join deduplicates on the
     # canonical id instead of assuming disjoint sources.
     for model_id, entry in request.app.state.admitted_models.items():
-        plugin = registry.get(model_id.split("/", 1)[0])
-        if plugin is not None and model_id not in seen:
+        provider = model_id.split("/", 1)[0]
+        plugin = registry.get(provider)
+        if plugin is not None and model_id not in seen and visible(provider):
             seen.add(model_id)
             data.append(model_row(plugin, entry))
     return {"object": "list", "data": data}

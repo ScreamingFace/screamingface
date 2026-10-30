@@ -16,6 +16,7 @@ from screamingface._default_client import (
     connect,
     disconnect,
     evaluate,
+    fetch_media,
 )
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
@@ -42,6 +43,7 @@ from screamingface.errors import (
     EngineUnavailableError,
     ExecutionError,
     LeaderboardError,
+    MediaUnavailableError,
     PlanningError,
     ProviderConnectionError,
     ReproductionError,
@@ -60,6 +62,7 @@ from screamingface.leaderboard import (
     LeaderboardScore,
     ScoreMetadataEvent,
 )
+from screamingface.media import CaseMedia, FetchedMedia
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
@@ -100,6 +103,7 @@ __all__ = [
     "Benchmark",
     "BenchmarkInfo",
     "CaseGrade",
+    "CaseMedia",
     "CaseResult",
     "CandidateResult",
     "Check",
@@ -124,8 +128,10 @@ __all__ = [
     "Extract",
     "EvaluationWarning",
     "evaluate",
+    "fetch_media",
     "samples",
     "Failure",
+    "FetchedMedia",
     "FieldRule",
     "Filter",
     "FixedSeedSittingWarning",
@@ -139,6 +145,7 @@ __all__ = [
     "LeaderboardRankingNotice",
     "LeaderboardScore",
     "matches",
+    "MediaUnavailableError",
     "MemberResult",
     "Median",
     "Merge",
