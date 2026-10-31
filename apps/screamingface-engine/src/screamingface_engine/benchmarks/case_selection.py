@@ -4,6 +4,7 @@ import json
 from collections.abc import Awaitable, Callable
 
 from screamingface_engine.benchmarks.picture_admission import refuse_blind_models
+from screamingface_engine.process_memory import log_process_memory
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -30,6 +31,10 @@ def cases_handler(
             raise ResolutionError(
                 "Invalid benchmark case selection", code="benchmark_contract_error", permanent=True
             ) from exc
+        # FEATURE (memory diagnostics, OME-1314): the one shared point every Benchmark's Cases
+        # pass through, loaded and parsed — what the run holds here is the Cases' cost. Only
+        # the COUNT is logged, never a row.
+        log_process_memory("cases_loaded", cases=len(rows))
         # FEATURE (OME-1548): the Cases route runs once, before any Candidate call, so it is the
         # last point where a picture run can still refuse a blind model with nothing spent.
         # WHY every row, not rows[:count]: a picture anywhere makes it a picture Benchmark.

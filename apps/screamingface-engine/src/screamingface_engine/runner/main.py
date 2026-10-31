@@ -35,6 +35,7 @@ from screamingface_engine.client_provenance import (
 from screamingface_engine.evidence_retention import subject_retained
 from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
+from screamingface_engine.process_memory import log_process_memory
 from screamingface_engine.request_scope import RequestScope
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
@@ -621,6 +622,9 @@ async def _run_and_log(
     """
 
     started = time.monotonic()
+    # FEATURE (memory diagnostics, OME-1314): the process baseline before any work, and what it
+    # holds at the end — inside `run_scope`, so both lines carry the run's topic and trace id.
+    log_process_memory("run_start")
     try:
         await run(
             publisher,
@@ -633,6 +637,7 @@ async def _run_and_log(
         )
     finally:
         _log_terminal(executor, params.topic, started)
+        log_process_memory("run_end")
 
 
 @dataclass(frozen=True)
