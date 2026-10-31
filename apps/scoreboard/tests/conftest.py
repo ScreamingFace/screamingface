@@ -11,9 +11,10 @@ import asyncpg  # type: ignore[import-untyped]
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from tortoise.contrib.test import tortoise_test_context
+from tortoise.context import TortoiseContext
 
 from scoreboard.config import Settings
+from scoreboard.db import build_tortoise_config
 from scoreboard.main import create_app
 
 
@@ -70,15 +71,20 @@ def postgres_schema_database_url() -> Generator[str, None, None]:
         asyncio.run(_drop_schema())
 
 
-@pytest_asyncio.fixture
-async def tortoise_db(request: pytest.FixtureRequest) -> AsyncGenerator[None, None]:
-    database_url = "sqlite://:memory:"
+@pytest.fixture
+def tortoise_database_url(request: pytest.FixtureRequest) -> str:
+    # WHY: schema setup/teardown uses asyncio.run for synchronous callers. Resolve
+    # it before pytest enters the async ORM fixture's event loop (OME-430).
     if os.getenv("SCOREBOARD_TEST_DATABASE_URL"):
-        database_url = request.getfixturevalue("postgres_schema_database_url")
+        return request.getfixturevalue("postgres_schema_database_url")
+    return "sqlite://:memory:"
 
-    async with tortoise_test_context(
-        modules=["scoreboard.scores.models"],
-        db_url=database_url,
-        app_label="models",
-    ):
+
+@pytest_asyncio.fixture
+async def tortoise_db(tortoise_database_url: str) -> AsyncGenerator[None, None]:
+    # WHY: tortoise_test_context creates a database. We already own an isolated
+    # schema in the supplied database; no database-creation permission is needed.
+    async with TortoiseContext() as context:
+        await context.init(config=build_tortoise_config(tortoise_database_url))
+        await context.generate_schemas(safe=False)
         yield

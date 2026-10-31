@@ -117,11 +117,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.80
 
-  # WHY a separate job rather than an env var on `test`: setting
-  # SCOREBOARD_TEST_DATABASE_URL routes the shared `tortoise_db` fixture through
-  # `postgres_schema_database_url`, which calls `asyncio.run()` inside a running loop and
-  # errors out 260 tests before any body runs (OME-430). The modules below open their own
-  # connections and do not touch that fixture, so they are the part that can run today.
+  # WHY a separate job: keep the default SQLite suite, and explicitly run
+  # PostgreSQL-specific races, connection behavior, and migration coverage here.
+  # The shared ORM fixture now supports this backend (OME-430).
   #
   # AIDEV-NOTE: the modules are NAMED, deliberately — same reasoning as the portal JS step.
   # `pytest tests/unit/scores/` would also drag the SQLite suite in here, and a glob that
@@ -172,6 +170,9 @@ jobs:
             tests/unit/scores/test_read_snapshot_postgres.py \
             tests/unit/test_delete_scores_postgres.py \
             tests/unit/test_readyz_pool_postgres.py \
+            tests/unit/test_postgres_fixture_migrations.py \
+            tests/unit/scores/test_store.py::test_postgres_concurrent_idempotency_submissions_share_winner \
+            tests/unit/scores/test_store.py::test_postgres_concurrent_identical_recipe_submissions_share_winner \
             -v
 
   cost:
