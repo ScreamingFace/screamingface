@@ -12,7 +12,10 @@ produced; the dataset owner's gating or drift cannot change a published benchmar
 
 Emits, per benchmark::
 
-    <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees
+    <out>/board.json         {"schema", "case_count", "has_pictures", "cases_bytes"}
+    <out>/cases.offsets      (offset, length) of each cases.json row, 16 bytes per Case
+    <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees; written
+                             last (the completion marker), after its index (OME-1790)
     <out>/targets/<id>.json  {"target": ..., "choices": [...]?} — private; read by the
                              aggregate (the scorer adapter's grading material) and the
                              draft-feedback offer
@@ -44,6 +47,13 @@ from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from screamingface_engine.benchmarks.board_store import (
+    BOARD_FILE,
+    CASES_FILE,
+    OFFSETS_FILE,
+    BoardFiles,
+    encode_board,
+)
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 
 if TYPE_CHECKING:
@@ -2368,10 +2378,12 @@ def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
             json.dumps(item["grading_material"], ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8",
         )
-    (out / "cases.json").write_text(
-        json.dumps([item["case"] for item in prepared], ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
+    board: BoardFiles = encode_board([item["case"] for item in prepared])
+    # INVARIANT (OME-1790): the index goes down before cases.json, the completion marker, so a
+    # bundle that has cases.json has the index that matches it. cases.json bytes are unchanged.
+    (out / BOARD_FILE).write_bytes(board.board)
+    (out / OFFSETS_FILE).write_bytes(board.offsets)
+    (out / CASES_FILE).write_bytes(board.cases)
 
 
 def _available_hf_token() -> str | None:

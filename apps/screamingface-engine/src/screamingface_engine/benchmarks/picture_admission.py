@@ -177,7 +177,24 @@ def text_only_models(
 
 
 async def refuse_blind_models(node: Url4Node, rows: Sequence[Mapping[str, object]]) -> None:
-    """Stages 1-4: fail the run when a picture Benchmark's Candidate has a model that can't see.
+    """Stages 1-4 over the Cases themselves: a picture anywhere in ``rows`` needs sight.
+
+    Raises:
+        ResolutionError: ``intent_error`` (permanent), naming each model; or the reader's own
+            retryable error when the model list cannot be read.
+    """
+
+    # Stage 1 first, so a run with nothing to check never scans the rows.
+    if _RUN_EXPRESSION.get() is None or _READERS.get(node) is None:
+        return
+    await refuse_blind_candidate(node, needs_pictures=cases_need_pictures(rows))
+
+
+async def refuse_blind_candidate(node: Url4Node, *, needs_pictures: bool) -> None:
+    """Stages 1-4 with stage 2 already answered: ``needs_pictures`` is the Benchmark's flag.
+
+    FEATURE (OME-1790): an Imported Board records ``has_pictures`` in ``board.json`` at build
+    time, so its Cases route admits a run without reading any row.
 
     Raises:
         ResolutionError: ``intent_error`` (permanent), naming each model; or the reader's own
@@ -190,7 +207,7 @@ async def refuse_blind_models(node: Url4Node, rows: Sequence[Mapping[str, object
     if url4 is None or reader is None:
         return
     # Stage 2 — a text Benchmark stops here, before any gateway call.
-    if not cases_need_pictures(rows):
+    if not needs_pictures:
         return
     # Stage 3 — the Candidate's models.
     model_ids: Mapping[str, str] = reader.model_routes()
@@ -218,6 +235,7 @@ __all__ = [
     "ModelSightReader",
     "candidate_model_routes",
     "cases_need_pictures",
+    "refuse_blind_candidate",
     "refuse_blind_models",
     "register_model_sight",
     "run_expression_scope",
