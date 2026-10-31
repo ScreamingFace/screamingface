@@ -1,9 +1,9 @@
 ---
 ticket: OME-1230
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-09-18
-finished:
+finished: 2026-09-21
 ---
 
 # OME-1230 — Add the provider-credential admin interface and reduce the Profile management routes to shells
@@ -220,6 +220,8 @@ RED first, in this order (each fails against `main` for the right reason before 
   `feat(aigateway): put the Profile management routes behind the provider-credential admin boundary`
   (`Refs: OME-1230`), authorized by the owner on 2026-09-18 as commit-only after the code stage
   authorization; push and PR await separate authorization; sha recorded in the close comment.
+- **Merge:** squash-merged to `main` on 2026-09-21 as `a78d58da1` (#992). Linear closed OME-1230
+  Done the same day.
 - **Gates** (worktree base `479c1b07`, 2026-09-18):
   - RED first: the four new suites failed on `ImportError: CredentialStoreUnavailable` before any code.
   - `uv run .claude/scripts/run_gates.py aigateway --base 479c1b07` — append-only check **RED** on

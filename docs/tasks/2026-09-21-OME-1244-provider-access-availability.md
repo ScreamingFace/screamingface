@@ -1,13 +1,13 @@
 ---
 id: OME-1244
 linear_url: https://linear.app/openmined/issue/OME-1244/publish-the-backing-neutral-availability-listing
-status: in_progress   # code stage authorized 2026-09-21 after design PR #22 merged
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-09-21
-closed:
+closed: 2026-09-21
 ---
 
 # Publish the backing-neutral availability listing
@@ -47,3 +47,5 @@ Plan: `docs/plan/2026-09-09-OME-1138-converge-connections.md` §2 U4, §3 A4.
   (full `needs_postgres` set green once PostgreSQL 16 client tools are on PATH); Python 3.12 leg
   25 passed. Ledger Outcome filled. **Gate:** Needs Owner — authorization to stage the exact paths,
   commit, push and open the PR.
+- 2026-09-21: squash-merged to `main` as `2da458968` (PR #1006). Linear closed the issue Done the
+  same day.

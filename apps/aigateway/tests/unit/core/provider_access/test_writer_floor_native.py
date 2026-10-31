@@ -2,8 +2,8 @@
 
 # FEATURE: OME-1138 D18, G0 (contract §5.3, owner decision 2026-10-06) — native API-key create,
 # key replacement, delete, OAuth start and OAuth callback are ownership changes: on a `none` or
-# `quarantined` pair each claims the generation it observed, keeps the state (no auto-promotion,
-# D14) and loses with the native 409 `connection_conflict` when another ownership change won.
+# unmarked pair each claims the generation it observed, keeps the state (no auto-promotion, D14)
+# and loses with the native 409 `connection_conflict` when another ownership change won.
 # INVARIANT: native create captures before its key validation (network I/O); key replacement
 # captures after it, as the migrated paths do — a change during that validation is
 # last-writer-wins, a change after the capture loses.
@@ -127,7 +127,7 @@ def test_a_native_key_create_claims_an_unmarked_pair_and_keeps_it_legacy_owned(
     assert created.status_code == 201, created.text
     pair = marker(legacy)
     assert (pair.migration_state, pair.generation) == ("none", 1)
-    assert (pair.effective_connection_id, pair.migration_note) == (None, None)
+    assert pair.effective_connection_id is None
     assert _api_key_at(legacy, created.json()["id"]) == KEY
 
 

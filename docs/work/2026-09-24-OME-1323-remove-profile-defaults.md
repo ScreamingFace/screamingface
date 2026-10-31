@@ -1,9 +1,9 @@
 ---
 ticket: OME-1323
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-09-24
-finished:
+finished: 2026-09-25
 ---
 
 # OME-1323 — AIGateway: remove saved Profile defaults while preserving global cache keys
@@ -260,6 +260,8 @@ response DTO listings.
   been checked here; that check precedes enabling the refusal on dev.
 - **Commit:** this ledger ships in the single authorised commit
   `feat(aigateway): remove saved profile defaults` (`Refs: OME-1323`).
+- **Merge:** squash-merged to `main` on 2026-09-25 as `e8c7d2622` (#1061). Linear closed OME-1323
+  Done the same day.
 - **Gates** (re-run 2026-09-24 after the review fix, on the working tree over `a1719014`):
   - `run_gates.py aigateway --skip-append-only`: ALL GATES GREEN — `ruff check`, `ruff format
     --check`, `pyright` (0 errors), `check_no_enterprise.py`, `pytest --cov=aigateway

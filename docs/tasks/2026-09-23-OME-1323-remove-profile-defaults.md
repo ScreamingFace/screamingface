@@ -1,14 +1,14 @@
 ---
 id: OME-1323
 linear_url: https://linear.app/openmined/issue/OME-1323/aigateway-remove-saved-profile-defaults-while-preserving-global-cache
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 blocked_by: [OME-1322]
 created: 2026-09-23
-closed:
+closed: 2026-09-25
 ---
 
 # AIGateway: remove saved Profile defaults while preserving global cache keys
@@ -30,3 +30,4 @@ Spec: `docs/spec/2026-09-09-OME-1138-converge-connections.md` §3.7/§5. Plan: `
 - 2026-09-24: third review. The Admin UI's generated `schema.d.ts` is regenerated from this change's OpenAPI. The five writer request models lose `defaults`, and the `GET /v1/provider-access` types that A4 never generated are folded in, on the owner's choice. The UI gates are green (238 tests). Spec §3.5 now names the writers' `defaults` refusal as the one deliberate Profile-route change in the window.
 - 2026-09-24: fourth review, against the task prompt, in four lanes with each finding re-checked. A non-JSON body nested too deeply to parse made every writer answer 500; the refusal now also catches `RecursionError`, and N11 pins the ordinary 422 (RED ×10 before the fix). `apps/aigateway/DEPLOYMENT.md` now describes the Stage C cache behaviour: the key covers the caller's body, a hit reads no profile index, and an unreadable index no longer bypasses the cache. One code comment now uses the anchor vocabulary, and spec §3.9's chat row gives the path from C. Chat path, cache invariants, the writers, the test map and scope were confirmed.
 - 2026-09-24: final review clarified that the global key combines the caller body with the provider's declared projection rather than treating the pre-cache body as the literal upstream request. N11 passes for all writers (49 tests in the file), the complete AIGateway gate is green, and the change set is authorised for one atomic commit and PR.
+- 2026-09-25: squash-merged to `main` as `e8c7d2622` (PR #1061). Linear closed the issue Done the same day.

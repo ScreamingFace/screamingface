@@ -36,7 +36,7 @@ _CONTRACT = {
         "gateway_provider": "openrouter",
         "upstream_id": "openai/gpt-5.5",
     },
-    "context": {"scope": "account_profile", "auth_mode": "api_key"},
+    "context": {"scope": "account_connection", "auth_mode": "api_key"},
     "parameters": {
         "temperature": {
             "request_path": "temperature",

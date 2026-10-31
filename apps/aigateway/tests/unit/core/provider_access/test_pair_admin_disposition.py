@@ -88,13 +88,7 @@ def _update_connection(harness: RealAppHarness, connection_id: str, **fields: An
     harness.call(update)
 
 
-def _mark(
-    harness: RealAppHarness,
-    state: MigrationState,
-    *,
-    effective: str | None = None,
-    note: str | None = None,
-) -> None:
+def _mark(harness: RealAppHarness, state: MigrationState, *, effective: str | None = None) -> None:
     async def advance() -> None:
         current = await PairAuthorityStore().read(harness.account_id, PROVIDER)
         await PairAuthorityStore().advance(
@@ -103,7 +97,6 @@ def _mark(
             expected_generation=current.generation,
             migration_state=state,
             effective_connection_id=UUID(effective) if effective else None,
-            migration_note=note,
         )
 
     harness.call(advance)
@@ -181,19 +174,6 @@ def test_two_live_connections_are_ambiguous_even_on_a_migrated_pair(harness) -> 
     _update_connection(harness, stray, status="pending")
 
     assert _only(harness) == _conflict("ambiguous")
-
-
-# --- row 4: quarantine --------------------------------------------------------------------------
-
-
-def test_a_quarantined_pair_is_unresolved_and_its_note_never_surfaces(harness) -> None:
-    harness.seed_blob()
-    _mark(harness, "quarantined", note="credentials_differ")
-
-    conflict = _only(harness)
-
-    assert conflict == _conflict("unresolved")
-    assert "credentials_differ" not in repr(conflict)
 
 
 # --- row 5: migrated with an effective reference ------------------------------------------------
@@ -402,7 +382,6 @@ def test_a_disconnected_pair_of_an_unknown_provider_lists_nothing(harness) -> No
             expected_generation=0,
             migration_state="migrated",
             effective_connection_id=None,
-            migration_note=None,
         )
 
     harness.call(disconnect)

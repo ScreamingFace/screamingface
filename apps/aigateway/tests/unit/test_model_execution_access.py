@@ -109,7 +109,7 @@ async def test_stored_target_is_configured_without_credential_validation(
 
 
 @pytest.mark.asyncio
-async def test_other_account_profile_does_not_grant_access(
+async def test_other_account_connection_does_not_grant_access(
     authenticated_client, credential_blobs, provisioned_user_factory
 ):
     other = provisioned_user_factory("different-account")["id"]

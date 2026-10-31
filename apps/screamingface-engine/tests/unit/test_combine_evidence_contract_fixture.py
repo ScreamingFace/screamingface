@@ -1,7 +1,7 @@
 """The combine evidence the SDK decodes is the evidence the Engine writes (OME-1289 E4a, unit 12).
 
 FEATURE: ``data/combine_contract/evidence_cases.json`` holds the canonical JSON of the evidence the
-real combine core produces for 25 fixed scenarios: every reducer, every evidence kind, both abstain
+real combine core produces for 26 fixed scenarios: every reducer, every evidence kind, both abstain
 reasons, a failed and an empty member, and the three signal families.
 STORY: as a maintainer, I change the evidence model on one side and a test on the other side fails,
 instead of the SDK decoder and its hand-copied test wire drifting from the Engine silently.
@@ -262,6 +262,35 @@ def _merge_abstain() -> CombineEvidence:
     return _evidence(merge_spec(3, rules), ['{"x":1}', '{"y":2}', '{"z":3}'])
 
 
+def _mean_weighted_value() -> CombineEvidence:
+    # member_2 has confidence 0, so it is dropped (weight null); (10*0.25 + 30*0.75) / 1.00 = 25.
+    spec = vote_spec(
+        3,
+        reducer="mean",
+        extract=step("json_field@1", path="answer"),
+        normalize=step("numeric@1"),
+        reduce=step("weighted_mean@1"),
+        select=step("value@1"),
+        weights={"signal": "field:confidence"},
+    )
+    texts = [
+        '{"answer":10,"confidence":0.25}',
+        '{"answer":99,"confidence":0}',
+        '{"answer":30,"confidence":0.75}',
+    ]
+    return _evidence(spec, texts)
+
+
+def _pick_output() -> CombineEvidence:
+    texts = ['{"answer": 42, "confidence": 0.9}', '{"answer": 40, "confidence": 0.6}']
+    return _evidence(pick_spec(2, step("by_field@1", order="max", output="answer")), texts)
+
+
+def _pick_output_missing() -> CombineEvidence:
+    texts = ['{"confidence": 0.9}', '{"answer": 40, "confidence": 0.6}']
+    return _evidence(pick_spec(2, step("by_field@1", order="max", output="answer")), texts)
+
+
 SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "vote_tie": _plain_vote,
     "vote_weighted": _weighted_vote,
@@ -288,7 +317,10 @@ SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "filter_pattern": _filter_pattern,
     "filter_none_pass": _filter_none_pass,
     "merge_abstain": _merge_abstain,
+    "mean_weighted_value": _mean_weighted_value,
 }
+SCENARIOS["pick_output"] = _pick_output
+SCENARIOS["pick_output_missing"] = _pick_output_missing
 
 
 def canonical_evidence(evidence: CombineEvidence) -> str:

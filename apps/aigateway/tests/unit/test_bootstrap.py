@@ -37,8 +37,8 @@ def _settings_without_dotenv(database_url: str, *, auth_enabled: bool = True) ->
 
 # WHY no startup-import tests (OME-1209 E4b): the opt-in Claude Code import and the plugins'
 # `bootstrap_profiles` hook are retired; `test_profile_index_offline_only.py`
-# (`test_a_set_bootstrap_flag_only_warns_that_the_import_is_retired`) pins that a set flag only
-# warns and that startup writes no Profile.
+# (`test_no_module_reads_the_retired_bootstrap_flag`) pins that nothing reads the flag, whose
+# warning retired in the OME-1138 close-out, L4a.
 
 
 def test_lifespan_auth_enabled_requires_configured_admin_password(monkeypatch, tmp_path) -> None:

@@ -20,7 +20,11 @@ from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway.main as main_module
-from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
+from aigateway.core.provider_access import (
+    AvailabilityRow,
+    AvailabilityStatus,
+    PairAuthorityStore,
+)
 from aigateway.core.provider_access import profile_authorize as authorize_module
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 from tests.unit.seed_state import SeedState
@@ -321,3 +325,28 @@ def test_openapi_publishes_exactly_one_new_operation(edge: _Edge, monkeypatch) -
     del reduced["components"]["schemas"][listing_name]
     del reduced["components"]["schemas"][row_name]
     assert reduced == without.openapi()
+
+
+# --- D17 fold-in (OME-1138): a natively connected pair lists what chat serves ---------------
+
+
+def test_a_provider_connected_natively_after_the_census_lists_connected(
+    edge: _Edge, valid_api_key_readiness: None
+) -> None:
+    # STORY: as the Hosted Engine, I list a provider the user connected through the native flow
+    # as `connected`: the write leaves its pair `none` (no auto-promotion, D14), and chat serves
+    # it through its one active Connection.
+    created = edge.client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "anthropic", "label": "work", "api_key": "sk-ant-api03-fold-in-route"},
+    )
+    assert created.status_code == 201, created.text
+    portal = edge.client.portal
+    assert portal is not None
+    pair = portal.call(PairAuthorityStore().read, edge.account_id, "anthropic")
+    assert pair.migration_state == "none"
+
+    statuses = edge.statuses(edge.get().json())
+
+    assert statuses["anthropic"] == "connected"
+    assert set(statuses.values()) == {"connected", "not_connected"}

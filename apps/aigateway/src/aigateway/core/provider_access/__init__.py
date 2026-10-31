@@ -66,7 +66,7 @@ from .profile_authorize import (
     reauth_url_for,
 )
 from .refresh_guard import ConnectionRefreshOwner, guard_refresh
-from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
+from .selector import DEFAULT_SELECTOR_NAME, Selector
 from .targets import context_stamp
 from .types import (
     Authorization,
@@ -81,7 +81,6 @@ from .types import (
     ProviderUnknown,
     ResolvePolicy,
     SelectorAmbiguous,
-    SelectorUnknown,
     SelectorUnsupported,
     TargetKind,
     TargetMissing,
@@ -122,8 +121,6 @@ __all__ = [
     "ResolvePolicy",
     "Selector",
     "SelectorAmbiguous",
-    "SelectorPolicy",
-    "SelectorUnknown",
     "SelectorUnsupported",
     "TargetKind",
     "TargetMissing",

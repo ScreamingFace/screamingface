@@ -1,0 +1,94 @@
+{
+  "issue": "OME-1781",
+  "branch": "OME-1781-scope-literal-account-connection",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-29",
+  "scope": "The model-parameter contract scope rename of the OME-1138 close-out, leaf L6 (OME-1781 gateway, OME-1782 SDK fixtures, OME-1783 Engine fixture): every prior test and fixture that carried the Profile-era scope literal now carries account_connection; the one test named after the old literal is renamed to test_other_account_connection_does_not_grant_access with its body unchanged. No assertion is removed or weakened, and test_model_parameter_contract.py also gains a new test pinning that a scope change rotates both digests.",
+  "reason": "Owner decision of 2026-10-29 (docs/spec/2026-10-29-ome-1138-closeout.md, section 2 and answer 2): the gateway serves context.scope = account_connection instead of the Profile-era literal, and the gateway, SDK and Engine fixtures move in one PR. The fixtures must carry the literal the gateway now produces.",
+  "files": {
+    "apps/aigateway/tests/unit/anthropic/test_anthropic_parameter_overlay.py": {
+      "base_blob": "6e7ce3a092a2c7364e451d66089f319daa556f6c",
+      "approved_blob": "7716b1d1900904b0e6f2dbc4608bfd178e9f14f9"
+    },
+    "apps/aigateway/tests/unit/core/test_auth_applicability_contract.py": {
+      "base_blob": "090de2c46e1cdf4c6ae47c9028f18e5d9fe7e411",
+      "approved_blob": "431c7b39da0b408a2a5489d3960ddc0b31c09c5d"
+    },
+    "apps/aigateway/tests/unit/core/test_contract_source_revision_identity.py": {
+      "base_blob": "b01d20ead64c2e4a502798da5650f148fd7a794a",
+      "approved_blob": "1483ba85e04514802f98a3fc9f71813b3a7f7b44"
+    },
+    "apps/aigateway/tests/unit/core/test_model_parameter_contract.py": {
+      "base_blob": "b5a40cad4a55d067b6c1a56c2b1243a158599d1c",
+      "approved_blob": "559e1199e1fc41b1416ac7e85e46fbe001f56bd4"
+    },
+    "apps/aigateway/tests/unit/core/test_provider_contract_conformance.py": {
+      "base_blob": "a070c2dc08f7df6035d7f32ce5e0482dc4b70769",
+      "approved_blob": "41089c80103fdf7e7e9b0178b15cddb90a16d364"
+    },
+    "apps/aigateway/tests/unit/core/test_provider_contract_conformance_hardening.py": {
+      "base_blob": "5b1e948e22a34623cdd1223d1064358967f909e6",
+      "approved_blob": "fcae15a8b84da14cc710fee44798410c075ffa20"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_parameter_overlay.py": {
+      "base_blob": "de6bcc5edcb45ca7338cd344dcdc3a52d9190fd9",
+      "approved_blob": "ac6fe920a352785ef18fc62fc40422d7e3a89401"
+    },
+    "apps/aigateway/tests/unit/huggingface/test_huggingface_parameter_overlay.py": {
+      "base_blob": "406bc5abb9fb0590c7151d881e0ca7dcecdb4f97",
+      "approved_blob": "851ffe3bac78e7c909a7572258b87c9b93f14c86"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_catalog_evidence.py": {
+      "base_blob": "6a75bc5527354e19e55cbc12ea629c9e6a7bf71f",
+      "approved_blob": "0e710c92aa8090eda0e71e9549489a98530f990f"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_openapi_endpoint_route.py": {
+      "base_blob": "c93ee84ded5bb24d02d26085d376f39ca56237af",
+      "approved_blob": "75a6fff6d0df02489b6f1ff4a90addaf68184c4e"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_parameter_overlay.py": {
+      "base_blob": "99ea3dbfb1332f046e0943bc222fbd2d7144bcc1",
+      "approved_blob": "fcde8a0d2a0a11e8adede30711c092cc021e44f8"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_routing_policy.py": {
+      "base_blob": "a5572c6fcb1f6e8da3b81f1cca3a59c11b20a215",
+      "approved_blob": "a4d0c35449006bf2b3a3c51258f32ae50d57f326"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_top_p_promotion.py": {
+      "base_blob": "3428eb17591c8514fad3730e5beb1c7ed1066bd9",
+      "approved_blob": "a505a94ca5f005004c4a22ddbfe97062fdcf89b5"
+    },
+    "apps/aigateway/tests/unit/test_model_execution_access.py": {
+      "base_blob": "c3c7bb3fcf4540575724749ae84f0c52d5240c73",
+      "approved_blob": "a9e454f36d27e5305d355c6d7c6aa9c7a2d20a76"
+    },
+    "apps/aigateway/tests/unit/test_model_parameters_route.py": {
+      "base_blob": "fe6c70cfbebdb669291b18d1201d36ba0f6f1da4",
+      "approved_blob": "387c31a33763808745fd319ec03821b20ccccb3b"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_parameters_proxy.py": {
+      "base_blob": "363b3c047fd7ff0aeeb0be93824bcb8d92dcfb9e",
+      "approved_blob": "7baf1998864ead1421a1b9e51bf9884da486f798"
+    },
+    "packages/screamingface/tests/_model_parameter_fixtures.py": {
+      "base_blob": "d04ce66a96fcb1d1adcb850b83657e6f68e67bf9",
+      "approved_blob": "9ca21e9776691b98176f33327ad14aa000dcc967"
+    },
+    "packages/screamingface/tests/e2e/harness/fake_gateway.py": {
+      "base_blob": "67a762272da9ad402c3ae707fdd5d4fc39dcba8b",
+      "approved_blob": "c4bf1a8caf4fb295adcf34ab3693b6e4fd78482b"
+    },
+    "packages/screamingface/tests/test_model_parameter_discovery.py": {
+      "base_blob": "6a534a2a3a7bcc024e6a967635fa8b251d3fcb87",
+      "approved_blob": "01cbe7d525736e19687be503de0b7c3d84c05124"
+    },
+    "packages/screamingface/tests/test_panels_opt_out_of_maths.py": {
+      "base_blob": "30037e1983486c9a8cc2de7c2ff14d5b1726d63a",
+      "approved_blob": "90782c3637c241689a2dd55da104c3becbfeadc7"
+    },
+    "packages/screamingface/tests/test_rich_display.py": {
+      "base_blob": "e6ea99c9638a030df61418ea8b1f4ceb9fca8335",
+      "approved_blob": "d4aa7742413c7dc0070584ad8a100c61581c2eb8"
+    }
+  }
+}

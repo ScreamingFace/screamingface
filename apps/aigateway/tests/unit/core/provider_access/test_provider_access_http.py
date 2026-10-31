@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from aigateway.core.provider_access import (
     ProviderAccessRefusal,
     SelectorAmbiguous,
-    SelectorUnknown,
     SelectorUnsupported,
     TargetMissing,
     TargetPending,
@@ -62,16 +61,6 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
             "code": "connection_ambiguous",
             "provider": "anthropic",
             "message": "Multiple active Connections exist. Remove extra Connections, then retry.",
-        },
-    ),
-    (
-        SelectorUnknown("anthropic", "nope", ("work", "personal")),
-        404,
-        {
-            "code": "connection_not_found",
-            "provider": "anthropic",
-            "requested_label": "nope",
-            "valid_labels": ["work", "personal"],
         },
     ),
     (

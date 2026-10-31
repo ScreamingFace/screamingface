@@ -3,8 +3,8 @@
 # FEATURE: OME-1138 D18, G0 — before the pair-addressed successor can adopt a `none` pair, every
 # writer that changes who owns a pair claims the generation it observed: a writer that read the
 # pair before another ownership change loses at commit time instead of overwriting it.
-# INVARIANT: `claim_pair` re-publishes exactly the observed authority (state, effective reference,
-# note) one generation later — it fences, it never changes the owner. `hold_pair` checks the
+# INVARIANT: `claim_pair` re-publishes exactly the observed authority (state and effective
+# reference) one generation later — it fences, it never changes the owner. `hold_pair` checks the
 # observed generation under the marker row lock and never advances it.
 # INVARIANT: call both inside the caller's `in_transaction()`, as the FIRST write, so the claim
 # commits or rolls back with the data it fences (marker → row → blob). A lost claim is
@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 def fences_writer(pair: PairAuthority) -> bool:
-    """True for the legacy-owned states whose writers G0 fences with the pair generation.
+    """True for a `none` or absent marker, whose Connections own the pair (OME-1209 §9 Q8): G0
+    fences their ownership writes with the pair generation.
 
     # WHY not `migrated`: `claim_native_write` holds that marker without advancing it; effective
     # writes then advance it through their existing replacement/delete fence.
@@ -53,7 +54,6 @@ async def claim_pair(observed: PairAuthority) -> PairAuthority:
         expected_generation=observed.generation,
         migration_state=observed.migration_state,
         effective_connection_id=observed.effective_connection_id,
-        migration_note=observed.migration_note,
     )
 
 

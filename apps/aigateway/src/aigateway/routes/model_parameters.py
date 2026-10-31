@@ -158,7 +158,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         canonical_id=model,
         gateway_provider=provider,
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity=target.context_stamp,
         rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
         observations=observations,

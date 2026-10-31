@@ -340,7 +340,7 @@ def test_filter_validation() -> None:
         sf.Filter(where=None)  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="Filter extract must be an sf.Extract"):
         sf.Filter(where=sf.matches("a"), extract="last_number")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match=r"Filter cannot read sf\.signal\('score:judge'\)"):
+    with pytest.raises(ValueError, match=r"Filter where=sf\.signal\('score:judge'\) needs a judge"):
         sf.Filter(where=sf.signal("score:judge") >= 0.5)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="score:judge"):
         sf.Reduce("filter", where=sf.signal("score:judge") >= 0.5)  # type: ignore[arg-type]

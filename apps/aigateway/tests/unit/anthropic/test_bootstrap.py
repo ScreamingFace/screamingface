@@ -7,6 +7,6 @@ with every other Profile writer (plan §3 E4b), so no runtime path writes a Prof
 Successors, both in `tests/unit/test_profile_index_offline_only.py`:
 - the import, its settings and its error are gone:
   `test_the_profile_writers_and_the_startup_import_are_gone`;
-- a set flag only logs a warning and writes nothing:
-  `test_a_set_bootstrap_flag_only_warns_that_the_import_is_retired`.
+- no module reads the flag (its warning retired in the OME-1138 close-out, L4a):
+  `test_no_module_reads_the_retired_bootstrap_flag`.
 """

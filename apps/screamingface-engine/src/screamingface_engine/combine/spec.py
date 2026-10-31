@@ -60,7 +60,8 @@ class ReducerRule:
     """What a reducer needs, allows or forbids, and the evidence kind it makes.
 
     ``normalize_name`` is the one operator NAME (any version) its normalize step must have, or
-    None for any. This is the ONLY per-reducer operator rule; later units add none.
+    None for any. It is the only operator rule in this row. E4b adds two operator rules outside
+    the rows, as a deliberate exception (erratum ER7): `_STATISTIC_REDUCERS` and `_MEAN_OPS`.
     """
 
     kind: EvidenceKind
@@ -72,11 +73,11 @@ class ReducerRule:
 
 # Global rule (also checked below): normalize present => extract present.
 # AIDEV-NOTE: units 8-10 may tighten or loosen the presence rows of their own reducers, and still
-# add no operator rule.
+# add no operator rule. E4b adds the two operator rules below on purpose (erratum ER7).
 REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
     {
         "vote": ReducerRule("answer", "required", "optional", "optional"),
-        "median": ReducerRule("answer", "required", "required", "forbidden", "numeric"),
+        "median": ReducerRule("answer", "required", "required", "optional", "numeric"),
         "judge": ReducerRule("answer", "forbidden", "forbidden", "forbidden"),
         "pick": ReducerRule("answer", "optional", "optional", "forbidden"),
         "merge": ReducerRule("answer", "optional", "optional", "forbidden"),
@@ -84,7 +85,27 @@ REDUCER_RULES: Mapping[Reducer, ReducerRule] = MappingProxyType(
         "rank": ReducerRule("selection", "optional", "optional", "forbidden"),
         "concat": ReducerRule("selection", "forbidden", "forbidden", "forbidden"),
         "filter": ReducerRule("selection", "optional", "optional", "forbidden"),
+        "mean": ReducerRule("answer", "required", "required", "optional", "numeric"),
     }
+)
+
+# WHY by operator NAME (any version): the evidence field a statistic fills (`median` or `mean`)
+# follows the reducer, so a statistic op under another reducer writes a wrong record, for example a
+# mean into `evidence.median` (review P1 #4, erratum ER7).
+_STATISTIC_REDUCERS: Mapping[str, Reducer] = MappingProxyType(
+    {
+        "median": "median",
+        "weighted_median": "median",
+        "mean": "mean",
+        "weighted_mean": "mean",
+    }
+)
+# The reduce and select op NAMES the mean reducer allows (erd section 2). WHY only mean: it is new
+# in E4b, so no spec uses it with other ops. A median spec with a fake reduce op is pinned by the
+# stage-rule tests, so the median reducer keeps only the `_STATISTIC_REDUCERS` rule.
+_MEAN_OPS: tuple[frozenset[str], frozenset[str]] = (
+    frozenset({"mean", "weighted_mean"}),
+    frozenset({"value", "nearest"}),
 )
 
 
@@ -166,6 +187,9 @@ def _check_stages(spec: CombineSpec) -> None:
         raise ValueError("normalize needs extract")
     if rule.normalize_name is not None and spec.normalize is not None:
         _check_normalize_name(spec.normalize, rule.normalize_name, spec.reducer)
+    _check_statistic_reducer(spec.reduce, spec.reducer)
+    if spec.reducer == "mean":
+        _check_mean_ops(spec.reduce, spec.select)
 
 
 def _check_normalize_name(normalize: StepSpec, name: str, reducer: str) -> None:
@@ -174,6 +198,22 @@ def _check_normalize_name(normalize: StepSpec, name: str, reducer: str) -> None:
     # names the rule, not the offending id.
     if normalize.op.partition("@")[0] != name:
         raise ValueError(f"reducer {reducer} requires a {name} normalize step")
+
+
+def _check_statistic_reducer(reduce: StepSpec, reducer: str) -> None:
+    # The message names the rule, not the offending id.
+    owner = _STATISTIC_REDUCERS.get(reduce.op.partition("@")[0])
+    if owner is not None and owner != reducer:
+        raise ValueError(f"reducer {reducer} forbids this statistic reduce step")
+
+
+def _check_mean_ops(reduce: StepSpec, select: StepSpec) -> None:
+    # The messages name the rule, not the offending ids.
+    reduces, selects = _MEAN_OPS
+    if reduce.op.partition("@")[0] not in reduces:
+        raise ValueError("reducer mean requires a mean or weighted_mean reduce step")
+    if select.op.partition("@")[0] not in selects:
+        raise ValueError("reducer mean requires a value or nearest select step")
 
 
 def parse_spec(intent: str) -> CombineSpec:

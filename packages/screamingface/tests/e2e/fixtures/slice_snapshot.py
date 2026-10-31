@@ -631,7 +631,7 @@ class _CaptureProxy:
                 headers = {
                     key: value
                     for key, value in self.headers.items()
-                    if key.lower() in ("content-type", "x-profile", "accept")
+                    if key.lower() in ("content-type", "accept")
                 }
                 with httpx.Client(timeout=120.0) as client:
                     resp = client.request(
