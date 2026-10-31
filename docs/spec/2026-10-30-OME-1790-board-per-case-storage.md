@@ -1,7 +1,9 @@
 # OME-1790 — Imported-board storage that a run reads in O(selected Cases)
 
 Status: approved 2026-10-31 — owner chose Option B and the wider scope (Q2 b); Q4 fallback
-with a warning; Q3, Q5, Q6 out of scope (see `docs/work/2026-10-31-board-offset-index.md`).
+with a warning; Q3, Q5, Q6 out of scope; no manual CI cache-key bump (the content-hashed
+bundle keys already change with this writer); OME-1789 grading stays on its own reader until a
+follow-up after #1628 and this PR (see `docs/work/2026-10-31-board-offset-index.md`).
 Drafted 2026-10-30. Parent: OME-1314 (capacity). Related: OME-1675 (Cases route loads
 only the selected Cases), OME-1789 (aggregation reads only the selected Cases), OME-1792 /
 PR #1622 (url4 parses a collection once and releases finished results), OME-1648 (the 2.5 GiB

@@ -1,7 +1,7 @@
 ---
 id: OME-1790
 linear_url: https://linear.app/openmined/issue/OME-1790/store-imported-boards-one-file-per-case-so-runs-never-load-the-full
-status: in_progress
+status: in_review
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
@@ -26,6 +26,9 @@ stays byte-for-byte the same and stays the completion marker.
 
 Owner decisions: Option B, wider scope (route + admission here). Out of scope: check-surface
 lookup, ContractEval dedupe (OME-1675), per-run budget, aggregation (OME-1789).
+
+CI: no cache-key change; the content-hashed bundle keys already rebuild with this writer.
+Follow-up: OME-1789 grading moves onto `board_store` after #1628 and this PR merge.
 
 Spec: `docs/spec/2026-10-30-OME-1790-board-per-case-storage.md`.
 Ledger: `docs/work/2026-10-31-board-offset-index.md`.

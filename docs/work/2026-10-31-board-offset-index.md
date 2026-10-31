@@ -27,6 +27,18 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
 - **Out of scope:** the check-surface input lookup (Q3), ContractEval contract dedupe (Q5,
   OME-1675), the per-run budget (Q6, OME-1648/OME-1675). Aggregation stays with OME-1789.
 
+## Owner decisions (2026-10-31, at review)
+
+- **D1 CI bundle cache:** the goal is that CI rebuilds bundles with the new writer (`board.json`
+  + `cases.offsets`) so the e2e replay lane runs the index path. No key is changed: both bundle
+  keys are content hashes over `screamingface_engine/benchmarks/**` and
+  `screamingface_engine_inspect/**` (`.github/workflows/screamingface-e2e-replay.yml:56`,
+  `.github/workflows/screamingface-paid-benchmark-smoke.yml:90`), and this PR changes files in
+  both folders, so both keys already miss and the bundles rebuild. The repo has never bumped
+  these keys by hand; a literal would add nothing.
+- **D2 grading reader:** OME-1789's grading reader stays separate for now (no `row(id)` on the
+  port here). A follow-up moves grading onto `board_store` once both #1628 and this PR merge.
+
 ## Planned changes
 
 - `src/screamingface_engine/benchmarks/board_store.py` (new, core): the format (encode), the
@@ -89,5 +101,6 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
     base and for its prior tests.
   - Envelope boards on the legacy fallback now envelope only the selected rows, so a broken
     Case outside the selection no longer fails a run that does not select it.
-  - Not done here: full-image build time / image size (needs the benchmark image build), the
-    CI bundle-cache key bump (old caches work through the fallback), kind runs.
+  - Not done here: full-image build time / image size (needs the benchmark image build), kind
+    runs. No CI bundle-cache key bump: the content-hashed keys already change (D1).
+  - Follow-up: move OME-1789 grading onto `board_store` after #1628 and this PR merge (D2).
