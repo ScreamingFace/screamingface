@@ -9,14 +9,14 @@ import {
 } from '@/navigation/sf-client'
 
 const metrics = `dict(candidate.metrics)`
-const metricsOut = `{'inst_level_strict_accuracy': 1.0, 'prompt_level_loose_accuracy': 1.0, 'inst_level_loose_accuracy': 1.0, 'pass_rate': 1.0}`
+const metricsOut = `{'correct': 0, 'scored_cases': 1, 'answered': 1, 'answered_rate': 1.0}`
 
 const cases = `case = candidate.cases[0]
 case.status, case.grade.score, case.output[:40]`
-const casesOut = `('scored', 1.0, 'Raymond III, Count of Tripoli (c. 1140 –')`
+const casesOut = `('scored', 0.0, 'Based on the clinical principles of shou')`
 
 const ops = `candidate.operations`
-const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haiku-4.5 answer', depends_on=()),)`
+const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-flash-lite answer', depends_on=()),)`
 </script>
 
 <template>
@@ -170,7 +170,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             The id of the pinned cache that the run opened. <code>None</code> when the run was not
-            captured (capture is off by default) or the copy did not open.
+            captured (<code>capture=False</code>) or the copy did not open.
           </td>
         </tr>
         <tr>
@@ -224,14 +224,12 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td>How many gateway round trips the response cache served for this run.</td>
         </tr>
         <tr>
-          <td>
-            <code>cache_saved_cost_usd</code> · <code>cache_saved_cost_archive_usd</code>
-          </td>
+          <td><code>cache_saved_cost_usd</code> · <code>cache_saved_cost_archive_usd</code></td>
           <td><code>Decimal&nbsp;|&nbsp;None</code></td>
           <td>
             What the cache hits would have cost. The first is what the provider reported for the
-            call that filled the entry. The second is a measured amount from a different call of
-            the same model and kind. Never add the two together. <code>None</code> means none was
+            call that filled the entry. The second is a measured amount from a different call of the
+            same model and kind. Never add the two together. <code>None</code> means none was
             observed, which is not zero.
           </td>
         </tr>
@@ -408,6 +406,22 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td>The step's terminal output, or <code>None</code> when it was not attributed.</td>
         </tr>
         <tr>
+          <td><code>accounting</code></td>
+          <td><code>OperationAccounting&nbsp;|&nbsp;None</code></td>
+          <td>What the step consumed, or <code>None</code> when it was not attributed.</td>
+        </tr>
+        <tr>
+          <td><code>combine</code></td>
+          <td><code>CombineEvidence&nbsp;|&nbsp;None</code></td>
+          <td>
+            For a combine step, what it read and decided for the case: <code>kind</code>,
+            <code>reducer</code>, <code>operators</code>, <code>members</code>, <code>chosen</code>,
+            <code>tie</code>, <code>agreement</code>, <code>result</code> and
+            <code>finish_reason</code>, plus <code>tally</code>, <code>judge</code> or
+            <code>fields</code> where the reducer has them. <code>None</code> for any other step.
+          </td>
+        </tr>
+        <tr>
           <td><code>finish_reason</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>Why that step stopped, or <code>None</code> when it was not attributed.</td>
@@ -419,21 +433,22 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
 
     <p>
       <code>candidate.accounting</code> is a property, not a method. It returns an
-      <code>AccountingBreakdown</code> with <code>rows</code>, <code>unattributed_cost_usd</code>
-      and <code>consistent</code>. Each row is an <code>AccountingRow</code> with
-      <code>accounting</code>, <code>case_id</code>, <code>label</code>, <code>member_id</code>,
-      <code>model</code>, <code>operation_id</code> and <code>stage</code>. The row's
-      <code>accounting</code> is an <code>OperationAccounting</code>: <code>provider</code>,
-      <code>request_model</code>, <code>response_model</code>, <code>usage</code>,
-      <code>provider_latency_ms</code>, <code>provider_attempts</code> and <code>cache</code>.
-      Fields the engine did not report stay unknown and are never filled in.
+      <code>AccountingBreakdown</code> with <code>rows</code>,
+      <code>unattributed_cost_usd</code> and <code>consistent</code>. Each row is an
+      <code>AccountingRow</code> with <code>accounting</code>, <code>case_id</code>,
+      <code>label</code>, <code>member_id</code>, <code>model</code>, <code>operation_id</code> and
+      <code>stage</code>, one of <code>generation</code>, <code>synthesis</code> or
+      <code>grading</code>. The row's <code>accounting</code> is an
+      <code>OperationAccounting</code>: <code>provider</code>, <code>request_model</code>,
+      <code>response_model</code>, <code>usage</code>, <code>provider_latency_ms</code>,
+      <code>provider_attempts</code> and <code>cache</code>. Fields the engine did not report stay
+      unknown and are never filled in.
     </p>
 
     <p>
       <code>OperationCache</code> counts the responses of one operation by how the cache treated
-      them: <code>hits</code>, <code>misses</code>, <code>bypasses</code> and
-      <code>unknown</code>. The four counts sum to the model-call responses the operation
-      represents.
+      them: <code>hits</code>, <code>misses</code>, <code>bypasses</code> and <code>unknown</code>.
+      The four counts sum to the model-call responses the operation represents.
     </p>
 
     <p>A <code>CaseResult</code> also carries:</p>
@@ -701,6 +716,11 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>raw_output</code></td>
           <td><code>object</code></td>
           <td>The producer's raw output, as it was returned.</td>
+        </tr>
+        <tr>
+          <td><code>accounting</code></td>
+          <td><code>OperationAccounting&nbsp;|&nbsp;None</code></td>
+          <td>What the producer consumed, or <code>None</code> for a deterministic producer.</td>
         </tr>
         <tr>
           <td><code>metadata</code></td>

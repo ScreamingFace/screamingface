@@ -13,7 +13,7 @@ const listRun = `import screamingface as sf
 
 client = sf.Client()
 [(b.id, b.display_name) for b in client.leaderboards.list()][:3]`
-const listRunOut = `[('arc_agi_2', 'ARC-AGI-2'), ('contracteval', 'ContractEval'), ('draco', 'DRACO')]`
+const listRunOut = `[('air_bench', 'AIR-Bench 2024'), ('arc_agi_2', 'ARC-AGI-2'), ('bbh', 'BIG-Bench Hard (BBH)')]`
 
 const submit = `report = client.evaluate(recipe, benchmark="ifeval")
 score = client.leaderboards.submit(
@@ -48,7 +48,10 @@ if result.reproduction is not None:
     <Note>
       Leaderboard values come from a separate service set by <code>scoreboard_url</code> on a
       <RouterLink to="/sf-client/api/clients">Client</RouterLink>. The SDK creates
-      <code>Reproduction</code> by comparing a replayed result with the published score.
+      <code>Reproduction</code> by comparing a replayed result with the published score. A local
+      Scoreboard accepts <code>submit()</code> and <code>get_score()</code>; <code>edit()</code> and
+      <code>metadata_events()</code> need the identity of a signed-in submitter and raise
+      <code>LeaderboardError</code> (HTTP 401) without it.
     </Note>
 
     <div class="not-prose">
@@ -263,18 +266,27 @@ if result.reproduction is not None:
     </div>
 
     <p>
-      <code>submit(candidate_result, *, authors=None, paper_url=None)</code> accepts one to ten
-      email addresses. A supplied list is exact: order and duplicates are preserved, and the
-      authenticated submitter is not added automatically. Omit it to use the leaderboard's default
-      credit line. <code>paper_url</code> is an <code>http</code> or <code>https</code> link of at
-      most 2048 characters, with a host, no whitespace or control characters, and no user info.
+      <code
+        >submit(candidate_result, *, authors=None, paper_url=None, authors_metadata=None,
+        paper_metadata=None)</code
+      >
+      accepts one to ten email addresses in <code>authors</code>. A supplied list is exact: order
+      and duplicates are preserved, and the authenticated submitter is not added automatically. Omit
+      it to use the leaderboard's default credit line. <code>paper_url</code> is an
+      <code>http</code> or <code>https</code> link of at most 2048 characters, with a host, no
+      whitespace or control characters, and no user info.
     </p>
 
     <p>
-      <code>edit(score_id, *, authors=..., paper_url=...)</code> changes those two fields of a score
-      you submitted and returns the updated <code>LeaderboardScore</code>. An argument you leave out
-      stays as it is, and you must pass at least one. <code>paper_url=None</code> removes the link.
-      <code>authors</code> cannot be cleared. <code>metadata_events(score_id)</code>
+      <code
+        >edit(score_id, *, authors=..., paper_url=..., authors_metadata=...,
+        paper_metadata=...)</code
+      >
+      changes those fields of a score you submitted and returns the updated
+      <code>LeaderboardScore</code>. An argument you leave out stays as it is, and you must pass at
+      least one. <code>paper_url=None</code> removes the link. <code>authors</code> cannot be
+      cleared: <code>authors=None</code> raises <code>ValueError</code>.
+      <code>metadata_events(score_id)</code>
       returns the score's edit log, newest first, as a tuple of
       <code>ScoreMetadataEvent</code> values. Only the submitter can call either one. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows them in
@@ -389,6 +401,24 @@ if result.reproduction is not None:
           </td>
         </tr>
         <tr>
+          <td><code>scoreboard_url</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The Scoreboard that stored the score.</td>
+        </tr>
+        <tr>
+          <td><code>ranking_notice</code></td>
+          <td><code>LeaderboardRankingNotice&nbsp;|&nbsp;None</code></td>
+          <td>Why the score does not enter the ranking. <code>None</code> when it does.</td>
+        </tr>
+        <tr>
+          <td><code>reproduction_count</code> · <code>last_reproduced_at</code></td>
+          <td><code>int</code> / <code>datetime&nbsp;|&nbsp;None</code></td>
+          <td>
+            How many exact reproductions the board stored for the score, and when the latest one
+            ran. <code>last_reproduced_at</code> is <code>None</code> when the count is 0.
+          </td>
+        </tr>
+        <tr>
           <td><code>pinned_cache</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
@@ -410,31 +440,27 @@ if result.reproduction is not None:
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             A digest of the graded cases of the run: 64 lowercase hex characters. It is set only
-            with a <code>capture_status</code>. <code>LeaderboardEntry</code> rows do not carry
-            it.
+            with a <code>capture_status</code>. <code>LeaderboardEntry</code> rows do not carry it.
           </td>
         </tr>
         <tr>
           <td><code>answer_seed</code> · <code>benchmark_revision</code></td>
           <td><code>int&nbsp;|&nbsp;None</code> / <code>str&nbsp;|&nbsp;None</code></td>
-          <td>
-            The answer seed of the run and the revision of the benchmark it ran on.
-          </td>
+          <td>The answer seed of the run and the revision of the benchmark it ran on.</td>
         </tr>
       </tbody>
     </table>
 
-    <p>
-      Boards that predate a field leave it absent, and it reads as <code>None</code>.
-    </p>
+    <p>Boards that predate a field leave it absent, and it reads as <code>None</code>.</p>
 
     <h2>LeaderboardRankingNotice</h2>
 
     <p>
       <code>LeaderboardScore.ranking_notice</code> explains why a successfully published score will
       not enter the current ranking, and is <code>None</code> when it will. A
-      <code>LeaderboardRankingNotice</code> has a <code>code</code>, the
-      <code>submitted_benchmark_revision</code> and the <code>registered_benchmark_revision</code>
+      <code>LeaderboardRankingNotice</code> has a <code>code</code>, always
+      <code>"benchmark_revision_mismatch"</code>, the <code>submitted_benchmark_revision</code> and
+      the <code>registered_benchmark_revision</code>
       of the board.
     </p>
 

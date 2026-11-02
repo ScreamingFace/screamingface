@@ -10,7 +10,7 @@ import {
 } from '@/navigation/sf-client'
 
 const usage = `report.usage`
-const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0, cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0'))`
+const usageOut = `Usage(input_tokens=2161, output_tokens=721, cache_read_tokens=0, cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.0024508'))`
 </script>
 
 <template>
@@ -85,6 +85,14 @@ const usageOut = `Usage(input_tokens=103, output_tokens=398, cache_read_tokens=0
     <div class="not-prose">
       <NbCell :count="10" :code="usage"><NbTextOut :text="usageOut" /></NbCell>
     </div>
+
+    <p>
+      A model call answered from the request cache reports 0 tokens and a
+      <code>cost_usd</code> of <code>Decimal('0')</code>. The sample above ran with
+      <code>use_cache=False</code>, so every call was fresh. The
+      <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink> page lists what
+      the cache saved.
+    </p>
 
     <p>
       Summing follows a strict rule: <code>report.usage</code> adds a field across candidates only

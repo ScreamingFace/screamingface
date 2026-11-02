@@ -80,4 +80,11 @@ export const sfClientReferenceNavigation: NavEntry[] = [
       { title: 'Errors & warnings', path: '/sf-client/api/errors' },
     ],
   },
+  {
+    title: 'Modules & types',
+    children: [
+      { title: 'Cache', path: '/sf-client/api/cache' },
+      { title: 'Analytics', path: '/sf-client/api/analytics' },
+    ],
+  },
 ]

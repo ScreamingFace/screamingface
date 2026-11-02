@@ -14,7 +14,7 @@ sf.configure(
 )`
 
 const runLocal = `pip install "screamingface[runtime]"
-screamingface prepare ifeval  # benchmark data, once
+screamingface prepare medxpert  # benchmark data, once
 screamingface up              # engine, gateway, scoreboard on loopback`
 
 const health = `screamingface status`
@@ -48,11 +48,10 @@ const health = `screamingface status`
       At its core is a <strong>demand-driven, memoized DAG executor</strong>. Demand-driven means it
       works backwards from the result, so it only runs the nodes that result actually needs.
       Memoized means a value shared by several branches is computed once, not repeated: model calls
-      are matched by a fingerprint of the route, prompt and parameters, and with the cache on a
-      call that was made before is served from it.
-      Independent nodes run at the same time. The first failure cancels the others rather than
-      letting a broken run drift on. The number of calls running at once is capped so a wide fan-out
-      can't overwhelm the providers.
+      are matched by a fingerprint of the route, prompt and parameters, and with the cache on a call
+      that was made before is served from it. Independent nodes run at the same time. The first
+      failure cancels the others rather than letting a broken run drift on. The number of calls
+      running at once is capped so a wide fan-out can't overwhelm the providers.
     </p>
 
     <p>
@@ -73,9 +72,9 @@ const health = `screamingface status`
       encrypted at rest (AES-256-GCM) by the AI gateway's credential store, and are never returned
       to the Client. Benchmark cases and grading stay engine-side. The run report does return each
       graded case's rubric criteria and the judge that scored it, so you can see how a score was
-      reached, but nothing about the grading can be changed from the Client. That separation is
-      what makes a score mean something: the code being graded cannot alter the grader, and neither
-      can the person who wrote it.
+      reached, but nothing about the grading can be changed from the Client. That separation is what
+      makes a score mean something: the code being graded cannot alter the grader, and neither can
+      the person who wrote it.
     </p>
 
     <p>
@@ -122,11 +121,12 @@ const health = `screamingface status`
     <CodeBlock :code="health" language="bash" />
 
     <p>
-      A local engine starts with the request cache off. Turn it on before
-      <code>screamingface up</code> with <code>export AIGW_REQUEST_CACHE_ENABLED=true</code>. Cache
-      entries do not expire. A local engine serves the benchmarks you prepared:
-      <code>ifeval</code>, <code>healthbench</code> and <code>medxpert</code>. DRACO runs on the
-      hosted engine.
+      A local engine starts with the request cache on, and cache entries do not expire.
+      <code>use_cache=False</code> on <code>sf.evaluate</code> opts one evaluation out, and
+      <RouterLink to="/sf-client/api/cache"><code>sf.cache.pull_from_remote()</code></RouterLink>
+      loads the hosted community cache into it. A local engine serves the benchmarks you prepared,
+      and <code>screamingface prepare</code> accepts one: <code>medxpert</code>. Every other
+      benchmark, DRACO included, runs on the hosted engine.
     </p>
 
     <p>

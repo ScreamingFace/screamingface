@@ -14,7 +14,7 @@ const listRun = `import screamingface as sf
 
 client = sf.Client(engine_url="http://127.0.0.1:9108")
 [(b.id, b.case_count) for b in client.benchmarks.list()]`
-const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 157), ('ifeval', 541), ('medxpert', 2450)]`
+const listRunOut = `[('medxpert', 2450)]`
 </script>
 
 <template>
@@ -46,8 +46,8 @@ const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 
       A <code>Benchmark</code> is the engine's record of one benchmark, carrying its identity, its
       size, and what it measures. <code>client.benchmarks.get(id)</code> returns a single benchmark
       and <code>client.benchmarks.list()</code> returns every benchmark the engine offers. The list
-      depends on the engine: a local engine returns the benchmarks it has prepared, and the hosted
-      engine returns more.
+      depends on the engine: a local engine serves one benchmark, <code>medxpert</code> (2,450
+      cases), and the hosted engine lists 85.
     </p>
 
     <div class="not-prose">
@@ -82,9 +82,7 @@ const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 
         <tr>
           <td><code>description</code></td>
           <td><code>str</code></td>
-          <td>
-            Prose describing what the benchmark measures and how it is graded.
-          </td>
+          <td>Prose describing what the benchmark measures and how it is graded.</td>
         </tr>
         <tr>
           <td><code>revision</code></td>
@@ -139,10 +137,10 @@ const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 
             The benchmark's cover sheet: <code>paper_url</code>, <code>authors</code>,
             <code>citation</code>, <code>inspect_contributors</code>, <code>homepage_url</code>,
             <code>harness_url</code>, <code>license</code>, <code>license_note</code>,
-            <code>content_warning</code>, <code>human_baseline</code>, <code>frontier_score</code>
-            (each score a <code>PublishedScore</code> with <code>score</code>,
-            <code>source_url</code>, <code>model</code> and <code>as_of</code>) and
-            <code>notebook</code>. <code>None</code> when the engine serves none.
+            <code>content_warning</code>, <code>human_baseline</code>,
+            <code>frontier_score</code> (each score a <code>PublishedScore</code> with
+            <code>score</code>, <code>source_url</code>, <code>model</code> and <code>as_of</code>)
+            and <code>notebook</code>. <code>None</code> when the engine serves none.
           </td>
         </tr>
         <tr>
@@ -166,7 +164,8 @@ const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 
 
     <Note>
       A <code>Benchmark</code> carries no case data. The Client cannot page a benchmark's prompts,
-      because the cases stay on the engine. Case text becomes visible after a run, through the <code>CaseResult</code> values on
+      because the cases stay on the engine. Case text becomes visible after a run, through the
+      <code>CaseResult</code> values on
       <RouterLink to="/sf-client/api/reports">CandidateResult.cases</RouterLink>.
     </Note>
 
@@ -184,7 +183,7 @@ const listRunOut = `[('healthbench-professional', 525), ('healthbench-worst30', 
       <code>BenchmarkInfo.case_count</code> is the benchmark's full size, not the number of cases a
       run covered. The two differ: after evaluating with <code>limit=1</code>,
       <code>report.case_count</code> is <code>1</code> while
-      <code>report.benchmark.case_count</code> remains <code>541</code>.
+      <code>report.benchmark.case_count</code> remains <code>2450</code> for <code>medxpert</code>.
     </Note>
 
     <table>

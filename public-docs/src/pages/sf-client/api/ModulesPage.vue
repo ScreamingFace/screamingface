@@ -16,17 +16,17 @@ sf.configure(
     engine_url="http://127.0.0.1:9108",
     scoreboard_url="http://127.0.0.1:9106",
 )
-[(b.id, b.case_count) for b in sf.benchmarks.list()][:3]`
-const sharedOut = `[('healthbench-professional', 525), ('healthbench-worst30', 157), ('ifeval', 541)]`
+[(b.id, b.case_count) for b in sf.benchmarks.list()]`
+const sharedOut = `[('medxpert', 2450)]`
 
 const configureSig = `sf.configure(
     *,
     engine_url: str = "https://fusion.screamingface.ai",
-    scoreboard_url: str = "https://leaderboard.screamingface.ai",
+    scoreboard_url: str | None = None,
 ) -> Client`
 
 const evaluateSig = `sf.evaluate(
-    candidates: Recipe | Sequence[Recipe] | str,
+    candidates: Recipe | Sequence[Recipe] | str | None = None,
     *,
     benchmark: str | None = None,
     limit: int | None = None,
@@ -34,6 +34,11 @@ const evaluateSig = `sf.evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool | None = None,
+    pinned_cache: str | None = None,
+    score_id: UUID | str | None = None,
+    url4: str | None = None,
+    record_reproduction: bool = True,
+    use_cache: bool = True,
 ) -> Report`
 
 const replay = `# Replace either placeholder with an id from the leaderboard.
@@ -54,12 +59,15 @@ if reproduction is not None:
     :version="version"
   >
     <p>
-      Every name on this page works two ways. On a
+      The names <code>benchmarks</code>, <code>models</code>, <code>connections</code>,
+      <code>leaderboards</code>, <code>evaluate</code>, <code>connect</code> and
+      <code>disconnect</code> work two ways. On a
       <RouterLink to="/sf-client/api/clients">Client</RouterLink> you build yourself, they are its
       attributes and methods: <code>client.benchmarks</code>, <code>client.evaluate(...)</code>. On
       the <code>sf</code> module, the same names act on a default Client the library creates and
       manages for you, so a script or notebook can call <code>sf.evaluate(...)</code> without
-      constructing one.
+      constructing one. <code>sf.events</code>, <code>sf.reports</code>, <code>sf.cache</code> and
+      <code>sf.analytics</code> exist only on the module.
     </p>
 
     <div class="not-prose">
@@ -155,7 +163,7 @@ if reproduction is not None:
     <h2>sf.leaderboards</h2>
 
     <p>
-      Alone among the four, this module talks to the leaderboard rather than the engine. See
+      This module talks to the leaderboard rather than the engine. See
       <RouterLink to="/sf-client/api/leaderboards">Leaderboards</RouterLink> for the values it
       returns.
     </p>
@@ -181,7 +189,12 @@ if reproduction is not None:
           <td>One <code>LeaderboardScore</code> by its identifier.</td>
         </tr>
         <tr>
-          <td><code>submit(candidate_result, *, authors=None, paper_url=None)</code></td>
+          <td>
+            <code
+              >submit(candidate_result, *, authors=None, paper_url=None, authors_metadata=None,
+              paper_metadata=None)</code
+            >
+          </td>
           <td>
             Publishes one
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink> to the
@@ -189,7 +202,12 @@ if reproduction is not None:
           </td>
         </tr>
         <tr>
-          <td><code>edit(score_id, *, authors=..., paper_url=...)</code></td>
+          <td>
+            <code
+              >edit(score_id, *, authors=..., paper_url=..., authors_metadata=...,
+              paper_metadata=...)</code
+            >
+          </td>
           <td>The updated <code>LeaderboardScore</code>, for a score you submitted.</td>
         </tr>
         <tr>
@@ -202,9 +220,8 @@ if reproduction is not None:
     <h2>sf.events</h2>
 
     <p>
-      Unlike the four above, <code>sf.events</code> exposes no functions. It holds the event types a
-      run reports through <code>on_event</code>, covered in
-      <RouterLink to="/sf-client/api/events">Events</RouterLink>.
+      <code>sf.events</code> exposes no functions. It holds the event types a run reports through
+      <code>on_event</code>, covered in <RouterLink to="/sf-client/api/events">Events</RouterLink>.
     </p>
 
     <h2>sf.reports</h2>
@@ -237,6 +254,25 @@ if reproduction is not None:
       </tbody>
     </table>
 
+    <h2>sf.cache</h2>
+
+    <p>
+      Copies the hosted community cache into the local gateway, so a local run answers from it the
+      model calls the community already made. It exposes <code>pull_from_remote()</code>,
+      <code>PullResult</code> and <code>CachePullError</code>. The command line form is
+      <code>screamingface cache pull</code>. See
+      <RouterLink to="/sf-client/api/cache">Cache</RouterLink>.
+    </p>
+
+    <h2>sf.analytics</h2>
+
+    <p>
+      Reads and sets the opt-in analytics choice. It exposes <code>status()</code>,
+      <code>enable()</code>, <code>disable()</code> and <code>reset_identifier()</code>. The command
+      line form is <code>screamingface analytics</code>, and <code>DO_NOT_TRACK</code> turns
+      analytics off. See <RouterLink to="/sf-client/api/analytics">Analytics</RouterLink>.
+    </p>
+
     <h2>Top-level functions</h2>
 
     <p>
@@ -252,7 +288,7 @@ if reproduction is not None:
       Runs a fresh evaluation, which may spend money, or replays captured answers at $0. Identical
       to <code>Client.evaluate()</code>, including evaluating a url4 string. Its parameters are
       documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page. That
-      includes <code>answer_seed</code> and <code>capture</code>.
+      includes <code>answer_seed</code>, <code>capture</code> and <code>use_cache</code>.
     </p>
 
     <CodeBlock :code="replay" language="python" />
@@ -274,11 +310,12 @@ if reproduction is not None:
 
     <p>
       Replaces the shared Client and returns the new one. Call it once, before anything else, to
-      point the module-level functions at a different engine. Pair a
-      non-default <code>engine_url</code> with its own <code>scoreboard_url</code>: without it the
-      Client keeps the public leaderboard, so a local run's <code>submit</code> would publish there.
-      Setting <code>SCREAMINGFACE_ENGINE_URL</code> and <code>SCREAMINGFACE_SCOREBOARD_URL</code> in
-      the environment does the same thing without a call.
+      point the module-level functions at a different engine. A non-default
+      <code>engine_url</code> requires its own <code>scoreboard_url</code>; without it
+      <code>configure()</code> raises <code>ValueError</code>, so a local run's
+      <code>submit</code> cannot publish to the public leaderboard. Setting
+      <code>SCREAMINGFACE_ENGINE_URL</code> and <code>SCREAMINGFACE_SCOREBOARD_URL</code> in the
+      environment does the same thing without a call.
     </p>
 
     <h3>connect() and disconnect()</h3>
@@ -313,8 +350,9 @@ if reproduction is not None:
     <h3>close()</h3>
 
     <p>
-      Releases the shared Client. A later module-level call simply builds a new one, so this is
-      about releasing resources rather than shutting anything down permanently.
+      Releases the shared Client and the sign-in sessions of
+      <code>sf.cache.pull_from_remote()</code>. A later module-level call simply builds a new one,
+      so this is about releasing resources rather than shutting anything down permanently.
     </p>
   </DocLayout>
 </template>

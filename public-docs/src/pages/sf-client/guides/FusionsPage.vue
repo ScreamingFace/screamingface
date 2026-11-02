@@ -171,7 +171,9 @@ const reducerExample = `fusion = sf.Fusion(
       </thead>
       <tbody>
         <tr>
-          <td><code>sf.Fusion(members, *, name=None, synthesizer)</code></td>
+          <td>
+            <code>sf.Fusion(members, *, name=None, synthesizer, quorum="all", optional=False)</code>
+          </td>
           <td>
             Combines members through a synthesizer that reads their answers and produces one final
             answer for the benchmark to grade. Synthesizer is required.
@@ -342,8 +344,8 @@ const reducerExample = `fusion = sf.Fusion(
     <CodeBlock :code="reducerExample" language="python" />
 
     <p>
-      <code>sf.Median</code>, <code>sf.Judge</code>, <code>sf.Pick</code> and <code>sf.Merge</code>
-      work the same way, and <code>sf.Rank</code>, <code>sf.Concat</code> and
+      <code>sf.Median</code>, <code>sf.Judge</code>, <code>sf.Pick</code> and
+      <code>sf.Merge</code> work the same way, and <code>sf.Rank</code>, <code>sf.Concat</code> and
       <code>sf.Filter</code> hand members to a later stage. The
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> lists them all.
       <code>quorum</code> sets how many members must succeed, and a member built with
@@ -457,6 +459,23 @@ const reducerExample = `fusion = sf.Fusion(
             members' answers and writes the final one. No default.
           </td>
         </tr>
+        <tr>
+          <td><code>quorum</code></td>
+          <td><code>int&nbsp;|&nbsp;"all"</code></td>
+          <td>
+            How many members must succeed. The default <code>"all"</code> requires every required
+            member; a member built with <code>optional=True</code> may fail without stopping the
+            Fusion when the quorum is met.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Marks this Fusion as optional when it is a member of another Fusion. Default
+            <code>False</code>.
+          </td>
+        </tr>
       </tbody>
     </table>
 
@@ -481,7 +500,12 @@ const reducerExample = `fusion = sf.Fusion(
       <tbody>
         <tr>
           <td>No <code>synthesizer</code> is given</td>
-          <td><code>TypeError: missing a required keyword-only argument: 'synthesizer'</code></td>
+          <td>
+            <code
+              >TypeError: Fusion.__init__() missing 1 required keyword-only argument:
+              'synthesizer'</code
+            >
+          </td>
         </tr>
         <tr>
           <td>The members are empty</td>
@@ -501,6 +525,10 @@ const reducerExample = `fusion = sf.Fusion(
           <td>
             <code>TypeError: … must be a model route or sf.Model, sf.Fusion, or sf.Pipeline</code>
           </td>
+        </tr>
+        <tr>
+          <td><code>quorum</code> is above the member count</td>
+          <td><code>ValueError: Fusion quorum must be between zero and the member count</code></td>
         </tr>
       </tbody>
     </table>

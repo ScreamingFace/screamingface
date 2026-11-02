@@ -50,12 +50,10 @@ const components = [
         is the artifact everything else passes around.
       </li>
       <li>
-        <RouterLink to="/learn/engine"
-          ><strong>The engine:</strong></RouterLink
-        >
-        It is the runtime and trust boundary, and it runs a url4 expression: it schedules the graph, sends each model call out to a provider, and
-        streams back tokens, cost, and the result. It holds the provider credentials, so the Client
-        never sees them.
+        <RouterLink to="/learn/engine"><strong>The engine:</strong></RouterLink>
+        It is the runtime and trust boundary, and it runs a url4 expression: it schedules the graph,
+        sends each model call out to a provider, and streams back tokens, cost, and the result. It
+        holds the provider credentials, so the Client never sees them.
       </li>
       <li>
         <RouterLink to="/learn/ai-gateway"><strong>The AI gateway:</strong></RouterLink> It is a
@@ -74,10 +72,9 @@ const components = [
       </li>
       -->
       <li>
-        <RouterLink to="/learn/leaderboard"><strong>The Leaderboard:</strong></RouterLink> It is where
-        results go public. Each entry says whether the hosted engine ran it, and keeps the url4 that
-        produced it, so a rank can always be checked. The board itself is
-        at
+        <RouterLink to="/learn/leaderboard"><strong>The Leaderboard:</strong></RouterLink> It is
+        where results go public. Each entry says whether the hosted engine ran it, and keeps the
+        url4 that produced it, so a rank can always be checked. The board itself is at
         <a href="https://leaderboard.screamingface.ai" target="_blank" rel="noopener"
           >leaderboard.screamingface.ai</a
         >.
@@ -96,8 +93,8 @@ const components = [
 
     <p>
       There are two ways to run, and only the engine URL changes. A <strong>local</strong> engine
-      runs on your own machine, on your own keys, with its own cache (off until you turn it on), and
-      nothing on the local path takes a cut.
+      runs on your own machine, on your own keys, with its own cache (on by default), and nothing on
+      the local path takes a cut.
     </p>
 
     <figure class="not-prose diagram">

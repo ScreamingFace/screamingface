@@ -12,37 +12,34 @@ import {
 const run = `import screamingface as sf
 
 haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
-report = sf.evaluate(haiku, benchmark="ifeval", limit=3)
+report = sf.evaluate(haiku, benchmark="medxpert", limit=3)
 report`
-const runOut = `Report(benchmark='ifeval', candidates=['claude-haiku-4.5'], ok=True)`
+const runOut = `Report(benchmark='medxpert', candidates=['claude-haiku-4.5'], ok=True)`
 
 const score = `c = report.candidates.only
 c.name, c.score, report.case_count, report.benchmark`
-const scoreOut = `('claude-haiku-4.5', 0.6667, 3, BenchmarkInfo(id='ifeval', revision='1cba769ece27f7ef', case_count=541, inverted_grade=False))`
+const scoreOut = `('claude-haiku-4.5', 0.0, 3, BenchmarkInfo(id='medxpert', revision='1e5a3b8a461a52f7', case_count=2450, inverted_grade=False))`
 
 const metrics = `dict(c.metrics)`
-const metricsOut = `{'inst_level_strict_accuracy': 0.8,
- 'prompt_level_loose_accuracy': 0.6667,
- 'inst_level_loose_accuracy': 0.8,
- 'pass_rate': 0.8}`
+const metricsOut = `{'correct': 0, 'scored_cases': 3, 'answered': 3, 'answered_rate': 1.0}`
 
 const many = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
 sf.evaluate(
     [opus, gpt, sf.Fusion([opus, gpt], synthesizer="openrouter/openai/gpt-5.5")],
-    benchmark="ifeval",
+    benchmark="medxpert",
     limit=1,
 )`
 
 const usage = `report.usage`
-const usageOut = `Usage(input_tokens=233, output_tokens=1136, cache_read_tokens=0,
-      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.005913'))`
+const usageOut = `Usage(input_tokens=3628, output_tokens=874, cache_read_tokens=0,
+      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.007998'))`
 
 const watch = `def observe(event: sf.Event) -> None:
     print(event.kind)
 
-sf.evaluate(haiku, benchmark="ifeval", limit=1, on_event=observe, progress=False)`
+sf.evaluate(haiku, benchmark="medxpert", limit=1, on_event=observe, progress=False)`
 
 const saved = `ids = sf.reports.list()          # one SavedReportInfo per saved report
 saved = sf.reports.get(ids[0].id)   # the full Report, reopened from disk
@@ -58,7 +55,7 @@ sf.configure(
 
 # or hold a client yourself
 client = sf.Client(engine_url="${SF_ENGINE_URL}")
-report = client.evaluate(haiku, benchmark="ifeval", limit=3)
+report = client.evaluate(haiku, benchmark="medxpert", limit=3)
 client.close()`
 </script>
 
@@ -156,6 +153,7 @@ client.close()`
     <ul>
       <li>Evaluate one candidate, or run several at once.</li>
       <li>Cap the number of cases with <code>limit</code>.</li>
+      <li>Skip the request cache for one run with <code>use_cache=False</code>.</li>
       <li>Reopen a saved report from disk.</li>
       <li>Watch the run live, or turn off the progress display.</li>
       <li>Use an explicit Client, sync or with <code>await</code>.</li>
@@ -186,16 +184,18 @@ client.close()`
           <td>
             <code
               >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None,
-              answer_seed=None, capture=None)</code
+              answer_seed=None, capture=None, pinned_cache=None, score_id=None, url4=None,
+              record_reproduction=True, use_cache=True)</code
             >
           </td>
           <td>
             Runs one or more candidates against a benchmark's protocol concurrently, returning a
             single <code>sf.Report</code>. Validates everything before the first paid request.
-            Capture is off by default. With
-            <code>capture=True</code>
-            each run makes a pinned cache, so a score can be
-            <RouterLink to="/learn/caching">reproduced</RouterLink> later. A replay never captures.
+            Capture is on by default: each run stores a pinned cache, so a score can be
+            <RouterLink to="/learn/caching">reproduced</RouterLink> later, and
+            <code>capture=False</code> turns it off. A replay never captures. With
+            <code>use_cache=False</code> every model call is made fresh instead of being answered
+            from the request cache.
           </td>
         </tr>
         <tr>
@@ -212,7 +212,7 @@ client.close()`
           <td>
             Repoints the shared Client so every later <code>sf.evaluate()</code> call uses that
             engine and its leaderboard. A non-default engine without its
-            <code>scoreboard_url</code> keeps the public leaderboard.
+            <code>scoreboard_url</code> raises <code>ValueError</code>.
           </td>
         </tr>
         <tr>
@@ -256,8 +256,8 @@ client.close()`
 
     <p>
       Notice the two case counts: <code>report.case_count</code> is how many cases <em>ran</em>;
-      <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 541 is a
-      smoke test, and the report keeps both numbers visible so that stays obvious later.
+      <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 2,450 is
+      a smoke test, and the report keeps both numbers visible so that stays obvious later.
     </p>
 
     <p>
@@ -290,9 +290,9 @@ client.close()`
     </div>
 
     <p>
-      Results come back in declared order. IFEval grading is free, so this costs only the answers.
-      On DRACO every criterion is graded by five judge passes, so even <code>limit=1</code> is a
-      real spend.
+      Results come back in declared order. MedXpert grading is an exact match, so it is free and
+      this costs only the answers. On DRACO every criterion is graded by five judge passes, so even
+      <code>limit=1</code> is a real spend.
     </p>
 
     <h3>4 · Read what it cost</h3>
@@ -303,8 +303,15 @@ client.close()`
 
     <p>
       <code>cost_usd</code> is the cost the provider reported, for example
-      <code>Decimal('0.005913')</code>. Any field is <code>None</code> if even one candidate run
+      <code>Decimal('0.007998')</code>. Any field is <code>None</code> if even one candidate run
       failed to report it, rather than being silently summed as a partial total.
+    </p>
+
+    <p>
+      The local gateway starts with the request cache on, so a repeated call can be answered from it
+      and report <code>cost_usd=Decimal('0')</code>. <code>use_cache=False</code> opts one
+      evaluation out: its calls are made fresh and the report shows them as cache
+      <code>bypass</code> with the reason <code>opted_out</code>.
     </p>
 
     <h3>5 · Watch a run</h3>
@@ -322,11 +329,13 @@ client.close()`
     <h3>6 · Point at the engine</h3>
 
     <p>
-      <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured it falls back to
-      <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not what you want when the engine
-      you mean is your own, so name it once with <code>sf.configure()</code>, together with its
-      scoreboard, and every later call uses it. <code>sf.close()</code> forgets that setting, so
-      name the engine again before the next call.
+      <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured and with no local
+      stack running, it falls back to <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not
+      what you want when the engine you mean is your own, so name it once with
+      <code>sf.configure()</code>, together with its scoreboard, and every later call uses it. When
+      <code>screamingface up</code> is running and nothing is configured, the shared Client connects
+      to that stack instead. <code>sf.close()</code> forgets that setting, so name the engine again
+      before the next call.
     </p>
 
     <p>
@@ -368,6 +377,8 @@ client.close()`
       <code>PlanningError</code> means the run never started: change the candidate, benchmark or
       configuration. <code>ExecutionError</code> means it reached the engine and ended without a
       valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
+      <code>ReproductionError</code> means a replay could not start. A benchmark the engine does not
+      publish raises <code>PlanningError</code>: a local engine serves only <code>medxpert</code>.
       Each carries a stable <code>code</code> and a <code>hint</code>.
     </p>
 

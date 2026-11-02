@@ -71,14 +71,16 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
     <ul>
       <li>
         <strong>Held-out grading:</strong> The engine grades each case, so a score does not rest on
-        trusting whoever produced it. The run report returns the rubric criteria and the judge
-        model for each graded case, so you can see how a score was reached.
+        trusting whoever produced it. The run report returns the rubric criteria and the judge model
+        for each graded case, so you can see how a score was reached.
       </li>
       <li>
         <strong>A reproducible artifact for every run:</strong> Each evaluation compiles to one
         <RouterLink to="/learn/url4">url4</RouterLink> expression recording the models, their
         parameters, and the benchmark revision that was used. Anyone holding it can run the same
-        evaluation.
+        evaluation. A run stores its model answers as a pinned cache unless you pass
+        <code>capture=False</code>, and <code>sf.evaluate(pinned_cache=...)</code> replays it from
+        those answers.
       </li>
       <li>
         <strong>Your own providers (local engine):</strong> You connect the API keys you already
@@ -86,11 +88,11 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
       </li>
       <li>
         <strong>Caching:</strong> With the <RouterLink to="/learn/caching">cache</RouterLink> on, a
-        model call that was made before is served from the cache. Calls are matched by route,
-        prompt and parameters, so comparing many fusion candidates over one benchmark is billed
-        only for the calls that have not been made before. A model shared between two candidates
-        runs once, and swapping a single member re-uses what the others already produced. A local
-        engine starts with the cache off.
+        model call that was made before is served from the cache. Calls are matched by route, prompt
+        and parameters, so comparing many fusion candidates over one benchmark is billed only for
+        the calls that have not been made before. A model shared between two candidates runs once,
+        and swapping a single member re-uses what the others already produced. A local engine starts
+        with the cache on, and <code>evaluate(..., use_cache=False)</code> opts one run out.
       </li>
       <li>
         <strong>Cost reported alongside accuracy:</strong> Tokens, spend, and duration stream while
@@ -149,6 +151,8 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
         <strong>A local engine</strong> ships with the toolkit and runs on your own machine, using
         your keys and its own cache. Nothing is hosted and no third party sits between you and your
         providers, but the cache starts empty and you pay for the compute.
+        <code>sf.cache.pull_from_remote()</code> signs in to the hosted engine and copies the
+        community cache into it.
       </li>
       <li>
         <strong>A hosted engine</strong> runs the same software as a service and adds the shared
@@ -168,8 +172,9 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
 
     <p>
       This runs on a hosted engine, which needs an account with access. On a local engine, point
-      <code>engine_url</code> at <code>http://127.0.0.1:9108</code> and use
-      <code>benchmark="ifeval"</code>, which a local engine serves.
+      <code>engine_url</code> at <code>http://127.0.0.1:9108</code>, point
+      <code>scoreboard_url</code> at <code>http://127.0.0.1:9106</code> and use
+      <code>benchmark="medxpert"</code>, which a local engine serves.
     </p>
 
     <div class="not-prose">

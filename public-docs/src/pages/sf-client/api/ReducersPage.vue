@@ -15,7 +15,7 @@ b = sf.Model("openrouter/google/gemini-3.5-flash-lite", name="b")
 c = sf.Model("openrouter/anthropic/claude-haiku-4.5", name="c")
 
 fusion = sf.Fusion([a, b, c], synthesizer=sf.Vote())
-report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
+report = sf.evaluate(fusion, benchmark="medxpert", limit=1)`
 
 const judge = `judge = sf.Judge(
     "openrouter/google/gemini-3.5-flash-lite",
@@ -38,7 +38,7 @@ const answersOut = `[('member_1', 'answered', None),
  ('member_1', 'answered', None)]`
 
 const abstain = `fusion = sf.Fusion([a, b], synthesizer=sf.Vote(extract="boxed"))
-report = sf.evaluate(fusion, benchmark="ifeval", limit=1)
+report = sf.evaluate(fusion, benchmark="medxpert", limit=1)
 case = report.candidates.only.cases[0]
 case.abstained, case.output, report.candidates.only.score`
 const abstainOut = `(True, '', 0.0)`
@@ -56,8 +56,7 @@ const abstainOut = `(True, '', 0.0)`
       model, or a <strong>reducer</strong>: a combine step the engine runs without writing a new
       answer. A reducer reads each member's answer, picks or builds the result, and compiles to one
       combine call in the candidate's <RouterLink to="/sf-client/api/url4">url4</RouterLink>. A
-      reducer is valid only as a Fusion synthesizer. Anywhere else it raises
-      <code>TypeError</code>.
+      reducer is valid only as a Fusion synthesizer. Anywhere else it raises <code>TypeError</code>.
     </p>
 
     <Note>
@@ -82,9 +81,7 @@ const abstainOut = `(True, '', 0.0)`
       <tbody>
         <tr>
           <td>
-            <code
-              >sf.Vote(*, extract="last_line", normalize="text", weights=None, judge=None)</code
-            >
+            <code>sf.Vote(*, extract="last_line", normalize="text", weights=None, judge=None)</code>
           </td>
           <td>
             The first member, in author order, that holds the most common answer, as that member's
@@ -154,9 +151,9 @@ const abstainOut = `(True, '', 0.0)`
 
     <p>
       A selection keeps some members and passes their original texts to the next stage, so it must
-      be followed by another stage of a <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>.
-      One that ends a candidate, is a Fusion member, or feeds a corrective loop raises
-      <code>ValueError</code> at compile time.
+      be followed by another stage of a
+      <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>. One that ends a candidate, is
+      a Fusion member, or feeds a corrective loop raises <code>ValueError</code> at compile time.
     </p>
 
     <table>
@@ -187,8 +184,9 @@ const abstainOut = `(True, '', 0.0)`
         <tr>
           <td><code>sf.Filter(*, where, extract=None)</code></td>
           <td>
-            The members that pass <code>where</code>, in author order: <code>sf.matches(pattern)</code>
-            or a comparison on a signal such as <code>sf.signal("field:x") &gt;= 0.6</code>.
+            The members that pass <code>where</code>, in author order:
+            <code>sf.matches(pattern)</code> or a comparison on a signal such as
+            <code>sf.signal("field:x") &gt;= 0.6</code>.
           </td>
         </tr>
       </tbody>
@@ -246,7 +244,10 @@ const abstainOut = `(True, '', 0.0)`
         </tr>
         <tr>
           <td>
-            <code>sf.samples(model, n, *, seeds=None, temperature=None, prompts=None, params=None)</code>
+            <code
+              >sf.samples(model, n, *, seeds=None, temperature=None, prompts=None,
+              params=None)</code
+            >
           </td>
           <td>
             <code>n</code> Models of one route that differ in an integer <code>seed</code>, so a
@@ -262,11 +263,11 @@ const abstainOut = `(True, '', 0.0)`
     <p>
       <code>CaseResult.answers()</code> returns one <code>sf.Answer</code> per member in author
       order, then the computed answer of the step. An <code>Answer</code> has
-      <code>member_id</code>, <code>text</code> (the member's original output, or <code>None</code>
-      when it cannot be attributed), <code>raw</code>, <code>value</code>, <code>status</code>
-      (<code>answered</code>, <code>abstain</code> or <code>fail</code>), <code>reason</code> and
-      <code>signals</code>. A computed answer has no <code>member_id</code> unless a select chose
-      one.
+      <code>member_id</code>, <code>text</code> (the member's original output, or
+      <code>None</code> when it cannot be attributed), <code>raw</code>, <code>value</code>,
+      <code>status</code> (<code>answered</code>, <code>abstain</code> or <code>fail</code>),
+      <code>reason</code> and <code>signals</code>. A computed answer has no
+      <code>member_id</code> unless a select chose one.
     </p>
 
     <div class="not-prose">

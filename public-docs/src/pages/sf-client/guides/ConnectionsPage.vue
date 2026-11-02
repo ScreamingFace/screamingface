@@ -166,10 +166,9 @@ const panelProviders: Provider[] = [
         <p>
           A hosted engine sits behind <strong>Cloudflare Access</strong>. There is no token to
           paste: <code>login()</code> prints a URL (a script also opens it in your browser; a
-          notebook only prints it), then polls an
-          encrypted transfer service and decrypts the returned token locally. The token lives only
-          in process memory and is sent as <code>Cf-Access-Token</code>.
-          <code>logout()</code> forgets it.
+          notebook only prints it), then polls an encrypted transfer service and decrypts the
+          returned token locally. The token lives only in process memory and is sent as
+          <code>Cf-Access-Token</code>. <code>logout()</code> forgets it.
         </p>
 
         <div class="not-prose">
@@ -197,7 +196,11 @@ const panelProviders: Provider[] = [
           If you run the engine yourself, point the Client at it and skip the login step entirely: a
           local engine advertises no Cloudflare Access, so the panel shows provider rows
           immediately. Calling <code>login()</code> on a local engine raises
-          <code>AuthenticationError</code>.
+          <code>AuthenticationError</code>. A non-default <code>engine_url</code> requires
+          <code>scoreboard_url</code> in <code>sf.configure()</code>; without it the call raises
+          <code>ValueError</code>. <code>SCREAMINGFACE_ENGINE_URL</code> requires
+          <code>SCREAMINGFACE_SCOREBOARD_URL</code> the same way. When <code>screamingface up</code>
+          is running and neither is set, the module-level functions connect to that stack.
         </p>
 
         <div class="not-prose">
@@ -212,8 +215,8 @@ const panelProviders: Provider[] = [
       Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>: a
       live widget listing every provider the engine advertises, with a field for each one's
       supported auth method. The
-      <RouterLink to="/sf-client/reproduce-draco">Reproduce DRACO</RouterLink> steps through the whole
-      flow state by state.
+      <RouterLink to="/sf-client/reproduce-draco">Reproduce DRACO</RouterLink> steps through the
+      whole flow state by state.
     </p>
 
     <div class="not-prose">

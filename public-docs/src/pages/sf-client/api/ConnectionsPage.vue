@@ -27,11 +27,18 @@ panel.connections`
     </p>
 
     <p>
-      A hosted engine takes no provider keys of its own: <code>connect(provider, api_key=…)</code>
-      and <code>disconnect(provider)</code> raise <code>ProviderConnectionError</code> with the code
-      <code>connection_method_unsupported</code>, and <code>list()</code> reports the providers the
-      OpenMined team has enabled for your account. On a local engine
-      <code>login()</code> raises <code>AuthenticationError</code>.
+      A hosted engine takes no provider keys of its own:
+      <code>connect(provider, api_key=…)</code> and <code>disconnect(provider)</code> raise
+      <code>ProviderConnectionError</code> with the code <code>connection_method_unsupported</code>,
+      and <code>list()</code> reports the providers the OpenMined team has enabled for your account.
+      On a local engine <code>login()</code> raises <code>AuthenticationError</code>.
+    </p>
+
+    <p>
+      A local engine advertises seven providers: <code>anthropic</code>, <code>antigravity</code>,
+      <code>codex</code>, <code>gemini-cli</code>, <code>huggingface</code>, <code>openai</code> and
+      <code>openrouter</code>. <code>get(provider)</code> on a provider the engine does not
+      advertise raises <code>ProviderConnectionError</code>.
     </p>
 
     <h2>Connection</h2>

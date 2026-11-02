@@ -53,7 +53,8 @@ There is no automated test setup in this project.
 | `/sf-client`                              | `src/pages/sf-client/Index.vue`                   |
 | `/sf-client/installation`                 | `src/pages/sf-client/InstallationPage.vue`        |
 | `/sf-client/first-fusion`                 | `src/pages/sf-client/FirstFusionPage.vue`         |
-| `/sf-client/quickstartPage`               | `src/pages/sf-client/QuickstartPage.vue`          |
+| `/sf-client/reproduce-draco`              | `src/pages/sf-client/QuickstartPage.vue`          |
+| `/sf-client/guides/clients`               | `src/pages/sf-client/guides/ClientsPage.vue`      |
 | `/sf-client/guides/connections`           | `src/pages/sf-client/guides/ConnectionsPage.vue`  |
 | `/sf-client/guides/models`                | `src/pages/sf-client/guides/ModelsPage.vue`       |
 | `/sf-client/guides/fusions`               | `src/pages/sf-client/guides/FusionsPage.vue`      |
@@ -63,8 +64,11 @@ There is no automated test setup in this project.
 | `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
 | `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
+| `/sf-client/api/models`                   | `src/pages/sf-client/api/ModelsCatalogPage.vue`   |
 | `/sf-client/api/benchmarks`               | `src/pages/sf-client/api/BenchmarksPage.vue`      |
 | `/sf-client/api/reports`                  | `src/pages/sf-client/api/ReportsPage.vue`         |
+| `/sf-client/api/candidate-result`         | `src/pages/sf-client/api/CandidateResultPage.vue` |
+| `/sf-client/api/usage`                    | `src/pages/sf-client/api/UsagePage.vue`           |
 | `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
 | `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
 | `/sf-client/api/reducers`                 | `src/pages/sf-client/api/ReducersPage.vue`        |
@@ -75,10 +79,12 @@ There is no automated test setup in this project.
 | `/sf-client/api/errors`                   | `src/pages/sf-client/api/ErrorsPage.vue`          |
 | `/sf-client/api/events`                   | `src/pages/sf-client/api/EventsPage.vue`          |
 | `/sf-client/api/leaderboards`             | `src/pages/sf-client/api/LeaderboardsPage.vue`    |
+| `/sf-client/api/cache`                    | `src/pages/sf-client/api/CachePage.vue`           |
+| `/sf-client/api/analytics`                | `src/pages/sf-client/api/AnalyticsPage.vue`       |
 | `/learn`                                  | `src/pages/learn/ArchitecturePage.vue`            |
 | `/learn/url4`                             | `src/pages/learn/Url4Page.vue`                    |
-| `/learn/url4-sdk`                         | `src/pages/learn/Url4SdkPage.vue`                 |
 | `/learn/engine`                           | `src/pages/learn/EnginePage.vue`                  |
+| `/learn/url4-sdk`                         | `src/pages/learn/Url4SdkPage.vue`                 |
 | `/learn/caching`                          | `src/pages/learn/CachingPage.vue`                 |
 | `/learn/ai-gateway`                       | `src/pages/learn/GatewayPage.vue`                 |
 | `/learn/leaderboard`                      | `src/pages/learn/LeaderboardPage.vue`             |

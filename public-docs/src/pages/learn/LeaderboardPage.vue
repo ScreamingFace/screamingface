@@ -8,7 +8,7 @@ const GH_TREE = 'https://github.com/ScreamingFace/screamingface/tree/main'
 
 const read = `import screamingface as sf
 
-sf.leaderboards.list()                      # benchmarks with a public board
+sf.leaderboards.list()                      # 87 benchmarks on production
 
 board = sf.leaderboards.get("draco-3pass", top=10)
 for entry in board.entries:
@@ -35,9 +35,10 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     <p>
       The <strong>Leaderboard</strong> is where results go public. It ranks ensemble runs against
       research benchmarks, and each entry says whether the hosted engine ran it
-      (<code>verified_by_screamingface</code>). Every entry shows what it scored, what it cost to get there, and the
-      <RouterLink to="/learn/url4">url4</RouterLink> expression that produced it, which is what you
-      would use to run the same evaluation and check the number against your own result.
+      (<code>verified_by_screamingface</code>). Every entry shows what it scored, what it cost to
+      get there, and the <RouterLink to="/learn/url4">url4</RouterLink> expression that produced it,
+      which is what you would use to run the same evaluation and check the number against your own
+      result.
     </p>
 
     <p>
@@ -64,10 +65,10 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation:</strong> The score is benchmark-native: the exact number the
-        benchmark's own grading produced, fractional or negative included. The board checks it is
-        a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
-        sole authority on its formula.
+        <strong>Validation:</strong> The score is benchmark-native: the exact number the benchmark's
+        own grading produced, fractional or negative included. The board checks it is a finite
+        number and never recomputes, normalizes, or thresholds it — the benchmark is the sole
+        authority on its formula.
       </li>
       <li>
         <strong>Deduplication:</strong> Each submission is hashed over its recipe identity, meaning
@@ -92,11 +93,11 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 
     <p>
       Single-model results imported from public sources can sit on the same board as the ensembles,
-      as <strong>baselines</strong>; <code>board.baselines</code> is empty on a board that has none,
-      as on <code>draco-3pass</code> today. They are what makes a fusion's gain legible: a composed system is
-      only interesting if it beats the models it is composed from, and the comparison should use
-      numbers the field already accepts. Each baseline records where it came from, so you can go
-      read the original.
+      as <strong>baselines</strong>; <code>board.baselines</code> is an empty tuple on a board that
+      has none, such as <code>draco-3pass</code>. They are what makes a fusion's gain legible: a
+      composed system is only interesting if it beats the models it is composed from, and the
+      comparison should use numbers the field already accepts. Each baseline records where it came
+      from, so you can go read the original.
     </p>
 
     <h2>The paper link</h2>

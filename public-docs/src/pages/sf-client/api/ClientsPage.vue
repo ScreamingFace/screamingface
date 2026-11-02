@@ -36,6 +36,7 @@ const evaluateSig = `Client.evaluate(
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool | None = None,
+    use_cache: bool = True,
 ) -> Report`
 
 const replaySig = `Client.evaluate(
@@ -72,7 +73,7 @@ async def main():
         return len(models), client.engine_url
 
 asyncio.run(main())   # in a notebook: await main()`
-const asyncOut = `(109, 'http://127.0.0.1:9108')`
+const asyncOut = `(108, 'http://127.0.0.1:9108')`
 </script>
 
 <template>
@@ -105,10 +106,11 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
     </div>
 
     <Note>
-      <code>DEFAULT_ENGINE_URL</code> is the hosted engine, <code>https://fusion.screamingface.ai</code>,
-      so a <code>Client()</code> with no arguments talks to one we operate. To use a local engine,
-      pass its address and its scoreboard explicitly, or set <code>SCREAMINGFACE_ENGINE_URL</code>
-      together with <code>SCREAMINGFACE_SCOREBOARD_URL</code> and use the module-level functions.
+      <code>DEFAULT_ENGINE_URL</code> is the hosted engine,
+      <code>https://fusion.screamingface.ai</code>, so a <code>Client()</code> with no arguments
+      talks to one we operate. To use a local engine, pass its address and its scoreboard
+      explicitly, or set <code>SCREAMINGFACE_ENGINE_URL</code> together with
+      <code>SCREAMINGFACE_SCOREBOARD_URL</code> and use the module-level functions.
       <code>DEFAULT_SCOREBOARD_URL</code> is the public ScreamingFace Leaderboard,
       <code>https://leaderboard.screamingface.ai</code>. Both constants live in
       <code>screamingface.client</code>.
@@ -194,7 +196,7 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
           <td>catalogue</td>
           <td>
             <code>models.list()</code> returns the
-            <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> routes this engine can
+            <RouterLink to="/sf-client/api/models">ModelInfo</RouterLink> routes this engine can
             reach.
           </td>
         </tr>
@@ -245,10 +247,11 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
           <td><code>benchmark</code></td>
           <td><code>str</code></td>
           <td>
-            The benchmark id, such as <code>ifeval</code>. A protocol variant is its own id, such as
-            <code>ifeval/self-corrective</code>, and it pins a different revision, so it changes
-            what the result is comparable to. Required for recipe candidates; omit it when
-            evaluating a complete url4 string or replaying a pinned cache.
+            The benchmark id: <code>medxpert</code> on a local engine, or any id from
+            <code>sf.benchmarks.list()</code> on the hosted engine, such as <code>ifeval</code>. A
+            protocol variant is its own id and pins a different revision, so it changes what the
+            result is comparable to. Required for recipe candidates; omit it when evaluating a
+            complete url4 string or replaying a pinned cache.
           </td>
         </tr>
         <tr>
@@ -279,13 +282,25 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
           </td>
         </tr>
         <tr>
+          <td><code>use_cache</code></td>
+          <td><code>bool</code></td>
+          <td>
+            <code>True</code> by default: a model call may be answered from the request cache.
+            <code>False</code> makes every call of this evaluation fresh; the report marks them
+            cache <code>bypass</code> with the reason <code>opted_out</code>. Anything other than a
+            <code>bool</code> raises <code>TypeError</code>. A replay ignores it. See
+            <RouterLink to="/learn/caching">Caching</RouterLink>.
+          </td>
+        </tr>
+        <tr>
           <td><code>capture</code></td>
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
-            Defaults to <code>None</code>, which means off. <code>True</code> turns capture on for a
-            fresh evaluation; a replay never captures. When capture is on, the engine makes a pinned
-            cache of each run, so the score can be reproduced later. Best effort. Read
-            <code>capture_status</code> on each
+            Defaults to <code>None</code>, which means on for a fresh evaluation.
+            <code>False</code> turns capture off. A replay never captures, and
+            <code>capture=True</code> with a replay raises <code>TypeError</code>. When capture is
+            on, the engine makes a pinned cache of each run, so the score can be reproduced later.
+            Best effort. Read <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
           </td>
@@ -346,13 +361,16 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
       returns the resulting <code>Connection</code>. <code>connect()</code> with no arguments
       returns a <code>ConnectionPanel</code> instead. <code>disconnect(provider)</code> removes the
       credential and is safe to call repeatedly.
+      <code>connect(provider, method="oauth")</code> returns an <code>OAuthFlow</code> for providers
+      that offer OAuth.
     </p>
 
     <p>
       Passing a key requires a secure origin: an <code>https</code> engine, or a local one over
       <code>http</code>. Supplying <code>api_key</code> without a provider raises
       <code>TypeError</code>; a provider without <code>api_key</code> raises
-      <code>ValueError</code>.
+      <code>ValueError</code>. A provider the engine does not advertise raises
+      <code>ProviderConnectionError</code>.
     </p>
 
     <h3>Lifecycle</h3>
@@ -408,7 +426,7 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
         </tr>
         <tr>
           <td><code>connect()</code> may open a panel</td>
-          <td><code>connect(provider, api_key=...)</code> always requires both</td>
+          <td><code>connect(provider, ...)</code> always requires a provider</td>
         </tr>
       </tbody>
     </table>

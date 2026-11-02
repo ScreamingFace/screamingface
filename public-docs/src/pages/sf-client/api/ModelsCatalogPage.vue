@@ -13,10 +13,10 @@ const modelsRun = `import screamingface as sf
 
 client = sf.Client(engine_url="http://127.0.0.1:9108")
 client.models.list()[0]`
-const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=5, tools=1)`
+const modelsRunOut = `ModelInfo('anthropic/claude-opus-5', provider='anthropic', parameters=5, tools=1)`
 
-const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
-const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='account_profile', parameters=8, tools=1, transport=1)`
+const detailsRun = `client.models.get("anthropic/claude-opus-5")`
+const detailsRunOut = `ModelDetails('anthropic/claude-opus-5', provider='anthropic', scope='account_profile', parameters=5, tools=1, transport=1)`
 
 const modelSig = `sf.Model(
     model: str,
@@ -258,8 +258,8 @@ const modelSig = `sf.Model(
           <td><code>str</code></td>
           <td>
             Which profile this was built for. <code>'account_profile'</code> means the route as your
-            account's credential sees it, built from that profile's auth mode, rather than the
-            route in general.
+            account's credential sees it, built from that profile's auth mode, rather than the route
+            in general.
           </td>
         </tr>
         <tr>
@@ -328,9 +328,9 @@ const modelSig = `sf.Model(
           <td><code>execution_access</code></td>
           <td><code>'configured'&nbsp;|&nbsp;'missing'&nbsp;|&nbsp;None</code></td>
           <td>
-            Whether your account has provider access to run this route: <code>'configured'</code>
-            when it does, <code>'missing'</code> when it does not. <code>None</code> when the
-            gateway is too old to report it.
+            Whether your account has provider access to run this route:
+            <code>'configured'</code> when it does, <code>'missing'</code> when it does not.
+            <code>None</code> when the gateway is too old to report it.
           </td>
         </tr>
       </tbody>

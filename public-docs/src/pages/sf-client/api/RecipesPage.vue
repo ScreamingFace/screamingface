@@ -152,6 +152,12 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     </table>
 
     <Note>
+      <code>medxpert</code>, the benchmark a local engine serves, does not support mid-run checking:
+      a corrective candidate on it raises <code>PlanningError</code>. Run corrective candidates on a
+      hosted benchmark that advertises a check, such as <code>ifeval</code>.
+    </Note>
+
+    <Note>
       What a correction round costs depends on the benchmark's check surface. A deterministic
       verifier such as <code>ifeval</code> checks every draft for free, so only the correction
       rounds add model spend. A rubric-graded benchmark such as <code>healthbench-worst30</code> or

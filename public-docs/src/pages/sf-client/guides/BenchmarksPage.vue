@@ -11,14 +11,19 @@ import {
 const listing = `import screamingface as sf
 
 [(b.id, b.case_count, b.revision) for b in sf.benchmarks.list()]`
-const listingOut = `[('healthbench-professional', 525, 'd8fb037307f35415'),
- ('healthbench-worst30', 157, '39cfd96b068f7230'),
- ('ifeval', 541, '1cba769ece27f7ef'),
- ('medxpert', 2450, '791a7d5b2e961f1c')]`
+const listingOut = `[('medxpert', 2450, '1e5a3b8a461a52f7')]`
 
-const card = `ifeval = sf.benchmarks.get("ifeval")
-ifeval.title, ifeval.revision, ifeval.case_count`
-const cardOut = `('IFEval', '1cba769ece27f7ef', 541)`
+const card = `medxpert = sf.benchmarks.get("medxpert")
+medxpert.title, medxpert.revision, medxpert.case_count`
+const cardOut = `('MedXpertQA', '1e5a3b8a461a52f7', 2450)`
+
+const missing = `sf.benchmarks.get("ifeval")`
+const missingOut = `PlanningError: Benchmark 'ifeval' is not installed on this Engine`
+
+const hosted = `hosted = sf.Client(engine_url="https://fusion.screamingface.ai")
+benchmarks = hosted.benchmarks.list()
+len(benchmarks), [b.id for b in benchmarks if b.id.startswith("draco")]`
+const hostedOut = `(85, ['draco', 'draco-3pass'])`
 </script>
 
 <template>
@@ -43,9 +48,9 @@ const cardOut = `('IFEval', '1cba769ece27f7ef', 541)`
     </p>
 
     <blockquote>
-      <strong>What you can list depends on the engine.</strong> A local engine serves four
-      benchmarks and the hosted engine serves 69, including DRACO. If there's a benchmark you'd
-      want to run first,
+      <strong>What you can list depends on the engine.</strong> A local engine serves one benchmark,
+      <code>medxpert</code>, and the hosted engine serves 85, including DRACO and IFEval. If there's
+      a benchmark you'd want to run first,
       <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
         >we'd love to hear it</a
       >.
@@ -112,26 +117,43 @@ const cardOut = `('IFEval', '1cba769ece27f7ef', 541)`
 
     <h3>1 · See what this engine publishes</h3>
 
+    <p>A local engine publishes one benchmark:</p>
+
     <div class="not-prose">
       <NbCell :count="1" :code="listing"><NbTextOut :text="listingOut" /></NbCell>
     </div>
 
     <p>
-      Benchmarks differ in what grading costs. <strong>IFEval</strong> is 541 instruction-following
-      prompts checked by a deterministic verifier, so its grading is <strong>free</strong> and only
-      the answers cost anything. <strong>HealthBench</strong> is rubric-graded by a judge model: the
-      professional exam is 525 conversations, and <code>healthbench-worst30</code> is the 157
-      hardest of them. <strong>MedXpert</strong> is 2,450 expert-level medical multiple-choice
-      questions. On the hosted engine, <strong>DRACO</strong> is 100 deep-research tasks graded by a
-      judge model (<code>openrouter/google/gemini-3.1-pro-preview</code>) with several independent
-      passes per criterion, five for <code>draco</code> and three for <code>draco-3pass</code>: the
-      grading itself is the expensive part.
+      Asking a local engine for a benchmark it does not publish raises
+      <code>PlanningError</code>:
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="missing"><NbTextOut :text="missingOut" /></NbCell>
+    </div>
+
+    <p>The hosted engine needs an account the OpenMined team grants. It publishes 85 benchmarks:</p>
+
+    <div class="not-prose">
+      <NbCell :count="3" :code="hosted"><NbTextOut :text="hostedOut" /></NbCell>
+    </div>
+
+    <p>
+      Benchmarks differ in what grading costs. <strong>MedXpert</strong> is 2,450 expert-level
+      medical multiple-choice questions graded by exact match against the published key, so its
+      grading is <strong>free</strong> and only the answers cost anything. <strong>IFEval</strong>
+      is 541 instruction-following prompts checked by a deterministic verifier, also free to grade.
+      <strong>HealthBench</strong> is rubric-graded by a judge model: the professional exam is 525
+      conversations, and <code>healthbench-worst30</code> is the 157 hardest of them. On the hosted
+      engine, <strong>DRACO</strong> is 100 deep-research tasks graded by a judge model that judges
+      every answer five times for <code>draco</code> and three times for <code>draco-3pass</code>:
+      the grading itself is the expensive part.
     </p>
 
     <h3>2 · Read the identity card</h3>
 
     <div class="not-prose">
-      <NbCell :count="2" :code="card"><NbTextOut :text="cardOut" /></NbCell>
+      <NbCell :count="4" :code="card"><NbTextOut :text="cardOut" /></NbCell>
     </div>
 
     <p>
@@ -156,10 +178,10 @@ const cardOut = `('IFEval', '1cba769ece27f7ef', 541)`
     <ul>
       <li>
         <a
-          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/11_medxpert.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>07_ifeval.ipynb</code></a
+          >Companion notebook: <code>11_medxpert.ipynb</code></a
         >
       </li>
     </ul>

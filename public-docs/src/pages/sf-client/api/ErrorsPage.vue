@@ -13,7 +13,7 @@ import {
 const catchAll = `import screamingface as sf
 
 try:
-    report = sf.evaluate(recipe, benchmark="ifeval", limit=1)
+    report = sf.evaluate(recipe, benchmark="medxpert", limit=1)
 except sf.ScreamingFaceError as exc:
     print(exc.code, exc.retryable, exc.hint)`
 
@@ -21,8 +21,8 @@ const attrs = `e = sf.PlanningError("boom", code="model_unavailable", permanent=
 e.code, e.retryable, e.permanent, e.hint`
 const attrsOut = `('model_unavailable', False, True, None)`
 
-const real = `sf.evaluate(sf.Model("openrouter/openai/gpt-5.5"), benchmark="ifeval", limit=1)`
-const realOut = `ProviderConnectionError: Provider 'openrouter' is not connected for Model 'openrouter/openai/gpt-5.5'`
+const real = `sf.evaluate(sf.Model("anthropic/claude-opus-4-8"), benchmark="medxpert", limit=1)`
+const realOut = `ProviderConnectionError: Provider 'anthropic' is not connected for Model 'anthropic/claude-opus-4-8'`
 
 const warn = `import warnings
 
@@ -51,8 +51,8 @@ else:
   >
     <p>
       Errors the Client raises about the engine, a provider, a leaderboard or an evaluation inherit
-      from <code>ScreamingFaceError</code>. Six subclasses say where the failure happened, and each
-      carries a machine-readable code alongside its message. Argument validation raises
+      from <code>ScreamingFaceError</code>. Eight subclasses say where the failure happened, and
+      each carries a machine-readable code alongside its message. Argument validation raises
       <code>ValueError</code>, <code>TypeError</code> or <code>KeyError</code> instead (for example
       <code>limit=0</code> raises <code>ValueError</code>), and a closed Client raises
       <code>RuntimeError</code>. Catch <code>ScreamingFaceError</code> for runtime failures and let
@@ -69,10 +69,12 @@ else:
       code="Exception
 └── ScreamingFaceError
     ├── AuthenticationError
+    ├── CachePullError
     ├── EngineUnavailableError
     ├── ExecutionError
     ├── LeaderboardError
     ├── PlanningError
+    │   └── EngineCapabilityError
     ├── ProviderConnectionError
     └── ReproductionError
 
@@ -136,6 +138,14 @@ Warning
             A published capture cannot be replayed, or the Engine did not confirm replay mode.
             <code>.reproduction</code> carries the refusal or failure verdict. No report is
             returned.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CachePullError</code></td>
+          <td>
+            <code>sf.cache.pull_from_remote()</code> stopped before its last page. Its
+            <code>result</code> attribute is the <code>PullResult</code> that says how far it got.
+            See <RouterLink to="/sf-client/api/cache">Cache</RouterLink>.
           </td>
         </tr>
         <tr>
@@ -225,8 +235,8 @@ Warning
       <code>EngineCapabilityError</code> is a <code>PlanningError</code> with the code
       <code>engine_capability_missing</code>. It means the engine lacks a capability the evaluation
       needs, for example the combine operators a
-      <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised
-      before anything is spent.
+      <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised before
+      anything is spent.
     </p>
 
     <h2>Replay errors and verdicts</h2>
@@ -311,17 +321,17 @@ Warning
         <tr>
           <td><code>DuplicateMembersWarning</code></td>
           <td>
-            Two members of a reducer Fusion send the same request, so they may be one cached
-            answer. It is emitted once per group. Use <code>sf.samples()</code> for independent
-            samples.
+            Two members of a reducer Fusion send the same request, so they may be one cached answer.
+            It is emitted once per group. Use <code>sf.samples()</code> for independent samples.
           </td>
         </tr>
         <tr>
           <td><code>FixedSeedSittingWarning</code></td>
           <td>
-            A run sets <code>answer_seed</code> while some calls set their own <code>seed</code>
-            (every <code>sf.samples()</code> member does). Those calls send the same request in
-            every sitting, so the spread across sittings is not measured. The run still goes on.
+            A run sets <code>answer_seed</code> while some calls set their own
+            <code>seed</code> (every <code>sf.samples()</code> member does). Those calls send the
+            same request in every sitting, so the spread across sittings is not measured. The run
+            still goes on.
           </td>
         </tr>
       </tbody>

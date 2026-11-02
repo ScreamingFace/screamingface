@@ -13,7 +13,7 @@ const watch = `import screamingface as sf
 def observe(event: sf.Event) -> None:
     print(event.kind, event.sequence, event.source)
 
-sf.evaluate(recipe, benchmark="ifeval", limit=1, on_event=observe, progress=False)`
+sf.evaluate(recipe, benchmark="medxpert", limit=1, on_event=observe, progress=False)`
 
 const filter = `def observe(event: sf.Event) -> None:
     if isinstance(event, sf.events.Usage):
@@ -41,8 +41,9 @@ const filter = `def observe(event: sf.Event) -> None:
 
     <p>
       Five event types arrive: <code>Started</code>, <code>Span</code>, <code>Log</code>,
-      <code>Usage</code> and <code>Terminated</code>, with <code>Terminated</code> last. <code>Event</code> is their shared base
-      and <code>TerminationError</code> is a value one of them carries.
+      <code>Usage</code> and <code>Terminated</code>, with <code>Terminated</code> last.
+      <code>Event</code> is their shared base and <code>TerminationError</code> is a value one of
+      them carries.
     </p>
 
     <h2>Event</h2>
@@ -183,6 +184,24 @@ const filter = `def observe(event: sf.Event) -> None:
           <td><code>refusal</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>Set when the model declined to answer.</td>
+        </tr>
+        <tr>
+          <td><code>cache_status</code> · <code>cache_reason</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            How the request cache treated the call: <code>hit</code>, <code>miss</code> or
+            <code>bypass</code>, and why when the call was bypassed, for example
+            <code>opted_out</code>. <code>None</code> on a span that is not a model call.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cache_saved_cost_usd</code> · <code>cache_saved_cost_archive_usd</code></td>
+          <td><code>Decimal&nbsp;|&nbsp;None</code></td>
+          <td>
+            What a cache hit saved: the provider-reported cost of the call that filled the entry,
+            and a measured amount from another call of the same model. <code>None</code> when none
+            was observed.
+          </td>
         </tr>
       </tbody>
     </table>

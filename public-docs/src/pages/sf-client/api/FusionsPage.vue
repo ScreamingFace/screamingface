@@ -22,7 +22,7 @@ const fusionExample = `fusion = sf.Fusion(
     ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
     synthesizer="openrouter/moonshotai/kimi-k3",
 )
-report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
+report = sf.evaluate(fusion, benchmark="medxpert", limit=1)`
 
 const quorumExample = `fusion = sf.Fusion(
     [
@@ -86,9 +86,10 @@ const quorumExample = `fusion = sf.Fusion(
           <td><code>quorum</code></td>
           <td><code>int | "all"</code></td>
           <td>
-            How many members must succeed, checked after the members finish. <code>"all"</code>
-            (the default) needs every member. <code>0</code> lets synthesis run with no successful
-            member, which is only valid when every member is optional.
+            How many members must succeed, checked after the members finish. <code>"all"</code> (the
+            default) needs every member. An integer must lie between 0 and the member count, or the
+            constructor raises <code>ValueError</code>. <code>0</code> lets synthesis run with no
+            successful member; a required member that fails still fails the candidate.
           </td>
         </tr>
         <tr>
@@ -117,9 +118,8 @@ const quorumExample = `fusion = sf.Fusion(
       A member marked <code>optional=True</code> (on a <code>Model</code>, a
       <code>Pipeline</code> or a <code>Fusion</code>) can fail while the run still synthesizes, as
       long as at least <code>quorum</code> members succeed. A failed optional member appears as a
-      failed answer with the reason <code>missing</code> and never as a vote. A required member
-      that fails fails the candidate. <code>optional</code> is only valid in a Fusion's member
-      position.
+      failed answer with the reason <code>missing</code> and never as a vote. A required member that
+      fails fails the candidate. <code>optional</code> is only valid in a Fusion's member position.
     </p>
 
     <div class="not-prose">

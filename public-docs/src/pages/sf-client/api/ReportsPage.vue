@@ -11,30 +11,33 @@ import {
 
 const runIt = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
 report = client.evaluate(
-    sf.Model("openrouter/anthropic/claude-haiku-4.5"),
-    benchmark="ifeval",
+    sf.Model("openrouter/google/gemini-3.5-flash-lite"),
+    benchmark="medxpert",
     limit=1,
 )
 report`
-const runItOut = `Report(benchmark='ifeval', candidates=['claude-haiku-4.5'], ok=True)`
+const runItOut = `Report(benchmark='medxpert', candidates=['gemini-3.5-flash-lite'], ok=True)`
 
 const summary = `report.ok, report.case_count, report.duration_ms`
-const summaryOut = `(True, 1, 5248)`
+const summaryOut = `(True, 1, 244)`
 
 const only = `candidate = report.candidates.only
 candidate.name, candidate.kind, candidate.score, candidate.coverage`
-const onlyOut = `('claude-haiku-4.5', 'model', 1.0, 1.0)`
+const onlyOut = `('gemini-3.5-flash-lite', 'model', 0.0, 1.0)`
 
-const byName = `report.candidates["claude-haiku-4.5"] is candidate`
+const byName = `report.candidates["gemini-3.5-flash-lite"] is candidate`
 const byNameOut = `True`
 
 const dict = `sorted(report.to_dict())`
 const dictOut = `['benchmark', 'candidates', 'completed_at', 'schema', 'started_at', 'usage']`
 
 const bench = `report.benchmark`
-const benchOut = `BenchmarkInfo(id='ifeval', revision='1cba769ece27f7ef', case_count=541, inverted_grade=False)`
+const benchOut = `BenchmarkInfo(id='medxpert', revision='1e5a3b8a461a52f7', case_count=2450, inverted_grade=False)`
 </script>
 
 <template>
@@ -303,9 +306,7 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='1cba769ece27f7ef', case_c
       <NbCell :count="3" :code="bench"><NbTextOut :text="benchOut" /></NbCell>
     </div>
 
-    <p>
-      Two reports are only comparable when both the id and the revision match.
-    </p>
+    <p>Two reports are only comparable when both the id and the revision match.</p>
 
     <h3>candidates</h3>
 
@@ -358,9 +359,9 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='1cba769ece27f7ef', case_c
 
     <p>
       A Client saves every completed report to <code>~/.screamingface/results</code> unless it was
-      built with <code>save_results=False</code>. That folder is outside the engine's data
-      directory and shared by every environment on the machine, and the files hold the prompts and
-      outputs of each run. A run that ends with failures is saved too. The <code>sf.reports</code>
+      built with <code>save_results=False</code>. That folder is outside the engine's data directory
+      and shared by every environment on the machine, and the files hold the prompts and outputs of
+      each run. A run that ends with failures is saved too. The <code>sf.reports</code>
       module reopens them.
     </p>
 

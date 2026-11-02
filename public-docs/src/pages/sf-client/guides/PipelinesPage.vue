@@ -52,6 +52,7 @@ const pipelineSig = `sf.Pipeline(
     stages: Sequence[str | Recipe],
     *,
     name: str | None = None,
+    optional: bool = False,
 )`
 </script>
 
@@ -155,7 +156,7 @@ const pipelineSig = `sf.Pipeline(
       </thead>
       <tbody>
         <tr>
-          <td><code>sf.Pipeline(stages, *, name=None)</code></td>
+          <td><code>sf.Pipeline(stages, *, name=None, optional=False)</code></td>
           <td>
             Runs stages one after another. Each stage gets the previous stage's answer, and the last
             stage's answer is what the benchmark grades.
@@ -568,7 +569,17 @@ const pipelineSig = `sf.Pipeline(
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             Defaults to the stage names joined with <code>-&gt;</code>, for example
-            <code>gpt-5.5-&gt;claude-opus-4.8</code>.
+            <code>gpt-5.5-&gt;claude-opus-4.8</code>. An empty string raises
+            <code>ValueError: pipeline name must not be empty</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Marks this Pipeline as optional when it is a member of a
+            <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>, so the Fusion can
+            succeed without it when its quorum is met. Default <code>False</code>.
           </td>
         </tr>
       </tbody>

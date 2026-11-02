@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 82`
+len(sf.__all__)   # 84`
 
 const point = `import screamingface as sf
 
@@ -30,12 +30,12 @@ const loginCode = `client = sf.Client(engine_url="${SF_ENGINE_URL}")
 client.login()          # a script opens Cloudflare Access in your browser; a notebook prints a link to open
 client.authenticated    # True once the token arrives`
 
-const prepare = `$ screamingface prepare ifeval
+const prepare = `$ screamingface prepare medxpert
 Benchmark assets ready at /Users/you/.screamingface/benchmark-assets`
 
 const up = `$ screamingface up
 ScreamingFace is ready.
-  gateway db=sqlite:///Users/you/.screamingface/aigateway.sqlite3 · request_cache=off
+  gateway db=sqlite:///Users/you/.screamingface/aigateway.sqlite3 · request_cache=on
   Gateway    http://127.0.0.1:9105
   Scoreboard http://127.0.0.1:9106
   Engine     http://127.0.0.1:9108
@@ -62,8 +62,16 @@ screamingface up`
 const tavily = `export TAVILY_API_KEY="tvly-..."
 screamingface up`
 
+const analytics = `$ screamingface analytics status
+{"choice": "unknown", "enabled": false, "scope": "installation", "installation_id": null}`
+
+const analyticsPython = `sf.analytics.status()
+# {'choice': 'unknown', 'enabled': False, 'scope': 'installation', 'installation_id': None}`
+
+const cachePull = `$ screamingface cache pull --model openrouter/anthropic/claude-opus-4.8`
+
 const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())") \\
-  screamingface prepare ifeval`
+  screamingface prepare medxpert`
 </script>
 
 <template>
@@ -76,13 +84,16 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
     <p>
       The <strong>Client</strong> is a Python library. It never calls a model provider itself, so it
       always needs an <RouterLink to="/learn/engine">engine</RouterLink> to talk to. Use a hosted
-      one if your account has access, or run your own on your machine. The code you write is the same
-      either way.
+      one if your account has access, or run your own on your machine. The code you write is the
+      same either way.
     </p>
 
     <h2>1 · Install the Client</h2>
 
-    <p>You need Python <strong>3.12 or newer</strong>. In a notebook, install the Client with one cell:</p>
+    <p>
+      You need Python <strong>3.12 or newer</strong>. In a notebook, install the Client with one
+      cell:
+    </p>
 
     <div class="not-prose">
       <NbCell :count="1" :code="pypiNotebook" />
@@ -111,9 +122,9 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
           The fastest start, once your account has access. Name the hosted engine once, log in
           through your browser, and you are running on compute we provide. There is no local setup,
           and no provider key of your own: the hosted engine does not take one (bring-your-own-key
-          is the local path). To get access, reach out to the OpenMined team. Until your account
-          has access, use the local engine tab: after login every provider shows as unavailable and
-          an evaluation is refused.
+          is the local path). To get access, reach out to the OpenMined team. Until your account has
+          access, use the local engine tab: after login every provider shows as unavailable and an
+          evaluation is refused.
         </p>
 
         <div class="not-prose">
@@ -150,10 +161,11 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         <p>
           <strong>Prepare the benchmark you will run:</strong> The engine reads datasets from disk
           rather than downloading them mid-run, so a run cannot silently use a different revision.
-          Pass a family (<code>ifeval</code>, <code>healthbench</code>, <code>medxpert</code>) or
-          <code>--all</code>, once. A local engine serves <code>ifeval</code>,
-          <code>healthbench-professional</code>, <code>healthbench-worst30</code> and
-          <code>medxpert</code>. DRACO runs on the hosted engine.
+          <code>medxpert</code> is the one benchmark a local engine serves (2,450 questions), so
+          <code>screamingface prepare medxpert</code>, or <code>--all</code>, runs once.
+          <code>screamingface prepare --list</code> shows each benchmark as <code>prepared</code> or
+          <code>missing</code>. DRACO, IFEval and the other leaderboard benchmarks run on the hosted
+          engine.
         </p>
 
         <CodeBlock :code="prepare" language="bash" />
@@ -167,7 +179,11 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         <CodeBlock :code="up" language="bash" />
 
         <p>
-          <strong>Point the Client at it:</strong> No login step: a local engine advertises none.
+          <strong>Point the Client at it:</strong> No login step: a local engine advertises none. A
+          non-default <code>engine_url</code> requires <code>scoreboard_url</code> in the same call.
+          With no <code>configure</code> call and no <code>SCREAMINGFACE_ENGINE_URL</code>, the
+          Client uses a running local stack and prints
+          <code>connected to the local stack at http://127.0.0.1:9108</code>.
         </p>
 
         <div class="not-prose">
@@ -177,8 +193,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         <p>
           From there <code>screamingface status</code> checks it,
           <code>screamingface logs</code> follows it, and <code>screamingface down</code> stops it.
-          Enabling providers, web search, port conflicts, and the local leaderboard are in the FAQ
-          below.
+          Enabling providers, web search, port conflicts, the local leaderboard, the cache and
+          analytics are in the FAQ below.
         </p>
       </template>
     </Tabs>
@@ -242,7 +258,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         natively and the engine just asks them to. The exception is providers with no search of
         their own (<strong>Hugging Face</strong> routes in particular), where the engine falls back
         to a bounded tool loop it runs against Tavily. A hosted engine supplies its own key;
-        benchmarks that never search, such as <code>ifeval</code>, need none.
+        benchmarks that never search, such as <code>medxpert</code>, need none.
       </p>
       <p>Export it before <code>up</code>, in the shell you start the runtime from:</p>
       <CodeBlock :code="tavily" language="bash" />
@@ -255,16 +271,47 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title="Submit to my own leaderboard, not the hosted one">
       <p>
-        By default the Client reads and writes the hosted ScreamingFace Leaderboard even when the
-        rest of your stack is local, so <code>sf.leaderboards.submit</code> publishes there. Point
-        it at your local one by passing <code>scoreboard_url</code> next to
-        <code>engine_url</code>:
+        <code>sf.configure(engine_url=...)</code> with a non-default engine raises
+        <code>ValueError</code> unless <code>scoreboard_url</code> is passed too, and
+        <code>SCREAMINGFACE_ENGINE_URL</code> requires <code>SCREAMINGFACE_SCOREBOARD_URL</code>.
+        The pair decides where <code>sf.leaderboards.submit</code> publishes. Pass the local
+        scoreboard to keep scores local:
       </p>
       <CodeBlock :code="localBoth" language="python" />
       <p>
-        Submitting to the hosted leaderboard needs a Cloudflare Access login, and access is granted
-        by the OpenMined team.
+        Pass <code>scoreboard_url="https://leaderboard.screamingface.ai"</code> to publish to the
+        hosted leaderboard from a local engine. Submitting there needs a Cloudflare Access login,
+        and access is granted by the OpenMined team.
       </p>
+    </Collapsible>
+
+    <Collapsible title="Does a local run use a cache?">
+      <p>
+        <code>screamingface up</code> starts the gateway with <code>request_cache=on</code>: a model
+        call that was made before with the same route, prompt and parameters is answered from the
+        local cache. Pass <code>use_cache=False</code> to <code>sf.evaluate</code> to opt one run
+        out, or export <code>AIGW_REQUEST_CACHE_ENABLED=false</code> before
+        <code>screamingface up</code> to turn the cache off. The cache starts empty. To start from
+        the community cache, pull it into the local gateway; the pull signs in to the hosted engine,
+        which needs an account with access:
+      </p>
+      <CodeBlock :code="cachePull" language="bash" />
+      <p>
+        <code>sf.cache.pull_from_remote()</code> does the same from Python and returns a
+        <code>PullResult</code>. <code>--model</code> repeats to limit the pull to those models.
+      </p>
+    </Collapsible>
+
+    <Collapsible title="Does the Client send analytics?">
+      <p>
+        Analytics are off until you opt in. <code>screamingface analytics status</code> and
+        <code>sf.analytics.status()</code> report the choice; <code>enable</code>,
+        <code>disable</code> and <code>reset_identifier</code> change it. A non-empty
+        <code>DO_NOT_TRACK</code> value other than <code>0</code>, <code>false</code>,
+        <code>no</code> or <code>off</code> disables analytics for the process.
+      </p>
+      <CodeBlock :code="analytics" language="bash" />
+      <CodeBlock :code="analyticsPython" language="python" />
     </Collapsible>
 
     <Collapsible title="CERTIFICATE_VERIFY_FAILED while preparing benchmark assets">

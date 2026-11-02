@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
+import NbTextOut from '@/components/nb/NbTextOut.vue'
 import Note from '@/components/ui/Note.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import {
@@ -13,7 +14,10 @@ const importCell = `import screamingface as sf`
 
 const connect = `sf.connect()  # opens the connection panel; click Log in`
 
-const connectLocal = `sf.configure(engine_url="http://127.0.0.1:9108")
+const connectLocal = `sf.configure(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
 sf.connect("openrouter", api_key="sk-or-...")  # your own OpenRouter key`
 
 const build = `fusion = sf.Fusion(
@@ -23,8 +27,12 @@ const build = `fusion = sf.Fusion(
 
 const run = `report = sf.evaluate(fusion, benchmark="ifeval", limit=3)`
 
+const runLocal = `report = sf.evaluate(fusion, benchmark="medxpert", limit=3)`
+
 const read = `candidate = report.candidates.only
 candidate.score`
+
+const readOut = `0.6667`
 </script>
 
 <template>
@@ -76,8 +84,8 @@ candidate.score`
       <template #tab-1>
         <p>
           Start the local stack as described in
-          <RouterLink to="/sf-client/installation">Installation</RouterLink>, point the Client at it,
-          and connect your own OpenRouter key. A local engine needs no login.
+          <RouterLink to="/sf-client/installation">Installation</RouterLink>, point the Client at
+          it, and connect your own OpenRouter key. A local engine needs no login.
         </p>
 
         <div class="not-prose">
@@ -102,33 +110,53 @@ candidate.score`
 
     <p>
       <code>sf.evaluate</code> runs your fusion against a benchmark and grades the answers.
-      <code>ifeval</code> checks whether a model follows instructions; <code>limit=3</code> runs
-      just three cases, so this stays quick and cheap while you are finding your feet.
+      <code>limit=3</code> runs just three cases, so this stays quick and cheap while you are
+      finding your feet.
     </p>
 
+    <Tabs :labels="['Hosted engine', 'Your own engine']">
+      <template #tab-0>
+        <p>
+          <code>ifeval</code> checks whether a model follows instructions, graded by deterministic
+          verification.
+        </p>
+
+        <div class="not-prose">
+          <NbCell :count="4" :code="run" />
+        </div>
+      </template>
+
+      <template #tab-1>
+        <p>
+          A local engine serves <code>medxpert</code>: 2,450 expert-level medical multiple-choice
+          questions, graded by exact match against the published key, so no judge model is called.
+        </p>
+
+        <div class="not-prose">
+          <NbCell :count="4" :code="runLocal" />
+        </div>
+      </template>
+    </Tabs>
+
     <Note>
-      <code>ifeval</code> is one of several benchmarks. A local engine also serves
-      <code>healthbench-professional</code>, <code>healthbench-worst30</code> (hard medical
-      conversations) and <code>medxpert</code>; the hosted engine adds <code>draco</code> (deep
-      research) and more. List everything available with <code>sf.benchmarks.list()</code>, and see
+      A local engine serves only <code>medxpert</code>; the hosted engine adds <code>ifeval</code>,
+      <code>draco</code> (deep research) and more. List everything available with
+      <code>sf.benchmarks.list()</code>, and see
       <RouterLink to="/sf-client/guides/benchmarks">Choose a benchmark</RouterLink> for how to pick
       one.
     </Note>
-
-    <div class="not-prose">
-      <NbCell :count="4" :code="run" />
-    </div>
 
     <h2>5 · Read the score</h2>
 
     <p>
       The run comes back as a <RouterLink to="/sf-client/api/reports">Report</RouterLink>. You gave
       it one candidate, so <code>report.candidates.only</code> is your fusion, and its
-      <code>score</code> is the fraction of cases it got right — higher is better.
+      <code>score</code> is the fraction of cases it got right — higher is better. On
+      <code>medxpert</code> with <code>limit=3</code> the fusion answered two of three correctly:
     </p>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="read" />
+      <NbCell :count="5" :code="read"><NbTextOut :text="readOut" /></NbCell>
     </div>
 
     <p>
