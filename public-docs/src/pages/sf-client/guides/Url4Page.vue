@@ -18,7 +18,7 @@ sf.Url4("(candidate='…compiled url4…')!'$model_0'")`
 const remix = `plan = report.candidates["frontier-trio"].url4   # or any url4 string you were given
 
 plan.to_python()    # editable sf.Model / sf.Fusion / sf.Pipeline code, no spend
-sf.evaluate(plan)   # or run it again exactly as it ran, benchmark included`
+sf.evaluate(plan)   # a new paid run of the same recipe over the same benchmark`
 
 const ops = `c = report.candidates.only
 len(c.operations), [o.kind for o in c.operations]`

@@ -23,7 +23,7 @@ sf.leaderboards.get_score(score.id)         # read it back later`
 const remix = `entry = board.entries[0]
 
 entry.url4.to_python()   # the winning recipe as editable code, no spend
-sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
+sf.evaluate(entry.url4)  # a new paid run over every case of the benchmark`
 </script>
 
 <template>

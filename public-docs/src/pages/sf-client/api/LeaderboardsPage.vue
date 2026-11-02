@@ -15,7 +15,8 @@ client = sf.Client()
 [(b.id, b.display_name) for b in client.leaderboards.list()][:3]`
 const listRunOut = `[('air_bench', 'AIR-Bench 2024'), ('arc_agi_2', 'ARC-AGI-2'), ('bbh', 'BIG-Bench Hard (BBH)')]`
 
-const submit = `report = client.evaluate(recipe, benchmark="ifeval")
+const submit = `# Without limit=, this is a paid run over every case of the benchmark.
+report = client.evaluate(recipe, benchmark="ifeval")
 score = client.leaderboards.submit(
     report.candidates.only,
     authors=["alice@example.com", "bob@example.org"],

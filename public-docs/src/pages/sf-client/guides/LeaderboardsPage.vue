@@ -36,6 +36,7 @@ sf.configure(
     scoreboard_url="https://leaderboard.screamingface.ai",
 )
 # candidate is the Model, Fusion or Pipeline you want to evaluate.
+# Without limit=, this is a paid run over every case of the benchmark.
 report = sf.evaluate(candidate, benchmark="ifeval")
 
 # publish one candidate
