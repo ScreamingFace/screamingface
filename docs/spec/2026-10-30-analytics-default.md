@@ -76,3 +76,19 @@ The local preference lock serializes persisted choices. A process-only disable
 or DO_NOT_TRACK change after the final permission check can still race with an
 already-started preference write; dispatch checks suppress subsequent tracking.
 This is not a promise to undo in-flight persistence or network requests.
+
+
+## Colab wait errors and Studio scope — 2 November
+
+Unexpected ordinary exceptions while waiting for Colab setup must let both sync
+and async evaluations continue untracked. Invalidate pending setup so late replies
+cannot enable kernel tracking; log only a generic debug message. Interruptions and
+cancellation propagate. The two-second cap and explicit opt-outs remain unchanged.
+
+Studio inherits the same SDK default when its sidecar bundles this SDK version.
+A fresh eligible installation may enroll at sidecar startup; the notice goes to
+runtime logs, not a dedicated Studio UI. Startup/import emits no event. Studio
+shares the SDK preference file (independent of runtime --data-dir), so existing
+saved declines and DO_NOT_TRACK retain precedence. A visible notice and controls
+using that shared preference mechanism are tracked in OME-1805, not a new
+enrollment prerequisite in this PR. Owner policy approval remains outstanding.

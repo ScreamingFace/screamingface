@@ -29,3 +29,11 @@ Add failing tests for default test isolation, unexpected setup errors and respon
 async local enrollment. Then update test bootstrap/CI, the setup exception boundary
 and local async dispatch. Strengthen existing exact-copy and cookie assertions,
 run SDK/service gates, and update the existing PR. Keep review/rollout checks open.
+
+
+## Final A options
+
+Add failing sync/async wait-error and late-reply tests, then guard the shared Colab
+wait and its async scheduling boundary. Document inherited Studio enrollment,
+file the UI follow-up, and prepare an owner-review request for Filip to post.
+Run SDK gates and update PR #1633; do not merge or represent approval as received.

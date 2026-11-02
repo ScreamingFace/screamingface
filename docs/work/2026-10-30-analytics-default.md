@@ -167,3 +167,39 @@ owner confirmation and deployed Colab smoke remain explicit outstanding checks.
 
 Review-fix commit: `fix(analytics): isolate tests and harden optional setup`.
 The revision is ready for PR review; no merge or deployment was performed.
+
+
+## 2 November — final Colab guard and Studio scope
+
+Filip selected all recommended A options: guard the shared Colab setup wait,
+retain Studio's inherited default-on behavior with a separate notice/opt-out UI
+follow-up, and obtain an explicit owner decision on the current policy/copy.
+He retains ownership of posting the review request; prepare text without posting.
+
+Planned files: SDK prompt and focused Colab regression tests; spec/plan and SDK/
+Studio runtime documentation; Linear Studio follow-up and its task mirror. Tests
+must prove sync/async evaluations survive unexpected wait failures, pending setup
+is invalidated before a late response can enable tracking, and cancellation/
+interruptions propagate. Run full SDK gates. No new events, retries, Studio UI,
+merge, deployment or claim of owner approval.
+
+
+Final-guard validation: the new tests first failed five ordinary-error cases while
+three interruption/cancellation cases passed. All 63 focused Colab/review tests now
+pass. Full SDK gates are ALL GREEN: lint, format, type checking, full tests with
+the coverage floor, notebook checks, build and distribution. The mirror-status
+check and whitespace checks pass.
+The service implementation is unchanged and retains the prior passing gates.
+
+Studio follow-up OME-1805 was created in Backlog under OME-1308, with shared SDK
+preferences and no new event instrumentation or enrollment gate. No UI code was
+added. An owner-review request covering the current policy/copy, persistent IDs,
+Colab cookies and inherited Studio enrollment was prepared for Filip, not posted.
+
+Review: errors use the existing pending-generation invalidation, not a retry or
+new consent state. Sync/async error paths log only a generic debug message and
+preserve BaseException interruptions. Scope stays limited to optional setup and
+explicit documentation; policy approval and deployed Colab smoke remain open.
+
+Final-guard commit: `fix(analytics): guard Colab setup waits`. Ready for PR review;
+no merge, deployment or owner approval is represented as completed.

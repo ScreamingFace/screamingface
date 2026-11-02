@@ -1523,6 +1523,12 @@ A truthy `DO_NOT_TRACK` overrides acceptance, including in headless jobs.
 Set `DO_NOT_TRACK=1` before import to prevent automatic enrollment entirely.
 Noninteractive use never asks for input.
 
+Studio inherits this default when its sidecar bundles this SDK version. Starting
+it may enroll a fresh installation; the notice goes to runtime logs. Startup alone
+emits no event. Studio and Python share the SDK preference file and opt-out controls,
+independent of Studio's runtime data directory. A visible Studio notice and settings
+control are tracked separately in [OME-1805](https://linear.app/openmined/issue/OME-1805).
+
 Import, connection setup, and the first evaluation can attempt the notice, whichever
 runs first. Python notices go to stderr, including redirected logs, so stdout
 remains usable for data. Local notebooks show inline text. The notice never asks

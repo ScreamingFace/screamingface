@@ -70,7 +70,14 @@ def wait_for_setup() -> None:
     if origin() == "colab" and not analytics._disabled():
         from screamingface._analytics.colab import bridge
 
-        bridge().wait_for_setup()
+        selected = bridge()
+        try:
+            selected.wait_for_setup()
+        except Exception:
+            # INVARIANT: failed optional setup cannot fail the evaluation or let
+            # an in-flight reply enable tracking later. Interruptions propagate.
+            selected.expire_setup()
+            _LOG.debug("Analytics setup skipped")
 
 
 def before_evaluation() -> None:
@@ -96,9 +103,12 @@ async def before_evaluation_async() -> None:
     offer()
     from screamingface._analytics.colab import bridge
 
-    if bridge().setup_pending():
-        # WHY: include executor queue delay without blocking Colab's event loop.
-        try:
+    selected = bridge()
+    try:
+        if selected.setup_pending():
+            # WHY: include executor queue delay without blocking Colab's event loop.
             await asyncio.wait_for(asyncio.to_thread(wait_for_setup), timeout=2)
-        except TimeoutError:
-            bridge().expire_setup()
+    except Exception:
+        # Includes timeout and executor failure; BaseException cancellation escapes.
+        selected.expire_setup()
+        _LOG.debug("Analytics setup skipped")
