@@ -184,25 +184,15 @@ class JudgeSpec:
             pinned params, so N passes are N requests, never one cached reply (OME-1527
             R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
             so is a judge call that names no pass.
-        response_format: the OpenAI ``response_format`` object, as JSON text, a scorer's
-            ``response_schema`` must equal; the judge call then asks the gateway for that
-            strict JSON output (HLE's json_judge, OME-1478). Not a param: url4 params cannot
-            hold JSON. Benchmark identity when set.
-        unsent_settings: settings the eval passes that the judge's own provider never
-            sends, each with its reason in a comment on the row (HLE's ``temperature``:
-            inspect's OpenAI provider drops it for o-series judges). Admitted, never sent.
-            Benchmark identity when set (OME-1478).
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
     model_role: str | None = None
     seed_per_pass: bool = False
-    response_format: str | None = None
-    unsent_settings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        """Refuse a row whose judge settings contradict each other or cannot be sent."""
+        """Refuse a row that pins a seed AND gives each judge pass its own."""
 
         if self.seed_per_pass and any(name == "seed" for name, _ in self.params):
             raise ValueError(
@@ -210,35 +200,6 @@ class JudgeSpec:
                 "pass sends its own seed, so a pinned one would put two on the call; drop "
                 "one (OME-1527 R12)"
             )
-        pinned: set[str] = {name for name, _ in self.params}
-        both: list[str] = sorted(pinned & set(self.unsent_settings))
-        if both:
-            raise ValueError(
-                f"judge {self.model!r} pins {both} and declares them unsent — a setting is "
-                "either on the call or never sent; drop one (OME-1478)"
-            )
-        if "response_format" in pinned:
-            raise ValueError(
-                f"judge {self.model!r} pins response_format as a param — url4 params cannot "
-                "hold JSON; declare it as JudgeSpec(response_format=...) (OME-1478)"
-            )
-        if self.response_format is not None:
-            _check_response_format(self.model, self.response_format)
-
-
-def _check_response_format(model: str, response_format: str) -> None:
-    """Refuse a pinned ``response_format`` that is not a JSON object, at row construction."""
-
-    try:
-        parsed: object = json.loads(response_format)
-    except ValueError as exc:
-        raise ValueError(
-            f"judge {model!r} pins a response_format that is not JSON: {exc} (OME-1478)"
-        ) from None
-    if not isinstance(parsed, dict):
-        raise ValueError(
-            f"judge {model!r} pins a response_format that is not a JSON object (OME-1478)"
-        )
 
 
 #: What a retrieval policy id may hold: lowercase words joined by ``/`` (``draco/reproduction``),
@@ -608,27 +569,6 @@ def single_shot_benchmark(
                         # WHY conditional: no published row gives its passes seeds, so
                         # every judged revision holds (OME-1527 R12).
                         *(("judge_seed_per_pass=True",) if judge.seed_per_pass else ()),
-                        # WHY conditional (OME-1478): no published row asks for structured
-                        # output or declares unsent settings, so every judged revision holds.
-                        *(
-                            # WHY canonical JSON: one line whatever the row's spacing, so it
-                            # can never break the newline-joined revision.
-                            (
-                                "judge_response_format="
-                                + json.dumps(
-                                    json.loads(judge.response_format),
-                                    sort_keys=True,
-                                    separators=(",", ":"),
-                                ),
-                            )
-                            if judge.response_format is not None
-                            else ()
-                        ),
-                        *(
-                            (f"judge_unsent_settings={json.dumps(list(judge.unsent_settings))}",)
-                            if judge.unsent_settings
-                            else ()
-                        ),
                     )
                 ),
                 # WHY conditional (OME-1527, R13): searching changes what the Candidate can
@@ -1223,8 +1163,6 @@ def _judged_aggregate(
             params=benchmark.judge.params,
             benchmark_id=benchmark.benchmark.id,
             seed_per_pass=benchmark.judge.seed_per_pass,
-            unsent_settings=frozenset(benchmark.judge.unsent_settings),
-            response_format=benchmark.judge.response_format,
         )
         with ExitStack() as scope:
             scope.enter_context(bound_judge_transport(transport))
@@ -1232,9 +1170,7 @@ def _judged_aggregate(
                 # A role-based scorer asks inspect for "the grader" — answer
                 # with the pinned judge, for this grading pass only (OME-1370).
                 scope.enter_context(
-                    judge_filling_model_role(
-                        benchmark.judge.model_role, benchmark.judge.model, benchmark.judge.params
-                    )
+                    judge_filling_model_role(benchmark.judge.model_role, benchmark.judge.model)
                 )
             return await benchmark_aggregate_async(
                 benchmark,

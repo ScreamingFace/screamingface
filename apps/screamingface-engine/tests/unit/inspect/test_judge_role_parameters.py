@@ -63,6 +63,28 @@ _ROLE_SCORERS: str = _IMPORT_TRAP + textwrap.dedent(
             role = state.metadata["role"]
             return await get_model(role=role).generate("Is it right?")
         return score
+
+    def through_a_lookup_local(grader_role="grader"):
+        async def score(state, target):
+            grader = _resolve_grader(grader_role)
+            return await model_graded_qa(model=grader)(state, target)
+        return score
+
+    def _pick_a_name():
+        return "openai/gpt-4o"
+
+    def through_a_named_local():
+        async def score(state, target):
+            grader = _pick_a_name()
+            return await model_graded_qa(model=grader)(state, target)
+        return score
+
+    def through_a_reassigned_local(grader_role="grader"):
+        async def score(state, target):
+            grader = _resolve_grader(grader_role)
+            grader = state.metadata["judge"]
+            return await model_graded_qa(model=grader)(state, target)
+        return score
     """
 )
 
@@ -142,3 +164,45 @@ def test_hles_real_json_judge_gives_the_grader_role_from_its_argument() -> None:
     # Two entries, one per get_model call in _resolve_grader (bound role, then default).
     assert {parameter for parameter, _ in shape.role_parameters} == {"grader_role"}
     assert shape.roles_given({"prompt": "json_judge", "grader_role": "grader"}) == ("grader",)
+
+
+# ── a judge held in a local that only ever holds a model lookup (hle's regex_judge) ──
+
+
+def test_a_local_holding_a_helpers_model_lookup_is_that_lookup(role_scorers: str) -> None:
+    """hle's regex_judge: ``grader = _resolve_grader(grader_role)`` then
+    ``model_graded_qa(model=grader)``. Every return of the helper is a ``get_model`` call, so
+    the local is the lookup the walk already sorts, not an unread judge."""
+
+    shape: JudgeShape = judge_shape(f"{role_scorers}:through_a_lookup_local")
+
+    assert shape.unread == ()
+    assert shape.roles_given({"grader_role": "grader"}) == ("grader",)
+
+
+def test_a_local_from_a_helper_returning_a_name_stays_unread(role_scorers: str) -> None:
+    """WHY: ``_pick_a_name`` hands back a model name, a judge no row pins; reading it as a
+    lookup would make the scorer look judge-free."""
+
+    shape: JudgeShape = judge_shape(f"{role_scorers}:through_a_named_local")
+
+    assert shape.reaches_a_judge
+    assert shape.unread != ()
+
+
+def test_a_local_reassigned_from_anything_else_stays_unread(role_scorers: str) -> None:
+    """WHY: only a local EVERY assignment of which is a lookup is one; a later
+    ``grader = state.metadata["judge"]`` could hold any judge at grading time."""
+
+    shape: JudgeShape = judge_shape(f"{role_scorers}:through_a_reassigned_local")
+
+    assert shape.unread != ()
+
+
+def test_hles_real_regex_judge_reads_in_full_with_the_grader_role() -> None:
+    pytest.importorskip("inspect_evals")
+
+    shape: JudgeShape = judge_shape("inspect_evals.hle.scorers:regex_judge")
+
+    assert shape.unread == ()
+    assert shape.roles_given({"grader_role": "grader"}) == ("grader",)

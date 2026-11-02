@@ -393,13 +393,14 @@ class _SourceReader:
         )
         scopes: dict[int, _Scope] = _call_scopes(located.node, is_constructor)
         arguments: dict[int, _Arguments] = _call_arguments(located.node, is_constructor, bound)
+        lookups: frozenset[str] = self._model_lookups(located, parsed, get_model_names)
         for node in ast.walk(located.node):
             if isinstance(node, ast.Call):
                 where: str = f"{located.path.name}:{node.lineno}"
                 scope: _Scope = scopes.get(id(node), {})
                 seen: _Arguments = arguments.get(id(node), {})
                 self._read_call(
-                    node, located, parsed, get_model_names, where, scope, seen, findings
+                    node, located, parsed, get_model_names, where, (scope, seen, lookups), findings
                 )
 
     def _read_call(
@@ -409,11 +410,16 @@ class _SourceReader:
         parsed: _ParsedModule | None,
         get_model_names: frozenset[str],
         where: str,
-        scope: _Scope,
-        arguments: _Arguments,
+        visible: tuple[_Scope, _Arguments, frozenset[str]],
         findings: _Findings,
     ) -> None:
-        """One call in a walked def: a judge lookup to sort, or a helper to read."""
+        """One call in a walked def: a judge lookup to sort, or a helper to read.
+
+        ``visible`` is what the call can see: the parameters around it, the scorer argument
+        each name stands for, and the locals that hold a model lookup.
+        """
+
+        scope, arguments, lookups = visible
 
         callee: ast.expr = call.func
         called: str = (
@@ -426,9 +432,9 @@ class _SourceReader:
         if (isinstance(callee, ast.Name) and called in get_model_names) or (
             isinstance(callee, ast.Attribute) and called == _GET_MODEL
         ):
-            _sort_model_call(call, where, scope, arguments, findings)
+            _sort_model_call(call, where, scope, arguments, lookups, findings)
         elif called.startswith(_MODEL_GRADED_PREFIX):
-            _sort_model_graded_call(call, called, where, scope, arguments, findings)
+            _sort_model_graded_call(call, called, where, scope, arguments, lookups, findings)
         elif called:
             helper: _LocatedDef | None = self._helper(located.module, parsed, callee)
             if helper is not None:
@@ -459,6 +465,69 @@ class _SourceReader:
             None
             if target is None or attribute is None
             else self.located_def(target, attribute.attr)
+        )
+
+    def _model_lookups(
+        self, located: _LocatedDef, parsed: _ParsedModule | None, get_model_names: frozenset[str]
+    ) -> frozenset[str]:
+        """The locals of the def that only ever hold a model lookup: every assignment to the
+        name is a ``get_model(...)`` call, or a call to a root-package helper whose every
+        ``return`` is one (hle's ``grader = _resolve_grader(grader_role)``).
+
+        WHY such a local is not "a judge in a variable": the lookup it holds is a call the walk
+        reaches and sorts itself (a role, a role parameter, the model under test), so the judge
+        it names is already a finding. A helper returning anything else (a string, a lookup
+        table) keeps the local a variable, so the reader still fails closed.
+        """
+
+        stores: dict[str, int] = {}
+        qualifying: dict[str, int] = {}
+        parameters: set[str] = set()
+        for node in ast.walk(located.node):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                parameters.update(_parameter_names(node))
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                stores[node.id] = stores.get(node.id, 0) + 1
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Call)
+                and self._is_model_lookup(node.value, located.module, parsed, get_model_names)
+            ):
+                name: str = node.targets[0].id
+                qualifying[name] = qualifying.get(name, 0) + 1
+        return frozenset(
+            name
+            for name, count in qualifying.items()
+            if stores.get(name) == count and name not in parameters
+        )
+
+    def _is_model_lookup(
+        self,
+        call: ast.Call,
+        module_name: str,
+        parsed: _ParsedModule | None,
+        get_model_names: frozenset[str],
+    ) -> bool:
+        """True for ``get_model(...)`` itself, or a root-package helper call whose every own
+        ``return`` is a ``get_model(...)`` call."""
+
+        if _calls_get_model(call, get_model_names):
+            return True
+        helper: _LocatedDef | None = self._helper(module_name, parsed, call.func)
+        if helper is None or isinstance(helper.node, ast.ClassDef):
+            return False
+        helper_parsed: _ParsedModule | None = self._module(helper.module)
+        helper_names: frozenset[str] = (
+            _get_model_names(helper_parsed.tree)
+            if helper_parsed is not None
+            else frozenset({_GET_MODEL})
+        )
+        returned: list[ast.expr | None] = [node.value for node in _own_returns(helper.node)]
+        return bool(returned) and all(
+            isinstance(value, ast.Call) and _calls_get_model(value, helper_names)
+            for value in returned
         )
 
     def first_judge_mention(self) -> str | None:
@@ -566,7 +635,12 @@ def _call_scopes(node: ast.AST, is_constructor: bool) -> dict[int, _Scope]:
 
 
 def _sort_model_call(
-    call: ast.Call, where: str, scope: _Scope, arguments: _Arguments, findings: _Findings
+    call: ast.Call,
+    where: str,
+    scope: _Scope,
+    arguments: _Arguments,
+    lookups: frozenset[str],
+    findings: _Findings,
 ) -> None:
     """One ``get_model`` call: a literal role, the model under test, or neither.
 
@@ -587,7 +661,7 @@ def _sort_model_call(
     if model is None or _is_none(model):
         findings.model_under_test.append(where)
     else:
-        _sort_named_model(model, where, scope, findings)
+        _sort_named_model(model, where, scope, lookups, findings)
 
 
 def _sort_model_graded_call(
@@ -596,6 +670,7 @@ def _sort_model_graded_call(
     where: str,
     scope: _Scope,
     arguments: _Arguments,
+    lookups: frozenset[str],
     findings: _Findings,
 ) -> None:
     """One call to inspect's ``model_graded_*``, sorted by inspect's own rule: an explicit
@@ -612,7 +687,7 @@ def _sort_model_graded_call(
         return
     model: ast.expr | None = keywords.get("model")
     if model is not None and not _is_none(model):
-        _sort_named_model(model, where, scope, findings)
+        _sort_named_model(model, where, scope, lookups, findings)
         return
     role: ast.expr | None = keywords.get("model_role")
     if role is not None and _is_none(role):
@@ -644,10 +719,14 @@ def _sort_role(role: ast.expr, where: str, arguments: _Arguments, findings: _Fin
         findings.role_parameters.append((argument, where))
 
 
-def _sort_named_model(model: ast.expr, where: str, scope: _Scope, findings: _Findings) -> None:
+def _sort_named_model(
+    model: ast.expr, where: str, scope: _Scope, lookups: frozenset[str], findings: _Findings
+) -> None:
     """The model a judge call names, in the order it is checked:
 
     * its own ``get_model(...)`` call → nothing here; the walk sorts that call itself;
+    * a local that only holds a model lookup (``lookups``, hle's ``grader``) → nothing here;
+      the walk sorts the lookup itself;
     * a judge parameter of the constructor → nothing here; the signature rule reports it
       and a row's kwargs pin it;
     * a literal, or a parameter whose default is one (agentharm's ``judge_model=
@@ -661,6 +740,8 @@ def _sort_named_model(model: ast.expr, where: str, scope: _Scope, findings: _Fin
 
     if isinstance(model, ast.Constant):
         findings.unread.append(f"a judge named in the code ({model.value!r}) in {where}")
+    elif isinstance(model, ast.Name) and model.id in lookups:
+        return
     elif isinstance(model, ast.Name) and model.id in scope:
         _sort_parameter_model(model.id, scope[model.id], where, findings)
     elif not isinstance(model, ast.Call):
@@ -728,6 +809,30 @@ def _helper_bindings(
         if argument is not None:
             bindings[parameter] = argument
     return bindings
+
+
+def _calls_get_model(call: ast.Call, get_model_names: frozenset[str]) -> bool:
+    """True when the call is inspect's ``get_model``, by a bound name or as an attribute."""
+
+    callee: ast.expr = call.func
+    return (isinstance(callee, ast.Name) and callee.id in get_model_names) or (
+        isinstance(callee, ast.Attribute) and callee.attr == _GET_MODEL
+    )
+
+
+def _own_returns(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Return]:
+    """The ``return`` statements of ``function`` itself, never those of a def or lambda inside."""
+
+    found: list[ast.Return] = []
+    pending: list[ast.AST] = list(ast.iter_child_nodes(function))
+    while pending:
+        node: ast.AST = pending.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda | ast.ClassDef):
+            continue
+        if isinstance(node, ast.Return):
+            found.append(node)
+        pending.extend(ast.iter_child_nodes(node))
+    return found
 
 
 def _parameter_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
