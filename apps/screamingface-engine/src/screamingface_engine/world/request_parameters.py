@@ -182,6 +182,20 @@ def model_params(params: Mapping[str, str]) -> dict[str, object]:
     return {key: _coerce_param(value) for key, value in selected.items()}
 
 
+def response_format_body_field(response_format: str | None) -> dict[str, object]:
+    """The chat-body field a request scope's ``response_format`` becomes, or nothing.
+
+    FEATURE (OME-1478): the gateway judge asks for strict JSON output on one judge call by
+    setting the scope's ``response_format`` (JSON text, validated on the Benchmark row); the
+    body then carries it as the OpenAI object. ``None`` adds no key, so every other call's
+    body is byte-identical to before.
+    """
+
+    if response_format is None:
+        return {}
+    return {"response_format": json.loads(response_format)}
+
+
 def _coerce_param(value: str) -> object:
     try:
         return json.loads(value)

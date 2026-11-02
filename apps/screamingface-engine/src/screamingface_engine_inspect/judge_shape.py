@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,13 @@ class JudgeShape:
     model_under_test: tuple[str, ...] = ()
     #: Why the reader could not tell whether the scorer reaches a judge, in words.
     unread: tuple[str, ...] = ()
+    #: Each role asked through one of the scorer's own arguments (hle's ``grader_role``),
+    #: followed through helper parameters: ``(argument, where)``. Its ``<unknown>`` entry
+    #: stays in ``roles``, so a check without the row's kwargs reads the scorer as before;
+    #: :meth:`roles_given` names the role once the kwargs are known.
+    role_parameters: tuple[tuple[str, str], ...] = ()
+    #: Where a role is asked through something no argument explains (a local variable).
+    untraced_roles: tuple[str, ...] = ()
 
     @property
     def reaches_a_judge(self) -> bool:
@@ -109,6 +117,30 @@ class JudgeShape:
             found.append(f"get_model() in {self.model_under_test[0]}")
         found.extend(f"unread: {reason}" for reason in self.unread[:1])
         return found[0] if found else ""
+
+    def roles_given(self, kwargs: Mapping[str, Any]) -> tuple[str, ...]:
+        """Every role the scorer asks for once a row builds it with ``kwargs``, each once.
+
+        A literal role is itself; a role parameter is the kwargs' value for its argument.
+        Anything that is not a non-blank string, and any role no argument explains, is
+        ``UNKNOWN_ROLE``, which every caller refuses: "could not tell" never becomes a role.
+
+        WHY the kwargs only, never the argument's default: inspect logs only the arguments a
+        scorer was built with, so a role the row does not state would sit outside the kwargs
+        that Benchmark identity hashes. hle's own spec reader always passes ``grader_role``.
+
+        Example: hle's ``json_judge`` asks through ``grader_role``, so
+        ``roles_given({"grader_role": "grader"})`` → ``("grader",)``, and
+        ``roles_given({})`` → ``("<unknown>",)``.
+        """
+
+        given: list[str] = [role for role, _ in self.roles if role != UNKNOWN_ROLE]
+        if self.untraced_roles:
+            given.append(UNKNOWN_ROLE)
+        for argument, _ in self.role_parameters:
+            value: object = kwargs.get(argument)
+            given.append(value if isinstance(value, str) and value.strip() else UNKNOWN_ROLE)
+        return tuple(dict.fromkeys(given))
 
 
 def judge_shape(reference: str) -> JudgeShape:
@@ -197,6 +229,8 @@ def _read_constructor(
         roles=tuple(findings.roles.items()),
         model_under_test=tuple(findings.model_under_test),
         unread=tuple(findings.unread),
+        role_parameters=tuple(findings.role_parameters),
+        untraced_roles=tuple(findings.untraced_roles),
     )
     # Stage 4
     mentioned: str | None = None if shape.reaches_a_judge else reader.first_judge_mention()
@@ -239,6 +273,18 @@ class _Findings:
     #: Where a judge model arrives in a variable (``get_model(judge_model)``): fine when the
     #: constructor has a judge parameter, unread when nothing says where it comes from.
     variable_models: list[str] = field(default_factory=list)
+    #: Roles asked through a scorer argument: ``(argument, where)``.
+    role_parameters: list[tuple[str, str]] = field(default_factory=list)
+    #: Where a role is asked through a variable no scorer argument explains.
+    untraced_roles: list[str] = field(default_factory=list)
+
+
+#: The scorer argument a name stands for, by its name (``"grader_role"``).
+_Argument = str
+
+#: What each name a call can see stands for: a scorer argument, or None when nothing traced
+#: says (a local, a parameter of a nested def, a helper parameter no caller fills that way).
+_Arguments = dict[str, _Argument | None]
 
 
 #: The parameters a call can see, by name: each one's default (None when it has none) and
@@ -256,7 +302,7 @@ class _SourceReader:
 
         self._root: str = root
         self._parsed: dict[str, _ParsedModule | None] = {}
-        self._visited: set[tuple[str, str]] = set()
+        self._visited: set[tuple[str, str, frozenset[tuple[str, _Argument]]]] = set()
 
     def located_def(self, module_name: str, name: str) -> _LocatedDef | None:
         """The top-level def ``name`` of the module, or of the root-package module it is
@@ -316,25 +362,45 @@ class _SourceReader:
         )
 
     def read_model_calls(
-        self, located: _LocatedDef, findings: _Findings, *, is_constructor: bool = False
+        self,
+        located: _LocatedDef,
+        findings: _Findings,
+        *,
+        is_constructor: bool = False,
+        bindings: Mapping[str, _Argument] | None = None,
     ) -> None:
         """Stage 3 of :func:`judge_shape` — sort each ``get_model`` call in the def, then
-        read each root-package helper it calls, helpers of helpers included (each def once,
-        so a recursive helper ends)."""
+        read each root-package helper it calls, helpers of helpers included (each def once
+        per way its parameters are filled, so a recursive helper ends).
 
-        if (located.module, located.node.name) in self._visited:
+        ``bindings`` says which of a helper's parameters its caller filled with one of the
+        scorer's own arguments (hle's ``_resolve_grader(grader_role)`` binds ``role`` to
+        ``grader_role``), so a role asked through that parameter is a role parameter.
+        """
+
+        bound: Mapping[str, _Argument] = bindings or {}
+        key: tuple[str, str, frozenset[tuple[str, _Argument]]] = (
+            located.module,
+            located.node.name,
+            frozenset(bound.items()),
+        )
+        if key in self._visited:
             return
-        self._visited.add((located.module, located.node.name))
+        self._visited.add(key)
         parsed: _ParsedModule | None = self._module(located.module)
         get_model_names: frozenset[str] = (
             _get_model_names(parsed.tree) if parsed is not None else frozenset({_GET_MODEL})
         )
         scopes: dict[int, _Scope] = _call_scopes(located.node, is_constructor)
+        arguments: dict[int, _Arguments] = _call_arguments(located.node, is_constructor, bound)
         for node in ast.walk(located.node):
             if isinstance(node, ast.Call):
                 where: str = f"{located.path.name}:{node.lineno}"
                 scope: _Scope = scopes.get(id(node), {})
-                self._read_call(node, located, parsed, get_model_names, where, scope, findings)
+                seen: _Arguments = arguments.get(id(node), {})
+                self._read_call(
+                    node, located, parsed, get_model_names, where, scope, seen, findings
+                )
 
     def _read_call(
         self,
@@ -344,6 +410,7 @@ class _SourceReader:
         get_model_names: frozenset[str],
         where: str,
         scope: _Scope,
+        arguments: _Arguments,
         findings: _Findings,
     ) -> None:
         """One call in a walked def: a judge lookup to sort, or a helper to read."""
@@ -359,13 +426,15 @@ class _SourceReader:
         if (isinstance(callee, ast.Name) and called in get_model_names) or (
             isinstance(callee, ast.Attribute) and called == _GET_MODEL
         ):
-            _sort_model_call(call, where, scope, findings)
+            _sort_model_call(call, where, scope, arguments, findings)
         elif called.startswith(_MODEL_GRADED_PREFIX):
-            _sort_model_graded_call(call, called, where, scope, findings)
+            _sort_model_graded_call(call, called, where, scope, arguments, findings)
         elif called:
             helper: _LocatedDef | None = self._helper(located.module, parsed, callee)
             if helper is not None:
-                self.read_model_calls(helper, findings)
+                self.read_model_calls(
+                    helper, findings, bindings=_helper_bindings(call, helper, arguments)
+                )
 
     def _helper(
         self, module_name: str, parsed: _ParsedModule | None, callee: ast.expr
@@ -496,10 +565,13 @@ def _call_scopes(node: ast.AST, is_constructor: bool) -> dict[int, _Scope]:
     return scopes
 
 
-def _sort_model_call(call: ast.Call, where: str, scope: _Scope, findings: _Findings) -> None:
+def _sort_model_call(
+    call: ast.Call, where: str, scope: _Scope, arguments: _Arguments, findings: _Findings
+) -> None:
     """One ``get_model`` call: a literal role, the model under test, or neither.
 
-    ``get_model(role="grader")`` → a role; a role held in a variable → ``UNKNOWN_ROLE``.
+    ``get_model(role="grader")`` → a role; a role held in a variable → ``UNKNOWN_ROLE``,
+    also kept as a role parameter when the variable is one of the scorer's own arguments.
     ``get_model()`` naming no model → the model under test. ``get_model(model)`` or
     ``get_model(model=...)`` passes a judge in a variable → a variable model, which the
     constructor's judge parameter must account for (math's helper, frontierscience);
@@ -509,12 +581,7 @@ def _sort_model_call(call: ast.Call, where: str, scope: _Scope, findings: _Findi
     keywords: dict[str | None, ast.expr] = {keyword.arg: keyword.value for keyword in call.keywords}
     role: ast.expr | None = keywords.get("role")
     if role is not None:
-        named: str = (
-            role.value
-            if isinstance(role, ast.Constant) and isinstance(role.value, str)
-            else UNKNOWN_ROLE
-        )
-        findings.roles.setdefault(named, where)
+        _sort_role(role, where, arguments, findings)
         return
     model: ast.expr | None = call.args[0] if call.args else keywords.get("model")
     if model is None or _is_none(model):
@@ -524,7 +591,12 @@ def _sort_model_call(call: ast.Call, where: str, scope: _Scope, findings: _Findi
 
 
 def _sort_model_graded_call(
-    call: ast.Call, called: str, where: str, scope: _Scope, findings: _Findings
+    call: ast.Call,
+    called: str,
+    where: str,
+    scope: _Scope,
+    arguments: _Arguments,
+    findings: _Findings,
 ) -> None:
     """One call to inspect's ``model_graded_*``, sorted by inspect's own rule: an explicit
     ``model=`` wins, else the ``model_role`` (default ``"grader"``), else the model under
@@ -546,14 +618,30 @@ def _sort_model_graded_call(
     if role is not None and _is_none(role):
         findings.model_under_test.append(where)
         return
-    named: str = (
-        "grader"
-        if role is None
-        else role.value
-        if isinstance(role, ast.Constant) and isinstance(role.value, str)
-        else UNKNOWN_ROLE
-    )
-    findings.roles.setdefault(named, where)
+    if role is None:
+        findings.roles.setdefault("grader", where)
+    else:
+        _sort_role(role, where, arguments, findings)
+
+
+def _sort_role(role: ast.expr, where: str, arguments: _Arguments, findings: _Findings) -> None:
+    """One role a judge lookup asks for: a literal, a scorer argument, or untraced.
+
+    A literal is itself. A name standing for one of the scorer's own arguments is
+    ``UNKNOWN_ROLE`` (so a check without the row's kwargs reads it as before) AND a role
+    parameter (so :meth:`JudgeShape.roles_given` can name it). Anything else is
+    ``UNKNOWN_ROLE`` and untraced, which no kwargs can name.
+    """
+
+    if isinstance(role, ast.Constant) and isinstance(role.value, str):
+        findings.roles.setdefault(role.value, where)
+        return
+    findings.roles.setdefault(UNKNOWN_ROLE, where)
+    argument: _Argument | None = arguments.get(role.id) if isinstance(role, ast.Name) else None
+    if argument is None:
+        findings.untraced_roles.append(where)
+    else:
+        findings.role_parameters.append((argument, where))
 
 
 def _sort_named_model(model: ast.expr, where: str, scope: _Scope, findings: _Findings) -> None:
@@ -577,6 +665,79 @@ def _sort_named_model(model: ast.expr, where: str, scope: _Scope, findings: _Fin
         _sort_parameter_model(model.id, scope[model.id], where, findings)
     elif not isinstance(model, ast.Call):
         findings.variable_models.append(where)
+
+
+def _call_arguments(
+    node: ast.AST, is_constructor: bool, bindings: Mapping[str, _Argument]
+) -> dict[int, _Arguments]:
+    """What each name a call inside ``node`` can see stands for, innermost def first.
+
+    In the scorer constructor each parameter stands for itself; in a helper, a parameter
+    stands for whatever its caller filled it with (``bindings``). A parameter of a def nested
+    inside stands for nothing traced, so it can never borrow an outer argument's meaning by
+    sharing its name.
+    """
+
+    arguments: dict[int, _Arguments] = {}
+    for function in ast.walk(node):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        visible: _Arguments = {
+            name: _standing_for(name, function is node, is_constructor, bindings)
+            for name in _parameter_names(function)
+        }
+        # WHY update in walk order: ast.walk visits an outer def before the defs inside it,
+        # so the innermost declaration of a name is the one each call keeps.
+        for inner in ast.walk(function):
+            if isinstance(inner, ast.Call):
+                arguments.setdefault(id(inner), {}).update(visible)
+    return arguments
+
+
+def _standing_for(
+    name: str, is_located_def: bool, is_constructor: bool, bindings: Mapping[str, _Argument]
+) -> _Argument | None:
+    """The scorer argument one parameter stands for; see :func:`_call_arguments`."""
+
+    if not is_located_def:
+        return None
+    return name if is_constructor else bindings.get(name)
+
+
+def _helper_bindings(
+    call: ast.Call, helper: _LocatedDef, arguments: _Arguments
+) -> dict[str, _Argument]:
+    """Which of the helper's parameters this call fills with a scorer argument, by position
+    or by keyword: ``_resolve_grader(grader_role)`` → ``{"role": "grader_role"}``.
+    A class (read whole) takes no bindings."""
+
+    if isinstance(helper.node, ast.ClassDef):
+        return {}
+    positional: list[str] = [
+        argument.arg for argument in (*helper.node.args.posonlyargs, *helper.node.args.args)
+    ]
+    passed: list[tuple[str | None, ast.expr]] = [
+        *zip(positional, call.args, strict=False),
+        *((keyword.arg, keyword.value) for keyword in call.keywords),
+    ]
+    bindings: dict[str, _Argument] = {}
+    for parameter, value in passed:
+        if parameter is None or not isinstance(value, ast.Name):
+            continue
+        argument: _Argument | None = arguments.get(value.id)
+        if argument is not None:
+            bindings[parameter] = argument
+    return bindings
+
+
+def _parameter_names(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """Every parameter name of ``function``, ``*args`` and ``**kwargs`` left out."""
+
+    arguments: ast.arguments = function.args
+    return [
+        argument.arg
+        for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)
+    ]
 
 
 def _sort_parameter_model(

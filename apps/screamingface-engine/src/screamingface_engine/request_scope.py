@@ -107,6 +107,15 @@ class RequestScope:
 
     ``local_runtime`` is True for a run that executes on the local runtime (Q23): its capture is
     `partial` with reason `local`, because its copy never leaves the local gateway.
+
+    ``response_format`` (FEATURE: OME-1478) is the OpenAI ``response_format`` object, as JSON
+    text, that the model calls under this scope ask for: strict JSON output. Only the gateway
+    judge sets it, around ONE judge call whose row pins the format (HLE's json_judge), and the
+    connector puts it in the chat body. WHY here and not a url4 param: url4 param values cannot
+    hold JSON, and a judge call is in-process, so the scope reaches the connector the way the
+    judge's cache opt-out already does. JSON text, not a dict, so the frozen scope stays
+    immutable. AIDEV-NOTE: a url4-native typed option would replace this carrier; the format's
+    identity lives on the Benchmark row, so only the carrier would change.
     """
 
     identity_headers: Mapping[str, str] = field(default_factory=dict)
@@ -122,6 +131,7 @@ class RequestScope:
     capture: bool = False
     replay_frozen_copy: str | None = None
     local_runtime: bool = False
+    response_format: str | None = None
 
     def __post_init__(self) -> None:
         # INVARIANT (FX-65): the scope OWNS what it holds. `frozen` stops a write to the scope's

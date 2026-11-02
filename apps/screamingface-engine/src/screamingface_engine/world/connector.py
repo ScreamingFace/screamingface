@@ -95,6 +95,7 @@ from screamingface_engine.world.request_parameters import (
     attempt_egress,
     caller_exclusions,
     model_params,
+    response_format_body_field,
     wants_web_search,
 )
 from screamingface_engine.world.tavily_retrieval_cache import TavilyRetrievalCache
@@ -1418,6 +1419,9 @@ async def _chat_completion_loop(
             **sampling,
             **extra,
             **attempt_body_field(cache_attempt),
+            # FEATURE (OME-1478): strict JSON output for the one judge call that asks for it;
+            # absent on every other call, so their bodies are byte-identical to before.
+            **response_format_body_field(scope.response_format),
         }
         choice = await _logged_round_trip(
             http_client,

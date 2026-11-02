@@ -49,7 +49,7 @@ import contextvars
 import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
 from inspect_ai.model import (
@@ -57,6 +57,7 @@ from inspect_ai.model import (
     GenerateConfig,
     ModelAPI,
     ModelOutput,
+    ResponseSchema,
     get_model,
     model_roles,
     modelapi,
@@ -71,7 +72,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.request_scope import RequestScope, current_scope, request_scope
 from screamingface_engine.world.fresh_judge_retry import without_gateway_cache
 from screamingface_engine.world.reply_origin import ReplyOrigin, watch_reply_origin
-from screamingface_engine.world.request_parameters import ANSWER_SEED_PARAM
+from screamingface_engine.world.request_parameters import ANSWER_SEED_PARAM, model_params
 from url4.wire.subrequest import encode_subrequest
 
 #: One in-process node fetch: a relative sub-request URL in, the completion text out.
@@ -117,6 +118,13 @@ class JudgeTransport:
     #: naming no pass is refused. False refuses a scorer's seed like any other
     #: grade-affecting setting.
     seed_per_pass: bool = False
+    #: Settings the eval passes that the judge's own provider never sends (the row's
+    #: ``JudgeSpec.unsent_settings``, OME-1478): admitted, and never put on the wire.
+    unsent_settings: frozenset[str] = frozenset()
+    #: The OpenAI ``response_format`` the row pins, as JSON text (``JudgeSpec.response_format``,
+    #: OME-1478). A judge call whose ``response_schema`` is this format asks the gateway for it
+    #: through the request scope; url4 params cannot hold JSON.
+    response_format: str | None = None
 
 
 class JudgeReplyBlank(RuntimeError):
@@ -181,6 +189,17 @@ def fresh_judge_draw() -> Iterator[None]:
         _fresh_draw.reset(token)
 
 
+def _asking_for_format(response_format: str | None) -> AbstractContextManager[RequestScope]:
+    """This one judge call asks the gateway for the row's strict JSON output (OME-1478).
+
+    Reached only after the setting guard matched the call's ``response_schema`` to the row's
+    pin, so ``response_format`` is set here. INVARIANT: no bound scope raises
+    ``RequestScopeError``; a judge call always runs under the run's scope.
+    """
+
+    return request_scope(replace(current_scope(), response_format=response_format))
+
+
 def _gateway_cache_opt_out() -> AbstractContextManager[RequestScope]:
     """Rebind the run's request scope with one change: this call skips the gateway cache.
 
@@ -192,7 +211,9 @@ def _gateway_cache_opt_out() -> AbstractContextManager[RequestScope]:
 
 
 @contextmanager
-def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
+def judge_filling_model_role(
+    role: str, model: str, params: Sequence[tuple[str, str]] = ()
+) -> Iterator[None]:
     """Fill one inspect model role with our gateway judge for one grading pass.
 
     Most inspect judges never name a model — they call ``get_model(role="grader")``
@@ -206,14 +227,34 @@ def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
     INVARIANT: the binding never leaks past its context — an unbound role falls
     back to inspect's own resolution, which outside an eval raises (verified
     against inspect 0.3.263 and 0.3.266), so the next benchmark cannot ride this benchmark's judge.
+
+    WHY the pinned ``params`` become the role's config (OME-1478): that is inspect's
+    ``model_roles`` config. A scorer asking ``get_model(role=..., config=...)`` with its own
+    defaults gets the bound role's settings where both set one, and its defaults only where
+    the role sets nothing. HLE asks with 32768 tokens; its row pins 4096, as the official
+    config binds, so 4096 is what the call holds (and what the wire sends).
     """
 
     previous: dict[str, Any] = dict(model_roles())
-    init_model_roles({**previous, role: get_model(f"{PROVIDER_NAME}/{model}")})
+    config: GenerateConfig = _role_config(params)
+    init_model_roles({**previous, role: get_model(f"{PROVIDER_NAME}/{model}", config=config)})
     try:
         yield
     finally:
         init_model_roles(previous)
+
+
+def _role_config(params: Sequence[tuple[str, str]]) -> GenerateConfig:
+    """The pinned params inspect's ``GenerateConfig`` has a field for, as the role's config.
+
+    A pin with no such field (``web_search``, ``response_format``) rides the wire only.
+    """
+
+    fields: set[str] = set(GenerateConfig.model_fields)
+    carried: dict[str, object] = model_params(dict(params))
+    return GenerateConfig.model_validate(
+        {name: value for name, value in carried.items() if name in fields}
+    )
 
 
 @modelapi(name=PROVIDER_NAME)
@@ -268,8 +309,8 @@ class _GatewayJudgeModelAPI(ModelAPI):
             _TRANSPORT_CONFIG_FIELDS | {"seed"}
             if transport.seed_per_pass
             else _TRANSPORT_CONFIG_FIELDS
-        )
-        _refuse_config_overrides(config, allowed)
+        ) | transport.unsent_settings
+        _refuse_config_overrides(config, allowed, transport.params, transport.response_format)
         params: tuple[tuple[str, str], ...] = _params_with_pass_seed(transport, config.seed)
         # Stage 2-3 — envelope the messages, call the route.
         context: str = json.dumps(
@@ -283,8 +324,13 @@ class _GatewayJudgeModelAPI(ModelAPI):
         _register_against_the_case(transport, "/" + self.model_name, params, context)
         # FEATURE (spec 2026-10-16-judge-redraw-live-only): the watch learns from the connector
         # whether this reply is live or a recording (cache hit, frozen-copy replay).
+        # WHY the format before the opt-out: each builds on the scope bound when it opens, so
+        # a redraw of a structured call keeps its format and still skips the cache.
         with (
             watch_reply_origin() as watch,
+            _asking_for_format(transport.response_format)
+            if config.response_schema is not None
+            else nullcontext(),
             _gateway_cache_opt_out() if _fresh_draw.get() else nullcontext(),
         ):
             completion: str = await transport.fetch(target)
@@ -326,19 +372,36 @@ _TRANSPORT_CONFIG_FIELDS = frozenset(
 )
 
 
-def _refuse_config_overrides(config: GenerateConfig, allowed: frozenset[str]) -> None:
-    """Refuse any eval-supplied setting outside the ``allowed`` fields, by name.
+def _refuse_config_overrides(
+    config: GenerateConfig,
+    allowed: frozenset[str],
+    pinned: Sequence[tuple[str, str]] = (),
+    response_format: str | None = None,
+) -> None:
+    """Refuse any eval-supplied setting outside the ``allowed`` fields, by name, unless the
+    wire already carries it.
 
     WHY allow-then-refuse (never a forbidden list): the transport sends only the
     JudgeSpec's pinned params, so an unlisted field is a field the judge silently
     ignores — and inspect adds fields over time. A plain ``model.generate(...)``
     delivers zero set fields (verified 2026-09-24), so defaults never trip this.
+
+    WHY a setting the row already carries passes (OME-1478): it is not dropped, the call sends
+    it with that very value. HLE's judge passes ``max_tokens=4096`` and a strict JSON
+    ``response_schema``; its row pins ``max_tokens=4096`` and the same ``response_format``
+    (``response_format``, carried by the request scope), so nothing the eval asked for is lost.
+    A different value is still refused.
     """
 
+    # WHY model_params: it is how the connector turns the pinned params into the chat body,
+    # so "carried" means exactly what reaches the gateway (``"4096"`` → ``4096``).
+    carried: dict[str, object] = model_params(dict(pinned))
     overridden: list[str] = sorted(
         name
         for name, value in config.model_dump().items()
-        if value is not None and name not in allowed
+        if value is not None
+        and name not in allowed
+        and not _carried_by_the_row(name, value, config, carried, response_format)
     )
     if overridden:
         raise RuntimeError(
@@ -346,6 +409,54 @@ def _refuse_config_overrides(config: GenerateConfig, allowed: frozenset[str]) ->
             "grade-affecting settings belong in the board row's pinned params "
             "(JudgeSpec.params); pin them there instead (OME-1240)"
         )
+
+
+def _carried_by_the_row(
+    name: str,
+    value: object,
+    config: GenerateConfig,
+    carried: dict[str, object],
+    response_format: str | None,
+) -> bool:
+    """True when the chat body this row makes already holds this setting with this value.
+
+    ``response_schema`` is inspect's object; the wire's dialect is OpenAI chat completions,
+    so it is compared as the ``response_format`` it becomes (:func:`openai_response_format`)
+    against the row's pinned format.
+    """
+
+    if name == "response_schema":
+        schema: ResponseSchema | None = config.response_schema
+        return (
+            schema is not None
+            and response_format is not None
+            and json.loads(response_format) == openai_response_format(schema)
+        )
+    return name in carried and carried[name] == value
+
+
+def openai_response_format(schema: ResponseSchema) -> dict[str, Any]:
+    """The OpenAI chat-completions ``response_format`` an inspect ``ResponseSchema`` becomes.
+
+    Mirrors inspect's own OpenAI-compatible mapping (``inspect_ai/model/_openai.py``,
+    ``completion_params_openai``), since the gateway speaks that dialect. A row that pins a
+    judge's structured output writes this object, as JSON text, as its ``response_format``.
+
+    Example: HLE's ``ExtractedAnswer`` →
+    ``{"type": "json_schema", "json_schema": {"name": "ExtractedAnswer", "schema": {...},
+    "description": "", "strict": True}}``.
+    """
+
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": schema.name,
+            # WHY exclude_none: inspect's json_schema_dump drops unset keywords the same way.
+            "schema": schema.json_schema.model_dump(exclude_none=True),
+            "description": schema.description,
+            "strict": schema.strict,
+        },
+    }
 
 
 def _params_with_pass_seed(
